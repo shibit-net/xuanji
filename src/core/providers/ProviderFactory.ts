@@ -1,0 +1,73 @@
+// ============================================================
+// M7 LLM Provider — Provider 工厂
+// ============================================================
+
+import type { ILLMProvider } from '@/core/types';
+import { AnthropicProvider } from './AnthropicProvider';
+import { OpenAIProvider } from './OpenAIProvider';
+
+/**
+ * Provider 工厂
+ * 根据模型名称或 adapter 标识路由到对应 Provider
+ */
+export class ProviderFactory {
+  private providers: Map<string, ILLMProvider> = new Map();
+
+  /** adapter 标识 → provider name 的映射 */
+  private static readonly ADAPTER_MAP: Record<string, string> = {
+    'anthropic': 'anthropic',
+    'openai': 'openai',
+    'openai-response': 'openai',  // OpenAI Responses 仍使用 OpenAI Provider
+  };
+
+  constructor() {
+    // 默认注册 Anthropic Provider
+    this.register(new AnthropicProvider());
+    // 注册 OpenAI Provider
+    this.register(new OpenAIProvider());
+  }
+
+  /**
+   * 注册 Provider
+   */
+  register(provider: ILLMProvider): void {
+    this.providers.set(provider.name, provider);
+  }
+
+  /**
+   * 根据模型名称获取 Provider
+   */
+  getByModel(model: string): ILLMProvider | undefined {
+    for (const provider of this.providers.values()) {
+      if (provider.isSupported(model)) {
+        return provider;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 根据 adapter 标识获取 Provider
+   */
+  getByAdapter(adapter: string): ILLMProvider | undefined {
+    const providerName = ProviderFactory.ADAPTER_MAP[adapter];
+    if (providerName) {
+      return this.providers.get(providerName);
+    }
+    return undefined;
+  }
+
+  /**
+   * 根据 Provider 名称获取
+   */
+  getByName(name: string): ILLMProvider | undefined {
+    return this.providers.get(name);
+  }
+
+  /**
+   * 获取所有已注册的 Provider
+   */
+  getAll(): ILLMProvider[] {
+    return Array.from(this.providers.values());
+  }
+}

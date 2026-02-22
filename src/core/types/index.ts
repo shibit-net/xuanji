@@ -1,0 +1,52 @@
+// ============================================================
+// 全局类型导出
+// ============================================================
+
+export type {
+  // Agent 类型
+  MessageRole,
+  ContentBlockType,
+  ContentBlock,
+  Message,
+  AgentConfig,
+  AgentStatus,
+  AgentState,
+  TokenUsage,
+  AgentEventType,
+  AgentEventMap,
+} from './agent';
+
+export type {
+  // 工具类型
+  JSONSchema,
+  ToolSchema,
+  Tool,
+  ToolResult,
+  ToolCall,
+  IToolRegistry,
+} from './tools';
+
+export type {
+  // Provider 类型
+  StreamEventType,
+  StopReason,
+  StreamEvent,
+  ProviderConfig,
+  ILLMProvider,
+  RetryConfig,
+} from './provider';
+
+export type {
+  // 配置类型
+  AppConfig,
+  UITheme,
+  UIConfig,
+  PermissionLevel,
+  PermissionConfig,
+  ToolsConfig,
+  IConfigLoader,
+  BotsConfig,
+  DingtalkBotConfig,
+  FeishuBotConfig,
+  WecomBotConfig,
+} from './config';
