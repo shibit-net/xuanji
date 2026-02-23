@@ -374,6 +374,17 @@
 
   // ── 事件绑定 ──────────────────────────────────────────
 
+  // 追踪输入法状态
+  var isComposing = false;
+
+  inputText.addEventListener('compositionstart', function () {
+    isComposing = true;
+  });
+
+  inputText.addEventListener('compositionend', function () {
+    isComposing = false;
+  });
+
   // 发送/停止按钮（合一）
   sendBtn.addEventListener('click', function () {
     if (isRunning) {
@@ -391,8 +402,9 @@
   });
 
   // Enter 发送, Shift+Enter 换行
+  // 修复：检查输入法状态，IME 输入中不执行发送
   inputText.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
       sendMessage();
     }

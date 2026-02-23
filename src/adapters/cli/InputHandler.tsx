@@ -42,11 +42,6 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   useInput((input, key) => {
     if (!isActive) return;
 
-    // DEBUG: 记录所有键盘事件
-    if (key.return || key.backspace || key.delete || input) {
-      console.error(`[DEBUG useInput] input="${input}", key.return=${key.return}, key.shift=${key.shift}, key.meta=${key.meta}, key.ctrl=${key.ctrl}`);
-    }
-
     // Shift+Enter: 换行
     if (key.return && key.shift) {
       setLines((prev) => {
@@ -70,9 +65,6 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
       const timeSinceLastChar = now - lastCharInputTimeRef.current;
       const text = lines.join('\n').trim();
 
-      // DEBUG: 记录 Enter 时的状态
-      console.error(`[DEBUG] Enter pressed: timeSinceLastChar=${timeSinceLastChar}, text="${text}", lines=${lines.length}`);
-
       // 如果在较短的时间内（< 500ms）有字符输入，可能是输入法刚完成
       // 这时候延迟处理，等待 IME 的候选词字符到达
       if (timeSinceLastChar < 500 && timeSinceLastChar > 0 && text) {
@@ -80,7 +72,6 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
         setTimeout(() => {
           // 重新检查当前的 lines 是否改变
           const currentText = linesRef.current.join('\n').trim();
-          console.error(`[DEBUG] After delay: currentText="${currentText}", text="${text}"`);
 
           // 如果文本没有变化，说明不是 IME 追加字符的情况，执行发送
           if (currentText === text) {
