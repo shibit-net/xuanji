@@ -50,7 +50,11 @@ export function App({ agentLoop, model }: AppProps) {
   const [cost, setCost] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<UITheme>('auto');
   const msgIdRef = useRef(0);
-  const toolInfoRef = useRef<Map<string, { startTime: number; input: Record<string, unknown> }>>(new Map());  // ← 追踪所有工具的信息
+  const toolInfoRef = useRef<Map<string, { startTime: number; input: Record<string, unknown> }>>(new Map());
+
+  // 使用 ref 追踪最新的流式文本和工具结果，避免闭包问题
+  const streamTextRef = useRef('');
+  const toolResultsRef = useRef<ToolResultDisplay[]>([]);
 
   // 共享工具实例
   const configManager = useMemo(() => new ConfigManager(), []);
@@ -96,6 +100,7 @@ export function App({ agentLoop, model }: AppProps) {
   useEffect(() => {
     agentLoop.on({
       onText: (text: string) => {
+        streamTextRef.current += text;
         setStreamText((prev) => prev + text);
       },
       onThinking: (_thinking: string) => {
@@ -119,13 +124,17 @@ export function App({ agentLoop, model }: AppProps) {
         // 删除该工具的信息
         toolInfoRef.current.delete(id);
 
-        setToolResults((prev) => [...prev, {
+        // 使用 ref 而不是状态闭包来保存工具结果
+        const newToolResult = {
           name,
           input,
           result,
           isError,
           duration,
-        }]);
+        };
+        toolResultsRef.current.push(newToolResult);
+
+        setToolResults((prev) => [...prev, newToolResult]);
         setStatus('thinking');
       },
       onUsage: (u: TokenUsage) => {
@@ -143,15 +152,19 @@ export function App({ agentLoop, model }: AppProps) {
           timestamp: Date.now(),
         }]);
         logSystem.error('Chat', err.message);
-        // 停止 loading 状态
+        // 停止 loading 状态并清理
         setStatus('idle');
         setStreamText('');
+        streamTextRef.current = '';
+        setToolResults([]);
+        toolResultsRef.current = [];
         toolInfoRef.current.clear();
       },
       onEnd: (state: AgentState) => {
-        // 把流式文本和工具结果合并为一条 assistant 消息
-        const text = streamText;
-        const tools = toolResults;
+        // 使用 ref 中的值而不是状态闭包中的旧值
+        const text = streamTextRef.current;
+        const tools = toolResultsRef.current;
+
         if (text || tools.length > 0) {
           const id = ++msgIdRef.current;
           setMessages((prev) => [...prev, {
@@ -161,11 +174,14 @@ export function App({ agentLoop, model }: AppProps) {
             timestamp: Date.now(),
           }]);
         }
+
+        // 清理状态
         setStreamText('');
+        streamTextRef.current = '';
         setToolResults([]);
+        toolResultsRef.current = [];
         setStatus('idle');
         setCost(state.cost);
-        // 清空所有工具的信息
         toolInfoRef.current.clear();
       },
     });
