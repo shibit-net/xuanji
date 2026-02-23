@@ -129,9 +129,20 @@ export class AgentLoop {
 
         // 执行工具
         for (const toolCall of result.toolCalls) {
-          const toolResult = await this.toolDispatcher.execute(toolCall);
-          this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError);
-          this.messageManager.addToolResult(toolCall.id, toolResult);
+          try {
+            const toolResult = await this.toolDispatcher.execute(toolCall);
+            this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError);
+            this.messageManager.addToolResult(toolCall.id, toolResult);
+          } catch (toolError) {
+            // 工具执行异常：记录错误并继续
+            const errorMsg = toolError instanceof Error ? toolError.message : String(toolError);
+            // 即使工具失败，也要调用 onToolEnd，并设置 isError=true
+            this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, `Error: ${errorMsg}`, true);
+            this.messageManager.addToolResult(toolCall.id, {
+              content: `Error: ${errorMsg}`,
+              isError: true
+            });
+          }
         }
 
         // 重建消息 (含工具结果)

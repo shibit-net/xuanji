@@ -9,6 +9,8 @@
   "main": "./dist/electron/main.cjs",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:gui": "tsx src/index.ts gui",
+    "dev:gui:debug": "ELECTRON_ENABLE_LOGGING=1 tsx src/index.ts gui",
     "dev:electron": "npm run build:electron && electron dist/electron/main.cjs",
     "build:cli": "tsup src/index.ts --format esm --target esnext --outDir dist",
     "build:electron": "tsup src/adapters/electron/main.ts src/adapters/electron/preload.ts --format cjs --target node20 --outDir dist/electron --external electron && rm -rf dist/electron/ui && cp -r src/adapters/electron/ui dist/electron/ui",

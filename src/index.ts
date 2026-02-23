@@ -280,6 +280,7 @@ async function startGui(): Promise<void> {
   const { execFile } = await import('child_process');
   const { resolve, dirname } = await import('path');
   const { fileURLToPath } = await import('url');
+  const { existsSync } = await import('fs');
 
   // 查找 electron 可执行文件
   let electronPath: string;
@@ -288,11 +289,36 @@ async function startGui(): Promise<void> {
     electronPath = (electronModule as unknown as { default: string }).default || 'electron';
   } catch {
     // 回退：从 node_modules/.bin 查找
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    electronPath = resolve(__dirname, '..', 'node_modules', '.bin', 'electron');
+    const sourceDir = dirname(fileURLToPath(import.meta.url));
+    electronPath = resolve(sourceDir, '..', 'node_modules', '.bin', 'electron');
   }
 
-  const mainPath = resolve(dirname(fileURLToPath(import.meta.url)), 'adapters', 'electron', 'main.cjs');
+  // 确定主进程路径：优先使用编译后的版本（dist），如果不存在则自动构建
+  // 注：构建脚本 --outDir dist/electron，所以文件在 dist/electron/main.cjs
+  const sourceDir = dirname(fileURLToPath(import.meta.url));
+  const distMainPath = resolve(sourceDir, '..', 'dist', 'electron', 'main.cjs');
+
+  let mainPath: string;
+  if (existsSync(distMainPath)) {
+    // 使用已编译的版本
+    mainPath = distMainPath;
+  } else {
+    console.log('⚠️  未找到编译的 Electron 文件，尝试自动构建...');
+    try {
+      const { execSync } = await import('child_process');
+      execSync('npm run build:electron', {
+        cwd: resolve(sourceDir, '..'),
+        stdio: 'inherit'
+      });
+      if (!existsSync(distMainPath)) {
+        throw new Error(`构建后仍未找到文件: ${distMainPath}`);
+      }
+      mainPath = distMainPath;
+    } catch (err) {
+      console.error('❌ Electron 构建失败:', err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  }
 
   console.log('✦ 正在启动璇玑桌面应用...');
 
