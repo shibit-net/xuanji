@@ -42,6 +42,11 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   useInput((input, key) => {
     if (!isActive) return;
 
+    // DEBUG: 记录所有键盘事件
+    if (key.return || key.backspace || key.delete || input) {
+      console.error(`[DEBUG useInput] input="${input}", key.return=${key.return}, key.shift=${key.shift}, key.meta=${key.meta}, key.ctrl=${key.ctrl}`);
+    }
+
     // Shift+Enter: 换行
     if (key.return && key.shift) {
       setLines((prev) => {
@@ -63,38 +68,35 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
     if (key.return) {
       const now = Date.now();
       const timeSinceLastChar = now - lastCharInputTimeRef.current;
+      const text = lines.join('\n').trim();
 
-      // 如果在较短的时间内（< 300ms）有字符输入，可能是输入法刚完成
-      // 这时候应该等待一下，让输入法的字符真正被提交
-      if (timeSinceLastChar < 300 && timeSinceLastChar > 0) {
-        // 记录当前 lines 用于对比
-        const linesAtEnter = lines;
+      // DEBUG: 记录 Enter 时的状态
+      console.error(`[DEBUG] Enter pressed: timeSinceLastChar=${timeSinceLastChar}, text="${text}", lines=${lines.length}`);
 
-        // 延迟 150ms 再处理，给输入法时间完成并追加候选词
+      // 如果在较短的时间内（< 500ms）有字符输入，可能是输入法刚完成
+      // 这时候延迟处理，等待 IME 的候选词字符到达
+      if (timeSinceLastChar < 500 && timeSinceLastChar > 0 && text) {
+        // 延迟 200ms 再处理，给输入法充足时间完成
         setTimeout(() => {
-          // 检查在延迟期间是否有新字符被追加（IME 选择后会追加字符）
-          // 如果 lines 内容有变化（长度增加或内容不同），说明是 IME 选词，不发送
-          const currentText = linesRef.current.join('\n');
-          const previousText = linesAtEnter.join('\n');
+          // 重新检查当前的 lines 是否改变
+          const currentText = linesRef.current.join('\n').trim();
+          console.error(`[DEBUG] After delay: currentText="${currentText}", text="${text}"`);
 
-          if (currentText !== previousText) {
-            // IME 已追加了候选词字符，不发送，等待用户下次 Enter
-            return;
+          // 如果文本没有变化，说明不是 IME 追加字符的情况，执行发送
+          if (currentText === text) {
+            if (currentText) {
+              onSubmit(currentText);
+              setLines(['']);
+              setCursorLine(0);
+              setCursorCol(0);
+            }
           }
-
-          // 没有新字符被追加，执行发送
-          const text = linesRef.current.join('\n').trim();
-          if (text) {
-            onSubmit(text);
-            setLines(['']);
-            setCursorLine(0);
-            setCursorCol(0);
-          }
-        }, 150);
+          // 如果文本变化了，说明 IME 刚追加了字符，不发送，等待下一次 Enter
+        }, 200);
         return;
       }
 
-      const text = lines.join('\n').trim();
+      // 超过 500ms 或输入框为空，直接发送（不是 IME 情况）
       if (text) {
         onSubmit(text);
         setLines(['']);

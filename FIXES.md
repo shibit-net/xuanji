@@ -181,3 +181,82 @@ export class StreamProcessor {
 **修复者**：Claude Code
 **优先级**：🔴 高（严重影响用户体验）
 
+
+---
+
+# 修复 #3：React 闭包问题导致的异常状态卡顿
+
+**问题**：
+1. 多个并行 read_file 执行时仍然一直显示"执行中"
+2. LLM 调用异常时，状态卡在"思考中"
+
+**根本原因**：React 闭包陷阱
+
+当 `onError` 调用 `setStreamText('')` 时，React 状态会更新，但 `onEnd` 闭包中的 `streamText` 变量仍然是旧值。这导致：
+- 异常消息没有被正确保存到消息列表
+- 流式文本没有被清理，UI 继续显示"思考中"状态
+
+```typescript
+// 问题代码
+const streamText = '...';  // 闭包中的旧值
+
+onError: () => {
+  setStreamText('');  // 状态更新
+  // ...
+},
+onEnd: () => {
+  const text = streamText;  // ❌ 仍然是旧值！
+  // ...
+}
+```
+
+**解决方案**：使用 `ref` 而不是状态闭包
+
+```typescript
+// 修复后
+const streamTextRef = useRef('');
+
+onText: (text) => {
+  streamTextRef.current += text;  // ← 同时更新 ref
+  setStreamText((prev) => prev + text);
+},
+
+onError: () => {
+  setStreamText('');
+  streamTextRef.current = '';  // ← 同步清理 ref
+},
+
+onEnd: () => {
+  const text = streamTextRef.current;  // ✅ 使用 ref 的值
+  // ...
+}
+```
+
+**修改**：`src/adapters/cli/App.tsx`
+- 添加 `streamTextRef` 和 `toolResultsRef` 
+- 在 `onText` 中同时更新 ref
+- 在 `onError` 中完全清理（ref + 状态）
+- 在 `onEnd` 中使用 ref 的实时值
+
+**验证**：
+- ✅ TypeScript 编译通过
+- ✅ 257/258 单元测试通过
+- ✅ 新增 ParallelToolExecution.test.ts 验证多工具执行
+
+**提交**：aab3cd7 - Fix: 修复 React 闭包问题导致的异常状态卡顿
+
+---
+
+## 📊 三个修复的完整总结
+
+| 修复 | 问题 | 根本原因 | 解决方案 | 提交 |
+|------|------|---------|---------|------|
+| #1 | 工具异常时 UI 卡住 | 工具异常导致 onToolEnd 不被调用 | try-catch 异常处理，保证 onToolEnd 总是被调用 | 650c11d |
+| #2 | 工具立即状态延迟 | StreamProcessor 没处理 tool_use_start | 添加 tool_use_start 事件处理，立即调用 onToolStart | 4dff33e |
+| #3 | 异常状态持续卡顿 | React 闭包陷阱导致状态不同步 | 使用 ref 追踪实时状态，避免闭包陷阱 | aab3cd7 |
+
+---
+
+**修复完成日期**：2026-02-23
+**修复者**：Claude Code
+**优先级**：🔴 高（严重影响用户体验）
