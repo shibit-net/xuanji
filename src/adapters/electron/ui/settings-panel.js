@@ -506,7 +506,7 @@
 
       // LLM 配置（嵌套在 provider 下）
       var provider = settings.provider || {};
-      if (provider.apiKey) settingApiKey.value = provider.apiKey;
+      settingApiKey.value = provider.apiKey || '';  // 总是设置，包括空字符串
       if (provider.model) {
         settingModel.value = provider.model;
         settingModelInput.value = provider.model;
@@ -516,7 +516,7 @@
 
       // 兼容旧版扁平结构（自动迁移）
       if (!settings.provider && (settings.apiKey || settings.model)) {
-        if (settings.apiKey) settingApiKey.value = settings.apiKey;
+        if (settings.apiKey !== undefined) settingApiKey.value = settings.apiKey;
         if (settings.model) {
           settingModel.value = settings.model;
           settingModelInput.value = settings.model;
