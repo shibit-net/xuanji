@@ -143,6 +143,10 @@ export function App({ agentLoop, model }: AppProps) {
           timestamp: Date.now(),
         }]);
         logSystem.error('Chat', err.message);
+        // 停止 loading 状态
+        setStatus('idle');
+        setStreamText('');
+        toolInfoRef.current.clear();
       },
       onEnd: (state: AgentState) => {
         // 把流式文本和工具结果合并为一条 assistant 消息
