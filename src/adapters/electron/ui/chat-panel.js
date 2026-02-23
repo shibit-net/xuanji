@@ -377,11 +377,11 @@
   // 追踪输入法状态
   var isComposing = false;
 
-  inputText.addEventListener('compositionstart', function () {
+  inputText.addEventListener('compositionstart', function (e) {
     isComposing = true;
   });
 
-  inputText.addEventListener('compositionend', function () {
+  inputText.addEventListener('compositionend', function (e) {
     isComposing = false;
   });
 
