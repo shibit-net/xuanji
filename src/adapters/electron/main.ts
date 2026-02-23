@@ -380,6 +380,10 @@ ipcMain.handle('config:save', async (_event: IpcMainInvokeEvent, config: Record<
     const existing = readConfig();
     const merged = deepMergeConfig(existing, config);
     writeConfig(merged);
+
+    // 清除旧的 session 实例，强制下次 chat:init 重新加载配置
+    session = null;
+
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
