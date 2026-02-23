@@ -10,6 +10,44 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 /**
+ * Xuanji 主进程暴露的 API 类型定义
+ */
+export interface XuanjiAPI {
+  config: {
+    load: () => Promise<Record<string, unknown>>;
+    save: (config: Record<string, unknown>) => Promise<void>;
+  };
+  chat: {
+    init: (options?: { model?: string }) => Promise<void>;
+    run: (message: string) => Promise<void>;
+    stop: () => Promise<void>;
+    reset: () => Promise<void>;
+    state: () => Promise<Record<string, unknown>>;
+    onText: (callback: (text: string) => void) => () => void;
+    onThinking: (callback: (text: string) => void) => () => void;
+    onToolStart: (callback: (data: any) => void) => () => void;
+    onToolEnd: (callback: (data: any) => void) => () => void;
+    onUsage: (callback: (usage: any) => void) => () => void;
+    onError: (callback: (error: string) => void) => () => void;
+    onEnd: (callback: (data: any) => void) => () => void;
+  };
+  bot: {
+    start: (type: string, config?: Record<string, string>) => Promise<void>;
+    stop: (type: string) => Promise<void>;
+    list: () => Promise<unknown[]>;
+    onStatus: (callback: (data: any) => void) => () => void;
+    onLog: (callback: (data: any) => void) => () => void;
+  };
+  models: {
+    list: (options?: { page?: number; size?: number; name?: string }) => Promise<unknown[]>;
+  };
+  log: {
+    onLog: (callback: (data: any) => void) => () => void;
+    load: (options?: { maxLines?: number; days?: number }) => Promise<string[]>;
+  };
+}
+
+/**
  * 配置管理 API
  */
 const configAPI = {

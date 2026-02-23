@@ -292,14 +292,13 @@ async function startGui(): Promise<void> {
     electronPath = resolve(__dirname, '..', 'node_modules', '.bin', 'electron');
   }
 
-  const mainPath = resolve(dirname(fileURLToPath(import.meta.url)), 'electron', 'main.cjs');
+  const mainPath = resolve(dirname(fileURLToPath(import.meta.url)), 'adapters', 'electron', 'main.cjs');
 
   console.log('✦ 正在启动璇玑桌面应用...');
 
   const child = execFile(electronPath, [mainPath], {
     env: { ...process.env },
-    stdio: 'inherit' as never,
-  }, (error) => {
+  }, (error: Error | null) => {
     if (error && (error as NodeJS.ErrnoException).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
       console.error('❌ GUI 启动失败:', error.message);
       process.exit(1);
@@ -352,10 +351,10 @@ async function main(): Promise<void> {
   if (args.prompt) {
     agentLoop.on({
       onText: (text: string) => process.stdout.write(text),
-      onToolStart: (name: string) => {
+      onToolStart: (id: string, name: string) => {
         process.stderr.write(`\n🔧 ${name}...\n`);
       },
-      onToolEnd: (name: string, result: string, isError: boolean) => {
+      onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
         process.stderr.write(`   ${isError ? '✗' : '✓'} ${name}\n`);
       },
       onError: (err: Error) => console.error(`\n❌ ${err.message}`),

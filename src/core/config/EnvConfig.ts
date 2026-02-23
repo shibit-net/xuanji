@@ -13,6 +13,8 @@ const ENV_KEYS = {
   XUANJI_MODEL: 'XUANJI_MODEL',
   XUANJI_MAX_TOKENS: 'XUANJI_MAX_TOKENS',
   XUANJI_THEME: 'XUANJI_THEME',
+  OPENAI_API_KEY: 'OPENAI_API_KEY',
+  ANTHROPIC_API_KEY: 'ANTHROPIC_API_KEY',
 } as const;
 
 /**
@@ -21,7 +23,10 @@ const ENV_KEYS = {
 export function getEnvProviderConfig(): Partial<ProviderConfig> {
   const config: Partial<ProviderConfig> = {};
 
-  const apiKey = process.env[ENV_KEYS.XUANJI_API_KEY];
+  // 优先级: XUANJI_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY
+  const apiKey = process.env[ENV_KEYS.XUANJI_API_KEY]
+    || process.env[ENV_KEYS.OPENAI_API_KEY]
+    || process.env[ENV_KEYS.ANTHROPIC_API_KEY];
   if (apiKey) config.apiKey = apiKey;
 
   const baseURL = process.env[ENV_KEYS.XUANJI_BASE_URL];

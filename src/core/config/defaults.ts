@@ -17,6 +17,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   ui: {
     theme: 'auto',
+    language: 'en',
     showTokenUsage: true,
     showCost: true,
     showThinking: false,
@@ -35,5 +36,19 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxDelay: 30_000,
     backoffMultiplier: 2,
     retryableStatusCodes: [429, 500, 502, 503, 529],
+  },
+  skills: {
+    enabled: [
+      'xuanji-assistant',
+      'tool-guidance',
+      'security-rules',
+      'agent-rules',
+    ],
+    disabled: [],
+    loadCustom: true,
+    customPath: '.xuanji/skills',
+    agent: {
+      skillId: 'react-loop-default',
+    },
   },
 };

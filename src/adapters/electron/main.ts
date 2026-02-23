@@ -446,11 +446,11 @@ ipcMain.handle('chat:run', async (_event: IpcMainInvokeEvent, message: string) =
       onThinking: (thinking: string) => {
         mainWindow?.webContents.send('chat:thinking', thinking);
       },
-      onToolStart: (name: string, input: Record<string, unknown>) => {
-        mainWindow?.webContents.send('chat:tool-start', { name, input });
+      onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+        mainWindow?.webContents.send('chat:tool-start', { id, name, input });
       },
-      onToolEnd: (name: string, result: string, isError: boolean) => {
-        mainWindow?.webContents.send('chat:tool-end', { name, result, isError });
+      onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+        mainWindow?.webContents.send('chat:tool-end', { id, name, result, isError });
       },
       onUsage: (usage) => {
         mainWindow?.webContents.send('chat:usage', usage);

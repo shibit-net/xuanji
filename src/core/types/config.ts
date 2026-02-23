@@ -5,6 +5,32 @@
 import type { ProviderConfig, RetryConfig } from './provider';
 
 /**
+ * Skill 系统配置
+ */
+export interface SkillsConfig {
+  /** 启用的 Skill ID 列表 */
+  enabled?: string[];
+
+  /** 禁用的 Skill ID 列表 */
+  disabled?: string[];
+
+  /** 是否加载用户自定义 Skill */
+  loadCustom?: boolean;
+
+  /** 自定义 Skill 路径（相对于项目根目录） */
+  customPath?: string;
+
+  /** Skill 参数覆盖 */
+  overrides?: Record<string, Record<string, any>>;
+
+  /** Agent 配置 */
+  agent?: {
+    /** 使用哪个 Agent Skill */
+    skillId?: string;
+  };
+}
+
+/**
  * 应用总配置
  */
 export interface AppConfig {
@@ -16,6 +42,8 @@ export interface AppConfig {
   tools: ToolsConfig;
   /** 重试策略 */
   retry: RetryConfig;
+  /** Skill 系统配置 */
+  skills?: SkillsConfig;
   /** IM 机器人配置（可选） */
   bots?: BotsConfig;
 }
@@ -26,11 +54,18 @@ export interface AppConfig {
 export type UITheme = 'light' | 'dark' | 'auto';
 
 /**
+ * UI 语言
+ */
+export type UILanguage = 'zh' | 'en';
+
+/**
  * UI 配置
  */
 export interface UIConfig {
   /** 主题 */
   theme: UITheme;
+  /** 语言 */
+  language: UILanguage;
   /** 是否显示 Token 用量 */
   showTokenUsage: boolean;
   /** 是否显示费用 */

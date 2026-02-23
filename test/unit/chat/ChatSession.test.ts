@@ -49,6 +49,7 @@ function createMockConfig(): AppConfig {
     },
     ui: {
       theme: 'auto',
+      language: 'en',
       showTokenUsage: true,
       showCost: true,
       showThinking: false,

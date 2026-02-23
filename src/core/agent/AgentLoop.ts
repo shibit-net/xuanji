@@ -16,8 +16,8 @@ import { ErrorRecovery } from './ErrorRecovery';
 export interface AgentCallbacks {
   onText?: (text: string) => void;
   onThinking?: (thinking: string) => void;
-  onToolStart?: (name: string, input: Record<string, unknown>) => void;
-  onToolEnd?: (name: string, result: string, isError: boolean) => void;
+  onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
+  onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
   onUsage?: (usage: TokenUsage) => void;
   onError?: (error: Error) => void;
   onEnd?: (state: AgentState) => void;
@@ -66,7 +66,7 @@ export class AgentLoop {
     this.streamProcessor.onTextDelta((text) => this.callbacks.onText?.(text));
     this.streamProcessor.onThinkingDelta((thinking) => this.callbacks.onThinking?.(thinking));
     this.streamProcessor.onToolUse((toolCall) => {
-      this.callbacks.onToolStart?.(toolCall.name, toolCall.input);
+      this.callbacks.onToolStart?.(toolCall.id, toolCall.name, toolCall.input);
     });
     this.streamProcessor.onUsage((usage) => {
       this.tokenManager.recordUsage(usage);
@@ -130,7 +130,7 @@ export class AgentLoop {
         // 执行工具
         for (const toolCall of result.toolCalls) {
           const toolResult = await this.toolDispatcher.execute(toolCall);
-          this.callbacks.onToolEnd?.(toolCall.name, toolResult.content, toolResult.isError);
+          this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError);
           this.messageManager.addToolResult(toolCall.id, toolResult);
         }
 

@@ -18,6 +18,7 @@ import { AgentLoop, type AgentCallbacks } from '@/core/agent/AgentLoop';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { ProviderFactory } from '@/core/providers/ProviderFactory';
 import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
+import type { SkillRegistry } from '@/core/skills';
 
 /**
  * ChatSession 初始化选项
@@ -44,6 +45,7 @@ export interface ChatSessionOptions {
  */
 export class ChatSession {
   private agentLoop: AgentLoop | null = null;
+  private skillRegistry: SkillRegistry | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   private registry: IToolRegistry | null = null;
@@ -101,12 +103,45 @@ export class ChatSession {
     // 3. 初始化 ToolRegistry
     this.registry = this.options.registry ?? createDefaultRegistry();
 
-    // 4. 初始化 AgentLoop
+    // 4. 初始化 Skill 系统 (新增)
+    const { SkillRegistry, SkillLoader, initializeBuiltinSkills } = await import(
+      '@/core/skills'
+    );
+    const skillRegistry = new SkillRegistry();
+    initializeBuiltinSkills(skillRegistry);
+
+    // 加载用户自定义 Skill (如果启用)
+    const skillsConfig = this.config.skills;
+    if (skillsConfig?.loadCustom && skillsConfig.customPath) {
+      const loader = new SkillLoader(skillRegistry);
+      await loader.load({
+        loadBuiltin: false, // 已加载
+        loadCustom: true,
+        customPath: skillsConfig.customPath,
+      });
+    }
+
+    // 5. 从 Skill 系统渲染 systemPrompt (新增)
+    let systemPrompt: string | undefined = undefined;
+    if (skillsConfig?.enabled?.includes('xuanji-assistant')) {
+      systemPrompt = skillRegistry.render('xuanji-assistant', {
+        params: {
+          toolList: this.registry.getSchemas(),
+          language: this.config.ui.language ?? 'zh',
+        },
+      });
+    }
+
+    // 6. 初始化 AgentLoop，传递 systemPrompt
     this.agentLoop = new AgentLoop(this.provider, this.registry, {
       model: this.config.provider.model,
       maxTokens: this.config.provider.maxTokens,
       temperature: this.config.provider.temperature,
+      systemPrompt, // ✅ 现在有了
     });
+
+    // 存储 skillRegistry 供后续使用
+    this.skillRegistry = skillRegistry;
 
     this.initialized = true;
   }
@@ -148,6 +183,7 @@ export class ChatSession {
   async reinitialize(newConfig?: AppConfig): Promise<void> {
     // 清空当前状态
     this.agentLoop = null;
+    this.skillRegistry = null;
     this.config = null;
     this.provider = null;
     this.registry = null;
@@ -186,6 +222,16 @@ export class ChatSession {
       throw new Error('ChatSession 尚未初始化，请先调用 init()');
     }
     return this.config;
+  }
+
+  /**
+   * 获取 SkillRegistry 实例 (用于 CLI 命令和高级用法)
+   */
+  getSkillRegistry(): SkillRegistry {
+    if (!this.skillRegistry) {
+      throw new Error('ChatSession 尚未初始化或 Skill 系统未加载，请先调用 init()');
+    }
+    return this.skillRegistry;
   }
 
   /**

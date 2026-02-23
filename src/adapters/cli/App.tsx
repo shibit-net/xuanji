@@ -45,13 +45,12 @@ export function App({ agentLoop, model }: AppProps) {
   const [status, setStatus] = useState<'idle' | 'thinking' | 'tool'>('idle');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamText, setStreamText] = useState('');
-  const [currentTool, setCurrentTool] = useState<CurrentToolState | null>(null);
   const [toolResults, setToolResults] = useState<ToolResultDisplay[]>([]);
   const [usage, setUsage] = useState<TokenUsage>({ input: 0, output: 0 });
   const [cost, setCost] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<UITheme>('auto');
   const msgIdRef = useRef(0);
-  const toolStartTimeRef = useRef(0);
+  const toolInfoRef = useRef<Map<string, { startTime: number; input: Record<string, unknown> }>>(new Map());  // ← 追踪所有工具的信息
 
   // 共享工具实例
   const configManager = useMemo(() => new ConfigManager(), []);
@@ -86,7 +85,7 @@ export function App({ agentLoop, model }: AppProps) {
         agentLoop.stop();
         setStatus('idle');
         setStreamText('');
-        setCurrentTool(null);
+        toolInfoRef.current.clear();
       } else {
         exit();
       }
@@ -102,21 +101,31 @@ export function App({ agentLoop, model }: AppProps) {
       onThinking: (_thinking: string) => {
         setStatus('thinking');
       },
-      onToolStart: (name: string, input: Record<string, unknown>) => {
+      onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
         setStatus('tool');
-        setCurrentTool({ name, input });
-        toolStartTimeRef.current = Date.now();
+        // 记录该工具的开始时间和 input
+        toolInfoRef.current.set(id, {
+          startTime: Date.now(),
+          input,
+        });
       },
-      onToolEnd: (name: string, result: string, isError: boolean) => {
-        const duration = Date.now() - toolStartTimeRef.current;
+      onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+        // 查找该工具的信息
+        const toolInfo = toolInfoRef.current.get(id);
+        const startTime = toolInfo?.startTime ?? Date.now();
+        const input = toolInfo?.input ?? {};
+        const duration = Date.now() - startTime;
+
+        // 删除该工具的信息
+        toolInfoRef.current.delete(id);
+
         setToolResults((prev) => [...prev, {
           name,
-          input: currentTool?.input ?? {},
+          input,
           result,
           isError,
           duration,
         }]);
-        setCurrentTool(null);
         setStatus('thinking');
       },
       onUsage: (u: TokenUsage) => {
@@ -150,9 +159,10 @@ export function App({ agentLoop, model }: AppProps) {
         }
         setStreamText('');
         setToolResults([]);
-        setCurrentTool(null);
         setStatus('idle');
         setCost(state.cost);
+        // 清空所有工具的信息
+        toolInfoRef.current.clear();
       },
     });
   }, []);
@@ -355,11 +365,11 @@ export function App({ agentLoop, model }: AppProps) {
         />
       ))}
 
-      {/* 当前工具执行 */}
-      {currentTool && (
+      {/* 当前执行的工具 */}
+      {toolInfoRef.current.size > 0 && (
         <Box flexDirection="column" marginLeft={2}>
           <Box>
-            <Spinner label={`${currentTool.name}...`} />
+            <Spinner label={`执行工具中... (${toolInfoRef.current.size})`} />
           </Box>
         </Box>
       )}
@@ -373,7 +383,7 @@ export function App({ agentLoop, model }: AppProps) {
       )}
 
       {/* 思考中 */}
-      {status === 'thinking' && !streamText && !currentTool && (
+      {status === 'thinking' && !streamText && toolInfoRef.current.size === 0 && (
         <Spinner label="思考中..." />
       )}
 

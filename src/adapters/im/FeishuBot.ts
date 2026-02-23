@@ -219,8 +219,8 @@ export class FeishuBot implements IMAdapter {
 
     this.session.on({
       onText: (t) => formatter.appendText(t),
-      onToolStart: (name, input) => formatter.toolStart(name, input),
-      onToolEnd: (name, result, isError) => formatter.toolEnd(name, result, isError),
+      onToolStart: (id, name, input) => formatter.toolStart(name, input),
+      onToolEnd: (id, name, result, isError) => formatter.toolEnd(name, result, isError),
       onError: (err) => formatter.appendText(`\n❌ 错误: ${err.message}`),
     });
 

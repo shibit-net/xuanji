@@ -26,3 +26,6 @@ export { SkillValidator } from './validator';
 
 // 导出 SkillLoader
 export { SkillLoader, getSkillLoader, resetSkillLoader } from './loader';
+
+// 导出内置 Skill 初始化函数
+export { initializeBuiltinSkills } from './builtin';
