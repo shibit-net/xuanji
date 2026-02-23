@@ -1,5 +1,0 @@
-[install]
-peer = false
-
-[run]
-bun = true

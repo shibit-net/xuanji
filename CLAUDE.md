@@ -6,7 +6,7 @@
 ## 项目定位
 - 开源 AI 助手，类 Claude Code
 - 品牌全称: Shibit Xuanji · 璇玑
-- 技术栈: TypeScript + Ink (React) + Bun
+- 技术栈: TypeScript + Ink (React) + Node.js
 
 ## 项目约定
 - 运行时: Node.js 20+ / tsx
