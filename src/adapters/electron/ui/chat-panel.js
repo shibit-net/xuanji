@@ -230,7 +230,8 @@
     clearWelcome();
     var el = document.createElement('div');
     el.className = 'tool-call';
-    el.id = 'tool-' + Date.now();
+    el.id = 'tool-' + data.id;  // 使用工具 ID 而不是时间戳
+    el.setAttribute('data-tool-id', data.id);  // 保存工具 ID 到 data 属性
     el.innerHTML =
       '<div class="tool-header">' +
         '<span class="tool-icon">&#9881;</span>' +
@@ -247,16 +248,8 @@
    * 更新工具调用结束
    */
   function updateToolEnd(data) {
-    // 找到最后一个匹配的 tool-call
-    var toolCalls = messageList.querySelectorAll('.tool-call');
-    var el = null;
-    for (var i = toolCalls.length - 1; i >= 0; i--) {
-      var nameEl = toolCalls[i].querySelector('.tool-name');
-      if (nameEl && nameEl.textContent === data.name) {
-        el = toolCalls[i];
-        break;
-      }
-    }
+    // 根据工具 ID 找到对应的 DOM 元素
+    var el = document.getElementById('tool-' + data.id);
 
     if (!el) return;
 
