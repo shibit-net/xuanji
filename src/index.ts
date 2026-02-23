@@ -373,6 +373,25 @@ async function main(): Promise<void> {
   const agentLoop = session.getAgentLoop();
   const config = session.getConfig();
 
+  // 交互模式：在启动 UI 前初始化国际化
+  if (!args.prompt) {
+    const { ConfigManager } = await import('./adapters/cli/utils/ConfigManager');
+    const { setLanguage } = await import('./core/i18n');
+
+    try {
+      const configManager = new ConfigManager();
+      const appConfig = await configManager.load();
+
+      // 从用户配置中读取语言设置（默认英文）
+      const language = appConfig.ui?.language || 'en';
+      setLanguage(language);
+    } catch (err) {
+      // 配置加载失败，使用默认语言（英文）
+      // 静默失败，不影响主流程
+      setLanguage('en');
+    }
+  }
+
   // 非交互模式: 直接执行 prompt
   if (args.prompt) {
     agentLoop.on({
