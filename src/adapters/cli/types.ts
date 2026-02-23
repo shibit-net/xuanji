@@ -15,6 +15,7 @@ export interface ChatMessage {
   toolInput?: Record<string, unknown>;
   toolIsError?: boolean;
   toolDuration?: number;
+  toolTokenUsage?: TokenUsage; // 工具调用的 token 消耗
   timestamp: number;
 }
 
@@ -27,6 +28,7 @@ export interface ToolResultDisplay {
   result: string;
   isError: boolean;
   duration: number;
+  tokenUsage?: TokenUsage; // 工具调用的 token 消耗
 }
 
 /**

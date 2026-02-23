@@ -8,7 +8,7 @@ import type { AgentState, TokenUsage, UITheme, UILanguage } from '@/core/types';
 import type { AgentCallbacks } from '@/core/agent/AgentLoop';
 import { t, setLanguage, getLanguage } from '@/core/i18n';
 import { createDebouncedUpdate } from './utils/Debounce';
-import { formatMarkdown } from './utils/MarkdownFormatter';
+import { renderMarkdownSimple } from './MarkdownRenderer';
 import { parseSlashCommand } from './SlashCommands';
 import { InputHandler } from './InputHandler';
 import { Spinner } from './Spinner';
@@ -198,7 +198,20 @@ export function App({ agentLoop, model }: AppProps) {
         const toolInfo = toolInfoRef.current.get(id);
         const startTime = toolInfo?.startTime ?? Date.now();
         const input = toolInfo?.input ?? {};
+        const startTokenUsage = toolInfo?.startTokenUsage;
         const duration = Date.now() - startTime;
+
+        // 计算该工具消耗的 token（当前 - 开始时）
+        let toolTokenUsage: TokenUsage | undefined;
+        if (startTokenUsage) {
+          const currentUsage = usageRef.current;
+          toolTokenUsage = {
+            input: currentUsage.input - startTokenUsage.input,
+            output: currentUsage.output - startTokenUsage.output,
+            cacheRead: (currentUsage.cacheRead ?? 0) - (startTokenUsage.cacheRead ?? 0),
+            cacheWrite: (currentUsage.cacheWrite ?? 0) - (startTokenUsage.cacheWrite ?? 0),
+          };
+        }
 
         // 删除该工具的信息
         toolInfoRef.current.delete(id);
@@ -217,6 +230,7 @@ export function App({ agentLoop, model }: AppProps) {
           result,
           isError,
           duration,
+          tokenUsage: toolTokenUsage,
         };
         toolResultsRef.current.push(newToolResult);
 
@@ -275,6 +289,7 @@ export function App({ agentLoop, model }: AppProps) {
             toolInput: tool.input,
             toolIsError: tool.isError,
             toolDuration: tool.duration,
+            toolTokenUsage: tool.tokenUsage,
             timestamp: Date.now(),
           });
         });
@@ -507,14 +522,19 @@ export function App({ agentLoop, model }: AppProps) {
                 result={msg.content}
                 isError={msg.toolIsError ?? false}
                 duration={msg.toolDuration ?? 0}
+                tokenUsage={msg.toolTokenUsage}
                 index={0}
                 expanded={false}
                 onToggleExpand={() => {}}
               />
             )}
             {msg.role === 'assistant' && (
-              <Box marginLeft={2}>
-                <Text>{msg.content}</Text>
+              <Box marginLeft={2} flexDirection="column">
+                {renderMarkdownSimple(msg.content).map((line, i) => (
+                  <Box key={i}>
+                    <Text>{line}</Text>
+                  </Box>
+                ))}
               </Box>
             )}
             {msg.role === 'system' && (
@@ -535,6 +555,7 @@ export function App({ agentLoop, model }: AppProps) {
           result={tool.result}
           isError={tool.isError}
           duration={tool.duration}
+          tokenUsage={tool.tokenUsage}
           index={i}
           expanded={expandedToolIndices.has(i)}
           onToggleExpand={() => {
