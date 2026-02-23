@@ -19,6 +19,17 @@ function createMockProviderWithMultipleTools(): ILLMProvider {
         // 第一次调用：返回两个工具调用（并发）
         yield { type: 'usage', usage: { input: 10, output: 0 } };
 
+        // 工具 1 开始
+        yield {
+          type: 'tool_use_start',
+          toolCall: {
+            id: 'read_file_1',
+            name: 'read_file',
+            input: {}
+          }
+        };
+
+        // 工具 1 结束
         yield {
           type: 'tool_use_end',
           toolCall: {
@@ -28,6 +39,17 @@ function createMockProviderWithMultipleTools(): ILLMProvider {
           }
         };
 
+        // 工具 2 开始
+        yield {
+          type: 'tool_use_start',
+          toolCall: {
+            id: 'read_file_2',
+            name: 'read_file',
+            input: {}
+          }
+        };
+
+        // 工具 2 结束
         yield {
           type: 'tool_use_end',
           toolCall: {

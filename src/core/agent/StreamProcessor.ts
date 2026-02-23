@@ -26,6 +26,7 @@ export class StreamProcessor {
   private textHandler?: (text: string) => void;
   private thinkingHandler?: (thinking: string) => void;
   private toolUseHandler?: (toolCall: ToolCall) => void;
+  private toolStartHandler?: (toolCall: ToolCall) => void;
   private usageHandler?: (usage: TokenUsage) => void;
 
   onTextDelta(handler: (text: string) => void): void {
@@ -38,6 +39,10 @@ export class StreamProcessor {
 
   onToolUse(handler: (toolCall: ToolCall) => void): void {
     this.toolUseHandler = handler;
+  }
+
+  onToolStart(handler: (toolCall: ToolCall) => void): void {
+    this.toolStartHandler = handler;
   }
 
   onUsage(handler: (usage: TokenUsage) => void): void {
@@ -73,6 +78,20 @@ export class StreamProcessor {
           break;
         }
 
+        case 'tool_use_start': {
+          // 工具调用开始：立即通知
+          if (event.toolCall?.id && event.toolCall?.name) {
+            const toolCall: ToolCall = {
+              id: event.toolCall.id,
+              name: event.toolCall.name,
+              input: event.toolCall.input ?? {},
+            };
+            // 立即调用 onToolStart
+            this.toolStartHandler?.(toolCall);
+          }
+          break;
+        }
+
         case 'tool_use_end': {
           if (event.toolCall?.id && event.toolCall?.name) {
             const toolCall: ToolCall = {
@@ -81,6 +100,7 @@ export class StreamProcessor {
               input: event.toolCall.input ?? {},
             };
             toolCalls.push(toolCall);
+            // 工具调用结束（可能需要为了兼容性保留 onToolUse）
             this.toolUseHandler?.(toolCall);
 
             // 先把之前累积的文本作为 content block

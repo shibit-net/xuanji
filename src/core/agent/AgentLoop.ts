@@ -65,8 +65,12 @@ export class AgentLoop {
     // 注册流处理回调
     this.streamProcessor.onTextDelta((text) => this.callbacks.onText?.(text));
     this.streamProcessor.onThinkingDelta((thinking) => this.callbacks.onThinking?.(thinking));
-    this.streamProcessor.onToolUse((toolCall) => {
+    this.streamProcessor.onToolStart((toolCall) => {
+      // 工具立即开始时通知 UI
       this.callbacks.onToolStart?.(toolCall.id, toolCall.name, toolCall.input);
+    });
+    this.streamProcessor.onToolUse((toolCall) => {
+      // 工具调用结束时的兼容回调（已通过 onToolStart 通知）
     });
     this.streamProcessor.onUsage((usage) => {
       this.tokenManager.recordUsage(usage);

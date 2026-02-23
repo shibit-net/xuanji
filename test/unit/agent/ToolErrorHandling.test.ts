@@ -16,6 +16,16 @@ function createMockProviderWithToolCall(): ILLMProvider {
 
       if (callCount === 1) {
         yield { type: 'usage', usage: { input: 10, output: 0 } };
+        // 工具调用开始
+        yield {
+          type: 'tool_use_start',
+          toolCall: {
+            id: 'read_file_1',
+            name: 'read_file',
+            input: {}
+          }
+        };
+        // 工具调用结束
         yield {
           type: 'tool_use_end',
           toolCall: {
