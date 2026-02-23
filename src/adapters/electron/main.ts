@@ -14,6 +14,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { ChatSession } from '../../core/chat/ChatSession';
+import { ConfigLoader } from '../../core/config/ConfigLoader';
 import type { IMAdapter } from '../im/IMAdapter';
 import { MessageFormatter } from '../im/MessageFormatter';
 
@@ -360,12 +361,28 @@ function createWindow(): void {
 // ── IPC 处理程序 ─────────────────────────────────────────
 
 /**
- * config:load — 读取全局配置文件
+ * config:load — 读取全局配置文件（包含环境变量，脱敏 API Key）
+ *
+ * 注意：返回的配置会合并环境变量（XUANJI_* 前缀），以反映系统实际使用的配置
  */
 ipcMain.handle('config:load', async () => {
   try {
-    const config = readConfig();
-    return { success: true, data: config };
+    // 使用 ConfigLoader 加载配置，它会自动合并环境变量
+    const configLoader = new ConfigLoader();
+    const config = await configLoader.load();
+
+    // 深拷贝避免修改原始对象
+    const sanitized = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+
+    // 脱敏 API Key
+    if (sanitized.provider && typeof sanitized.provider === 'object') {
+      const provider = sanitized.provider as Record<string, unknown>;
+      if (provider.apiKey && typeof provider.apiKey === 'string') {
+        provider.apiKey = maskApiKey(provider.apiKey);
+      }
+    }
+
+    return { success: true, data: sanitized };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
@@ -378,6 +395,17 @@ ipcMain.handle('config:load', async () => {
 ipcMain.handle('config:save', async (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
   try {
     const existing = readConfig();
+
+    // 保护 API Key: config:load 返回的是掩码值，如果用户未修改则不覆盖原始值
+    if (config.provider && typeof config.provider === 'object') {
+      const provider = config.provider as Record<string, unknown>;
+      const incomingKey = provider.apiKey;
+      if (typeof incomingKey === 'string' && (incomingKey.includes('...') || incomingKey.includes('****') || incomingKey === '')) {
+        // 掩码值或空值，不覆盖原始 apiKey
+        delete provider.apiKey;
+      }
+    }
+
     const merged = deepMergeConfig(existing, config);
     writeConfig(merged);
 
@@ -427,6 +455,17 @@ ipcMain.handle('chat:init', async (_event: IpcMainInvokeEvent, options?: { model
           apiKey: '',
           baseURL: cfg.provider.baseURL || '',
         };
+      } else {
+        // session 为 null 时，从文件重新读取配置并返回
+        const configLoader = new ConfigLoader();
+        const cfg = await configLoader.load();
+        config = {
+          model: cfg.provider.model,
+          adapter: cfg.provider.adapter || '',
+          theme: cfg.ui.theme,
+          apiKey: maskApiKey(cfg.provider.apiKey),
+          baseURL: cfg.provider.baseURL || '',
+        };
       }
     } catch { /* config 尚未加载，忽略 */ }
     return { success: false, error: msg, config };
@@ -440,6 +479,8 @@ ipcMain.handle('chat:run', async (_event: IpcMainInvokeEvent, message: string) =
   if (!session) {
     return { success: false, error: '会话未初始化，请先调用 chat:init' };
   }
+
+  console.log('[chat:run] 开始对话:', message);
 
   try {
     // 注册回调，将事件推送到渲染进程
@@ -460,21 +501,48 @@ ipcMain.handle('chat:run', async (_event: IpcMainInvokeEvent, message: string) =
         mainWindow?.webContents.send('chat:usage', usage);
       },
       onError: (err: Error) => {
-        mainWindow?.webContents.send('chat:error', err.message);
+        console.error('[chat:run] 错误回调:', err.message);
+        log('Chat', `错误回调: ${err.message}`, 'error');
+
+        // 确保发送 chat:error 事件
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('[chat:run] 发送 chat:error 事件');
+          mainWindow.webContents.send('chat:error', err.message);
+        } else {
+          console.error('[chat:run] mainWindow 不可用，无法发送 chat:error');
+        }
       },
       onEnd: (state) => {
-        mainWindow?.webContents.send('chat:end', {
-          tokenUsage: state.tokenUsage,
-          cost: state.cost,
-          currentIteration: state.currentIteration,
-        });
+        console.log('[chat:run] 对话结束，迭代:', state.currentIteration);
+        log('Chat', `对话结束，迭代: ${state.currentIteration}`);
+
+        // 确保发送 chat:end 事件
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('[chat:run] 发送 chat:end 事件');
+          mainWindow.webContents.send('chat:end', {
+            tokenUsage: state.tokenUsage,
+            cost: state.cost,
+            currentIteration: state.currentIteration,
+          });
+        } else {
+          console.error('[chat:run] mainWindow 不可用，无法发送 chat:end');
+        }
       },
     });
 
+    console.log('[chat:run] 等待 session.run()...');
     await session.run(message);
+    console.log('[chat:run] 对话成功完成');
+    log('Chat', '对话成功完成');
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error('[chat:run] 异常捕获:', msg);
+    log('Chat', `对话异常: ${msg}`, 'error');
+
+    // 注意：AgentLoop 的 finally 块已经发送过 chat:end 事件了
+    // 所以这里只需要确保错误被返回给调用方
+
     return { success: false, error: msg };
   }
 });
@@ -625,13 +693,12 @@ ipcMain.handle('log:load', async (_event: IpcMainInvokeEvent, options?: { maxLin
  */
 ipcMain.handle('models:list', async (_event: IpcMainInvokeEvent, options?: { page?: number; size?: number; name?: string }) => {
   try {
-    const config = readConfig();
-    const provider = (config.provider || {}) as Record<string, unknown>;
-    const baseURL = (provider.baseURL as string) || 'https://shibit.net';
-
     const page = options?.page || 1;
     const size = options?.size || 30;
     const name = options?.name || '';
+
+    // 模型列表始终从官方市场获取，不使用自定义 baseURL
+    const baseURL = 'https://shibit.net';
 
     const url = new URL('/api/llm/agent/marketplace', baseURL);
     url.searchParams.set('page', String(page));
@@ -694,7 +761,10 @@ ipcMain.handle('models:list', async (_event: IpcMainInvokeEvent, options?: { pag
 
 // ── 应用生命周期 ─────────────────────────────────────────
 
+console.log('[Main] 璇玑 Electron 主进程启动');
+
 app.whenReady().then(() => {
+  console.log('[Main] app.whenReady() 触发，创建窗口...');
   createWindow();
 
   // macOS: 点击 dock 图标重新创建窗口

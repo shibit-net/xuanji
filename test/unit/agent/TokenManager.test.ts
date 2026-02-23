@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TokenManager } from '@/agent/TokenManager';
-import type { Message } from '@/types';
+import { TokenManager } from '@/core/agent/TokenManager';
+import type { Message } from '@/core/types';
 
 describe('TokenManager', () => {
   let manager: TokenManager;

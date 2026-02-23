@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { darkTheme, lightTheme, getTheme } from '@/cli/Theme';
+import { darkTheme, lightTheme, getTheme } from '@/adapters/cli/Theme';
 
 describe('Theme', () => {
   it('darkTheme 应包含所有必要的颜色', () => {

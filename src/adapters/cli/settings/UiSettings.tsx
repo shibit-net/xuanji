@@ -4,7 +4,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { UITheme, AppConfig } from '@/core/types';
+import { t, setLanguage, getLanguage } from '@/core/i18n';
+import type { UITheme, UILanguage, AppConfig } from '@/core/types';
 import { ConfigManager } from '../utils/ConfigManager';
 
 interface UiSettingsProps {
@@ -14,18 +15,25 @@ interface UiSettingsProps {
 
 /**
  * UiSettings — 界面设置面板
- * 支持主题切换（深色/浅色/自动）
+ * 支持主题切换（深色/浅色/自动）和语言切换（中文/English）
  */
 export function UiSettings({ onBack, configManager }: UiSettingsProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedTab, setSelectedTab] = useState<'theme' | 'language'>('theme');
+  const [themeSelectedIndex, setThemeSelectedIndex] = useState(0);
+  const [langSelectedIndex, setLangSelectedIndex] = useState(0);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('');
 
   const themes: Array<{ id: UITheme; label: string; description: string }> = [
-    { id: 'dark', label: '深色', description: '深色主题（默认）' },
-    { id: 'light', label: '浅色', description: '浅色主题' },
-    { id: 'auto', label: '自动', description: '跟随系统设置' },
+    { id: 'dark', label: t('ui.theme_dark'), description: t('ui.theme_dark_desc') },
+    { id: 'light', label: t('ui.theme_light'), description: t('ui.theme_light_desc') },
+    { id: 'auto', label: t('ui.theme_auto'), description: t('ui.theme_auto_desc') },
+  ];
+
+  const languages: Array<{ id: UILanguage; label: string; description: string }> = [
+    { id: 'zh', label: t('ui.lang_zh'), description: t('ui.lang_zh_desc') },
+    { id: 'en', label: t('ui.lang_en'), description: t('ui.lang_en_desc') },
   ];
 
   useEffect(() => {
@@ -33,11 +41,14 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
       const current = configManager.getConfig();
       setConfig(current);
       // 初始化选中项为当前主题
-      const idx = themes.findIndex((t) => t.id === current.ui.theme);
-      if (idx >= 0) setSelectedIndex(idx);
+      const themeIdx = themes.findIndex((t) => t.id === current.ui.theme);
+      if (themeIdx >= 0) setThemeSelectedIndex(themeIdx);
+      // 初始化选中项为当前语言
+      const langIdx = languages.findIndex((l) => l.id === current.ui.language || 'en');
+      if (langIdx >= 0) setLangSelectedIndex(langIdx);
     } catch {
       setSaveStatus('error');
-      setSaveMessage('配置加载失败');
+      setSaveMessage(t('ui.config_load_failed'));
     }
   }, [configManager]);
 
@@ -50,11 +61,30 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
       await configManager.save(newConfig);
       setConfig({ ...config, ui: { ...config.ui, theme } });
       setSaveStatus('success');
-      setSaveMessage(`主题已切换为 ${theme}`);
+      setSaveMessage(t('ui.theme_changed', { theme }));
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch (error) {
       setSaveStatus('error');
-      setSaveMessage(error instanceof Error ? error.message : '切换失败');
+      setSaveMessage(error instanceof Error ? error.message : t('ui.switch_failed'));
+    }
+  };
+
+  const handleSelectLanguage = async (lang: UILanguage) => {
+    if (!config) return;
+    try {
+      setLanguage(lang);
+      const newConfig: Partial<AppConfig> = {
+        ui: { ...config.ui, language: lang },
+      };
+      await configManager.save(newConfig);
+      setConfig({ ...config, ui: { ...config.ui, language: lang } });
+      setSaveStatus('success');
+      const langLabel = lang === 'zh' ? t('ui.lang_zh') : t('ui.lang_en');
+      setSaveMessage(t('ui.language_changed', { lang: langLabel }));
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    } catch (error) {
+      setSaveStatus('error');
+      setSaveMessage(error instanceof Error ? error.message : t('ui.switch_failed'));
     }
   };
 
@@ -65,20 +95,43 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
     if (input === '2') { handleSelectTheme('light'); return; }
     if (input === '3') { handleSelectTheme('auto'); return; }
 
+    // Tab 或左右箭头切换标签页
+    if (input === '\t' || key.rightArrow) {
+      setSelectedTab(selectedTab === 'theme' ? 'language' : 'theme');
+      return;
+    }
+    if (key.leftArrow) {
+      setSelectedTab(selectedTab === 'language' ? 'theme' : 'language');
+      return;
+    }
+
     // 上下键导航
     if (key.upArrow) {
-      setSelectedIndex((prev) => Math.max(0, prev - 1));
+      if (selectedTab === 'theme') {
+        setThemeSelectedIndex((prev) => Math.max(0, prev - 1));
+      } else {
+        setLangSelectedIndex((prev) => Math.max(0, prev - 1));
+      }
       return;
     }
     if (key.downArrow) {
-      setSelectedIndex((prev) => Math.min(themes.length - 1, prev + 1));
+      if (selectedTab === 'theme') {
+        setThemeSelectedIndex((prev) => Math.min(themes.length - 1, prev + 1));
+      } else {
+        setLangSelectedIndex((prev) => Math.min(languages.length - 1, prev + 1));
+      }
       return;
     }
 
     // Enter 选择当前高亮项
     if (key.return) {
-      const theme = themes[selectedIndex];
-      if (theme) handleSelectTheme(theme.id);
+      if (selectedTab === 'theme') {
+        const theme = themes[themeSelectedIndex];
+        if (theme) handleSelectTheme(theme.id);
+      } else {
+        const lang = languages[langSelectedIndex];
+        if (lang) handleSelectLanguage(lang.id);
+      }
       return;
     }
 
@@ -90,21 +143,21 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
   });
 
   if (!config) {
-    return <Text color="gray">加载配置中...</Text>;
+    return <Text color="gray">{t('ui.loading_config')}</Text>;
   }
 
   return (
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">🎨 主题设置</Text>
+        <Text bold color="#7C8CF5">{t('ui.theme_title')}</Text>
       </Box>
 
       {/* 主题选项 */}
       <Box marginBottom={1} flexDirection="column">
         {themes.map((theme, i) => {
           const isCurrent = config.ui.theme === theme.id;
-          const isSelected = i === selectedIndex;
+          const isSelected = selectedTab === 'theme' && i === themeSelectedIndex;
           return (
             <Box key={theme.id}>
               <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
@@ -114,6 +167,29 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
                 {theme.label}
               </Text>
               <Text color="gray"> — {theme.description}</Text>
+              {isCurrent && <Text color="#34D399"> ✓</Text>}
+            </Box>
+          );
+        })}
+      </Box>
+
+      {/* 语言设置 */}
+      <Box marginBottom={1} flexDirection="column">
+        <Box marginBottom={1}>
+          <Text bold color="#7C8CF5">{t('ui.language_title')}</Text>
+        </Box>
+        {languages.map((lang, i) => {
+          const isCurrent = (config.ui.language || 'en') === lang.id;
+          const isSelected = selectedTab === 'language' && i === langSelectedIndex;
+          return (
+            <Box key={lang.id}>
+              <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
+                {isSelected ? '▶ ' : '  '}
+              </Text>
+              <Text color={isSelected ? '#7C8CF5' : undefined} bold={isSelected}>
+                {lang.label}
+              </Text>
+              <Text color="gray"> — {lang.description}</Text>
               {isCurrent && <Text color="#34D399"> ✓</Text>}
             </Box>
           );
@@ -132,27 +208,10 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
         </Box>
       )}
 
-      {/* 其他设置选项 */}
-      <Box marginTop={1} marginBottom={1} flexDirection="column">
-        <Text bold color="#7C8CF5">其他设置</Text>
-        <Box>
-          <Text color="gray">• 显示 Token 用量: </Text>
-          <Text>{config.ui.showTokenUsage ? '启用' : '禁用'}</Text>
-        </Box>
-        <Box>
-          <Text color="gray">• 显示费用: </Text>
-          <Text>{config.ui.showCost ? '启用' : '禁用'}</Text>
-        </Box>
-        <Box>
-          <Text color="gray">• 显示思考过程: </Text>
-          <Text>{config.ui.showThinking ? '启用' : '禁用'}</Text>
-        </Box>
-      </Box>
-
       {/* 操作提示 */}
       <Box>
         <Text color="gray" dimColor>
-          ↑↓选择  Enter确认  1=深色 2=浅色 3=自动  Q=返回
+          ↑↓ Navigate  ← → Switch tab  Enter Confirm  Q=Back
         </Text>
       </Box>
     </Box>

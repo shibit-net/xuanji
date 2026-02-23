@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MessageManager } from '@/agent/MessageManager';
+import { MessageManager } from '@/core/agent/MessageManager';
 
 describe('MessageManager', () => {
   let manager: MessageManager;

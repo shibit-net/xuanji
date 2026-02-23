@@ -2,6 +2,8 @@
 // M1 终端 UI — 斜杠命令处理
 // ============================================================
 
+import { t } from '@/core/i18n';
+
 /**
  * 斜杠命令定义
  */
@@ -24,27 +26,27 @@ export function createBuiltinCommands(callbacks: {
   return [
     {
       name: '/help',
-      description: '显示帮助信息',
+      description: t('cmd.help_desc'),
       handler: callbacks.onHelp,
     },
     {
       name: '/clear',
-      description: '清空对话历史',
+      description: t('cmd.clear_desc'),
       handler: callbacks.onClear,
     },
     {
       name: '/reset',
-      description: '重置会话 (清空历史和 token 计数)',
+      description: t('cmd.reset_desc'),
       handler: callbacks.onReset,
     },
     {
       name: '/cost',
-      description: '显示当前会话费用',
+      description: t('cmd.cost_desc'),
       handler: callbacks.onCost,
     },
     {
       name: '/exit',
-      description: '退出璇玑',
+      description: t('cmd.exit_desc'),
       handler: callbacks.onExit,
     },
   ];

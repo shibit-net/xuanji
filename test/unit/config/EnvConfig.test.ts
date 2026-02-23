@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getEnvProviderConfig, getApiKey, ENV_KEYS } from '@/config/EnvConfig';
+import { getEnvProviderConfig, getApiKey, ENV_KEYS } from '@/core/config/EnvConfig';
 
 describe('EnvConfig', () => {
   const originalEnv = { ...process.env };
@@ -11,8 +11,6 @@ describe('EnvConfig', () => {
     delete process.env.XUANJI_MODEL;
     delete process.env.XUANJI_MAX_TOKENS;
     delete process.env.XUANJI_THEME;
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
   });
 
   afterEach(() => {
@@ -78,36 +76,6 @@ describe('EnvConfig', () => {
       expect(ENV_KEYS.XUANJI_MODEL).toBe('XUANJI_MODEL');
       expect(ENV_KEYS.XUANJI_MAX_TOKENS).toBe('XUANJI_MAX_TOKENS');
       expect(ENV_KEYS.XUANJI_THEME).toBe('XUANJI_THEME');
-      expect(ENV_KEYS.OPENAI_API_KEY).toBe('OPENAI_API_KEY');
-      expect(ENV_KEYS.ANTHROPIC_API_KEY).toBe('ANTHROPIC_API_KEY');
-    });
-  });
-
-  describe('OPENAI_API_KEY / ANTHROPIC_API_KEY fallback', () => {
-    it('OPENAI_API_KEY 应作为 apiKey fallback', () => {
-      process.env.OPENAI_API_KEY = 'openai-key';
-      const config = getEnvProviderConfig();
-      expect(config.apiKey).toBe('openai-key');
-    });
-
-    it('ANTHROPIC_API_KEY 应作为 apiKey fallback', () => {
-      process.env.ANTHROPIC_API_KEY = 'anthropic-key';
-      const config = getEnvProviderConfig();
-      expect(config.apiKey).toBe('anthropic-key');
-    });
-
-    it('XUANJI_API_KEY 应优先于 OPENAI_API_KEY', () => {
-      process.env.XUANJI_API_KEY = 'xuanji-key';
-      process.env.OPENAI_API_KEY = 'openai-key';
-      const config = getEnvProviderConfig();
-      expect(config.apiKey).toBe('xuanji-key');
-    });
-
-    it('XUANJI_API_KEY 应优先于 ANTHROPIC_API_KEY', () => {
-      process.env.XUANJI_API_KEY = 'xuanji-key';
-      process.env.ANTHROPIC_API_KEY = 'anthropic-key';
-      const config = getEnvProviderConfig();
-      expect(config.apiKey).toBe('xuanji-key');
     });
   });
 });

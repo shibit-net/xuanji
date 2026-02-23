@@ -2,6 +2,7 @@
 // M1 终端 UI — 机器人管理工具
 // ============================================================
 
+import { t } from '@/core/i18n';
 import type { IMAdapter } from '@/adapters/im/IMAdapter';
 import type { ChatSession } from '@/core/chat/ChatSession';
 import type { BotType, BotStatus } from '../types';
@@ -50,16 +51,16 @@ export class BotManager {
   async startBot(type: BotType, session: ChatSession): Promise<void> {
     const bot = this.bots.get(type);
     if (!bot) {
-      throw new Error(`未注册的机器人类型: ${type}`);
+      throw new Error(t('bots.unregistered', { type }));
     }
 
     const status = this.statuses.get(type)!;
     if (status.running) {
-      throw new Error(`${type} 机器人已在运行中`);
+      throw new Error(t('bots.already_running', { type }));
     }
 
     try {
-      await this.logSystem.info('Bot', `正在启动 ${type} 机器人...`);
+      await this.logSystem.info('Bot', t('bots.starting', { type }));
       await bot.start(session);
       this.statuses.set(type, {
         ...status,
@@ -68,15 +69,15 @@ export class BotManager {
         lastStartTime: Date.now(),
         lastError: undefined,
       });
-      await this.logSystem.info('Bot', `${type} 机器人已启动`);
+      await this.logSystem.info('Bot', t('bots.started_ok', { type }));
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : '启动失败';
+      const errMsg = error instanceof Error ? error.message : t('bots.start_failed');
       this.statuses.set(type, {
         ...status,
         running: false,
         lastError: errMsg,
       });
-      await this.logSystem.error('Bot', `${type} 机器人启动失败: ${errMsg}`);
+      await this.logSystem.error('Bot', t('bots.start_failed_detail', { type, error: errMsg }));
       throw error;
     }
   }
@@ -87,7 +88,7 @@ export class BotManager {
   async stopBot(type: BotType): Promise<void> {
     const bot = this.bots.get(type);
     if (!bot) {
-      throw new Error(`未注册的机器人类型: ${type}`);
+      throw new Error(t('bots.unregistered', { type }));
     }
 
     const status = this.statuses.get(type)!;
@@ -96,16 +97,16 @@ export class BotManager {
     }
 
     try {
-      await this.logSystem.info('Bot', `正在停止 ${type} 机器人...`);
+      await this.logSystem.info('Bot', t('bots.stopping', { type }));
       await bot.stop();
       this.statuses.set(type, {
         ...status,
         running: false,
       });
-      await this.logSystem.info('Bot', `${type} 机器人已停止`);
+      await this.logSystem.info('Bot', t('bots.stopped_ok', { type }));
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : '停止失败';
-      await this.logSystem.error('Bot', `${type} 机器人停止失败: ${errMsg}`);
+      const errMsg = error instanceof Error ? error.message : t('bots.stop_failed');
+      await this.logSystem.error('Bot', t('bots.stop_failed_detail', { type, error: errMsg }));
       throw error;
     }
   }

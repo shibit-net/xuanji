@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 import type { LogEntry } from './types';
 import { LogSystem } from './utils/LogSystem';
 
@@ -57,7 +58,7 @@ export function LogsMode({ onExit, logSystem }: LogsModeProps) {
   });
 
   if (isLoading) {
-    return <Text color="gray">加载日志中...</Text>;
+    return <Text color="gray">{t('logs.loading')}</Text>;
   }
 
   const getSourceIcon = (source: LogEntry['source']): string => {
@@ -91,9 +92,9 @@ export function LogsMode({ onExit, logSystem }: LogsModeProps) {
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">📋 运行日志</Text>
-        <Text color="gray"> ({logs.length} 条)</Text>
-        {isPaused && <Text color="#FBBF24"> [暂停]</Text>}
+        <Text bold color="#7C8CF5">{t('logs.title')}</Text>
+        <Text color="gray"> ({t('logs.count', { count: logs.length })})</Text>
+        {isPaused && <Text color="#FBBF24"> {t('logs.paused')}</Text>}
       </Box>
 
       {/* 日志列表 */}
@@ -111,7 +112,7 @@ export function LogsMode({ onExit, logSystem }: LogsModeProps) {
         </Box>
       ) : (
         <Box marginBottom={1}>
-          <Text color="gray">暂无日志</Text>
+          <Text color="gray">{t('logs.empty')}</Text>
         </Box>
       )}
 
@@ -119,7 +120,7 @@ export function LogsMode({ onExit, logSystem }: LogsModeProps) {
       {logs.length > maxLines && (
         <Box marginBottom={1}>
           <Text color="gray" dimColor>
-            ↓ 还有 {logs.length - maxLines} 条日志（显示最近 {maxLines} 条）
+            {t('logs.more', { remaining: logs.length - maxLines, max: maxLines })}
           </Text>
         </Box>
       )}
@@ -127,7 +128,7 @@ export function LogsMode({ onExit, logSystem }: LogsModeProps) {
       {/* 操作提示 */}
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          P=暂停/继续  C=清空  Q=返回
+          {t('logs.hint')}
         </Text>
       </Box>
     </Box>

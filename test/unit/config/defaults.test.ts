@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CONFIG } from '@/config/defaults';
+import { DEFAULT_CONFIG } from '@/core/config/defaults';
 
 describe('defaults', () => {
   it('默认配置应包含所有必需的顶层字段', () => {

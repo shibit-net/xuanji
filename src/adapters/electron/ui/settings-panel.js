@@ -15,6 +15,7 @@
   var adapterHint = document.getElementById('adapterHint');
   var settingBaseURL = document.getElementById('settingBaseURL');
   var settingTheme = document.getElementById('settingTheme');
+  var settingLanguage = document.getElementById('settingLanguage');
 
   // 钉钉
   var dingtalkAppKey = document.getElementById('dingtalkAppKey');
@@ -533,6 +534,12 @@
         window.XuanjiTheme.apply(theme);
       }
 
+      // 语言设置
+      var language = ui.language || 'zh'; // 默认中文
+      if (settingLanguage) {
+        settingLanguage.value = language;
+      }
+
       // IM 配置
       if (settings.dingtalk) {
         if (settings.dingtalk.appKey) dingtalkAppKey.value = settings.dingtalk.appKey;
@@ -595,12 +602,26 @@
       },
       ui: {
         theme: settingTheme.value,
+        language: settingLanguage.value,
       },
     };
 
+    console.log('[Settings] 保存配置:', settings);
+
     var result = await window.XuanjiIPC.config.save(settings);
+    console.log('[Settings] 保存结果:', result);
+
     if (result.success) {
       showToast('LLM 配置已保存，正在重新初始化...', 'success');
+
+      // 重新初始化国际化（语言可能已改变）
+      if (window.XuanjiApp && window.XuanjiApp.initI18n) {
+        console.log('[Settings] 调用 initI18n()...');
+        await window.XuanjiApp.initI18n();
+        console.log('[Settings] initI18n() 完成');
+      } else {
+        console.error('[Settings] window.XuanjiApp.initI18n 不存在!');
+      }
 
       // 重新初始化会话（让新配置生效）
       if (window.XuanjiApp && window.XuanjiApp.initSession) {
@@ -697,6 +718,7 @@
     settingAdapter.disabled = true;
     adapterHint.textContent = '从模型配置自动选择';
     settingTheme.value = 'dark';
+    if (settingLanguage) settingLanguage.value = 'zh';
 
     // 应用主题
     window.XuanjiTheme.save('dark');

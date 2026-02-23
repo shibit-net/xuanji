@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CostTracker } from '@/agent/CostTracker';
-import type { TokenUsage } from '@/types';
+import { CostTracker } from '@/core/agent/CostTracker';
+import type { TokenUsage } from '@/core/types';
 
 describe('CostTracker', () => {
   let tracker: CostTracker;

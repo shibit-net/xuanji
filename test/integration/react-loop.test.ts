@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AgentLoop } from '@/agent/AgentLoop';
-import { ToolRegistry } from '@/tools/ToolRegistry';
+import { AgentLoop } from '@/core/agent/AgentLoop';
+import { ToolRegistry } from '@/core/tools/ToolRegistry';
 import type {
   ILLMProvider,
   StreamEvent,
@@ -9,7 +9,7 @@ import type {
   Message,
   ToolSchema,
   AgentState,
-} from '@/types';
+} from '@/core/types';
 
 /**
  * 创建 mock LLM Provider

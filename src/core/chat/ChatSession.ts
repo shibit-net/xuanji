@@ -132,9 +132,11 @@ export class ChatSession {
       });
     }
 
-    // 6. 初始化 AgentLoop，传递 systemPrompt
+    // 6. 初始化 AgentLoop，传递 systemPrompt 和 provider 配置
     this.agentLoop = new AgentLoop(this.provider, this.registry, {
       model: this.config.provider.model,
+      apiKey: this.config.provider.apiKey,
+      baseURL: this.config.provider.baseURL,
       maxTokens: this.config.provider.maxTokens,
       temperature: this.config.provider.temperature,
       systemPrompt, // ✅ 现在有了

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ErrorRecovery } from '@/agent/ErrorRecovery';
+import { ErrorRecovery } from '@/core/agent/ErrorRecovery';
 
 describe('ErrorRecovery', () => {
   let recovery: ErrorRecovery;

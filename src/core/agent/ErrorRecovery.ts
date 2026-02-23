@@ -9,8 +9,43 @@ export class ErrorRecovery {
   private consecutiveErrors = 0;
   private maxConsecutiveErrors: number;
 
-  constructor(maxConsecutiveErrors = 3) {
+  constructor(maxConsecutiveErrors = 1) {
+    // 改为 1：第一次错误就停止（之前是 3）
     this.maxConsecutiveErrors = maxConsecutiveErrors;
+  }
+
+  /**
+   * 判断是否为致命错误（应该立即停止，不重试）
+   */
+  static isFatalError(error: Error): boolean {
+    const msg = error.message.toLowerCase();
+
+    // 认证错误
+    if (msg.includes('api_key') || msg.includes('authentication') || msg.includes('unauthorized') || msg.includes('403')) {
+      return true;
+    }
+
+    // 网络错误（无法连接）
+    if (msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('getaddrinfo')) {
+      return true;
+    }
+
+    // 无效配置
+    if (msg.includes('unsupported model') || msg.includes('not supported')) {
+      return true;
+    }
+
+    // 参数错误
+    if (msg.includes('invalid') && msg.includes('parameter')) {
+      return true;
+    }
+
+    // 未找到 API Key
+    if (msg.includes('未找到 api key')) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -18,6 +53,12 @@ export class ErrorRecovery {
    * @returns 是否应该终止循环
    */
   recordError(error: Error): boolean {
+    // 致命错误立即终止
+    if (ErrorRecovery.isFatalError(error)) {
+      return true;
+    }
+
+    // 所有其他错误也只重试一次
     this.consecutiveErrors++;
     return this.consecutiveErrors >= this.maxConsecutiveErrors;
   }
@@ -43,7 +84,7 @@ export class ErrorRecovery {
     if (error instanceof Error) {
       // API Key 错误
       if (error.message.includes('api_key') || error.message.includes('authentication')) {
-        return '认证失败，请检查 API Key 配置 (XUANJI_API_KEY 环境变量)';
+        return '认证失败，请检查 API Key 配置';
       }
       // 网络错误
       if (error.message.includes('ECONNREFUSED') || error.message.includes('fetch failed')) {

@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 import type { AppConfig } from '@/core/types';
 import { ConfigManager } from '../utils/ConfigManager';
 
@@ -15,10 +16,10 @@ interface LlmSettingsProps {
 type EditableField = 'model' | 'apiKey' | 'adapter' | 'baseURL';
 
 const FIELD_ITEMS: Array<{ key: EditableField; label: string; shortcut: string }> = [
-  { key: 'model', label: '模型', shortcut: '1' },
-  { key: 'apiKey', label: 'API Key', shortcut: '2' },
-  { key: 'adapter', label: 'Adapter', shortcut: '3' },
-  { key: 'baseURL', label: 'Base URL', shortcut: '4' },
+  { key: 'model', label: t('llm.field_model'), shortcut: '1' },
+  { key: 'apiKey', label: t('llm.field_apikey'), shortcut: '2' },
+  { key: 'adapter', label: t('llm.field_adapter'), shortcut: '3' },
+  { key: 'baseURL', label: t('llm.field_baseurl'), shortcut: '4' },
 ];
 
 /**
@@ -43,12 +44,12 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
       setConfig(current);
     } catch {
       setSaveStatus('error');
-      setSaveMessage('配置加载失败');
+      setSaveMessage(t('ui.config_load_failed'));
     }
   }, [configManager]);
 
   const maskApiKey = (key: string | undefined): string => {
-    if (!key) return '(未设置)';
+    if (!key) return t('llm.not_set');
     if (key.length <= 8) return '****';
     return key.slice(0, 4) + '*'.repeat(Math.min(key.length - 8, 20)) + key.slice(-4);
   };
@@ -64,11 +65,11 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
   };
 
   const getFieldDisplay = (field: EditableField): string => {
-    if (!config) return '(未加载)';
+    if (!config) return t('llm.not_loaded');
     switch (field) {
-      case 'model': return config.provider.model || '(未设置)';
+      case 'model': return config.provider.model || t('llm.not_set');
       case 'apiKey': return maskApiKey(config.provider.apiKey);
-      case 'adapter': return config.provider.adapter || '(自动)';
+      case 'adapter': return config.provider.adapter || t('llm.auto');
       case 'baseURL': return config.provider.baseURL || 'https://api.anthropic.com';
     }
   };
@@ -107,14 +108,14 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
 
       const fieldLabel = FIELD_ITEMS.find((f) => f.key === editingField)?.label;
       setSaveStatus('success');
-      setSaveMessage(`${fieldLabel} 已保存`);
+      setSaveMessage(t('llm.saved', { field: fieldLabel }));
       setEditingField(null);
       setEditValue('');
 
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch (error) {
       setSaveStatus('error');
-      setSaveMessage(error instanceof Error ? error.message : '保存失败');
+      setSaveMessage(error instanceof Error ? error.message : t('llm.save_failed'));
     }
   };
 
@@ -172,14 +173,14 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
   });
 
   if (!config) {
-    return <Text color="gray">加载配置中...</Text>;
+    return <Text color="gray">{t('ui.loading_config')}</Text>;
   }
 
   return (
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">🤖 LLM 配置</Text>
+        <Text bold color="#7C8CF5">{t('llm.title')}</Text>
       </Box>
 
       {/* 配置项列表 */}
@@ -214,7 +215,7 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
       {editingField && (
         <Box marginBottom={1}>
           <Text color="#FBBF24" dimColor>
-            输入新值 → Enter 保存 | Esc 取消
+            {t('llm.edit_hint')}
           </Text>
         </Box>
       )}
@@ -235,7 +236,7 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
       {!editingField && (
         <Box>
           <Text color="gray" dimColor>
-            ↑↓选择  Enter编辑  1/2/3/4快速编辑  Q=返回
+            {t('llm.hint')}
           </Text>
         </Box>
       )}

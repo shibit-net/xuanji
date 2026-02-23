@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 import type { SettingsTab } from '../types';
 import { LlmSettings } from './LlmSettings';
 import { UiSettings } from './UiSettings';
@@ -16,9 +17,9 @@ interface SettingsModeProps {
 }
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
-  { id: 'llm', label: 'LLM 配置', icon: '🤖' },
-  { id: 'ui', label: '界面设置', icon: '🎨' },
-  { id: 'bots_config', label: 'IM 机器人', icon: '💬' },
+  { id: 'llm', label: t('settings.tab.llm'), icon: '🤖' },
+  { id: 'ui', label: t('settings.tab.ui'), icon: '🎨' },
+  { id: 'bots_config', label: t('settings.tab.bots'), icon: '💬' },
 ];
 
 /**
@@ -82,7 +83,7 @@ export function SettingsMode({ onExit, configManager }: SettingsModeProps) {
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">⚙️  设置</Text>
+        <Text bold color="#7C8CF5">{t('settings.title')}</Text>
       </Box>
 
       {/* 标签页菜单 */}
@@ -102,7 +103,7 @@ export function SettingsMode({ onExit, configManager }: SettingsModeProps) {
 
       {/* 操作提示 */}
       <Box>
-        <Text color="gray" dimColor>↑↓选择  Enter进入  1/2/3快速跳转  Q=返回对话</Text>
+        <Text color="gray" dimColor>{t('settings.hint')}</Text>
       </Box>
     </Box>
   );

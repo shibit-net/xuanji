@@ -222,12 +222,58 @@
 
   // ── 启动 ──────────────────────────────────────────────
 
+  /**
+   * 初始化国际化（从配置读取语言设置）
+   */
+  async function initI18n() {
+    try {
+      var result = await window.XuanjiIPC.config.load();
+      if (!result.success || !result.data) {
+        console.warn('[App] 加载配置失败，使用默认语言');
+        return;
+      }
+
+      var config = result.data;
+      var ui = config.ui || {};
+      var language = ui.language || 'zh';
+
+      console.log('[App] 初始化国际化，语言:', language);
+      console.log('[App] 完整配置:', config);
+
+      // 设置 i18n 语言
+      if (window.XuanjiI18n && window.XuanjiI18n.setLanguage) {
+        console.log('[App] 设置i18n语言为:', language);
+        window.XuanjiI18n.setLanguage(language);
+        // 翻译页面中所有 data-i18n 标记的元素
+        if (window.XuanjiI18n.translatePage) {
+          console.log('[App] 开始翻译页面...');
+          window.XuanjiI18n.translatePage();
+          console.log('[App] 页面翻译完成');
+
+          // 验证翻译结果
+          var testBtn = document.querySelector('[data-i18n="gui.nav.chat"]');
+          if (testBtn) {
+            console.log('[App] 导航按钮翻译结果:', testBtn.textContent);
+          }
+        } else {
+          console.error('[App] XuanjiI18n.translatePage 不存在!');
+        }
+      } else {
+        console.error('[App] window.XuanjiI18n 不存在!');
+      }
+    } catch (err) {
+      console.error('[App] 初始化国际化失败:', err);
+    }
+  }
+
   // 暴露到全局（供 settings-panel 保存后重新初始化）
   window.XuanjiApp = {
     initSession: initSession,
+    initI18n: initI18n,
   };
 
-  // 初始化会话
+  // 初始化国际化和会话
+  initI18n();
   initSession();
 
   // 聚焦输入框

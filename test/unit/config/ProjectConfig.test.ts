@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadProjectConfig, getProjectRulesPath, PROJECT_CONFIG_DIR_NAME } from '@/config/ProjectConfig';
+import { loadProjectConfig, getProjectRulesPath, PROJECT_CONFIG_DIR_NAME } from '@/core/config/ProjectConfig';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

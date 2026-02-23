@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ToolDispatcher } from '@/agent/ToolDispatcher';
-import type { IToolRegistry, ToolCall, ToolResult } from '@/types';
+import { ToolDispatcher } from '@/core/agent/ToolDispatcher';
+import type { IToolRegistry, ToolCall, ToolResult } from '@/core/types';
 
 function createMockRegistry(): IToolRegistry {
   return {

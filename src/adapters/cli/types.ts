@@ -12,7 +12,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   toolName?: string;
+  toolInput?: Record<string, unknown>;
   toolIsError?: boolean;
+  toolDuration?: number;
   timestamp: number;
 }
 

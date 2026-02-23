@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConfigLoader } from '@/config/ConfigLoader';
-import { DEFAULT_CONFIG } from '@/config/defaults';
+import { ConfigLoader } from '@/core/config/ConfigLoader';
+import { DEFAULT_CONFIG } from '@/core/config/defaults';
 
 // Mock core/ 下的真实模块 (vi.mock 工厂函数会被提升)
 vi.mock('@/core/config/GlobalConfig', () => ({

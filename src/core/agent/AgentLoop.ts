@@ -112,6 +112,8 @@ export class AgentLoop {
           toolSchemas,
           {
             model: this.config.model,
+            apiKey: this.config.apiKey,
+            baseURL: this.config.baseURL,
             maxTokens: this.config.maxTokens,
             temperature: this.config.temperature,
           },
@@ -157,11 +159,17 @@ export class AgentLoop {
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      const shouldStop = this.errorRecovery.recordError(err);
-      this.callbacks.onError?.(err);
-      if (shouldStop) {
-        throw err;
-      }
+
+      // 使用友好化的错误消息
+      const friendlyError = new Error(ErrorRecovery.formatError(err));
+      this.callbacks.onError?.(friendlyError);
+
+      // API 错误立即停止，不重试
+      // 记录错误计数仅用于统计目的
+      this.errorRecovery.recordError(err);
+
+      // 总是抛出异常，让主进程处理
+      throw friendlyError;
     } finally {
       this.running = false;
       this.callbacks.onEnd?.(this.getState());

@@ -41,6 +41,10 @@ export interface Message {
 export interface AgentConfig {
   /** 模型标识 (e.g. "claude-sonnet-4-20250514") */
   model: string;
+  /** API Key */
+  apiKey?: string;
+  /** API Base URL (自定义端点) */
+  baseURL?: string;
   /** 最大输出 token（不设置则由 API 端决定） */
   maxTokens?: number;
   /** 温度参数 */

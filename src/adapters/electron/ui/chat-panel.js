@@ -56,7 +56,7 @@
     var el = document.createElement('div');
     el.className = 'message message-user';
     el.innerHTML =
-      '<div class="message-role">你</div>' +
+      '<div class="message-role">' + window.XuanjiI18n.t('gui.chat.user_role') + '</div>' +
       '<div class="message-body">' + window.XuanjiFormatter.escapeHtml(text) + '</div>';
     messageList.appendChild(el);
     scrollToBottom();
@@ -70,7 +70,7 @@
     var el = document.createElement('div');
     el.className = 'message message-assistant';
     el.innerHTML =
-      '<div class="message-role">璇玑</div>' +
+      '<div class="message-role">' + window.XuanjiI18n.t('gui.chat.assistant_role') + '</div>' +
       '<div class="message-body thinking-bubble">' +
         '<div class="thinking-indicator">' +
           '<span></span><span></span><span></span>' +
@@ -105,7 +105,7 @@
       currentThinkingEl.innerHTML =
         '<div class="thinking-block-header">' +
           '<span class="thinking-block-icon">💭</span>' +
-          '<span class="thinking-block-label">思考中</span>' +
+          '<span class="thinking-block-label">' + window.XuanjiI18n.t('gui.chat.thinking') + '</span>' +
           '<span class="thinking-block-dots"><span></span><span></span><span></span></span>' +
         '</div>' +
         '<div class="thinking-block-body"></div>';
@@ -135,7 +135,7 @@
     var labelEl = currentThinkingEl.querySelector('.thinking-block-label');
     var charCount = currentThinkingBuffer.length;
     var countText = charCount > 1000 ? (charCount / 1000).toFixed(1) + 'k' : String(charCount);
-    if (labelEl) labelEl.textContent = '思考过程 (' + countText + ' 字)';
+    if (labelEl) labelEl.textContent = window.XuanjiI18n.t('gui.chat.thinking_process') + ' (' + countText + ' ' + window.XuanjiI18n.t('gui.chat.thinking_chars', { count: '' }).trim() + ')';
 
     // 折叠
     currentThinkingEl.classList.remove('open');
@@ -177,13 +177,26 @@
    * 完成当前 assistant 消息
    */
   function finishAssistantMessage() {
+    console.log('[GUI] finishAssistantMessage: 完成 assistant 消息');
+
     // 结束未完成的思考块
     if (currentThinkingEl) {
       finishThinking();
     }
+
+    // 移除加载气泡（thinking-bubble）
+    if (currentAssistantEl && currentAssistantEl.classList.contains('thinking-bubble')) {
+      console.log('[GUI] 移除加载气泡');
+      currentAssistantEl.classList.remove('thinking-bubble');
+      currentAssistantEl.innerHTML = '';
+    }
+
+    // 如果有文本内容，更新 HTML
     if (currentAssistantEl && currentTextBuffer) {
+      console.log('[GUI] 更新 assistant 消息内容');
       currentAssistantEl.innerHTML = window.XuanjiFormatter.markdownToHtml(currentTextBuffer);
     }
+
     currentAssistantEl = null;
     currentTextBuffer = '';
     scrollToBottom();
@@ -207,8 +220,8 @@
     var parts = [];
     parts.push('↑' + formatTokenCount(usage.input));
     parts.push('↓' + formatTokenCount(usage.output));
-    if (usage.cacheRead) parts.push('⚡' + formatTokenCount(usage.cacheRead) + ' 缓存命中');
-    if (usage.cacheWrite) parts.push('📝' + formatTokenCount(usage.cacheWrite) + ' 缓存写入');
+    if (usage.cacheRead) parts.push('⚡' + formatTokenCount(usage.cacheRead) + ' ' + window.XuanjiI18n.t('gui.chat.cache_hit'));
+    if (usage.cacheWrite) parts.push('📝' + formatTokenCount(usage.cacheWrite) + ' ' + window.XuanjiI18n.t('gui.chat.cache_write'));
     el.textContent = parts.join('  ');
     target.appendChild(el);
     scrollToBottom();
@@ -288,6 +301,33 @@
   }
 
   /**
+   * 在当前助手气泡内显示错误信息（而不是创建新的错误气泡）
+   */
+  function showErrorInBubble(error) {
+    // 如果没有当前的助手消息气泡，创建一个
+    if (!currentAssistantMsg) {
+      startAssistantMessage();
+    }
+
+    // 在气泡内显示错误信息
+    if (currentAssistantEl) {
+      // 移除加载动画
+      if (currentAssistantEl.classList.contains('thinking-bubble')) {
+        currentAssistantEl.classList.remove('thinking-bubble');
+      }
+
+      // 显示错误信息
+      currentAssistantEl.innerHTML =
+        '<div style="color: #e74c3c; padding: 12px; line-height: 1.6;">' +
+        '❌ ' +
+        error +
+        '</div>';
+    }
+
+    scrollToBottom();
+  }
+
+  /**
    * 清空所有消息
    */
   function clearMessages() {
@@ -318,9 +358,11 @@
   }
 
   function setRunningState(running) {
+    console.log('[GUI] setRunningState:', running);
     isRunning = running;
     inputText.disabled = running;
     statusIndicator.classList.toggle('active', running);
+    console.log('[GUI] statusIndicator.classList:', statusIndicator.className);
 
     // 切换按钮图标和样式
     sendIcon.classList.toggle('hidden', running);
@@ -332,14 +374,24 @@
     if (!running) {
       setStatusState('');
       inputText.focus();
+      console.log('[GUI] 已清除运行状态');
     }
   }
 
   // ── 发送逻辑 ──────────────────────────────────────────
 
+  var currentRunId = 0;  // 用于追踪当前对话的 ID
+  var lastRunId = -1;    // 上一次处理的运行 ID
+
   async function sendMessage() {
     var text = inputText.value.trim();
     if (!text || isRunning) return;
+
+    console.log('[GUI] sendMessage: 开始发送消息', text);
+
+    // 生成新的运行 ID
+    currentRunId++;
+    var thisRunId = currentRunId;
 
     // 显示用户消息
     addUserMessage(text);
@@ -348,13 +400,39 @@
 
     // 开始运行
     setRunningState(true);
-    setStatusState('思考中');
+    setStatusState(window.XuanjiI18n.t('gui.chat.thinking'));
     startAssistantMessage();
 
-    var result = await window.XuanjiIPC.chat.run(text);
-    if (!result.success) {
-      addErrorMessage(result.error || '发送失败');
-      setRunningState(false);
+    try {
+      console.log('[GUI] sendMessage: 调用 IPC chat.run()...');
+      var result = await window.XuanjiIPC.chat.run(text);
+      console.log('[GUI] sendMessage: IPC 返回', result);
+
+      // 只处理当前运行的结果
+      if (thisRunId !== currentRunId) {
+        console.log('[GUI] sendMessage: 忽略过期的返回结果（当前运行 ID:', currentRunId, '，此结果 ID:', thisRunId, '）');
+        return;
+      }
+
+      if (!result.success) {
+        console.error('[GUI] sendMessage: 返回失败', result.error);
+        // 注意：onError 回调已经调用了 addErrorMessage()，不要重复调用
+
+        // 如果 onEnd 还没有被调用，手动清除状态
+        if (thisRunId === currentRunId && lastRunId !== thisRunId) {
+          console.log('[GUI] sendMessage: 手动调用 setRunningState(false)');
+          setRunningState(false);
+        }
+      }
+      // 注意：成功时，onEnd 回调会处理 setRunningState(false)
+    } catch (err) {
+      // 如果 IPC 调用本身出现异常（极少见）
+      console.error('[GUI] sendMessage 异常:', err);
+      // onError 已经添加过错误消息了，这里只记录日志
+
+      if (thisRunId === currentRunId) {
+        setRunningState(false);
+      }
     }
   }
 
@@ -410,19 +488,19 @@
 
   // 思考内容
   window.XuanjiIPC.onThinking(function (text) {
-    setStatusState('深度思考');
+    setStatusState(window.XuanjiI18n.t('gui.chat.deep_thinking'));
     appendThinking(text);
   });
 
   // 流式文本
   window.XuanjiIPC.onText(function (text) {
-    setStatusState('输出中');
+    setStatusState(window.XuanjiI18n.t('gui.chat.outputting'));
     appendText(text);
   });
 
   // 工具开始
   window.XuanjiIPC.onToolStart(function (data) {
-    setStatusState('调用 ' + data.name);
+    setStatusState(window.XuanjiI18n.t('gui.chat.calling_tool', { name: data.name }));
     // 先完成当前文本流
     if (currentTextBuffer) {
       finishAssistantMessage();
@@ -432,7 +510,7 @@
 
   // 工具结束
   window.XuanjiIPC.onToolEnd(function (data) {
-    setStatusState('思考中');
+    setStatusState(window.XuanjiI18n.t('gui.chat.thinking'));
     updateToolEnd(data);
   });
 
@@ -444,16 +522,33 @@
 
   // 错误
   window.XuanjiIPC.onError(function (error) {
-    addErrorMessage(error);
+    console.log('[GUI] onError 回调触发，当前运行 ID:', currentRunId, '错误:', error);
+    // 只处理当前运行的错误
+    if (currentRunId !== lastRunId) {
+      showErrorInBubble(error);
+    } else {
+      console.log('[GUI] onError: 忽略过期的错误事件');
+    }
   });
 
   // 结束
   window.XuanjiIPC.onEnd(function (data) {
+    console.log('[GUI] onEnd 回调触发，当前运行 ID:', currentRunId, '上次处理 ID:', lastRunId, '数据:', data);
+
+    // 只处理最新的运行结果
+    if (currentRunId === lastRunId) {
+      console.log('[GUI] onEnd: 忽略重复的结束事件');
+      return;
+    }
+
+    lastRunId = currentRunId;
+
     finishAssistantMessage();
     // 追加本轮 token 用量到消息下方
     var usage = (data && data.tokenUsage) || turnTokenUsage;
     appendTurnUsage(usage);
     currentAssistantMsg = null;
+    console.log('[GUI] onEnd: 调用 setRunningState(false)');
     setRunningState(false);
     updateStatus(data);
   });

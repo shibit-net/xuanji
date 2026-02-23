@@ -2,6 +2,7 @@
 // M1 终端 UI — 配置管理工具
 // ============================================================
 
+import { t } from '@/core/i18n';
 import type { AppConfig } from '@/core/types';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { loadGlobalConfig, saveGlobalConfig, deepMergeConfig, GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
@@ -32,7 +33,7 @@ export class ConfigManager {
    */
   getConfig(): AppConfig {
     if (!this.currentConfig) {
-      throw new Error('ConfigManager 尚未初始化，请先调用 load()');
+      throw new Error(t('cli.config_not_init'));
     }
     return this.currentConfig;
   }
@@ -63,7 +64,7 @@ export class ConfigManager {
    */
   async save(partialConfig?: Partial<AppConfig>): Promise<void> {
     if (!this.currentConfig) {
-      throw new Error('ConfigManager 尚未初始化');
+      throw new Error(t('cli.config_not_init_short'));
     }
 
     // 读取当前全局配置

@@ -17,8 +17,11 @@ const zh: Messages = {
   'cli.started': '璇玑 CLI 已启动',
   'cli.exit': '璇玑 CLI 退出',
   'cli.thinking': '思考中...',
-  'cli.help_hint': '/help',
+  'cli.help_hint': '/help 查看帮助',
   'cli.startup_failed': '启动失败:',
+  'cli.tool_executing': '{name} 执行中...',
+  'cli.config_not_init': 'ConfigManager 尚未初始化，请先调用 load()',
+  'cli.config_not_init_short': 'ConfigManager 尚未初始化',
 
   // ── 命令 ──
   'cmd.help': '/help',
@@ -28,7 +31,7 @@ const zh: Messages = {
   'cmd.reset': '/reset',
   'cmd.reset_desc': '重置会话 (清空历史和 token 计数)',
   'cmd.cost': '/cost',
-  'cmd.cost_desc': '显示当前会话费用',
+  'cmd.cost_desc': '显示当前会话 Token 用量',
   'cmd.exit': '/exit',
   'cmd.exit_desc': '退出璇玑',
   'cmd.settings': '/settings',
@@ -52,16 +55,21 @@ const zh: Messages = {
   'help.lang': '  /lang      — 切换语言',
   'help.exit': '  /exit      — 退出璇玑',
   'help.shortcuts_title': '快捷键:',
-  'help.shortcut_ctrlc': '  Ctrl+C     — 中断运行 / 退出模式',
+  'help.shortcut_ctrlc': '  Ctrl+C     — 中断执行 / 返回对话',
   'help.shortcut_shift_enter': '  Shift+Enter — 换行（多行输入）',
+
+  // ── 输入框 ──
+  'input.multiline_hint': '↕ {count} 行 (Shift+Enter 换行)',
 
   // ── 会话 ──
   'chat.session_reset': '会话已重置',
+  'chat.session_interrupted': '已中断执行',
   'chat.token_label': 'Token',
   'chat.input_label': '输入',
   'chat.output_label': '输出',
   'chat.cache_hit': '缓存命中',
   'chat.unknown_command': '未知命令: {name}，输入 /help 查看帮助',
+  'chat.user_log': '用户: {preview}',
 
   // ── 设置模式 ──
   'settings.title': '⚙️  设置',
@@ -130,6 +138,16 @@ const zh: Messages = {
   'bots.operating': '操作中...',
   'bots.hint': '↑↓ 选择机器人  Enter 启动/停止  Q 返回',
   'bots.enter': '进入机器人管理模式',
+  'bots.unregistered': '未注册的机器人类型: {type}',
+  'bots.already_running': '{type} 机器人已在运行中',
+  'bots.starting': '正在启动 {type} 机器人...',
+  'bots.started_ok': '{type} 机器人已启动',
+  'bots.start_failed': '启动失败',
+  'bots.start_failed_detail': '{type} 机器人启动失败: {error}',
+  'bots.stopping': '正在停止 {type} 机器人...',
+  'bots.stopped_ok': '{type} 机器人已停止',
+  'bots.stop_failed': '停止失败',
+  'bots.stop_failed_detail': '{type} 机器人停止失败: {error}',
 
   // ── 机器人配置面板 ──
   'bots_config.title': '💬 IM 机器人配置',
@@ -212,8 +230,11 @@ const en: Messages = {
   'cli.started': 'Xuanji CLI started',
   'cli.exit': 'Xuanji CLI exited',
   'cli.thinking': 'Thinking...',
-  'cli.help_hint': '/help',
+  'cli.help_hint': '/help for help',
   'cli.startup_failed': 'Startup failed:',
+  'cli.tool_executing': '{name} running...',
+  'cli.config_not_init': 'ConfigManager not initialized, call load() first',
+  'cli.config_not_init_short': 'ConfigManager not initialized',
 
   // ── Commands ──
   'cmd.help': '/help',
@@ -223,7 +244,7 @@ const en: Messages = {
   'cmd.reset': '/reset',
   'cmd.reset_desc': 'Reset session (clear history and token count)',
   'cmd.cost': '/cost',
-  'cmd.cost_desc': 'Show current session cost',
+  'cmd.cost_desc': 'Show current session token usage',
   'cmd.exit': '/exit',
   'cmd.exit_desc': 'Exit Xuanji',
   'cmd.settings': '/settings',
@@ -247,16 +268,21 @@ const en: Messages = {
   'help.lang': '  /lang      — Switch language',
   'help.exit': '  /exit      — Exit Xuanji',
   'help.shortcuts_title': 'Shortcuts:',
-  'help.shortcut_ctrlc': '  Ctrl+C     — Interrupt / Exit mode',
+  'help.shortcut_ctrlc': '  Ctrl+C     — Interrupt execution / Back to chat',
   'help.shortcut_shift_enter': '  Shift+Enter — New line (multi-line input)',
+
+  // ── Input ──
+  'input.multiline_hint': '↕ {count} lines (Shift+Enter for new line)',
 
   // ── Chat ──
   'chat.session_reset': 'Session reset',
+  'chat.session_interrupted': 'Execution interrupted',
   'chat.token_label': 'Token',
   'chat.input_label': 'Input',
   'chat.output_label': 'Output',
   'chat.cache_hit': 'Cache hit',
   'chat.unknown_command': 'Unknown command: {name}, type /help for help',
+  'chat.user_log': 'User: {preview}',
 
   // ── Settings Mode ──
   'settings.title': '⚙️  Settings',
@@ -325,6 +351,16 @@ const en: Messages = {
   'bots.operating': 'Processing...',
   'bots.hint': '↑↓ Select bot  Enter Start/Stop  Q Back',
   'bots.enter': 'Entering bot management mode',
+  'bots.unregistered': 'Unregistered bot type: {type}',
+  'bots.already_running': '{type} bot is already running',
+  'bots.starting': 'Starting {type} bot...',
+  'bots.started_ok': '{type} bot started',
+  'bots.start_failed': 'Start failed',
+  'bots.start_failed_detail': '{type} bot failed to start: {error}',
+  'bots.stopping': 'Stopping {type} bot...',
+  'bots.stopped_ok': '{type} bot stopped',
+  'bots.stop_failed': 'Stop failed',
+  'bots.stop_failed_detail': '{type} bot failed to stop: {error}',
 
   // ── Bots Config Panel ──
   'bots_config.title': '💬 IM Bot Configuration',

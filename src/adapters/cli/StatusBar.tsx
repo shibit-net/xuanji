@@ -13,19 +13,14 @@ export interface StatusBarProps {
 }
 
 /**
- * StatusBar — 底部状态栏，显示模型、Token 用量和费用
+ * StatusBar — 底部状态栏，显示模型和 Token 用量
  */
-export function StatusBar({ model, usage, cost }: StatusBarProps) {
-  const costStr = cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
-  const totalTokens = usage.input + usage.output;
-
+export function StatusBar({ model, usage }: StatusBarProps) {
   return (
     <Box borderStyle="single" borderColor="gray" paddingX={1} marginTop={1}>
       <Text color="gray">{model}</Text>
       <Text color="gray"> │ </Text>
-      <Text color="gray">tokens: {totalTokens.toLocaleString()}</Text>
-      <Text color="gray"> │ </Text>
-      <Text color="gray">费用: {costStr}</Text>
+      <Text color="gray">↑{usage.input.toLocaleString()} ↓{usage.output.toLocaleString()}</Text>
     </Box>
   );
 }

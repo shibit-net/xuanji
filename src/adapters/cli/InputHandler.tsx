@@ -8,6 +8,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 
 export interface InputHandlerProps {
   onSubmit: (text: string) => void;
@@ -225,7 +226,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
       ))}
       {lines.length > maxDisplayLines && (
         <Box>
-          <Text color="gray" dimColor>  ↕ {lines.length} 行 (Shift+Enter 换行)</Text>
+          <Text color="gray" dimColor>  {t('input.multiline_hint', { count: lines.length })}</Text>
         </Box>
       )}
     </Box>

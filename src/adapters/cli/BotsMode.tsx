@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 import type { BotType, BotStatus } from './types';
 import { BotManager } from './utils/BotManager';
 
@@ -28,9 +29,9 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
   }, [botManager]);
 
   const botLabels: Record<BotType, { icon: string; label: string }> = {
-    dingtalk: { icon: '🔴', label: '钉钉机器人' },
-    feishu: { icon: '🔵', label: '飞书机器人' },
-    wecom: { icon: '🟢', label: '企业微信机器人' },
+    dingtalk: { icon: '🔴', label: t('bots.dingtalk') },
+    feishu: { icon: '🔵', label: t('bots.feishu') },
+    wecom: { icon: '🟢', label: t('bots.wecom') },
   };
 
   const handleToggle = async (status: BotStatus) => {
@@ -48,7 +49,7 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
         // 注意: CLI 启动机器人需要 ChatSession
         setActionResult({
           type: 'error',
-          message: '请通过 /bots start <type> 命令启动（需要先配置机器人密钥）',
+          message: t('bots.start_hint'),
         });
       }
 
@@ -57,7 +58,7 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
     } catch (error) {
       setActionResult({
         type: 'error',
-        message: error instanceof Error ? error.message : '操作失败',
+        message: error instanceof Error ? error.message : t('bots.operation_failed'),
       });
     } finally {
       setIsLoading(false);
@@ -84,12 +85,12 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
 
   const getStatusLabel = (status: BotStatus): React.ReactNode => {
     if (status.running) {
-      return <Text color="#34D399" bold>● 运行中</Text>;
+      return <Text color="#34D399" bold>{t('bots.status_running')}</Text>;
     }
     if (status.lastError) {
-      return <Text color="#F87171">● 错误</Text>;
+      return <Text color="#F87171">{t('bots.status_error')}</Text>;
     }
-    return <Text color="gray">○ 已停止</Text>;
+    return <Text color="gray">{t('bots.status_stopped')}</Text>;
   };
 
   const formatUptime = (startTime?: number): string => {
@@ -107,7 +108,7 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">🤖 IM 机器人管理</Text>
+        <Text bold color="#7C8CF5">{t('bots.title')}</Text>
       </Box>
 
       {/* 机器人列表 */}
@@ -152,14 +153,14 @@ export function BotsMode({ onExit, botManager }: BotsModeProps) {
       {/* 加载中 */}
       {isLoading && (
         <Box marginBottom={1}>
-          <Text color="gray">操作中...</Text>
+          <Text color="gray">{t('bots.operating')}</Text>
         </Box>
       )}
 
       {/* 操作提示 */}
       <Box>
         <Text color="gray" dimColor>
-          ↑↓ 选择机器人  Enter 启动/停止  Q 返回
+          {t('bots.hint')}
         </Text>
       </Box>
     </Box>

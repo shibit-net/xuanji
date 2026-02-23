@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { StreamProcessor } from '@/agent/StreamProcessor';
-import type { StreamEvent, StopReason } from '@/types';
+import { StreamProcessor } from '@/core/agent/StreamProcessor';
+import type { StreamEvent, StopReason } from '@/core/types';
 
 describe('StreamProcessor', () => {
   let processor: StreamProcessor;

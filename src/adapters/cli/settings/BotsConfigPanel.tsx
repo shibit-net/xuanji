@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { t } from '@/core/i18n';
 import type { AppConfig } from '@/core/types';
 import type { BotType } from '../types';
 import { ConfigManager } from '../utils/ConfigManager';
@@ -17,19 +18,19 @@ const BOT_ITEMS: Array<{ type: BotType; icon: string; label: string; fields: str
   {
     type: 'dingtalk',
     icon: '🔴',
-    label: '钉钉机器人',
+    label: t('bots.dingtalk'),
     fields: ['AppKey', 'AppSecret'],
   },
   {
     type: 'feishu',
     icon: '🔵',
-    label: '飞书机器人',
+    label: t('bots.feishu'),
     fields: ['App ID', 'App Secret'],
   },
   {
     type: 'wecom',
     icon: '🟢',
-    label: '企业微信机器人',
+    label: t('bots.wecom'),
     fields: ['CorpID', 'Secret', 'AgentID', 'Token', 'AES Key', 'Port'],
   },
 ];
@@ -71,7 +72,7 @@ export function BotsConfigPanel({ onBack, configManager }: BotsConfigPanelProps)
     <Box flexDirection="column">
       {/* 标题 */}
       <Box marginBottom={1}>
-        <Text bold color="#7C8CF5">💬 IM 机器人配置</Text>
+        <Text bold color="#7C8CF5">{t('bots_config.title')}</Text>
       </Box>
 
       {/* 机器人列表 */}
@@ -93,13 +94,13 @@ export function BotsConfigPanel({ onBack, configManager }: BotsConfigPanelProps)
       <Box marginBottom={1} flexDirection="column">
         <Box marginBottom={1}>
           <Text bold color="#7C8CF5">
-            {selectedBot.icon} {selectedBot.label} — 配置字段
+            {t('bots_config.fields_title', { icon: selectedBot.icon, name: selectedBot.label })}
           </Text>
         </Box>
         {selectedBot.fields.map((field) => (
           <Box key={field}>
             <Text color="gray">  • {field}: </Text>
-            <Text dimColor>(未配置)</Text>
+            <Text dimColor>{t('bots_config.not_configured')}</Text>
           </Box>
         ))}
       </Box>
@@ -107,14 +108,14 @@ export function BotsConfigPanel({ onBack, configManager }: BotsConfigPanelProps)
       {/* 配置说明 */}
       <Box marginBottom={1}>
         <Text color="gray" italic>
-          💡 编辑 ~/.xuanji/config.json 中的 bots 字段进行配置
+          {t('bots_config.edit_hint')}
         </Text>
       </Box>
 
       {/* 操作提示 */}
       <Box>
         <Text color="gray" dimColor>
-          ↑↓选择  1/2/3快速切换  Q=返回
+          {t('bots_config.hint')}
         </Text>
       </Box>
     </Box>

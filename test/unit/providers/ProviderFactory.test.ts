@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProviderFactory } from '@/providers/ProviderFactory';
-import type { ILLMProvider, StreamEvent, ProviderConfig, Message, ToolSchema } from '@/types';
+import { ProviderFactory } from '@/core/providers/ProviderFactory';
+import type { ILLMProvider, StreamEvent, ProviderConfig, Message, ToolSchema } from '@/core/types';
 
 /** 创建 mock Provider */
 function createMockProvider(name: string, supportedModels: string[]): ILLMProvider {

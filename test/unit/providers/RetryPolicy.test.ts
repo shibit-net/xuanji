@@ -4,8 +4,8 @@ import {
   calculateBackoff,
   shouldRetry,
   withRetry,
-} from '@/providers/RetryPolicy';
-import type { RetryConfig } from '@/types';
+} from '@/core/providers/RetryPolicy';
+import type { RetryConfig } from '@/core/types';
 
 describe('RetryPolicy', () => {
   describe('DEFAULT_RETRY_CONFIG', () => {

@@ -4,12 +4,15 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Box, Text, useInput, useApp, Static } from 'ink';
-import type { AgentState, TokenUsage, UITheme } from '@/core/types';
+import type { AgentState, TokenUsage, UITheme, UILanguage } from '@/core/types';
 import type { AgentCallbacks } from '@/core/agent/AgentLoop';
+import { t, setLanguage, getLanguage } from '@/core/i18n';
+import { createDebouncedUpdate } from './utils/Debounce';
+import { formatMarkdown } from './utils/MarkdownFormatter';
 import { parseSlashCommand } from './SlashCommands';
 import { InputHandler } from './InputHandler';
 import { Spinner } from './Spinner';
-import { ToolDisplay } from './ToolDisplay';
+import { CollapsibleToolResult } from './CollapsibleToolResult';
 import { StatusBar } from './StatusBar';
 import { SettingsMode } from './settings/SettingsMode';
 import { LogsMode } from './LogsMode';
@@ -50,12 +53,21 @@ export function App({ agentLoop, model }: AppProps) {
   const [cost, setCost] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<UITheme>('auto');
   const [activeTools, setActiveTools] = useState<Map<string, { name: string; input: Record<string, unknown> }>>(new Map());
+  const [expandedToolIndices, setExpandedToolIndices] = useState<Set<number>>(new Set());
   const msgIdRef = useRef(0);
-  const toolInfoRef = useRef<Map<string, { startTime: number; input: Record<string, unknown> }>>(new Map());
+  const toolInfoRef = useRef<Map<string, {
+    startTime: number;
+    input: Record<string, unknown>;
+    startTokenUsage: TokenUsage;
+  }>>(new Map());
 
   // 使用 ref 追踪最新的流式文本和工具结果，避免闭包问题
   const streamTextRef = useRef('');
   const toolResultsRef = useRef<ToolResultDisplay[]>([]);
+  // 保存 debounce updater 引用，用于 Ctrl+C 时清理
+  const streamTextUpdaterRef = useRef<ReturnType<typeof createDebouncedUpdate<string>> | null>(null);
+  // 追踪当前 usage，避免闭包问题
+  const usageRef = useRef<TokenUsage>({ input: 0, output: 0 });
 
   // 共享工具实例
   const configManager = useMemo(() => new ConfigManager(), []);
@@ -71,9 +83,22 @@ export function App({ agentLoop, model }: AppProps) {
       try {
         const config = await configManager.load();
         setCurrentTheme(config.ui.theme);
-        await logSystem.info('System', '璇玑 CLI 已启动');
+
+        // 初始化语言：优先使用保存的语言，否则使用英文作为默认
+        const language = config.ui.language || 'en';
+        setLanguage(language);
+
+        // 如果配置中没有语言设置，则保存英文为默认值
+        if (!config.ui.language) {
+          await configManager.save({
+            ui: { ...config.ui, language: 'en' }
+          });
+        }
+
+        await logSystem.info('System', t('cli.started'));
       } catch (error) {
-        // 配置加载失败，使用默认值
+        // 配置加载失败，使用默认值（英文）
+        setLanguage('en');
       }
     };
     init();
@@ -87,33 +112,83 @@ export function App({ agentLoop, model }: AppProps) {
         return;
       }
       if (status !== 'idle') {
+        // 取消所有 pending 的 debounce 更新
+        if (streamTextUpdaterRef.current) {
+          streamTextUpdaterRef.current.cancel();
+        }
+        // 停止 Agent 执行
         agentLoop.stop();
+        // 清理状态
         setStatus('idle');
-        setStreamText('');
+        // 注意：不清空 streamText，让已生成的文本继续显示
+        // 只清空 ref 中的累积值
+        streamTextRef.current = '';
         setActiveTools(new Map());
         toolInfoRef.current.clear();
+        // 显示中断提示
+        const id = ++msgIdRef.current;
+        setMessages((prev) => [...prev, {
+          id,
+          role: 'system',
+          content: `⏸️  ${t('chat.session_interrupted')}`,
+          timestamp: Date.now(),
+        }]);
       } else {
         exit();
+      }
+    }
+
+    // 数字快捷键 1-9 用于展开/折叠工具结果
+    if (mode === 'chat' && /^[1-9]$/.test(input)) {
+      const toolIndex = parseInt(input, 10) - 1;
+      if (toolIndex < toolResults.length) {
+        setExpandedToolIndices((prev) => {
+          const next = new Set(prev);
+          if (next.has(toolIndex)) {
+            next.delete(toolIndex);
+          } else {
+            next.add(toolIndex);
+          }
+          return next;
+        });
       }
     }
   });
 
   // 注册 AgentLoop 回调
   useEffect(() => {
+    // 创建 debounced 更新器，1000ms 的间隔大幅减少 re-render 频率
+    const streamTextUpdater = createDebouncedUpdate<string>(
+      (text) => setStreamText(text),
+      1000
+    );
+    // 保存到 ref 以便 Ctrl+C 时使用
+    streamTextUpdaterRef.current = streamTextUpdater;
+
+    // 创建 debounced 更新器，token 使用也采用 1000ms 间隔
+    const usageUpdater = createDebouncedUpdate<TokenUsage>(
+      (usage) => setUsage(usage),
+      1000
+    );
+
     agentLoop.on({
       onText: (text: string) => {
         streamTextRef.current += text;
-        setStreamText((prev) => prev + text);
+        // 只累积到 ref，不更新状态显示
+        // 执行期间显示 loading 动画，完成后一次性显示完整内容
       },
       onThinking: (_thinking: string) => {
+        // 直接设置状态，不经过 debounce
         setStatus('thinking');
       },
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
         setStatus('tool');
-        // 记录该工具的开始时间和 input
+        // 记录该工具的开始时间、input 和当前 token 使用
+        const currentState = agentLoop.getState();
         toolInfoRef.current.set(id, {
           startTime: Date.now(),
           input,
+          startTokenUsage: { ...currentState.tokenUsage },
         });
         // 将工具添加到 activeTools state，用于显示进行中的工具
         setActiveTools((prev) => new Map(prev).set(id, { name, input }));
@@ -136,7 +211,7 @@ export function App({ agentLoop, model }: AppProps) {
         });
 
         // 使用 ref 而不是状态闭包来保存工具结果
-        const newToolResult = {
+        const newToolResult: ToolResultDisplay = {
           name,
           input,
           result,
@@ -146,15 +221,20 @@ export function App({ agentLoop, model }: AppProps) {
         toolResultsRef.current.push(newToolResult);
 
         setToolResults((prev) => [...prev, newToolResult]);
-        setStatus('thinking');
       },
       onUsage: (u: TokenUsage) => {
-        setUsage((prev) => ({
-          input: prev.input + u.input,
-          output: prev.output + u.output,
-        }));
+        usageRef.current = {
+          input: usageRef.current.input + u.input,
+          output: usageRef.current.output + u.output,
+        };
+        // 使用 debounced 更新避免频繁 re-render
+        usageUpdater.update(usageRef.current);
       },
       onError: (err: Error) => {
+        // 刷新所有 pending 的流式文本和 usage
+        streamTextUpdater.flush();
+        usageUpdater.flush();
+
         const id = ++msgIdRef.current;
         setMessages((prev) => [...prev, {
           id,
@@ -165,33 +245,61 @@ export function App({ agentLoop, model }: AppProps) {
         logSystem.error('Chat', err.message);
         // 停止 loading 状态并清理
         setStatus('idle');
-        setStreamText('');
+        // 注意：不清空 streamText，让它继续显示
+        // 只清空 ref 中的累积值
         streamTextRef.current = '';
-        setToolResults([]);
-        toolResultsRef.current = [];
+        // 注意：不清空 toolResults，让工具结果继续显示
         setActiveTools(new Map());
         toolInfoRef.current.clear();
       },
       onEnd: (state: AgentState) => {
+        // 刷新所有 pending 的流式文本和 usage
+        streamTextUpdater.flush();
+        usageUpdater.flush();
+
         // 使用 ref 中的值而不是状态闭包中的旧值
         const text = streamTextRef.current;
         const tools = toolResultsRef.current;
 
-        if (text || tools.length > 0) {
+        // 构建消息数组：先添加工具调用，再添加 assistant 文本回复
+        const newMessages: ChatMessage[] = [];
+
+        // 1. 添加工具调用记录
+        tools.forEach((tool) => {
           const id = ++msgIdRef.current;
-          setMessages((prev) => [...prev, {
+          newMessages.push({
+            id,
+            role: 'tool',
+            content: tool.result,
+            toolName: tool.name,
+            toolInput: tool.input,
+            toolIsError: tool.isError,
+            toolDuration: tool.duration,
+            timestamp: Date.now(),
+          });
+        });
+
+        // 2. 添加 assistant 文本回复（如果有）
+        if (text) {
+          const id = ++msgIdRef.current;
+          newMessages.push({
             id,
             role: 'assistant',
             content: text,
             timestamp: Date.now(),
-          }]);
+          });
         }
 
-        // 清理状态
-        setStreamText('');
+        // 批量添加到历史消息
+        if (newMessages.length > 0) {
+          setMessages((prev) => [...prev, ...newMessages]);
+        }
+
+        // 清空临时状态
         streamTextRef.current = '';
-        setToolResults([]);
         toolResultsRef.current = [];
+        setStreamText('');
+        setToolResults([]);
         setStatus('idle');
         setCost(state.cost);
         setActiveTools(new Map());
@@ -211,27 +319,33 @@ export function App({ agentLoop, model }: AppProps) {
     }]);
   }, []);
 
-  // 主题切换
-  const cycleTheme = useCallback(async () => {
-    const themeOrder: UITheme[] = ['dark', 'light', 'auto'];
-    const currentIndex = themeOrder.indexOf(currentTheme);
-    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length];
-    setCurrentTheme(nextTheme);
+  // 语言切换
+  const cycleLanguage = useCallback(async () => {
+    const currentLang = getLanguage();
+    const nextLang: UILanguage = currentLang === 'zh' ? 'en' : 'zh';
+
+    // 立即切换语言
+    setLanguage(nextLang);
 
     try {
-      await configManager.save({ ui: { ...configManager.getConfig().ui, theme: nextTheme } });
-    } catch {
-      // 保存失败不影响内存中的切换
+      // 保存到配置
+      const currentConfig = configManager.getConfig();
+      await configManager.save({ ui: { ...currentConfig.ui, language: nextLang } });
+    } catch (err) {
+      // 保存失败，但内存中已切换成功
+      await logSystem.error('Config', `Failed to save language: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const themeLabels: Record<UITheme, string> = {
-      dark: '深色',
-      light: '浅色',
-      auto: '自动',
+    // 获取语言标签
+    const langLabels: Record<UILanguage, string> = {
+      zh: t('ui.lang_zh'),
+      en: t('ui.lang_en'),
     };
-    addSystemMessage(`主题已切换为: ${themeLabels[nextTheme]}`);
-    await logSystem.info('Config', `主题切换为 ${nextTheme}`);
-  }, [currentTheme, configManager, addSystemMessage, logSystem]);
+
+    // 显示切换成功的消息
+    addSystemMessage(t('ui.language_changed', { lang: langLabels[nextLang] }));
+    await logSystem.info('Config', `Language switched to ${nextLang}`);
+  }, [configManager, addSystemMessage, logSystem]);
 
   // 提交用户输入
   const handleSubmit = useCallback(async (input: string) => {
@@ -241,52 +355,57 @@ export function App({ agentLoop, model }: AppProps) {
       switch (cmd.name) {
         case '/exit':
         case '/quit':
-          await logSystem.info('System', '璇玑 CLI 退出');
+          await logSystem.info('System', t('cli.exit'));
           exit();
           return;
 
         case '/clear':
           setMessages([]);
+          setToolResults([]);
+          toolResultsRef.current = [];
+          setExpandedToolIndices(new Set());
           return;
 
         case '/reset':
           agentLoop.reset();
           setMessages([]);
+          setToolResults([]);
+          toolResultsRef.current = [];
           setUsage({ input: 0, output: 0 });
           setCost(0);
-          addSystemMessage('会话已重置');
-          await logSystem.info('Chat', '会话已重置');
+          setExpandedToolIndices(new Set());
+          addSystemMessage(t('chat.session_reset'));
+          await logSystem.info('Chat', t('chat.session_reset'));
           return;
 
         case '/cost': {
           const state = agentLoop.getState();
-          const costStr = state.cost < 0.01 ? `$${state.cost.toFixed(4)}` : `$${state.cost.toFixed(2)}`;
-          addSystemMessage(`Token: ${state.tokenUsage.input + state.tokenUsage.output} | 费用: ${costStr}`);
+          addSystemMessage(`${t('chat.token_label')}: ${state.tokenUsage.input + state.tokenUsage.output}`);
           return;
         }
 
         case '/help':
           addSystemMessage([
-            '可用命令:',
-            '  /help      — 显示帮助信息',
-            '  /clear     — 清空对话历史',
-            '  /reset     — 重置会话',
-            '  /cost      — 显示费用',
-            '  /settings  — 进入设置面板',
-            '  /logs      — 查看运行日志',
-            '  /bots      — 管理 IM 机器人',
-            '  /theme     — 切换主题',
-            '  /exit      — 退出璇玑',
+            t('help.title'),
+            t('help.help'),
+            t('help.clear'),
+            t('help.reset'),
+            t('help.cost'),
+            t('help.settings'),
+            t('help.logs'),
+            t('help.bots'),
+            t('help.lang'),
+            t('help.exit'),
             '',
-            '快捷键:',
-            '  Ctrl+C     — 中断运行 / 退出模式',
-            '  Shift+Enter — 换行（多行输入）',
+            t('help.shortcuts_title'),
+            t('help.shortcut_ctrlc'),
+            t('help.shortcut_shift_enter'),
           ].join('\n'));
           return;
 
         case '/settings':
           setMode('settings');
-          await logSystem.info('System', '进入设置模式');
+          await logSystem.info('System', t('settings.enter'));
           return;
 
         case '/logs':
@@ -295,15 +414,15 @@ export function App({ agentLoop, model }: AppProps) {
 
         case '/bots':
           setMode('bots');
-          await logSystem.info('System', '进入机器人管理模式');
+          await logSystem.info('System', t('bots.enter'));
           return;
 
-        case '/theme':
-          await cycleTheme();
+        case '/lang':
+          await cycleLanguage();
           return;
 
         default:
-          addSystemMessage(`未知命令: ${cmd.name}，输入 /help 查看帮助`);
+          addSystemMessage(t('chat.unknown_command', { name: cmd.name }));
           return;
       }
     }
@@ -313,14 +432,24 @@ export function App({ agentLoop, model }: AppProps) {
     setMessages((prev) => [...prev, { id: uid, role: 'user', content: input, timestamp: Date.now() }]);
 
     // 记录日志
-    await logSystem.info('Chat', `用户: ${input.slice(0, 100)}${input.length > 100 ? '...' : ''}`);
+    const preview = input.slice(0, 100) + (input.length > 100 ? '...' : '');
+    await logSystem.info('Chat', t('chat.user_log', { preview }));
 
     // 调用 Agent
     setStatus('thinking');
     setStreamText('');
     setToolResults([]);
-    await agentLoop.run(input);
-  }, [agentLoop, exit, addSystemMessage, cycleTheme, logSystem]);
+    toolResultsRef.current = [];
+    setExpandedToolIndices(new Set());
+    try {
+      await agentLoop.run(input);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addSystemMessage(`❌ ${errMsg}`);
+      setStatus('idle');
+      await logSystem.error('Chat', errMsg);
+    }
+  }, [agentLoop, exit, addSystemMessage, cycleLanguage, logSystem]);
 
   // 从设置/日志/机器人模式返回对话模式
   const handleModeExit = useCallback(() => {
@@ -357,9 +486,8 @@ export function App({ agentLoop, model }: AppProps) {
     <Box flexDirection="column">
       {/* 标题栏 */}
       <Box marginBottom={1}>
-        <Text bold color={theme.primary}>✦ 璇玑</Text>
-        <Text color={theme.dim}> v0.0.1</Text>
-        <Text color={theme.dim}>  输入问题开始对话 | /help 查看帮助 | Ctrl+C 退出</Text>
+        <Text bold color={theme.primary}>{t('cli.title')}</Text>
+        <Text color={theme.dim}>  {t('cli.help_hint')}</Text>
       </Box>
 
       {/* 历史消息 (Static 保证滚出屏幕的不重绘) */}
@@ -371,6 +499,18 @@ export function App({ agentLoop, model }: AppProps) {
                 <Text color={theme.primary} bold>❯ </Text>
                 <Text bold>{msg.content}</Text>
               </Box>
+            )}
+            {msg.role === 'tool' && msg.toolName && (
+              <CollapsibleToolResult
+                name={msg.toolName}
+                input={msg.toolInput ?? {}}
+                result={msg.content}
+                isError={msg.toolIsError ?? false}
+                duration={msg.toolDuration ?? 0}
+                index={0}
+                expanded={false}
+                onToggleExpand={() => {}}
+              />
             )}
             {msg.role === 'assistant' && (
               <Box marginLeft={2}>
@@ -386,42 +526,54 @@ export function App({ agentLoop, model }: AppProps) {
         )}
       </Static>
 
-      {/* 已完成的工具调用 */}
-      {toolResults.map((tool, i) => (
-        <ToolDisplay
+      {/* 已完成的工具调用结果（仅在对话进行中显示） */}
+      {status !== 'idle' && toolResults.map((tool, i) => (
+        <CollapsibleToolResult
           key={`tool-${i}`}
           name={tool.name}
           input={tool.input}
           result={tool.result}
           isError={tool.isError}
           duration={tool.duration}
+          index={i}
+          expanded={expandedToolIndices.has(i)}
+          onToggleExpand={() => {
+            setExpandedToolIndices((prev) => {
+              const next = new Set(prev);
+              if (next.has(i)) {
+                next.delete(i);
+              } else {
+                next.add(i);
+              }
+              return next;
+            });
+          }}
         />
       ))}
 
       {/* 当前执行的工具 */}
       {Array.from(activeTools.entries()).map(([id, tool]) => (
         <Box key={id} marginLeft={2}>
-          <Spinner label={`${tool.name} 执行中...`} />
+          <Spinner label={t('cli.tool_executing', { name: tool.name })} />
         </Box>
       ))}
 
-      {/* 流式文本输出 */}
-      {streamText && status !== 'idle' && (
-        <Box marginLeft={2}>
-          <Text>{streamText}</Text>
-          <Text color={theme.dim}>▌</Text>
-        </Box>
+      {/* 思考中（没有工具在执行时显示）*/}
+      {status === 'thinking' && activeTools.size === 0 && (
+        <Spinner label={t('cli.thinking')} />
       )}
 
-      {/* 思考中 */}
-      {status === 'thinking' && !streamText && activeTools.size === 0 && (
-        <Spinner label="思考中..." />
+      {/* 流式文本处理状态 - 使用静态文本，避免 Spinner 动画导致频繁重新渲染 */}
+      {streamTextRef.current && status !== 'idle' && (
+        <Box marginLeft={2} marginTop={1}>
+          <Text color="cyan">⏳ 处理中...</Text>
+        </Box>
       )}
 
       {/* 输入框 */}
       <InputHandler onSubmit={handleSubmit} isActive={status === 'idle'} />
 
-      {/* 状态栏 */}
+      {/* 状态栏 - 显示实时 token 消耗（通过 debounce 避免闪烁） */}
       {(usage.input > 0 || usage.output > 0) && (
         <StatusBar model={model} usage={usage} cost={cost} />
       )}

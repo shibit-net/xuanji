@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseSlashCommand, createBuiltinCommands } from '@/cli/SlashCommands';
+import { parseSlashCommand, createBuiltinCommands } from '@/adapters/cli/SlashCommands';
 
 describe('SlashCommands', () => {
   describe('parseSlashCommand()', () => {

@@ -407,8 +407,11 @@
    *   <button data-i18n-title="gui.theme_toggle" title="...">
    */
   function translatePage() {
+    console.log('[i18n] 开始翻译页面，当前语言:', currentLang);
+
     // textContent
     var elements = document.querySelectorAll('[data-i18n]');
+    console.log('[i18n] 找到 ' + elements.length + ' 个 data-i18n 元素');
     for (var i = 0; i < elements.length; i++) {
       var key = elements[i].getAttribute('data-i18n');
       if (key) {
@@ -424,6 +427,7 @@
 
     // placeholder
     var placeholders = document.querySelectorAll('[data-i18n-placeholder]');
+    console.log('[i18n] 找到 ' + placeholders.length + ' 个 data-i18n-placeholder 元素');
     for (var j = 0; j < placeholders.length; j++) {
       var pKey = placeholders[j].getAttribute('data-i18n-placeholder');
       if (pKey) placeholders[j].placeholder = t(pKey);
@@ -431,10 +435,13 @@
 
     // title
     var titles = document.querySelectorAll('[data-i18n-title]');
+    console.log('[i18n] 找到 ' + titles.length + ' 个 data-i18n-title 元素');
     for (var k = 0; k < titles.length; k++) {
       var tKey = titles[k].getAttribute('data-i18n-title');
       if (tKey) titles[k].title = t(tKey);
     }
+
+    console.log('[i18n] 翻译完成');
   }
 
   // ── 暴露到全局 ──────────────────────────────────────────
