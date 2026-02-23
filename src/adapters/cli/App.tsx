@@ -49,6 +49,7 @@ export function App({ agentLoop, model }: AppProps) {
   const [usage, setUsage] = useState<TokenUsage>({ input: 0, output: 0 });
   const [cost, setCost] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<UITheme>('auto');
+  const [activeTools, setActiveTools] = useState<Map<string, { name: string; input: Record<string, unknown> }>>(new Map());
   const msgIdRef = useRef(0);
   const toolInfoRef = useRef<Map<string, { startTime: number; input: Record<string, unknown> }>>(new Map());
 
@@ -89,6 +90,7 @@ export function App({ agentLoop, model }: AppProps) {
         agentLoop.stop();
         setStatus('idle');
         setStreamText('');
+        setActiveTools(new Map());
         toolInfoRef.current.clear();
       } else {
         exit();
@@ -113,6 +115,8 @@ export function App({ agentLoop, model }: AppProps) {
           startTime: Date.now(),
           input,
         });
+        // 将工具添加到 activeTools state，用于显示进行中的工具
+        setActiveTools((prev) => new Map(prev).set(id, { name, input }));
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
         // 查找该工具的信息
@@ -123,6 +127,13 @@ export function App({ agentLoop, model }: AppProps) {
 
         // 删除该工具的信息
         toolInfoRef.current.delete(id);
+
+        // 从 activeTools 中移除该工具
+        setActiveTools((prev) => {
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        });
 
         // 使用 ref 而不是状态闭包来保存工具结果
         const newToolResult = {
@@ -158,6 +169,7 @@ export function App({ agentLoop, model }: AppProps) {
         streamTextRef.current = '';
         setToolResults([]);
         toolResultsRef.current = [];
+        setActiveTools(new Map());
         toolInfoRef.current.clear();
       },
       onEnd: (state: AgentState) => {
@@ -182,6 +194,7 @@ export function App({ agentLoop, model }: AppProps) {
         toolResultsRef.current = [];
         setStatus('idle');
         setCost(state.cost);
+        setActiveTools(new Map());
         toolInfoRef.current.clear();
       },
     });
@@ -386,13 +399,11 @@ export function App({ agentLoop, model }: AppProps) {
       ))}
 
       {/* 当前执行的工具 */}
-      {toolInfoRef.current.size > 0 && (
-        <Box flexDirection="column" marginLeft={2}>
-          <Box>
-            <Spinner label={`执行工具中... (${toolInfoRef.current.size})`} />
-          </Box>
+      {Array.from(activeTools.entries()).map(([id, tool]) => (
+        <Box key={id} marginLeft={2}>
+          <Spinner label={`${tool.name} 执行中...`} />
         </Box>
-      )}
+      ))}
 
       {/* 流式文本输出 */}
       {streamText && status !== 'idle' && (
@@ -403,7 +414,7 @@ export function App({ agentLoop, model }: AppProps) {
       )}
 
       {/* 思考中 */}
-      {status === 'thinking' && !streamText && toolInfoRef.current.size === 0 && (
+      {status === 'thinking' && !streamText && activeTools.size === 0 && (
         <Spinner label="思考中..." />
       )}
 
