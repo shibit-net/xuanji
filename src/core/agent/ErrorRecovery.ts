@@ -98,6 +98,14 @@ export class ErrorRecovery {
       if (error.message.includes('insufficient') || error.message.includes('billing')) {
         return 'API 账户余额不足，请充值后重试';
       }
+      // 服务端错误 (500/502/503)
+      if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+        return `API 服务端错误: ${error.message}\n提示: 这通常是 API 服务暂时不可用，请稍后重试。如使用代理服务，请检查代理是否正常`;
+      }
+      // 超时
+      if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
+        return `请求超时: ${error.message}\n提示: 请检查网络连接，或在 config.json 中增大 provider.timeout 值`;
+      }
       return error.message;
     }
     return String(error);

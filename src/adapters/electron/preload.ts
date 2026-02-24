@@ -25,8 +25,23 @@ export interface XuanjiAPI {
     state: () => Promise<Record<string, unknown>>;
     onText: (callback: (text: string) => void) => () => void;
     onThinking: (callback: (text: string) => void) => () => void;
-    onToolStart: (callback: (data: any) => void) => () => void;
-    onToolEnd: (callback: (data: any) => void) => () => void;
+    onToolStart: (callback: (data: {
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }) => void) => () => void;
+    onToolEnd: (callback: (data: {
+      id: string;
+      name: string;
+      result: string;
+      isError: boolean;
+      duration: number;
+    }) => void) => () => void;
+    onToolDelta: (callback: (data: {
+      id: string;
+      name: string;
+      receivedBytes: number;
+    }) => void) => () => void;
     onUsage: (callback: (usage: any) => void) => () => void;
     onError: (callback: (error: string) => void) => () => void;
     onEnd: (callback: (data: any) => void) => () => void;
@@ -88,6 +103,12 @@ const chatAPI = {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('chat:tool-end', handler);
     return () => ipcRenderer.removeListener('chat:tool-end', handler);
+  },
+
+  onToolDelta: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('chat:tool-delta', handler);
+    return () => ipcRenderer.removeListener('chat:tool-delta', handler);
   },
 
   onUsage: (callback: (usage: any) => void) => {

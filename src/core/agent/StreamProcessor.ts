@@ -27,6 +27,7 @@ export class StreamProcessor {
   private thinkingHandler?: (thinking: string) => void;
   private toolUseHandler?: (toolCall: ToolCall) => void;
   private toolStartHandler?: (toolCall: ToolCall) => void;
+  private toolDeltaHandler?: (id: string, name: string, receivedBytes: number) => void;
   private usageHandler?: (usage: TokenUsage) => void;
 
   onTextDelta(handler: (text: string) => void): void {
@@ -45,6 +46,10 @@ export class StreamProcessor {
     this.toolStartHandler = handler;
   }
 
+  onToolDelta(handler: (id: string, name: string, receivedBytes: number) => void): void {
+    this.toolDeltaHandler = handler;
+  }
+
   onUsage(handler: (usage: TokenUsage) => void): void {
     this.usageHandler = handler;
   }
@@ -59,6 +64,14 @@ export class StreamProcessor {
     let currentThinking = '';
     let stopReason: StopReason = 'end_turn';
     let totalUsage: TokenUsage = { input: 0, output: 0 };
+
+    // 当前 tool_use 块的追踪信息
+    let currentToolInputSize = 0;
+    let currentToolId: string | undefined;
+    let currentToolName: string | undefined;
+    // delta 回调节流：避免大文件流式传输时过于频繁地触发 UI 更新
+    let lastDeltaNotifyTime = 0;
+    const DELTA_THROTTLE_MS = 500;
 
     for await (const event of stream) {
       switch (event.type) {
@@ -81,13 +94,29 @@ export class StreamProcessor {
         case 'tool_use_start': {
           // 工具调用开始：立即通知
           if (event.toolCall?.id && event.toolCall?.name) {
+            currentToolId = event.toolCall.id;
+            currentToolName = event.toolCall.name;
+            currentToolInputSize = 0;
             const toolCall: ToolCall = {
               id: event.toolCall.id,
               name: event.toolCall.name,
               input: event.toolCall.input ?? {},
             };
-            // 立即调用 onToolStart
             this.toolStartHandler?.(toolCall);
+          }
+          break;
+        }
+
+        case 'tool_use_delta': {
+          // 工具 input JSON 流式传输中：追踪接收进度
+          const deltaSize = event.text?.length ?? 0;
+          currentToolInputSize += deltaSize;
+          if (this.toolDeltaHandler && currentToolId && currentToolName) {
+            const now = Date.now();
+            if (now - lastDeltaNotifyTime >= DELTA_THROTTLE_MS) {
+              lastDeltaNotifyTime = now;
+              this.toolDeltaHandler(currentToolId, currentToolName, currentToolInputSize);
+            }
           }
           break;
         }
@@ -100,8 +129,12 @@ export class StreamProcessor {
               input: event.toolCall.input ?? {},
             };
             toolCalls.push(toolCall);
-            // 工具调用结束（可能需要为了兼容性保留 onToolUse）
             this.toolUseHandler?.(toolCall);
+
+            // 清理当前工具追踪
+            currentToolId = undefined;
+            currentToolName = undefined;
+            currentToolInputSize = 0;
 
             // 先把之前累积的文本作为 content block
             if (currentText) {

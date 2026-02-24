@@ -29,12 +29,16 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@larksuiteoapi/node-sdk": "^1.59.0",
+    "consola": "^3.4.2",
+    "debug": "^4.4.3",
+    "fast-glob": "^3.3.3",
     "ink": "^5.1.0",
     "openai": "^6.22.0",
     "react": "^18.3.1",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@types/debug": "^4.1.12",
     "@types/node": "^20.0.0",
     "@types/react": "^18.3.0",
     "@types/ws": "^8.18.1",

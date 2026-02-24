@@ -162,11 +162,8 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
             <Box key={theme.id}>
               <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
                 {isSelected ? '▶ ' : '  '}
-              </Text>
-              <Text color={isSelected ? '#7C8CF5' : undefined} bold={isSelected}>
                 {theme.label}
               </Text>
-              <Text color="gray"> — {theme.description}</Text>
               {isCurrent && <Text color="#34D399"> ✓</Text>}
             </Box>
           );
@@ -185,11 +182,8 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
             <Box key={lang.id}>
               <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
                 {isSelected ? '▶ ' : '  '}
-              </Text>
-              <Text color={isSelected ? '#7C8CF5' : undefined} bold={isSelected}>
                 {lang.label}
               </Text>
-              <Text color="gray"> — {lang.description}</Text>
               {isCurrent && <Text color="#34D399"> ✓</Text>}
             </Box>
           );
@@ -210,9 +204,7 @@ export function UiSettings({ onBack, configManager }: UiSettingsProps) {
 
       {/* 操作提示 */}
       <Box>
-        <Text color="gray" dimColor>
-          ↑↓ Navigate  ← → Switch tab  Enter Confirm  Q=Back
-        </Text>
+        <Text color="gray" dimColor>{t('ui.hint')}</Text>
       </Box>
     </Box>
   );

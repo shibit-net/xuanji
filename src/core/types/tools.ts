@@ -34,6 +34,13 @@ export interface Tool {
   description: string;
   /** 输入参数 JSON Schema */
   input_schema: JSONSchema;
+  /**
+   * 工具是否为只读（无副作用）
+   * - true: 可并行执行（如 ReadTool）
+   * - false: 必须串行执行（如 WriteTool, BashTool）
+   * - 默认: false（保守策略）
+   */
+  readonly?: boolean;
   /** 执行工具 */
   execute(input: Record<string, unknown>): Promise<ToolResult>;
 }

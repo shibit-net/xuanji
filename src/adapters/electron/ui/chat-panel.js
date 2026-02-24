@@ -24,6 +24,11 @@
   var currentThinkingEl = null;  // 当前思考块元素
   var currentThinkingBuffer = ''; // 当前思考文本缓冲
 
+  // 缓冲模式：流式输出过长时停止实时 Markdown 渲染，改为显示行数进度
+  var STREAM_BUFFER_THRESHOLD = 50;
+  var streamBuffered = false;
+  var streamLineCount = 0;
+
   var STATE_DOTS = '<span class="state-dots"><span></span><span></span><span></span></span>';
 
   /**
@@ -156,6 +161,7 @@
 
   /**
    * 追加流式文本到当前 assistant 消息
+   * 当文本行数超过阈值时，进入缓冲模式：停止 Markdown 渲染，仅显示行数进度。
    */
   function appendText(text) {
     if (!currentAssistantEl) {
@@ -169,12 +175,30 @@
       finishThinking();
     }
     currentTextBuffer += text;
-    currentAssistantEl.innerHTML = window.XuanjiFormatter.markdownToHtml(currentTextBuffer);
+
+    var lines = currentTextBuffer.split('\n');
+    if (lines.length > STREAM_BUFFER_THRESHOLD) {
+      // 缓冲模式：只更新行数进度，不做 Markdown 渲染
+      if (!streamBuffered) {
+        streamBuffered = true;
+      }
+      streamLineCount = lines.length;
+      currentAssistantEl.innerHTML =
+        '<div class="stream-buffered-progress">' +
+          '<span class="thinking-dots"><span></span><span></span><span></span></span> ' +
+          window.XuanjiFormatter.escapeHtml(
+            window.XuanjiI18n.t('gui.chat.stream_buffered', { lines: String(streamLineCount) })
+          ) +
+        '</div>';
+    } else {
+      currentAssistantEl.innerHTML = window.XuanjiFormatter.markdownToHtml(currentTextBuffer);
+    }
     scrollToBottom();
   }
 
   /**
    * 完成当前 assistant 消息
+   * 缓冲模式下在此处一次性渲染完整 Markdown。
    */
   function finishAssistantMessage() {
     console.log('[GUI] finishAssistantMessage: 完成 assistant 消息');
@@ -191,14 +215,16 @@
       currentAssistantEl.innerHTML = '';
     }
 
-    // 如果有文本内容，更新 HTML
+    // 渲染完整 Markdown（包括缓冲模式下的延迟渲染）
     if (currentAssistantEl && currentTextBuffer) {
-      console.log('[GUI] 更新 assistant 消息内容');
+      console.log('[GUI] 更新 assistant 消息内容' + (streamBuffered ? '（缓冲模式，一次性渲染）' : ''));
       currentAssistantEl.innerHTML = window.XuanjiFormatter.markdownToHtml(currentTextBuffer);
     }
 
     currentAssistantEl = null;
     currentTextBuffer = '';
+    streamBuffered = false;
+    streamLineCount = 0;
     scrollToBottom();
   }
 
@@ -237,18 +263,71 @@
   }
 
   /**
-   * 添加工具调用开始
+   * 添加或更新工具调用开始
+   * 注意：onToolStart 会被调用两次:
+   *   - 第 1 次: tool_use_start（input 为空 {}）→ 创建 DOM
+   *   - 第 2 次: tool_use_end（input 完整）→ 更新已有 DOM 的 input 内容
    */
   function addToolStart(data) {
+    // 如果该工具 ID 的 DOM 已存在，说明是第二次调用（更新 input）
+    var existing = document.getElementById('tool-' + data.id);
+    if (existing) {
+      // 更新 tool-input
+      var inputEl = existing.querySelector('.tool-input');
+      if (inputEl) {
+        inputEl.textContent = window.XuanjiFormatter.formatToolInput(data.input);
+      }
+      // 补建 tool-command（第一次调用时 input 为空，此元素未创建）
+      var command = window.XuanjiFormatter.formatToolCommand(data.name, data.input);
+      var headerEl = existing.querySelector('.tool-header');
+      var durationEl = headerEl ? headerEl.querySelector('.tool-duration, .tool-duration-text') : null;
+      if (command) {
+        var existingCmd = existing.querySelector('.tool-command');
+        if (existingCmd) {
+          existingCmd.textContent = command;
+        } else {
+          var cmdSpan = document.createElement('span');
+          cmdSpan.className = 'tool-command';
+          cmdSpan.textContent = command;
+          if (durationEl) {
+            headerEl.insertBefore(cmdSpan, durationEl);
+          } else if (headerEl) {
+            headerEl.appendChild(cmdSpan);
+          }
+        }
+      }
+      // write_file: 显示写入文件大小
+      if (data.name === 'write_file' && data.input && data.input.content) {
+        var bytes = window.XuanjiFormatter.byteLength(String(data.input.content));
+        var sizeTag = document.createElement('span');
+        sizeTag.className = 'tool-meta';
+        sizeTag.textContent = window.XuanjiFormatter.formatFileSize(bytes);
+        // 重新查询 durationEl，因为前面 insertBefore 可能改变了 DOM
+        durationEl = headerEl ? headerEl.querySelector('.tool-duration, .tool-duration-text') : null;
+        if (durationEl) {
+          headerEl.insertBefore(sizeTag, durationEl);
+        } else if (headerEl) {
+          headerEl.appendChild(sizeTag);
+        }
+      }
+      scrollToBottom();
+      return existing.id;
+    }
+
+    // 格式化工具名和指令
+    var displayName = window.XuanjiFormatter.formatToolName(data.name);
+    var command = window.XuanjiFormatter.formatToolCommand(data.name, data.input);
+
+    // 首次调用：创建新 DOM
     clearWelcome();
     var el = document.createElement('div');
     el.className = 'tool-call';
-    el.id = 'tool-' + data.id;  // 使用工具 ID 而不是时间戳
-    el.setAttribute('data-tool-id', data.id);  // 保存工具 ID 到 data 属性
+    el.id = 'tool-' + data.id;
+    el.setAttribute('data-tool-id', data.id);
     el.innerHTML =
       '<div class="tool-header">' +
-        '<span class="tool-icon">&#9881;</span>' +
-        '<span class="tool-name">' + window.XuanjiFormatter.escapeHtml(data.name) + '</span>' +
+        '<span class="tool-name">' + window.XuanjiFormatter.escapeHtml(displayName) + '</span>' +
+        (command ? '<span class="tool-command">' + window.XuanjiFormatter.escapeHtml(command) + '</span>' : '') +
         '<span class="tool-duration thinking"><span class="thinking-dots"><span></span><span></span><span></span></span></span>' +
       '</div>' +
       '<div class="tool-input">' + window.XuanjiFormatter.escapeHtml(window.XuanjiFormatter.formatToolInput(data.input)) + '</div>';
@@ -266,24 +345,59 @@
 
     if (!el) return;
 
-    // 更新图标和状态
-    var icon = data.isError ? '&#10060;' : '&#9989;';
-    var iconEl = el.querySelector('.tool-icon');
-    if (iconEl) iconEl.innerHTML = icon;
+    // 1. 更新状态图标（添加到工具名后）
+    var nameEl = el.querySelector('.tool-name');
+    if (nameEl) {
+      var icon = data.isError ? ' ❌' : ' ✅';
+      nameEl.innerHTML += icon;
+    }
 
-    // 移除思考动画，添加耗时
+    // 2. 替换思考动画为耗时
     var durationEl = el.querySelector('.tool-duration');
-    if (durationEl) durationEl.remove();
+    if (durationEl) {
+      durationEl.className = 'tool-duration-text';
+      durationEl.textContent = window.XuanjiFormatter.formatToolDuration(data.duration);
+    }
 
-    // 添加类
+    // 3. 添加状态 class
     el.classList.add(data.isError ? 'tool-error' : 'tool-success');
 
-    // 添加结果（截断长内容）
+    // 4. 渲染结果（折叠状态：默认仅展示 1 行）
     if (data.result) {
-      var resultEl = document.createElement('div');
-      resultEl.className = 'tool-result';
-      resultEl.textContent = window.XuanjiFormatter.truncate(data.result, 500);
-      el.appendChild(resultEl);
+      var resultContainer = document.createElement('div');
+      resultContainer.className = 'tool-result collapsed';
+
+      // 截断预览：仅保留首行
+      var preview = window.XuanjiFormatter.formatToolResultPreview(data.result, 1);
+      var resultContent = document.createElement('div');
+      resultContent.className = 'tool-result-content';
+      resultContent.innerHTML = window.XuanjiFormatter.markdownToHtml(preview);
+      resultContainer.appendChild(resultContent);
+
+      // 如果超过 1 行，添加展开按钮
+      var lines = data.result.split('\n');
+      if (lines.length > 1) {
+        var toggleBtn = document.createElement('button');
+        toggleBtn.className = 'tool-result-toggle';
+        toggleBtn.textContent = '▼ 展开全部 (' + lines.length + ' 行)';
+        toggleBtn.onclick = function() {
+          var isCollapsed = resultContainer.classList.contains('collapsed');
+          if (isCollapsed) {
+            // 展开：渲染完整结果
+            resultContent.innerHTML = window.XuanjiFormatter.markdownToHtml(data.result);
+            resultContainer.classList.remove('collapsed');
+            toggleBtn.textContent = '▲ 收起';
+          } else {
+            // 折叠：恢复预览
+            resultContent.innerHTML = window.XuanjiFormatter.markdownToHtml(preview);
+            resultContainer.classList.add('collapsed');
+            toggleBtn.textContent = '▼ 展开全部 (' + lines.length + ' 行)';
+          }
+        };
+        resultContainer.appendChild(toggleBtn);
+      }
+
+      el.appendChild(resultContainer);
     }
 
     scrollToBottom();
@@ -501,11 +615,35 @@
   // 工具开始
   window.XuanjiIPC.onToolStart(function (data) {
     setStatusState(window.XuanjiI18n.t('gui.chat.calling_tool', { name: data.name }));
-    // 先完成当前文本流
-    if (currentTextBuffer) {
-      finishAssistantMessage();
+    // 检查是否是同一工具的第二次调用（input 更新）
+    var existing = document.getElementById('tool-' + data.id);
+    if (!existing) {
+      // 首次工具调用：先完成当前文本流
+      if (currentTextBuffer) {
+        finishAssistantMessage();
+      }
     }
     addToolStart(data);
+  });
+
+  // 工具 input 流式接收进度（实时更新写入大小等）
+  window.XuanjiIPC.onToolDelta(function (data) {
+    var el = document.getElementById('tool-' + data.id);
+    if (!el) return;
+    var headerEl = el.querySelector('.tool-header');
+    if (!headerEl) return;
+    var metaEl = el.querySelector('.tool-meta');
+    if (!metaEl) {
+      metaEl = document.createElement('span');
+      metaEl.className = 'tool-meta';
+      var durationEl = headerEl.querySelector('.tool-duration, .tool-duration-text');
+      if (durationEl) {
+        headerEl.insertBefore(metaEl, durationEl);
+      } else {
+        headerEl.appendChild(metaEl);
+      }
+    }
+    metaEl.textContent = window.XuanjiFormatter.formatFileSize(data.receivedBytes);
   });
 
   // 工具结束

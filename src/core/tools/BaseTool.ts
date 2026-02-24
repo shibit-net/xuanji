@@ -13,6 +13,9 @@ export abstract class BaseTool implements Tool {
   abstract readonly description: string;
   abstract readonly input_schema: JSONSchema;
 
+  /** 默认为写工具（串行执行） */
+  readonly readonly: boolean = false;
+
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
 
   /**

@@ -5,12 +5,10 @@
 import { spawn } from 'node:child_process';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
 
 /** 默认命令超时 (ms) */
 const DEFAULT_TIMEOUT = 120_000;
-
-/** 最大输出长度 (字符) */
-const MAX_OUTPUT_LENGTH = 30_000;
 
 /**
  * Bash 命令执行工具
@@ -40,11 +38,9 @@ export class BashTool extends BaseTool {
     try {
       const result = await this.runCommand(command, timeout);
 
-      // 截断过长输出
+      // 中间截断过长输出（保留头部和尾部，删除中间）
       let output = result.output;
-      if (output.length > MAX_OUTPUT_LENGTH) {
-        output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n...(输出已截断，总长 ${output.length} 字符)`;
-      }
+      output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
 
       if (result.exitCode !== 0) {
         return this.error(`命令退出码: ${result.exitCode}\n${output}`, { exitCode: result.exitCode });

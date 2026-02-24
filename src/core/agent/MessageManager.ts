@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { Message, ContentBlock, ToolResult } from '@/core/types';
+import { middleTruncate, MAX_TOOL_RESULT_LENGTH } from '@/core/utils/truncation';
 
 /**
  * 消息管理器接口
@@ -11,7 +12,9 @@ export interface IMessageManager {
   build(userMessage: string): Message[];
   addAssistantMessage(content: ContentBlock[]): void;
   addToolResult(toolUseId: string, result: ToolResult): void;
+  addToolResults(results: Map<string, ToolResult>): void;
   getHistory(): Message[];
+  getMessages(): Message[];
   clear(): void;
 }
 
@@ -55,25 +58,65 @@ export class MessageManager implements IMessageManager {
   }
 
   /**
-   * 添加工具执行结果到历史
+   * 批量添加工具结果到历史（合并为单个 user 消息）
+   *
+   * Anthropic API 推荐格式:
+   * {
+   *   role: 'user',
+   *   content: [
+   *     { type: 'tool_result', tool_use_id: '1', content: '...' },
+   *     { type: 'tool_result', tool_use_id: '2', content: '...' },
+   *   ]
+   * }
    */
-  addToolResult(toolUseId: string, result: ToolResult): void {
-    this.messages.push({
-      role: 'user',
-      content: [{
+  addToolResults(results: Map<string, ToolResult>): void {
+    if (results.size === 0) return;
+
+    const toolResultBlocks: ContentBlock[] = [];
+
+    for (const [toolUseId, result] of results) {
+      // 对每条 tool_result 内容做截断保护，防止超大内容发给 LLM API
+      const content = middleTruncate(result.content, MAX_TOOL_RESULT_LENGTH);
+
+      toolResultBlocks.push({
         type: 'tool_result',
         tool_use_id: toolUseId,
-        content: result.content,
+        content,
         is_error: result.isError,
-      }],
+      });
+    }
+
+    this.messages.push({
+      role: 'user',
+      content: toolResultBlocks,
     });
   }
 
   /**
-   * 获取完整对话历史
+   * 添加工具执行结果到历史（向后兼容）
+   */
+  addToolResult(toolUseId: string, result: ToolResult): void {
+    const resultsMap = new Map<string, ToolResult>();
+    resultsMap.set(toolUseId, result);
+    this.addToolResults(resultsMap);
+  }
+
+  /**
+   * 获取完整对话历史（不含 system prompt）
    */
   getHistory(): Message[] {
     return [...this.messages];
+  }
+
+  /**
+   * 获取完整消息数组（system prompt + 对话历史）
+   * 用于 ReAct 循环中重建消息，确保 system prompt 不丢失
+   */
+  getMessages(): Message[] {
+    return [
+      { role: 'system', content: this.systemPrompt },
+      ...this.messages,
+    ];
   }
 
   /**
@@ -91,21 +134,11 @@ export class MessageManager implements IMessageManager {
   }
 
   /**
-   * 默认系统提示词
+   * 默认系统提示词（fallback）
+   * 仅在 Skill 系统未启用 xuanji-assistant 时使用
+   * 正式的系统提示词定义在 src/core/skills/builtin/prompts/xuanji-assistant.ts
    */
   private getDefaultSystemPrompt(): string {
-    return `你是璇玑 (Xuanji)，一个 AI 助手。你可以帮助用户读取、编辑文件和执行命令。
-
-你有以下工具可用:
-- read_file: 读取文件内容
-- write_file: 写入文件
-- edit_file: 精确编辑文件 (字符串替换)
-- bash: 执行 bash 命令
-
-规则:
-1. 始终使用工具来操作文件，不要猜测文件内容
-2. 在修改文件之前先读取文件了解当前内容
-3. 执行可能有副作用的命令前，先告知用户
-4. 使用简洁明确的回复`;
+    return 'You are Xuanji, an AI coding assistant. Use your tools to help the user.';
   }
 }

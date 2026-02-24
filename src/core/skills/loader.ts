@@ -9,6 +9,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import type { Skill, SkillLoadOptions } from './types';
 import { SkillRegistry } from './registry';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'SkillLoader' });
 
 /**
  * Skill 加载器
@@ -55,7 +58,7 @@ export class SkillLoader {
         timeoutPromise,
       ]);
     } catch (error) {
-      console.error('Failed to load skills:', error);
+      log.error('Failed to load skills:', error);
     }
 
     // 应用过滤
@@ -78,7 +81,7 @@ export class SkillLoader {
       const builtinPath = path.join(__dirname, 'builtin');
       await this.loadSkillsFromDirectory(builtinPath);
     } catch (error) {
-      console.error('Failed to load builtin skills:', error);
+      log.error('Failed to load builtin skills:', error);
     }
   }
 
@@ -139,7 +142,7 @@ export class SkillLoader {
         this.registry.register(skill);
       }
     } catch (error) {
-      console.warn(`Failed to load skill from ${filePath}:`, error);
+      log.warn(`Failed to load skill from ${filePath}:`, error);
     }
   }
 
@@ -170,7 +173,7 @@ export class SkillLoader {
         }
       }
 
-      console.warn(`No valid Skill export found in ${filePath}`);
+      log.warn(`No valid Skill export found in ${filePath}`);
       return undefined;
     } catch (error) {
       throw new Error(`Failed to load TypeScript Skill: ${String(error)}`);
@@ -189,7 +192,7 @@ export class SkillLoader {
         return skill as Skill;
       }
 
-      console.warn(`Invalid Skill format in ${filePath}`);
+      log.warn(`Invalid Skill format in ${filePath}`);
       return undefined;
     } catch (error) {
       throw new Error(`Failed to load JSON Skill: ${String(error)}`);
@@ -210,11 +213,11 @@ export class SkillLoader {
         return skill as Skill;
       }
 
-      console.warn(`Invalid Skill format in ${filePath}`);
+      log.warn(`Invalid Skill format in ${filePath}`);
       return undefined;
     } catch (error) {
       if ((error as any).code === 'MODULE_NOT_FOUND') {
-        console.warn('js-yaml not installed, skipping YAML skill loading');
+        log.warn('js-yaml not installed, skipping YAML skill loading');
       } else {
         throw new Error(`Failed to load YAML Skill: ${String(error)}`);
       }

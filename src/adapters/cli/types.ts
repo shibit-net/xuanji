@@ -15,8 +15,11 @@ export interface ChatMessage {
   toolInput?: Record<string, unknown>;
   toolIsError?: boolean;
   toolDuration?: number;
-  toolTokenUsage?: TokenUsage; // 工具调用的 token 消耗
+  /** 该工具是否通过并行方式执行 */
+  toolParallel?: boolean;
   timestamp: number;
+  /** 增量刷出的部分消息（不加 marginBottom，避免视觉断裂） */
+  partial?: boolean;
 }
 
 /**
@@ -28,7 +31,6 @@ export interface ToolResultDisplay {
   result: string;
   isError: boolean;
   duration: number;
-  tokenUsage?: TokenUsage; // 工具调用的 token 消耗
 }
 
 /**

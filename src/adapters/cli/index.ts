@@ -7,6 +7,7 @@ export { InputHandler, type InputHandlerProps } from './InputHandler';
 export { Spinner, type SpinnerProps } from './Spinner';
 export { ToolDisplay, type ToolDisplayProps } from './ToolDisplay';
 export { StatusBar, type StatusBarProps } from './StatusBar';
+export { StartupLogo, type StartupLogoProps } from './StartupLogo';
 export { getTheme, darkTheme, lightTheme, type Theme } from './Theme';
 export { createBuiltinCommands, parseSlashCommand, type SlashCommand } from './SlashCommands';
 export type { ChatMessage, ToolResultDisplay, CurrentToolState, AppMode, SettingsTab, LogEntry, BotType, BotStatus } from './types';

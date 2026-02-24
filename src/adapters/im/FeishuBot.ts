@@ -22,6 +22,7 @@ import type { IMAdapter } from './IMAdapter';
 import type { ChatSession } from '@/core/chat/ChatSession';
 import { MessageFormatter } from './MessageFormatter';
 import * as Lark from '@larksuiteoapi/node-sdk';
+import { logger } from '@/core/logger';
 
 /**
  * 飞书配置
@@ -39,6 +40,7 @@ interface FeishuConfig {
  */
 export class FeishuBot implements IMAdapter {
   readonly name = 'feishu';
+  private coreLog = logger.child({ module: 'FeishuBot' });
   private session: ChatSession | null = null;
   private config: FeishuConfig;
   private client: Lark.Client | null = null;
@@ -64,14 +66,14 @@ export class FeishuBot implements IMAdapter {
   }
 
   private log(message: string): void {
-    console.log(`[飞书] ${message}`);
+    this.coreLog.info(message);
     this.logCallback?.(`${message}`);
   }
 
   private logError(message: string, err?: unknown): void {
     const detail = err instanceof Error ? err.message : err ? String(err) : '';
     const full = detail ? `${message}: ${detail}` : message;
-    console.error(`[飞书] ${full}`);
+    this.coreLog.error(full);
     this.logCallback?.(`❌ ${full}`);
   }
 

@@ -210,12 +210,17 @@ function processInlineMarkdown(text: string): React.ReactNode[] {
  * 简化版：直接返回带 ANSI 颜色的文本
  */
 export function renderMarkdownSimple(content: string): string[] {
+  // 安全检查
+  if (!content || typeof content !== 'string') {
+    return [''];
+  }
+
   const lines = content.split('\n');
   let inCodeBlock = false;
   const result: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i] || ''; // 确保 line 不是 undefined
 
     // 代码块
     if (line.trim().startsWith('```')) {
@@ -231,6 +236,7 @@ export function renderMarkdownSimple(content: string): string[] {
     }
 
     if (inCodeBlock) {
+      // 保留完整内容，不做截断
       result.push(`  \x1b[36m${line}\x1b[0m`);
       continue;
     }
@@ -240,7 +246,8 @@ export function renderMarkdownSimple(content: string): string[] {
       const content = line.replace(/^#\s+/, '');
       result.push('');
       result.push(`\x1b[1m\x1b[35m${content}\x1b[0m`);
-      result.push(`\x1b[90m${'─'.repeat(content.length)}\x1b[0m`);
+      const separatorLength = Math.min(content.length, 80);
+      result.push(`\x1b[90m${'─'.repeat(separatorLength)}\x1b[0m`);
       continue;
     }
 
@@ -308,6 +315,11 @@ export function renderMarkdownSimple(content: string): string[] {
  * 处理行内格式（简化版）
  */
 function processInlineMarkdownSimple(text: string): string {
+  // 安全检查
+  if (!text || typeof text !== 'string') {
+    return '';
+  }
+
   let result = text;
 
   // 粗体

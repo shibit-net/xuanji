@@ -2,10 +2,9 @@
 // M1 终端 UI — Spinner 加载指示器
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
-
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+import { useGlobalSpinnerFrame, SPINNER_FRAMES } from './components/SpinnerManager';
 
 export interface SpinnerProps {
   label: string;
@@ -13,16 +12,11 @@ export interface SpinnerProps {
 
 /**
  * Spinner — 终端旋转加载指示器
+ *
+ * 优化: 使用全局 frame，不再维护独立的 interval
  */
 export function Spinner({ label }: SpinnerProps) {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
-    }, 80);
-    return () => clearInterval(timer);
-  }, []);
+  const frame = useGlobalSpinnerFrame();
 
   return (
     <Box>

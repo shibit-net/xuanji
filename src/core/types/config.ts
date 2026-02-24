@@ -46,6 +46,8 @@ export interface AppConfig {
   skills?: SkillsConfig;
   /** IM 机器人配置（可选） */
   bots?: BotsConfig;
+  /** CLI 输入历史记录（最多 50 条） */
+  history?: string[];
 }
 
 /**

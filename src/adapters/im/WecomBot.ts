@@ -34,6 +34,7 @@ import type { ChatSession } from '@/core/chat/ChatSession';
 import { MessageFormatter } from './MessageFormatter';
 import * as crypto from 'crypto';
 import * as http from 'http';
+import { logger } from '@/core/logger';
 
 /** 企业微信单条消息最大字节数 */
 const MAX_MSG_BYTES = 2048;
@@ -69,6 +70,7 @@ interface WecomConfig {
  */
 export class WecomBot implements IMAdapter {
   readonly name = 'wecom';
+  private coreLog = logger.child({ module: 'WecomBot' });
   private session: ChatSession | null = null;
   private config: WecomConfig;
   private server: http.Server | null = null;
@@ -98,14 +100,14 @@ export class WecomBot implements IMAdapter {
   }
 
   private log(message: string): void {
-    console.log(`[企业微信] ${message}`);
+    this.coreLog.info(message);
     this.logCallback?.(`${message}`);
   }
 
   private logError(message: string, err?: unknown): void {
     const detail = err instanceof Error ? err.message : err ? String(err) : '';
     const full = detail ? `${message}: ${detail}` : message;
-    console.error(`[企业微信] ${full}`);
+    this.coreLog.error(full);
     this.logCallback?.(`❌ ${full}`);
   }
 

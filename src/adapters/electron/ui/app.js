@@ -86,7 +86,6 @@
       // 隐藏引导提示（如果有）
       hideSetupGuide();
 
-      showToast('✓ 会话已就绪 — ' + result.config.model, 'success');
       console.log('[App] 会话初始化成功:', result.config.model);
       hideLoading();
     } else {

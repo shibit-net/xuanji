@@ -15,6 +15,7 @@ import type { IMAdapter } from './IMAdapter';
 import type { ChatSession } from '@/core/chat/ChatSession';
 import { MessageFormatter } from './MessageFormatter';
 import WebSocket from 'ws';
+import { logger } from '@/core/logger';
 
 /**
  * 钉钉 Stream 配置
@@ -62,6 +63,7 @@ interface DingtalkMessageData {
  */
 export class DingtalkBot implements IMAdapter {
   readonly name = 'dingtalk';
+  private coreLog = logger.child({ module: 'DingtalkBot' });
   private ws: WebSocket | null = null;
   private session: ChatSession | null = null;
   private config: DingtalkConfig;
@@ -84,12 +86,12 @@ export class DingtalkBot implements IMAdapter {
   }
 
   private log(message: string): void {
-    console.log(`[钉钉] ${message}`);
+    this.coreLog.info(message);
     this.logCallback?.(message);
   }
 
   private logError(message: string): void {
-    console.error(`[钉钉] ${message}`);
+    this.coreLog.error(message);
     this.logCallback?.(`❌ ${message}`);
   }
 

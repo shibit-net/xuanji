@@ -9,6 +9,7 @@ import { ToolDispatcher } from './ToolDispatcher';
 import { TokenManager } from './TokenManager';
 import { CostTracker } from './CostTracker';
 import { ErrorRecovery } from './ErrorRecovery';
+import { logger } from '@/core/logger';
 
 /**
  * Agent 事件回调
@@ -22,6 +23,8 @@ export interface AgentCallbacks {
   /** 工具执行分组通知（在执行前触发，通知 UI 哪些工具将并行执行） */
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
   onUsage?: (usage: TokenUsage) => void;
+  /** 非致命提示信息（如 max_tokens 自动重试） */
+  onInfo?: (message: string) => void;
   onError?: (error: Error) => void;
   onEnd?: (state: AgentState) => void;
 }
@@ -37,6 +40,7 @@ export interface AgentCallbacks {
  * 5. 如果没有工具调用 (end_turn) → 结束
  */
 export class AgentLoop {
+  private log = logger.child({ module: 'AgentLoop' });
   private messageManager: MessageManager;
   private streamProcessor: StreamProcessor;
   private toolDispatcher: ToolDispatcher;
@@ -108,6 +112,11 @@ export class AgentLoop {
       while (this.running && this.currentIteration < maxIterations) {
         this.currentIteration++;
 
+        // 主动通知 UI 进入 thinking 状态（每轮开始时）
+        this.callbacks.onThinking?.('');
+
+        this.log.debug(`Iteration ${this.currentIteration}/${maxIterations}, running=${this.running}, messages=${messages.length}`);
+
         // Token 窗口裁剪
         messages = this.tokenManager.fitWindow(messages);
 
@@ -135,17 +144,18 @@ export class AgentLoop {
         // 错误恢复：成功调用重置计数
         this.errorRecovery.reset();
 
+        this.log.debug(`Result: stopReason=${result.stopReason}, toolCalls=${result.toolCalls.length}, contentBlocks=${result.contentBlocks.length}`);
+
         // 判断是否结束
         if (result.stopReason === 'end_turn' || result.toolCalls.length === 0) {
+          this.log.debug(`Loop ended: stopReason=${result.stopReason}, toolCalls=${result.toolCalls.length}`);
           break;
         }
 
         // max_tokens 截断处理：将被截断的工具调用替换为错误结果，让 LLM 重试
         if (result.stopReason === 'max_tokens') {
-          // 通知用户输出 token 不足
-          this.callbacks.onError?.(new Error(
-            '⚠️ 输出 token 达到上限 (max_tokens)，工具调用参数被截断。正在要求 LLM 以更简洁的方式重试...'
-          ));
+          // 友好提示用户（非异常）
+          this.callbacks.onInfo?.('📝 输出内容过多，正在自动分段写入...');
 
           // 检查是否有被截断或解析失败的工具调用
           const truncatedTools = result.toolCalls.filter(
@@ -156,10 +166,17 @@ export class AgentLoop {
             // 将截断的工具调用结果作为错误返回给 LLM，引导它重试
             const errorResults = new Map<string, { content: string; isError: boolean }>();
             for (const tc of truncatedTools) {
-              const errMsg = (tc.input as Record<string, unknown>)?._error_message as string
-                ?? '工具参数被截断，请使用更简洁的方式重试';
               errorResults.set(tc.id, {
-                content: `[错误] ${errMsg}。请拆分为更小的操作重试，或减少输出内容量。`,
+                content: [
+                  `[ERROR] Tool call "${tc.name}" failed: output token limit reached, arguments were truncated.`,
+                  ``,
+                  `The content was too large to fit in a single tool call.`,
+                  `REQUIRED: Split this into MULTIPLE SMALL tool calls:`,
+                  `  - Each write_file call: max 200 lines`,
+                  `  - Each edit_file call: max 50 lines of old_string/new_string`,
+                  `  - Write the first chunk with write_file, then use edit_file to append remaining chunks`,
+                  `  - For edit_file append: use the last few lines as old_string, and those lines + new content as new_string`,
+                ].join('\n'),
                 isError: true,
               });
               // 通知 UI
@@ -170,7 +187,7 @@ export class AgentLoop {
             // 没有工具调用（tool_use block 完全未完成），注入用户提示让 LLM 重试
             this.messageManager.addAssistantMessage([{
               type: 'text',
-              text: '[系统提示] 输出 token 达到上限，响应被截断。',
+              text: '[System] Output token limit reached. Split large operations into MULTIPLE SMALL tool calls (write_file max 200 lines, edit_file max 50 lines). DO NOT retry with large content in a single call.',
             }]);
           }
 
@@ -211,7 +228,7 @@ export class AgentLoop {
               );
             } catch (callbackErr) {
               // 回调失败（如 stdout.write 异常）不中断工具执行流程
-              console.error('[AgentLoop] onToolEnd callback error:', callbackErr);
+              this.log.error('onToolEnd callback error:', callbackErr);
             }
           }
         }
@@ -225,6 +242,7 @@ export class AgentLoop {
 
       // 迭代达到上限时通知用户
       if (this.currentIteration >= maxIterations) {
+        this.log.warn(`Max iterations reached: ${this.currentIteration}/${maxIterations}`);
         this.callbacks.onError?.(new Error(
           `⚠️ Agent 循环达到最大迭代次数 (${maxIterations})，已自动停止。如需继续，请发送新消息。`
         ));
@@ -243,6 +261,7 @@ export class AgentLoop {
       // 总是抛出异常，让主进程处理
       throw friendlyError;
     } finally {
+      this.log.debug(`Finally: running=${this.running}, iterations=${this.currentIteration}/${maxIterations}`);
       this.running = false;
       this.callbacks.onEnd?.(this.getState());
     }

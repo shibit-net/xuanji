@@ -33,13 +33,13 @@ describe('MessageManager', () => {
     expect(messages[2].content).toBe('第二条');
   });
 
-  it('默认 system prompt 应包含工具名称', () => {
+  it('默认 system prompt 应包含基本角色描述', () => {
     const messages = manager.build('test');
     const systemContent = messages[0].content as string;
-    expect(systemContent).toContain('read_file');
-    expect(systemContent).toContain('write_file');
-    expect(systemContent).toContain('edit_file');
-    expect(systemContent).toContain('bash');
+    // 默认 fallback prompt 包含角色名和工具使用提示
+    // 正式的详细 prompt（含工具名称）由 Skill 系统注入
+    expect(systemContent).toContain('Xuanji');
+    expect(systemContent).toContain('tool');
   });
 
   // ---- addAssistantMessage() ----

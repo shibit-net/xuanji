@@ -504,19 +504,48 @@ body {
   margin-bottom: 4px;
 }
 
-.tool-icon {
+.tool-name {
   font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
-.tool-name {
-  font-weight: 600;
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+.tool-command {
   font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  margin-left: 8px;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+}
+
+.tool-meta {
+  font-size: 11px;
+  color: var(--text-accent);
+  background: rgba(233, 69, 96, 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .tool-duration {
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.tool-duration-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .tool-input {
@@ -531,14 +560,117 @@ body {
   max-height: 80px;
 }
 
+/* 工具结果容器 */
 .tool-result {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 4px;
-  max-height: 120px;
-  overflow-y: auto;
-  white-space: pre-wrap;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-code);
+  border-radius: var(--radius-sm);
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 折叠状态：限制高度 */
+.tool-result.collapsed {
+  max-height: 300px;
+  overflow: hidden;
+}
+
+/* 渐变遮罩（折叠时） */
+.tool-result.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent, var(--bg-code));
+  pointer-events: none;
+}
+
+/* 展开/收起按钮 */
+.tool-result-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  z-index: 1;
+}
+
+.tool-result-toggle:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--text-accent);
+}
+
+/* 工具结果内的 Markdown 元素样式 */
+.tool-result-content {
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.tool-result-content h2,
+.tool-result-content h3,
+.tool-result-content h4 {
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-result-content h2 { font-size: 16px; }
+.tool-result-content h3 { font-size: 14px; }
+.tool-result-content h4 { font-size: 13px; }
+
+.tool-result-content pre {
+  background: var(--bg-primary);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.tool-result-content code {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.tool-result-content ul,
+.tool-result-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.tool-result-content li {
+  margin: 4px 0;
+}
+
+.tool-result-content blockquote {
+  border-left: 3px solid var(--text-accent);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.tool-result-content a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+.tool-result-content a:hover {
+  text-decoration: underline;
 }
 
 .tool-error {
@@ -578,6 +710,16 @@ body {
 @keyframes pulse {
   0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
   40% { transform: scale(1); opacity: 1; }
+}
+
+/* 流式输出缓冲模式进度指示 */
+.stream-buffered-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 8px 0;
 }
 
 /* ── 代码块 ── */

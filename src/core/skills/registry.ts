@@ -14,6 +14,9 @@ import type {
   SkillRegistryOptions,
   SkillComposeResult,
 } from './types';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'SkillRegistry' });
 
 /**
  * 技能注册表 - 管理所有 Skill 的生命周期
@@ -41,7 +44,7 @@ export class SkillRegistry {
       throw new Error('Skill must have an id');
     }
     if (this.skills.has(skill.id)) {
-      console.warn(`Skill "${skill.id}" is already registered, overwriting...`);
+      log.warn(`Skill "${skill.id}" is already registered, overwriting...`);
     }
     this.skills.set(skill.id, skill);
     this.cache.delete(skill.id); // 清除缓存

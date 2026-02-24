@@ -412,13 +412,27 @@ async function main(): Promise<void> {
     return;
   }
 
-  // 交互模式: 启动 Ink 应用
-  render(
-    React.createElement(App, {
+  // 交互模式: 启动 Ink 应用（带启动 logo 动画）
+  const { StartupLogo } = await import('./adapters/cli/StartupLogo');
+
+  // 创建一个包装组件来处理 logo 和主界面的切换
+  const AppWithLogo = () => {
+    const [showLogo, setShowLogo] = React.useState(true);
+
+    if (showLogo) {
+      return React.createElement(StartupLogo, {
+        onComplete: () => setShowLogo(false),
+        duration: 3000,
+      });
+    }
+
+    return React.createElement(App, {
       agentLoop,
       model: config.provider.model,
-    })
-  );
+    });
+  };
+
+  render(React.createElement(AppWithLogo));
 }
 
 // 启动

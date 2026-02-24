@@ -23,6 +23,7 @@ import { MessageFormatter } from '../im/MessageFormatter';
 let mainWindow: BrowserWindow | null = null;
 let session: ChatSession | null = null;
 let activeBots: Map<string, IMAdapter> = new Map();
+let toolStartTimes: Map<string, number> = new Map();
 
 // ── 日志管理系统 ────────────────────────────────────────────
 
@@ -492,15 +493,28 @@ ipcMain.handle('chat:run', async (_event: IpcMainInvokeEvent, message: string) =
         mainWindow?.webContents.send('chat:thinking', thinking);
       },
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+        // 记录开始时间
+        toolStartTimes.set(id, Date.now());
         mainWindow?.webContents.send('chat:tool-start', { id, name, input });
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-        mainWindow?.webContents.send('chat:tool-end', { id, name, result, isError });
+        // 计算耗时
+        const startTime = toolStartTimes.get(id);
+        const duration = startTime ? Date.now() - startTime : 0;
+        toolStartTimes.delete(id);
+
+        mainWindow?.webContents.send('chat:tool-end', {
+          id, name, result, isError, duration
+        });
+      },
+      onToolDelta: (id: string, name: string, receivedBytes: number) => {
+        mainWindow?.webContents.send('chat:tool-delta', { id, name, receivedBytes });
       },
       onUsage: (usage) => {
         mainWindow?.webContents.send('chat:usage', usage);
       },
       onError: (err: Error) => {
+        toolStartTimes.clear();  // 清理未完成的工具时间
         console.error('[chat:run] 错误回调:', err.message);
         log('Chat', `错误回调: ${err.message}`, 'error');
 
@@ -513,6 +527,7 @@ ipcMain.handle('chat:run', async (_event: IpcMainInvokeEvent, message: string) =
         }
       },
       onEnd: (state) => {
+        toolStartTimes.clear();  // 清理未完成的工具时间
         console.log('[chat:run] 对话结束，迭代:', state.currentIteration);
         log('Chat', `对话结束，迭代: ${state.currentIteration}`);
 

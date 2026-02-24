@@ -16,12 +16,18 @@ const zh: Messages = {
   'cli.title': '✦ Shibit 璇玑',
   'cli.started': '璇玑 CLI 已启动',
   'cli.exit': '璇玑 CLI 退出',
-  'cli.thinking': '思考中...',
+  'cli.thinking': '🤔 让我想想...',
   'cli.help_hint': '/help 查看帮助',
   'cli.startup_failed': '启动失败:',
-  'cli.tool_executing': '{name} 执行中...',
+  'cli.tool_executing': '🔧 正在使用 {name}...',
+  'cli.processing_stream': '✍️  奋笔疾书中...',
+  'cli.stream_buffered': '✍️  接收中... {lines} 行',
   'cli.config_not_init': 'ConfigManager 尚未初始化，请先调用 load()',
   'cli.config_not_init_short': 'ConfigManager 尚未初始化',
+  'cli.tool_nav_mode': '🔍 工具导航模式',
+  'cli.tool_nav_hint': '↑↓ 导航  Enter 展开/收起  Tab/Esc 退出',
+  'cli.tool_nav_enter': '💡 按 Tab 进入工具导航模式查看详情',
+  'cli.parallel_tools': '⚡ {count} 个工具并行执行中',
 
   // ── 命令 ──
   'cmd.help': '/help',
@@ -57,6 +63,7 @@ const zh: Messages = {
   'help.shortcuts_title': '快捷键:',
   'help.shortcut_ctrlc': '  Ctrl+C     — 中断执行 / 返回对话',
   'help.shortcut_shift_enter': '  Shift+Enter — 换行（多行输入）',
+  'help.shortcut_tab': '  Tab        — 进入工具导航模式（查看工具详情）',
 
   // ── 输入框 ──
   'input.multiline_hint': '↕ {count} 行 (Shift+Enter 换行)',
@@ -229,12 +236,18 @@ const en: Messages = {
   'cli.title': '✦ Shibit Xuanji',
   'cli.started': 'Xuanji CLI started',
   'cli.exit': 'Xuanji CLI exited',
-  'cli.thinking': 'Thinking...',
+  'cli.thinking': '🤔 Let me think...',
   'cli.help_hint': '/help for help',
   'cli.startup_failed': 'Startup failed:',
-  'cli.tool_executing': '{name} running...',
+  'cli.tool_executing': '🔧 Using {name}...',
+  'cli.processing_stream': '✍️  Writing response...',
+  'cli.stream_buffered': '✍️  Receiving... {lines} lines',
   'cli.config_not_init': 'ConfigManager not initialized, call load() first',
   'cli.config_not_init_short': 'ConfigManager not initialized',
+  'cli.tool_nav_mode': '🔍 Tool Navigation Mode',
+  'cli.tool_nav_hint': '↑↓ Navigate  Enter Expand/Collapse  Tab/Esc Exit',
+  'cli.tool_nav_enter': '💡 Press Tab to enter tool navigation mode',
+  'cli.parallel_tools': '⚡ {count} tools running in parallel',
 
   // ── Commands ──
   'cmd.help': '/help',
@@ -270,6 +283,7 @@ const en: Messages = {
   'help.shortcuts_title': 'Shortcuts:',
   'help.shortcut_ctrlc': '  Ctrl+C     — Interrupt execution / Back to chat',
   'help.shortcut_shift_enter': '  Shift+Enter — New line (multi-line input)',
+  'help.shortcut_tab': '  Tab        — Enter tool navigation mode (view details)',
 
   // ── Input ──
   'input.multiline_hint': '↕ {count} lines (Shift+Enter for new line)',
