@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   provider: {
     model: '[CC]claude-sonnet-4-5-20250929',
     adapter: 'anthropic',
+    maxTokens: 65536,
     temperature: undefined,
     timeout: 120_000,
     baseURL: 'https://shibit.net',

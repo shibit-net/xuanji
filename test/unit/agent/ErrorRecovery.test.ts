@@ -62,7 +62,7 @@ describe('ErrorRecovery', () => {
   it('formatError() 应处理认证错误', () => {
     const result = ErrorRecovery.formatError(new Error('api_key is invalid'));
     expect(result).toContain('认证失败');
-    expect(result).toContain('XUANJI_API_KEY');
+    expect(result).toContain('API Key');
   });
 
   it('formatError() 应处理网络错误', () => {

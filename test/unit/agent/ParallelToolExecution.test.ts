@@ -142,7 +142,10 @@ describe('Parallel Tool Execution (User Issue)', () => {
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
         console.log(`[Test] onToolStart: ${name} (id=${id}), input=${JSON.stringify(input)}`);
         toolStarts.push(id);
-        toolsStillRunning++;
+        // 只在首次 start（input 为空）时计数，避免 tool_use_end 时重复通知导致重复计数
+        if (Object.keys(input).length === 0) {
+          toolsStillRunning++;
+        }
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
         console.log(`[Test] onToolEnd: ${name} (id=${id}), isError=${isError}, toolsStillRunning=${toolsStillRunning - 1}`);
@@ -161,10 +164,10 @@ describe('Parallel Tool Execution (User Issue)', () => {
     console.log('  toolEnds:', toolEnds);
     console.log('  toolsStillRunning:', toolsStillRunning);
 
-    // 验证两个工具都被启动
-    expect(toolStarts).toHaveLength(2);
-    expect(toolStarts).toContain('read_file_chatSession');
-    expect(toolStarts).toContain('read_file_agentLoop');
+    // 验证两个工具都被启动（onToolStart 在 tool_use_start 和 tool_use_end 时各触发一次，共 4 次）
+    expect(toolStarts).toHaveLength(4);
+    expect(toolStarts.filter((id) => id === 'read_file_chatSession')).toHaveLength(2);
+    expect(toolStarts.filter((id) => id === 'read_file_agentLoop')).toHaveLength(2);
 
     // 验证两个工具都完成了（关键：不是"一直显示执行中"）
     expect(toolEnds).toHaveLength(2);

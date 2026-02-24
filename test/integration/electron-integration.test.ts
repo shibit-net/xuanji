@@ -21,6 +21,7 @@ vi.mock('electron', () => {
     BrowserWindow: vi.fn().mockImplementation(() => ({
       loadFile: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
+      isDestroyed: vi.fn().mockReturnValue(false),
       webContents: {
         send: vi.fn(),
       },

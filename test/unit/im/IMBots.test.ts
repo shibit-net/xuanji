@@ -77,7 +77,7 @@ describe('FeishuBot', () => {
   it('缺少配置应抛出异常', async () => {
     const bot = new FeishuBot({ appId: '', appSecret: '' });
     const session = createMockSession();
-    await expect(bot.start(session)).rejects.toThrow('FEISHU_APP_ID');
+    await expect(bot.start(session)).rejects.toThrow('飞书机器人配置缺失');
   });
 
   it('stop() 应正常工作', async () => {

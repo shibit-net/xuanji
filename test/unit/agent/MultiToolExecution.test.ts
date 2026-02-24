@@ -142,8 +142,11 @@ describe('Multiple Tool Execution', () => {
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
         console.log(`[Callback] onToolStart: ${name} (id=${id})`);
         toolStarts.push({ id, name });
-        toolsInProgress++;
-        maxConcurrent = Math.max(maxConcurrent, toolsInProgress);
+        // 只在首次 start（input 为空）时计数，避免 tool_use_end 时重复通知导致重复计数
+        if (Object.keys(input).length === 0) {
+          toolsInProgress++;
+          maxConcurrent = Math.max(maxConcurrent, toolsInProgress);
+        }
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
         console.log(`[Callback] onToolEnd: ${name} (id=${id}), toolsInProgress after this=${toolsInProgress - 1}`);
@@ -157,10 +160,10 @@ describe('Multiple Tool Execution', () => {
 
     await agentLoop.run('read files');
 
-    // 验证两个工具都被启动
-    expect(toolStarts).toHaveLength(2);
-    expect(toolStarts).toContainEqual({ id: 'read_file_1', name: 'read_file' });
-    expect(toolStarts).toContainEqual({ id: 'read_file_2', name: 'read_file' });
+    // 验证两个工具都被启动（onToolStart 在 tool_use_start 和 tool_use_end 时各触发一次，共 4 次）
+    expect(toolStarts).toHaveLength(4);
+    expect(toolStarts.filter((t) => t.id === 'read_file_1')).toHaveLength(2);
+    expect(toolStarts.filter((t) => t.id === 'read_file_2')).toHaveLength(2);
 
     // 验证两个工具都被结束
     expect(toolEnds).toHaveLength(2);

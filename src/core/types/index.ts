@@ -40,6 +40,7 @@ export type {
   // 配置类型
   AppConfig,
   UITheme,
+  UILanguage,
   UIConfig,
   PermissionLevel,
   PermissionConfig,

@@ -125,13 +125,15 @@ describe('ToolRegistry', () => {
 });
 
 describe('createDefaultRegistry()', () => {
-  it('应注册 4 个核心工具', () => {
+  it('应注册 6 个核心工具', () => {
     const registry = createDefaultRegistry();
     expect(registry.has('read_file')).toBe(true);
     expect(registry.has('write_file')).toBe(true);
     expect(registry.has('edit_file')).toBe(true);
     expect(registry.has('bash')).toBe(true);
-    expect(registry.getAll().length).toBe(4);
+    expect(registry.has('glob')).toBe(true);
+    expect(registry.has('grep')).toBe(true);
+    expect(registry.getAll().length).toBe(6);
   });
 
   it('所有工具都应有合法的 Schema', () => {

@@ -7,6 +7,8 @@ import { ReadTool } from './ReadTool';
 import { WriteTool } from './WriteTool';
 import { EditTool } from './EditTool';
 import { BashTool } from './BashTool';
+import { GlobTool } from './GlobTool';
+import { GrepTool } from './GrepTool';
 
 /**
  * 工具注册表
@@ -89,7 +91,7 @@ export class ToolRegistry implements IToolRegistry {
 }
 
 /**
- * 创建默认工具注册表 (包含 P0 阶段 4 个核心工具)
+ * 创建默认工具注册表 (包含 P0 阶段 6 个核心工具)
  */
 export function createDefaultRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -97,5 +99,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WriteTool());
   registry.register(new EditTool());
   registry.register(new BashTool());
+  registry.register(new GlobTool());
+  registry.register(new GrepTool());
   return registry;
 }

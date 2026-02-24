@@ -106,7 +106,7 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
       await configManager.save({ provider: newProvider });
       setConfig({ ...config, provider: newProvider });
 
-      const fieldLabel = FIELD_ITEMS.find((f) => f.key === editingField)?.label;
+      const fieldLabel = FIELD_ITEMS.find((f) => f.key === editingField)?.label ?? editingField;
       setSaveStatus('success');
       setSaveMessage(t('llm.saved', { field: fieldLabel }));
       setEditingField(null);
@@ -192,10 +192,7 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
             <Box key={item.key}>
               <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
                 {isSelected ? '▶ ' : '  '}
-              </Text>
-              <Text color="gray">{item.shortcut}. </Text>
-              <Text color={isSelected ? '#7C8CF5' : undefined} bold={isSelected}>
-                {item.label}:
+                {item.shortcut}. {item.label}:
               </Text>
               <Text> </Text>
               {isEditing ? (
