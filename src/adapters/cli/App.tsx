@@ -22,7 +22,13 @@ import { ConfigManager } from './utils/ConfigManager';
 import { LogSystem } from './utils/LogSystem';
 import { BotManager } from './utils/BotManager';
 import { getTheme } from './Theme';
+import { ProjectConfigWriter } from '@/core/config';
 import type { ChatMessage, ToolResultDisplay, AppMode } from './types';
+import type { PermissionRequest, GuardCheckResult, UserConfirmation, ConfirmationHandler, PlanReviewResult, PlanReviewHandler } from '@/permission/types';
+import { PermissionPrompt } from '@/permission/ui/PermissionPrompt';
+import { PlanReview } from '@/permission/ui/PlanReview';
+import { UsageStatsRecorder } from '@/core/telemetry';
+import { formatUsageStats } from './utils/FormatStats';
 
 // ============================================================
 // App 组件属性
@@ -37,6 +43,10 @@ export interface AppProps {
     on: (callbacks: AgentCallbacks) => void;
   };
   model: string;
+  /** 权限确认处理器注册回调 (由 ChatSession 提供) */
+  onPermissionSetup?: (handler: ConfirmationHandler) => void;
+  /** 计划审查处理器注册回调 (由 ChatSession 提供) */
+  onPlanReviewSetup?: (handler: PlanReviewHandler) => void;
 }
 
 // ============================================================
@@ -188,7 +198,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -205,6 +215,17 @@ export function App({ agentLoop, model }: AppProps) {
   const [expandedToolIds, setExpandedToolIds] = useState<Set<number>>(new Set());
   // 本轮结束后的统计信息（非 Static 区域展示）
   const [turnStats, setTurnStats] = useState<string>('');
+  // 权限确认状态
+  const [pendingPermission, setPendingPermission] = useState<{
+    request: PermissionRequest;
+    guardResult: GuardCheckResult;
+    resolve: (confirmation: UserConfirmation) => void;
+  } | null>(null);
+  // 计划审查状态
+  const [pendingPlanReview, setPendingPlanReview] = useState<{
+    plan: string;
+    resolve: (result: PlanReviewResult) => void;
+  } | null>(null);
   const msgIdRef = useRef(0);
   const toolInfoRef = useRef<Map<string, {
     startTime: number;
@@ -277,6 +298,28 @@ export function App({ agentLoop, model }: AppProps) {
     };
     init();
   }, [configManager, logSystem]);
+
+  // 注册权限确认处理器
+  useEffect(() => {
+    if (!onPermissionSetup) return;
+    const handler: ConfirmationHandler = async (request, guardResult) => {
+      return new Promise<UserConfirmation>((resolve) => {
+        setPendingPermission({ request, guardResult, resolve });
+      });
+    };
+    onPermissionSetup(handler);
+  }, [onPermissionSetup]);
+
+  // 注册计划审查处理器
+  useEffect(() => {
+    if (!onPlanReviewSetup) return;
+    const handler: PlanReviewHandler = async (plan) => {
+      return new Promise<PlanReviewResult>((resolve) => {
+        setPendingPlanReview({ plan, resolve });
+      });
+    };
+    onPlanReviewSetup(handler);
+  }, [onPlanReviewSetup]);
 
   // 监听 raw stdin 处理 Ctrl+C（Kitty 协议启用后 Ctrl+C = \x1b[99;5u）
   const { internal_eventEmitter } = useStdin();
@@ -781,6 +824,25 @@ export function App({ agentLoop, model }: AppProps) {
     await logSystem.info('Config', `Language switched to ${nextLang}`);
   }, [configManager, addSystemMessage, logSystem]);
 
+  // 重置项目配置为默认模板
+  const handleInitCommand = useCallback(async () => {
+    const language = getLanguage();
+    const writer = new ProjectConfigWriter();
+    try {
+      await writer.initProjectConfig({
+        language,
+        overwrite: true,
+        generateFullConfig: true,
+      });
+      addSystemMessage(t('chat.init_reset'));
+      await logSystem.info('Config', t('chat.init_reset'));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addSystemMessage(t('chat.init_failed', { error: errMsg }));
+      await logSystem.error('Config', errMsg);
+    }
+  }, [addSystemMessage, logSystem]);
+
   // 提交用户输入
   const handleSubmit = useCallback(async (input: string) => {
     // 斜杠命令
@@ -824,7 +886,23 @@ export function App({ agentLoop, model }: AppProps) {
 
         case '/cost': {
           const state = agentLoop.getState();
-          addSystemMessage(`${t('chat.token_label')}: ${state.tokenUsage.input + state.tokenUsage.output}`);
+          const sessionInfo = `${t('chat.token_label')}: ${state.tokenUsage.input + state.tokenUsage.output}`;
+
+          // 尝试获取历史统计（最近 7 天）
+          try {
+            const recorder = new UsageStatsRecorder();
+            const endTime = new Date();
+            const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const stats = await recorder.aggregate({
+              startTime: startTime.toISOString(),
+              endTime: endTime.toISOString(),
+            });
+            const output = formatUsageStats(stats, 7);
+            addSystemMessage(`${sessionInfo}\n\n${output}`);
+          } catch {
+            // 聚合失败时仅显示当前会话 token
+            addSystemMessage(sessionInfo);
+          }
           return;
         }
 
@@ -839,6 +917,7 @@ export function App({ agentLoop, model }: AppProps) {
             t('help.logs'),
             t('help.bots'),
             t('help.lang'),
+            t('help.init'),
             t('help.exit'),
             '',
             t('help.shortcuts_title'),
@@ -864,6 +943,10 @@ export function App({ agentLoop, model }: AppProps) {
 
         case '/lang':
           await cycleLanguage();
+          return;
+
+        case '/init':
+          await handleInitCommand();
           return;
 
         default:
@@ -1045,8 +1128,31 @@ export function App({ agentLoop, model }: AppProps) {
       })()}
 
       {/* 思考中（没有工具在执行、还没有流式文本时显示）*/}
-      {status === 'thinking' && activeTools.size === 0 && !streamText && !streamProgress && (
+      {status === 'thinking' && activeTools.size === 0 && !streamText && !streamProgress && !pendingPermission && !pendingPlanReview && (
         <Spinner label={t('cli.thinking')} />
+      )}
+
+      {/* 权限确认对话框 */}
+      {pendingPermission && (
+        <PermissionPrompt
+          request={pendingPermission.request}
+          guardResult={pendingPermission.guardResult}
+          onConfirm={(confirmation) => {
+            pendingPermission.resolve(confirmation);
+            setPendingPermission(null);
+          }}
+        />
+      )}
+
+      {/* 计划审查对话框 */}
+      {pendingPlanReview && (
+        <PlanReview
+          plan={pendingPlanReview.plan}
+          onDecision={(result) => {
+            pendingPlanReview.resolve(result);
+            setPendingPlanReview(null);
+          }}
+        />
       )}
 
       {/* 正常模式：流式文本实时展示（idle 时保留上一轮内容，下一轮开始时搬到 Static） */}
