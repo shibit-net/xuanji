@@ -1,7 +1,22 @@
 // ============================================================
-// M5 权限控制 — 占位 (P1 阶段实现)
+// M5 权限控制 — 模块导出
 // ============================================================
 
-// P0 阶段暂不实现，P1 阶段 (W6) 实现权限系统
-// 包括: PermissionController, PolicyEngine, FileGuard, CommandGuard
-export {};
+export { PermissionController } from './PermissionController';
+export { FileGuard } from './guards/FileGuard';
+export { CommandGuard } from './guards/CommandGuard';
+export { PolicyEngine } from './policies/PolicyEngine';
+export { PathMatcher, globToRegex } from './policies/PathMatcher';
+export { PermissionPrompt } from './ui/PermissionPrompt';
+export { PlanReview } from './ui/PlanReview';
+
+export type {
+  IPermissionController,
+  PermissionRequest,
+  PermissionResult,
+  GuardCheckResult,
+  UserConfirmation,
+  ConfirmationHandler,
+  PlanReviewResult,
+  PlanReviewHandler,
+} from './types';
