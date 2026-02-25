@@ -1,7 +1,11 @@
-// ============================================================
-// M3 上下文引擎 — 占位 (P1+ 阶段实现)
-// ============================================================
+/**
+ * ============================================================
+ * M3 上下文引擎 — 模块导出
+ * ============================================================
+ */
 
-// P0 阶段暂不实现，P1 阶段 (W7) 实现项目感知功能
-// 包括: ProjectScanner, FileIndex, ContextBuilder
-export {};
+export { ProjectScanner } from './ProjectScanner';
+export { RulesLoader } from './RulesLoader';
+export { ContextBuilder } from './ContextBuilder';
+
+export type { ProjectMetadata, ProjectType, DetectionRule, RulesContent } from './types';
