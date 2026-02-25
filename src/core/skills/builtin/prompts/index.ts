@@ -6,6 +6,7 @@
  */
 
 export { xuanjiAssistantSkill } from './xuanji-assistant';
+export { projectRulesSkill } from './project-rules';
 export {
   toolGuidanceSkill,
   securityRulesSkill,

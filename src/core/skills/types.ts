@@ -68,7 +68,10 @@ export interface SkillParameter {
  */
 export interface SkillRenderOptions {
   /** 参数 */
-  params?: Record<string, any>;
+  params?: Record<string, any> & {
+    /** 依赖 Skill 的返回值 (key 为 skillId, value 为渲染结果) */
+    dependencies?: Record<string, string>;
+  };
 
   /** 是否应用依赖 */
   includeDependencies?: boolean;

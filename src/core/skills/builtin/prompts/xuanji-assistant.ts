@@ -92,7 +92,7 @@ export const xuanjiAssistantSkill: Skill<string> = {
     },
   },
 
-  dependencies: [],
+  dependencies: ['project-rules'],
   conflicts: [],
   requiredTools: [],
   enabled: true,
@@ -100,10 +100,18 @@ export const xuanjiAssistantSkill: Skill<string> = {
 
   /**
    * 渲染方法
-   * 直接返回系统提示词，不做模板替换
+   * 返回系统提示词 + 项目上下文（来自 project-rules 依赖）
    * 工具定义通过 API 的 tools 参数传递，不内联到 prompt
    */
-  render: (_options?: any): string => {
-    return SYSTEM_PROMPT;
+  render: (options?: any): string => {
+    let prompt = SYSTEM_PROMPT;
+
+    // 获取 project-rules 依赖的返回值
+    const projectContext = options?.params?.dependencies?.['project-rules'];
+    if (projectContext) {
+      prompt += `\n\n${projectContext}`;
+    }
+
+    return prompt;
   },
 };

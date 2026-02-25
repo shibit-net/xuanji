@@ -8,6 +8,7 @@
 // 导出所有 Prompt Skills
 export {
   xuanjiAssistantSkill,
+  projectRulesSkill,
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,

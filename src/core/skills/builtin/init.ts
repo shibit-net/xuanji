@@ -8,6 +8,7 @@
 import type { SkillRegistry } from '../registry';
 import {
   xuanjiAssistantSkill,
+  projectRulesSkill,
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,
@@ -20,6 +21,7 @@ import {
  */
 export function initializeBuiltinSkills(registry: SkillRegistry): void {
   // 注册 Prompt Skills
+  registry.register(projectRulesSkill); // 先注册依赖
   registry.register(xuanjiAssistantSkill);
   registry.register(toolGuidanceSkill);
   registry.register(securityRulesSkill);
@@ -35,6 +37,7 @@ export function initializeBuiltinSkills(registry: SkillRegistry): void {
  */
 export function getBuiltinSkills() {
   return [
+    projectRulesSkill,
     xuanjiAssistantSkill,
     toolGuidanceSkill,
     securityRulesSkill,

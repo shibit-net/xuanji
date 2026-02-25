@@ -240,34 +240,61 @@ export class SkillRegistry {
       throw new Error(`Skill "${skillId}" not found`);
     }
 
+    let params = options?.params || {};
+
+    // 🆕 处理依赖注入：渲染所有依赖并注入到 params.dependencies
+    if (skill.dependencies && skill.dependencies.length > 0) {
+      const dependencyResults: Record<string, string> = {};
+
+      for (const depId of skill.dependencies) {
+        try {
+          const depContent = this.render(depId, {
+            params: options?.params,
+            includeDependencies: false, // 避免递归包含
+          });
+          dependencyResults[depId] = depContent;
+        } catch (error) {
+          log.error(`Failed to render dependency "${depId}":`, error);
+          // 依赖渲染失败不阻塞主 Skill，设置空字符串
+          dependencyResults[depId] = '';
+        }
+      }
+
+      // 将依赖结果注入到 params
+      params = {
+        ...params,
+        dependencies: dependencyResults,
+      };
+    }
+
     let content: string;
 
-    // 如果有自定义渲染方法，使用它
+    // 如果有自定义渲染方法，使用它（传入增强的 params）
     if (skill.render) {
-      content = skill.render(options);
+      content = skill.render({ ...options, params });
     } else if (typeof skill.content === 'string') {
       // 否则使用内容并替换参数
-      content = this.replaceParameters(
-        skill.content,
-        options?.params || {}
-      );
+      content = this.replaceParameters(skill.content, params);
     } else {
       throw new Error(
         `Skill "${skillId}" has no render method and content is not a string`
       );
     }
 
-    // 如果需要包含依赖
+    // 如果需要包含依赖（向后兼容：拼接依赖内容）
     if (options?.includeDependencies && skill.dependencies) {
       const depContents = skill.dependencies
-        .map((depId) => this.render(depId, options))
+        .map((depId) => params.dependencies?.[depId] || '')
+        .filter((c) => c.length > 0)
         .join('\n\n');
-      content = `${depContents}\n\n${content}`;
+      if (depContents) {
+        content = `${depContents}\n\n${content}`;
+      }
     }
 
     // 应用自定义转换
     if (options?.transformer) {
-      content = options.transformer(content, options.params || {});
+      content = options.transformer(content, params);
     }
 
     // 缓存结果
