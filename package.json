@@ -1,6 +1,6 @@
 {
   "name": "xuanji",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "璇玑 (Xuanji) — 开源 AI 助手",
   "type": "module",
   "bin": {
