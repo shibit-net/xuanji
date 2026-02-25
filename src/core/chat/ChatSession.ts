@@ -17,7 +17,9 @@ import type {
 import { AgentLoop, type AgentCallbacks } from '@/core/agent/AgentLoop';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { ProviderFactory } from '@/core/providers/ProviderFactory';
-import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
+import { createDefaultRegistry, ToolRegistry } from '@/core/tools/ToolRegistry';
+import { PermissionController } from '@/permission/PermissionController';
+import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { SkillRegistry } from '@/core/skills';
 
 /**
@@ -46,6 +48,7 @@ export interface ChatSessionOptions {
 export class ChatSession {
   private agentLoop: AgentLoop | null = null;
   private skillRegistry: SkillRegistry | null = null;
+  private permissionController: IPermissionController | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   private registry: IToolRegistry | null = null;
@@ -102,6 +105,13 @@ export class ChatSession {
 
     // 3. 初始化 ToolRegistry
     this.registry = this.options.registry ?? createDefaultRegistry();
+
+    // 3.5 初始化权限控制器并注入到 ToolRegistry
+    const permissionConfig = this.config.tools.permissions;
+    this.permissionController = new PermissionController(permissionConfig);
+    if (this.registry instanceof ToolRegistry) {
+      (this.registry as ToolRegistry).setPermissionController(this.permissionController);
+    }
 
     // 4. 初始化 Skill 系统 (新增)
     const { SkillRegistry, SkillLoader, initializeBuiltinSkills } = await import(
@@ -186,6 +196,7 @@ export class ChatSession {
     // 清空当前状态
     this.agentLoop = null;
     this.skillRegistry = null;
+    this.permissionController = null;
     this.config = null;
     this.provider = null;
     this.registry = null;
@@ -234,6 +245,31 @@ export class ChatSession {
       throw new Error('ChatSession 尚未初始化或 Skill 系统未加载，请先调用 init()');
     }
     return this.skillRegistry;
+  }
+
+  /**
+   * 获取权限控制器 (用于 UI 层注入确认处理器)
+   */
+  getPermissionController(): IPermissionController | null {
+    return this.permissionController;
+  }
+
+  /**
+   * 设置权限确认处理器 (由 UI 层调用)
+   */
+  setConfirmationHandler(handler: ConfirmationHandler): void {
+    if (this.permissionController) {
+      this.permissionController.setConfirmationHandler(handler);
+    }
+  }
+
+  /**
+   * 设置计划审查处理器 (由 UI 层调用)
+   */
+  setPlanReviewHandler(handler: PlanReviewHandler): void {
+    if (this.permissionController) {
+      this.permissionController.setPlanReviewHandler(handler);
+    }
   }
 
   /**

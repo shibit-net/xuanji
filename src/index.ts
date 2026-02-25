@@ -429,6 +429,8 @@ async function main(): Promise<void> {
     return React.createElement(App, {
       agentLoop,
       model: config.provider.model,
+      onPermissionSetup: (handler: any) => session.setConfirmationHandler(handler),
+      onPlanReviewSetup: (handler: any) => session.setPlanReviewHandler(handler),
     });
   };
 

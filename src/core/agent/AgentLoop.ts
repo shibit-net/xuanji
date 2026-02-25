@@ -10,6 +10,8 @@ import { TokenManager } from './TokenManager';
 import { CostTracker } from './CostTracker';
 import { ErrorRecovery } from './ErrorRecovery';
 import { logger } from '@/core/logger';
+import { SessionRecorder } from '@/core/telemetry';
+import { UsageStatsRecorder } from '@/core/telemetry';
 
 /**
  * Agent 事件回调
@@ -47,6 +49,8 @@ export class AgentLoop {
   private tokenManager: TokenManager;
   private costTracker: CostTracker;
   private errorRecovery: ErrorRecovery;
+  private sessionRecorder: SessionRecorder;
+  private usageStatsRecorder: UsageStatsRecorder;
   private provider: ILLMProvider;
   private registry: IToolRegistry;
   private config: AgentConfig;
@@ -68,6 +72,8 @@ export class AgentLoop {
     this.tokenManager = new TokenManager();
     this.costTracker = new CostTracker(config.model);
     this.errorRecovery = new ErrorRecovery();
+    this.sessionRecorder = new SessionRecorder();
+    this.usageStatsRecorder = new UsageStatsRecorder();
 
     // 注册流处理回调
     this.streamProcessor.onTextDelta((text) => this.callbacks.onText?.(text));
@@ -104,6 +110,9 @@ export class AgentLoop {
     this.running = true;
     this.currentIteration = 0;
     const maxIterations = this.config.maxIterations ?? 50;
+    const startTime = Date.now();
+    const sessionId = `session-${startTime}`;
+    const toolStatsMap = new Map<string, { count: number; durationMs: number; errorCount: number }>();
 
     try {
       // 构建初始消息
@@ -212,7 +221,20 @@ export class AgentLoop {
           this.callbacks.onToolGrouped?.({ parallelIds, serialIds });
         }
 
+        const toolExecStartTime = Date.now();
         const resultsMap = await this.toolDispatcher.executeAll(result.toolCalls);
+        const toolExecDurationMs = Date.now() - toolExecStartTime;
+
+        // 统计工具调用（按工具名聚合）
+        for (const toolCall of result.toolCalls) {
+          const toolResult = resultsMap.get(toolCall.id);
+          const existing = toolStatsMap.get(toolCall.name) ?? { count: 0, durationMs: 0, errorCount: 0 };
+          existing.count++;
+          // 将总耗时按工具数量均分（近似值，无法精确到单个工具）
+          existing.durationMs += Math.round(toolExecDurationMs / result.toolCalls.length);
+          if (toolResult?.isError) existing.errorCount++;
+          toolStatsMap.set(toolCall.name, existing);
+        }
 
         // 触发 onToolEnd 回调（按原始顺序）
         // try-catch 保护：回调异常（如 Ink 渲染/stdout.write 异常）不应终止 ReAct 循环
@@ -263,7 +285,40 @@ export class AgentLoop {
     } finally {
       this.log.debug(`Finally: running=${this.running}, iterations=${this.currentIteration}/${maxIterations}`);
       this.running = false;
-      this.callbacks.onEnd?.(this.getState());
+      const state = this.getState();
+      this.callbacks.onEnd?.(state);
+
+      // 记录会话统计到 JSONL (仅当有实际对话时)
+      if (this.currentIteration > 0) {
+        const durationMs = Date.now() - startTime;
+        await this.sessionRecorder.record({
+          timestamp: new Date().toISOString(),
+          model: this.config.model,
+          input: state.tokenUsage.input,
+          output: state.tokenUsage.output,
+          cacheRead: state.tokenUsage.cacheRead,
+          cacheWrite: state.tokenUsage.cacheWrite,
+          durationMs,
+        });
+
+        // 记录使用统计（含工具调用详情）
+        const toolCalls = Array.from(toolStatsMap.entries()).map(([name, stats]) => ({
+          name,
+          ...stats,
+        }));
+        await this.usageStatsRecorder.record({
+          timestamp: new Date().toISOString(),
+          sessionId,
+          model: this.config.model,
+          input: state.tokenUsage.input,
+          output: state.tokenUsage.output,
+          cacheRead: state.tokenUsage.cacheRead,
+          cacheWrite: state.tokenUsage.cacheWrite,
+          durationMs,
+          iterations: this.currentIteration,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        });
+      }
     }
   }
 
