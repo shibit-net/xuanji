@@ -3,12 +3,14 @@
 // ============================================================
 
 import type { Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
+import type { IPermissionController } from '@/permission/types';
 import { ReadTool } from './ReadTool';
 import { WriteTool } from './WriteTool';
 import { EditTool } from './EditTool';
 import { BashTool } from './BashTool';
 import { GlobTool } from './GlobTool';
 import { GrepTool } from './GrepTool';
+import { PlanReviewTool } from './PlanReviewTool';
 
 /**
  * 工具注册表
@@ -16,6 +18,19 @@ import { GrepTool } from './GrepTool';
  */
 export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
+  private permissionController?: IPermissionController;
+
+  /**
+   * 注入权限控制器 (可选)
+   */
+  setPermissionController(controller: IPermissionController): void {
+    this.permissionController = controller;
+    // 同步注入到 PlanReviewTool
+    const planTool = this.tools.get('plan_review');
+    if (planTool && planTool instanceof PlanReviewTool) {
+      (planTool as PlanReviewTool).setPermissionController(controller);
+    }
+  }
 
   /**
    * 注册工具
@@ -78,6 +93,23 @@ export class ToolRegistry implements IToolRegistry {
       };
     }
 
+    // 🔐 权限检查
+    if (this.permissionController) {
+      const request = {
+        requestId: `${name}-${Date.now()}`,
+        toolName: name,
+        input,
+      };
+      const perm = await this.permissionController.check(request);
+      if (!perm.allowed) {
+        return {
+          content: `[Permission Denied] ${perm.reason ?? '操作被拒绝'}`,
+          isError: true,
+          metadata: { permissionDenied: true },
+        };
+      }
+    }
+
     try {
       return await tool.execute(input);
     } catch (err) {
@@ -101,5 +133,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new BashTool());
   registry.register(new GlobTool());
   registry.register(new GrepTool());
+  registry.register(new PlanReviewTool());
   return registry;
 }

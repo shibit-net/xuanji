@@ -29,6 +29,10 @@ export const DEFAULT_CONFIG: AppConfig = {
       fileWrite: 'ask',
       fileRead: 'always',
       bashExec: 'ask',
+      allowedCommands: [],
+      deniedCommands: [],
+      allowedPaths: [],
+      deniedPaths: [],
     },
   },
   retry: {
