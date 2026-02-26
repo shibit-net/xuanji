@@ -1,7 +1,24 @@
 // ============================================================
-// M4 记忆系统 — 占位 (P2+ 阶段实现)
+// M4 记忆系统 — 模块导出
 // ============================================================
 
-// P0 阶段暂不实现，P2 阶段 (W10-W11) 实现记忆系统
-// 包括: ShortTermMemory, LongTermMemory, ProjectKnowledge
-export {};
+// 类型
+export type {
+  MemoryEntry,
+  MemoryEntryType,
+  SessionMemory,
+  ToolCallRecord,
+  RetrieveOptions,
+  IMemoryStore,
+  MemoryConfig,
+} from './types';
+export { DEFAULT_MEMORY_CONFIG } from './types';
+
+// 核心模块
+export { StorageBackend } from './StorageBackend';
+export { ShortTermMemory } from './ShortTermMemory';
+export { LongTermMemory } from './LongTermMemory';
+export { ProjectKnowledge } from './ProjectKnowledge';
+export { MemoryRetriever } from './MemoryRetriever';
+export { MemoryCompactor } from './MemoryCompactor';
+export { MemoryManager } from './MemoryManager';
