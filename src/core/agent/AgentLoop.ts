@@ -3,10 +3,12 @@
 // ============================================================
 
 import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema } from '@/core/types';
+import type { IMemoryStore, SessionMemory, ToolCallRecord } from '@/memory/types';
 import { MessageManager } from './MessageManager';
 import { StreamProcessor, type ProcessResult } from './StreamProcessor';
 import { ToolDispatcher } from './ToolDispatcher';
 import { TokenManager } from './TokenManager';
+import { ContextCompressor } from './ContextCompressor';
 import { CostTracker } from './CostTracker';
 import { ErrorRecovery } from './ErrorRecovery';
 import { logger } from '@/core/logger';
@@ -47,6 +49,7 @@ export class AgentLoop {
   private streamProcessor: StreamProcessor;
   private toolDispatcher: ToolDispatcher;
   private tokenManager: TokenManager;
+  private contextCompressor: ContextCompressor;
   private costTracker: CostTracker;
   private errorRecovery: ErrorRecovery;
   private sessionRecorder: SessionRecorder;
@@ -57,19 +60,23 @@ export class AgentLoop {
   private callbacks: AgentCallbacks = {};
   private running = false;
   private currentIteration = 0;
+  private memoryStore: IMemoryStore | null = null;
 
   constructor(
     provider: ILLMProvider,
     registry: IToolRegistry,
     config: AgentConfig,
+    memoryStore?: IMemoryStore,
   ) {
     this.provider = provider;
     this.registry = registry;
     this.config = config;
+    this.memoryStore = memoryStore ?? null;
     this.messageManager = new MessageManager(config.systemPrompt);
     this.streamProcessor = new StreamProcessor();
     this.toolDispatcher = new ToolDispatcher(registry);
     this.tokenManager = new TokenManager();
+    this.contextCompressor = new ContextCompressor(config.compressor);
     this.costTracker = new CostTracker(config.model);
     this.errorRecovery = new ErrorRecovery();
     this.sessionRecorder = new SessionRecorder();
@@ -113,6 +120,7 @@ export class AgentLoop {
     const startTime = Date.now();
     const sessionId = `session-${startTime}`;
     const toolStatsMap = new Map<string, { count: number; durationMs: number; errorCount: number }>();
+    const sessionToolCalls: ToolCallRecord[] = [];
 
     try {
       // 构建初始消息
@@ -126,7 +134,17 @@ export class AgentLoop {
 
         this.log.debug(`Iteration ${this.currentIteration}/${maxIterations}, running=${this.running}, messages=${messages.length}`);
 
-        // Token 窗口裁剪
+        // 智能压缩（在硬截断之前）
+        const compressionResult = this.contextCompressor.compress(messages, this.tokenManager);
+        messages = compressionResult.compressed;
+        if (compressionResult.compressionRatio > 0) {
+          this.callbacks.onInfo?.(
+            `📦 压缩了 ${compressionResult.originalTokens - compressionResult.compressedTokens} tokens` +
+            ` (${Math.round(compressionResult.compressionRatio * 100)}% 压缩率)`
+          );
+        }
+
+        // Token 窗口裁剪（兜底保护）
         messages = this.tokenManager.fitWindow(messages);
 
         // 调用 LLM
@@ -234,6 +252,16 @@ export class AgentLoop {
           existing.durationMs += Math.round(toolExecDurationMs / result.toolCalls.length);
           if (toolResult?.isError) existing.errorCount++;
           toolStatsMap.set(toolCall.name, existing);
+
+          // 记录工具调用详情（用于记忆系统）
+          if (toolResult) {
+            sessionToolCalls.push({
+              name: toolCall.name,
+              input: toolCall.input as Record<string, unknown>,
+              isError: toolResult.isError,
+              resultSummary: toolResult.content.slice(0, 200),
+            });
+          }
         }
 
         // 触发 onToolEnd 回调（按原始顺序）
@@ -318,6 +346,41 @@ export class AgentLoop {
           iterations: this.currentIteration,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         });
+
+        // 保存会话记忆
+        if (this.memoryStore) {
+          try {
+            const history = this.messageManager.getHistory();
+            const sessionMemory: SessionMemory = {
+              sessionId,
+              startTime: new Date(startTime).toISOString(),
+              endTime: new Date().toISOString(),
+              userMessages: history
+                .filter((m) => m.role === 'user')
+                .map((m) => (typeof m.content === 'string' ? m.content : '[complex]'))
+                .slice(0, 10),
+              assistantHighlights: history
+                .filter((m) => m.role === 'assistant')
+                .flatMap((m) => {
+                  if (typeof m.content === 'string') return [m.content];
+                  if (Array.isArray(m.content)) {
+                    return m.content
+                      .filter((b: any) => b.type === 'text')
+                      .map((b: any) => b.text ?? '');
+                  }
+                  return [];
+                })
+                .filter((t: string) => t.length > 0)
+                .slice(0, 5),
+              toolCalls: sessionToolCalls,
+              durationMs: Date.now() - startTime,
+              model: this.config.model,
+            };
+            await this.memoryStore.save(sessionMemory);
+          } catch {
+            // 静默失败
+          }
+        }
       }
     }
   }
@@ -349,5 +412,12 @@ export class AgentLoop {
     this.messageManager.clear();
     this.tokenManager.reset();
     this.currentIteration = 0;
+  }
+
+  /**
+   * 获取消息管理器（用于动态注入 system prompt 后缀）
+   */
+  getMessageManager(): MessageManager {
+    return this.messageManager;
   }
 }

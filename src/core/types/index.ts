@@ -14,6 +14,11 @@ export type {
   TokenUsage,
   AgentEventType,
   AgentEventMap,
+  // 压缩器类型
+  CompressorConfig,
+  MessageGroupType,
+  MessageGroup,
+  CompressionResult,
 } from './agent';
 
 export type {

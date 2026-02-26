@@ -7,5 +7,6 @@ export { MessageManager, type IMessageManager } from './MessageManager';
 export { StreamProcessor, type ProcessResult } from './StreamProcessor';
 export { ToolDispatcher, type IToolDispatcher } from './ToolDispatcher';
 export { TokenManager } from './TokenManager';
+export { ContextCompressor, DEFAULT_COMPRESSOR_CONFIG } from './ContextCompressor';
 export { CostTracker } from './CostTracker';
 export { ErrorRecovery } from './ErrorRecovery';

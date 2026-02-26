@@ -36,6 +36,53 @@ export interface Message {
 }
 
 /**
+ * 上下文压缩器配置
+ */
+export interface CompressorConfig {
+  /** 是否启用压缩 */
+  enabled: boolean;
+  /** 保留最近 N 轮完整对话 */
+  keepRecentRounds: number;
+  /** 触发压缩的 token 占比（0-1） */
+  compressionThreshold: number;
+  /** 最少消息数才压缩 */
+  minMessagesToCompress: number;
+  /** 单条摘要最大长度 */
+  summaryMaxLength: number;
+}
+
+/**
+ * 消息分组类型
+ */
+export type MessageGroupType = 'conversation' | 'tool_sequence' | 'system';
+
+/**
+ * 消息分组
+ */
+export interface MessageGroup {
+  type: MessageGroupType;
+  startIndex: number;
+  endIndex: number;
+  messages: Message[];
+}
+
+/**
+ * 压缩结果
+ */
+export interface CompressionResult {
+  /** 压缩后的消息数组 */
+  compressed: Message[];
+  /** 压缩前 token 数 */
+  originalTokens: number;
+  /** 压缩后 token 数 */
+  compressedTokens: number;
+  /** 压缩率 (0-1) */
+  compressionRatio: number;
+  /** 人类可读的压缩报告 */
+  summary: string;
+}
+
+/**
  * Agent 配置
  */
 export interface AgentConfig {
@@ -53,6 +100,8 @@ export interface AgentConfig {
   systemPrompt?: string;
   /** 最大 ReAct 循环次数 */
   maxIterations?: number;
+  /** 上下文压缩器配置 */
+  compressor?: Partial<CompressorConfig>;
 }
 
 /**

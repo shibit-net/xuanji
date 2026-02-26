@@ -82,6 +82,13 @@ export class TokenManager {
   }
 
   /**
+   * 获取最大输入 token 数（上下文窗口 - 预留输出）
+   */
+  getMaxInputTokens(): number {
+    return this.maxContextTokens - this.reservedOutputTokens;
+  }
+
+  /**
    * 获取累计用量
    */
   getTotalUsage(): TokenUsage {
