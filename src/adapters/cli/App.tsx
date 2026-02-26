@@ -41,12 +41,17 @@ export interface AppProps {
     reset: () => void;
     getState: () => AgentState;
     on: (callbacks: AgentCallbacks) => void;
+    compact: () => { originalTokens: number; compressedTokens: number; compressionRatio: number } | null;
   };
   model: string;
   /** 权限确认处理器注册回调 (由 ChatSession 提供) */
   onPermissionSetup?: (handler: ConfirmationHandler) => void;
   /** 计划审查处理器注册回调 (由 ChatSession 提供) */
   onPlanReviewSetup?: (handler: PlanReviewHandler) => void;
+  /** 模型切换回调 (返回新模型名) */
+  onModelChange?: (model: string) => Promise<string>;
+  /** 记忆查询回调 (返回格式化的记忆条目) */
+  onMemoryQuery?: (query?: string) => Promise<string>;
 }
 
 // ============================================================
@@ -198,7 +203,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -913,6 +918,9 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup }: 
             t('help.clear'),
             t('help.reset'),
             t('help.cost'),
+            t('help.compact'),
+            t('help.model'),
+            t('help.memory'),
             t('help.settings'),
             t('help.logs'),
             t('help.bots'),
@@ -949,6 +957,53 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup }: 
           await handleInitCommand();
           return;
 
+        case '/compact': {
+          const compactResult = agentLoop.compact();
+          if (compactResult) {
+            addSystemMessage(t('chat.compact_done', {
+              original: String(compactResult.originalTokens),
+              compressed: String(compactResult.compressedTokens),
+              ratio: String(Math.round(compactResult.compressionRatio * 100)),
+            }));
+          } else {
+            addSystemMessage(t('chat.compact_skip'));
+          }
+          return;
+        }
+
+        case '/model': {
+          if (!cmd.args) {
+            // 无参数：显示当前模型
+            addSystemMessage(t('chat.model_current', { model }));
+          } else if (onModelChange) {
+            try {
+              const newModel = await onModelChange(cmd.args);
+              addSystemMessage(t('chat.model_changed', { model: newModel }));
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              addSystemMessage(t('chat.model_change_failed', { error: errMsg }));
+            }
+          } else {
+            addSystemMessage(t('chat.model_current', { model }));
+          }
+          return;
+        }
+
+        case '/memory': {
+          if (!onMemoryQuery) {
+            addSystemMessage(t('chat.memory_disabled'));
+            return;
+          }
+          try {
+            const result = await onMemoryQuery(cmd.args || undefined);
+            addSystemMessage(result || t('chat.memory_empty'));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            addSystemMessage(t('chat.memory_error', { error: errMsg }));
+          }
+          return;
+        }
+
         default:
           addSystemMessage(t('chat.unknown_command', { name: cmd.name }));
           return;
@@ -981,7 +1036,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup }: 
       turnStartTimeRef.current = 0;  // 重置开始时间
       await logSystem.error('Chat', errMsg);
     }
-  }, [agentLoop, exit, addSystemMessage, flushTurnToHistory, cycleLanguage, logSystem]);
+  }, [agentLoop, model, exit, addSystemMessage, flushTurnToHistory, cycleLanguage, logSystem, onModelChange, onMemoryQuery]);
 
   // 从设置/日志/机器人模式返回对话模式
   const handleModeExit = useCallback(() => {

@@ -121,6 +121,14 @@ export class MessageManager implements IMessageManager {
   }
 
   /**
+   * 替换内部消息历史（用于上下文压缩后更新）
+   * 注意：传入的消息不应包含 system prompt
+   */
+  replaceMessages(messages: Message[]): void {
+    this.messages = messages;
+  }
+
+  /**
    * 清空对话历史
    */
   clear(): void {

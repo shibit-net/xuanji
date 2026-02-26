@@ -393,6 +393,21 @@ export class AgentLoop {
   }
 
   /**
+   * 手动触发上下文压缩
+   * 返回压缩结果，如果不需要压缩则返回 null
+   */
+  compact(): import('@/core/types').CompressionResult | null {
+    const messages = this.messageManager.getMessages();
+    const result = this.contextCompressor.compress(messages, this.tokenManager);
+    if (result.compressionRatio > 0) {
+      // 更新 MessageManager 内部状态（去掉 system prompt）
+      this.messageManager.replaceMessages(result.compressed.slice(1));
+      this.log.info(`Manual compact: ${result.originalTokens} → ${result.compressedTokens} tokens`);
+    }
+    return result.compressionRatio > 0 ? result : null;
+  }
+
+  /**
    * 获取当前状态
    */
   getState(): AgentState {

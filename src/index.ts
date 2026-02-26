@@ -431,6 +431,21 @@ async function main(): Promise<void> {
       model: config.provider.model,
       onPermissionSetup: (handler: any) => session.setConfirmationHandler(handler),
       onPlanReviewSetup: (handler: any) => session.setPlanReviewHandler(handler),
+      onModelChange: async (newModel: string) => {
+        const newConfig = { ...session.getConfig() };
+        newConfig.provider = { ...newConfig.provider, model: newModel };
+        await session.reinitialize(newConfig);
+        return newModel;
+      },
+      onMemoryQuery: async (query?: string) => {
+        const memoryManager = session.getMemoryManager();
+        if (!memoryManager) return '';
+        const entries = await memoryManager.retrieve(query ?? '', { maxResults: 20 });
+        if (entries.length === 0) return '';
+        return entries.map((e: any, i: number) =>
+          `${i + 1}. [${e.type}] ${e.content}${e.keywords?.length ? ` (${e.keywords.slice(0, 3).join(', ')})` : ''}`
+        ).join('\n');
+      },
     });
   };
 
