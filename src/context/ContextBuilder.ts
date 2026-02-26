@@ -8,7 +8,7 @@
  */
 
 import * as os from 'node:os';
-import type { ProjectMetadata, RulesContent } from './types';
+import type { ProjectMetadata, RulesContent, DependencyInfo } from './types';
 
 /** 项目类型到人类可读名称的映射 */
 const PROJECT_TYPE_LABELS: Record<string, string> = {
@@ -24,6 +24,8 @@ export class ContextBuilder {
   constructor(
     private metadata: ProjectMetadata,
     private rules: RulesContent,
+    private indexSummary?: string,
+    private dependencyInfo?: DependencyInfo,
   ) {}
 
   /**
@@ -48,6 +50,16 @@ export class ContextBuilder {
     // ~/.xuanji/rules.md section
     if (this.rules.globalRules) {
       sections.push(this.buildSection('Global Rules (~/.xuanji/rules.md)', this.rules.globalRules));
+    }
+
+    // 代码索引 section
+    if (this.indexSummary) {
+      sections.push(this.indexSummary);
+    }
+
+    // 依赖信息 section
+    if (this.dependencyInfo && this.dependencyInfo.totalCount > 0) {
+      sections.push(this.buildDependencySection());
     }
 
     // 环境信息 section
@@ -83,6 +95,48 @@ export class ContextBuilder {
       `- Shell: ${process.env.SHELL || 'unknown'}`,
       `- Home: ${os.homedir()}`,
     ];
+    return lines.join('\n');
+  }
+
+  private buildDependencySection(): string {
+    if (!this.dependencyInfo || this.dependencyInfo.totalCount === 0) {
+      return '';
+    }
+
+    const lines = ['### Dependencies', ''];
+
+    if (this.dependencyInfo.dependencies.size > 0) {
+      lines.push('**Production Dependencies** (top 10):');
+      const deps = Array.from(this.dependencyInfo.dependencies.entries()).slice(
+        0,
+        10,
+      );
+      for (const [name, version] of deps) {
+        lines.push(`- \`${name}\`: ${version}`);
+      }
+      if (this.dependencyInfo.dependencies.size > 10) {
+        lines.push(
+          `- ... and ${this.dependencyInfo.dependencies.size - 10} more`,
+        );
+      }
+      lines.push('');
+    }
+
+    if (this.dependencyInfo.devDependencies.size > 0) {
+      lines.push('**Dev Dependencies** (top 5):');
+      const devDeps = Array.from(
+        this.dependencyInfo.devDependencies.entries(),
+      ).slice(0, 5);
+      for (const [name, version] of devDeps) {
+        lines.push(`- \`${name}\`: ${version}`);
+      }
+      if (this.dependencyInfo.devDependencies.size > 5) {
+        lines.push(
+          `- ... and ${this.dependencyInfo.devDependencies.size - 5} more`,
+        );
+      }
+    }
+
     return lines.join('\n');
   }
 }

@@ -7,5 +7,20 @@
 export { ProjectScanner } from './ProjectScanner';
 export { RulesLoader } from './RulesLoader';
 export { ContextBuilder } from './ContextBuilder';
+export { CodeParser } from './CodeParser';
+export { SymbolExtractor } from './SymbolExtractor';
+export { FileIndexer } from './FileIndexer';
+export { DependencyAnalyzer } from './DependencyAnalyzer';
 
-export type { ProjectMetadata, ProjectType, DetectionRule, RulesContent } from './types';
+export type { ProjectMetadata, ProjectType, DetectionRule, RulesContent, DependencyInfo } from './types';
+export type {
+  ParsedTree,
+  SupportedLanguage,
+  SymbolInfo,
+  SymbolKind,
+  ImportInfo,
+  ExtractedSymbols,
+  IndexedFile,
+  FileIndex,
+  IndexOptions,
+} from './types';
