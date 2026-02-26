@@ -2,15 +2,17 @@
  * ============================================================
  * Built-in Prompt Skill: Project Rules
  * ============================================================
- * 注入项目特定的上下文和规则到 system prompt。
+ * 注入项目特定的上下文、规则和代码索引到 system prompt。
  *
- * 扫描项目类型 → 加载 XUANJI.md / .xuanji/rules.md → 组装上下文字符串
+ * 扫描项目类型 → 加载 XUANJI.md / .xuanji/rules.md → 构建代码索引 → 组装上下文字符串
  */
 
 import type { Skill } from '../../types';
 import { ProjectScanner } from '@/context/ProjectScanner';
-import { RulesLoader } from '@/context/RulesLoader';
 import { ContextBuilder } from '@/context/ContextBuilder';
+import { FileIndexer } from '@/context/FileIndexer';
+import { DependencyAnalyzer } from '@/context/DependencyAnalyzer';
+import type { FileIndex } from '@/context/types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'project-rules' });
@@ -18,10 +20,10 @@ const log = logger.child({ module: 'project-rules' });
 export const projectRulesSkill: Skill<string> = {
   id: 'project-rules',
   name: 'Project Rules',
-  version: '1.0.0',
-  description: '注入项目特定的上下文和规则',
+  version: '2.0.0',
+  description: '注入项目特定的上下文、规则和代码索引',
   category: 'prompt',
-  tags: ['context', 'rules', 'project'],
+  tags: ['context', 'rules', 'project', 'index'],
   author: 'Shibit Team',
   createdAt: new Date('2025-02-26'),
 
@@ -30,20 +32,44 @@ export const projectRulesSkill: Skill<string> = {
   enabled: true,
   priority: 90, // 低于 xuanji-assistant (100)
 
-  render: (_options?: any): string => {
+  // 🆕 异步 render — 支持 FileIndexer 异步索引
+  render: async (_options?: any): Promise<string> => {
     try {
       // 1. 扫描项目类型
       const scanner = new ProjectScanner();
       const metadata = scanner.scan();
 
-      // 2. 加载规则文件（同步包装异步）
-      // 注意：RulesLoader.load() 是异步的，但 Skill.render() 当前接口是同步的
-      // 这里使用同步读取作为 fallback
-      const loader = new RulesLoader();
+      // 2. 加载规则文件（同步）
       const rules = loadRulesSync(metadata.rootPath);
 
-      // 3. 组装上下文
-      const builder = new ContextBuilder(metadata, rules);
+      // 3. 🆕 构建文件索引
+      let indexSummary = '';
+      try {
+        const indexer = new FileIndexer(metadata.rootPath);
+        const index = await indexer.buildIndex({
+          directories: ['src'],
+          maxFiles: 100,
+          concurrency: 4,
+        });
+        indexSummary = formatIndexSummary(index, 20);
+        log.info(`Index: ${index.totalFiles} files, ${index.bySymbol.size} symbols`);
+      } catch (error) {
+        log.warn('Failed to build file index:', error);
+        // 索引失败不阻塞启动
+      }
+
+      // 4. 🆕 分析依赖
+      let dependencyInfo = undefined;
+      try {
+        const analyzer = new DependencyAnalyzer(metadata.rootPath);
+        dependencyInfo = await analyzer.analyze(metadata.type);
+        log.info(`Analyzed ${dependencyInfo.totalCount} dependencies`);
+      } catch (error) {
+        log.warn('Failed to analyze dependencies:', error);
+      }
+
+      // 5. 组装上下文（传入索引摘要 + 依赖信息）
+      const builder = new ContextBuilder(metadata, rules, indexSummary, dependencyInfo);
       return builder.build();
     } catch (error) {
       log.error('Failed to build project context:', error);
@@ -53,8 +79,37 @@ export const projectRulesSkill: Skill<string> = {
 };
 
 /**
+ * 🆕 格式化索引摘要为 Markdown
+ */
+function formatIndexSummary(index: FileIndex, topN: number): string {
+  const files = Array.from(index.byPath.values())
+    .filter(f => f.exports.length > 0)
+    .sort((a, b) => b.exports.length - a.exports.length)
+    .slice(0, topN);
+
+  if (files.length === 0) {
+    return '';
+  }
+
+  const lines = [
+    '### Code Structure',
+    '',
+    `**Total Files**: ${index.totalFiles}`,
+    `**Total Symbols**: ${index.bySymbol.size}`,
+    `**Top ${files.length} Files**:`,
+    '',
+  ];
+
+  for (const file of files) {
+    const exportNames = file.exports.map(s => s.name).join(', ');
+    lines.push(`- \`${file.path}\` — ${exportNames}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * 同步加载规则文件
- * Skill.render() 当前接口是同步的，使用同步 fs API
  */
 function loadRulesSync(rootPath: string): import('@/context/types').RulesContent {
   const fs = require('node:fs');

@@ -9,6 +9,8 @@
 export {
   xuanjiAssistantSkill,
   projectRulesSkill,
+  memoryContextSkill,
+  codeAssistantSkill,
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,

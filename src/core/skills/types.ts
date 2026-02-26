@@ -105,8 +105,8 @@ export interface Skill<T = any> extends SkillMetadata {
   /** 优先级 (越高越先被使用) */
   priority?: number;
 
-  /** 渲染方法 (用于 Prompt Skill) */
-  render?: (options?: SkillRenderOptions) => string;
+  /** 渲染方法 (用于 Prompt Skill, 支持同步和异步) */
+  render?: (options?: SkillRenderOptions) => string | Promise<string>;
 
   /** 验证方法 */
   validate?: (input: any) => boolean;

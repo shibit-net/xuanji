@@ -225,9 +225,9 @@ export class SkillRegistry {
   }
 
   /**
-   * 渲染一个 Skill
+   * 渲染一个 Skill (支持异步 render)
    */
-  render(skillId: string, options?: SkillRenderOptions): string {
+  async render(skillId: string, options?: SkillRenderOptions): Promise<string> {
     const cacheKey = `${skillId}:${JSON.stringify(options?.params || {})}`;
 
     // 检查缓存
@@ -248,7 +248,7 @@ export class SkillRegistry {
 
       for (const depId of skill.dependencies) {
         try {
-          const depContent = this.render(depId, {
+          const depContent = await this.render(depId, {
             params: options?.params,
             includeDependencies: false, // 避免递归包含
           });
@@ -270,8 +270,10 @@ export class SkillRegistry {
     let content: string;
 
     // 如果有自定义渲染方法，使用它（传入增强的 params）
+    // 🆕 支持异步 render 方法
     if (skill.render) {
-      content = skill.render({ ...options, params });
+      const result = skill.render({ ...options, params });
+      content = result instanceof Promise ? await result : result;
     } else if (typeof skill.content === 'string') {
       // 否则使用内容并替换参数
       content = this.replaceParameters(skill.content, params);
@@ -321,16 +323,16 @@ export class SkillRegistry {
   }
 
   /**
-   * 组合多个 Skill
+   * 组合多个 Skill (异步版本)
    */
-  compose(...skillIds: string[]): string {
+  async compose(...skillIds: string[]): Promise<string> {
     return this.composeBatch(skillIds);
   }
 
   /**
-   * 组合一个 Skill 数组
+   * 组合一个 Skill 数组 (异步版本)
    */
-  composeBatch(skillIds: string[], options?: SkillRenderOptions): string {
+  async composeBatch(skillIds: string[], options?: SkillRenderOptions): Promise<string> {
     const startTime = Date.now();
     const contents: string[] = [];
     const usedSkills: Skill[] = [];
@@ -343,8 +345,8 @@ export class SkillRegistry {
       .filter((s): s is Skill => s !== undefined)
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
-    // 递归处理依赖
-    const process = (skill: Skill) => {
+    // 递归处理依赖 (异步)
+    const process = async (skill: Skill) => {
       if (processed.has(skill.id)) {
         return;
       }
@@ -355,7 +357,7 @@ export class SkillRegistry {
         for (const depId of skill.dependencies) {
           const depSkill = this.get(depId);
           if (depSkill) {
-            process(depSkill);
+            await process(depSkill);
           }
         }
       }
@@ -364,7 +366,7 @@ export class SkillRegistry {
       order.push(skill.id);
       usedSkills.push(skill);
 
-      const rendered = this.render(skill.id, {
+      const rendered = await this.render(skill.id, {
         params: options?.params,
         includeDependencies: false, // 已手动处理依赖
       });
@@ -376,7 +378,7 @@ export class SkillRegistry {
 
     // 处理所有 Skill
     for (const skill of skillsToCompose) {
-      process(skill);
+      await process(skill);
     }
 
     const result = contents.join('\n\n');
@@ -386,9 +388,9 @@ export class SkillRegistry {
   }
 
   /**
-   * 获取组合结果的详细信息
+   * 获取组合结果的详细信息 (异步版本)
    */
-  composeDetail(...skillIds: string[]): SkillComposeResult {
+  async composeDetail(...skillIds: string[]): Promise<SkillComposeResult> {
     const startTime = Date.now();
     const order: string[] = [];
     const processed = new Set<string>();
@@ -420,7 +422,7 @@ export class SkillRegistry {
       process(id);
     }
 
-    const content = this.composeBatch(skillIds);
+    const content = await this.composeBatch(skillIds);
     const renderTime = Date.now() - startTime;
 
     return {
