@@ -21,6 +21,8 @@ import { createDefaultRegistry, ToolRegistry } from '@/core/tools/ToolRegistry';
 import { PermissionController } from '@/permission/PermissionController';
 import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { SkillRegistry } from '@/core/skills';
+import type { IMemoryStore } from '@/memory/types';
+import { DEFAULT_MEMORY_CONFIG } from '@/memory/types';
 
 /**
  * ChatSession 初始化选项
@@ -49,6 +51,7 @@ export class ChatSession {
   private agentLoop: AgentLoop | null = null;
   private skillRegistry: SkillRegistry | null = null;
   private permissionController: IPermissionController | null = null;
+  private memoryManager: IMemoryStore | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   private registry: IToolRegistry | null = null;
@@ -131,15 +134,39 @@ export class ChatSession {
       });
     }
 
-    // 5. 从 Skill 系统渲染 systemPrompt (新增)
+    // 5. 从 Skill 系统渲染 systemPrompt
+    //    组合所有启用的 Prompt Skills（按优先级排序）
+
+    // 4.5 初始化记忆系统
+    const memoryConfig = this.config.memory ?? DEFAULT_MEMORY_CONFIG;
+    if (memoryConfig.enabled) {
+      try {
+        const { MemoryManager } = await import('@/memory');
+        this.memoryManager = new MemoryManager(memoryConfig, process.cwd());
+        await this.memoryManager.init();
+      } catch {
+        // 静默失败，记忆系统初始化失败不影响主流程
+        this.memoryManager = null;
+      }
+    }
+
     let systemPrompt: string | undefined = undefined;
-    if (skillsConfig?.enabled?.includes('xuanji-assistant')) {
-      systemPrompt = skillRegistry.render('xuanji-assistant', {
-        params: {
-          toolList: this.registry.getSchemas(),
-          language: this.config.ui.language ?? 'zh',
-        },
+    const enabledIds = skillsConfig?.enabled ?? [];
+    if (enabledIds.length > 0) {
+      // 过滤出已注册且 category === 'prompt' 的 Skill
+      const promptSkillIds = enabledIds.filter((id) => {
+        const skill = skillRegistry.get(id);
+        return skill && skill.category === 'prompt' && (skill.enabled ?? true);
       });
+
+      if (promptSkillIds.length > 0) {
+        systemPrompt = await skillRegistry.composeBatch(promptSkillIds, {
+          params: {
+            toolList: this.registry.getSchemas(),
+            language: this.config.ui.language ?? 'zh',
+          },
+        });
+      }
     }
 
     // 6. 初始化 AgentLoop，传递 systemPrompt 和 provider 配置
@@ -150,7 +177,7 @@ export class ChatSession {
       maxTokens: this.config.provider.maxTokens,
       temperature: this.config.provider.temperature,
       systemPrompt, // ✅ 现在有了
-    });
+    }, this.memoryManager ?? undefined);
 
     // 存储 skillRegistry 供后续使用
     this.skillRegistry = skillRegistry;
@@ -171,6 +198,24 @@ export class ChatSession {
    */
   async run(userMessage: string): Promise<void> {
     this.ensureInitialized();
+
+    // 检索相关记忆并动态注入到 system prompt
+    if (this.memoryManager) {
+      try {
+        const { MemoryManager } = await import('@/memory');
+        const memories = await this.memoryManager.retrieve(userMessage, {
+          maxResults: 10,
+          minConfidence: 0.3,
+        });
+        if (memories.length > 0 && this.memoryManager instanceof MemoryManager) {
+          const memorySummary = (this.memoryManager as InstanceType<typeof MemoryManager>).formatForPrompt(memories);
+          this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary);
+        }
+      } catch {
+        // 静默失败
+      }
+    }
+
     await this.agentLoop!.run(userMessage);
   }
 
@@ -197,6 +242,7 @@ export class ChatSession {
     this.agentLoop = null;
     this.skillRegistry = null;
     this.permissionController = null;
+    this.memoryManager = null;
     this.config = null;
     this.provider = null;
     this.registry = null;
@@ -252,6 +298,13 @@ export class ChatSession {
    */
   getPermissionController(): IPermissionController | null {
     return this.permissionController;
+  }
+
+  /**
+   * 获取记忆管理器
+   */
+  getMemoryManager(): IMemoryStore | null {
+    return this.memoryManager;
   }
 
   /**

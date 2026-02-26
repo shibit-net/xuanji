@@ -45,6 +45,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   skills: {
     enabled: [
       'xuanji-assistant',
+      'memory-context',
+      'code-assistant',
       'tool-guidance',
       'security-rules',
       'agent-rules',
@@ -55,5 +57,15 @@ export const DEFAULT_CONFIG: AppConfig = {
     agent: {
       skillId: 'react-loop-default',
     },
+  },
+  memory: {
+    enabled: true,
+    shortTermMaxEntries: 100,
+    longTermMaxEntries: 1000,
+    retrieveMaxResults: 10,
+    maxEntryLength: 500,
+    maxPromptLength: 5000,
+    compactionThreshold: 500,
+    decayHalfLifeDays: 30,
   },
 };

@@ -24,6 +24,7 @@ export interface IMessageManager {
  */
 export class MessageManager implements IMessageManager {
   private systemPrompt: string;
+  private systemPromptSuffix: string = '';
   private messages: Message[] = [];
 
   constructor(systemPrompt?: string) {
@@ -42,7 +43,7 @@ export class MessageManager implements IMessageManager {
 
     // 返回 system + 完整历史
     return [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: this.getFullSystemPrompt() },
       ...this.messages,
     ];
   }
@@ -114,7 +115,7 @@ export class MessageManager implements IMessageManager {
    */
   getMessages(): Message[] {
     return [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: this.getFullSystemPrompt() },
       ...this.messages,
     ];
   }
@@ -131,6 +132,22 @@ export class MessageManager implements IMessageManager {
    */
   setSystemPrompt(prompt: string): void {
     this.systemPrompt = prompt;
+  }
+
+  /**
+   * 设置系统提示词后缀（用于动态注入记忆上下文等）
+   */
+  setSystemPromptSuffix(suffix: string): void {
+    this.systemPromptSuffix = suffix;
+  }
+
+  /**
+   * 获取完整系统提示词（基础 + 后缀）
+   */
+  private getFullSystemPrompt(): string {
+    return this.systemPromptSuffix
+      ? `${this.systemPrompt}\n\n${this.systemPromptSuffix}`
+      : this.systemPrompt;
   }
 
   /**

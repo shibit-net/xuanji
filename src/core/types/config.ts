@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { ProviderConfig, RetryConfig } from './provider';
+import type { MemoryConfig } from '@/memory/types';
 
 /**
  * Skill 系统配置
@@ -44,6 +45,8 @@ export interface AppConfig {
   retry: RetryConfig;
   /** Skill 系统配置 */
   skills?: SkillsConfig;
+  /** 记忆系统配置 */
+  memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
   bots?: BotsConfig;
   /** CLI 输入历史记录（最多 50 条） */
