@@ -10,6 +10,7 @@ import type { AppConfig } from '@/core/types';
 export const DEFAULT_CONFIG: AppConfig = {
   provider: {
     model: '[CC]claude-sonnet-4-5-20250929',
+    lightModel: '[CC]claude-haiku-4-5-20251001',
     adapter: 'anthropic',
     maxTokens: 65536,
     temperature: undefined,
@@ -29,6 +30,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       fileWrite: 'ask',
       fileRead: 'always',
       bashExec: 'ask',
+      warnLevel: 'auto-allow', // 默认自动放行 warn 级别操作（向后兼容）
       allowedCommands: [],
       deniedCommands: [],
       allowedPaths: [],
@@ -47,6 +49,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       'xuanji-assistant',
       'memory-context',
       'code-assistant',
+      'life-secretary',
       'tool-guidance',
       'security-rules',
       'agent-rules',

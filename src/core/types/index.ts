@@ -55,4 +55,5 @@ export type {
   DingtalkBotConfig,
   FeishuBotConfig,
   WecomBotConfig,
+  WebSearchConfig,
 } from './config';

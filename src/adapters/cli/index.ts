@@ -9,7 +9,7 @@ export { ToolDisplay, type ToolDisplayProps } from './ToolDisplay';
 export { StatusBar, type StatusBarProps } from './StatusBar';
 export { StartupLogo, type StartupLogoProps } from './StartupLogo';
 export { getTheme, darkTheme, lightTheme, type Theme } from './Theme';
-export { createBuiltinCommands, parseSlashCommand, type SlashCommand } from './SlashCommands';
+export { parseSlashCommand, type SlashCommand } from './SlashCommands';
 export type { ChatMessage, ToolResultDisplay, CurrentToolState, AppMode, SettingsTab, LogEntry, BotType, BotStatus } from './types';
 
 // 新增：设置模式相关导出

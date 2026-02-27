@@ -1,0 +1,372 @@
+/**
+ * 会话存储核心逻辑（JSONL 格式）
+ */
+
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+import { createReadStream, createWriteStream } from 'fs';
+import { createInterface } from 'readline';
+import type {
+  Message,
+  SessionMetadata,
+  Checkpoint,
+  SessionSnapshot,
+  SessionStorageOptions,
+  SessionListItem,
+} from './types.js';
+
+const DEFAULT_BASE_DIR = path.join(os.homedir(), '.xuanji', 'sessions');
+
+export class SessionStorage {
+  private baseDir: string;
+  private autoBackup: boolean;
+  private maxSessions: number;
+
+  constructor(options?: Partial<SessionStorageOptions>) {
+    this.baseDir = options?.baseDir || DEFAULT_BASE_DIR;
+    this.autoBackup = options?.autoBackup ?? true;
+    this.maxSessions = options?.maxSessions || 0;
+  }
+
+  /**
+   * 初始化存储目录
+   */
+  async initialize(): Promise<void> {
+    await fs.mkdir(this.baseDir, { recursive: true });
+  }
+
+  /**
+   * 获取会话文件路径
+   */
+  private getSessionPaths(sessionId: string) {
+    const sessionDir = this.baseDir;
+    return {
+      meta: path.join(sessionDir, `${sessionId}.meta.json`),
+      messages: path.join(sessionDir, `${sessionId}.messages.jsonl`),
+      checkpoints: path.join(sessionDir, `${sessionId}.checkpoints.json`),
+      messagesBackup: path.join(sessionDir, `${sessionId}.messages.jsonl.bak`),
+    };
+  }
+
+  /**
+   * 保存完整会话快照
+   */
+  async saveSnapshot(snapshot: SessionSnapshot): Promise<void> {
+    await this.initialize();
+    const paths = this.getSessionPaths(snapshot.metadata.id);
+
+    // 1. 备份现有文件（如果存在）
+    if (this.autoBackup) {
+      try {
+        await fs.copyFile(paths.messages, paths.messagesBackup);
+      } catch (error) {
+        // 文件不存在时忽略
+      }
+    }
+
+    // 2. 保存元数据
+    await fs.writeFile(paths.meta, JSON.stringify(snapshot.metadata, null, 2), 'utf-8');
+
+    // 3. 保存消息（JSONL 格式，流式写入避免内存峰值）
+    await this.writeMessagesStream(paths.messages, snapshot.messages);
+
+    // 4. 保存 checkpoints
+    await fs.writeFile(
+      paths.checkpoints,
+      JSON.stringify(snapshot.checkpoints, null, 2),
+      'utf-8'
+    );
+
+    // 5. 清理旧会话（如果超过限制）
+    if (this.maxSessions > 0) {
+      await this.cleanupOldSessions();
+    }
+  }
+
+  /**
+   * 加载完整会话快照
+   */
+  async loadSnapshot(sessionId: string): Promise<SessionSnapshot> {
+    const paths = this.getSessionPaths(sessionId);
+
+    // 1. 读取元数据
+    const metaContent = await fs.readFile(paths.meta, 'utf-8');
+    const metadata: SessionMetadata = JSON.parse(metaContent);
+
+    // 2. 读取消息（JSONL 格式，逐行解析）
+    const messages: Message[] = [];
+    let lineNumber = 0;
+    const corruptedLines: number[] = [];
+
+    try {
+      const fileStream = createReadStream(paths.messages);
+      const rl = createInterface({
+        input: fileStream,
+        crlfDelay: Infinity,
+      });
+
+      for await (const line of rl) {
+        lineNumber++;
+        if (line.trim() === '') continue; // 跳过空行
+
+        try {
+          const message = JSON.parse(line);
+          messages.push(message);
+        } catch (error) {
+          // 记录损坏的行，但继续读取
+          corruptedLines.push(lineNumber);
+          console.warn(`[SessionStorage] Corrupted line ${lineNumber} in ${sessionId}, skipping`);
+        }
+      }
+    } catch (error) {
+      throw new Error(`Failed to read messages: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // 3. 读取 checkpoints（如果存在）
+    let checkpoints: Checkpoint[] = [];
+    try {
+      const checkpointsContent = await fs.readFile(paths.checkpoints, 'utf-8');
+      checkpoints = JSON.parse(checkpointsContent);
+    } catch (error) {
+      // Checkpoints 文件不存在时返回空数组
+    }
+
+    // 4. 如果有损坏行，发出警告
+    if (corruptedLines.length > 0) {
+      console.warn(
+        `[SessionStorage] ${corruptedLines.length} corrupted lines detected in session ${sessionId}. ` +
+        `Use /sessions repair ${sessionId} to fix.`
+      );
+    }
+
+    return { metadata, messages, checkpoints };
+  }
+
+  /**
+   * 追加单条消息到 JSONL 文件（流式写入）
+   */
+  async appendMessage(sessionId: string, message: Message): Promise<void> {
+    const paths = this.getSessionPaths(sessionId);
+    const line = JSON.stringify(message) + '\n';
+    await fs.appendFile(paths.messages, line, 'utf-8');
+
+    // 更新元数据中的消息计数
+    await this.updateMetadata(sessionId, (meta) => ({
+      ...meta,
+      messageCount: meta.messageCount + 1,
+      updatedAt: Date.now(),
+    }));
+  }
+
+  /**
+   * 截断消息文件到指定索引（用于 checkpoint 回滚）
+   */
+  async truncateMessages(sessionId: string, toIndex: number): Promise<void> {
+    const paths = this.getSessionPaths(sessionId);
+
+    // 1. 读取前 toIndex 条消息
+    const messages: Message[] = [];
+    let lineNumber = 0;
+
+    const fileStream = createReadStream(paths.messages);
+    const rl = createInterface({
+      input: fileStream,
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      if (lineNumber < toIndex && line.trim() !== '') {
+        try {
+          messages.push(JSON.parse(line));
+        } catch {
+          // 跳过损坏行
+        }
+      }
+      lineNumber++;
+    }
+
+    // 2. 备份原文件
+    if (this.autoBackup) {
+      await fs.copyFile(paths.messages, paths.messagesBackup);
+    }
+
+    // 3. 流式重写文件
+    await this.writeMessagesStream(paths.messages, messages);
+
+    // 4. 更新元数据
+    await this.updateMetadata(sessionId, (meta) => ({
+      ...meta,
+      messageCount: toIndex,
+      updatedAt: Date.now(),
+    }));
+  }
+
+  /**
+   * 更新元数据
+   */
+  async updateMetadata(
+    sessionId: string,
+    updater: (meta: SessionMetadata) => SessionMetadata
+  ): Promise<void> {
+    const paths = this.getSessionPaths(sessionId);
+    const metaContent = await fs.readFile(paths.meta, 'utf-8');
+    const metadata: SessionMetadata = JSON.parse(metaContent);
+    const updatedMetadata = updater(metadata);
+    await fs.writeFile(paths.meta, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
+  }
+
+  /**
+   * 保存 checkpoints
+   */
+  async saveCheckpoints(sessionId: string, checkpoints: Checkpoint[]): Promise<void> {
+    const paths = this.getSessionPaths(sessionId);
+    await fs.writeFile(paths.checkpoints, JSON.stringify(checkpoints, null, 2), 'utf-8');
+  }
+
+  /**
+   * 列出所有会话
+   */
+  async listSessions(): Promise<SessionListItem[]> {
+    await this.initialize();
+
+    const files = await fs.readdir(this.baseDir);
+    const metaFiles = files.filter((f) => f.endsWith('.meta.json'));
+
+    const sessions: SessionListItem[] = [];
+
+    for (const file of metaFiles) {
+      try {
+        const metaPath = path.join(this.baseDir, file);
+        const metaContent = await fs.readFile(metaPath, 'utf-8');
+        const metadata: SessionMetadata = JSON.parse(metaContent);
+
+        sessions.push({
+          id: metadata.id,
+          name: metadata.name,
+          createdAt: metadata.createdAt,
+          updatedAt: metadata.updatedAt,
+          messageCount: metadata.messageCount,
+          workingDirectory: metadata.workingDirectory,
+        });
+      } catch (error) {
+        console.warn(`[SessionStorage] Failed to read metadata from ${file}, skipping`);
+      }
+    }
+
+    // 按更新时间倒序排序
+    sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+
+    return sessions;
+  }
+
+  /**
+   * 删除会话
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    const paths = this.getSessionPaths(sessionId);
+
+    await Promise.all([
+      fs.unlink(paths.meta).catch(() => {}),
+      fs.unlink(paths.messages).catch(() => {}),
+      fs.unlink(paths.checkpoints).catch(() => {}),
+      fs.unlink(paths.messagesBackup).catch(() => {}),
+    ]);
+  }
+
+  /**
+   * 检查会话是否存在
+   */
+  async exists(sessionId: string): Promise<boolean> {
+    const paths = this.getSessionPaths(sessionId);
+    try {
+      await fs.access(paths.meta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 修复损坏的 JSONL 文件
+   */
+  async repairSession(sessionId: string): Promise<{ fixed: number; removed: number }> {
+    const paths = this.getSessionPaths(sessionId);
+
+    // 1. 备份原文件
+    await fs.copyFile(paths.messages, paths.messagesBackup);
+
+    // 2. 逐行读取并过滤损坏行
+    const validLines: string[] = [];
+    let totalLines = 0;
+    let corruptedLines = 0;
+
+    const fileStream = createReadStream(paths.messages);
+    const rl = createInterface({
+      input: fileStream,
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      totalLines++;
+      if (line.trim() === '') continue;
+
+      try {
+        JSON.parse(line); // 验证 JSON 格式
+        validLines.push(line);
+      } catch {
+        corruptedLines++;
+      }
+    }
+
+    // 3. 重写文件
+    await fs.writeFile(paths.messages, validLines.join('\n') + '\n', 'utf-8');
+
+    // 4. 更新元数据
+    await this.updateMetadata(sessionId, (meta) => ({
+      ...meta,
+      messageCount: validLines.length,
+      updatedAt: Date.now(),
+    }));
+
+    return {
+      fixed: validLines.length,
+      removed: corruptedLines,
+    };
+  }
+
+  /**
+   * 清理旧会话（保留最近的 maxSessions 个）
+   */
+  private async cleanupOldSessions(): Promise<void> {
+    const sessions = await this.listSessions();
+
+    if (sessions.length <= this.maxSessions) return;
+
+    const toDelete = sessions.slice(this.maxSessions);
+
+    await Promise.all(toDelete.map((s) => this.deleteSession(s.id)));
+
+    console.log(`[SessionStorage] Cleaned up ${toDelete.length} old sessions`);
+  }
+
+  /**
+   * 流式写入消息到 JSONL 文件
+   *
+   * 使用 createWriteStream 逐条写入，避免大量消息时内存峰值
+   */
+  private writeMessagesStream(filePath: string, messages: Message[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = createWriteStream(filePath, { encoding: 'utf-8' });
+
+      ws.on('error', reject);
+      ws.on('finish', resolve);
+
+      for (const msg of messages) {
+        ws.write(JSON.stringify(msg) + '\n');
+      }
+
+      ws.end();
+    });
+  }
+}

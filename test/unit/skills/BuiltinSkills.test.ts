@@ -8,6 +8,7 @@ import {
   agentRulesSkill,
   projectRulesSkill,
   memoryContextSkill,
+  lifeSecretarySkill,
 } from '@/core/skills/builtin/prompts';
 import {
   reactLoopDefaultSkill,
@@ -32,6 +33,7 @@ describe('Built-in Skills', () => {
       expect(registry.has('agent-rules')).toBe(true);
       expect(registry.has('project-rules')).toBe(true);
       expect(registry.has('memory-context')).toBe(true);
+      expect(registry.has('life-secretary')).toBe(true);
       expect(registry.has('react-loop-default')).toBe(true);
       expect(registry.has('multi-turn-handling')).toBe(true);
     });
@@ -41,7 +43,7 @@ describe('Built-in Skills', () => {
       initializeBuiltinSkills(registry);
 
       const stats = registry.getStats();
-      expect(stats.totalSkills).toBe(9);
+      expect(stats.totalSkills).toBe(12);
     });
   });
 
@@ -54,7 +56,14 @@ describe('Built-in Skills', () => {
       expect(xuanjiAssistantSkill.id).toBe('xuanji-assistant');
       expect(xuanjiAssistantSkill.category).toBe('prompt');
       expect(xuanjiAssistantSkill.priority).toBe(100);
-      expect(xuanjiAssistantSkill.version).toBe('3.0.0');
+      expect(xuanjiAssistantSkill.version).toBe('4.0.0');
+    });
+
+    it('should be positioned as an AI butler (v4.0.0)', () => {
+      const content = xuanjiAssistantSkill.content!;
+      expect(content).toContain('AI butler');
+      expect(content).toContain('Life Assistant Behavior');
+      expect(content).toContain('Memory-Driven Personalization');
     });
 
     it('should NOT mention "coding agent" in content', () => {
@@ -65,8 +74,8 @@ describe('Built-in Skills', () => {
 
     it('should be positioned as a general AI assistant', () => {
       const content = xuanjiAssistantSkill.content!;
-      expect(content).toContain('AI assistant');
-      expect(content).toContain('wide range of tasks');
+      expect(content).toContain('AI butler');
+      expect(content).toContain('both work and life tasks');
     });
 
     it('should mention Skill composition', () => {
@@ -211,6 +220,48 @@ describe('Built-in Skills', () => {
       const content = agentRulesSkill.content!;
       expect(content).toContain('Decision Making');
       expect(content).toContain('When to Ask');
+    });
+  });
+
+  // ============================================================
+  // life-secretary (生活秘书)
+  // ============================================================
+
+  describe('life-secretary', () => {
+    it('should have correct metadata', () => {
+      expect(lifeSecretarySkill.id).toBe('life-secretary');
+      expect(lifeSecretarySkill.category).toBe('prompt');
+      expect(lifeSecretarySkill.priority).toBe(90);
+      expect(lifeSecretarySkill.version).toBe('2.0.0');
+    });
+
+    it('should have no skill dependencies (tools are self-contained)', () => {
+      expect(lifeSecretarySkill.dependencies).toEqual([]);
+    });
+
+    it('should include date planning guidance', () => {
+      const content = lifeSecretarySkill.content!;
+      expect(content).toContain('Date Planning');
+      expect(content).toContain('Always search memories first');
+    });
+
+    it('should include restaurant recommendation guidance', () => {
+      const content = lifeSecretarySkill.content!;
+      expect(content).toContain('Restaurant Recommendations');
+      expect(content).toContain('allergies');
+    });
+
+    it('should include example workflows', () => {
+      const content = lifeSecretarySkill.content!;
+      expect(content).toContain('Example 1: Date Planning');
+      expect(content).toContain('Example 2: Restaurant Recommendation');
+      expect(content).toContain('Example 3: Birthday Reminder');
+    });
+
+    it('should render without dependencies', () => {
+      const result = lifeSecretarySkill.render!();
+      expect(typeof result).toBe('string');
+      expect(result).toContain('life planning');
     });
   });
 

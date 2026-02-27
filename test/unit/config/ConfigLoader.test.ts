@@ -3,12 +3,16 @@ import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { DEFAULT_CONFIG } from '@/core/config/defaults';
 
 // Mock core/ 下的真实模块 (vi.mock 工厂函数会被提升)
-vi.mock('@/core/config/GlobalConfig', () => ({
-  loadGlobalConfig: vi.fn(async () => ({})),
-  saveGlobalConfig: vi.fn(),
-  GLOBAL_CONFIG_DIR: '/mock/.xuanji',
-  GLOBAL_CONFIG_PATH: '/mock/.xuanji/config.json',
-}));
+vi.mock('@/core/config/GlobalConfig', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/core/config/GlobalConfig')>();
+  return {
+    ...actual,
+    loadGlobalConfig: vi.fn(async () => ({})),
+    saveGlobalConfig: vi.fn(),
+    GLOBAL_CONFIG_DIR: '/mock/.xuanji',
+    GLOBAL_CONFIG_PATH: '/mock/.xuanji/config.json',
+  };
+});
 
 vi.mock('@/core/config/ProjectConfig', () => ({
   loadProjectConfig: vi.fn(async () => ({})),

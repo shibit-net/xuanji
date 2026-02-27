@@ -2,7 +2,7 @@
 // M7 LLM Provider — Provider 工厂
 // ============================================================
 
-import type { ILLMProvider } from '@/core/types';
+import type { ILLMProvider, ProviderConfig } from '@/core/types';
 import { AnthropicProvider } from './AnthropicProvider';
 import { OpenAIProvider } from './OpenAIProvider';
 
@@ -69,5 +69,33 @@ export class ProviderFactory {
    */
   getAll(): ILLMProvider[] {
     return Array.from(this.providers.values());
+  }
+
+  /**
+   * 解析 Provider 实例
+   * 优先按 adapter，其次按 model 名匹配
+   */
+  resolve(config: ProviderConfig): ILLMProvider | undefined {
+    if (config.adapter) {
+      return this.getByAdapter(config.adapter);
+    }
+    return this.getByModel(config.model);
+  }
+
+  /**
+   * 创建轻量模型的 ProviderConfig
+   * 如果配置了 lightModel，返回使用 lightModel 的配置副本
+   * 否则返回原始配置（主模型充当轻量模型）
+   */
+  static createLightConfig(config: ProviderConfig): ProviderConfig {
+    if (!config.lightModel) {
+      return config;
+    }
+    return {
+      ...config,
+      model: config.lightModel,
+      // 轻量模型使用更小的 maxTokens
+      maxTokens: Math.min(config.maxTokens ?? 16384, 16384),
+    };
   }
 }

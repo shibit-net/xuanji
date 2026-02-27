@@ -13,3 +13,4 @@ export {
   type ModelStats,
   type ToolAggregateStats,
 } from './UsageStatsRecorder';
+export { PerfCollector, PerfTimer, type PerfRecord, type PerfStats } from './PerfCollector';

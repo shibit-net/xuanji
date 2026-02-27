@@ -5,6 +5,9 @@
 import { appendFile, readFile, mkdir, unlink, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'storage-backend' });
 
 /**
  * JSONL 文件存储后端
@@ -23,8 +26,8 @@ export class StorageBackend {
       await mkdir(dir, { recursive: true });
       const line = JSON.stringify(record) + '\n';
       await appendFile(filePath, line, 'utf-8');
-    } catch {
-      // 静默失败
+    } catch (err) {
+      log.warn(`Failed to append to ${filePath}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -77,8 +80,8 @@ export class StorageBackend {
       const content = records.map((r) => JSON.stringify(r)).join('\n') + (records.length > 0 ? '\n' : '');
       await writeFile(tmpPath, content, 'utf-8');
       await rename(tmpPath, filePath);
-    } catch {
-      // 静默失败
+    } catch (err) {
+      log.warn(`Failed to overwrite ${filePath}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -88,8 +91,8 @@ export class StorageBackend {
       if (existsSync(filePath)) {
         await unlink(filePath);
       }
-    } catch {
-      // 静默失败
+    } catch (err) {
+      log.warn(`Failed to clear ${filePath}: ${err instanceof Error ? err.message : err}`);
     }
   }
 

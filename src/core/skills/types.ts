@@ -114,8 +114,25 @@ export interface Skill<T = any> extends SkillMetadata {
   /** 执行方法 (用于 Agent/Workflow Skill) */
   execute?: (params?: Record<string, any>) => Promise<any>;
 
+  /** 关联的斜杠命令 (用于 Workflow Skill，如 '/commit') */
+  slashCommand?: string;
+
   /** 组合方法 */
   compose?: (skills: Skill[]) => string;
+}
+
+/**
+ * Workflow Skill 执行结果
+ */
+export interface WorkflowResult {
+  /** 是否成功 */
+  success: boolean;
+  /** 输出文本（显示给用户） */
+  output?: string;
+  /** 错误信息 */
+  error?: string;
+  /** 额外元数据 */
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -212,3 +229,16 @@ export interface SkillComposeResult {
     renderTime: number;
   };
 }
+
+/**
+ * 始终加载的核心 Skill ID（不参与意图过滤和向量匹配）
+ * 统一定义，避免 registry.ts 和 VectorSkillMatcher.ts 各自维护
+ */
+export const CORE_SKILL_IDS = new Set([
+  'xuanji-assistant',
+  'project-rules',
+  'memory-context',
+  'tool-guidance',
+  'security-rules',
+  'agent-rules',
+]);

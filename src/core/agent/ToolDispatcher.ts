@@ -19,6 +19,8 @@ export interface IToolDispatcher {
  */
 export class ToolDispatcher implements IToolDispatcher {
   private log = logger.child({ module: 'ToolDispatcher' });
+  /** 最大并行工具执行数 */
+  static readonly MAX_PARALLEL = 5;
 
   constructor(private registry: IToolRegistry) {}
 
@@ -30,13 +32,13 @@ export class ToolDispatcher implements IToolDispatcher {
   }
 
   /**
-   * 批量执行工具（并行+串行混合）
+   * 批量执行工具（分段并行策略）
    *
    * 执行策略：
-   * 1. 按 readonly 属性分组：只读工具 vs 写入工具
-   * 2. 并行执行所有只读工具（无副作用，安全并行）
-   * 3. 串行执行所有写入工具（有副作用，保证顺序）
-   * 4. 合并结果并按原始调用顺序返回
+   * 1. 保持 LLM 发出的工具调用原始顺序
+   * 2. 连续的只读工具分为一组，并行执行（最多 MAX_PARALLEL 个）
+   * 3. 遇到写工具时，先等待前面的并行组完成，再串行执行写工具
+   * 4. 这样保证了 read → edit → read 的依赖顺序
    *
    * @returns Map<toolCallId, ToolResult> 保持原始调用顺序
    */
@@ -45,75 +47,85 @@ export class ToolDispatcher implements IToolDispatcher {
       return new Map();
     }
 
-    // 1️⃣ 按只读属性分组
-    const readonlyGroup: ToolCall[] = [];
-    const writeGroup: ToolCall[] = [];
+    const resultsMap = new Map<string, ToolResult>();
+
+    // 按原始顺序分段：连续的只读工具为一组，写工具单独为一组
+    type Segment = { type: 'readonly'; calls: ToolCall[] } | { type: 'write'; call: ToolCall };
+    const segments: Segment[] = [];
 
     for (const call of toolCalls) {
       const tool = this.registry.get(call.name);
-      if (!tool) {
-        // 未知工具归到写组（保守处理，避免意外并行）
-        writeGroup.push(call);
-        continue;
-      }
+      const isReadonly = tool?.readonly === true;
 
-      if (tool.readonly === true) {
-        readonlyGroup.push(call);
+      if (isReadonly) {
+        // 追加到当前只读段，或创建新只读段
+        const lastSegment = segments[segments.length - 1];
+        if (lastSegment && lastSegment.type === 'readonly') {
+          lastSegment.calls.push(call);
+        } else {
+          segments.push({ type: 'readonly', calls: [call] });
+        }
       } else {
-        writeGroup.push(call);
+        // 写工具独立为一段
+        segments.push({ type: 'write', call });
       }
     }
 
-    // 2️⃣ 并行执行只读工具
-    const readonlyPromises = readonlyGroup.map(async (call) => {
-      try {
-        const result = await this.execute(call);
-        return { id: call.id, result };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          id: call.id,
-          result: { content: `并行执行失败: ${message}`, isError: true },
-        };
-      }
-    });
-
-    const readonlyResults = await Promise.allSettled(readonlyPromises);
-
-    // 3️⃣ 串行执行写工具
-    const writeResults: Array<{ id: string; result: ToolResult }> = [];
-    for (const call of writeGroup) {
-      try {
-        const result = await this.execute(call);
-        writeResults.push({ id: call.id, result });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeResults.push({
-          id: call.id,
-          result: { content: `串行执行失败: ${message}`, isError: true },
-        });
-      }
-    }
-
-    // 4️⃣ 合并结果（按原始顺序）
-    const resultsMap = new Map<string, ToolResult>();
-
-    // 提取并行结果
-    for (const promiseResult of readonlyResults) {
-      if (promiseResult.status === 'fulfilled') {
-        const { id, result } = promiseResult.value;
-        resultsMap.set(id, result);
+    // 按分段顺序执行
+    for (const segment of segments) {
+      if (segment.type === 'readonly') {
+        // 并行执行只读组（有并发限制）
+        const results = await this.executeParallel(segment.calls);
+        for (const { id, result } of results) {
+          resultsMap.set(id, result);
+        }
       } else {
-        // Promise 自身失败（不应该发生，因为内部已 catch）
-        this.log.error('Unexpected promise rejection:', promiseResult.reason);
+        // 串行执行写工具
+        try {
+          const result = await this.execute(segment.call);
+          resultsMap.set(segment.call.id, result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          resultsMap.set(segment.call.id, {
+            content: `执行失败: ${message}`,
+            isError: true,
+          });
+        }
       }
-    }
-
-    // 提取串行结果
-    for (const { id, result } of writeResults) {
-      resultsMap.set(id, result);
     }
 
     return resultsMap;
+  }
+
+  /**
+   * 并行执行一组只读工具（限制并发数）
+   */
+  private async executeParallel(
+    calls: ToolCall[],
+    maxConcurrency = ToolDispatcher.MAX_PARALLEL,
+  ): Promise<Array<{ id: string; result: ToolResult }>> {
+    const results: Array<{ id: string; result: ToolResult }> = [];
+
+    // 分批执行，每批最多 maxConcurrency 个
+    for (let i = 0; i < calls.length; i += maxConcurrency) {
+      const batch = calls.slice(i, i + maxConcurrency);
+      const batchPromises = batch.map(async (call) => {
+        try {
+          const result = await this.execute(call);
+          return { id: call.id, result };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            id: call.id,
+            result: { content: `并行执行失败: ${message}`, isError: true } as ToolResult,
+          };
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+
+    return results;
   }
 }

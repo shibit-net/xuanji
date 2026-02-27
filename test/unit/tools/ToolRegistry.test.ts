@@ -125,7 +125,7 @@ describe('ToolRegistry', () => {
 });
 
 describe('createDefaultRegistry()', () => {
-  it('应注册 7 个核心工具', () => {
+  it('应注册所有默认工具', () => {
     const registry = createDefaultRegistry();
     expect(registry.has('read_file')).toBe(true);
     expect(registry.has('write_file')).toBe(true);
@@ -134,7 +134,17 @@ describe('createDefaultRegistry()', () => {
     expect(registry.has('glob')).toBe(true);
     expect(registry.has('grep')).toBe(true);
     expect(registry.has('plan_review')).toBe(true);
-    expect(registry.getAll().length).toBe(7);
+    expect(registry.has('ask_user')).toBe(true);
+    expect(registry.has('task_output')).toBe(true);
+    expect(registry.has('web_fetch')).toBe(true);
+    expect(registry.has('todo_create')).toBe(true);
+    expect(registry.has('todo_list')).toBe(true);
+    expect(registry.has('todo_update')).toBe(true);
+    expect(registry.has('sleep')).toBe(true);
+    expect(registry.has('enter_plan_mode')).toBe(true);
+    expect(registry.has('exit_plan_mode')).toBe(true);
+    expect(registry.has('notebook_edit')).toBe(true);
+    expect(registry.getAll().length).toBe(17);
   });
 
   it('所有工具都应有合法的 Schema', () => {

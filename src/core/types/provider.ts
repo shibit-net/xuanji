@@ -46,8 +46,10 @@ export interface StreamEvent {
  * Provider 配置
  */
 export interface ProviderConfig {
-  /** 模型标识 */
+  /** 模型标识（主模型，用于核心推理） */
   model: string;
+  /** 轻量模型（用于子代理/上下文压缩/摘要等低复杂度任务） */
+  lightModel?: string;
   /** 最大输出 token（不设置则由 API 端决定） */
   maxTokens?: number;
   /** 温度参数 */

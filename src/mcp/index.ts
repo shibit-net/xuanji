@@ -1,7 +1,13 @@
-// ============================================================
-// M8 MCP 协议 — 占位 (P3 阶段实现)
-// ============================================================
+/**
+ * ============================================================
+ * MCP Module - Exports
+ * ============================================================
+ */
 
-// P0 阶段暂不实现，P3 阶段 (W13) 实现 MCP 协议
-// 包括: MCPClient, MCPServer, MCPToolAdapter
-export {};
+export * from './types';
+export * from './cache';
+export * from './MCPClient';
+export * from './MCPManager';
+export * from './MCPToolAdapter';
+export * from './MCPSkillAdapter';
+export * from './tools';

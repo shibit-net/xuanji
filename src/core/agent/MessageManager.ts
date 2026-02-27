@@ -11,6 +11,7 @@ import { middleTruncate, MAX_TOOL_RESULT_LENGTH } from '@/core/utils/truncation'
 export interface IMessageManager {
   build(userMessage: string): Message[];
   addAssistantMessage(content: ContentBlock[]): void;
+  addUserMessage(content: string): void;
   addToolResult(toolUseId: string, result: ToolResult): void;
   addToolResults(results: Map<string, ToolResult>): void;
   getHistory(): Message[];
@@ -59,6 +60,16 @@ export class MessageManager implements IMessageManager {
   }
 
   /**
+   * 添加 user 消息到历史（用于注入系统级提示）
+   */
+  addUserMessage(content: string): void {
+    this.messages.push({
+      role: 'user',
+      content,
+    });
+  }
+
+  /**
    * 批量添加工具结果到历史（合并为单个 user 消息）
    *
    * Anthropic API 推荐格式:
@@ -79,12 +90,28 @@ export class MessageManager implements IMessageManager {
       // 对每条 tool_result 内容做截断保护，防止超大内容发给 LLM API
       const content = middleTruncate(result.content, MAX_TOOL_RESULT_LENGTH);
 
-      toolResultBlocks.push({
-        type: 'tool_result',
-        tool_use_id: toolUseId,
-        content,
-        is_error: result.isError,
-      });
+      // 如果有多模态内容块（如图片），构建 content 数组
+      if (result.contentBlocks && result.contentBlocks.length > 0) {
+        const multiContent: Array<Record<string, unknown>> = [
+          { type: 'text', text: content },
+        ];
+        for (const block of result.contentBlocks) {
+          multiContent.push(block as unknown as Record<string, unknown>);
+        }
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: multiContent as unknown as string,
+          is_error: result.isError,
+        });
+      } else {
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content,
+          is_error: result.isError,
+        });
+      }
     }
 
     this.messages.push({

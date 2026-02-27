@@ -11,7 +11,7 @@ import { ChatSession } from './core/chat/ChatSession';
 /**
  * 版本号
  */
-const VERSION = '0.0.1';
+const VERSION = '0.9.0';
 
 /**
  * 解析命令行参数
@@ -120,15 +120,24 @@ function printHelp(): void {
     gui                  启动 Electron 桌面应用
 
   交互模式命令:
-    /help    显示帮助
-    /clear   清空对话
-    /reset   重置会话
-    /cost    查看费用
-    /settings 配置管理
-    /logs    查看日志
-    /bots    机器人管理
-    /theme   切换主题
-    /exit    退出
+    /help       显示帮助
+    /clear      清空对话
+    /reset      重置会话
+    /cost       查看费用
+    /compact    压缩上下文
+    /model      查看/切换模型
+    /memory     查看记忆库
+    /save       保存会话
+    /resume     恢复会话
+    /sessions   管理会话
+    /checkpoint 创建检查点
+    /rewind     回滚检查点
+    /settings   配置管理
+    /logs       查看日志
+    /bots       机器人管理
+    /lang       切换语言
+    /init       初始化配置
+    /exit       退出
 
   环境变量:
     XUANJI_API_KEY               API Key (必需)
@@ -431,6 +440,7 @@ async function main(): Promise<void> {
       model: config.provider.model,
       onPermissionSetup: (handler: any) => session.setConfirmationHandler(handler),
       onPlanReviewSetup: (handler: any) => session.setPlanReviewHandler(handler),
+      onAskUserSetup: (handler: any) => session.setAskUserHandler(handler),
       onModelChange: async (newModel: string) => {
         const newConfig = { ...session.getConfig() };
         newConfig.provider = { ...newConfig.provider, model: newModel };
@@ -446,6 +456,14 @@ async function main(): Promise<void> {
           `${i + 1}. [${e.type}] ${e.content}${e.keywords?.length ? ` (${e.keywords.slice(0, 3).join(', ')})` : ''}`
         ).join('\n');
       },
+      // ─── 会话持久化回调 ─────────────────────────────
+      onSessionSave: async (name?: string) => session.saveSession(name),
+      onSessionResume: async (sessionId: string) => session.resumeSession(sessionId),
+      onSessionList: async () => session.listSessions(),
+      onSessionDelete: async (sessionId: string) => session.deleteSession(sessionId),
+      onCheckpointCreate: async (label?: string) => session.createCheckpoint(label),
+      onCheckpointRewind: async (checkpointId: string) => session.rewindToCheckpoint(checkpointId),
+      onCheckpointList: async () => session.listCheckpoints(),
     });
   };
 

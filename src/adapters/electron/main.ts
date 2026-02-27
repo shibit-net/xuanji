@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { ChatSession } from '../../core/chat/ChatSession';
 import { ConfigLoader } from '../../core/config/ConfigLoader';
+import { deepMergeConfig } from '../../core/config/GlobalConfig';
 import type { IMAdapter } from '../im/IMAdapter';
 import { MessageFormatter } from '../im/MessageFormatter';
 
@@ -212,26 +213,6 @@ function writeConfig(config: Record<string, unknown>): void {
   } catch (err) {
     log('Config', `写入配置失败: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
-}
-
-/**
- * 深合并配置对象（嵌套对象递归合并，非对象值直接覆盖）
- */
-function deepMergeConfig(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    const srcVal = source[key];
-    const tgtVal = result[key];
-    if (
-      srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
-      tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
-    ) {
-      result[key] = deepMergeConfig(tgtVal as Record<string, unknown>, srcVal as Record<string, unknown>);
-    } else {
-      result[key] = srcVal;
-    }
-  }
-  return result;
 }
 
 /**

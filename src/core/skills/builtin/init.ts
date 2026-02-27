@@ -11,11 +11,14 @@ import {
   projectRulesSkill,
   memoryContextSkill,
   codeAssistantSkill,
+  lifeSecretarySkill,
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,
   reactLoopDefaultSkill,
   multiTurnHandlingSkill,
+  commitSkill,
+  reviewPRSkill,
 } from './index';
 
 /**
@@ -27,6 +30,7 @@ export function initializeBuiltinSkills(registry: SkillRegistry): void {
   registry.register(xuanjiAssistantSkill);
   registry.register(memoryContextSkill); // 记忆上下文 (priority 95)
   registry.register(codeAssistantSkill); // 编程领域 Skill
+  registry.register(lifeSecretarySkill); // 生活秘书 Skill (priority 90)
   registry.register(toolGuidanceSkill);
   registry.register(securityRulesSkill);
   registry.register(agentRulesSkill);
@@ -34,6 +38,10 @@ export function initializeBuiltinSkills(registry: SkillRegistry): void {
   // 注册 Agent Skills
   registry.register(reactLoopDefaultSkill);
   registry.register(multiTurnHandlingSkill);
+
+  // 注册 Workflow Skills
+  registry.register(commitSkill);
+  registry.register(reviewPRSkill);
 }
 
 /**
@@ -45,10 +53,13 @@ export function getBuiltinSkills() {
     xuanjiAssistantSkill,
     memoryContextSkill,
     codeAssistantSkill,
+    lifeSecretarySkill,
     toolGuidanceSkill,
     securityRulesSkill,
     agentRulesSkill,
     reactLoopDefaultSkill,
     multiTurnHandlingSkill,
+    commitSkill,
+    reviewPRSkill,
   ];
 }

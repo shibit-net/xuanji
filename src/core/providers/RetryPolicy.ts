@@ -30,13 +30,22 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
   if (attempt >= config.maxRetries) return false;
 
   if (error instanceof Error) {
-    // 网络错误
-    if ('code' in error && (error as { code: string }).code === 'ECONNRESET') return true;
+    // 网络错误（连接重置、拒绝、超时、DNS 失败）
+    if ('code' in error) {
+      const code = (error as { code: string }).code;
+      const retryableCodes = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EPIPE', 'EAI_AGAIN'];
+      if (retryableCodes.includes(code)) return true;
+    }
 
     // HTTP 状态码错误
     if ('status' in error) {
       const status = (error as { status: number }).status;
       return config.retryableStatusCodes.includes(status);
+    }
+
+    // Anthropic/OpenAI SDK 超时错误
+    if (error.name === 'APIConnectionTimeoutError' || error.message.includes('timeout')) {
+      return true;
     }
   }
 

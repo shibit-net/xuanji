@@ -22,3 +22,5 @@ export { ProjectKnowledge } from './ProjectKnowledge';
 export { MemoryRetriever } from './MemoryRetriever';
 export { MemoryCompactor } from './MemoryCompactor';
 export { MemoryManager } from './MemoryManager';
+export { SmartMemoryExtractor } from './SmartMemoryExtractor';
+export { HybridRetriever } from './HybridRetriever';

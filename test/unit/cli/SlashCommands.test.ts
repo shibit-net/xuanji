@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { parseSlashCommand, createBuiltinCommands } from '@/adapters/cli/SlashCommands';
+import { describe, it, expect } from 'vitest';
+import { parseSlashCommand } from '@/adapters/cli/SlashCommands';
 
 describe('SlashCommands', () => {
   describe('parseSlashCommand()', () => {
@@ -31,64 +31,6 @@ describe('SlashCommands', () => {
     it('应保留参数中的空格', () => {
       const result = parseSlashCommand('/say hello world foo');
       expect(result).toEqual({ name: '/say', args: 'hello world foo' });
-    });
-  });
-
-  describe('createBuiltinCommands()', () => {
-    it('应创建 5 个内置命令', () => {
-      const callbacks = {
-        onClear: vi.fn(),
-        onExit: vi.fn(),
-        onHelp: vi.fn(),
-        onReset: vi.fn(),
-        onCost: vi.fn(),
-      };
-
-      const commands = createBuiltinCommands(callbacks);
-      expect(commands).toHaveLength(5);
-
-      const names = commands.map(c => c.name);
-      expect(names).toContain('/help');
-      expect(names).toContain('/clear');
-      expect(names).toContain('/reset');
-      expect(names).toContain('/cost');
-      expect(names).toContain('/exit');
-    });
-
-    it('所有命令应有描述', () => {
-      const callbacks = {
-        onClear: vi.fn(),
-        onExit: vi.fn(),
-        onHelp: vi.fn(),
-        onReset: vi.fn(),
-        onCost: vi.fn(),
-      };
-
-      const commands = createBuiltinCommands(callbacks);
-      for (const cmd of commands) {
-        expect(cmd.description).toBeTruthy();
-      }
-    });
-
-    it('命令 handler 应调用对应的回调', () => {
-      const callbacks = {
-        onClear: vi.fn(),
-        onExit: vi.fn(),
-        onHelp: vi.fn(),
-        onReset: vi.fn(),
-        onCost: vi.fn(),
-      };
-
-      const commands = createBuiltinCommands(callbacks);
-
-      // 调用每个 handler
-      const helpCmd = commands.find(c => c.name === '/help')!;
-      helpCmd.handler('');
-      expect(callbacks.onHelp).toHaveBeenCalled();
-
-      const exitCmd = commands.find(c => c.name === '/exit')!;
-      exitCmd.handler('');
-      expect(callbacks.onExit).toHaveBeenCalled();
     });
   });
 });

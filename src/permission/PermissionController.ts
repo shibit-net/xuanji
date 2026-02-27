@@ -55,6 +55,7 @@ export class PermissionController implements IPermissionController {
   private auditLogger: AuditLogger;
   private confirmationHandler: ConfirmationHandler | null = null;
   private planReviewHandler: PlanReviewHandler | null = null;
+  private config: PermissionConfig;
 
   /** 会话级决策缓存: cacheKey → allowed */
   private decisionCache: Map<string, boolean> = new Map();
@@ -63,6 +64,7 @@ export class PermissionController implements IPermissionController {
   private confirmationQueue: Promise<void> = Promise.resolve();
 
   constructor(config: PermissionConfig) {
+    this.config = config;
     this.fileGuard = new FileGuard();
     this.commandGuard = new CommandGuard();
     this.policyEngine = new PolicyEngine(config);
@@ -80,6 +82,7 @@ export class PermissionController implements IPermissionController {
    * 更新配置
    */
   updateConfig(config: PermissionConfig): void {
+    this.config = config;
     this.policyEngine.updateConfig(config);
     // 配置变更时清空缓存
     this.decisionCache.clear();
@@ -105,14 +108,38 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
-    // 第 2 步: safe/warn 级别 — 自动放行
-    // 模型自行决定是否需要通过 plan_review 请求用户审查
+    // 第 2 步: safe/warn 级别处理
+    // safe 级别 — 始终自动放行
     if (guardResult.riskLevel === 'safe') {
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-safe' };
       this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
       return result;
     }
+
+    // warn 级别 — 根据 warnLevel 配置决策
     if (guardResult.riskLevel === 'warn') {
+      const warnLevel = this.config.warnLevel ?? 'auto-allow'; // 默认自动放行（向后兼容）
+
+      if (warnLevel === 'ask') {
+        // 用户配置为需要确认，进入确认流程
+        this.log.debug(`Warn-level operation requires confirmation: ${guardResult.description}`);
+        // 检查缓存
+        const cached = this.decisionCache.get(guardResult.cacheKey);
+        if (cached !== undefined) {
+          this.log.debug(`Cache hit: ${guardResult.cacheKey} → ${cached}`);
+          const result: PermissionResult = {
+            allowed: cached,
+            reason: cached ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
+            checkedBy: 'cache',
+          };
+          this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+          return result;
+        }
+        // 触发 UI 确认
+        return this.requestConfirmation(request, guardResult);
+      }
+
+      // warnLevel === 'auto-allow'，自动放行
       this.log.debug(`Auto-allowing warn-level operation: ${guardResult.description}`);
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-warn' };
       this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});

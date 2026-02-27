@@ -11,6 +11,7 @@ export {
   projectRulesSkill,
   memoryContextSkill,
   codeAssistantSkill,
+  lifeSecretarySkill,
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,
@@ -21,6 +22,12 @@ export {
   reactLoopDefaultSkill,
   multiTurnHandlingSkill,
 } from './agents';
+
+// 导出所有 Workflow Skills
+export {
+  commitSkill,
+  reviewPRSkill,
+} from './workflows';
 
 // 导出初始化函数
 export { initializeBuiltinSkills } from './init';

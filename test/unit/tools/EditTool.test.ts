@@ -82,6 +82,94 @@ describe('EditTool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('3 处匹配');
     expect(result.content).toContain('唯一');
+    expect(result.content).toContain('replace_all');
+  });
+
+  describe('replace_all 模式', () => {
+    it('replace_all: true 应替换所有匹配项', async () => {
+      const filePath = join(testDir, 'replace-all.txt');
+      await writeFile(filePath, 'foo bar\nfoo baz\nfoo qux', 'utf-8');
+
+      const result = await tool.execute({
+        path: filePath,
+        old_string: 'foo',
+        new_string: 'hello',
+        replace_all: true,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('已编辑');
+      expect(result.content).toContain('共替换 3 处');
+
+      const content = await readFile(filePath, 'utf-8');
+      expect(content).toBe('hello bar\nhello baz\nhello qux');
+    });
+
+    it('replace_all: true 单次匹配时也应正常工作', async () => {
+      const filePath = join(testDir, 'replace-one.txt');
+      await writeFile(filePath, 'foo bar baz', 'utf-8');
+
+      const result = await tool.execute({
+        path: filePath,
+        old_string: 'foo',
+        new_string: 'hello',
+        replace_all: true,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('已编辑');
+
+      const content = await readFile(filePath, 'utf-8');
+      expect(content).toBe('hello bar baz');
+    });
+
+    it('replace_all: true 未找到匹配时应报错', async () => {
+      const filePath = join(testDir, 'no-match-all.txt');
+      await writeFile(filePath, 'hello world', 'utf-8');
+
+      const result = await tool.execute({
+        path: filePath,
+        old_string: 'not-found',
+        new_string: 'replacement',
+        replace_all: true,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('未找到匹配');
+    });
+
+    it('replace_all: false（默认）多处匹配时应报错', async () => {
+      const filePath = join(testDir, 'default-multi.txt');
+      await writeFile(filePath, 'aaa bbb aaa', 'utf-8');
+
+      const result = await tool.execute({
+        path: filePath,
+        old_string: 'aaa',
+        new_string: 'ccc',
+        replace_all: false,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('2 处匹配');
+    });
+
+    it('replace_all: true 应支持多行字符串替换', async () => {
+      const filePath = join(testDir, 'multiline-all.txt');
+      await writeFile(filePath, 'const x = 1;\nconst y = 2;\nconst z = 3;', 'utf-8');
+
+      const result = await tool.execute({
+        path: filePath,
+        old_string: 'const',
+        new_string: 'let',
+        replace_all: true,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('共替换 3 处');
+
+      const content = await readFile(filePath, 'utf-8');
+      expect(content).toBe('let x = 1;\nlet y = 2;\nlet z = 3;');
+    });
   });
 
   it('应处理多行替换', async () => {

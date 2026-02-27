@@ -1,17 +1,19 @@
 // ============================================================
-// M6 工具系统 — GrepTool 内容搜索
+// M6 工具系统 — GrepTool 内容搜索 (ripgrep + JS fallback)
 // ============================================================
 
 import { BaseTool } from './BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { readFile, stat } from 'node:fs/promises';
+import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import glob from 'fast-glob';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { logger } from '@/core/logger';
 
-const MAX_MATCHES = 500; // 最多匹配数
-const MAX_CONTEXT_LINES = 5; // 上下文行数限制
-const MAX_MATCHES_PER_FILE = 50; // 每个文件最多匹配数
+const MAX_MATCHES = 500;
+const MAX_CONTEXT_LINES = 5;
+const MAX_MATCHES_PER_FILE = 50;
 
 type OutputMode = 'content' | 'files_with_matches' | 'count';
 
@@ -44,21 +46,39 @@ interface SearchResults {
   matches: Array<FileMatch | string | { file: string; count: number }>;
 }
 
+/** 检测 ripgrep 是否可用（缓存结果） */
+let rgAvailable: boolean | null = null;
+function isRipgrepAvailable(): boolean {
+  if (rgAvailable !== null) return rgAvailable;
+  try {
+    execSync('rg --version', { stdio: 'ignore' });
+    rgAvailable = true;
+  } catch {
+    rgAvailable = false;
+    logger.child({ module: 'GrepTool' }).warn(
+      'ripgrep (rg) 未安装，降级到 JS 搜索引擎。建议安装: brew install ripgrep / apt install ripgrep',
+    );
+  }
+  return rgAvailable;
+}
+
 /**
  * Grep 内容搜索工具
- * 在文件中搜索文本模式（支持正则表达式）
+ *
+ * 优先使用 ripgrep (rg) 子进程（Rust 实现，性能优异），
+ * 未安装时自动降级到纯 JS 搜索引擎。
  */
 export class GrepTool extends BaseTool {
   readonly name = 'grep';
-  readonly description = '在文件中搜索文本模式（支持正则表达式）。返回匹配行及其上下文。';
-  readonly readonly = true; // ✅ 只读工具，可并行执行
+  readonly description = '在文件中搜索文本模式（支持正则表达式）。返回匹配行及其上下文。优先使用 ripgrep 高性能搜索。';
+  readonly readonly = true;
 
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       pattern: {
         type: 'string',
-        description: '搜索模式（JavaScript 正则表达式），如 "function\\s+\\w+" 查找函数定义',
+        description: '搜索模式（正则表达式），如 "function\\s+\\w+" 查找函数定义',
       },
       path: {
         type: 'string',
@@ -97,53 +117,250 @@ export class GrepTool extends BaseTool {
       } = input as unknown as GrepInput;
 
       const resolvedPath = path.resolve(searchPath);
-      const stats = await stat(resolvedPath);
+      const contextLines = Math.min(context, MAX_CONTEXT_LINES);
 
-      // 构建正则表达式
-      const flags = case_insensitive ? 'gi' : 'g';
-      const regex = new RegExp(pattern, flags);
-
-      // 确定搜索文件列表和基础路径
-      let files: string[];
-      let basePath: string;
-      if (stats.isFile()) {
-        files = [resolvedPath];
-        basePath = path.dirname(resolvedPath);
-      } else if (stats.isDirectory()) {
-        const pattern = globPattern || '**/*';
-        files = await glob(pattern, {
-          cwd: resolvedPath,
-          onlyFiles: true,
-          ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
-          absolute: true,
-        });
-        basePath = resolvedPath;
-      } else {
-        return this.error('path 必须是文件或目录');
+      // 优先使用 ripgrep
+      if (isRipgrepAvailable()) {
+        return await this.searchWithRipgrep(
+          pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines,
+        );
       }
 
-      // 执行搜索
-      const contextLines = Math.min(context, MAX_CONTEXT_LINES);
-      const results = await this.searchFiles(files, regex, output_mode, contextLines);
-
-      // 格式化输出
-      let output = this.formatResults(results, output_mode, basePath);
-      output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
-
-      return this.success(output, {
-        totalFiles: files.length,
-        matchedFiles: results.matchedFiles,
-        totalMatches: results.totalMatches,
-        mode: output_mode,
-        pattern,
-      });
+      // 降级到 JS 搜索
+      return await this.searchWithJS(
+        pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return this.error(`Grep 搜索失败: ${message}`);
     }
   }
 
-  private async searchFiles(
+  // ============================================================
+  // ripgrep 子进程搜索
+  // ============================================================
+
+  private async searchWithRipgrep(
+    pattern: string,
+    searchPath: string,
+    globPattern: string | undefined,
+    caseInsensitive: boolean,
+    outputMode: OutputMode,
+    context: number,
+  ): Promise<ToolResult> {
+    const args: string[] = [];
+
+    // 基本参数
+    args.push('--json'); // JSON Lines 输出格式
+    args.push('--max-count', String(MAX_MATCHES_PER_FILE));
+
+    if (caseInsensitive) {
+      args.push('--case-insensitive');
+    }
+
+    if (context > 0 && outputMode === 'content') {
+      args.push('--context', String(context));
+    }
+
+    if (globPattern) {
+      args.push('--glob', globPattern);
+    }
+
+    // 默认忽略
+    args.push('--glob', '!node_modules');
+    args.push('--glob', '!.git');
+    args.push('--glob', '!dist');
+
+    // 模式和路径
+    args.push(pattern, searchPath);
+
+    return new Promise<ToolResult>((resolve) => {
+      const proc = spawn('rg', args, {
+        cwd: process.cwd(),
+        env: { ...process.env },
+      });
+
+      const chunks: Buffer[] = [];
+      proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      proc.stderr.on('data', () => {}); // 忽略 stderr
+
+      const timer = setTimeout(() => {
+        proc.kill('SIGTERM');
+        resolve(this.error('ripgrep 搜索超时 (60s)'));
+      }, 60_000);
+
+      proc.on('close', (exitCode) => {
+        clearTimeout(timer);
+        const output = Buffer.concat(chunks).toString('utf-8');
+
+        // exitCode 1 = 无匹配（正常），exitCode 2 = 错误
+        if (exitCode === 2) {
+          resolve(this.error(`ripgrep 错误 (exit ${exitCode})`));
+          return;
+        }
+
+        try {
+          const results = this.parseRipgrepOutput(output, searchPath, outputMode);
+          let formattedOutput = this.formatResults(results, outputMode, searchPath);
+          formattedOutput = middleTruncate(formattedOutput, MAX_TOOL_OUTPUT_LENGTH);
+
+          resolve(this.success(formattedOutput, {
+            totalMatches: results.totalMatches,
+            matchedFiles: results.matchedFiles,
+            mode: outputMode,
+            pattern,
+            engine: 'ripgrep',
+          }));
+        } catch (parseError) {
+          const msg = parseError instanceof Error ? parseError.message : String(parseError);
+          resolve(this.error(`解析 ripgrep 输出失败: ${msg}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        resolve(this.error(`ripgrep 执行失败: ${err.message}`));
+      });
+    });
+  }
+
+  /**
+   * 解析 ripgrep --json 输出
+   * 每行一个 JSON 对象，类型有: begin, match, context, end, summary
+   */
+  private parseRipgrepOutput(
+    output: string,
+    basePath: string,
+    mode: OutputMode,
+  ): SearchResults {
+    const results: SearchResults = {
+      matchedFiles: 0,
+      totalMatches: 0,
+      matches: [],
+    };
+
+    if (!output.trim()) return results;
+
+    // 按文件聚合
+    const fileMap = new Map<string, { matches: MatchResult[]; count: number }>();
+
+    for (const line of output.split('\n')) {
+      if (!line.trim()) continue;
+      let entry: any;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (entry.type === 'match') {
+        const filePath = entry.data.path?.text;
+        const lineNumber = entry.data.line_number;
+        const text = entry.data.lines?.text?.replace(/\n$/, '') ?? '';
+
+        if (!filePath) continue;
+
+        if (!fileMap.has(filePath)) {
+          fileMap.set(filePath, { matches: [], count: 0 });
+        }
+        const file = fileMap.get(filePath)!;
+        file.count++;
+        results.totalMatches++;
+
+        if (mode === 'content') {
+          file.matches.push({
+            lineNumber,
+            line: text,
+          });
+        }
+      } else if (entry.type === 'context' && mode === 'content') {
+        // 上下文行
+        const filePath = entry.data.path?.text;
+        const lineNumber = entry.data.line_number;
+        const text = entry.data.lines?.text?.replace(/\n$/, '') ?? '';
+
+        if (!filePath || !fileMap.has(filePath)) continue;
+        const file = fileMap.get(filePath)!;
+        const lastMatch = file.matches[file.matches.length - 1];
+        if (!lastMatch) continue;
+
+        // 判断是上文还是下文
+        if (!lastMatch.context) {
+          lastMatch.context = { before: [], after: [] };
+        }
+        if (lineNumber < lastMatch.lineNumber) {
+          lastMatch.context.before.push(text);
+        } else if (lineNumber > lastMatch.lineNumber) {
+          lastMatch.context.after.push(text);
+        }
+      }
+    }
+
+    // 转换结果
+    results.matchedFiles = fileMap.size;
+    for (const [filePath, data] of fileMap) {
+      if (mode === 'content') {
+        results.matches.push({ file: filePath, matches: data.matches });
+      } else if (mode === 'files_with_matches') {
+        results.matches.push(filePath);
+      } else if (mode === 'count') {
+        results.matches.push({ file: filePath, count: data.count });
+      }
+    }
+
+    return results;
+  }
+
+  // ============================================================
+  // JS 降级搜索引擎 (原有实现)
+  // ============================================================
+
+  private async searchWithJS(
+    pattern: string,
+    resolvedPath: string,
+    globPattern: string | undefined,
+    caseInsensitive: boolean,
+    outputMode: OutputMode,
+    contextLines: number,
+  ): Promise<ToolResult> {
+    const stats = await stat(resolvedPath);
+    const flags = caseInsensitive ? 'gi' : 'g';
+    const regex = new RegExp(pattern, flags);
+
+    let files: string[];
+    let basePath: string;
+    if (stats.isFile()) {
+      files = [resolvedPath];
+      basePath = path.dirname(resolvedPath);
+    } else if (stats.isDirectory()) {
+      const filePattern = globPattern || '**/*';
+      files = await glob(filePattern, {
+        cwd: resolvedPath,
+        onlyFiles: true,
+        ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
+        absolute: true,
+      });
+      basePath = resolvedPath;
+    } else {
+      return this.error('path 必须是文件或目录');
+    }
+
+    const results = await this.searchFilesJS(files, regex, outputMode, contextLines);
+
+    let output = this.formatResults(results, outputMode, basePath);
+    output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
+
+    return this.success(output, {
+      totalFiles: files.length,
+      matchedFiles: results.matchedFiles,
+      totalMatches: results.totalMatches,
+      mode: outputMode,
+      pattern,
+      engine: 'js-fallback',
+    });
+  }
+
+  private async searchFilesJS(
     files: string[],
     regex: RegExp,
     mode: OutputMode,
@@ -157,22 +374,31 @@ export class GrepTool extends BaseTool {
 
     for (const file of files) {
       try {
+        // 跳过二进制文件：读取前 512 字节检测 NUL 字符
+        const fd = await (await import('node:fs/promises')).open(file, 'r');
+        try {
+          const probe = Buffer.alloc(512);
+          const { bytesRead } = await fd.read(probe, 0, 512, 0);
+          if (bytesRead > 0 && probe.subarray(0, bytesRead).includes(0)) {
+            continue; // 二进制文件，跳过
+          }
+        } finally {
+          await fd.close();
+        }
+
         const content = await readFile(file, 'utf-8');
         const lines = content.split('\n');
         const fileMatches: MatchResult[] = [];
         let fileMatchCount = 0;
 
-        // 逐行搜索
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
-          // 重置 regex lastIndex 以确保每行都从头匹配
           regex.lastIndex = 0;
           if (regex.test(line)) {
             fileMatchCount++;
             results.totalMatches++;
 
             if (mode === 'content') {
-              // 提取上下文
               const start = Math.max(0, i - context);
               const end = Math.min(lines.length - 1, i + context);
               fileMatches.push({
@@ -187,7 +413,6 @@ export class GrepTool extends BaseTool {
                     : undefined,
               });
 
-              // 限制每个文件的匹配数
               if (fileMatches.length >= MAX_MATCHES_PER_FILE) break;
             }
           }
@@ -204,16 +429,18 @@ export class GrepTool extends BaseTool {
           }
         }
 
-        // 限制总匹配文件数
         if (results.matchedFiles >= MAX_MATCHES) break;
       } catch {
-        // 跳过无法读取的文件（如二进制文件）
         continue;
       }
     }
 
     return results;
   }
+
+  // ============================================================
+  // 格式化输出 (共用)
+  // ============================================================
 
   private formatResults(results: SearchResults, mode: OutputMode, basePath: string): string {
     if (results.matchedFiles === 0) {
@@ -238,22 +465,19 @@ export class GrepTool extends BaseTool {
 
       for (const match of fileMatch.matches) {
         if (match.context?.before) {
-          // 上文
           match.context.before.forEach((l, i) => {
             const lineNum = match.lineNumber - match.context!.before.length + i;
             output.push(`${String(lineNum).padStart(6)} │ ${l}`);
           });
         }
-        // 匹配行
         output.push(`${String(match.lineNumber).padStart(6)} │ ${match.line}`);
         if (match.context?.after) {
-          // 下文
           match.context.after.forEach((l, i) => {
             const lineNum = match.lineNumber + i + 1;
             output.push(`${String(lineNum).padStart(6)} │ ${l}`);
           });
         }
-        output.push(''); // 空行分隔
+        output.push('');
       }
     }
 

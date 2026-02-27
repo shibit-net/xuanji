@@ -24,22 +24,50 @@ export class TokenManager {
   }
 
   /**
-   * 估算消息数组的 token 数 (粗略估计: 1 token ≈ 4 字符)
+   * 估算消息数组的 token 数
+   * 中文/CJK 字符约 1.5 tokens/字，ASCII 约 0.25 tokens/字
    */
   estimateTokens(messages: Message[]): number {
-    let totalChars = 0;
+    let totalTokens = 0;
     for (const msg of messages) {
       if (typeof msg.content === 'string') {
-        totalChars += msg.content.length;
+        totalTokens += TokenManager.estimateStringTokens(msg.content);
       } else {
         for (const block of msg.content) {
-          totalChars += (block.text ?? '').length;
-          totalChars += (block.content ?? '').length;
-          totalChars += JSON.stringify(block.input ?? '').length;
+          totalTokens += TokenManager.estimateStringTokens(block.text ?? '');
+          totalTokens += TokenManager.estimateStringTokens(block.content ?? '');
+          totalTokens += TokenManager.estimateStringTokens(JSON.stringify(block.input ?? ''));
         }
       }
     }
-    return Math.ceil(totalChars / 4);
+    return Math.ceil(totalTokens);
+  }
+
+  /**
+   * 估算字符串的 token 数（区分 CJK 和 ASCII）
+   */
+  static estimateStringTokens(text: string): number {
+    if (!text) return 0;
+    let cjkChars = 0;
+    let asciiChars = 0;
+    for (const char of text) {
+      const code = char.codePointAt(0)!;
+      if (
+        (code >= 0x4E00 && code <= 0x9FFF) ||   // CJK 统一汉字
+        (code >= 0x3400 && code <= 0x4DBF) ||   // CJK 统一汉字扩展 A
+        (code >= 0x3000 && code <= 0x303F) ||   // CJK 符号和标点
+        (code >= 0xFF00 && code <= 0xFFEF) ||   // 全角 ASCII/半角片假名
+        (code >= 0x3040 && code <= 0x309F) ||   // 日文平假名
+        (code >= 0x30A0 && code <= 0x30FF) ||   // 日文片假名
+        (code >= 0xAC00 && code <= 0xD7AF)      // 韩文音节
+      ) {
+        cjkChars++;
+      } else {
+        asciiChars++;
+      }
+    }
+    // CJK: ~1.5 tokens/字符, ASCII: ~0.25 tokens/字符
+    return cjkChars * 1.5 + asciiChars / 4;
   }
 
   /**

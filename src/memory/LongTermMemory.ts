@@ -16,6 +16,10 @@ const TYPE_FILE_MAP: Record<MemoryEntryType, string> = {
   tool_pattern: 'knowledge.jsonl',
   user_preference: 'knowledge.jsonl',
   project_fact: 'knowledge.jsonl',
+  // Phase 2 新增：生活场景记忆存储到 personal.jsonl
+  user_fact: 'personal.jsonl',
+  relationship: 'personal.jsonl',
+  important_date: 'personal.jsonl',
 };
 
 /**

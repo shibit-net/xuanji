@@ -9,6 +9,7 @@ export { xuanjiAssistantSkill } from './xuanji-assistant';
 export { projectRulesSkill } from './project-rules';
 export { memoryContextSkill } from './memory-context';
 export { codeAssistantSkill } from './code-assistant';
+export { lifeSecretarySkill } from './life-secretary';
 export {
   toolGuidanceSkill,
   securityRulesSkill,

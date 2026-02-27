@@ -11,6 +11,20 @@ import { BashTool } from './BashTool';
 import { GlobTool } from './GlobTool';
 import { GrepTool } from './GrepTool';
 import { PlanReviewTool } from './PlanReviewTool';
+import { AskUserTool } from './AskUserTool';
+import { TaskOutputTool } from './TaskOutputTool';
+import { WebFetchTool } from './WebFetchTool';
+import { TodoStorageTool } from './TodoStorageTool';
+import { TodoListTool } from './TodoListTool';
+import { TodoUpdateTool } from './TodoUpdateTool';
+import { SleepTool } from './SleepTool';
+import { EnterPlanModeTool } from './EnterPlanModeTool';
+import { ExitPlanModeTool } from './ExitPlanModeTool';
+import { NotebookEditTool } from './NotebookEditTool';
+import { logger } from '@/core/logger';
+
+/** 工具执行默认超时（5 分钟） */
+const DEFAULT_TOOL_TIMEOUT = 300_000;
 
 /**
  * 工具注册表
@@ -19,6 +33,7 @@ import { PlanReviewTool } from './PlanReviewTool';
 export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
   private permissionController?: IPermissionController;
+  private _planMode: boolean = false;
 
   /**
    * 注入权限控制器 (可选)
@@ -81,6 +96,50 @@ export class ToolRegistry implements IToolRegistry {
     return this.tools.has(name);
   }
 
+  // ─── Plan Mode ─────────────────────────────────────
+
+  /**
+   * 进入 Plan Mode（只读模式）
+   */
+  enterPlanMode(): void {
+    this._planMode = true;
+  }
+
+  /**
+   * 退出 Plan Mode
+   */
+  exitPlanMode(): void {
+    this._planMode = false;
+  }
+
+  /**
+   * 是否处于 Plan Mode
+   */
+  isPlanMode(): boolean {
+    return this._planMode;
+  }
+
+  /**
+   * 克隆注册表（排除指定工具，用于子代理）
+   */
+  cloneForSubAgent(excludeTools: string[] = []): ToolRegistry {
+    const cloned = new ToolRegistry();
+    const excludeSet = new Set(excludeTools);
+
+    for (const [name, tool] of this.tools) {
+      if (!excludeSet.has(name)) {
+        cloned.tools.set(name, tool);
+      }
+    }
+
+    // 复制权限控制器
+    if (this.permissionController) {
+      cloned.setPermissionController(this.permissionController);
+    }
+
+    return cloned;
+  }
+
   /**
    * 执行工具
    */
@@ -91,6 +150,21 @@ export class ToolRegistry implements IToolRegistry {
         content: `未知工具: ${name}`,
         isError: true,
       };
+    }
+
+    // 📋 Plan Mode 检查：拦截写操作
+    if (this._planMode) {
+      const isWrite = 'isWriteOperation' in tool
+        ? (tool as { isWriteOperation(): boolean }).isWriteOperation()
+        : !tool.readonly;
+
+      if (isWrite) {
+        return {
+          content: `[Plan Mode] 写操作被拦截: ${name}。使用 /exit-plan 退出 Plan Mode 后再执行。`,
+          isError: true,
+          metadata: { planModeBlocked: true },
+        };
+      }
     }
 
     // 🔐 权限检查
@@ -111,9 +185,17 @@ export class ToolRegistry implements IToolRegistry {
     }
 
     try {
-      return await tool.execute(input);
+      const timeout = (tool as { timeout?: number }).timeout ?? DEFAULT_TOOL_TIMEOUT;
+      const result = await Promise.race([
+        tool.execute(input),
+        new Promise<ToolResult>((_, reject) => {
+          setTimeout(() => reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`)), timeout);
+        }),
+      ]);
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      logger.child({ module: 'ToolRegistry' }).warn(`Tool "${name}" execution error: ${message}`);
       return {
         content: `工具执行异常: ${message}`,
         isError: true,
@@ -134,5 +216,15 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new GlobTool());
   registry.register(new GrepTool());
   registry.register(new PlanReviewTool());
+  registry.register(new AskUserTool());
+  registry.register(new TaskOutputTool());
+  registry.register(new WebFetchTool());
+  registry.register(new TodoStorageTool());
+  registry.register(new TodoListTool());
+  registry.register(new TodoUpdateTool());
+  registry.register(new SleepTool());
+  registry.register(new EnterPlanModeTool());
+  registry.register(new ExitPlanModeTool());
+  registry.register(new NotebookEditTool());
   return registry;
 }

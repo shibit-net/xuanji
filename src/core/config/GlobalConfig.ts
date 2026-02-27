@@ -61,3 +61,31 @@ export function deepMergeConfig(
 }
 
 export { GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_PATH };
+
+/**
+ * 通过点号路径取值 (e.g. "provider.model")
+ */
+export function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, key) => {
+    if (acc && typeof acc === 'object') {
+      return (acc as Record<string, unknown>)[key];
+    }
+    return undefined;
+  }, obj);
+}
+
+/**
+ * 通过点号路径设值 (e.g. "provider.model", "claude-sonnet-4-20250514")
+ */
+export function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const keys = path.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!(key in current) || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
+}

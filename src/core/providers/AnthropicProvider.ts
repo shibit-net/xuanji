@@ -89,10 +89,12 @@ export class AnthropicProvider extends BaseLLMProvider {
       // 这样可以在代理层/网络层卡住时及时中止，触发恢复逻辑。
       const PER_EVENT_TIMEOUT_MS = 30_000; // 30 秒未收到新事件视为超时
       let lastEventTime = Date.now();
+      let perEventTimedOut = false;
       timeoutCheckInterval = setInterval(() => {
         const elapsed = Date.now() - lastEventTime;
         if (elapsed > PER_EVENT_TIMEOUT_MS) {
           this.log.warn(`Per-event timeout: ${elapsed}ms elapsed since last event, aborting stream`);
+          perEventTimedOut = true;
           stream.controller.abort(); // 主动中止流
         }
       }, 5000); // 每 5 秒检查一次
@@ -221,6 +223,26 @@ export class AnthropicProvider extends BaseLLMProvider {
       // 流提前结束的恢复处理
       if (!receivedEnd) {
         this.log.warn(`Stream ended without message_delta event. totalEvents=${eventCount}, eventTypes=${JSON.stringify(eventTypeCounts)}, hasOpenToolUse=${!!(currentToolId && currentToolName)}, toolInputSize=${currentToolInput?.length ?? 0}`);
+
+        // 如果是 per-event 超时导致的中断，抛出明确的超时错误让 RetryPolicy 处理
+        if (perEventTimedOut) {
+          // 先发出已累积的工具调用（如果有）
+          if (currentToolId && currentToolName) {
+            yield {
+              type: 'tool_use_end',
+              toolCall: {
+                id: currentToolId,
+                name: currentToolName,
+                input: {
+                  _truncated: true,
+                  _raw_input: currentToolInput?.substring(0, 500) ?? '',
+                  _error_message: `流传输超时：工具 "${currentToolName}" 的参数在接收 ${currentToolInput?.length ?? 0} 字符后超时中断`,
+                },
+              },
+            };
+          }
+          throw new Error('Stream per-event timeout: no data received for 30 seconds');
+        }
 
         // 如果有未完成的工具调用，合成截断错误事件
         if (currentToolId && currentToolName) {

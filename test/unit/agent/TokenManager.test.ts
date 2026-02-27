@@ -11,17 +11,31 @@ describe('TokenManager', () => {
 
   // ---- estimateTokens() ----
 
-  it('estimateTokens() 应估算字符串消息的 token 数', () => {
+  it('estimateTokens() 应估算纯英文字符串消息的 token 数', () => {
     const messages: Message[] = [
-      { role: 'user', content: 'Hello world' }, // 11 chars → ceil(11/4) = 3
+      { role: 'user', content: 'Hello world' }, // 11 ASCII chars → ceil(11/4) = 3
     ];
     expect(manager.estimateTokens(messages)).toBe(3);
   });
 
-  it('estimateTokens() 应估算长消息的 token 数', () => {
-    const content = 'a'.repeat(1000); // 1000 chars → 250 tokens
+  it('estimateTokens() 应估算长英文消息的 token 数', () => {
+    const content = 'a'.repeat(1000); // 1000 ASCII chars → 250 tokens
     const messages: Message[] = [{ role: 'user', content }];
     expect(manager.estimateTokens(messages)).toBe(250);
+  });
+
+  it('estimateTokens() 应对中文使用更高的 token 比率', () => {
+    const messages: Message[] = [
+      { role: 'user', content: '你好世界' }, // 4 CJK chars → 4 * 1.5 = 6
+    ];
+    expect(manager.estimateTokens(messages)).toBe(6);
+  });
+
+  it('estimateTokens() 应对中英混合文本正确估算', () => {
+    const messages: Message[] = [
+      { role: 'user', content: '你好hello' }, // 2 CJK * 1.5 + 5 ASCII / 4 = 3 + 1.25 = ceil(4.25) = 5
+    ];
+    expect(manager.estimateTokens(messages)).toBe(5);
   });
 
   it('estimateTokens() 应处理 ContentBlock 数组消息', () => {
@@ -29,14 +43,14 @@ describe('TokenManager', () => {
       {
         role: 'assistant',
         content: [
-          { type: 'text', text: 'Hello' },        // 5 chars
-          { type: 'tool_use', input: { a: 'b' } }, // JSON.stringify({a:'b'}) = '{"a":"b"}' = 9 chars
+          { type: 'text', text: 'Hello' },        // 5 ASCII chars → 1.25
+          { type: 'tool_use', input: { a: 'b' } }, // JSON.stringify({a:'b'}) = '{"a":"b"}' = 9 ASCII chars → 2.25
         ],
       },
     ];
     const tokens = manager.estimateTokens(messages);
-    // text: 5, input: 9, others "" → ceil(14/4) = 4
-    expect(tokens).toBeGreaterThan(0);
+    // 5/4 + 9/4 = 1.25 + 2.25 = 3.5 → ceil = 4
+    expect(tokens).toBe(4);
   });
 
   it('estimateTokens() 空消息应返回 0', () => {

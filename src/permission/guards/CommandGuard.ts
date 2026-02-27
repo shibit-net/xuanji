@@ -65,11 +65,108 @@ export class CommandGuard {
    */
   check(command: string, policyEngine: PolicyEngine): GuardCheckResult {
     const trimmedCommand = command.trim();
-    const commandName = this.extractCommandName(trimmedCommand);
+
+    // 先对完整命令检查跨管道的危险模式（如 curl | bash 需要看到整个管道）
+    const fullResult = this.checkSingleCommand(trimmedCommand, policyEngine);
+    if (fullResult.riskLevel === 'danger' || fullResult.riskLevel === 'warn') {
+      return fullResult;
+    }
+
+    // 再拆分管道/链式命令，对每个子命令独立检查，取最高风险级别
+    const subCommands = this.splitSubCommands(trimmedCommand);
+    if (subCommands.length <= 1) {
+      return fullResult; // 无管道/链式，直接返回
+    }
+
+    let worstResult: GuardCheckResult = fullResult;
+
+    for (const subCmd of subCommands) {
+      const result = this.checkSingleCommand(subCmd.trim(), policyEngine);
+      if (this.riskOrder(result.riskLevel) > this.riskOrder(worstResult.riskLevel)) {
+        worstResult = result;
+      }
+      // danger 是最高级别，无需继续
+      if (result.riskLevel === 'danger') break;
+    }
+
+    return worstResult;
+  }
+
+  /**
+   * 按 |, &&, ||, ; 拆分子命令
+   * 注意：不拆分引号和 $() 内的分隔符
+   */
+  private splitSubCommands(command: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let depth = 0; // $() 嵌套深度
+
+    for (let i = 0; i < command.length; i++) {
+      const ch = command[i];
+      const next = command[i + 1];
+
+      if (ch === "'" && !inDoubleQuote && depth === 0) {
+        inSingleQuote = !inSingleQuote;
+        current += ch;
+      } else if (ch === '"' && !inSingleQuote && depth === 0) {
+        inDoubleQuote = !inDoubleQuote;
+        current += ch;
+      } else if (ch === '$' && next === '(' && !inSingleQuote) {
+        depth++;
+        current += ch;
+      } else if (ch === ')' && depth > 0 && !inSingleQuote) {
+        depth--;
+        current += ch;
+      } else if (!inSingleQuote && !inDoubleQuote && depth === 0) {
+        // 检查分隔符
+        if (ch === '|' && next === '|') {
+          parts.push(current);
+          current = '';
+          i++; // 跳过第二个 |
+        } else if (ch === '&' && next === '&') {
+          parts.push(current);
+          current = '';
+          i++; // 跳过第二个 &
+        } else if (ch === '|') {
+          parts.push(current);
+          current = '';
+        } else if (ch === ';') {
+          parts.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) parts.push(current);
+    return parts.length > 0 ? parts : [command];
+  }
+
+  /**
+   * 风险级别排序值（值越大越危险）
+   */
+  private riskOrder(level: string): number {
+    switch (level) {
+      case 'danger': return 3;
+      case 'warn': return 2;
+      case 'safe': return 1;
+      default: return 0;
+    }
+  }
+
+  /**
+   * 检查单个子命令的风险（原有逻辑）
+   */
+  private checkSingleCommand(command: string, policyEngine: PolicyEngine): GuardCheckResult {
+    const commandName = this.extractCommandName(command);
 
     // 1. 检查黑名单
     const deniedCommands = policyEngine.getDeniedCommands();
-    if (deniedCommands.length > 0 && this.matchesDeniedList(trimmedCommand, commandName, deniedCommands)) {
+    if (deniedCommands.length > 0 && this.matchesDeniedList(command, commandName, deniedCommands)) {
       return {
         category: 'bashExec',
         riskLevel: 'danger',
@@ -80,7 +177,7 @@ export class CommandGuard {
 
     // 2. 检查极度危险命令
     for (const { pattern, description } of EXTREME_DANGER_PATTERNS) {
-      if (pattern.test(trimmedCommand)) {
+      if (pattern.test(command)) {
         return {
           category: 'bashExec',
           riskLevel: 'danger',
@@ -92,7 +189,7 @@ export class CommandGuard {
 
     // 3. 检查潜在危险命令
     for (const { pattern, description } of DANGER_PATTERNS) {
-      if (pattern.test(trimmedCommand)) {
+      if (pattern.test(command)) {
         return {
           category: 'bashExec',
           riskLevel: 'warn',

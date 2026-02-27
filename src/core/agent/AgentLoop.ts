@@ -2,8 +2,9 @@
 // M2 Agent — ReAct 循环核心
 // ============================================================
 
-import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema } from '@/core/types';
+import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
 import type { IMemoryStore, SessionMemory, ToolCallRecord } from '@/memory/types';
+import type { HookRegistry } from '@/hooks/HookRegistry';
 import { MessageManager } from './MessageManager';
 import { StreamProcessor, type ProcessResult } from './StreamProcessor';
 import { ToolDispatcher } from './ToolDispatcher';
@@ -11,9 +12,11 @@ import { TokenManager } from './TokenManager';
 import { ContextCompressor } from './ContextCompressor';
 import { CostTracker } from './CostTracker';
 import { ErrorRecovery } from './ErrorRecovery';
+import { shouldRetry, calculateBackoff, DEFAULT_RETRY_CONFIG } from '@/core/providers/RetryPolicy';
 import { logger } from '@/core/logger';
 import { SessionRecorder } from '@/core/telemetry';
 import { UsageStatsRecorder } from '@/core/telemetry';
+import { PerfCollector } from '@/core/telemetry';
 
 /**
  * Agent 事件回调
@@ -54,6 +57,7 @@ export class AgentLoop {
   private errorRecovery: ErrorRecovery;
   private sessionRecorder: SessionRecorder;
   private usageStatsRecorder: UsageStatsRecorder;
+  private perfCollector: PerfCollector;
   private provider: ILLMProvider;
   private registry: IToolRegistry;
   private config: AgentConfig;
@@ -61,6 +65,7 @@ export class AgentLoop {
   private running = false;
   private currentIteration = 0;
   private memoryStore: IMemoryStore | null = null;
+  private hookRegistry: HookRegistry | null = null;
 
   constructor(
     provider: ILLMProvider,
@@ -77,10 +82,19 @@ export class AgentLoop {
     this.toolDispatcher = new ToolDispatcher(registry);
     this.tokenManager = new TokenManager();
     this.contextCompressor = new ContextCompressor(config.compressor);
+    // 注入 LLM Provider 以启用语义压缩
+    this.contextCompressor.setProvider(provider, {
+      model: config.model,
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+    });
     this.costTracker = new CostTracker(config.model);
     this.errorRecovery = new ErrorRecovery();
     this.sessionRecorder = new SessionRecorder();
     this.usageStatsRecorder = new UsageStatsRecorder();
+    this.perfCollector = new PerfCollector();
 
     // 注册流处理回调
     this.streamProcessor.onTextDelta((text) => this.callbacks.onText?.(text));
@@ -134,8 +148,8 @@ export class AgentLoop {
 
         this.log.debug(`Iteration ${this.currentIteration}/${maxIterations}, running=${this.running}, messages=${messages.length}`);
 
-        // 智能压缩（在硬截断之前）
-        const compressionResult = this.contextCompressor.compress(messages, this.tokenManager);
+        // 智能压缩（在硬截断之前，支持 LLM 语义压缩）
+        const compressionResult = await this.contextCompressor.compressAsync(messages, this.tokenManager);
         messages = compressionResult.compressed;
         if (compressionResult.compressionRatio > 0) {
           this.callbacks.onInfo?.(
@@ -147,23 +161,57 @@ export class AgentLoop {
         // Token 窗口裁剪（兜底保护）
         messages = this.tokenManager.fitWindow(messages);
 
-        // 调用 LLM
+        // 调用 LLM（带重试）
         const toolSchemas: ToolSchema[] = this.registry.getSchemas();
+        const perfTimer = this.perfCollector.createTimer(this.config.model, this.currentIteration);
+        const retryConfig = this.config.retry ?? DEFAULT_RETRY_CONFIG;
 
-        const stream = this.provider.stream(
-          messages,
-          toolSchemas,
-          {
-            model: this.config.model,
-            apiKey: this.config.apiKey,
-            baseURL: this.config.baseURL,
-            maxTokens: this.config.maxTokens,
-            temperature: this.config.temperature,
-          },
-        );
+        let result: ProcessResult;
+        let lastStreamError: unknown;
+        for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
+          try {
+            const stream = this.provider.stream(
+              messages,
+              toolSchemas,
+              {
+                model: this.config.model,
+                apiKey: this.config.apiKey,
+                baseURL: this.config.baseURL,
+                maxTokens: this.config.maxTokens,
+                temperature: this.config.temperature,
+              },
+            );
 
-        // 消费流
-        const result: ProcessResult = await this.streamProcessor.consume(stream);
+            // 标记首 token 用于性能计时（不覆盖 StreamProcessor 的 textHandler）
+            let firstTokenMarked = false;
+            const prevTextHandler = this.streamProcessor['textHandler'];
+            this.streamProcessor.onTextDelta((text) => {
+              if (!firstTokenMarked) {
+                perfTimer.markFirstToken();
+                firstTokenMarked = true;
+              }
+              // 委托给原始 handler（构造函数中注册的，会调用 this.callbacks.onText）
+              prevTextHandler?.(text);
+            });
+            result = await this.streamProcessor.consume(stream);
+            break; // 成功，退出重试循环
+          } catch (streamError) {
+            lastStreamError = streamError;
+            if (!shouldRetry(streamError, attempt, retryConfig)) {
+              throw streamError; // 不可重试，直接抛出
+            }
+            const delay = calculateBackoff(attempt, retryConfig);
+            this.log.warn(`API call failed (attempt ${attempt + 1}/${retryConfig.maxRetries + 1}), retrying in ${Math.round(delay)}ms: ${streamError instanceof Error ? streamError.message : String(streamError)}`);
+            this.callbacks.onInfo?.(`⚠️ API 请求失败，${Math.round(delay / 1000)}s 后重试 (${attempt + 1}/${retryConfig.maxRetries})...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+        if (!result!) {
+          throw lastStreamError ?? new Error('API call failed after retries');
+        }
+
+        // 记录性能指标
+        perfTimer.finish(result.usage.input, result.usage.output).catch(() => {});
 
         // 记录 assistant 消息
         this.messageManager.addAssistantMessage(result.contentBlocks);
@@ -212,10 +260,9 @@ export class AgentLoop {
             this.messageManager.addToolResults(errorResults);
           } else {
             // 没有工具调用（tool_use block 完全未完成），注入用户提示让 LLM 重试
-            this.messageManager.addAssistantMessage([{
-              type: 'text',
-              text: '[System] Output token limit reached. Split large operations into MULTIPLE SMALL tool calls (write_file max 200 lines, edit_file max 50 lines). DO NOT retry with large content in a single call.',
-            }]);
+            this.messageManager.addUserMessage(
+              '[System] Output token limit reached. Split large operations into MULTIPLE SMALL tool calls (write_file max 200 lines, edit_file max 50 lines). DO NOT retry with large content in a single call.',
+            );
           }
 
           // 重建消息继续循环
@@ -239,9 +286,61 @@ export class AgentLoop {
           this.callbacks.onToolGrouped?.({ parallelIds, serialIds });
         }
 
+        // 触发 PreToolUse Hook（同步，可阻塞）
+        const blockedToolIds = new Set<string>();
+        if (this.hookRegistry) {
+          for (const tc of result.toolCalls) {
+            try {
+              const hookResult = await this.hookRegistry.emitSync('PreToolUse', {
+                toolName: tc.name,
+                toolInput: tc.input as Record<string, unknown>,
+              });
+              if (hookResult.blocked) {
+                blockedToolIds.add(tc.id);
+                this.log.info(`Tool ${tc.name} blocked by PreToolUse hook`);
+                this.callbacks.onInfo?.(`⛔ Hook 阻止了工具 ${tc.name} 的执行`);
+              }
+            } catch {
+              // Hook 异常不阻塞工具执行
+            }
+          }
+        }
+
+        // 过滤被 Hook 阻塞的工具，为其生成错误结果
+        const allowedToolCalls = result.toolCalls.filter((tc) => !blockedToolIds.has(tc.id));
+        const blockedResults = new Map<string, { content: string; isError: boolean }>();
+        for (const tc of result.toolCalls) {
+          if (blockedToolIds.has(tc.id)) {
+            blockedResults.set(tc.id, {
+              content: `[BLOCKED] 工具 "${tc.name}" 被 PreToolUse Hook 阻止执行。请检查 Hook 配置或尝试其他方式。`,
+              isError: true,
+            });
+            this.callbacks.onToolEnd?.(tc.id, tc.name, blockedResults.get(tc.id)!.content, true);
+          }
+        }
+
         const toolExecStartTime = Date.now();
-        const resultsMap = await this.toolDispatcher.executeAll(result.toolCalls);
+        const resultsMap = await this.toolDispatcher.executeAll(allowedToolCalls);
         const toolExecDurationMs = Date.now() - toolExecStartTime;
+
+        // 将被阻塞工具的错误结果合并到 resultsMap
+        for (const [id, result] of blockedResults) {
+          resultsMap.set(id, result);
+        }
+
+        // 触发 PostToolUse Hook（异步，不阻塞）
+        if (this.hookRegistry) {
+          for (const toolCall of result.toolCalls) {
+            const toolResult = resultsMap.get(toolCall.id);
+            this.hookRegistry.emit('PostToolUse', {
+              toolName: toolCall.name,
+              toolInput: toolCall.input as Record<string, unknown>,
+              toolResult: toolResult?.content?.slice(0, 2000),
+              toolIsError: toolResult?.isError,
+              toolDuration: Math.round(toolExecDurationMs / result.toolCalls.length),
+            }).catch(() => {});
+          }
+        }
 
         // 统计工具调用（按工具名聚合）
         for (const toolCall of result.toolCalls) {
@@ -300,12 +399,19 @@ export class AgentLoop {
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
 
+      // 触发 ErrorOccurred Hook
+      if (this.hookRegistry) {
+        this.hookRegistry.emit('ErrorOccurred', {
+          errorMessage: err.message,
+          errorStack: err.stack,
+        }).catch(() => {});
+      }
+
       // 使用友好化的错误消息
       const friendlyError = new Error(ErrorRecovery.formatError(err));
       this.callbacks.onError?.(friendlyError);
 
-      // API 错误立即停止，不重试
-      // 记录错误计数仅用于统计目的
+      // API 错误已在 stream 层重试过，此处记录统计
       this.errorRecovery.recordError(err);
 
       // 总是抛出异常，让主进程处理
@@ -394,11 +500,12 @@ export class AgentLoop {
 
   /**
    * 手动触发上下文压缩
+   * @param customInstruction 用户自定义保留指令（如 "保留所有文件路径"）
    * 返回压缩结果，如果不需要压缩则返回 null
    */
-  compact(): import('@/core/types').CompressionResult | null {
+  async compact(customInstruction?: string): Promise<import('@/core/types').CompressionResult | null> {
     const messages = this.messageManager.getMessages();
-    const result = this.contextCompressor.compress(messages, this.tokenManager);
+    const result = await this.contextCompressor.compressAsync(messages, this.tokenManager, customInstruction);
     if (result.compressionRatio > 0) {
       // 更新 MessageManager 内部状态（去掉 system prompt）
       this.messageManager.replaceMessages(result.compressed.slice(1));
@@ -434,5 +541,30 @@ export class AgentLoop {
    */
   getMessageManager(): MessageManager {
     return this.messageManager;
+  }
+
+  /**
+   * 获取完整消息历史（不含 system prompt）
+   * 便捷方法，供 SessionManager 保存会话时使用
+   */
+  getMessageHistory(): Message[] {
+    return this.messageManager.getHistory();
+  }
+
+  /**
+   * 恢复消息历史（用于 session resume）
+   * 替换当前消息历史为给定的消息列表
+   */
+  restoreMessages(messages: Message[]): void {
+    this.messageManager.replaceMessages(messages);
+  }
+
+  /**
+   * 注入 HookRegistry（由 ChatSession 调用）
+   */
+  setHookRegistry(hookRegistry: HookRegistry): void {
+    this.hookRegistry = hookRegistry;
+    // 传递给 ContextCompressor 以触发 PreCompact/PostCompact 事件
+    this.contextCompressor.setHookRegistry(hookRegistry);
   }
 }

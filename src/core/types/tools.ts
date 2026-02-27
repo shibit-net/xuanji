@@ -55,6 +55,15 @@ export interface ToolResult {
   isError: boolean;
   /** 元数据 */
   metadata?: Record<string, unknown>;
+  /** 多模态内容块（如图片），用于 Vision API */
+  contentBlocks?: Array<{
+    type: 'image';
+    source: {
+      type: 'base64';
+      media_type: string;
+      data: string;
+    };
+  }>;
 }
 
 /**
@@ -91,4 +100,12 @@ export interface IToolRegistry {
   has(name: string): boolean;
   /** 执行工具 */
   execute(name: string, input: Record<string, unknown>): Promise<ToolResult>;
+  /** 注入权限控制器 */
+  setPermissionController?(controller: unknown): void;
+  /** 进入 Plan Mode（只读模式） */
+  enterPlanMode?(): void;
+  /** 退出 Plan Mode */
+  exitPlanMode?(): void;
+  /** 查询是否处于 Plan Mode */
+  isPlanMode?(): boolean;
 }

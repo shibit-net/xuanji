@@ -11,6 +11,7 @@ import { createDebouncedUpdate, createThrottledUpdate } from './utils/Debounce';
 import { parseCSIu } from './utils/KittyKeyboard';
 import { renderMarkdownSimple } from './MarkdownRenderer';
 import { parseSlashCommand } from './SlashCommands';
+import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { InputHandler } from './InputHandler';
 import { Spinner } from './Spinner';
 import { CollapsibleToolResult, formatToolCommand, formatToolName } from './CollapsibleToolResult';
@@ -27,6 +28,7 @@ import type { ChatMessage, ToolResultDisplay, AppMode } from './types';
 import type { PermissionRequest, GuardCheckResult, UserConfirmation, ConfirmationHandler, PlanReviewResult, PlanReviewHandler } from '@/permission/types';
 import { PermissionPrompt } from '@/permission/ui/PermissionPrompt';
 import { PlanReview } from '@/permission/ui/PlanReview';
+import { AskUserPrompt } from './AskUserPrompt';
 import { UsageStatsRecorder } from '@/core/telemetry';
 import { formatUsageStats } from './utils/FormatStats';
 
@@ -41,7 +43,7 @@ export interface AppProps {
     reset: () => void;
     getState: () => AgentState;
     on: (callbacks: AgentCallbacks) => void;
-    compact: () => { originalTokens: number; compressedTokens: number; compressionRatio: number } | null;
+    compact: (customInstruction?: string) => Promise<{ originalTokens: number; compressedTokens: number; compressionRatio: number } | null>;
   };
   model: string;
   /** 权限确认处理器注册回调 (由 ChatSession 提供) */
@@ -52,6 +54,27 @@ export interface AppProps {
   onModelChange?: (model: string) => Promise<string>;
   /** 记忆查询回调 (返回格式化的记忆条目) */
   onMemoryQuery?: (query?: string) => Promise<string>;
+  /** AskUser 处理器注册回调 (由 ChatSession 提供) */
+  onAskUserSetup?: (handler: (request: { question: string; options?: string[]; multiSelect?: boolean; default?: string }) => Promise<string>) => void;
+  // ─── 会话持久化回调 ─────────────────────────────────────
+  /** 保存当前会话 */
+  onSessionSave?: (name?: string) => Promise<string>;
+  /** 恢复会话 */
+  onSessionResume?: (sessionId: string) => Promise<number>;
+  /** 列出会话 */
+  onSessionList?: () => Promise<Array<{ id: string; name: string; updatedAt: number; messageCount: number }>>;
+  /** 删除会话 */
+  onSessionDelete?: (sessionId: string) => Promise<void>;
+  /** 创建 checkpoint */
+  onCheckpointCreate?: (label?: string) => Promise<string>;
+  /** 回滚到 checkpoint */
+  onCheckpointRewind?: (checkpointId: string) => Promise<number>;
+  /** 列出 checkpoints */
+  onCheckpointList?: () => Promise<Array<{ id: string; label: string; createdAt: number; messageCount: number }>>;
+  /** Plan Mode 控制（由 ChatSession 提供） */
+  onPlanModeEnter?: () => void;
+  onPlanModeExit?: () => void;
+  isPlanMode?: () => boolean;
 }
 
 // ============================================================
@@ -203,7 +226,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -230,6 +253,13 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   const [pendingPlanReview, setPendingPlanReview] = useState<{
     plan: string;
     resolve: (result: PlanReviewResult) => void;
+  } | null>(null);
+  // AskUser 状态（Agent 向用户提问）
+  const [pendingUserQuestion, setPendingUserQuestion] = useState<{
+    question: string;
+    options?: string[];
+    multiSelect?: boolean;
+    resolve: (answer: string) => void;
   } | null>(null);
   const msgIdRef = useRef(0);
   const toolInfoRef = useRef<Map<string, {
@@ -325,6 +355,22 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
     };
     onPlanReviewSetup(handler);
   }, [onPlanReviewSetup]);
+
+  // 注册 AskUser 处理器
+  useEffect(() => {
+    if (!onAskUserSetup) return;
+    const handler = async (request: { question: string; options?: string[]; multiSelect?: boolean; default?: string }): Promise<string> => {
+      return new Promise<string>((resolve) => {
+        setPendingUserQuestion({
+          question: request.question,
+          options: request.options,
+          multiSelect: request.multiSelect,
+          resolve,
+        });
+      });
+    };
+    onAskUserSetup(handler);
+  }, [onAskUserSetup]);
 
   // 监听 raw stdin 处理 Ctrl+C（Kitty 协议启用后 Ctrl+C = \x1b[99;5u）
   const { internal_eventEmitter } = useStdin();
@@ -848,19 +894,54 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
     }
   }, [addSystemMessage, logSystem]);
 
-  // 提交用户输入
-  const handleSubmit = useCallback(async (input: string) => {
-    // 斜杠命令
-    const cmd = parseSlashCommand(input);
-    if (cmd) {
-      switch (cmd.name) {
-        case '/exit':
-        case '/quit':
-          await logSystem.info('System', t('cli.exit'));
-          exit();
-          return;
+  // ─── 斜杠命令注册表 ─────────────────────────────────────
+  // 使用 SlashCommandRegistry 替代硬编码 switch-case
+  const slashRegistryRef = useRef<SlashCommandRegistry>(new SlashCommandRegistry());
 
-        case '/clear':
+  // 将 props 和闭包变量存入 ref，让稳定的命令处理器能访问最新值
+  const propsRef = useRef({
+    agentLoop, model, exit, addSystemMessage, logSystem,
+    onModelChange, onMemoryQuery,
+    onSessionSave, onSessionResume, onSessionList, onSessionDelete,
+    onCheckpointCreate, onCheckpointRewind, onCheckpointList,
+    cycleLanguage, handleInitCommand,
+    onPlanModeEnter, onPlanModeExit, isPlanMode,
+  });
+  propsRef.current = {
+    agentLoop, model, exit, addSystemMessage, logSystem,
+    onModelChange, onMemoryQuery,
+    onSessionSave, onSessionResume, onSessionList, onSessionDelete,
+    onCheckpointCreate, onCheckpointRewind, onCheckpointList,
+    cycleLanguage, handleInitCommand,
+    onPlanModeEnter, onPlanModeExit, isPlanMode,
+  };
+
+  // 注册内置斜杠命令（仅初始化一次）
+  useEffect(() => {
+    const registry = slashRegistryRef.current;
+    const p = () => propsRef.current; // 每次调用获取最新 props
+
+    registry.registerBulk([
+      {
+        name: '/exit',
+        description: t('help.exit'),
+        handler: async () => {
+          await p().logSystem.info('System', t('cli.exit'));
+          p().exit();
+        },
+      },
+      {
+        name: '/quit',
+        description: t('help.exit'),
+        handler: async () => {
+          await p().logSystem.info('System', t('cli.exit'));
+          p().exit();
+        },
+      },
+      {
+        name: '/clear',
+        description: t('help.clear'),
+        handler: async () => {
           setMessages([]);
           streamTextRef.current = '';
           lastTurnStatsRef.current = null;
@@ -870,10 +951,13 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           setExpandedToolIds(new Set());
           setIsNavigating(false);
           setSelectedToolIndex(-1);
-          return;
-
-        case '/reset':
-          agentLoop.reset();
+        },
+      },
+      {
+        name: '/reset',
+        description: t('help.reset'),
+        handler: async () => {
+          p().agentLoop.reset();
           setMessages([]);
           streamTextRef.current = '';
           lastTurnStatsRef.current = null;
@@ -885,15 +969,16 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           setExpandedToolIds(new Set());
           setIsNavigating(false);
           setSelectedToolIndex(-1);
-          addSystemMessage(t('chat.session_reset'));
-          await logSystem.info('Chat', t('chat.session_reset'));
-          return;
-
-        case '/cost': {
-          const state = agentLoop.getState();
+          p().addSystemMessage(t('chat.session_reset'));
+          await p().logSystem.info('Chat', t('chat.session_reset'));
+        },
+      },
+      {
+        name: '/cost',
+        description: t('help.cost'),
+        handler: async () => {
+          const state = p().agentLoop.getState();
           const sessionInfo = `${t('chat.token_label')}: ${state.tokenUsage.input + state.tokenUsage.output}`;
-
-          // 尝试获取历史统计（最近 7 天）
           try {
             const recorder = new UsageStatsRecorder();
             const endTime = new Date();
@@ -903,111 +988,318 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
               endTime: endTime.toISOString(),
             });
             const output = formatUsageStats(stats, 7);
-            addSystemMessage(`${sessionInfo}\n\n${output}`);
+            p().addSystemMessage(`${sessionInfo}\n\n${output}`);
           } catch {
-            // 聚合失败时仅显示当前会话 token
-            addSystemMessage(sessionInfo);
+            p().addSystemMessage(sessionInfo);
           }
-          return;
-        }
-
-        case '/help':
-          addSystemMessage([
+        },
+      },
+      {
+        name: '/help',
+        description: t('help.help'),
+        handler: async () => {
+          // 动态生成帮助：包含所有已注册命令
+          const registeredHelp = slashRegistryRef.current.formatHelp();
+          p().addSystemMessage([
             t('help.title'),
-            t('help.help'),
-            t('help.clear'),
-            t('help.reset'),
-            t('help.cost'),
-            t('help.compact'),
-            t('help.model'),
-            t('help.memory'),
-            t('help.settings'),
-            t('help.logs'),
-            t('help.bots'),
-            t('help.lang'),
-            t('help.init'),
-            t('help.exit'),
+            registeredHelp,
             '',
             t('help.shortcuts_title'),
             t('help.shortcut_ctrlc'),
             t('help.shortcut_shift_enter'),
             t('help.shortcut_tab'),
           ].join('\n'));
-          return;
-
-        case '/settings':
+        },
+      },
+      {
+        name: '/settings',
+        description: t('help.settings'),
+        handler: async () => {
           setMode('settings');
-          await logSystem.info('System', t('settings.enter'));
-          return;
-
-        case '/logs':
-          setMode('logs');
-          return;
-
-        case '/bots':
+          await p().logSystem.info('System', t('settings.enter'));
+        },
+      },
+      {
+        name: '/logs',
+        description: t('help.logs'),
+        handler: async () => { setMode('logs'); },
+      },
+      {
+        name: '/bots',
+        description: t('help.bots'),
+        handler: async () => {
           setMode('bots');
-          await logSystem.info('System', t('bots.enter'));
-          return;
-
-        case '/lang':
-          await cycleLanguage();
-          return;
-
-        case '/init':
-          await handleInitCommand();
-          return;
-
-        case '/compact': {
-          const compactResult = agentLoop.compact();
+          await p().logSystem.info('System', t('bots.enter'));
+        },
+      },
+      {
+        name: '/lang',
+        description: t('help.lang'),
+        handler: async () => { await p().cycleLanguage(); },
+      },
+      {
+        name: '/init',
+        description: t('help.init'),
+        handler: async () => { await p().handleInitCommand(); },
+      },
+      {
+        name: '/compact',
+        description: t('help.compact'),
+        handler: async (args?: string) => {
+          const customInstruction = args?.trim() || undefined;
+          const compactResult = await p().agentLoop.compact(customInstruction);
           if (compactResult) {
-            addSystemMessage(t('chat.compact_done', {
+            p().addSystemMessage(t('chat.compact_done', {
               original: String(compactResult.originalTokens),
               compressed: String(compactResult.compressedTokens),
               ratio: String(Math.round(compactResult.compressionRatio * 100)),
             }));
           } else {
-            addSystemMessage(t('chat.compact_skip'));
+            p().addSystemMessage(t('chat.compact_skip'));
           }
-          return;
-        }
-
-        case '/model': {
-          if (!cmd.args) {
-            // 无参数：显示当前模型
-            addSystemMessage(t('chat.model_current', { model }));
-          } else if (onModelChange) {
+        },
+      },
+      {
+        name: '/model',
+        description: t('help.model'),
+        handler: async (args) => {
+          if (!args) {
+            p().addSystemMessage(t('chat.model_current', { model: p().model }));
+          } else if (p().onModelChange) {
             try {
-              const newModel = await onModelChange(cmd.args);
-              addSystemMessage(t('chat.model_changed', { model: newModel }));
+              const newModel = await p().onModelChange!(args);
+              p().addSystemMessage(t('chat.model_changed', { model: newModel }));
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              addSystemMessage(t('chat.model_change_failed', { error: errMsg }));
+              p().addSystemMessage(t('chat.model_change_failed', { error: errMsg }));
             }
           } else {
-            addSystemMessage(t('chat.model_current', { model }));
+            p().addSystemMessage(t('chat.model_current', { model: p().model }));
           }
-          return;
-        }
-
-        case '/memory': {
-          if (!onMemoryQuery) {
-            addSystemMessage(t('chat.memory_disabled'));
+        },
+      },
+      {
+        name: '/memory',
+        description: t('help.memory'),
+        handler: async (args) => {
+          if (!p().onMemoryQuery) {
+            p().addSystemMessage(t('chat.memory_disabled'));
             return;
           }
           try {
-            const result = await onMemoryQuery(cmd.args || undefined);
-            addSystemMessage(result || t('chat.memory_empty'));
+            const result = await p().onMemoryQuery!(args || undefined);
+            p().addSystemMessage(result || t('chat.memory_empty'));
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            addSystemMessage(t('chat.memory_error', { error: errMsg }));
+            p().addSystemMessage(t('chat.memory_error', { error: errMsg }));
           }
-          return;
-        }
+        },
+      },
+      // ─── 会话持久化命令 ──────────────────────────────
+      {
+        name: '/save',
+        description: t('help.save'),
+        handler: async (args) => {
+          if (!p().onSessionSave) {
+            p().addSystemMessage(t('session.save_unavailable'));
+            return;
+          }
+          try {
+            const name = args?.trim() || undefined;
+            const sessionId = await p().onSessionSave!(name);
+            p().addSystemMessage(t('session.saved', { id: sessionId.slice(0, 8) + '...' }));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(t('session.save_failed', { error: errMsg }));
+          }
+        },
+      },
+      {
+        name: '/resume',
+        description: t('help.resume'),
+        handler: async (args) => {
+          if (!p().onSessionList || !p().onSessionResume) {
+            p().addSystemMessage(t('session.resume_unavailable'));
+            return;
+          }
+          try {
+            const sessions = await p().onSessionList!();
+            if (sessions.length === 0) {
+              p().addSystemMessage(t('session.no_sessions'));
+              return;
+            }
+            if (args?.trim()) {
+              const targetId = args.trim();
+              const match = sessions.find(s => s.id.startsWith(targetId));
+              if (!match) {
+                p().addSystemMessage(t('session.not_found', { id: targetId }));
+                return;
+              }
+              const msgCount = await p().onSessionResume!(match.id);
+              p().addSystemMessage(t('session.resumed', { name: match.name, count: String(msgCount) }));
+              return;
+            }
+            const listText = sessions.slice(0, 10).map((s, i) => {
+              const date = new Date(s.updatedAt).toLocaleString('zh-CN');
+              return `  ${i + 1}. [${s.id.slice(0, 8)}] ${s.name} (${t('session.msg_count', { count: String(s.messageCount) })}, ${date})`;
+            }).join('\n');
+            p().addSystemMessage(
+              `${t('session.list_title')}:\n${listText}\n\n` +
+              t('session.list_hint')
+            );
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(t('session.resume_failed', { error: errMsg }));
+          }
+        },
+      },
+      {
+        name: '/sessions',
+        description: t('help.sessions'),
+        handler: async (args) => {
+          if (!p().onSessionList) {
+            p().addSystemMessage(t('session.manage_unavailable'));
+            return;
+          }
+          try {
+            const subCmd = args?.trim().split(/\s+/);
+            if (subCmd && subCmd[0] === 'delete' && subCmd[1]) {
+              if (!p().onSessionDelete) {
+                p().addSystemMessage(t('session.delete_unavailable'));
+                return;
+              }
+              const sessions = await p().onSessionList!();
+              const match = sessions.find(s => s.id.startsWith(subCmd[1]));
+              if (!match) {
+                p().addSystemMessage(t('session.not_found', { id: subCmd[1] }));
+                return;
+              }
+              await p().onSessionDelete!(match.id);
+              p().addSystemMessage(t('session.deleted', { name: match.name }));
+              return;
+            }
+            const sessions = await p().onSessionList!();
+            if (sessions.length === 0) {
+              p().addSystemMessage(t('session.no_sessions'));
+              return;
+            }
+            const listText = sessions.map((s, i) => {
+              const date = new Date(s.updatedAt).toLocaleString('zh-CN');
+              return `  ${i + 1}. [${s.id.slice(0, 8)}] ${s.name} (${t('session.msg_count', { count: String(s.messageCount) })}, ${date})`;
+            }).join('\n');
+            p().addSystemMessage(`${t('session.list_title')} (${sessions.length}):\n${listText}`);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(t('session.operation_failed', { error: errMsg }));
+          }
+        },
+      },
+      {
+        name: '/checkpoint',
+        description: t('help.checkpoint'),
+        handler: async (args) => {
+          if (!p().onCheckpointCreate) {
+            p().addSystemMessage(t('session.checkpoint_unavailable'));
+            return;
+          }
+          try {
+            const label = args?.trim() || undefined;
+            const checkpointId = await p().onCheckpointCreate!(label);
+            p().addSystemMessage(t('session.checkpoint_created', { id: checkpointId.slice(0, 8) + '...' }));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(t('session.checkpoint_create_failed', { error: errMsg }));
+          }
+        },
+      },
+      {
+        name: '/rewind',
+        description: t('help.rewind'),
+        handler: async (args) => {
+          if (!p().onCheckpointList || !p().onCheckpointRewind) {
+            p().addSystemMessage(t('session.rewind_unavailable'));
+            return;
+          }
+          try {
+            const checkpoints = await p().onCheckpointList!();
+            if (checkpoints.length === 0) {
+              p().addSystemMessage(t('session.no_checkpoints'));
+              return;
+            }
+            if (args?.trim()) {
+              const targetId = args.trim();
+              const match = checkpoints.find(cp => cp.id.startsWith(targetId));
+              if (!match) {
+                p().addSystemMessage(t('session.checkpoint_not_found', { id: targetId }));
+                return;
+              }
+              const msgCount = await p().onCheckpointRewind!(match.id);
+              p().addSystemMessage(
+                t('session.rewound', { label: match.label, count: String(msgCount) }) + '\n' +
+                t('session.rewind_warning')
+              );
+              return;
+            }
+            const listText = checkpoints.map((cp, i) => {
+              const date = new Date(cp.createdAt).toLocaleString('zh-CN');
+              return `  ${i + 1}. [${cp.id.slice(0, 8)}] ${cp.label} (${t('session.msg_count', { count: String(cp.messageCount) })}, ${date})`;
+            }).join('\n');
+            p().addSystemMessage(
+              `${t('session.checkpoints_title')}:\n${listText}\n\n` +
+              t('session.rewind_hint')
+            );
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(t('session.rewind_failed', { error: errMsg }));
+          }
+        },
+      },
+      // ─── Plan Mode 命令 ──────────────────────────────
+      {
+        name: '/plan',
+        description: '进入 Plan Mode（只读模式）',
+        handler: async () => {
+          if (p().onPlanModeEnter) {
+            p().onPlanModeEnter!();
+            p().addSystemMessage('✅ 已进入 Plan Mode，所有写操作将被禁止。使用 /exit-plan 退出。');
+          } else {
+            p().addSystemMessage('Plan Mode 不可用');
+          }
+        },
+      },
+      {
+        name: '/exit-plan',
+        description: '退出 Plan Mode',
+        handler: async () => {
+          if (p().onPlanModeExit) {
+            p().onPlanModeExit!();
+            p().addSystemMessage('✅ 已退出 Plan Mode');
+          } else {
+            p().addSystemMessage('Plan Mode 不可用');
+          }
+        },
+      },
+    ]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-        default:
-          addSystemMessage(t('chat.unknown_command', { name: cmd.name }));
-          return;
+  // 提交用户输入
+  const handleSubmit = useCallback(async (input: string) => {
+    // 斜杠命令 — 通过 SlashCommandRegistry 动态查找执行
+    const cmd = parseSlashCommand(input);
+    if (cmd) {
+      const registry = slashRegistryRef.current;
+      if (registry.has(cmd.name)) {
+        try {
+          await registry.execute(cmd.name, cmd.args);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          addSystemMessage(errMsg);
+        }
+        return;
       }
+      // 未注册的命令
+      addSystemMessage(t('chat.unknown_command', { name: cmd.name }));
+      return;
     }
 
     // 先将上一轮的内容搬到 Static 历史
@@ -1036,7 +1328,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
       turnStartTimeRef.current = 0;  // 重置开始时间
       await logSystem.error('Chat', errMsg);
     }
-  }, [agentLoop, model, exit, addSystemMessage, flushTurnToHistory, cycleLanguage, logSystem, onModelChange, onMemoryQuery]);
+  }, [agentLoop, addSystemMessage, flushTurnToHistory, logSystem]);
 
   // 从设置/日志/机器人模式返回对话模式
   const handleModeExit = useCallback(() => {
@@ -1183,7 +1475,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
       })()}
 
       {/* 思考中（没有工具在执行、还没有流式文本时显示）*/}
-      {status === 'thinking' && activeTools.size === 0 && !streamText && !streamProgress && !pendingPermission && !pendingPlanReview && (
+      {status === 'thinking' && activeTools.size === 0 && !streamText && !streamProgress && !pendingPermission && !pendingPlanReview && !pendingUserQuestion && (
         <Spinner label={t('cli.thinking')} />
       )}
 
@@ -1206,6 +1498,19 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           onDecision={(result) => {
             pendingPlanReview.resolve(result);
             setPendingPlanReview(null);
+          }}
+        />
+      )}
+
+      {/* Agent 提问对话框 */}
+      {pendingUserQuestion && (
+        <AskUserPrompt
+          question={pendingUserQuestion.question}
+          options={pendingUserQuestion.options}
+          multiSelect={pendingUserQuestion.multiSelect}
+          onAnswer={(answer) => {
+            pendingUserQuestion.resolve(answer);
+            setPendingUserQuestion(null);
           }}
         />
       )}

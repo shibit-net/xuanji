@@ -3,7 +3,7 @@
 // ============================================================
 
 import OpenAI from 'openai';
-import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage } from '@/core/types';
+import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, StopReason } from '@/core/types';
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
@@ -201,6 +201,24 @@ export class OpenAIProvider extends BaseLLMProvider {
       // 调用 OpenAI Streaming API
       const stream = await client.chat.completions.create(requestParams);
 
+      // per-event 超时保护（与 AnthropicProvider 一致）
+      const PER_EVENT_TIMEOUT_MS = 30_000;
+      let lastEventTime = Date.now();
+      let timedOut = false;
+      const abortController = new AbortController();
+      const timeoutCheckInterval = setInterval(() => {
+        const elapsed = Date.now() - lastEventTime;
+        if (elapsed > PER_EVENT_TIMEOUT_MS) {
+          this.log.warn(`Per-event timeout: ${elapsed}ms elapsed since last event, aborting stream`);
+          timedOut = true;
+          abortController.abort();
+          // 中断 async iterator
+          if ('controller' in stream && typeof (stream as any).controller?.abort === 'function') {
+            (stream as any).controller.abort();
+          }
+        }
+      }, 5000);
+
       // 工具调用累积状态
       const toolCallAccumulator: Map<number, {
         id: string;
@@ -210,8 +228,11 @@ export class OpenAIProvider extends BaseLLMProvider {
 
       let finishReason: string | null = null;
       let chunkCount = 0;
+      let receivedEnd = false;
 
+      try {
       for await (const chunk of stream) {
+        lastEventTime = Date.now();
         chunkCount++;
         const choice = chunk.choices?.[0];
 
@@ -268,6 +289,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           // 结束原因
           if (choice.finish_reason) {
             finishReason = choice.finish_reason;
+            receivedEnd = true;
           }
         }
 
@@ -280,8 +302,19 @@ export class OpenAIProvider extends BaseLLMProvider {
           yield { type: 'usage', usage };
         }
       }
+      } catch (innerErr) {
+        // 捕获 AbortError（来自 per-event 超时）或网络错误
+        if (timedOut || (innerErr instanceof Error && innerErr.name === 'AbortError')) {
+          this.log.warn('OpenAI stream aborted due to per-event timeout');
+          // 不重新抛出，走下面的恢复逻辑
+        } else {
+          throw innerErr;
+        }
+      } finally {
+        clearInterval(timeoutCheckInterval);
+      }
 
-      // 发出所有完成的工具调用
+      // 流中断恢复：发出已累积的工具调用（即使参数不完整）
       for (const [, acc] of toolCallAccumulator) {
         let input: Record<string, unknown> = {};
         try {
@@ -307,14 +340,16 @@ export class OpenAIProvider extends BaseLLMProvider {
       }
 
       // 发出结束事件
-      // 兼容不同 API 的 finish_reason 值：
-      // - OpenAI 官方: 'tool_calls'
-      // - DeepSeek 等兼容 API: 可能返回 'tool_calls' 或其他变体
-      // - 如果有工具调用被累积，即使 finish_reason 不是 'tool_calls' 也视为 tool_use
+      // 如果流因超时中断且没有收到正常结束，合成超时结束事件
       const hasToolCalls = toolCallAccumulator.size > 0;
-      const stopReason = (finishReason === 'tool_calls' || hasToolCalls) ? 'tool_use'
-        : finishReason === 'length' ? 'max_tokens'
-        : 'end_turn';
+      let stopReason: StopReason;
+      if (timedOut && !receivedEnd) {
+        stopReason = 'max_tokens'; // 超时中断，让 AgentLoop 的重试逻辑处理
+      } else {
+        stopReason = (finishReason === 'tool_calls' || hasToolCalls) ? 'tool_use'
+          : finishReason === 'length' ? 'max_tokens'
+          : 'end_turn';
+      }
 
       yield {
         type: 'end',

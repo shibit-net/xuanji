@@ -5,6 +5,8 @@
 import { spawn } from 'node:child_process';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { BackgroundTaskManager } from './BackgroundTaskManager';
+import { getSharedShell } from './PersistentShell';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
 
 /** 默认命令超时 (ms) */
@@ -12,10 +14,18 @@ const DEFAULT_TIMEOUT = 120_000;
 
 /**
  * Bash 命令执行工具
+ *
+ * 前台命令使用持久化 Shell（cwd/环境变量跨调用保持），
+ * 后台命令使用 BackgroundTaskManager（独立子进程）。
  */
 export class BashTool extends BaseTool {
   readonly name = 'bash';
-  readonly description = '在 shell 中执行 bash 命令。工作目录默认为当前项目根目录。';
+  readonly description = [
+    '在 shell 中执行 bash 命令。',
+    '工作目录在多次调用间保持（cd 效果持久）。',
+    '环境变量也会跨调用保持。',
+    '支持后台运行长时间任务（run_in_background）。',
+  ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
@@ -25,7 +35,16 @@ export class BashTool extends BaseTool {
       },
       timeout: {
         type: 'number',
-        description: `超时时间 (毫秒)，默认 ${DEFAULT_TIMEOUT}ms`,
+        description: `超时时间 (毫秒)，默认 ${DEFAULT_TIMEOUT}ms，最大 600000ms`,
+      },
+      description: {
+        type: 'string',
+        description: '命令描述（用于权限确认 UI 展示），简要说明命令的意图',
+      },
+      run_in_background: {
+        type: 'boolean',
+        description: '是否在后台运行（默认 false）。后台任务立即返回 task_id，通过 task_output 工具查询结果。适用于长时间运行的命令（如 npm test、构建等）。',
+        default: false,
       },
     },
     required: ['command'],
@@ -33,13 +52,39 @@ export class BashTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const command = input.command as string;
-    const timeout = (input.timeout as number | undefined) ?? DEFAULT_TIMEOUT;
+    const timeout = Math.min(
+      (input.timeout as number | undefined) ?? DEFAULT_TIMEOUT,
+      600_000,
+    );
+    const runInBackground = (input.run_in_background as boolean | undefined) ?? false;
+    // description 参数仅用于权限确认 UI，不影响执行逻辑
 
     try {
-      const result = await this.runCommand(command, timeout);
+      // 后台执行模式（独立子进程）
+      if (runInBackground) {
+        const manager = BackgroundTaskManager.getInstance();
+        const result = manager.startTask(command);
 
-      // 中间截断过长输出（保留头部和尾部，删除中间）
-      let output = result.output;
+        if (result.status === 'failed') {
+          return this.error(result.stderr ?? '启动后台任务失败');
+        }
+
+        return this.success(
+          `后台任务已启动\n任务 ID: ${result.taskId}\n命令: ${command}\n\n使用 task_output 工具查询结果: task_output({ task_id: "${result.taskId}" })`,
+          { taskId: result.taskId, status: 'running' },
+        );
+      }
+
+      // 前台同步执行：使用持久化 Shell
+      const shell = getSharedShell();
+      const result = await shell.execute(command, timeout);
+
+      // 合并 stdout 和 stderr
+      let output = '';
+      if (result.stdout) output += result.stdout;
+      if (result.stderr) output += (output ? '\n' : '') + `[stderr]\n${result.stderr}`;
+
+      // 中间截断过长输出
       output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
 
       if (result.exitCode !== 0) {
@@ -51,42 +96,5 @@ export class BashTool extends BaseTool {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`执行命令失败: ${message}`);
     }
-  }
-
-  private runCommand(command: string, timeout: number): Promise<{ output: string; exitCode: number }> {
-    return new Promise((resolve, reject) => {
-      const proc = spawn('bash', ['-c', command], {
-        cwd: process.cwd(),
-        env: { ...process.env },
-      });
-
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-
-      proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-      proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
-      const timer = setTimeout(() => {
-        proc.kill('SIGTERM');
-        reject(new Error(`命令超时 (${timeout}ms)`));
-      }, timeout);
-
-      proc.on('close', (exitCode) => {
-        clearTimeout(timer);
-        const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
-        const stderr = Buffer.concat(stderrChunks).toString('utf-8');
-
-        let output = '';
-        if (stdout) output += stdout;
-        if (stderr) output += (output ? '\n' : '') + `[stderr]\n${stderr}`;
-
-        resolve({ output, exitCode: exitCode ?? 1 });
-      });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
   }
 }

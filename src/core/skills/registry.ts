@@ -13,7 +13,9 @@ import type {
   SkillRenderOptions,
   SkillRegistryOptions,
   SkillComposeResult,
+  WorkflowResult,
 } from './types';
+import { CORE_SKILL_IDS } from './types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
@@ -442,6 +444,118 @@ export class SkillRegistry {
    */
   clearCache(): void {
     this.cache.clear();
+  }
+
+  // ────────── Workflow Skill 执行 ──────────
+
+  /**
+   * 执行 Workflow Skill
+   *
+   * 查找 category='workflow' 的 Skill 并调用其 execute() 方法。
+   * 返回标准化的 WorkflowResult。
+   */
+  async executeWorkflow(skillId: string, params?: Record<string, any>): Promise<WorkflowResult> {
+    const skill = this.get(skillId);
+    if (!skill) {
+      return { success: false, error: `Workflow skill not found: ${skillId}` };
+    }
+    if (skill.category !== 'workflow') {
+      return { success: false, error: `Skill "${skillId}" is not a workflow (category: ${skill.category})` };
+    }
+    if (!skill.execute) {
+      return { success: false, error: `Workflow skill "${skillId}" has no execute method` };
+    }
+
+    try {
+      log.info(`Executing workflow: ${skillId}`);
+      const result = await skill.execute(params);
+
+      // 如果返回的是 WorkflowResult 格式，直接返回
+      if (result && typeof result === 'object' && 'success' in result) {
+        return result as WorkflowResult;
+      }
+
+      // 否则包装为成功结果
+      return {
+        success: true,
+        output: typeof result === 'string' ? result : JSON.stringify(result),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`Workflow "${skillId}" failed:`, err);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * 获取所有具有斜杠命令的 Workflow Skill
+   */
+  getWorkflowCommands(): Array<{ skillId: string; command: string; description: string }> {
+    return this.list({ category: 'workflow' })
+      .filter((s) => s.slashCommand)
+      .map((s) => ({
+        skillId: s.id,
+        command: s.slashCommand!,
+        description: s.description,
+      }));
+  }
+
+  // ────────── 意图路由 ──────────
+
+  /** 始终加载的核心 Skill（不参与意图过滤） */
+  private static CORE_SKILLS = CORE_SKILL_IDS;
+
+  /** 场景 Skill 的意图关键词映射 */
+  private static INTENT_KEYWORDS: Record<string, RegExp> = {
+    'code-assistant': /(?:代码|编程|函数|文件|目录|项目|bug|fix|refactor|debug|compile|build|npm|git|import|export|class|function|component|api|error|test|config|deploy|typescript|javascript|python|java|code|file|folder|package|module|install|run|script)/i,
+    'life-secretary': /(?:约会|餐厅|吃什么|推荐|生日|礼物|纪念日|日程|安排|计划|预约|提醒|天气|电影|活动|旅行|购物|健身|date|dinner|restaurant|birthday|gift|schedule|plan|remind|weather|movie|travel|shop)/i,
+  };
+
+  /**
+   * 基于用户消息的意图过滤 Skill 列表
+   *
+   * 核心 Skill 始终保留，场景 Skill 按意图关键词匹配。
+   * 如果无法判断意图（无明显关键词），保留所有 Skill。
+   *
+   * @deprecated 使用 VectorSkillMatcher.matchSkills() 替代，提供更精确的语义匹配。
+   * 此方法保留作为 VectorSkillMatcher 不可用时的降级方案。
+   */
+  filterByIntent(enabledIds: string[], userMessage: string): string[] {
+    if (!userMessage || userMessage.length < 3) return enabledIds;
+
+    const coreIds: string[] = [];
+    const sceneIds: string[] = [];
+
+    for (const id of enabledIds) {
+      if (SkillRegistry.CORE_SKILLS.has(id)) {
+        coreIds.push(id);
+      } else {
+        sceneIds.push(id);
+      }
+    }
+
+    // 如果没有场景 Skill，直接返回
+    if (sceneIds.length === 0) return enabledIds;
+
+    // 检测匹配的场景 Skill
+    const matchedSceneIds: string[] = [];
+    for (const id of sceneIds) {
+      const pattern = SkillRegistry.INTENT_KEYWORDS[id];
+      if (!pattern) {
+        // 未配置意图关键词的 Skill，始终保留
+        matchedSceneIds.push(id);
+      } else if (pattern.test(userMessage)) {
+        matchedSceneIds.push(id);
+      }
+    }
+
+    // 如果没有匹配到任何场景 Skill，保留所有（安全降级）
+    if (matchedSceneIds.length === 0) return enabledIds;
+
+    log.debug(`Intent filter: ${enabledIds.length} → ${coreIds.length + matchedSceneIds.length} skills ` +
+      `(matched: ${matchedSceneIds.join(', ')})`);
+
+    return [...coreIds, ...matchedSceneIds];
   }
 
   /**

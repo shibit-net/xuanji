@@ -66,7 +66,7 @@ describe('PermissionController', () => {
     });
   });
 
-  describe('warn 级别 — 自动放行', () => {
+  describe('warn 级别 — 自动放行 (默认 warnLevel: auto-allow)', () => {
     it('sudo 命令应自动放行 (auto-warn)', async () => {
       const result = await controller.check(
         createRequest('bash', { command: 'sudo apt install vim' }),
@@ -101,6 +101,107 @@ describe('PermissionController', () => {
       expect(result.allowed).toBe(true);
       expect(result.checkedBy).toBe('auto-warn');
       expect(mockHandler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('warn 级别 — warnLevel: ask (需要确认)', () => {
+    let askController: PermissionController;
+    let askMockHandler: ConfirmationHandler;
+
+    beforeEach(() => {
+      askController = new PermissionController(createConfig({ warnLevel: 'ask' }));
+      askMockHandler = vi.fn(async (_req: PermissionRequest, _guard: GuardCheckResult) => ({
+        allowed: true,
+        remember: false,
+      }));
+      askController.setConfirmationHandler(askMockHandler);
+    });
+
+    it('sudo 命令应触发确认', async () => {
+      const result = await askController.check(
+        createRequest('bash', { command: 'sudo apt install vim' }),
+      );
+      expect(askMockHandler).toHaveBeenCalled();
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('user-confirmation');
+    });
+
+    it('git push --force 应触发确认', async () => {
+      const result = await askController.check(
+        createRequest('bash', { command: 'git push --force origin main' }),
+      );
+      expect(askMockHandler).toHaveBeenCalled();
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('user-confirmation');
+    });
+
+    it('项目外写入应触发确认', async () => {
+      const result = await askController.check(
+        createRequest('write_file', { file_path: '/tmp/test.txt' }),
+      );
+      expect(askMockHandler).toHaveBeenCalled();
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('user-confirmation');
+    });
+
+    it('用户拒绝 warn 操作应被拒绝', async () => {
+      askMockHandler = vi.fn(async () => ({ allowed: false, remember: false }));
+      askController.setConfirmationHandler(askMockHandler);
+
+      const result = await askController.check(
+        createRequest('bash', { command: 'sudo rm -rf /var/log' }),
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.checkedBy).toBe('user-confirmation');
+    });
+
+    it('warn 级别选择 Always 后应命中缓存', async () => {
+      askMockHandler = vi.fn(async () => ({ allowed: true, remember: true }));
+      askController.setConfirmationHandler(askMockHandler);
+
+      // 第一次: 触发确认
+      await askController.check(createRequest('bash', { command: 'sudo ls' }));
+      expect(askMockHandler).toHaveBeenCalledTimes(1);
+
+      // 第二次: 命中缓存
+      const result = await askController.check(createRequest('bash', { command: 'sudo ls /tmp' }));
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('cache');
+      expect(askMockHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('safe 操作不受 warnLevel: ask 影响', async () => {
+      const result = await askController.check(
+        createRequest('bash', { command: 'git status' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('auto-safe');
+      expect(askMockHandler).not.toHaveBeenCalled();
+    });
+
+    it('无确认处理器时 warn 操作应被拒绝', async () => {
+      const ctrl = new PermissionController(createConfig({ warnLevel: 'ask' }));
+      // 不设置 confirmationHandler
+      const result = await ctrl.check(
+        createRequest('bash', { command: 'sudo apt update' }),
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.checkedBy).toBe('no-handler');
+    });
+
+    it('updateConfig 切换 warnLevel 应生效', async () => {
+      // 先验证 ask 模式
+      await askController.check(createRequest('bash', { command: 'sudo ls' }));
+      expect(askMockHandler).toHaveBeenCalledTimes(1);
+
+      // 切换为 auto-allow
+      askController.updateConfig(createConfig({ warnLevel: 'auto-allow' }));
+      const result = await askController.check(
+        createRequest('bash', { command: 'sudo ls' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('auto-warn');
+      expect(askMockHandler).toHaveBeenCalledTimes(1); // 不再触发确认
     });
   });
 

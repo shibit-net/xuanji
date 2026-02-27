@@ -2,6 +2,8 @@
 // Agent 核心类型定义
 // ============================================================
 
+import type { RetryConfig } from './provider';
+
 /**
  * 消息角色
  */
@@ -102,6 +104,8 @@ export interface AgentConfig {
   maxIterations?: number;
   /** 上下文压缩器配置 */
   compressor?: Partial<CompressorConfig>;
+  /** API 调用重试配置 */
+  retry?: RetryConfig;
 }
 
 /**

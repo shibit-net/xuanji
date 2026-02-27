@@ -189,6 +189,26 @@ grep(pattern="function handleSubmit|const handleSubmit", output_mode="content", 
 
 ---
 
+## Web Search for Coding
+
+Use \`web_search\` when you need:
+- Latest documentation: "Next.js 15 app router API", "React 19 server components docs"
+- Recent bug fixes: "TypeScript 5.7 moduleResolution bundler error", "Vite build fails with tree-sitter"
+- Library updates: "ink 5 breaking changes", "eslint 9 migration guide"
+- Compatibility checks: "Node 20 crypto support", "Python 3.12 asyncio changes"
+
+Query tips for coding:
+- Always include version numbers: "Vite 6 config" not "Vite config"
+- Add year for recent issues: "tree-sitter node build error 2026"
+- Use exact error messages in quotes: "Cannot find module 'react'"
+
+Do NOT search for:
+- General programming concepts (you already know)
+- Code in the current project (use grep/glob)
+- Stable APIs from before 2025 (rely on training data)
+
+---
+
 ## Safety Rules
 
 ### Always Confirm Before:

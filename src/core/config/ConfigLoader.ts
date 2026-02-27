@@ -3,61 +3,13 @@
 // ============================================================
 
 import type { AppConfig, IConfigLoader } from '@/core/types';
+import type { MCPConfig } from '@/mcp/types';
 import { DEFAULT_CONFIG } from './defaults';
 import { getEnvProviderConfig } from './EnvConfig';
-import { loadGlobalConfig } from './GlobalConfig';
+import { loadGlobalConfig, GLOBAL_CONFIG_DIR, deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
 import { loadProjectConfig } from './ProjectConfig';
-
-/**
- * 深度合并对象 (后者覆盖前者)
- */
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    const srcVal = source[key];
-    const tgtVal = result[key];
-    if (
-      srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
-      tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
-    ) {
-      result[key] = deepMerge(
-        tgtVal as Record<string, unknown>,
-        srcVal as Record<string, unknown>,
-      );
-    } else if (srcVal !== undefined) {
-      result[key] = srcVal;
-    }
-  }
-  return result;
-}
-
-/**
- * 通过点号路径取值 (e.g. "provider.model")
- */
-function getByPath(obj: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((acc, key) => {
-    if (acc && typeof acc === 'object') {
-      return (acc as Record<string, unknown>)[key];
-    }
-    return undefined;
-  }, obj);
-}
-
-/**
- * 通过点号路径设值
- */
-function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.');
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!(key in current) || typeof current[key] !== 'object') {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  }
-  current[keys[keys.length - 1]] = value;
-}
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 /**
  * 配置加载器
@@ -79,15 +31,21 @@ export class ConfigLoader implements IConfigLoader {
 
     // 2. 合并全局配置
     const globalConfig = await loadGlobalConfig();
-    config = deepMerge(config as unknown as Record<string, unknown>, globalConfig) as unknown as AppConfig;
+    config = deepMergeConfig(config as unknown as Record<string, unknown>, globalConfig) as unknown as AppConfig;
 
     // 3. 合并项目配置
     const projectConfig = await loadProjectConfig();
-    config = deepMerge(config as unknown as Record<string, unknown>, projectConfig) as unknown as AppConfig;
+    config = deepMergeConfig(config as unknown as Record<string, unknown>, projectConfig) as unknown as AppConfig;
 
     // 4. 合并环境变量
     const envConfig = getEnvProviderConfig();
     config.provider = { ...config.provider, ...envConfig };
+
+    // 5. 加载 MCP 配置（独立文件 ~/.xuanji/mcp.json）
+    const mcpConfig = await this.loadMCPConfig();
+    if (mcpConfig) {
+      config.mcp = mcpConfig;
+    }
 
     this.config = config;
     this.loaded = true;
@@ -117,5 +75,34 @@ export class ConfigLoader implements IConfigLoader {
   /** 是否已加载 */
   isLoaded(): boolean {
     return this.loaded;
+  }
+
+  /**
+   * 加载 MCP 配置
+   * 从 ~/.xuanji/mcp.json 加载 MCP 服务器配置
+   */
+  async loadMCPConfig(): Promise<MCPConfig | undefined> {
+    const mcpConfigPath = join(GLOBAL_CONFIG_DIR, 'mcp.json');
+
+    try {
+      const text = await readFile(mcpConfigPath, 'utf-8');
+      const parsed = JSON.parse(text);
+
+      // 基础校验
+      if (!parsed.servers || !Array.isArray(parsed.servers)) {
+        console.warn('[ConfigLoader] Invalid mcp.json: "servers" must be an array');
+        return undefined;
+      }
+
+      return parsed as MCPConfig;
+    } catch (error) {
+      // 文件不存在时静默返回 undefined
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return undefined;
+      }
+
+      console.warn('[ConfigLoader] Failed to load mcp.json:', error);
+      return undefined;
+    }
   }
 }

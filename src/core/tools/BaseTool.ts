@@ -19,6 +19,14 @@ export abstract class BaseTool implements Tool {
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
 
   /**
+   * 是否为写操作（Plan Mode 中将被拦截）
+   * 默认：readonly=true 的工具不是写操作
+   */
+  isWriteOperation(): boolean {
+    return !this.readonly;
+  }
+
+  /**
    * 创建成功结果
    */
   protected success(content: string, metadata?: Record<string, unknown>): ToolResult {

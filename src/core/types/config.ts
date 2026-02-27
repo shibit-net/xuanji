@@ -4,6 +4,7 @@
 
 import type { ProviderConfig, RetryConfig } from './provider';
 import type { MemoryConfig } from '@/memory/types';
+import type { MCPConfig } from '@/mcp/types';
 
 /**
  * Skill 系统配置
@@ -49,8 +50,26 @@ export interface AppConfig {
   memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
   bots?: BotsConfig;
+  /** MCP 配置 */
+  mcp?: MCPConfig;
+  /** Web Search 配置 */
+  webSearch?: WebSearchConfig;
   /** CLI 输入历史记录（最多 50 条） */
   history?: string[];
+}
+
+/**
+ * Web Search 配置
+ */
+export interface WebSearchConfig {
+  /** 搜索 API 提供商 */
+  provider: 'tavily' | 'brave';
+  /** API Key（也可通过环境变量 TAVILY_API_KEY / BRAVE_API_KEY 设置） */
+  apiKey?: string;
+  /** 缓存 TTL（毫秒，默认 900000 = 15 分钟） */
+  cacheTTL?: number;
+  /** 每次搜索返回的最大结果数（默认 5） */
+  maxResults?: number;
 }
 
 /**
@@ -85,6 +104,11 @@ export interface UIConfig {
 export type PermissionLevel = 'always' | 'ask' | 'never';
 
 /**
+ * Warn 级别处理策略
+ */
+export type WarnLevelStrategy = 'auto-allow' | 'ask';
+
+/**
  * 权限配置
  */
 export interface PermissionConfig {
@@ -94,6 +118,8 @@ export interface PermissionConfig {
   fileRead: PermissionLevel;
   /** 命令执行权限 */
   bashExec: PermissionLevel;
+  /** Warn 级别操作的处理策略（默认 'auto-allow'） */
+  warnLevel?: WarnLevelStrategy;
   /** 允许执行的命令白名单模式 */
   allowedCommands?: string[];
   /** 禁止执行的命令黑名单模式 */

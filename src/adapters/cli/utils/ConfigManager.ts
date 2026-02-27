@@ -5,7 +5,7 @@
 import { t } from '@/core/i18n';
 import type { AppConfig } from '@/core/types';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
-import { loadGlobalConfig, saveGlobalConfig, deepMergeConfig, GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
+import { loadGlobalConfig, saveGlobalConfig, deepMergeConfig, setByPath, GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
 
 /**
  * CLI 模式的配置管理器
@@ -108,20 +108,4 @@ export class ConfigManager {
     // 重新加载
     await this.load();
   }
-}
-
-/**
- * 通过点号路径设值
- */
-function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const keys = path.split('.');
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!(key in current) || typeof current[key] !== 'object') {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  }
-  current[keys[keys.length - 1]] = value;
 }
