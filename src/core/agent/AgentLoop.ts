@@ -168,6 +168,19 @@ export class AgentLoop {
 
         let result: ProcessResult;
         let lastStreamError: unknown;
+
+        // 保存原始 textHandler（在重试循环外部，防止嵌套覆盖）
+        const originalTextHandler = this.streamProcessor['textHandler'];
+        let firstTokenMarked = false;
+        this.streamProcessor.onTextDelta((text) => {
+          if (!firstTokenMarked) {
+            perfTimer.markFirstToken();
+            firstTokenMarked = true;
+          }
+          // 委托给原始 handler（构造函数中注册的，会调用 this.callbacks.onText）
+          originalTextHandler?.(text);
+        });
+
         for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
           try {
             const stream = this.provider.stream(
@@ -182,17 +195,8 @@ export class AgentLoop {
               },
             );
 
-            // 标记首 token 用于性能计时（不覆盖 StreamProcessor 的 textHandler）
-            let firstTokenMarked = false;
-            const prevTextHandler = this.streamProcessor['textHandler'];
-            this.streamProcessor.onTextDelta((text) => {
-              if (!firstTokenMarked) {
-                perfTimer.markFirstToken();
-                firstTokenMarked = true;
-              }
-              // 委托给原始 handler（构造函数中注册的，会调用 this.callbacks.onText）
-              prevTextHandler?.(text);
-            });
+            // 每次重试重置首 token 标记
+            firstTokenMarked = false;
             result = await this.streamProcessor.consume(stream);
             break; // 成功，退出重试循环
           } catch (streamError) {
@@ -206,7 +210,7 @@ export class AgentLoop {
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
         }
-        if (!result!) {
+        if (!result) {
           throw lastStreamError ?? new Error('API call failed after retries');
         }
 
@@ -300,8 +304,9 @@ export class AgentLoop {
                 this.log.info(`Tool ${tc.name} blocked by PreToolUse hook`);
                 this.callbacks.onInfo?.(`⛔ Hook 阻止了工具 ${tc.name} 的执行`);
               }
-            } catch {
+            } catch (hookErr) {
               // Hook 异常不阻塞工具执行
+              this.log.debug(`PreToolUse hook error for ${tc.name}:`, hookErr);
             }
           }
         }
@@ -483,8 +488,8 @@ export class AgentLoop {
               model: this.config.model,
             };
             await this.memoryStore.save(sessionMemory);
-          } catch {
-            // 静默失败
+          } catch (memoryErr) {
+            this.log.debug('Failed to save session memory:', memoryErr);
           }
         }
       }

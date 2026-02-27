@@ -257,27 +257,32 @@ export class VectorStore {
     }
   }
 
-  /** 暴力搜索（sqlite-vec 不可用时的降级方案） */
+  /** 暴力搜索（sqlite-vec 不可用时的降级方案，分批加载避免内存爆炸） */
   private bruteForceSearch(queryEmbedding: Float32Array, topK: number): VectorSearchResult[] {
-    const rows = this.db.prepare(`
-      SELECT m.*, mv.embedding as vec_embedding
-      FROM memories m
-      INNER JOIN memory_vectors mv ON mv.memory_id = m.id
-    `).all();
-
+    const PAGE_SIZE = 500;
+    const totalCount = this.db.prepare('SELECT COUNT(*) as count FROM memory_vectors').get().count;
     const results: VectorSearchResult[] = [];
 
-    for (const row of rows) {
-      const storedEmbedding = new Float32Array(
-        row.vec_embedding.buffer,
-        row.vec_embedding.byteOffset,
-        row.vec_embedding.byteLength / 4,
-      );
-      const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
-      results.push({
-        memory: this.rowToMemoryEntry(row),
-        similarity,
-      });
+    for (let offset = 0; offset < totalCount; offset += PAGE_SIZE) {
+      const rows = this.db.prepare(`
+        SELECT m.*, mv.embedding as vec_embedding
+        FROM memories m
+        INNER JOIN memory_vectors mv ON mv.memory_id = m.id
+        LIMIT ? OFFSET ?
+      `).all(PAGE_SIZE, offset);
+
+      for (const row of rows) {
+        const storedEmbedding = new Float32Array(
+          row.vec_embedding.buffer,
+          row.vec_embedding.byteOffset,
+          row.vec_embedding.byteLength / 4,
+        );
+        const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
+        results.push({
+          memory: this.rowToMemoryEntry(row),
+          similarity,
+        });
+      }
     }
 
     results.sort((a, b) => b.similarity - a.similarity);

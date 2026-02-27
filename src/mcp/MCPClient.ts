@@ -8,6 +8,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { logger } from '@/core/logger';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -468,16 +469,16 @@ export class MCPClient extends EventEmitter {
       return;
     }
 
-    const prefix = `[MCPClient:${this.config.name}]`;
+    const mcpLog = logger.child({ module: `MCPClient:${this.config.name}` });
     switch (level) {
       case 'error':
-        console.error(`${prefix} ${message}`);
+        mcpLog.error(message);
         break;
       case 'warn':
-        console.warn(`${prefix} ${message}`);
+        mcpLog.warn(message);
         break;
       default:
-        console.log(`${prefix} ${message}`);
+        mcpLog.debug(message);
     }
   }
 }

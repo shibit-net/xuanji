@@ -13,6 +13,7 @@ import { HookEventEmitter, type HookListener } from './EventEmitter.js';
 import { executeCommandHandler } from './handlers/CommandHandler.js';
 import { executePromptHandler } from './handlers/PromptHandler.js';
 import { executeAgentHandler, setAgentHandlerDeps, type AgentHandlerDeps } from './handlers/AgentHandler.js';
+import { logger } from '@/core/logger';
 import type {
   HookEvent,
   HookHandler,
@@ -96,8 +97,8 @@ export class HookRegistry {
     // 慢 Hook 告警（> 1s）
     for (const result of results) {
       if (result.duration && result.duration > 1000) {
-        console.warn(
-          `[HookRegistry] Slow hook on ${event}: ${result.duration}ms`,
+        logger.child({ module: 'HookRegistry' }).warn(
+          `Slow hook on ${event}: ${result.duration}ms`,
         );
       }
     }
@@ -192,6 +193,13 @@ export class HookRegistry {
    */
   addListener(event: HookEvent, listener: HookListener): void {
     this.emitter.on(event, listener);
+  }
+
+  /**
+   * 移除指定事件监听器
+   */
+  removeListener(event: HookEvent, listener: HookListener): void {
+    this.emitter.off(event, listener);
   }
 
   /**

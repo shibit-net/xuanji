@@ -605,11 +605,13 @@ export class SkillRegistry {
 
 /**
  * 全局 Skill 注册表实例
+ * @internal 仅用于测试，业务代码应使用 ChatSession 中的 SkillRegistry 实例
  */
 let globalRegistry: SkillRegistry | null = null;
 
 /**
  * 获取全局 Skill 注册表
+ * @internal 仅用于测试
  */
 export function getSkillRegistry(options?: SkillRegistryOptions): SkillRegistry {
   if (!globalRegistry) {
@@ -620,6 +622,7 @@ export function getSkillRegistry(options?: SkillRegistryOptions): SkillRegistry 
 
 /**
  * 重置全局 Skill 注册表 (仅用于测试)
+ * @internal
  */
 export function resetSkillRegistry(): void {
   globalRegistry = null;

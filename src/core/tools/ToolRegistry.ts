@@ -21,6 +21,7 @@ import { SleepTool } from './SleepTool';
 import { EnterPlanModeTool } from './EnterPlanModeTool';
 import { ExitPlanModeTool } from './ExitPlanModeTool';
 import { NotebookEditTool } from './NotebookEditTool';
+import { WorktreeTool } from './WorktreeTool';
 import { logger } from '@/core/logger';
 
 /** 工具执行默认超时（5 分钟） */
@@ -186,13 +187,24 @@ export class ToolRegistry implements IToolRegistry {
 
     try {
       const timeout = (tool as { timeout?: number }).timeout ?? DEFAULT_TOOL_TIMEOUT;
-      const result = await Promise.race([
-        tool.execute(input),
-        new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`)), timeout);
-        }),
-      ]);
-      return result;
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, timeout);
+
+      try {
+        const result = await Promise.race([
+          tool.execute(input, abortController.signal),
+          new Promise<ToolResult>((_, reject) => {
+            abortController.signal.addEventListener('abort', () => {
+              reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`));
+            });
+          }),
+        ]);
+        return result;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.child({ module: 'ToolRegistry' }).warn(`Tool "${name}" execution error: ${message}`);
@@ -226,5 +238,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new EnterPlanModeTool());
   registry.register(new ExitPlanModeTool());
   registry.register(new NotebookEditTool());
+  registry.register(new WorktreeTool());
   return registry;
 }

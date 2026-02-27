@@ -15,6 +15,9 @@ import type {
   SessionStorageOptions,
   SessionListItem,
 } from './types.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'SessionStorage' });
 
 const DEFAULT_BASE_DIR = path.join(os.homedir(), '.xuanji', 'sessions');
 
@@ -116,7 +119,7 @@ export class SessionStorage {
         } catch (error) {
           // 记录损坏的行，但继续读取
           corruptedLines.push(lineNumber);
-          console.warn(`[SessionStorage] Corrupted line ${lineNumber} in ${sessionId}, skipping`);
+          log.warn(`Corrupted line ${lineNumber} in ${sessionId}, skipping`);
         }
       }
     } catch (error) {
@@ -134,8 +137,8 @@ export class SessionStorage {
 
     // 4. 如果有损坏行，发出警告
     if (corruptedLines.length > 0) {
-      console.warn(
-        `[SessionStorage] ${corruptedLines.length} corrupted lines detected in session ${sessionId}. ` +
+      log.warn(
+        `${corruptedLines.length} corrupted lines detected in session ${sessionId}. ` +
         `Use /sessions repair ${sessionId} to fix.`
       );
     }
@@ -250,7 +253,7 @@ export class SessionStorage {
           workingDirectory: metadata.workingDirectory,
         });
       } catch (error) {
-        console.warn(`[SessionStorage] Failed to read metadata from ${file}, skipping`);
+        log.warn(`Failed to read metadata from ${file}, skipping`);
       }
     }
 
@@ -347,7 +350,7 @@ export class SessionStorage {
 
     await Promise.all(toDelete.map((s) => this.deleteSession(s.id)));
 
-    console.log(`[SessionStorage] Cleaned up ${toDelete.length} old sessions`);
+    log.debug(`Cleaned up ${toDelete.length} old sessions`);
   }
 
   /**

@@ -129,6 +129,7 @@ export async function runSubAgent(
   );
 
   // 注入 Hook（子代理模式）
+  let postToolUseListener: ((ctx: Record<string, unknown>) => Promise<{ success: boolean; blocked: boolean }>) | null = null;
   if (hookRegistry) {
     agentLoop.setHookRegistry(hookRegistry);
 
@@ -139,7 +140,7 @@ export async function runSubAgent(
       depth: context.depth,
       task: context.task,
     };
-    hookRegistry.addListener('PostToolUse', async (ctx) => {
+    postToolUseListener = async (ctx) => {
       emitSubAgentToolUse(hookCtx, {
         toolName: ctx.toolName ?? '',
         toolInput: ctx.toolInput as Record<string, unknown>,
@@ -148,7 +149,8 @@ export async function runSubAgent(
         toolDuration: ctx.toolDuration,
       });
       return { success: true, blocked: false };
-    });
+    };
+    hookRegistry.addListener('PostToolUse', postToolUseListener);
   }
 
   // 5. 收集输出
@@ -193,6 +195,11 @@ export async function runSubAgent(
     } else {
       const errMsg = error instanceof Error ? error.message : String(error);
       outputText += `\n[Sub-agent error: ${errMsg}]`;
+    }
+  } finally {
+    // 清理 PostToolUse listener，防止内存泄漏
+    if (hookRegistry && postToolUseListener) {
+      hookRegistry.removeListener('PostToolUse', postToolUseListener);
     }
   }
 

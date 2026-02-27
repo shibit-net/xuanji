@@ -168,8 +168,9 @@ export class SessionManager {
    */
   private getGitInfo(): { branch: string; commit: string } | undefined {
     try {
-      const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim();
-      const commit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+      const opts = { encoding: 'utf-8' as const, timeout: 5000 };
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).trim();
+      const commit = execSync('git rev-parse --short HEAD', opts).trim();
       return { branch, commit };
     } catch {
       return undefined;

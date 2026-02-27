@@ -91,7 +91,7 @@ export class SubAgentContext {
     this.depth = options.depth ?? 0;
     this.isolation = options.isolation ?? 'none';
     this.role = options.role ?? 'general-purpose';
-    this.useLightModel = options.useLightModel ?? this.inferUseLightModel();
+    this.useLightModel = options.useLightModel ?? SubAgentContext.inferUseLightModel(this.role);
 
     // 合并用户指定的受限工具和始终受限的工具
     const restricted = new Set([
@@ -112,8 +112,8 @@ export class SubAgentContext {
   /**
    * 根据角色推断是否使用轻量模型
    */
-  private inferUseLightModel(): boolean {
-    return this.role === 'explore';
+  private static inferUseLightModel(role: AgentRoleType): boolean {
+    return role === 'explore';
   }
 
   /**

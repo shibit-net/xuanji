@@ -99,7 +99,7 @@ describe('ToolRegistry', () => {
     const result = await registry.execute('exec_tool', { value: 'hello' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('exec_tool');
-    expect(tool.execute).toHaveBeenCalledWith({ value: 'hello' });
+    expect(tool.execute).toHaveBeenCalledWith({ value: 'hello' }, expect.any(AbortSignal));
   });
 
   it('execute() 未知工具应返回错误', async () => {
@@ -144,7 +144,8 @@ describe('createDefaultRegistry()', () => {
     expect(registry.has('enter_plan_mode')).toBe(true);
     expect(registry.has('exit_plan_mode')).toBe(true);
     expect(registry.has('notebook_edit')).toBe(true);
-    expect(registry.getAll().length).toBe(17);
+    expect(registry.has('enter_worktree')).toBe(true);
+    expect(registry.getAll().length).toBe(18);
   });
 
   it('所有工具都应有合法的 Schema', () => {

@@ -13,6 +13,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import type { HookConfig, HookEvent, HookHandler } from './types.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'HookConfigLoader' });
 
 const GLOBAL_HOOKS_PATH = path.join(os.homedir(), '.xuanji', 'hooks.json');
 const PROJECT_HOOKS_FILE = 'hooks.json';
@@ -56,7 +59,7 @@ export class HookConfigLoader {
 
       // 基本验证
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        console.warn(`[HookConfigLoader] Invalid config format: ${filePath}`);
+        log.warn(`Invalid config format: ${filePath}`);
         return {};
       }
 
@@ -66,8 +69,8 @@ export class HookConfigLoader {
         // 文件不存在，静默返回空
         return {};
       }
-      console.warn(
-        `[HookConfigLoader] Failed to load ${filePath}:`,
+      log.warn(
+        `Failed to load ${filePath}:`,
         error instanceof Error ? error.message : String(error),
       );
       return {};
@@ -91,13 +94,13 @@ export class HookConfigLoader {
     for (const [key, value] of Object.entries(raw)) {
       // 验证事件名
       if (!this.isValidEvent(key)) {
-        console.warn(`[HookConfigLoader] Unknown event "${key}" in ${source}, skipping`);
+        log.warn(`Unknown event "${key}" in ${source}, skipping`);
         continue;
       }
 
       // 验证 Handler 数组
       if (!Array.isArray(value)) {
-        console.warn(`[HookConfigLoader] Event "${key}" value must be an array in ${source}, skipping`);
+        log.warn(`Event "${key}" value must be an array in ${source}, skipping`);
         continue;
       }
 
@@ -126,7 +129,7 @@ export class HookConfigLoader {
     source: string,
   ): HookHandler | null {
     if (typeof raw !== 'object' || raw === null) {
-      console.warn(`[HookConfigLoader] Invalid handler in ${event} (${source}), skipping`);
+      log.warn(`Invalid handler in ${event} (${source}), skipping`);
       return null;
     }
 
@@ -134,27 +137,27 @@ export class HookConfigLoader {
 
     // 必须有 type
     if (!handler.type || !['command', 'prompt', 'agent'].includes(handler.type as string)) {
-      console.warn(
-        `[HookConfigLoader] Invalid handler type "${handler.type}" in ${event} (${source}), skipping`,
+      log.warn(
+        `Invalid handler type "${handler.type}" in ${event} (${source}), skipping`,
       );
       return null;
     }
 
     // command 类型必须有 script
     if (handler.type === 'command' && typeof handler.script !== 'string') {
-      console.warn(`[HookConfigLoader] Command handler missing "script" in ${event} (${source}), skipping`);
+      log.warn(`Command handler missing "script" in ${event} (${source}), skipping`);
       return null;
     }
 
     // prompt 类型必须有 content
     if (handler.type === 'prompt' && typeof handler.content !== 'string') {
-      console.warn(`[HookConfigLoader] Prompt handler missing "content" in ${event} (${source}), skipping`);
+      log.warn(`Prompt handler missing "content" in ${event} (${source}), skipping`);
       return null;
     }
 
     // agent 类型必须有 prompt
     if (handler.type === 'agent' && typeof handler.prompt !== 'string') {
-      console.warn(`[HookConfigLoader] Agent handler missing "prompt" in ${event} (${source}), skipping`);
+      log.warn(`Agent handler missing "prompt" in ${event} (${source}), skipping`);
       return null;
     }
 

@@ -26,6 +26,9 @@ import type { VectorSkillMatcher } from '@/core/skills/VectorSkillMatcher';
 import type { IMemoryStore } from '@/memory/types';
 import { DEFAULT_MEMORY_CONFIG } from '@/memory/types';
 import { MCPManager } from '@/mcp/MCPManager';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'ChatSession' });
 import { MCPToolAdapter } from '@/mcp/MCPToolAdapter';
 import { MCPSkillAdapter } from '@/mcp/MCPSkillAdapter';
 import { createWebSearchTool } from '@/mcp/tools/WebSearchTool';
@@ -226,7 +229,7 @@ export class ChatSession {
           mm.setSmartExtractor(smartExtractor);
           mm.setProvider(this.provider, this.config!.provider);
         } catch (err) {
-          console.warn('[ChatSession] SmartMemoryExtractor init failed:', err);
+          log.warn('SmartMemoryExtractor init failed:', err);
         }
       }
     } catch {
@@ -237,7 +240,7 @@ export class ChatSession {
   private initVectorSkillMatcherAsync(skillRegistry: SkillRegistry): void {
     if (this.memoryManager) {
       this.initVectorSkillMatcher(skillRegistry).catch((err) => {
-        console.warn('[ChatSession] VectorSkillMatcher init failed:', err);
+        log.warn('VectorSkillMatcher init failed:', err);
       });
     }
   }
@@ -274,8 +277,8 @@ export class ChatSession {
               relationshipMemories,
             );
           }
-        } catch {
-          // 静默失败
+        } catch (relErr) {
+          log.debug('Failed to check neglected relationships:', relErr);
         }
       }
 
@@ -284,7 +287,7 @@ export class ChatSession {
         this.reminderContext = reminderPrompt;
       }
     } catch (err) {
-      console.warn('[ChatSession] Reminder system init failed:', err);
+      log.warn('Reminder system init failed:', err);
     }
   }
 
@@ -307,7 +310,7 @@ export class ChatSession {
         skillRegistry.register(new MCPSkillAdapter(serverName, prompt));
       }
     } catch (error) {
-      console.warn('[ChatSession] Failed to initialize MCP:', error);
+      log.warn('Failed to initialize MCP:', error);
       this.mcpManager = null;
     }
   }
@@ -422,7 +425,7 @@ export class ChatSession {
         }
       }
     } catch (err) {
-      console.warn('[ChatSession] Hook system init failed:', err);
+      log.warn('Hook system init failed:', err);
     }
   }
 
@@ -477,8 +480,8 @@ export class ChatSession {
             this.agentLoop!.getMessageManager().setSystemPrompt(systemPrompt);
           }
         }
-      } catch {
-        // 意图路由失败不阻塞，使用初始化时的完整 system prompt
+      } catch (routeErr) {
+        log.debug('Intent routing failed, using full system prompt:', routeErr);
       }
     }
 
@@ -494,8 +497,8 @@ export class ChatSession {
           const memorySummary = (this.memoryManager as InstanceType<typeof MemoryManager>).formatForPrompt(memories);
           this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary);
         }
-      } catch {
-        // 静默失败
+      } catch (memErr) {
+        log.debug('Memory retrieval failed:', memErr);
       }
     }
 

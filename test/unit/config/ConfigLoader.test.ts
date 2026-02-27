@@ -22,6 +22,8 @@ vi.mock('@/core/config/ProjectConfig', () => ({
 
 vi.mock('@/core/config/EnvConfig', () => ({
   getEnvProviderConfig: vi.fn(() => ({})),
+  getEnvUIConfig: vi.fn(() => ({})),
+  getEnvMemoryConfig: vi.fn(() => ({})),
 }));
 
 describe('ConfigLoader', () => {

@@ -8,6 +8,7 @@
 import type { Skill, SkillParameter, SkillRenderOptions } from '@/core/skills/types';
 import { getMCPManager } from './MCPManager';
 import type { MCPPrompt } from './types';
+import { logger } from '@/core/logger';
 
 /**
  * MCP Skill 适配器
@@ -91,7 +92,7 @@ export class MCPSkillAdapter implements Skill {
       return contents.join('\n\n');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[MCPSkillAdapter] Failed to render skill "${this.id}":`, message);
+      logger.child({ module: 'MCPSkillAdapter' }).error(`Failed to render skill "${this.id}":`, message);
       return `<!-- MCP Skill Error: ${message} -->`;
     }
   }

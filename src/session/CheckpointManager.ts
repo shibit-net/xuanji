@@ -13,6 +13,7 @@
 import { randomUUID } from 'crypto';
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { logger } from '@/core/logger';
 import { dirname } from 'node:path';
 import type { SessionStorage } from './SessionStorage.js';
 import type { Checkpoint, FileSnapshot, Message } from './types.js';
@@ -198,8 +199,9 @@ export class CheckpointManager {
           }
           await writeFile(snapshot.path, snapshot.content, 'utf-8');
         }
-      } catch {
+      } catch (fileErr) {
         // 单个文件恢复失败不阻塞其他文件
+        logger.child({ module: 'CheckpointManager' }).warn(`Failed to restore file ${snapshot.path}:`, fileErr);
       }
     }
   }

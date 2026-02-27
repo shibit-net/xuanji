@@ -7,11 +7,13 @@ import { render } from 'ink';
 import React from 'react';
 import { App } from './adapters/cli/App';
 import { ChatSession } from './core/chat/ChatSession';
+import { createRequire } from 'module';
 
 /**
- * 版本号
+ * 版本号（从 package.json 动态读取）
  */
-const VERSION = '0.9.0';
+const require = createRequire(import.meta.url);
+const { version: VERSION } = require('../package.json');
 
 /**
  * 解析命令行参数

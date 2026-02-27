@@ -3,6 +3,7 @@
 // ============================================================
 
 import { logger } from '@/core/logger';
+import { createHash } from 'node:crypto';
 
 const log = logger.child({ module: 'embedding-service' });
 
@@ -72,8 +73,9 @@ export class EmbeddingService {
 
   /** 文本转向量 */
   async embed(text: string): Promise<Float32Array> {
-    // 检查缓存
-    const cached = this.cache.get(text);
+    // 检查缓存（使用哈希值作为 key，避免长文本占用大量内存）
+    const cacheKey = createHash('md5').update(text).digest('hex');
+    const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
     await this.ensureReady();
@@ -84,7 +86,7 @@ export class EmbeddingService {
     });
 
     const embedding = new Float32Array(output.data);
-    this.addToCache(text, embedding);
+    this.addToCache(cacheKey, embedding);
     return embedding;
   }
 

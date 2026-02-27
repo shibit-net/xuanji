@@ -42,7 +42,7 @@ export interface Tool {
    */
   readonly?: boolean;
   /** 执行工具 */
-  execute(input: Record<string, unknown>): Promise<ToolResult>;
+  execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
 }
 
 /**

@@ -5,11 +5,14 @@
 import type { AppConfig, IConfigLoader } from '@/core/types';
 import type { MCPConfig } from '@/mcp/types';
 import { DEFAULT_CONFIG } from './defaults';
-import { getEnvProviderConfig } from './EnvConfig';
+import { getEnvProviderConfig, getEnvUIConfig, getEnvMemoryConfig } from './EnvConfig';
 import { loadGlobalConfig, GLOBAL_CONFIG_DIR, deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
 import { loadProjectConfig } from './ProjectConfig';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'ConfigLoader' });
 
 /**
  * 配置加载器
@@ -37,9 +40,19 @@ export class ConfigLoader implements IConfigLoader {
     const projectConfig = await loadProjectConfig();
     config = deepMergeConfig(config as unknown as Record<string, unknown>, projectConfig) as unknown as AppConfig;
 
-    // 4. 合并环境变量
+    // 4. 合并环境变量（Provider + UI + Memory）
     const envConfig = getEnvProviderConfig();
     config.provider = { ...config.provider, ...envConfig };
+
+    const envUIConfig = getEnvUIConfig();
+    if (Object.keys(envUIConfig).length > 0) {
+      config.ui = { ...config.ui, ...envUIConfig };
+    }
+
+    const envMemoryConfig = getEnvMemoryConfig();
+    if (Object.keys(envMemoryConfig).length > 0) {
+      config.memory = { ...config.memory, ...envMemoryConfig };
+    }
 
     // 5. 加载 MCP 配置（独立文件 ~/.xuanji/mcp.json）
     const mcpConfig = await this.loadMCPConfig();
@@ -90,7 +103,7 @@ export class ConfigLoader implements IConfigLoader {
 
       // 基础校验
       if (!parsed.servers || !Array.isArray(parsed.servers)) {
-        console.warn('[ConfigLoader] Invalid mcp.json: "servers" must be an array');
+        log.warn('Invalid mcp.json: "servers" must be an array');
         return undefined;
       }
 
@@ -101,7 +114,7 @@ export class ConfigLoader implements IConfigLoader {
         return undefined;
       }
 
-      console.warn('[ConfigLoader] Failed to load mcp.json:', error);
+      log.warn('Failed to load mcp.json:', error);
       return undefined;
     }
   }

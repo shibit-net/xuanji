@@ -15,6 +15,9 @@ import type {
   GetPromptResult,
   MCPServerRuntime,
 } from './types';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'MCPManager' });
 
 /**
  * MCP 管理器（单例）
@@ -46,7 +49,7 @@ export class MCPManager {
    */
   async initialize(config: MCPConfig): Promise<void> {
     if (this.initialized) {
-      console.warn('[MCPManager] Already initialized, skipping');
+      log.warn('Already initialized, skipping');
       return;
     }
 
@@ -55,7 +58,7 @@ export class MCPManager {
     // 创建所有 MCPClient（但不启动）
     for (const serverConfig of config.servers) {
       if (serverConfig.disabled) {
-        console.log(`[MCPManager] Skipping disabled server: ${serverConfig.name}`);
+        log.debug(`Skipping disabled server: ${serverConfig.name}`);
         continue;
       }
 
@@ -79,15 +82,15 @@ export class MCPManager {
         }
 
         this.clients.set(serverConfig.name, client as MCPClient);
-        console.log(`[MCPManager] Registered MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
+        log.info(`Registered MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
       } catch (error) {
-        console.warn(`[MCPManager] Failed to register server "${serverConfig.name}":`, error);
+        log.warn(`Failed to register server "${serverConfig.name}":`, error);
         // 继续注册其他服务器
       }
     }
 
     this.initialized = true;
-    console.log(`[MCPManager] Initialized with ${this.clients.size} server(s)`);
+    log.info(`Initialized with ${this.clients.size} server(s)`);
   }
 
   /**
@@ -103,7 +106,7 @@ export class MCPManager {
           allTools.push({ serverName, tool });
         }
       } catch (error) {
-        console.warn(`[MCPManager] Failed to list tools from "${serverName}":`, error);
+        log.warn(`Failed to list tools from "${serverName}":`, error);
         // 继续处理其他服务器
       }
     }
@@ -124,7 +127,7 @@ export class MCPManager {
           allPrompts.push({ serverName, prompt });
         }
       } catch (error) {
-        console.warn(`[MCPManager] Failed to list prompts from "${serverName}":`, error);
+        log.warn(`Failed to list prompts from "${serverName}":`, error);
         // 继续处理其他服务器
       }
     }
@@ -151,7 +154,7 @@ export class MCPManager {
     try {
       return await client.callTool(toolName, args);
     } catch (error) {
-      console.error(`[MCPManager] Failed to call tool "${serverName}:${toolName}":`, error);
+      log.error(`Failed to call tool "${serverName}:${toolName}":`, error);
       throw error;
     }
   }
@@ -175,7 +178,7 @@ export class MCPManager {
     try {
       return await client.getPrompt(promptName, args);
     } catch (error) {
-      console.error(`[MCPManager] Failed to get prompt "${serverName}:${promptName}":`, error);
+      log.error(`Failed to get prompt "${serverName}:${promptName}":`, error);
       throw error;
     }
   }
@@ -211,14 +214,14 @@ export class MCPManager {
    * 关闭所有 MCP 连接
    */
   async shutdown(): Promise<void> {
-    console.log('[MCPManager] Shutting down all MCP servers...');
+    log.info('Shutting down all MCP servers...');
 
     const shutdownPromises: Promise<void>[] = [];
 
     for (const [serverName, client] of this.clients.entries()) {
       shutdownPromises.push(
         client.close().catch((error) => {
-          console.warn(`[MCPManager] Failed to close server "${serverName}":`, error);
+          log.warn(`Failed to close server "${serverName}":`, error);
         })
       );
     }
@@ -227,7 +230,8 @@ export class MCPManager {
 
     this.clients.clear();
     this.initialized = false;
-    console.log('[MCPManager] All MCP servers shut down');
+    MCPManager.instance = undefined;
+    log.info('All MCP servers shut down');
   }
 
   /**

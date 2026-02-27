@@ -551,11 +551,7 @@ export class ContextCompressor {
 
     const parts: string[] = [];
     for (const [name, stats] of toolStats) {
-      if (stats.files.size > 0) {
-        parts.push(`${name} (${stats.count}次)`);
-      } else {
-        parts.push(`${name} (${stats.count}次)`);
-      }
+      parts.push(`${name} (${stats.count}次)`);
     }
     return parts.join(', ');
   }

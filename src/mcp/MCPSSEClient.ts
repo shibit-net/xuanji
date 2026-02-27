@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { logger } from '@/core/logger';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
@@ -347,8 +348,8 @@ export class MCPSSEClient extends EventEmitter {
     try {
       await this.start();
       this.emit('reconnected', this.config.name);
-    } catch {
-      // start() 内部处理错误，SSE 断开时会再次触发 reconnect
+    } catch (reconnectErr) {
+      this.log(`Reconnect failed: ${reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr)}`, 'warn');
     }
   }
 
@@ -400,11 +401,11 @@ export class MCPSSEClient extends EventEmitter {
 
   private log(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
     if (!this.debug && level === 'info') return;
-    const prefix = `[MCPSSEClient:${this.config.name}]`;
+    const mcpLog = logger.child({ module: `MCPSSEClient:${this.config.name}` });
     switch (level) {
-      case 'error': console.error(`${prefix} ${message}`); break;
-      case 'warn': console.warn(`${prefix} ${message}`); break;
-      default: console.log(`${prefix} ${message}`);
+      case 'error': mcpLog.error(message); break;
+      case 'warn': mcpLog.warn(message); break;
+      default: mcpLog.debug(message);
     }
   }
 }

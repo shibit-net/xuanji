@@ -58,6 +58,8 @@ export class MemoryManager implements IMemoryStore {
   private vectorReady = false;
   private vectorReadyPromise: Promise<boolean> | null = null;
   private cachedEntries: MemoryEntry[] = [];
+  /** 缓存条目上限（超出后淘汰最旧的条目） */
+  private static readonly CACHE_MAX_ENTRIES = 2000;
   private initialized = false;
   private saveCount = 0;
   private hookRegistry: HookRegistry | null = null;
@@ -138,8 +140,14 @@ export class MemoryManager implements IMemoryStore {
       // 持久化
       await this.longTerm.saveBatch(entries);
 
-      // 更新内存缓存
+      // 更新内存缓存（带上限淘汰）
       this.cachedEntries.push(...entries);
+      if (this.cachedEntries.length > MemoryManager.CACHE_MAX_ENTRIES) {
+        // 淘汰最旧的条目，保留最近的
+        this.cachedEntries = this.cachedEntries.slice(
+          this.cachedEntries.length - MemoryManager.CACHE_MAX_ENTRIES
+        );
+      }
       this.saveCount++;
 
       // 实时更新向量存储（不阻塞）

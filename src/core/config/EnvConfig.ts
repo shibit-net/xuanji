@@ -13,6 +13,8 @@ const ENV_KEYS = {
   XUANJI_MODEL: 'XUANJI_MODEL',
   XUANJI_MAX_TOKENS: 'XUANJI_MAX_TOKENS',
   XUANJI_THEME: 'XUANJI_THEME',
+  XUANJI_LANGUAGE: 'XUANJI_LANGUAGE',
+  XUANJI_MEMORY_ENABLED: 'XUANJI_MEMORY_ENABLED',
   // 日志相关
   XUANJI_LOG_LEVEL: 'XUANJI_LOG_LEVEL',
   XUANJI_LOG_FILE: 'XUANJI_LOG_FILE',
@@ -25,7 +27,6 @@ const ENV_KEYS = {
 export function getEnvProviderConfig(): Partial<ProviderConfig> {
   const config: Partial<ProviderConfig> = {};
 
-  // 仅支持 XUANJI_API_KEY
   const apiKey = process.env[ENV_KEYS.XUANJI_API_KEY];
   if (apiKey) config.apiKey = apiKey;
 
@@ -39,6 +40,35 @@ export function getEnvProviderConfig(): Partial<ProviderConfig> {
   if (maxTokens) config.maxTokens = parseInt(maxTokens, 10);
 
   return config;
+}
+
+/**
+ * 从环境变量读取 UI 配置覆盖
+ */
+export function getEnvUIConfig(): { theme?: string; language?: string } {
+  const result: { theme?: string; language?: string } = {};
+
+  const theme = process.env[ENV_KEYS.XUANJI_THEME];
+  if (theme) result.theme = theme;
+
+  const language = process.env[ENV_KEYS.XUANJI_LANGUAGE];
+  if (language) result.language = language;
+
+  return result;
+}
+
+/**
+ * 从环境变量读取 Memory 配置覆盖
+ */
+export function getEnvMemoryConfig(): { enabled?: boolean } {
+  const result: { enabled?: boolean } = {};
+
+  const enabled = process.env[ENV_KEYS.XUANJI_MEMORY_ENABLED];
+  if (enabled !== undefined) {
+    result.enabled = enabled === 'true' || enabled === '1';
+  }
+
+  return result;
 }
 
 /**
