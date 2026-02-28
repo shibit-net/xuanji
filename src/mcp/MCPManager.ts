@@ -236,7 +236,8 @@ export class MCPManager {
     if (!client) return;
 
     try {
-      // 重新获取工具列表（清除缓存）
+      // 先清除缓存，确保获取最新工具列表（防止并发调用填充旧缓存）
+      client.invalidateToolsCache();
       await client.listTools();
       log.info(`Refreshed tools for "${serverName}"`);
 

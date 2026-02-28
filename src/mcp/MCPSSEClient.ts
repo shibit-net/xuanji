@@ -447,6 +447,10 @@ export class MCPSSEClient extends EventEmitter {
   getServerCapabilities() { return this.serverCapabilities; }
   getReconnectAttempts(): number { return this.reconnectAttempts; }
 
+  invalidateToolsCache(): void {
+    this.toolsCache = undefined;
+  }
+
   private log(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
     if (!this.debug && level === 'info') return;
     const mcpLog = logger.child({ module: `MCPSSEClient:${this.config.name}` });

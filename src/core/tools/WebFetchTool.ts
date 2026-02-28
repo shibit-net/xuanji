@@ -135,6 +135,18 @@ export class WebFetchTool extends BaseTool {
             return this.error(`安全限制：重定向目标为内网地址: ${redirectUrl.hostname}`);
           }
 
+          // DNS rebinding 防护：对重定向目标域名也做 DNS 解析检查
+          if (!this.isIPLiteral(redirectUrl.hostname)) {
+            const dns = await import('node:dns/promises');
+            try {
+              const { address } = await dns.lookup(redirectUrl.hostname);
+              if (this.isSSRFTarget(address)) {
+                clearTimeout(timer);
+                return this.error(`安全限制：重定向目标 ${redirectUrl.hostname} 解析到内网地址: ${address}`);
+              }
+            } catch { /* DNS 失败，让 fetch 自然报错 */ }
+          }
+
           finalUrl = redirectUrl.toString();
           continue;
         }

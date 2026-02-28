@@ -81,7 +81,9 @@ describe('StreamProcessor', () => {
     const result = await processor.consume(createMockStream(events));
     expect(result.usage.input).toBe(100);
     expect(result.usage.output).toBe(50);
-    expect(usages).toHaveLength(1); // usage handler only for 'usage' events
+    expect(usages).toHaveLength(2); // usage 事件 + end 事件中的 usage 都会触发 handler
+    expect(usages[0]).toEqual({ input: 100, output: 0 });
+    expect(usages[1]).toEqual({ input: 0, output: 50 });
   });
 
   it('应在 error 事件时抛出异常', async () => {

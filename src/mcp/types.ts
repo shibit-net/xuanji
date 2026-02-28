@@ -285,6 +285,8 @@ export interface IMCPClient {
   getServerCapabilities(): Record<string, unknown> | undefined;
   /** 获取当前重连尝试次数 */
   getReconnectAttempts(): number;
+  /** 清除工具列表缓存（重连后刷新工具时使用） */
+  invalidateToolsCache(): void;
 }
 
 /**

@@ -185,6 +185,9 @@ export class StreamProcessor {
               cacheRead: (totalUsage.cacheRead ?? 0) + (event.usage.cacheRead ?? 0),
               cacheWrite: (totalUsage.cacheWrite ?? 0) + (event.usage.cacheWrite ?? 0),
             };
+            // end 事件中的 usage 也需要通知外部
+            // Anthropic 的 output tokens 通过 message_delta → end 事件报告
+            this.usageHandler?.(event.usage);
           }
           break;
         }

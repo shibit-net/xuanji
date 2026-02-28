@@ -508,6 +508,10 @@ export class MCPClient extends EventEmitter {
     return this.reconnectAttempts;
   }
 
+  invalidateToolsCache(): void {
+    this.toolsCache = undefined;
+  }
+
   /**
    * 日志输出
    */
