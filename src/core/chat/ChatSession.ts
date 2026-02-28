@@ -42,6 +42,7 @@ import type { SessionListItem, Checkpoint, Message as SessionMessage } from '@/s
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { HookConfigLoader } from '@/hooks/ConfigLoader';
 import { PricingResolver } from '@/core/agent/PricingResolver';
+import { BackgroundTaskManager } from '@/core/tools/BackgroundTaskManager';
 
 /**
  * ChatSession 初始化选项
@@ -640,6 +641,9 @@ export class ChatSession {
 
     // 清理 TaskTool 引用
     this._taskTool = null;
+
+    // 清理后台任务管理器
+    BackgroundTaskManager.resetInstance();
 
     log.info('ChatSession resources cleaned up');
   }

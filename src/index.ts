@@ -390,7 +390,7 @@ async function main(): Promise<void> {
   };
   process.on('SIGINT', () => { cleanupOnExit().finally(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanupOnExit().finally(() => process.exit(0)); });
-  process.on('beforeExit', () => { cleanupOnExit(); });
+  process.on('beforeExit', async () => { await cleanupOnExit(); });
 
   const agentLoop = session.getAgentLoop();
   const config = session.getConfig();

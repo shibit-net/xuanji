@@ -70,6 +70,11 @@ export class EditTool extends BaseTool {
 
       const content = await readFile(path, 'utf-8');
 
+      // 二进制文件检测：包含 NUL 字节则拒绝编辑
+      if (content.includes('\0')) {
+        return this.error('无法编辑二进制文件');
+      }
+
       // 空 old_string 无意义（会匹配所有位置）
       if (oldStr.length === 0) {
         return this.error('old_string 不能为空。如需创建新文件，请使用 write_file 工具。');

@@ -163,7 +163,7 @@ export class PricingResolver {
     // 前缀匹配（优先更长的 key）
     const sorted = Object.entries(models).sort((a, b) => b[0].length - a[0].length);
     for (const [key, pricing] of sorted) {
-      if (model.startsWith(key) || key.startsWith(model)) {
+      if (model.startsWith(key)) {
         return { ...pricing, source: 'config' };
       }
     }
@@ -196,7 +196,7 @@ export class PricingResolver {
     // 前缀匹配（优先更长的 key）
     const sorted = [...this.remoteCache.entries()].sort((a, b) => b[0].length - a[0].length);
     for (const [key, pricing] of sorted) {
-      if (model.startsWith(key) || key.startsWith(model)) {
+      if (model.startsWith(key)) {
         return pricing;
       }
     }
@@ -216,7 +216,7 @@ export class PricingResolver {
     // 前缀匹配（优先更长的 key）
     const sorted = Object.entries(BUILTIN_PRICING).sort((a, b) => b[0].length - a[0].length);
     for (const [key, pricing] of sorted) {
-      if (model.startsWith(key) || key.startsWith(model)) {
+      if (model.startsWith(key)) {
         return { ...pricing, source: 'builtin' };
       }
     }

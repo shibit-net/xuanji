@@ -52,9 +52,10 @@ export class FeishuBot implements IMAdapter {
   private processingUsers: Set<string> = new Set();
   /** 全局消息处理锁 — AgentLoop 不支持并发，必须串行处理 */
   private processingLock: Promise<void> = Promise.resolve();
-  /** 已处理的事件 ID 集合（防止飞书重传导致重复） */
-  private processedEvents: Set<string> = new Set();
+  /** 已处理的事件 ID（value 为时间戳，用于 TTL 淘汰） */
+  private processedEvents: Map<string, number> = new Map();
   private static readonly MAX_EVENT_CACHE = 200;
+  private static readonly EVENT_TTL = 5 * 60 * 1000; // 5分钟
   private _callbacksRegistered = false;
   private _currentFormatter: { ref: MessageFormatter } | null = null;
 
@@ -154,12 +155,17 @@ export class FeishuBot implements IMAdapter {
         this.log(`跳过重复事件: ${eventId}`);
         return;
       }
-      this.processedEvents.add(eventId);
-      // 限制缓存大小：批量淘汰最旧条目
+      const now = Date.now();
+      this.processedEvents.set(eventId, now);
+      // TTL 淘汰：删除超过 5 分钟的条目
+      for (const [id, ts] of this.processedEvents) {
+        if (now - ts > FeishuBot.EVENT_TTL) this.processedEvents.delete(id);
+      }
+      // 绝对上限兜底
       if (this.processedEvents.size > FeishuBot.MAX_EVENT_CACHE) {
         const toDelete = this.processedEvents.size - Math.floor(FeishuBot.MAX_EVENT_CACHE / 2);
         let deleted = 0;
-        for (const id of this.processedEvents) {
+        for (const id of this.processedEvents.keys()) {
           if (deleted >= toDelete) break;
           this.processedEvents.delete(id);
           deleted++;

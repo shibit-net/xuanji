@@ -336,7 +336,11 @@ export class GrepTool extends BaseTool {
     try {
       regex = new RegExp(pattern, flags);
       // 检测潜在的 ReDoS 模式：嵌套量词（如 (a+)+ 、(a|b)*+ 等）
-      if (/(\.\*){3,}|(\([^)]*[+*][^)]*\))[+*]|\(\?[^)]+\)\{/.test(pattern)) {
+      if (
+        /(\.\*){3,}|(\([^)]*[+*][^)]*\))[+*]|\(\?[^)]+\)\{/.test(pattern) ||
+        /\([^)]*\|[^)]*\)[*+]/.test(pattern) || // 交替+量词: (a|a)*
+        /\(\\[dDwWsS][+*][^)]*\)[+*]/.test(pattern) // 字符类嵌套量词: (\d+)+
+      ) {
         return this.error(`正则表达式可能导致性能问题（ReDoS 风险）: ${pattern}`);
       }
     } catch (regexErr) {
@@ -393,58 +397,21 @@ export class GrepTool extends BaseTool {
 
     for (const file of files) {
       try {
-        // 跳过二进制文件：读取前 512 字节检测 NUL 字符
-        const fd = await (await import('node:fs/promises')).open(file, 'r');
-        try {
-          const probe = Buffer.alloc(512);
-          const { bytesRead } = await fd.read(probe, 0, 512, 0);
-          if (bytesRead > 0 && probe.subarray(0, bytesRead).includes(0)) {
-            continue; // 二进制文件，跳过
-          }
-        } finally {
-          await fd.close();
-        }
+        // 单文件匹配超时（5s）
+        const fileResult = await Promise.race([
+          this.searchSingleFileJS(file, regex, mode, context, maxMatchesPerFile),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error(`单文件搜索超时: ${file}`)), 5000)
+          ),
+        ]);
 
-        const content = await readFile(file, 'utf-8');
-        const lines = content.split('\n');
-        const fileMatches: MatchResult[] = [];
-        let fileMatchCount = 0;
+        if (!fileResult) continue;
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          regex.lastIndex = 0;
-          if (regex.test(line)) {
-            fileMatchCount++;
-            results.totalMatches++;
-
-            if (mode === 'content') {
-              const start = Math.max(0, i - context);
-              const end = Math.min(lines.length - 1, i + context);
-              fileMatches.push({
-                lineNumber: i + 1,
-                line,
-                context:
-                  context > 0
-                    ? {
-                        before: lines.slice(start, i),
-                        after: lines.slice(i + 1, end + 1),
-                      }
-                    : undefined,
-              });
-
-              if (fileMatches.length >= maxMatchesPerFile) break;
-            }
-          }
-        }
-
-        if (fileMatchCount > 0) {
+        if (fileResult.matchCount > 0) {
           results.matchedFiles++;
-          if (mode === 'content') {
-            results.matches.push({ file, matches: fileMatches });
-          } else if (mode === 'files_with_matches') {
-            results.matches.push(file);
-          } else if (mode === 'count') {
-            results.matches.push({ file, count: fileMatchCount });
+          results.totalMatches += fileResult.matchCount;
+          if (fileResult.entry) {
+            results.matches.push(fileResult.entry);
           }
         }
 
@@ -455,6 +422,72 @@ export class GrepTool extends BaseTool {
     }
 
     return results;
+  }
+
+  private async searchSingleFileJS(
+    file: string,
+    regex: RegExp,
+    mode: OutputMode,
+    context: number,
+    maxMatchesPerFile: number,
+  ): Promise<{ matchCount: number; entry: FileMatch | string | { file: string; count: number } | null }> {
+    // 跳过二进制文件：读取前 512 字节检测 NUL 字符
+    const fd = await (await import('node:fs/promises')).open(file, 'r');
+    try {
+      const probe = Buffer.alloc(512);
+      const { bytesRead } = await fd.read(probe, 0, 512, 0);
+      if (bytesRead > 0 && probe.subarray(0, bytesRead).includes(0)) {
+        return { matchCount: 0, entry: null }; // 二进制文件，跳过
+      }
+    } finally {
+      await fd.close();
+    }
+
+    const content = await readFile(file, 'utf-8');
+    const lines = content.split('\n');
+    const fileMatches: MatchResult[] = [];
+    let fileMatchCount = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      regex.lastIndex = 0;
+      if (regex.test(line)) {
+        fileMatchCount++;
+
+        if (mode === 'content') {
+          const start = Math.max(0, i - context);
+          const end = Math.min(lines.length - 1, i + context);
+          fileMatches.push({
+            lineNumber: i + 1,
+            line,
+            context:
+              context > 0
+                ? {
+                    before: lines.slice(start, i),
+                    after: lines.slice(i + 1, end + 1),
+                  }
+                : undefined,
+          });
+
+          if (fileMatches.length >= maxMatchesPerFile) break;
+        }
+      }
+    }
+
+    if (fileMatchCount === 0) {
+      return { matchCount: 0, entry: null };
+    }
+
+    let entry: FileMatch | string | { file: string; count: number } | null = null;
+    if (mode === 'content') {
+      entry = { file, matches: fileMatches };
+    } else if (mode === 'files_with_matches') {
+      entry = file;
+    } else if (mode === 'count') {
+      entry = { file, count: fileMatchCount };
+    }
+
+    return { matchCount: fileMatchCount, entry };
   }
 
   // ============================================================

@@ -67,6 +67,8 @@ export class AgentLoop {
   private currentIteration = 0;
   private memoryStore: IMemoryStore | null = null;
   private hookRegistry: HookRegistry | null = null;
+  /** 当前活跃的 stream 引用（用于 stop() 时中止流） */
+  private _currentStream: AsyncIterable<import('@/core/types').StreamEvent> | null = null;
 
   constructor(
     provider: ILLMProvider,
@@ -199,12 +201,15 @@ export class AgentLoop {
                 temperature: this.config.temperature,
               },
             );
+            this._currentStream = stream;
 
             // 每次重试重置首 token 标记
             firstTokenMarked = false;
             result = await this.streamProcessor.consume(stream);
+            this._currentStream = null;
             break; // 成功，退出重试循环
           } catch (streamError) {
+            this._currentStream = null;
             lastStreamError = streamError;
             if (!shouldRetry(streamError, attempt, retryConfig)) {
               throw streamError; // 不可重试，直接抛出
@@ -505,10 +510,28 @@ export class AgentLoop {
   }
 
   /**
-   * 停止循环
+   * 停止循环（同时中止活跃的 stream）
    */
   stop(): void {
     this.running = false;
+    // 中止当前活跃的 stream
+    if (this._currentStream) {
+      try {
+        // 尝试 Anthropic/OpenAI SDK 的 controller.abort()
+        const streamAny = this._currentStream as unknown as Record<string, { abort?: () => void }>;
+        if (streamAny.controller?.abort) {
+          streamAny.controller.abort();
+        }
+        // 尝试 AsyncIterator 标准的 return()
+        const iterator = (this._currentStream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+        if (typeof iterator.return === 'function') {
+          iterator.return(undefined);
+        }
+      } catch {
+        // 中止失败不影响 stop 逻辑
+      }
+      this._currentStream = null;
+    }
   }
 
   /**

@@ -292,7 +292,8 @@ export class ReadTool extends BaseTool {
     const fileStats = await stat(filePath);
     const sizeKB = Math.round(fileStats.size / 1024);
     if (fileStats.size > 20 * 1024 * 1024) {
-      return this.error(`图片文件过大 (${sizeKB}KB)，超过 20MB 限制`);
+      const sizeStr = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)}MB` : `${sizeKB}KB`;
+      return this.error(`图片文件过大 (${sizeStr})，超过 20MB 限制`);
     }
 
     const imageBuffer = await readFile(filePath);

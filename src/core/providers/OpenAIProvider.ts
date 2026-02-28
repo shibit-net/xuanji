@@ -222,14 +222,17 @@ export class OpenAIProvider extends BaseLLMProvider {
         this.log.debug(`Tools: ${JSON.stringify(openaiTools.map(t => 'function' in t ? (t as { function: { name: string } }).function.name : 'unknown'))}`);
       }
 
-      // 调用 OpenAI Streaming API
-      const stream = await client.chat.completions.create(requestParams);
-
       // per-event 超时保护（与 AnthropicProvider 一致）
       const PER_EVENT_TIMEOUT_MS = 30_000;
       let lastEventTime = Date.now();
       let timedOut = false;
       const abortController = new AbortController();
+
+      // 调用 OpenAI Streaming API
+      const stream = await client.chat.completions.create(requestParams, {
+        signal: abortController.signal,
+      });
+
       const timeoutCheckInterval = setInterval(() => {
         const elapsed = Date.now() - lastEventTime;
         if (elapsed > PER_EVENT_TIMEOUT_MS) {

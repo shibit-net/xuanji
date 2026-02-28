@@ -215,6 +215,7 @@ export class CheckpointManager {
 
   /**
    * 从持久化存储加载 checkpoint 列表（带缓存）
+   * 使用 loadCheckpointsOnly 避免全量加载消息文件
    */
   private async loadCheckpoints(sessionId: string): Promise<Checkpoint[]> {
     // 如果内存中已有（包括空数组），直接返回
@@ -222,10 +223,9 @@ export class CheckpointManager {
       return this.checkpoints.get(sessionId)!;
     }
 
-    // 从文件加载
+    // 仅从 checkpoints 文件加载，不读取消息文件
     try {
-      const snapshot = await this.storage.loadSnapshot(sessionId);
-      const checkpoints = snapshot.checkpoints;
+      const checkpoints = await this.storage.loadCheckpointsOnly(sessionId);
       this.checkpoints.set(sessionId, checkpoints);
       return checkpoints;
     } catch {

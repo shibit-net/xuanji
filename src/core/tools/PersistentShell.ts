@@ -7,6 +7,7 @@
 //
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'PersistentShell' });
@@ -51,6 +52,8 @@ export class PersistentShell {
   private _executing = false;
   /** 超时后需要重建 Shell（防止 stdout 残留污染下次命令） */
   private _needsReset = false;
+  /** 最后已知的工作目录（reset 时用于恢复） */
+  private _lastKnownCwd: string;
   /** 排队等待执行的命令 */
   private _queue: Array<{
     command: string;
@@ -61,6 +64,7 @@ export class PersistentShell {
 
   constructor(cwd?: string) {
     this.initialCwd = cwd ?? process.cwd();
+    this._lastKnownCwd = this.initialCwd;
   }
 
   /**
@@ -154,7 +158,7 @@ export class PersistentShell {
     }
 
     // 唯一标记
-    const marker = `__XUANJI_MARKER_${Date.now()}_${Math.random().toString(36).slice(2, 10)}__`;
+    const marker = `__XUANJI_MARKER_${randomBytes(16).toString('hex')}__`;
 
     return new Promise<ShellResult>((resolve, reject) => {
       let stdoutBuf = '';
@@ -193,13 +197,24 @@ export class PersistentShell {
         const markerPattern = `${marker}:`;
         const idx = stdoutBuf.indexOf(markerPattern);
         if (idx !== -1) {
-          // 找到标记行 -> 提取退出码
+          // 找到标记行 -> 提取退出码和当前工作目录
+          // 格式: marker:exitCode:cwd
           const afterMarker = stdoutBuf.slice(idx + markerPattern.length);
           const newlineIdx = afterMarker.indexOf('\n');
-          const exitCodeStr = newlineIdx !== -1
+          const markerData = newlineIdx !== -1
             ? afterMarker.slice(0, newlineIdx).trim()
             : afterMarker.trim();
+
+          // 解析 exitCode:cwd（cwd 本身可能包含冒号，只按第一个冒号分割）
+          const firstColon = markerData.indexOf(':');
+          const exitCodeStr = firstColon !== -1 ? markerData.slice(0, firstColon) : markerData;
+          const cwdStr = firstColon !== -1 ? markerData.slice(firstColon + 1) : '';
           const exitCode = parseInt(exitCodeStr, 10);
+
+          // 更新最后已知的工作目录
+          if (cwdStr) {
+            this._lastKnownCwd = cwdStr;
+          }
 
           // 标记行之前的内容是命令输出
           const output = stdoutBuf.slice(0, idx);
@@ -237,20 +252,23 @@ export class PersistentShell {
       };
       proc.once('exit', onExit);
 
-      // 写入命令：执行命令后输出标记行+退出码
-      const wrappedCmd = `${command}\necho "${marker}:$?"\n`;
+      // 写入命令：执行命令后输出标记行+退出码+当前工作目录
+      const wrappedCmd = `${command}\necho "${marker}:$?:$(pwd)"\n`;
       proc.stdin!.write(wrappedCmd);
     });
   }
 
   /**
-   * 重置 Shell（销毁重建）
+   * 重置 Shell（销毁重建，恢复到最后已知的工作目录）
    */
   reset(): void {
-    // 注意：reset 会将 cwd 回退到初始目录（丢失 cd 过的路径）
-    // 这是超时后的安全降级行为，因为无法可靠获取被卡住的 shell 的当前 cwd
+    const cwdToRestore = this._lastKnownCwd;
     this.close();
     this.spawn();
+    // 如果最后已知的 cwd 与初始 cwd 不同，在新 shell 中恢复目录
+    if (cwdToRestore !== this.initialCwd && this.proc?.stdin) {
+      this.proc.stdin.write(`cd ${JSON.stringify(cwdToRestore)} 2>/dev/null\n`);
+    }
   }
 
   /**

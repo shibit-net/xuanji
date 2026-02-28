@@ -97,7 +97,7 @@ export class FileGuard {
     const normalizedPath = this.normalizePath(filePath);
 
     // 判断操作类型
-    const isWrite = toolName === 'write_file' || toolName === 'edit_file';
+    const isWrite = toolName === 'write_file' || toolName === 'edit_file' || toolName === 'notebook_edit';
     const category = isWrite ? 'fileWrite' : 'fileRead';
 
     // 检查是否命中黑名单
@@ -184,6 +184,8 @@ export class FileGuard {
       case 'write_file':
       case 'edit_file':
         return (input.file_path ?? input.path) as string | null;
+      case 'notebook_edit':
+        return (input.notebook_path ?? input.path) as string | null;
       case 'glob':
         return (input.path ?? input.pattern) as string | null;
       case 'grep':

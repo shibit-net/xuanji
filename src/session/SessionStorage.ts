@@ -151,16 +151,31 @@ export class SessionStorage {
    * 追加单条消息到 JSONL 文件（流式写入）
    */
   async appendMessage(sessionId: string, message: Message): Promise<void> {
-    const paths = this.getSessionPaths(sessionId);
-    const line = JSON.stringify(message) + '\n';
-    await fs.appendFile(paths.messages, line, 'utf-8');
+    // 使用 Promise 链实现简单互斥锁（与 updateMetadata 共享同一把锁）
+    const release = this._writeLock;
+    let resolve!: () => void;
+    this._writeLock = new Promise<void>(r => { resolve = r; });
 
-    // 更新元数据中的消息计数
-    await this.updateMetadata(sessionId, (meta) => ({
-      ...meta,
-      messageCount: meta.messageCount + 1,
-      updatedAt: Date.now(),
-    }));
+    await release;
+    try {
+      const paths = this.getSessionPaths(sessionId);
+      const line = JSON.stringify(message) + '\n';
+      await fs.appendFile(paths.messages, line, 'utf-8');
+
+      // 更新元数据中的消息计数（内联更新，避免嵌套锁死锁）
+      const metaContent = await fs.readFile(paths.meta, 'utf-8');
+      const metadata: SessionMetadata = JSON.parse(metaContent);
+      const updatedMetadata = {
+        ...metadata,
+        messageCount: metadata.messageCount + 1,
+        updatedAt: Date.now(),
+      };
+      const tmpPath = paths.meta + '.tmp';
+      await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
+      await fs.rename(tmpPath, paths.meta);
+    } finally {
+      resolve();
+    }
   }
 
   /**
@@ -238,6 +253,19 @@ export class SessionStorage {
   async saveCheckpoints(sessionId: string, checkpoints: Checkpoint[]): Promise<void> {
     const paths = this.getSessionPaths(sessionId);
     await fs.writeFile(paths.checkpoints, JSON.stringify(checkpoints, null, 2), 'utf-8');
+  }
+
+  /**
+   * 仅加载 checkpoints（不加载消息文件，避免全量读取开销）
+   */
+  async loadCheckpointsOnly(sessionId: string): Promise<Checkpoint[]> {
+    const paths = this.getSessionPaths(sessionId);
+    try {
+      const content = await fs.readFile(paths.checkpoints, 'utf-8');
+      return JSON.parse(content);
+    } catch {
+      return [];
+    }
   }
 
   /**

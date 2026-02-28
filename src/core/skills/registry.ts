@@ -301,10 +301,12 @@ export class SkillRegistry {
       content = options.transformer(content, params);
     }
 
-    // 缓存结果
-    if (this.cache.size < this.options.cacheSize) {
-      this.cache.set(cacheKey, content);
+    // 缓存结果（FIFO 淘汰）
+    if (this.cache.size >= this.options.cacheSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) this.cache.delete(firstKey);
     }
+    this.cache.set(cacheKey, content);
 
     return content;
   }

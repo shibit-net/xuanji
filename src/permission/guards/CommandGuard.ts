@@ -102,25 +102,46 @@ export class CommandGuard {
     let current = '';
     let inSingleQuote = false;
     let inDoubleQuote = false;
+    let inBacktick = false;
     let depth = 0; // $() 嵌套深度
 
     for (let i = 0; i < command.length; i++) {
       const ch = command[i];
+      const prev = i > 0 ? command[i - 1] : '';
       const next = command[i + 1];
 
-      if (ch === "'" && !inDoubleQuote && depth === 0) {
+      if (ch === "'" && !inDoubleQuote && !inBacktick && depth === 0) {
         inSingleQuote = !inSingleQuote;
         current += ch;
-      } else if (ch === '"' && !inSingleQuote && depth === 0) {
+      } else if (ch === '"' && !inSingleQuote && !inBacktick && depth === 0) {
         inDoubleQuote = !inDoubleQuote;
         current += ch;
-      } else if (ch === '$' && next === '(' && !inSingleQuote) {
+      } else if (ch === '`' && !inSingleQuote && prev !== '\\') {
+        // 反引号切换：提取反引号内的内容作为独立子命令
+        if (!inBacktick) {
+          // 进入反引号：保存当前内容，开始收集反引号内命令
+          inBacktick = true;
+          current += ch;
+        } else {
+          // 离开反引号：反引号内容结束
+          inBacktick = false;
+          current += ch;
+          // 提取反引号内的内容作为独立子命令检查
+          const backtickStart = current.lastIndexOf('`', current.length - 2);
+          if (backtickStart !== -1) {
+            const backtickContent = current.slice(backtickStart + 1, -1);
+            if (backtickContent.trim()) {
+              parts.push(backtickContent);
+            }
+          }
+        }
+      } else if (ch === '$' && next === '(' && !inSingleQuote && !inBacktick) {
         depth++;
         current += ch;
-      } else if (ch === ')' && depth > 0 && !inSingleQuote) {
+      } else if (ch === ')' && depth > 0 && !inSingleQuote && !inBacktick) {
         depth--;
         current += ch;
-      } else if (!inSingleQuote && !inDoubleQuote && depth === 0) {
+      } else if (!inSingleQuote && !inDoubleQuote && !inBacktick && depth === 0) {
         // 检查分隔符
         if (ch === '|' && next === '|') {
           parts.push(current);
@@ -195,7 +216,7 @@ export class CommandGuard {
           category: 'bashExec',
           riskLevel: 'warn',
           description,
-          cacheKey: `bash:${commandName}`,
+          cacheKey: `bash:warn:${description}`,
         };
       }
     }

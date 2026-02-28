@@ -31,6 +31,9 @@ export class MCPManager {
   private initialized = false;
   private _shutdown = false;
 
+  /** reconnect 后工具变更回调 */
+  onToolsChanged?: (serverName: string) => void;
+
   private constructor() {
     // 私有构造函数，防止外部实例化
   }
@@ -90,6 +93,14 @@ export class MCPManager {
           (client as any).on('reconnect_failed', (name: string) => {
             log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
             this.clients.delete(name);
+          });
+
+          // 监听重连成功事件，刷新工具 schema 并通知外部
+          (client as any).on('reconnected', (name: string) => {
+            log.info(`MCP server "${name}" reconnected, refreshing tools`);
+            this.refreshServerTools(name).catch((err) => {
+              log.warn(`Failed to refresh tools for "${name}" after reconnect:`, err);
+            });
           });
         }
 
@@ -215,6 +226,25 @@ export class MCPManager {
     }
 
     return runtimes;
+  }
+
+  /**
+   * 刷新指定服务器的工具列表（reconnect 后调用）
+   */
+  private async refreshServerTools(serverName: string): Promise<void> {
+    const client = this.clients.get(serverName);
+    if (!client) return;
+
+    try {
+      // 重新获取工具列表（清除缓存）
+      await client.listTools();
+      log.info(`Refreshed tools for "${serverName}"`);
+
+      // 通知外部工具已变更
+      this.onToolsChanged?.(serverName);
+    } catch (error) {
+      log.warn(`Failed to refresh tools for "${serverName}":`, error);
+    }
   }
 
   /**

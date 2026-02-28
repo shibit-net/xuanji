@@ -17,6 +17,8 @@ const log = logger.child({ module: 'SkillLoader' });
  * Skill 加载器
  */
 export class SkillLoader {
+  private loadedFiles: string[] = [];
+
   constructor(
     private registry: SkillRegistry,
     private basePath: string = process.cwd()
@@ -148,6 +150,7 @@ export class SkillLoader {
 
       if (skill) {
         this.registry.register(skill);
+        this.loadedFiles.push(filePath);
       }
     } catch (error) {
       log.warn(`Failed to load skill from ${filePath}:`, error);
@@ -256,6 +259,7 @@ export class SkillLoader {
    */
   async reload(options: SkillLoadOptions = {}): Promise<void> {
     this.registry.clear();
+    this.loadedFiles = [];
     await this.load(options);
   }
 
@@ -263,12 +267,7 @@ export class SkillLoader {
    * 获取加载的 Skill 文件列表
    */
   async getLoadedSkillFiles(): Promise<string[]> {
-    const files: string[] = [];
-
-    // 这是一个占位符，实际实现需要跟踪已加载的文件
-    // 可以在 loadSkillFile 方法中维护一个列表
-
-    return files;
+    return [...this.loadedFiles];
   }
 }
 

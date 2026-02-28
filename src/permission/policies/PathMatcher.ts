@@ -40,14 +40,46 @@ export function globToRegex(pattern: string): RegExp {
     } else if (char === '?') {
       regex += '[^/]';
       i += 1;
+    } else if (char === '{') {
+      // Brace expansion: {a,b,c} → (a|b|c)
+      const closeIndex = pattern.indexOf('}', i + 1);
+      if (closeIndex === -1) {
+        // 无匹配的 }，按字面值处理
+        regex += '\\{';
+        i += 1;
+      } else {
+        const braceContent = pattern.substring(i + 1, closeIndex);
+        const options = braceContent.split(',');
+        // 对每个选项递归处理 glob 字符
+        const regexOptions = options.map(opt => {
+          let optRegex = '';
+          for (let j = 0; j < opt.length; j++) {
+            const c = opt[j];
+            if (c === '*') {
+              optRegex += '[^/]*';
+            } else if (c === '?') {
+              optRegex += '[^/]';
+            } else if (c === '.') {
+              optRegex += '\\.';
+            } else if (/[()[\]^$+|\\]/.test(c)) {
+              optRegex += '\\' + c;
+            } else {
+              optRegex += c;
+            }
+          }
+          return optRegex;
+        });
+        regex += '(' + regexOptions.join('|') + ')';
+        i = closeIndex + 1;
+      }
     } else if (char === '.') {
       regex += '\\.';
       i += 1;
     } else if (char === '/' || char === '-' || char === '_') {
       regex += char;
       i += 1;
-    } else if (/[{}()[\]^$+|\\]/.test(char)) {
-      // 转义其他正则特殊字符
+    } else if (/[}()[\]^$+|\\]/.test(char)) {
+      // 转义其他正则特殊字符（} 放到这里，当它不匹配 { 时作为字面值）
       regex += '\\' + char;
       i += 1;
     } else {
@@ -84,7 +116,7 @@ export class PathMatcher {
     }
 
     // 精确匹配: 不含通配符
-    if (!pattern.includes('*') && !pattern.includes('?')) {
+    if (!pattern.includes('*') && !pattern.includes('?') && !pattern.includes('{')) {
       return filePath === pattern;
     }
 

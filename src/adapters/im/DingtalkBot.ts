@@ -269,6 +269,13 @@ export class DingtalkBot implements IMAdapter {
    */
   private async sendReply(webhook: string, content: string): Promise<void> {
     try {
+      // SSRF 防护：验证 webhook URL 域名必须是钉钉官方域名
+      const url = new URL(webhook);
+      if (!url.hostname.endsWith('.dingtalk.com')) {
+        this.coreLog.warn(`拒绝非钉钉域名的 webhook: ${url.hostname}`);
+        return;
+      }
+
       // 钉钉 Markdown 消息有 5000 字符限制
       const truncated = content.length > 4800
         ? content.slice(0, 4800) + '\n\n...(内容过长已截断)'

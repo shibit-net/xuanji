@@ -3,7 +3,8 @@
 // ============================================================
 
 import { appendFile, readFile, mkdir, unlink, rename, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { logger } from '@/core/logger';
 
@@ -46,23 +47,25 @@ export class StorageBackend {
     }
   }
 
-  /** 从文件末尾读取最近 N 条记录（返回时间正序：最旧在前，最新在后） */
+  /** 从文件末尾读取最近 N 条记录（滑动窗口，避免全量解析；返回时间正序：最旧在前，最新在后） */
   async readRecent<T>(filePath: string, limit: number): Promise<T[]> {
     try {
       if (!existsSync(filePath)) return [];
-      const text = await readFile(filePath, 'utf-8');
-      const lines = text.split('\n').filter((l) => l.trim());
-      const records: T[] = [];
-      for (let i = lines.length - 1; i >= 0 && records.length < limit; i--) {
+      const rl = createInterface({
+        input: createReadStream(filePath, { encoding: 'utf-8' }),
+        crlfDelay: Infinity,
+      });
+      const window: T[] = [];
+      for await (const line of rl) {
+        if (!line.trim()) continue;
         try {
-          records.push(JSON.parse(lines[i]!) as T);
+          window.push(JSON.parse(line) as T);
+          if (window.length > limit) window.shift();
         } catch {
           // 跳过格式错误的行
         }
       }
-      // 反转为正序（与 readAll 保持一致：最旧在前，最新在后）
-      records.reverse();
-      return records;
+      return window;
     } catch {
       return [];
     }

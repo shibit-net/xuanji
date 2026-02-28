@@ -273,8 +273,9 @@ export class MemoryManager implements IMemoryStore {
         await this.longTerm.replaceAll('project', projectEntries);
       }
 
-      // 更新缓存：合并 compact 期间新增的条目
-      const newEntries = this.cachedEntries.slice(snapshot.length);
+      // 更新缓存：合并 compact 期间新增的条目（用 id 做差集，避免竞态下的重复或丢失）
+      const snapshotIds = new Set(snapshot.map(e => e.id));
+      const newEntries = this.cachedEntries.filter(e => !snapshotIds.has(e.id));
       this.cachedEntries = [...compacted, ...newEntries];
 
       log.info(`Memory compacted: ${compacted.length} entries remaining (${newEntries.length} new during compact)`);

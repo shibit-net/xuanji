@@ -169,6 +169,28 @@ export class HookConfigLoader {
       return null;
     }
 
+    // 可选字段类型校验
+    if ('timeout' in handler) {
+      if (typeof handler.timeout !== 'number' || handler.timeout <= 0) {
+        delete handler.timeout; // 无效值，忽略
+      }
+    }
+    if ('scope' in handler) {
+      if (!['global', 'parent', 'subagent'].includes(handler.scope as string)) {
+        handler.scope = 'global'; // 无效值，默认 'global'
+      }
+    }
+    if ('match' in handler) {
+      if (typeof handler.match !== 'object' || handler.match === null || Array.isArray(handler.match)) {
+        delete handler.match; // 无效值，忽略
+      }
+    }
+    if ('enabled' in handler) {
+      if (typeof handler.enabled !== 'boolean') {
+        delete handler.enabled; // 无效值，忽略
+      }
+    }
+
     return handler as unknown as HookHandler;
   }
 

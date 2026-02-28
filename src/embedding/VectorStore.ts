@@ -210,12 +210,16 @@ export class VectorStore {
     this.ensureReady();
 
     const rows = this.db.prepare('SELECT * FROM skill_vectors').all();
-    return rows.map((row: any) => ({
-      skillId: row.skill_id,
-      skillName: row.skill_name,
-      embedding: new Float32Array(Buffer.from(row.embedding).buffer),
-      description: row.description,
-    }));
+    return rows.map((row: any) => {
+      // 使用安全的 Buffer 转换，确保字节对齐（与 bruteForceSearch 一致）
+      const buf = Buffer.from(row.embedding);
+      return {
+        skillId: row.skill_id,
+        skillName: row.skill_name,
+        embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4),
+        description: row.description,
+      };
+    });
   }
 
   /** 获取已存储的记忆 ID 集合 */

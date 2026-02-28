@@ -87,13 +87,19 @@ export class CostTracker {
 
   /**
    * 格式化费用显示
+   * 统一逻辑：cost === 0 → $0.00，cost < 0.01 → 4 位小数，其他 → 2 位小数
    */
   formatCost(cost?: number): string {
-    const value = cost ?? this.totalCost;
-    if (value < 0.01) {
-      return `$${value.toFixed(4)}`;
-    }
-    return `$${value.toFixed(2)}`;
+    return CostTracker.formatCost(cost ?? this.totalCost);
+  }
+
+  /**
+   * 静态格式化费用（供外部模块复用）
+   */
+  static formatCost(cost: number): string {
+    if (cost === 0) return '$0.00';
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    return `$${cost.toFixed(2)}`;
   }
 
   /**

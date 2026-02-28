@@ -265,12 +265,24 @@ export class BackgroundTaskManager {
 
   /**
    * 停止所有任务（应用退出时调用）
+   * 确保所有 getResult() 等待者收到结果，不会永久 pending
    */
   stopAll(): void {
     for (const entry of this.tasks.values()) {
+      clearTimeout(entry.lifetimeTimer);
       if (entry.status === 'running') {
         entry.process.kill('SIGTERM');
-        clearTimeout(entry.lifetimeTimer);
+        entry.status = 'failed';
+        entry.completedAt = Date.now();
+      }
+
+      // 通知所有等待者，防止 Promise 永久 pending
+      if (entry.resolvers.length > 0) {
+        const result = this.buildResult(entry);
+        for (const resolver of entry.resolvers) {
+          resolver(result);
+        }
+        entry.resolvers = [];
       }
     }
     this.tasks.clear();

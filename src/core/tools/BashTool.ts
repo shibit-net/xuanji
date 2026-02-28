@@ -149,6 +149,28 @@ export class BashTool extends BaseTool {
     '~/.ssh', '~/.gnupg', '~/.config/systemd',     // 敏感用户目录
   ];
 
+  /** 预编译的沙箱写入检测正则（按受限路径缓存） */
+  private static readonly SANDBOX_PATTERNS: Map<string, RegExp[]> = BashTool.buildSandboxPatterns();
+
+  private static buildSandboxPatterns(): Map<string, RegExp[]> {
+    const home = process.env.HOME ?? '~';
+    const map = new Map<string, RegExp[]>();
+    for (const restricted of BashTool.RESTRICTED_PATHS) {
+      const expanded = restricted.replace(/~/g, home);
+      const escaped = expanded.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      map.set(restricted, [
+        new RegExp(`\\brm\\b[^|]*${escaped}`),
+        new RegExp(`\\bmv\\b[^|]*${escaped}`),
+        new RegExp(`\\bcp\\b[^|]*${escaped}`),
+        new RegExp(`>\\s*${escaped}`),
+        new RegExp(`\\btee\\b[^|]*${escaped}`),
+        new RegExp(`\\bchmod\\b[^|]*${escaped}`),
+        new RegExp(`\\bchown\\b[^|]*${escaped}`),
+      ]);
+    }
+    return map;
+  }
+
   /** 高风险命令模式（与 RESTRICTED_PATHS 无关的全局风险） */
   private static readonly DANGEROUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
     { pattern: /\beval\s+"?\$/, description: '动态执行变量内容 (eval)' },
@@ -171,20 +193,8 @@ export class BashTool extends BaseTool {
       }
     }
 
-    for (const restricted of BashTool.RESTRICTED_PATHS) {
-      const expanded = restricted.replace(/~/g, process.env.HOME ?? '~');
-      // 检测写入/删除/修改操作涉及受限路径
-      const writePatterns = [
-        new RegExp(`\\brm\\b[^|]*${this.escapeRegex(expanded)}`),
-        new RegExp(`\\bmv\\b[^|]*${this.escapeRegex(expanded)}`),
-        new RegExp(`\\bcp\\b[^|]*${this.escapeRegex(expanded)}`),
-        new RegExp(`>\\s*${this.escapeRegex(expanded)}`),         // 重定向写入
-        new RegExp(`\\btee\\b[^|]*${this.escapeRegex(expanded)}`),
-        new RegExp(`\\bchmod\\b[^|]*${this.escapeRegex(expanded)}`),
-        new RegExp(`\\bchown\\b[^|]*${this.escapeRegex(expanded)}`),
-      ];
-
-      for (const pattern of writePatterns) {
+    for (const [restricted, patterns] of BashTool.SANDBOX_PATTERNS) {
+      for (const pattern of patterns) {
         if (pattern.test(expandedCmd)) {
           return `命令尝试操作受限目录: ${restricted}`;
         }
@@ -192,11 +202,6 @@ export class BashTool extends BaseTool {
     }
 
     return null;
-  }
-
-  /** 正则特殊字符转义 */
-  private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   /**

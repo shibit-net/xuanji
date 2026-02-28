@@ -285,6 +285,11 @@ export class WebFetchTool extends BaseTool {
    * - fd00::/8 (IPv6 ULA)
    * - .local 域名
    * - 0.0.0.0
+   * - IPv4-mapped IPv6 (::ffff:127.0.0.1)
+   * - IPv4-compatible IPv6 ([::127.0.0.1])
+   * - 八进制 IP (0177.0.0.1)
+   * - 十六进制 IP (0x7f000001)
+   * - 十进制整数 IP (2130706433)
    */
   private isSSRFTarget(hostname: string): boolean {
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
@@ -304,6 +309,93 @@ export class WebFetchTool extends BaseTool {
     if (hostname.endsWith('.local')) return true;
     // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10) — URL 中 IPv6 带方括号如 [fd00::1]
     if (/^\[f[de]/i.test(hostname)) return true;
+
+    // IPv4-mapped IPv6: ::ffff:127.0.0.1 或 [::ffff:127.0.0.1]
+    const ffmpMatch = hostname.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/i);
+    if (ffmpMatch) {
+      return this.isSSRFTarget(ffmpMatch[1]);
+    }
+
+    // IPv4-compatible IPv6: [::127.0.0.1] 或 ::127.0.0.1
+    const v4compatMatch = hostname.match(/^\[?::(\d+\.\d+\.\d+\.\d+)\]?$/);
+    if (v4compatMatch) {
+      return this.isSSRFTarget(v4compatMatch[1]);
+    }
+
+    // 八进制 IP: 0177.0.0.1（各段以 0 开头且包含非 0x 前缀的八进制数字）
+    const octalMatch = hostname.match(/^(0\d+)\.(0\d*)\.(0\d*)\.(0\d*)$/);
+    if (octalMatch) {
+      const ipNum = this.parseOctalIP(hostname);
+      if (ipNum !== null && this.isPrivateIPNumber(ipNum)) return true;
+    }
+
+    // 十六进制 IP: 0x7f000001
+    if (/^0x[0-9a-fA-F]+$/.test(hostname)) {
+      const ipNum = parseInt(hostname, 16);
+      if (!isNaN(ipNum) && this.isPrivateIPNumber(ipNum)) return true;
+    }
+
+    // 十进制整数 IP: 2130706433
+    if (/^\d+$/.test(hostname) && hostname.length > 3) {
+      const ipNum = parseInt(hostname, 10);
+      if (!isNaN(ipNum) && this.isPrivateIPNumber(ipNum)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 将 IPv4 地址字符串转换为 32 位数值
+   * 支持标准十进制 (127.0.0.1) 和八进制 (0177.0.0.1)
+   */
+  private parseIPToNumber(hostname: string): number | null {
+    const parts = hostname.split('.');
+    if (parts.length !== 4) return null;
+
+    let result = 0;
+    for (const part of parts) {
+      let val: number;
+      if (part.startsWith('0') && part.length > 1 && !part.startsWith('0x')) {
+        // 八进制
+        val = parseInt(part, 8);
+      } else {
+        val = parseInt(part, 10);
+      }
+      if (isNaN(val) || val < 0 || val > 255) return null;
+      result = (result << 8) | val;
+    }
+    return result >>> 0; // 确保无符号
+  }
+
+  /**
+   * 解析八进制 IP 为数值
+   */
+  private parseOctalIP(hostname: string): number | null {
+    return this.parseIPToNumber(hostname);
+  }
+
+  /**
+   * 判断 32 位 IP 数值是否属于内网/回环/元数据范围
+   * - 127.0.0.0/8: 0x7F000000 ~ 0x7FFFFFFF
+   * - 10.0.0.0/8: 0x0A000000 ~ 0x0AFFFFFF
+   * - 172.16.0.0/12: 0xAC100000 ~ 0xAC1FFFFF
+   * - 192.168.0.0/16: 0xC0A80000 ~ 0xC0A8FFFF
+   * - 169.254.169.254: 0xA9FEA9FE
+   * - 0.0.0.0: 0x00000000
+   */
+  private isPrivateIPNumber(ip: number): boolean {
+    // 0.0.0.0
+    if (ip === 0) return true;
+    // 127.0.0.0/8
+    if ((ip >>> 24) === 127) return true;
+    // 10.0.0.0/8
+    if ((ip >>> 24) === 10) return true;
+    // 172.16.0.0/12
+    if ((ip >>> 20) === 0xAC1) return true;
+    // 192.168.0.0/16
+    if ((ip >>> 16) === 0xC0A8) return true;
+    // 169.254.169.254
+    if (ip === 0xA9FEA9FE) return true;
     return false;
   }
 }

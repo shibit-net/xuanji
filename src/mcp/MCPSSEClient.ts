@@ -204,6 +204,8 @@ export class MCPSSEClient extends EventEmitter {
             this.log(`Reconnect unhandled error: ${err instanceof Error ? err.message : String(err)}`, 'error');
           });
         }
+      } finally {
+        reader.releaseLock();
       }
     };
 

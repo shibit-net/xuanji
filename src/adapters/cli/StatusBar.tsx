@@ -5,6 +5,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TokenUsage } from '@/core/types';
+import { CostTracker } from '@/core/agent/CostTracker';
 
 export interface StatusBarProps {
   model: string;
@@ -23,15 +24,6 @@ function formatNumber(num: number): string {
     return (num / 1_000).toFixed(1) + 'K';
   }
   return num.toLocaleString();
-}
-
-/**
- * 格式化费用显示
- */
-function formatCost(cost: number): string {
-  if (cost === 0) return '$0.00';
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  return `$${cost.toFixed(2)}`;
 }
 
 /**
@@ -60,7 +52,7 @@ export function StatusBar({ model, usage, cost }: StatusBarProps) {
       {cost > 0 && (
         <>
           <Text color="gray" dimColor> │ </Text>
-          <Text color="magenta">💰 {formatCost(cost)}</Text>
+          <Text color="magenta">💰 {CostTracker.formatCost(cost)}</Text>
         </>
       )}
     </Box>

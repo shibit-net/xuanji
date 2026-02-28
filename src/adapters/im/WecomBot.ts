@@ -865,10 +865,18 @@ export class WecomBot implements IMAdapter {
       const chunks: Buffer[] = [];
       let totalSize = 0;
       let destroyed = false;
+
+      // 30 秒超时保护，防止恶意慢速请求
+      const timer = setTimeout(() => {
+        destroyed = true;
+        req.destroy(new Error('Request body read timeout (30s)'));
+      }, 30_000);
+
       req.on('data', (chunk: Buffer) => {
         totalSize += chunk.length;
         if (totalSize > MAX_BODY_SIZE) {
           destroyed = true;
+          clearTimeout(timer);
           req.destroy();
           reject(new Error(`Request body too large (>${MAX_BODY_SIZE} bytes)`));
           return;
@@ -876,9 +884,13 @@ export class WecomBot implements IMAdapter {
         chunks.push(chunk);
       });
       req.on('end', () => {
+        clearTimeout(timer);
         if (!destroyed) resolve(Buffer.concat(chunks).toString('utf8'));
       });
-      req.on('error', reject);
+      req.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
     });
   }
 
