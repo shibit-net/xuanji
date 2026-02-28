@@ -141,6 +141,16 @@ export class CommandGuard {
       } else if (ch === ')' && depth > 0 && !inSingleQuote && !inBacktick) {
         depth--;
         current += ch;
+        // 当 $() 闭合时，提取内容作为子命令
+        if (depth === 0) {
+          const subStart = current.lastIndexOf('$(');
+          if (subStart !== -1) {
+            const subContent = current.slice(subStart + 2, -1); // 去掉 $( 和 )
+            if (subContent.trim()) {
+              parts.push(subContent);
+            }
+          }
+        }
       } else if (!inSingleQuote && !inDoubleQuote && !inBacktick && depth === 0) {
         // 检查分隔符
         if (ch === '|' && next === '|') {

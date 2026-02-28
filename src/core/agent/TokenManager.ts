@@ -111,9 +111,33 @@ export class TokenManager {
           // 找到 kept 在 rest 中的起始索引
           const restIdx = rest.indexOf(first);
           if (restIdx > 0 && rest[restIdx - 1].role === 'assistant') {
-            // 前面有配对的 assistant 消息，加入保留列表
-            kept.unshift(rest[restIdx - 1]);
-            break;
+            const assistant = rest[restIdx - 1];
+            // 检查 assistant 中所有 tool_use 是否都有对应 tool_result 在 kept 中
+            const toolUseIds = new Set<string>();
+            if (Array.isArray(assistant.content)) {
+              for (const block of assistant.content) {
+                if (block.type === 'tool_use' && block.id) toolUseIds.add(block.id);
+              }
+            }
+            // 收集 kept 中所有 tool_result 的 tool_use_id
+            const toolResultIds = new Set<string>();
+            for (const msg of kept) {
+              if (msg.role === 'user' && Array.isArray(msg.content)) {
+                for (const block of msg.content) {
+                  if (block.type === 'tool_result' && block.tool_use_id) toolResultIds.add(block.tool_use_id);
+                }
+              }
+            }
+            // 检查完整性：所有 tool_use 都有对应的 tool_result
+            const allMatched = [...toolUseIds].every(id => toolResultIds.has(id));
+            if (allMatched) {
+              kept.unshift(assistant);
+              break;
+            } else {
+              // 不完整，丢弃这条 tool_result，继续检查下一条
+              kept.shift();
+              continue;
+            }
           } else {
             // 找不到配对的 assistant，移除这条孤立的 tool_result
             kept.shift();

@@ -184,6 +184,8 @@ export async function runSubAgent(
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   try {
     const runPromise = agentLoop.run(context.task);
+    // 捕获 unhandled rejection（仅在超时场景下 race 已 settled 时生效）
+    runPromise.catch(() => {});
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutTimer = setTimeout(() => {

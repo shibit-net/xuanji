@@ -44,6 +44,10 @@ export class SessionStorage {
    * 获取会话文件路径
    */
   private getSessionPaths(sessionId: string) {
+    // 路径穿越防护：sessionId 只允许 UUID 格式
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(sessionId)) {
+      throw new Error(`Invalid session ID format: ${sessionId}`);
+    }
     const sessionDir = this.baseDir;
     return {
       meta: path.join(sessionDir, `${sessionId}.meta.json`),

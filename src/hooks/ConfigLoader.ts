@@ -215,7 +215,9 @@ export class HookConfigLoader {
    */
   private isProjectSource(source: string): boolean {
     // 全局配置路径: ~/.xuanji/hooks.json
-    return !source.startsWith(os.homedir() + path.sep + '.xuanji' + path.sep);
+    const globalDir = path.resolve(os.homedir(), '.xuanji');
+    const resolvedSource = path.resolve(source);
+    return !resolvedSource.startsWith(globalDir + path.sep);
   }
 
   /**

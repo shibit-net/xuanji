@@ -73,6 +73,17 @@ export class WebFetchTool extends BaseTool {
     }
 
     try {
+      // DNS rebinding 防护：解析域名后检查实际 IP
+      if (!this.isIPLiteral(parsedUrl.hostname)) {
+        const dns = await import('node:dns/promises');
+        try {
+          const { address } = await dns.lookup(parsedUrl.hostname);
+          if (this.isSSRFTarget(address)) {
+            return this.error(`安全限制：域名 ${parsedUrl.hostname} 解析到内网地址: ${address}`);
+          }
+        } catch { /* DNS 失败，让 fetch 自然报错 */ }
+      }
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -277,6 +288,13 @@ export class WebFetchTool extends BaseTool {
   }
 
   /**
+   * 判断 hostname 是否为 IP 字面量（IPv4 或 IPv6）
+   */
+  private isIPLiteral(hostname: string): boolean {
+    return /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':');
+  }
+
+  /**
    * SSRF 防护：判断目标地址是否为内网/本地/云元数据端点
    * 阻止对以下地址的请求：
    * - localhost / 127.0.0.0/8 / ::1
@@ -307,8 +325,8 @@ export class WebFetchTool extends BaseTool {
     if (hostname.startsWith('192.168.')) return true;
     // .local 域名
     if (hostname.endsWith('.local')) return true;
-    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10) — URL 中 IPv6 带方括号如 [fd00::1]
-    if (/^\[f[de]/i.test(hostname)) return true;
+    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10) — new URL() 返回的 hostname 不含方括号
+    if (/^fd[0-9a-f]{2}:/i.test(hostname) || /^fe[89ab][0-9a-f]:/i.test(hostname)) return true;
 
     // IPv4-mapped IPv6: ::ffff:127.0.0.1 或 [::ffff:127.0.0.1]
     const ffmpMatch = hostname.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/i);

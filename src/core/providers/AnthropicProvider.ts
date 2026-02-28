@@ -214,12 +214,13 @@ export class AnthropicProvider extends BaseLLMProvider {
           }
         }
       } catch (streamErr) {
-        // 流消费过程中的异常（包括 AbortError）
-        // 如果是主动 abort 导致的，不需要特殊处理，让后续恢复逻辑处理
-        if (streamErr instanceof Error && streamErr.name !== 'AbortError') {
-          this.log.error(`Stream consumption error: ${streamErr.message}`);
+        if (streamErr instanceof Error && streamErr.name === 'AbortError') {
+          // 超时或用户中止 — 走恢复逻辑
+          this.log.warn(`Stream aborted: ${streamErr.message}`);
+        } else {
+          // 网络错误等 — 重新抛出触发重试
+          throw streamErr;
         }
-        // 不重新抛出，让恢复逻辑处理
       }
 
       // 流提前结束的恢复处理

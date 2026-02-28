@@ -269,7 +269,6 @@ export class MCPClient extends EventEmitter {
     this.outputBuffer = '';
     this.toolsCache = undefined;
     this.promptsCache = undefined;
-    this.reconnecting = false;
 
     try {
       await this.start();
@@ -278,6 +277,8 @@ export class MCPClient extends EventEmitter {
     } catch (error) {
       this.log(`Reconnect failed: ${error}`, 'error');
       // start() 内部会在 exit 时再次触发 reconnect
+    } finally {
+      this.reconnecting = false;
     }
   }
 

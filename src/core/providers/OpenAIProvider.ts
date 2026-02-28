@@ -8,15 +8,6 @@ import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
 /**
- * 判断是否为官方 OpenAI API（而非代理服务）
- * 用于控制是否启用 OpenAI 特有的扩展参数（如 stream_options）
- */
-function isOfficialOpenAI(baseURL?: string): boolean {
-  if (!baseURL) return true; // 未设置 baseURL 时默认为官方 API
-  return baseURL.includes('api.openai.com');
-}
-
-/**
  * OpenAI GPT Provider
  * 支持 GPT-4o, GPT-4, GPT-3.5-turbo, o1, o3 等模型
  * 同时兼容 DeepSeek、Azure OpenAI 等 OpenAI Chat Completions API 兼容服务
@@ -197,16 +188,14 @@ export class OpenAIProvider extends BaseLLMProvider {
           : undefined;
 
       // 构造请求参数
-      // 注意：stream_options 仅在官方 OpenAI API 中支持
-      // DeepSeek、Azure 等兼容 API 不支持此参数，会导致 400 错误
-      const isOfficial = isOfficialOpenAI(config.baseURL);
-
+      // stream_options: 始终发送，大多数 OpenAI 兼容 API（包括代理服务）都支持此参数
+      // 不支持的 API 会忽略该参数，不会导致错误
       const requestParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
         model: config.model,
         messages: openaiMessages,
         stream: true,
         ...(config.maxTokens ? { max_tokens: config.maxTokens } : {}),
-        ...(isOfficial ? { stream_options: { include_usage: true } } : {}),
+        stream_options: { include_usage: true },
         ...(openaiTools ? {
           tools: openaiTools,
           tool_choice: 'auto' as const,         // 显式指定：让模型自主决定是否调用工具

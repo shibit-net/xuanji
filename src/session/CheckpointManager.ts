@@ -11,10 +11,10 @@
  */
 
 import { randomUUID } from 'crypto';
-import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, unlink, mkdir, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { logger } from '@/core/logger';
-import { dirname } from 'node:path';
+import { dirname, resolve, basename, sep } from 'node:path';
 import type { SessionStorage } from './SessionStorage.js';
 import type { Checkpoint, FileSnapshot, Message } from './types.js';
 import type { HookRegistry } from '@/hooks/HookRegistry';
@@ -178,26 +178,43 @@ export class CheckpointManager {
    */
   private async restoreFileSnapshots(snapshots: FileSnapshot[]): Promise<void> {
     const cwd = process.cwd();
+    // 解析 cwd 的符号链接，获取真实路径
+    let realCwd: string;
+    try {
+      realCwd = await realpath(cwd);
+    } catch {
+      realCwd = cwd;
+    }
+
     for (const snapshot of snapshots) {
       try {
-        // 安全校验：路径必须在当前工作目录下
-        const resolved = require('node:path').resolve(snapshot.path);
-        if (!resolved.startsWith(cwd)) {
+        const resolved = resolve(snapshot.path);
+        // 解析父目录的符号链接（文件本身可能不存在）
+        let realResolved: string;
+        try {
+          const dir = await realpath(dirname(resolved));
+          realResolved = resolve(dir, basename(resolved));
+        } catch {
+          continue; // 父目录不存在，跳过
+        }
+
+        // 安全校验：真实路径必须在当前工作目录下
+        if (!realResolved.startsWith(realCwd + sep) && realResolved !== realCwd) {
           continue; // 跳过工作目录外的路径
         }
 
         if (snapshot.content === null) {
           // 快照时文件不存在 → 删除文件（恢复到"不存在"状态）
-          if (existsSync(resolved)) {
-            await unlink(resolved);
+          if (existsSync(realResolved)) {
+            await unlink(realResolved);
           }
         } else {
           // 确保目录存在
-          const dir = dirname(resolved);
+          const dir = dirname(realResolved);
           if (!existsSync(dir)) {
             await mkdir(dir, { recursive: true });
           }
-          await writeFile(resolved, snapshot.content, 'utf-8');
+          await writeFile(realResolved, snapshot.content, 'utf-8');
         }
       } catch (fileErr) {
         // 单个文件恢复失败不阻塞其他文件

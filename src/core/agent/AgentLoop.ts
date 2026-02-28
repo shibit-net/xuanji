@@ -69,6 +69,8 @@ export class AgentLoop {
   private hookRegistry: HookRegistry | null = null;
   /** 当前活跃的 stream 引用（用于 stop() 时中止流） */
   private _currentStream: AsyncIterable<import('@/core/types').StreamEvent> | null = null;
+  /** 原始 textHandler（构造函数中注册的，避免 stop()+run() 循环时 handler 链无限增长） */
+  private _originalTextHandler: ((text: string) => void) | undefined;
 
   constructor(
     provider: ILLMProvider,
@@ -101,6 +103,7 @@ export class AgentLoop {
 
     // 注册流处理回调
     this.streamProcessor.onTextDelta((text) => this.callbacks.onText?.(text));
+    this._originalTextHandler = this.streamProcessor.getTextHandler();
     this.streamProcessor.onThinkingDelta((thinking) => this.callbacks.onThinking?.(thinking));
     this.streamProcessor.onToolStart((toolCall) => {
       // tool_use_start：立即通知 UI 展示工具名（此时 input 为空）
@@ -143,8 +146,8 @@ export class AgentLoop {
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 
-      // 保存原始 textHandler（在循环外保存一次，避免嵌套包装堆积）
-      const originalTextHandler = this.streamProcessor.getTextHandler();
+      // 使用构造函数中保存的原始 textHandler（避免 stop()+run() 循环时嵌套包装堆积）
+      const originalTextHandler = this._originalTextHandler;
 
       while (this.running && this.currentIteration < maxIterations) {
         this.currentIteration++;

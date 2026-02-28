@@ -390,13 +390,14 @@ export class MCPSSEClient extends EventEmitter {
     this.state = 'uninitialized';
     this.toolsCache = undefined;
     this.promptsCache = undefined;
-    this.reconnecting = false;
 
     try {
       await this.start();
       this.emit('reconnected', this.config.name);
     } catch (reconnectErr) {
       this.log(`Reconnect failed: ${reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr)}`, 'warn');
+    } finally {
+      this.reconnecting = false;
     }
   }
 
