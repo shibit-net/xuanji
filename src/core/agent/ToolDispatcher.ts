@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { ToolCall, ToolResult, IToolRegistry } from '@/core/types';
+import { getConcurrencyConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
 /**
@@ -102,7 +103,7 @@ export class ToolDispatcher implements IToolDispatcher {
    */
   private async executeParallel(
     calls: ToolCall[],
-    maxConcurrency = ToolDispatcher.MAX_PARALLEL,
+    maxConcurrency = getConcurrencyConfig()?.maxParallel ?? ToolDispatcher.MAX_PARALLEL,
   ): Promise<Array<{ id: string; result: ToolResult }>> {
     const results: Array<{ id: string; result: ToolResult }> = [];
 

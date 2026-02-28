@@ -154,6 +154,8 @@ export interface HookEventContext {
   memoryContent?: string;
   /** 自定义数据 */
   data?: Record<string, unknown>;
+  /** AbortSignal，Hook 超时时会触发 abort（供 Hook 实现者检测取消） */
+  signal?: AbortSignal;
 }
 
 // ─── Handler 执行结果 ──────────────────────────────────

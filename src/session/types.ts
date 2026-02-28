@@ -3,18 +3,20 @@
  */
 
 /**
- * 消息结构（与 MessageManager 兼容）
+ * 消息结构（与 core/types/agent.ts 的 Message/ContentBlock 兼容）
  */
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string | Array<{
-    type: 'text' | 'tool_use' | 'tool_result';
+    type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
     text?: string;
+    thinking?: string;
     id?: string;
     name?: string;
-    input?: any;
+    input?: Record<string, unknown>;
     tool_use_id?: string;
-    content?: any;
+    content?: string;
+    is_error?: boolean;
   }>;
   timestamp?: number;
 }
@@ -81,6 +83,7 @@ export interface SessionSnapshot {
   metadata: SessionMetadata;
   messages: Message[];
   checkpoints: Checkpoint[];
+  corruptedLineCount?: number;
 }
 
 /**

@@ -7,6 +7,7 @@ import type { ToolResult, JSONSchema } from '@/core/types';
 import glob from 'fast-glob';
 import path from 'node:path';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { getGlobConfig } from '@/core/config/RuntimeConfig';
 
 const MAX_FILES = 1000; // 最多返回文件数
 
@@ -77,14 +78,15 @@ export class GlobTool extends BaseTool {
       const sortedFiles = files.sort();
 
       // 截断保护
-      const truncated = sortedFiles.length > MAX_FILES;
-      const displayFiles = truncated ? sortedFiles.slice(0, MAX_FILES) : sortedFiles;
+      const maxFiles = getGlobConfig()?.maxFiles ?? MAX_FILES;
+      const truncated = sortedFiles.length > maxFiles;
+      const displayFiles = truncated ? sortedFiles.slice(0, maxFiles) : sortedFiles;
 
       // 构建输出
       let output = displayFiles.join('\n');
 
       if (truncated) {
-        output += `\n\n[已截断：找到 ${sortedFiles.length} 个文件，仅显示前 ${MAX_FILES} 个]`;
+        output += `\n\n[已截断：找到 ${sortedFiles.length} 个文件，仅显示前 ${maxFiles} 个]`;
       }
 
       // 输出长度截断

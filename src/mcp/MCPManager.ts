@@ -14,6 +14,7 @@ import type {
   CallToolResult,
   GetPromptResult,
   MCPServerRuntime,
+  IMCPClient,
 } from './types';
 import { logger } from '@/core/logger';
 
@@ -25,9 +26,10 @@ const log = logger.child({ module: 'MCPManager' });
 export class MCPManager {
   private static instance?: MCPManager;
 
-  private clients = new Map<string, MCPClient>();
+  private clients = new Map<string, IMCPClient>();
   private config?: MCPConfig;
   private initialized = false;
+  private _shutdown = false;
 
   private constructor() {
     // 私有构造函数，防止外部实例化
@@ -63,7 +65,7 @@ export class MCPManager {
       }
 
       try {
-        let client: MCPClient | MCPSSEClient;
+        let client: IMCPClient;
 
         if (serverConfig.transport === 'sse') {
           // SSE transport
@@ -81,7 +83,16 @@ export class MCPManager {
           });
         }
 
-        this.clients.set(serverConfig.name, client as MCPClient);
+        this.clients.set(serverConfig.name, client);
+
+        // 监听重连失败事件，从工具列表移除不可用的服务器
+        if (client instanceof MCPClient) {
+          client.on('reconnect_failed', (name: string) => {
+            log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
+            this.clients.delete(name);
+          });
+        }
+
         log.info(`Registered MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
       } catch (error) {
         log.warn(`Failed to register server "${serverConfig.name}":`, error);
@@ -146,6 +157,9 @@ export class MCPManager {
     toolName: string,
     args?: Record<string, unknown>
   ): Promise<CallToolResult> {
+    if (this._shutdown) {
+      throw new Error('MCPManager has been shut down');
+    }
     const client = this.clients.get(serverName);
     if (!client) {
       throw new Error(`MCP server "${serverName}" not found`);
@@ -206,7 +220,7 @@ export class MCPManager {
   /**
    * 获取指定服务器的客户端
    */
-  getClient(serverName: string): MCPClient | undefined {
+  getClient(serverName: string): IMCPClient | undefined {
     return this.clients.get(serverName);
   }
 
@@ -230,6 +244,7 @@ export class MCPManager {
 
     this.clients.clear();
     this.initialized = false;
+    this._shutdown = true;
     MCPManager.instance = undefined;
     log.info('All MCP servers shut down');
   }

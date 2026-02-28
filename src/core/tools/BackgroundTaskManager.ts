@@ -4,12 +4,19 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { getToolTimeouts, getConcurrencyConfig } from '@/core/config/RuntimeConfig';
 
 /** 后台任务最大生存时间 (ms) — 1 小时 */
 const MAX_TASK_LIFETIME = 3_600_000;
 
 /** 最大同时运行的后台任务数 */
 const MAX_CONCURRENT_TASKS = 5;
+
+/** 单个任务输出上限 (bytes) — 10MB */
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
+
+/** 自动清理时保留的已完成任务数上限 */
+const MAX_COMPLETED_TASKS = 50;
 
 /** 后台任务状态 */
 export type BackgroundTaskStatus = 'running' | 'completed' | 'failed' | 'timeout';
@@ -37,6 +44,8 @@ interface TaskEntry {
   exitCode?: number;
   stdoutChunks: Buffer[];
   stderrChunks: Buffer[];
+  /** 已累积的总输出大小（bytes） */
+  outputSize: number;
   lifetimeTimer: ReturnType<typeof setTimeout>;
   resolvers: Array<(result: BackgroundTaskResult) => void>;
 }
@@ -58,27 +67,38 @@ export class BackgroundTaskManager {
   }
 
   /**
+   * 重置单例（停止所有任务并销毁实例）
+   * 用于进程退出或测试场景
+   */
+  static resetInstance(): void {
+    if (BackgroundTaskManager.instance) {
+      BackgroundTaskManager.instance.stopAll();
+      BackgroundTaskManager.instance = null;
+    }
+  }
+
+  /**
    * 启动后台任务
    */
-  startTask(command: string): BackgroundTaskResult {
+  startTask(command: string, env?: Record<string, string>): BackgroundTaskResult {
     // 检查并发限制
     const runningCount = Array.from(this.tasks.values()).filter(
       (t) => t.status === 'running',
     ).length;
-    if (runningCount >= MAX_CONCURRENT_TASKS) {
+    if (runningCount >= (getConcurrencyConfig()?.maxBackgroundTasks ?? MAX_CONCURRENT_TASKS)) {
       return {
         taskId: '',
         status: 'failed',
         command,
         startedAt: Date.now(),
-        stderr: `已达后台任务上限 (${MAX_CONCURRENT_TASKS})，请等待现有任务完成或使用 task_output 查看结果后再试。`,
+        stderr: `已达后台任务上限 (${getConcurrencyConfig()?.maxBackgroundTasks ?? MAX_CONCURRENT_TASKS})，请等待现有任务完成或使用 task_output 查看结果后再试。`,
       };
     }
 
     const taskId = `task-${randomUUID().slice(0, 8)}`;
     const proc = spawn('bash', ['-c', command], {
       cwd: process.cwd(),
-      env: { ...process.env },
+      env: env ?? { ...process.env },
     });
 
     const entry: TaskEntry = {
@@ -89,16 +109,29 @@ export class BackgroundTaskManager {
       status: 'running',
       stdoutChunks: [],
       stderrChunks: [],
+      outputSize: 0,
       resolvers: [],
       lifetimeTimer: setTimeout(() => {
         this.timeoutTask(taskId);
-      }, MAX_TASK_LIFETIME),
+      }, getToolTimeouts()?.backgroundTask ?? MAX_TASK_LIFETIME),
     };
 
-    proc.stdout?.on('data', (chunk: Buffer) => entry.stdoutChunks.push(chunk));
-    proc.stderr?.on('data', (chunk: Buffer) => entry.stderrChunks.push(chunk));
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      entry.outputSize += chunk.byteLength;
+      if (entry.outputSize <= MAX_OUTPUT_SIZE) {
+        entry.stdoutChunks.push(chunk);
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      entry.outputSize += chunk.byteLength;
+      if (entry.outputSize <= MAX_OUTPUT_SIZE) {
+        entry.stderrChunks.push(chunk);
+      }
+    });
 
     proc.on('close', (exitCode) => {
+      // 如果已被标记为 timeout，不覆盖状态
+      if (entry.status === 'timeout') return;
       entry.status = exitCode === 0 ? 'completed' : 'failed';
       entry.exitCode = exitCode ?? 1;
       entry.completedAt = Date.now();
@@ -110,6 +143,7 @@ export class BackgroundTaskManager {
         resolver(result);
       }
       entry.resolvers = [];
+      this.autoCleanup();
     });
 
     proc.on('error', (err) => {
@@ -123,6 +157,7 @@ export class BackgroundTaskManager {
         resolver(result);
       }
       entry.resolvers = [];
+      this.autoCleanup();
     });
 
     this.tasks.set(taskId, entry);
@@ -251,5 +286,18 @@ export class BackgroundTaskManager {
       startedAt: entry.startedAt,
       completedAt: entry.completedAt,
     };
+  }
+
+  /** 自动清理旧的已完成任务（保留最近 MAX_COMPLETED_TASKS 个） */
+  private autoCleanup(): void {
+    const completed = Array.from(this.tasks.entries())
+      .filter(([, e]) => e.status !== 'running')
+      .sort((a, b) => (b[1].completedAt ?? 0) - (a[1].completedAt ?? 0));
+
+    if (completed.length > MAX_COMPLETED_TASKS) {
+      for (const [id] of completed.slice(MAX_COMPLETED_TASKS)) {
+        this.tasks.delete(id);
+      }
+    }
   }
 }

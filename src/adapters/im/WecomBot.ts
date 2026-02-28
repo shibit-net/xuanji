@@ -83,6 +83,10 @@ export class WecomBot implements IMAdapter {
   private logCallback?: (message: string) => void;
   /** 正在处理消息的用户集合（防止重复处理） */
   private processingUsers: Set<string> = new Set();
+  /** 全局消息处理锁 — AgentLoop 不支持并发，必须串行处理 */
+  private processingLock: Promise<void> = Promise.resolve();
+  private _callbacksRegistered = false;
+  private _currentFormatter: { ref: MessageFormatter } | null = null;
 
   constructor(config?: Partial<WecomConfig>) {
     this.config = {
@@ -91,7 +95,7 @@ export class WecomBot implements IMAdapter {
       agentId: config?.agentId ?? process.env.WECOM_AGENT_ID ?? '',
       token: config?.token ?? process.env.WECOM_TOKEN ?? '',
       encodingAESKey: config?.encodingAESKey ?? process.env.WECOM_ENCODING_AES_KEY ?? '',
-      port: config?.port ?? (parseInt(process.env.WECOM_PORT ?? '9880') || 9880),
+      port: config?.port ?? (parseInt(process.env.WECOM_PORT ?? '9880', 10) || 9880),
     };
   }
 
@@ -389,8 +393,9 @@ export class WecomBot implements IMAdapter {
       return;
     }
 
-    // 处理消息并回复
-    await this.processAndReply(fromUser, content);
+    // 处理消息并回复（串行化：AgentLoop 不支持并发 run）
+    const task = () => this.processAndReply(fromUser, content);
+    this.processingLock = this.processingLock.then(task, task);
   }
 
   /**
@@ -422,12 +427,21 @@ export class WecomBot implements IMAdapter {
     this.log('开始调用 ChatSession 处理...');
     const formatter = new MessageFormatter();
 
-    this.session.on({
-      onText: (t) => formatter.appendText(t),
-      onToolStart: (id, name, input) => formatter.toolStart(name, input),
-      onToolEnd: (id, name, result, isError) => formatter.toolEnd(name, result, isError),
-      onError: (err) => formatter.appendText(`\n❌ 错误: ${err.message}`),
-    });
+    const currentFormatter = { ref: formatter };
+
+    // 只注册一次回调，通过引用间接调用当前 formatter，避免回调累积
+    if (!this._callbacksRegistered) {
+      this._callbacksRegistered = true;
+      this._currentFormatter = currentFormatter;
+      this.session.on({
+        onText: (t) => this._currentFormatter?.ref?.appendText(t),
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => this._currentFormatter?.ref?.toolStart(name, input),
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => this._currentFormatter?.ref?.toolEnd(name, result, isError),
+        onError: (err: Error) => this._currentFormatter?.ref?.appendText(`\n❌ 错误: ${err.message}`),
+      });
+    } else {
+      this._currentFormatter = currentFormatter;
+    }
 
     try {
       await this.session.run(text);
@@ -555,7 +569,7 @@ export class WecomBot implements IMAdapter {
   private async callSendApi(userId: string, msgBody: Record<string, unknown>): Promise<boolean> {
     const payload = {
       touser: userId,
-      agentid: this.config.agentId ? parseInt(this.config.agentId) : undefined,
+      agentid: this.config.agentId ? parseInt(this.config.agentId, 10) : undefined,
       // 开启重复消息检查，30分钟内相同内容不重复发送
       enable_duplicate_check: 0,
       duplicate_check_interval: 1800,
@@ -800,13 +814,31 @@ export class WecomBot implements IMAdapter {
         decipher.final(),
       ]);
 
-      // 去除 PKCS#7 填充
+      // 去除 PKCS#7 填充（带安全校验）
       const padLen = buf[buf.length - 1];
+      if (padLen < 1 || padLen > 16) {
+        this.logError('Invalid PKCS#7 padding length:', padLen);
+        return null;
+      }
+      // 验证所有填充字节一致
+      for (let i = buf.length - padLen; i < buf.length; i++) {
+        if (buf[i] !== padLen) {
+          this.logError('Invalid PKCS#7 padding bytes');
+          return null;
+        }
+      }
       const unpadded = buf.subarray(0, buf.length - padLen);
 
       // 解析: random(16B) + msg_len(4B) + msg + receiveid
       const msgLen = unpadded.readUInt32BE(16);
       const msg = unpadded.subarray(20, 20 + msgLen).toString('utf8');
+
+      // 验证 receiveid 防止消息转发攻击
+      const receiveid = unpadded.subarray(20 + msgLen).toString('utf8');
+      if (receiveid !== this.config.corpId) {
+        this.logError(`receiveid 不匹配: 期望 ${this.config.corpId}, 实际 ${receiveid}`);
+        return null;
+      }
 
       return msg;
     } catch (err) {
@@ -818,13 +850,27 @@ export class WecomBot implements IMAdapter {
   // ── 工具方法 ──────────────────────────────────────────
 
   /**
-   * 读取 HTTP 请求 body
+   * 读取 HTTP 请求 body（限制 1MB 防止内存耗尽）
    */
   private readBody(req: http.IncomingMessage): Promise<string> {
+    const MAX_BODY_SIZE = 1024 * 1024; // 1MB（企业微信回调消息通常几 KB）
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      req.on('data', (chunk) => chunks.push(chunk));
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      let totalSize = 0;
+      let destroyed = false;
+      req.on('data', (chunk: Buffer) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) {
+          destroyed = true;
+          req.destroy();
+          reject(new Error(`Request body too large (>${MAX_BODY_SIZE} bytes)`));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => {
+        if (!destroyed) resolve(Buffer.concat(chunks).toString('utf8'));
+      });
       req.on('error', reject);
     });
   }

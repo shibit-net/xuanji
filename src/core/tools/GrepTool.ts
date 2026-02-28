@@ -9,6 +9,7 @@ import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import glob from 'fast-glob';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { getGrepConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
 const MAX_MATCHES = 500;
@@ -117,7 +118,7 @@ export class GrepTool extends BaseTool {
       } = input as unknown as GrepInput;
 
       const resolvedPath = path.resolve(searchPath);
-      const contextLines = Math.min(context, MAX_CONTEXT_LINES);
+      const contextLines = Math.min(context, getGrepConfig()?.maxContextLines ?? MAX_CONTEXT_LINES);
 
       // 优先使用 ripgrep
       if (isRipgrepAvailable()) {
@@ -152,7 +153,7 @@ export class GrepTool extends BaseTool {
 
     // 基本参数
     args.push('--json'); // JSON Lines 输出格式
-    args.push('--max-count', String(MAX_MATCHES_PER_FILE));
+    args.push('--max-count', String(getGrepConfig()?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE));
 
     if (caseInsensitive) {
       args.push('--case-insensitive');
@@ -325,7 +326,18 @@ export class GrepTool extends BaseTool {
   ): Promise<ToolResult> {
     const stats = await stat(resolvedPath);
     const flags = caseInsensitive ? 'gi' : 'g';
-    const regex = new RegExp(pattern, flags);
+
+    // ReDoS 防护：验证正则表达式安全性
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern, flags);
+      // 检测潜在的 ReDoS 模式：嵌套量词（如 (a+)+ 、(a|b)*+ 等）
+      if (/(\.\*){3,}|(\([^)]*[+*][^)]*\))[+*]|\(\?[^)]+\)\{/.test(pattern)) {
+        return this.error(`正则表达式可能导致性能问题（ReDoS 风险）: ${pattern}`);
+      }
+    } catch (regexErr) {
+      return this.error(`无效的正则表达式: ${pattern} — ${regexErr instanceof Error ? regexErr.message : String(regexErr)}`);
+    }
 
     let files: string[];
     let basePath: string;
@@ -413,7 +425,7 @@ export class GrepTool extends BaseTool {
                     : undefined,
               });
 
-              if (fileMatches.length >= MAX_MATCHES_PER_FILE) break;
+              if (fileMatches.length >= (getGrepConfig()?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE)) break;
             }
           }
         }
@@ -429,7 +441,7 @@ export class GrepTool extends BaseTool {
           }
         }
 
-        if (results.matchedFiles >= MAX_MATCHES) break;
+        if (results.matchedFiles >= (getGrepConfig()?.maxMatches ?? MAX_MATCHES)) break;
       } catch {
         continue;
       }

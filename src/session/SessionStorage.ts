@@ -143,7 +143,7 @@ export class SessionStorage {
       );
     }
 
-    return { metadata, messages, checkpoints };
+    return { metadata, messages, checkpoints, corruptedLineCount: corruptedLines.length > 0 ? corruptedLines.length : undefined };
   }
 
   /**
@@ -168,9 +168,8 @@ export class SessionStorage {
   async truncateMessages(sessionId: string, toIndex: number): Promise<void> {
     const paths = this.getSessionPaths(sessionId);
 
-    // 1. 读取前 toIndex 条消息
+    // 1. 读取前 toIndex 条有效消息
     const messages: Message[] = [];
-    let lineNumber = 0;
 
     const fileStream = createReadStream(paths.messages);
     const rl = createInterface({
@@ -179,14 +178,14 @@ export class SessionStorage {
     });
 
     for await (const line of rl) {
-      if (lineNumber < toIndex && line.trim() !== '') {
+      if (messages.length >= toIndex) break; // 按有效消息数截断
+      if (line.trim() !== '') {
         try {
           messages.push(JSON.parse(line));
         } catch {
           // 跳过损坏行
         }
       }
-      lineNumber++;
     }
 
     // 2. 备份原文件
@@ -216,7 +215,10 @@ export class SessionStorage {
     const metaContent = await fs.readFile(paths.meta, 'utf-8');
     const metadata: SessionMetadata = JSON.parse(metaContent);
     const updatedMetadata = updater(metadata);
-    await fs.writeFile(paths.meta, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
+    // 原子写入：先写临时文件再 rename
+    const tmpPath = paths.meta + '.tmp';
+    await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
+    await fs.rename(tmpPath, paths.meta);
   }
 
   /**
@@ -354,22 +356,53 @@ export class SessionStorage {
   }
 
   /**
-   * 流式写入消息到 JSONL 文件
+   * 流式写入消息到 JSONL 文件（原子写入：先写临时文件再 rename）
    *
-   * 使用 createWriteStream 逐条写入，避免大量消息时内存峰值
+   * 使用 createWriteStream 逐条写入，处理背压（drain 事件），避免大量消息时内存峰值。
+   * 写入完成后通过 rename 原子替换目标文件，防止写入中断导致数据损坏。
    */
   private writeMessagesStream(filePath: string, messages: Message[]): Promise<void> {
+    const tmpPath = filePath + '.tmp';
     return new Promise((resolve, reject) => {
-      const ws = createWriteStream(filePath, { encoding: 'utf-8' });
+      const ws = createWriteStream(tmpPath, { encoding: 'utf-8' });
 
       ws.on('error', reject);
-      ws.on('finish', resolve);
 
-      for (const msg of messages) {
-        ws.write(JSON.stringify(msg) + '\n');
+      let index = 0;
+
+      const write = () => {
+        let ok = true;
+        while (index < messages.length && ok) {
+          const data = JSON.stringify(messages[index]) + '\n';
+          index++;
+          if (index === messages.length) {
+            // 最后一条，写入后结束
+            ws.write(data, () => ws.end());
+            return;
+          }
+          ok = ws.write(data);
+        }
+        if (index < messages.length) {
+          // 缓冲区满，等待 drain 后继续
+          ws.once('drain', write);
+        }
+      };
+
+      ws.on('finish', async () => {
+        try {
+          // 原子替换：rename 在同文件系统上是原子操作
+          await fs.rename(tmpPath, filePath);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+
+      if (messages.length === 0) {
+        ws.end();
+      } else {
+        write();
       }
-
-      ws.end();
     });
   }
 }

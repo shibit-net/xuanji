@@ -48,11 +48,15 @@ export class FeishuBot implements IMAdapter {
   private running = false;
   /** 日志回调 */
   private logCallback?: (message: string) => void;
-  /** 正在处理消息的用户集合（防止重复处理） */
+  /** 正在处理消息的用户集合（防止同一用户重复处理） */
   private processingUsers: Set<string> = new Set();
+  /** 全局消息处理锁 — AgentLoop 不支持并发，必须串行处理 */
+  private processingLock: Promise<void> = Promise.resolve();
   /** 已处理的事件 ID 集合（防止飞书重传导致重复） */
   private processedEvents: Set<string> = new Set();
   private static readonly MAX_EVENT_CACHE = 200;
+  private _callbacksRegistered = false;
+  private _currentFormatter: { ref: MessageFormatter } | null = null;
 
   constructor(config?: Partial<FeishuConfig>) {
     this.config = {
@@ -149,10 +153,15 @@ export class FeishuBot implements IMAdapter {
         return;
       }
       this.processedEvents.add(eventId);
-      // 限制缓存大小
+      // 限制缓存大小：批量淘汰最旧条目
       if (this.processedEvents.size > FeishuBot.MAX_EVENT_CACHE) {
-        const first = this.processedEvents.values().next().value;
-        if (first) this.processedEvents.delete(first);
+        const toDelete = this.processedEvents.size - Math.floor(FeishuBot.MAX_EVENT_CACHE / 2);
+        let deleted = 0;
+        for (const id of this.processedEvents) {
+          if (deleted >= toDelete) break;
+          this.processedEvents.delete(id);
+          deleted++;
+        }
       }
     }
 
@@ -198,14 +207,19 @@ export class FeishuBot implements IMAdapter {
         return;
       }
 
-      // 处理并回复
+      // 处理并回复（串行化：AgentLoop 不支持并发 run）
       this.processingUsers.add(senderId);
 
-      try {
-        await this.processAndReply(chat_id, message_id, text);
-      } finally {
-        this.processingUsers.delete(senderId);
-      }
+      const task = async () => {
+        try {
+          await this.processAndReply(chat_id, message_id, text);
+        } finally {
+          this.processingUsers.delete(senderId);
+        }
+      };
+
+      // 排队等待上一条消息处理完毕
+      this.processingLock = this.processingLock.then(task, task);
     } catch (err) {
       this.logError('处理消息事件失败', err);
     }
@@ -218,13 +232,21 @@ export class FeishuBot implements IMAdapter {
     if (!this.session || !this.client) return;
 
     const formatter = new MessageFormatter();
+    const currentFormatter = { ref: formatter };
 
-    this.session.on({
-      onText: (t) => formatter.appendText(t),
-      onToolStart: (id, name, input) => formatter.toolStart(name, input),
-      onToolEnd: (id, name, result, isError) => formatter.toolEnd(name, result, isError),
-      onError: (err) => formatter.appendText(`\n❌ 错误: ${err.message}`),
-    });
+    // 只注册一次回调，通过引用间接调用当前 formatter，避免回调累积
+    if (!this._callbacksRegistered) {
+      this._callbacksRegistered = true;
+      this._currentFormatter = currentFormatter;
+      this.session.on({
+        onText: (t) => this._currentFormatter?.ref?.appendText(t),
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => this._currentFormatter?.ref?.toolStart(name, input),
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => this._currentFormatter?.ref?.toolEnd(name, result, isError),
+        onError: (err: Error) => this._currentFormatter?.ref?.appendText(`\n❌ 错误: ${err.message}`),
+      });
+    } else {
+      this._currentFormatter = currentFormatter;
+    }
 
     try {
       await this.session.run(text);

@@ -11,6 +11,7 @@ import { ToolDispatcher } from './ToolDispatcher';
 import { TokenManager } from './TokenManager';
 import { ContextCompressor } from './ContextCompressor';
 import { CostTracker } from './CostTracker';
+import { PricingResolver } from './PricingResolver';
 import { ErrorRecovery } from './ErrorRecovery';
 import { shouldRetry, calculateBackoff, DEFAULT_RETRY_CONFIG } from '@/core/providers/RetryPolicy';
 import { logger } from '@/core/logger';
@@ -140,6 +141,9 @@ export class AgentLoop {
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 
+      // 保存原始 textHandler（在循环外保存一次，避免嵌套包装堆积）
+      const originalTextHandler = this.streamProcessor.getTextHandler();
+
       while (this.running && this.currentIteration < maxIterations) {
         this.currentIteration++;
 
@@ -152,6 +156,8 @@ export class AgentLoop {
         const compressionResult = await this.contextCompressor.compressAsync(messages, this.tokenManager);
         messages = compressionResult.compressed;
         if (compressionResult.compressionRatio > 0) {
+          // 同步压缩结果到 MessageManager，防止下轮循环通过 getMessages() 恢复为未压缩版本
+          this.messageManager.replaceMessages(messages.slice(1)); // 去掉 system prompt
           this.callbacks.onInfo?.(
             `📦 压缩了 ${compressionResult.originalTokens - compressionResult.compressedTokens} tokens` +
             ` (${Math.round(compressionResult.compressionRatio * 100)}% 压缩率)`
@@ -166,11 +172,10 @@ export class AgentLoop {
         const perfTimer = this.perfCollector.createTimer(this.config.model, this.currentIteration);
         const retryConfig = this.config.retry ?? DEFAULT_RETRY_CONFIG;
 
-        let result: ProcessResult;
+        let result: ProcessResult | undefined;
         let lastStreamError: unknown;
 
-        // 保存原始 textHandler（在重试循环外部，防止嵌套覆盖）
-        const originalTextHandler = this.streamProcessor['textHandler'];
+        // 注册首 token 计时 handler（复用外部保存的 originalTextHandler，避免嵌套）
         let firstTokenMarked = false;
         this.streamProcessor.onTextDelta((text) => {
           if (!firstTokenMarked) {
@@ -231,10 +236,13 @@ export class AgentLoop {
           break;
         }
 
-        // max_tokens 截断处理：将被截断的工具调用替换为错误结果，让 LLM 重试
-        if (result.stopReason === 'max_tokens') {
+        // max_tokens 截断或 interrupted 中断处理：将被截断的工具调用替换为错误结果，让 LLM 重试
+        if (result.stopReason === 'max_tokens' || result.stopReason === 'interrupted') {
           // 友好提示用户（非异常）
-          this.callbacks.onInfo?.('📝 输出内容过多，正在自动分段写入...');
+          const infoMessage = result.stopReason === 'interrupted'
+            ? '🔄 流传输中断，正在自动恢复...'
+            : '📝 输出内容过多，正在自动分段写入...';
+          this.callbacks.onInfo?.(infoMessage);
 
           // 检查是否有被截断或解析失败的工具调用
           const truncatedTools = result.toolCalls.filter(
@@ -476,8 +484,8 @@ export class AgentLoop {
                   if (typeof m.content === 'string') return [m.content];
                   if (Array.isArray(m.content)) {
                     return m.content
-                      .filter((b: any) => b.type === 'text')
-                      .map((b: any) => b.text ?? '');
+                      .filter((b: { type: string }) => b.type === 'text')
+                      .map((b: { type: string; text?: string }) => b.text ?? '');
                   }
                   return [];
                 })
@@ -571,5 +579,12 @@ export class AgentLoop {
     this.hookRegistry = hookRegistry;
     // 传递给 ContextCompressor 以触发 PreCompact/PostCompact 事件
     this.contextCompressor.setHookRegistry(hookRegistry);
+  }
+
+  /**
+   * 注入 PricingResolver（由 ChatSession 调用）
+   */
+  setPricingResolver(resolver: PricingResolver): void {
+    this.costTracker.setPricingResolver(resolver);
   }
 }

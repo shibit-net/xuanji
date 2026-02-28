@@ -26,7 +26,8 @@ describe('HookEventEmitter', () => {
 
     const results = await emitter.emit('PostToolUse', context);
 
-    expect(listener).toHaveBeenCalledWith(context);
+    // context 会被注入 signal 字段（AbortSignal），使用 objectContaining 匹配
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining(context));
     expect(results).toHaveLength(1);
     expect(results[0].success).toBe(true);
   });

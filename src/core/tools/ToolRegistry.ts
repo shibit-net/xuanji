@@ -22,6 +22,7 @@ import { EnterPlanModeTool } from './EnterPlanModeTool';
 import { ExitPlanModeTool } from './ExitPlanModeTool';
 import { NotebookEditTool } from './NotebookEditTool';
 import { WorktreeTool } from './WorktreeTool';
+import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
 /** 工具执行默认超时（5 分钟） */
@@ -186,7 +187,7 @@ export class ToolRegistry implements IToolRegistry {
     }
 
     try {
-      const timeout = (tool as { timeout?: number }).timeout ?? DEFAULT_TOOL_TIMEOUT;
+      const timeout = (tool as { timeout?: number }).timeout ?? getToolTimeouts()?.default ?? DEFAULT_TOOL_TIMEOUT;
       const abortController = new AbortController();
       const timeoutId = setTimeout(() => {
         abortController.abort();

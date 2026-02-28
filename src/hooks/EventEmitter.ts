@@ -155,6 +155,8 @@ export class HookEventEmitter {
 
   /**
    * 带超时保护的执行
+   * 注意：超时后 listener 可能仍在后台运行（协作式取消），
+   * 但其结果会被丢弃，不会影响调用方。
    */
   private executeWithTimeout(
     listener: HookListener,
@@ -162,22 +164,40 @@ export class HookEventEmitter {
     timeout: number,
   ): Promise<HookHandlerResult> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const controller = new AbortController();
+
       const timer = setTimeout(() => {
-        resolve({
-          success: false,
-          error: `Hook timeout after ${timeout}ms`,
-          duration: timeout,
-        });
+        if (!settled) {
+          settled = true;
+          controller.abort();
+          resolve({
+            success: false,
+            error: `Hook timeout after ${timeout}ms (listener may still be running in background)`,
+            duration: timeout,
+          });
+        }
       }, timeout);
 
-      listener(context)
+      // 将 signal 注入 context，供 Hook 实现者检测取消
+      const enrichedContext = { ...context, signal: controller.signal };
+
+      listener(enrichedContext)
         .then((result) => {
-          clearTimeout(timer);
-          resolve(result);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve(result);
+          }
+          // 如果已超时，丢弃结果
         })
         .catch((error) => {
-          clearTimeout(timer);
-          reject(error);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(error);
+          }
+          // 如果已超时，丢弃错误
         });
     });
   }

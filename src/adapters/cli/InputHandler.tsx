@@ -314,8 +314,9 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
     enableKittyProtocol();
 
     // 确保 stdin 进入 raw mode
-    if (stdin && typeof (stdin as any).setRawMode === 'function') {
-      (stdin as any).setRawMode(true);
+    const rawStdin = stdin as NodeJS.ReadStream | undefined;
+    if (rawStdin?.setRawMode) {
+      rawStdin.setRawMode(true);
     }
 
     const handleInput = (data: string) => {

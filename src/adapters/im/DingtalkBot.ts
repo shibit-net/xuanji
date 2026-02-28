@@ -70,6 +70,10 @@ export class DingtalkBot implements IMAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private logCallback: ((message: string) => void) | null = null;
+  /** 全局消息处理锁 — AgentLoop 不支持并发，必须串行处理 */
+  private processingLock: Promise<void> = Promise.resolve();
+  private _callbacksRegistered = false;
+  private _currentFormatter: { ref: MessageFormatter } | null = null;
 
   constructor(config?: Partial<DingtalkConfig>) {
     this.config = {
@@ -197,9 +201,11 @@ export class DingtalkBot implements IMAdapter {
         this.sendAck(msg.headers?.messageId);
 
         const data: DingtalkMessageData = JSON.parse(msg.data);
-        this.processUserMessage(data).catch((err) => {
+        // 串行化处理：AgentLoop 不支持并发 run
+        const task = () => this.processUserMessage(data).catch((err) => {
           this.logError(`处理消息失败: ${err}`);
         });
+        this.processingLock = this.processingLock.then(task, task);
       }
     } catch (err) {
       this.logError(`解析消息失败: ${err}`);
@@ -219,14 +225,23 @@ export class DingtalkBot implements IMAdapter {
     this.log(`收到消息 (${senderName}): ${userText.slice(0, 50)}...`);
 
     // 使用 MessageFormatter 收集输出
+    // 每条消息使用独立 formatter，通过闭包引用避免回调累积
     const formatter = new MessageFormatter();
+    const currentFormatter = { ref: formatter };
 
-    this.session.on({
-      onText: (text) => formatter.appendText(text),
-      onToolStart: (id, name, input) => formatter.toolStart(name, input),
-      onToolEnd: (id, name, result, isError) => formatter.toolEnd(name, result, isError),
-      onError: (err) => formatter.appendText(`\n❌ 错误: ${err.message}`),
-    });
+    // 只注册一次回调（首次调用时），通过引用间接调用当前 formatter
+    if (!this._callbacksRegistered) {
+      this._callbacksRegistered = true;
+      this._currentFormatter = currentFormatter;
+      this.session.on({
+        onText: (text) => this._currentFormatter?.ref?.appendText(text),
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => this._currentFormatter?.ref?.toolStart(name, input),
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => this._currentFormatter?.ref?.toolEnd(name, result, isError),
+        onError: (err: Error) => this._currentFormatter?.ref?.appendText(`\n❌ 错误: ${err.message}`),
+      });
+    } else {
+      this._currentFormatter = currentFormatter;
+    }
 
     try {
       await this.session.run(userText);
@@ -238,7 +253,12 @@ export class DingtalkBot implements IMAdapter {
     // 通过 sessionWebhook 回复
     const reply = formatter.format();
     if (data.sessionWebhook) {
-      await this.sendReply(data.sessionWebhook, reply);
+      // 检查 webhook 是否已过期
+      if (data.sessionWebhookExpiredTime && Date.now() > data.sessionWebhookExpiredTime) {
+        this.log(`sessionWebhook 已过期 (expired: ${new Date(data.sessionWebhookExpiredTime).toISOString()})，跳过回复`);
+      } else {
+        await this.sendReply(data.sessionWebhook, reply);
+      }
     }
   }
 

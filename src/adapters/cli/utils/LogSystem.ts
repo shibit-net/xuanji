@@ -14,15 +14,36 @@ const LOGS_DIR = join(homedir(), '.xuanji', 'logs');
  * 支持 JSONL 格式文件存储和内存缓存
  */
 export class LogSystem {
+  private static readonly LEVEL_ORDER: Record<string, number> = {
+    debug: 0,
+    info: 1,
+    warn: 2,
+    error: 3,
+  };
+
   private memoryCache: LogEntry[] = [];
   private maxCacheSize = 500;
   private logCallbacks: Array<(entry: LogEntry) => void> = [];
+  private minLevel: string = 'debug';
 
   constructor() {
+    // 支持环境变量控制日志级别
+    const envLevel = process.env.XUANJI_LOG_LEVEL;
+    if (envLevel && LogSystem.LEVEL_ORDER[envLevel] !== undefined) {
+      this.minLevel = envLevel;
+    }
+
     // 初始化日志目录
     this.ensureLogsDir().catch(() => {
       // 忽略创建失败
     });
+  }
+
+  /**
+   * 设置最低日志级别（低于此级别的日志将被丢弃）
+   */
+  setMinLevel(level: string): void {
+    this.minLevel = level;
   }
 
   private async ensureLogsDir(): Promise<void> {
@@ -33,6 +54,11 @@ export class LogSystem {
    * 追加日志到文件和内存缓存
    */
   async appendLog(entry: LogEntry): Promise<void> {
+    // 级别过滤
+    const entryLevel = LogSystem.LEVEL_ORDER[entry.level] ?? 0;
+    const minLevel = LogSystem.LEVEL_ORDER[this.minLevel] ?? 0;
+    if (entryLevel < minLevel) return;
+
     // 添加到内存缓存
     this.memoryCache.push(entry);
     if (this.memoryCache.length > this.maxCacheSize) {

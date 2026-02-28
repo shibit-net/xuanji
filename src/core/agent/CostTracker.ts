@@ -3,70 +3,56 @@
 // ============================================================
 
 import type { TokenUsage } from '@/core/types';
-
-/**
- * 模型定价 (每百万 token，美元)
- */
-interface ModelPricing {
-  inputPerMillion: number;
-  outputPerMillion: number;
-  cacheReadPerMillion?: number;
-  cacheWritePerMillion?: number;
-}
-
-/**
- * 已知模型定价表
- */
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  'claude-sonnet-4': {
-    inputPerMillion: 3,
-    outputPerMillion: 15,
-    cacheReadPerMillion: 0.3,
-    cacheWritePerMillion: 3.75,
-  },
-  'claude-haiku-3.5': {
-    inputPerMillion: 0.8,
-    outputPerMillion: 4,
-    cacheReadPerMillion: 0.08,
-    cacheWritePerMillion: 1,
-  },
-  'claude-opus-4': {
-    inputPerMillion: 15,
-    outputPerMillion: 75,
-    cacheReadPerMillion: 1.5,
-    cacheWritePerMillion: 18.75,
-  },
-};
+import type { ResolvedPricing } from '@/core/types/pricing';
+import type { PricingResolver } from './PricingResolver';
 
 /**
  * 费用追踪器
+ *
+ * 使用 PricingResolver 的三级降级策略获取模型定价，
+ * 支持 shibit.net 远程定价和自定义模型配置。
  */
 export class CostTracker {
   private model: string;
   private totalCost = 0;
   private sessionUsage: TokenUsage = { input: 0, output: 0 };
+  private pricingResolver: PricingResolver | null = null;
+  private cachedPricing: ResolvedPricing | null = null;
 
-  constructor(model: string) {
+  constructor(model: string, pricingResolver?: PricingResolver) {
     this.model = model;
+    this.pricingResolver = pricingResolver ?? null;
+    this.cachedPricing = this.pricingResolver?.resolve(model) ?? null;
+  }
+
+  /**
+   * 注入 PricingResolver（延迟初始化场景）
+   */
+  setPricingResolver(resolver: PricingResolver): void {
+    this.pricingResolver = resolver;
+    this.cachedPricing = resolver.resolve(this.model);
   }
 
   /**
    * 计算本次调用费用
    */
   calculateCost(usage: TokenUsage): number {
-    const pricing = this.findPricing(this.model);
+    const pricing = this.cachedPricing;
     if (!pricing) return 0;
 
     let cost = 0;
-    cost += (usage.input / 1_000_000) * pricing.inputPerMillion;
-    cost += (usage.output / 1_000_000) * pricing.outputPerMillion;
-
+    // cache read/write 的 token 应按专用价格计费，从 input 中扣除避免双重计费
+    let inputTokens = usage.input;
     if (usage.cacheRead && pricing.cacheReadPerMillion) {
       cost += (usage.cacheRead / 1_000_000) * pricing.cacheReadPerMillion;
+      inputTokens = Math.max(0, inputTokens - usage.cacheRead);
     }
     if (usage.cacheWrite && pricing.cacheWritePerMillion) {
       cost += (usage.cacheWrite / 1_000_000) * pricing.cacheWritePerMillion;
+      inputTokens = Math.max(0, inputTokens - usage.cacheWrite);
     }
+    cost += (inputTokens / 1_000_000) * pricing.inputPerMillion;
+    cost += (usage.output / 1_000_000) * pricing.outputPerMillion;
 
     return cost;
   }
@@ -114,20 +100,13 @@ export class CostTracker {
    */
   setModel(model: string): void {
     this.model = model;
+    this.cachedPricing = this.pricingResolver?.resolve(model) ?? null;
   }
 
   /**
-   * 查找模型定价
+   * 获取当前定价来源
    */
-  private findPricing(model: string): ModelPricing | undefined {
-    // 精确匹配
-    if (MODEL_PRICING[model]) return MODEL_PRICING[model];
-
-    // 前缀匹配
-    for (const [key, pricing] of Object.entries(MODEL_PRICING)) {
-      if (model.startsWith(key)) return pricing;
-    }
-
-    return undefined;
+  getPricingSource(): string {
+    return this.pricingResolver?.getSourceLabel(this.model) ?? 'unknown';
   }
 }

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CostTracker } from '@/core/agent/CostTracker';
+import { PricingResolver } from '@/core/agent/PricingResolver';
 import type { TokenUsage } from '@/core/types';
 
 describe('CostTracker', () => {
   let tracker: CostTracker;
+  let pricingResolver: PricingResolver;
 
   beforeEach(() => {
-    tracker = new CostTracker('claude-sonnet-4');
+    pricingResolver = new PricingResolver();
+    tracker = new CostTracker('claude-sonnet-4', pricingResolver);
   });
 
   // ---- calculateCost() ----
@@ -18,7 +21,7 @@ describe('CostTracker', () => {
     expect(cost).toBe(18);
   });
 
-  it('calculateCost() 应计算 cache token 费用', () => {
+  it('calculateCost() 应计算 cache token 费用（避免双重计费）', () => {
     const usage: TokenUsage = {
       input: 1_000_000,
       output: 0,
@@ -26,19 +29,23 @@ describe('CostTracker', () => {
       cacheWrite: 1_000_000,
     };
     const cost = tracker.calculateCost(usage);
-    // input: 3 + cacheRead: 0.3 + cacheWrite: 3.75 = 7.05
-    expect(cost).toBeCloseTo(7.05, 2);
+    // cache read/write 的 token 从 input 中扣除，避免双重计费
+    // 非缓存 input: max(0, 1M - 1M - 1M) = 0，input 费: 0
+    // cacheRead: 1M × 0.3/M = 0.3
+    // cacheWrite: 1M × 3.75/M = 3.75
+    // 总计: 0 + 0.3 + 3.75 = 4.05
+    expect(cost).toBeCloseTo(4.05, 2);
   });
 
   it('calculateCost() 未知模型应返回 0', () => {
-    const unknownTracker = new CostTracker('unknown-model');
+    const unknownTracker = new CostTracker('unknown-model', pricingResolver);
     const cost = unknownTracker.calculateCost({ input: 1000, output: 1000 });
     expect(cost).toBe(0);
   });
 
   it('calculateCost() 应支持前缀模型匹配', () => {
     // "claude-sonnet-4" 是精确键, 带时间戳的应走前缀匹配
-    const tracker2 = new CostTracker('claude-haiku-3.5-20250514');
+    const tracker2 = new CostTracker('claude-haiku-3.5-20250514', pricingResolver);
     const cost = tracker2.calculateCost({ input: 1_000_000, output: 1_000_000 });
     // Haiku: input $0.8/M, output $4/M → 0.8 + 4 = 4.8
     expect(cost).toBeCloseTo(4.8, 2);
@@ -104,5 +111,29 @@ describe('CostTracker', () => {
     expect(opusCost).toBeGreaterThan(sonnetCost);
     // Opus: 15 + 75 = 90
     expect(opusCost).toBe(90);
+  });
+
+  // ---- setPricingResolver() ----
+
+  it('setPricingResolver() 应支持延迟注入定价', () => {
+    const lateTracker = new CostTracker('claude-sonnet-4');
+    // 没有 PricingResolver 时返回 0
+    expect(lateTracker.calculateCost({ input: 1_000_000, output: 1_000_000 })).toBe(0);
+
+    // 延迟注入
+    lateTracker.setPricingResolver(pricingResolver);
+    expect(lateTracker.calculateCost({ input: 1_000_000, output: 1_000_000 })).toBe(18);
+  });
+
+  // ---- getPricingSource() ----
+
+  it('getPricingSource() 应返回内置默认来源', () => {
+    const source = tracker.getPricingSource();
+    expect(source).toBe('内置默认');
+  });
+
+  it('getPricingSource() 没有 PricingResolver 时应返回 unknown', () => {
+    const noResolverTracker = new CostTracker('claude-sonnet-4');
+    expect(noResolverTracker.getPricingSource()).toBe('unknown');
   });
 });

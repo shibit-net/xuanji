@@ -5,6 +5,7 @@
 import type { ProviderConfig, RetryConfig } from './provider';
 import type { MemoryConfig } from '@/memory/types';
 import type { MCPConfig } from '@/mcp/types';
+import type { PricingConfig } from './pricing';
 
 /**
  * Skill 系统配置
@@ -33,6 +34,23 @@ export interface SkillsConfig {
 }
 
 /**
+ * Agent 调优配置
+ */
+export interface AgentTuningConfig {
+  /** 子代理配置 */
+  subAgent?: {
+    /** 最大嵌套深度 (默认 3) */
+    maxNestingDepth?: number;
+    /** 最大并发子代理数 (默认 3) */
+    maxConcurrent?: number;
+    /** 子代理超时 (ms, 默认 300000) */
+    timeout?: number;
+    /** 最大迭代次数 (默认 30) */
+    maxIterations?: number;
+  };
+}
+
+/**
  * 应用总配置
  */
 export interface AppConfig {
@@ -46,6 +64,8 @@ export interface AppConfig {
   retry: RetryConfig;
   /** Skill 系统配置 */
   skills?: SkillsConfig;
+  /** 子代理配置 */
+  agent?: AgentTuningConfig;
   /** 记忆系统配置 */
   memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
@@ -54,6 +74,8 @@ export interface AppConfig {
   mcp?: MCPConfig;
   /** Web Search 配置 */
   webSearch?: WebSearchConfig;
+  /** 定价配置 */
+  pricing?: PricingConfig;
   /** CLI 输入历史记录（最多 50 条） */
   history?: string[];
 }
@@ -131,6 +153,60 @@ export interface PermissionConfig {
 }
 
 /**
+ * 工具超时配置
+ */
+export interface ToolTimeoutConfig {
+  /** Bash 命令默认超时 (ms, 默认 120000) */
+  bash?: number;
+  /** WebFetch 默认超时 (ms, 默认 30000) */
+  webFetch?: number;
+  /** 工具执行默认超时 (ms, 默认 300000) */
+  default?: number;
+  /** 后台任务最大生存时间 (ms, 默认 3600000) */
+  backgroundTask?: number;
+}
+
+/**
+ * 并发限制配置
+ */
+export interface ConcurrencyConfig {
+  /** 工具并行执行最大数 (默认 5) */
+  maxParallel?: number;
+  /** 最大后台任务数 (默认 5) */
+  maxBackgroundTasks?: number;
+}
+
+/**
+ * 输出限制配置
+ */
+export interface OutputLimitsConfig {
+  /** 单个工具输出最大长度 (字符, 默认 30000) */
+  toolOutput?: number;
+  /** 发给 LLM 的单条 tool_result 最大长度 (字符, 默认 80000) */
+  toolResult?: number;
+}
+
+/**
+ * Grep 工具配置
+ */
+export interface GrepConfig {
+  /** 最大匹配数 (默认 500) */
+  maxMatches?: number;
+  /** 每个文件最大匹配数 (默认 50) */
+  maxMatchesPerFile?: number;
+  /** 最大上下文行数 (默认 5) */
+  maxContextLines?: number;
+}
+
+/**
+ * Glob 工具配置
+ */
+export interface GlobConfig {
+  /** 最大返回文件数 (默认 1000) */
+  maxFiles?: number;
+}
+
+/**
  * 工具配置
  */
 export interface ToolsConfig {
@@ -138,6 +214,16 @@ export interface ToolsConfig {
   enabled: string[];
   /** 权限配置 */
   permissions: PermissionConfig;
+  /** 超时配置 */
+  timeouts?: ToolTimeoutConfig;
+  /** 并发限制 */
+  concurrency?: ConcurrencyConfig;
+  /** 输出限制 */
+  outputLimits?: OutputLimitsConfig;
+  /** Grep 工具配置 */
+  grep?: GrepConfig;
+  /** Glob 工具配置 */
+  glob?: GlobConfig;
 }
 
 // ============================================================

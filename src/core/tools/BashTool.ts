@@ -8,9 +8,27 @@ import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { getSharedShell } from './PersistentShell';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { getToolTimeouts } from '@/core/config/RuntimeConfig';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'BashTool' });
 
 /** 默认命令超时 (ms) */
 const DEFAULT_TIMEOUT = 120_000;
+
+/**
+ * 需要从后台任务子进程中清除的敏感环境变量
+ * 防止通过 `env` 或 `printenv` 泄漏凭据
+ */
+const SENSITIVE_ENV_VARS = [
+  'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+  'GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN',
+  'NPM_TOKEN', 'PYPI_TOKEN',
+  'DATABASE_URL', 'DATABASE_PASSWORD',
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
+  'XUANJI_API_KEY',
+  'JASYPT_ENCRYPTOR_PASSWORD',
+];
 
 /**
  * Bash 命令执行工具
@@ -21,10 +39,24 @@ const DEFAULT_TIMEOUT = 120_000;
 export class BashTool extends BaseTool {
   readonly name = 'bash';
   readonly description = [
-    '在 shell 中执行 bash 命令。',
-    '工作目录在多次调用间保持（cd 效果持久）。',
-    '环境变量也会跨调用保持。',
-    '支持后台运行长时间任务（run_in_background）。',
+    '在 shell 中执行 bash 命令。工作目录和环境变量在多次调用间保持。',
+    '',
+    '# 使用指南',
+    '- 优先使用专用工具而非 bash: 读文件用 read_file, 搜索用 grep/glob, 编辑用 edit_file',
+    '- 后台运行长时间任务: run_in_background=true, 通过 task_output 查询结果',
+    '- 多个独立命令可并行调用多次 bash, 有依赖的命令用 && 串联',
+    '- 避免交互式命令 (如 git rebase -i), 不支持 stdin 交互',
+    '',
+    '# Git 操作规范',
+    '- 提交前: 先 git status + git diff 查看变更, 再 git log 了解提交风格',
+    '- 提交时: 仅 add 具体文件 (避免 git add -A 误提交敏感文件), 用 HEREDOC 传递多行 commit message',
+    '- 绝不执行: git push --force 到 main/master, git reset --hard (除非用户明确要求)',
+    '- 绝不跳过: --no-verify, --no-gpg-sign (除非用户明确要求)',
+    '',
+    '# 安全注意',
+    '- 破坏性操作 (rm -rf, drop table 等) 需先确认',
+    '- 不要在命令中包含密码、API Key 等敏感信息',
+    '- 超时默认 120s, 长任务请用 run_in_background',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -53,17 +85,25 @@ export class BashTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const command = input.command as string;
     const timeout = Math.min(
-      (input.timeout as number | undefined) ?? DEFAULT_TIMEOUT,
+      (input.timeout as number | undefined) ?? getToolTimeouts()?.bash ?? DEFAULT_TIMEOUT,
       600_000,
     );
     const runInBackground = (input.run_in_background as boolean | undefined) ?? false;
     // description 参数仅用于权限确认 UI，不影响执行逻辑
 
     try {
+      // 沙箱检查: 检测命令是否尝试操作受限目录
+      const sandboxWarning = this.checkSandbox(command);
+      if (sandboxWarning) {
+        log.warn(`Sandbox warning: ${sandboxWarning}`);
+      }
+
       // 后台执行模式（独立子进程）
       if (runInBackground) {
         const manager = BackgroundTaskManager.getInstance();
-        const result = manager.startTask(command);
+        // 清理敏感环境变量，防止通过 env/printenv 泄漏
+        const cleanEnv = this.sanitizeEnv(process.env);
+        const result = manager.startTask(command, cleanEnv);
 
         if (result.status === 'failed') {
           return this.error(result.stderr ?? '启动后台任务失败');
@@ -96,5 +136,80 @@ export class BashTool extends BaseTool {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`执行命令失败: ${message}`);
     }
+  }
+
+  // ============================================================
+  // 沙箱保护
+  // ============================================================
+
+  /** 受限系统目录（禁止写入/删除） */
+  private static readonly RESTRICTED_PATHS = [
+    '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
+    '/System', '/Library',                          // macOS 系统目录
+    '~/.ssh', '~/.gnupg', '~/.config/systemd',     // 敏感用户目录
+  ];
+
+  /** 高风险命令模式（与 RESTRICTED_PATHS 无关的全局风险） */
+  private static readonly DANGEROUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
+    { pattern: /\beval\s+"?\$/, description: '动态执行变量内容 (eval)' },
+    { pattern: /\bexport\s+\w+=.*\$\(/, description: '环境变量注入命令替换' },
+    { pattern: />\s*\/dev\/[hs]d/, description: '写入裸设备' },
+    { pattern: /\bnc\s+(-[a-zA-Z]*l|-[a-zA-Z]*p)/, description: '网络监听 (nc -l)' },
+  ];
+
+  /**
+   * 沙箱检查：检测命令是否尝试操作受限目录
+   * 仅做 **警告**（log.warn），不阻止执行 — 阻止逻辑由 PermissionController 负责
+   */
+  private checkSandbox(command: string): string | null {
+    const expandedCmd = command.replace(/~/g, process.env.HOME ?? '~');
+
+    // 检查全局高风险模式
+    for (const { pattern, description } of BashTool.DANGEROUS_PATTERNS) {
+      if (pattern.test(expandedCmd)) {
+        return description;
+      }
+    }
+
+    for (const restricted of BashTool.RESTRICTED_PATHS) {
+      const expanded = restricted.replace(/~/g, process.env.HOME ?? '~');
+      // 检测写入/删除/修改操作涉及受限路径
+      const writePatterns = [
+        new RegExp(`\\brm\\b[^|]*${this.escapeRegex(expanded)}`),
+        new RegExp(`\\bmv\\b[^|]*${this.escapeRegex(expanded)}`),
+        new RegExp(`\\bcp\\b[^|]*${this.escapeRegex(expanded)}`),
+        new RegExp(`>\\s*${this.escapeRegex(expanded)}`),         // 重定向写入
+        new RegExp(`\\btee\\b[^|]*${this.escapeRegex(expanded)}`),
+        new RegExp(`\\bchmod\\b[^|]*${this.escapeRegex(expanded)}`),
+        new RegExp(`\\bchown\\b[^|]*${this.escapeRegex(expanded)}`),
+      ];
+
+      for (const pattern of writePatterns) {
+        if (pattern.test(expandedCmd)) {
+          return `命令尝试操作受限目录: ${restricted}`;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /** 正则特殊字符转义 */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * 清理敏感环境变量
+   * 用于后台任务子进程，防止通过 `env`/`printenv` 泄漏凭据
+   */
+  private sanitizeEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+    const clean: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (value !== undefined && !SENSITIVE_ENV_VARS.includes(key)) {
+        clean[key] = value;
+      }
+    }
+    return clean;
   }
 }

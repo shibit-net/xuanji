@@ -5,6 +5,7 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 
 /** 默认超时 (ms) */
 const DEFAULT_FETCH_TIMEOUT = 30_000;
@@ -46,7 +47,7 @@ export class WebFetchTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const url = input.url as string;
     const prompt = input.prompt as string | undefined;
-    const timeout = (input.timeout as number | undefined) ?? DEFAULT_FETCH_TIMEOUT;
+    const timeout = (input.timeout as number | undefined) ?? getToolTimeouts()?.webFetch ?? DEFAULT_FETCH_TIMEOUT;
 
     // URL 验证
     let parsedUrl: URL;
@@ -61,6 +62,11 @@ export class WebFetchTool extends BaseTool {
       return this.error(`仅支持 HTTP/HTTPS 协议: ${parsedUrl.protocol}`);
     }
 
+    // SSRF 防护：阻止访问内网地址和云元数据端点
+    if (this.isSSRFTarget(parsedUrl.hostname)) {
+      return this.error(`安全限制：不允许访问内网地址或云元数据端点: ${parsedUrl.hostname}`);
+    }
+
     // 自动升级 HTTP 到 HTTPS（仅对公网域名）
     if (parsedUrl.protocol === 'http:' && !this.isPrivateAddress(parsedUrl.hostname)) {
       parsedUrl.protocol = 'https:';
@@ -70,29 +76,107 @@ export class WebFetchTool extends BaseTool {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
 
-      const response = await fetch(parsedUrl.toString(), {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Xuanji/1.0 (AI Assistant; +https://github.com/shibit/xuanji)',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,application/json;q=0.7,*/*;q=0.5',
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        },
-      });
+      // 手动处理重定向，验证目标协议安全
+      let finalUrl = parsedUrl.toString();
+      const MAX_REDIRECTS = 5;
+      let redirectCount = 0;
+      let response: Response;
+
+      while (true) {
+        response = await fetch(finalUrl, {
+          signal: controller.signal,
+          redirect: 'manual',
+          headers: {
+            'User-Agent': 'Xuanji/1.0 (AI Assistant; +https://github.com/shibit/xuanji)',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,application/json;q=0.7,*/*;q=0.5',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          },
+        });
+
+        // 处理重定向（3xx）
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) break; // 无 Location header，停止重定向
+
+          redirectCount++;
+          if (redirectCount > MAX_REDIRECTS) {
+            clearTimeout(timer);
+            return this.error(`重定向次数过多 (>${MAX_REDIRECTS}): ${url}`);
+          }
+
+          // 验证重定向目标协议
+          let redirectUrl: URL;
+          try {
+            redirectUrl = new URL(location, finalUrl);
+          } catch {
+            clearTimeout(timer);
+            return this.error(`重定向目标 URL 无效: ${location}`);
+          }
+
+          if (!['http:', 'https:'].includes(redirectUrl.protocol)) {
+            clearTimeout(timer);
+            return this.error(`重定向目标协议不安全: ${redirectUrl.protocol}`);
+          }
+
+          // SSRF 防护：检查重定向目标（防止 DNS rebinding 和重定向到内网）
+          if (this.isSSRFTarget(redirectUrl.hostname)) {
+            clearTimeout(timer);
+            return this.error(`安全限制：重定向目标为内网地址: ${redirectUrl.hostname}`);
+          }
+
+          finalUrl = redirectUrl.toString();
+          continue;
+        }
+
+        break;
+      }
 
       clearTimeout(timer);
 
       if (!response.ok) {
-        return this.error(`HTTP ${response.status} ${response.statusText}: ${parsedUrl.toString()}`);
+        return this.error(`HTTP ${response.status} ${response.statusText}: ${finalUrl}`);
       }
 
-      // 检查内容大小
+      // 检查内容大小（Content-Length header）
       const contentLength = response.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > MAX_CONTENT_SIZE) {
         return this.error(`内容过大 (${contentLength} bytes)，超过 ${MAX_CONTENT_SIZE / 1024 / 1024}MB 限制`);
       }
 
       const contentType = response.headers.get('content-type') ?? '';
-      const body = await response.text();
+
+      // 流式读取并限制大小（防止服务器不返回 Content-Length 时内存溢出）
+      let body: string;
+      const reader = response.body?.getReader();
+      if (reader) {
+        const chunks: Uint8Array[] = [];
+        let totalSize = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            totalSize += value.byteLength;
+            if (totalSize > MAX_CONTENT_SIZE) {
+              reader.cancel();
+              return this.error(`内容过大 (>${MAX_CONTENT_SIZE / 1024 / 1024}MB)，已中止下载`);
+            }
+            chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        body = new TextDecoder().decode(
+          chunks.length === 1
+            ? chunks[0]
+            : Buffer.concat(chunks)
+        );
+      } else {
+        // Fallback: response.body 不可用时使用 text()
+        body = await response.text();
+        if (body.length > MAX_CONTENT_SIZE) {
+          return this.error(`内容过大 (>${MAX_CONTENT_SIZE / 1024 / 1024}MB)，超出限制`);
+        }
+      }
 
       let content: string;
 
@@ -116,21 +200,21 @@ export class WebFetchTool extends BaseTool {
       content = middleTruncate(content, MAX_TOOL_OUTPUT_LENGTH);
 
       // 构建输出
-      let output = `# ${parsedUrl.toString()}\n\n`;
+      let output = `# ${finalUrl}\n\n`;
       if (prompt) {
         output += `> 提问: ${prompt}\n\n`;
       }
       output += content;
 
       return this.success(output, {
-        url: parsedUrl.toString(),
+        url: finalUrl,
         contentType,
         contentLength: body.length,
       });
     } catch (err) {
       if (err instanceof Error) {
         if (err.name === 'AbortError') {
-          return this.error(`请求超时 (${timeout}ms): ${parsedUrl.toString()}`);
+          return this.error(`请求超时 (${timeout}ms): ${url}`);
         }
         return this.error(`网页抓取失败: ${err.message}`);
       }
@@ -182,7 +266,27 @@ export class WebFetchTool extends BaseTool {
    * 判断是否为内网/本地地址（不应升级为 HTTPS）
    */
   private isPrivateAddress(hostname: string): boolean {
+    return this.isSSRFTarget(hostname);
+  }
+
+  /**
+   * SSRF 防护：判断目标地址是否为内网/本地/云元数据端点
+   * 阻止对以下地址的请求：
+   * - localhost / 127.0.0.0/8 / ::1
+   * - 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 (RFC 1918)
+   * - 169.254.169.254 (AWS/GCP/Azure 元数据)
+   * - fd00::/8 (IPv6 ULA)
+   * - .local 域名
+   * - 0.0.0.0
+   */
+  private isSSRFTarget(hostname: string): boolean {
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
+    if (hostname === '0.0.0.0') return true;
+    // 云元数据端点
+    if (hostname === '169.254.169.254') return true;
+    if (hostname === 'metadata.google.internal') return true;
+    // 127.0.0.0/8
+    if (/^127\./.test(hostname)) return true;
     // 10.x.x.x
     if (hostname.startsWith('10.')) return true;
     // 172.16-31.x.x
@@ -191,6 +295,8 @@ export class WebFetchTool extends BaseTool {
     if (hostname.startsWith('192.168.')) return true;
     // .local 域名
     if (hostname.endsWith('.local')) return true;
+    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10)
+    if (/^f[de]/i.test(hostname)) return true;
     return false;
   }
 }

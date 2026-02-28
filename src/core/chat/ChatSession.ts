@@ -41,6 +41,7 @@ import { CheckpointManager } from '@/session/CheckpointManager';
 import type { SessionListItem, Checkpoint, Message as SessionMessage } from '@/session/types';
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { HookConfigLoader } from '@/hooks/ConfigLoader';
+import { PricingResolver } from '@/core/agent/PricingResolver';
 
 /**
  * ChatSession 初始化选项
@@ -79,11 +80,14 @@ export class ChatSession {
   private sessionManager: SessionManager;
   private checkpointManager: CheckpointManager;
   private hookRegistry: HookRegistry;
+  private pricingResolver: PricingResolver | null = null;
   private _taskTool: import('@/core/tools/TaskTool').TaskTool | null = null;
   private initialized = false;
   private options: ChatSessionOptions;
   /** 是否已完成首条消息的意图路由 */
   private intentRouted = false;
+  /** 缓存 MemoryManager 类引用，避免重复 dynamic import */
+  private _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null = null;
 
   constructor(options: ChatSessionOptions = {}) {
     this.options = options;
@@ -103,6 +107,10 @@ export class ChatSession {
     await this.initConfig();
     this.initProvider();
     this.initToolRegistry();
+
+    // 设置运行时配置（供工具模块读取）
+    const { setRuntimeConfig } = await import('@/core/config/RuntimeConfig');
+    setRuntimeConfig(this.config!);
 
     // 2. 初始化 Skill 系统
     const skillRegistry = await this.initSkillSystem();
@@ -201,7 +209,9 @@ export class ChatSession {
     if (!memoryConfig.enabled) return;
 
     try {
-      const { MemoryManager } = await import('@/memory');
+      const memoryModule = await import('@/memory');
+      const { MemoryManager } = memoryModule;
+      this._MemoryManagerClass = MemoryManager;
       this.memoryManager = new MemoryManager(memoryConfig, process.cwd());
       await this.memoryManager.init();
 
@@ -370,6 +380,16 @@ export class ChatSession {
       temperature: this.config!.provider.temperature,
       systemPrompt,
     }, this.memoryManager ?? undefined);
+
+    // 初始化动态定价
+    this.pricingResolver = new PricingResolver(
+      this.config!.pricing,
+      this.config!.provider.baseURL,
+    );
+    this.pricingResolver.init().catch((err) => {
+      log.debug('PricingResolver init failed:', err);
+    });
+    this.agentLoop.setPricingResolver(this.pricingResolver);
   }
 
   private injectTaskToolDeps(systemPrompt: string | undefined): void {
@@ -398,7 +418,7 @@ export class ChatSession {
 
       this.hookRegistry.setPromptInjector((content) => {
         if (this.agentLoop) {
-          this.agentLoop.getMessageManager().setSystemPromptSuffix(content);
+          this.agentLoop.getMessageManager().setSystemPromptSuffix(content, 'hook');
         }
       });
 
@@ -418,10 +438,9 @@ export class ChatSession {
         });
       }
 
-      if (this.memoryManager) {
-        const { MemoryManager } = await import('@/memory');
-        if (this.memoryManager instanceof MemoryManager) {
-          (this.memoryManager as InstanceType<typeof MemoryManager>).setHookRegistry(this.hookRegistry);
+      if (this.memoryManager && this._MemoryManagerClass) {
+        if (this.memoryManager instanceof this._MemoryManagerClass) {
+          (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).setHookRegistry(this.hookRegistry);
         }
       }
     } catch (err) {
@@ -435,6 +454,15 @@ export class ChatSession {
   on(callbacks: AgentCallbacks): void {
     this.ensureInitialized();
     this.agentLoop!.on(callbacks);
+  }
+
+  /**
+   * 移除回调（IM Bot 清理时调用）
+   */
+  removeListener(): void {
+    if (this.agentLoop) {
+      this.agentLoop.on({});
+    }
   }
 
   /**
@@ -488,14 +516,16 @@ export class ChatSession {
     // 检索相关记忆并动态注入到 system prompt
     if (this.memoryManager) {
       try {
-        const { MemoryManager } = await import('@/memory');
         const memories = await this.memoryManager.retrieve(userMessage, {
           maxResults: 10,
           minConfidence: 0.3,
         });
-        if (memories.length > 0 && this.memoryManager instanceof MemoryManager) {
-          const memorySummary = (this.memoryManager as InstanceType<typeof MemoryManager>).formatForPrompt(memories);
-          this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary);
+        if (memories.length > 0 && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+          const memorySummary = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(memories);
+          this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary, 'memory');
+        } else {
+          // 本轮无相关记忆，清除上一轮的 memory suffix
+          this.agentLoop!.getMessageManager().setSystemPromptSuffix('', 'memory');
         }
       } catch (memErr) {
         log.debug('Memory retrieval failed:', memErr);
@@ -528,12 +558,21 @@ export class ChatSession {
     // 触发 SessionEnd Hook
     await this.hookRegistry.emit('SessionEnd', {
       sessionId: this.sessionManager.getActiveSessionId() ?? undefined,
-    }).catch(() => {});
+    }).catch((err) => {
+      log.warn('SessionEnd hook error:', err instanceof Error ? err.message : String(err));
+    });
 
     // 关闭 MCP 连接
     if (this.mcpManager) {
       await this.mcpManager.shutdown();
       this.mcpManager = null;
+    }
+
+    // 关闭 MemoryManager 资源（VectorStore 数据库连接等）
+    if (this.memoryManager && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+      await (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).shutdown().catch((err: unknown) => {
+        log.warn('MemoryManager shutdown error:', err instanceof Error ? err.message : String(err));
+      });
     }
 
     // 清空当前状态
@@ -543,9 +582,11 @@ export class ChatSession {
     this.permissionController = null;
     this.memoryManager = null;
     this.reminderContext = null;
+    this.pricingResolver = null;
     this.config = null;
     this.provider = null;
     this.registry = null;
+    this.hookRegistry = new HookRegistry(); // 重建 HookRegistry，防止 handler 重复注册
     this.initialized = false;
 
     // 如果提供了新配置，更新选项
@@ -555,6 +596,51 @@ export class ChatSession {
 
     // 重新初始化
     await this.init();
+  }
+
+  /**
+   * 清理所有资源（退出时调用）
+   *
+   * 关闭 MCP 子进程、MemoryManager 数据库连接、
+   * PersistentShell bash 进程等资源。
+   */
+  async cleanup(): Promise<void> {
+    // 触发 SessionEnd Hook
+    await this.hookRegistry.emit('SessionEnd', {
+      sessionId: this.sessionManager.getActiveSessionId() ?? undefined,
+    }).catch(() => {});
+
+    // 关闭 MCP 连接
+    if (this.mcpManager) {
+      await this.mcpManager.shutdown().catch((err) => {
+        log.warn('MCP shutdown error:', err instanceof Error ? err.message : String(err));
+      });
+    }
+
+    // 关闭 MemoryManager 资源
+    if (this.memoryManager && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+      await (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).shutdown().catch((err: unknown) => {
+        log.warn('MemoryManager shutdown error:', err instanceof Error ? err.message : String(err));
+      });
+    }
+
+    // 停止 AgentLoop
+    if (this.agentLoop) {
+      this.agentLoop.stop();
+    }
+
+    // 关闭 PersistentShell（bash 子进程）
+    try {
+      const { closeSharedShell } = await import('@/core/tools/PersistentShell');
+      closeSharedShell();
+    } catch {
+      // PersistentShell 未初始化时忽略
+    }
+
+    // 清理 TaskTool 引用
+    this._taskTool = null;
+
+    log.info('ChatSession resources cleaned up');
   }
 
   /**
@@ -626,7 +712,7 @@ export class ChatSession {
     this.ensureInitialized();
     const messages = await this.sessionManager.resume(sessionId);
     // 恢复消息历史到 AgentLoop
-    this.agentLoop!.restoreMessages(messages as any[]);
+    this.agentLoop!.restoreMessages(messages as unknown as import('@/core/types').Message[]);
     // 标记为已路由（恢复的会话不需要重新意图路由）
     this.intentRouted = true;
     return messages.length;
@@ -677,7 +763,7 @@ export class ChatSession {
 
     // 从存储重新加载消息并恢复到 AgentLoop
     const messages = await this.sessionManager.resume(sessionId);
-    this.agentLoop!.restoreMessages(messages as any[]);
+    this.agentLoop!.restoreMessages(messages as unknown as import('@/core/types').Message[]);
 
     return messageCount;
   }
@@ -752,10 +838,10 @@ export class ChatSession {
    * 异步初始化 VectorSkillMatcher（不阻塞启动）
    */
   private async initVectorSkillMatcher(skillRegistry: SkillRegistry): Promise<void> {
-    const { MemoryManager } = await import('@/memory');
-    if (!(this.memoryManager instanceof MemoryManager)) return;
+    if (!this._MemoryManagerClass) return;
+    if (!(this.memoryManager instanceof this._MemoryManagerClass)) return;
 
-    const mm = this.memoryManager as InstanceType<typeof MemoryManager>;
+    const mm = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
 
     // 等待向量系统就绪（通过 Promise，不再轮询）
     const ready = await mm.waitForVectorReady();

@@ -50,6 +50,12 @@ export type {
   PermissionLevel,
   PermissionConfig,
   ToolsConfig,
+  ToolTimeoutConfig,
+  ConcurrencyConfig,
+  OutputLimitsConfig,
+  GrepConfig,
+  GlobConfig,
+  AgentTuningConfig,
   IConfigLoader,
   BotsConfig,
   DingtalkBotConfig,
@@ -57,3 +63,11 @@ export type {
   WecomBotConfig,
   WebSearchConfig,
 } from './config';
+
+export type {
+  // 定价类型
+  ModelPricing,
+  ResolvedPricing,
+  RemoteModelPrice,
+  PricingConfig,
+} from './pricing';

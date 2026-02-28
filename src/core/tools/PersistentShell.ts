@@ -12,6 +12,20 @@ import { logger } from '@/core/logger';
 const log = logger.child({ module: 'PersistentShell' });
 
 /**
+ * 需要从 Shell 子进程中清除的敏感环境变量
+ * 防止通过 `env` 或 `printenv` 泄漏凭据
+ */
+const SENSITIVE_ENV_VARS = [
+  'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+  'GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN',
+  'NPM_TOKEN', 'PYPI_TOKEN',
+  'DATABASE_URL', 'DATABASE_PASSWORD',
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
+  'XUANJI_API_KEY',
+  'JASYPT_ENCRYPTOR_PASSWORD',
+];
+
+/**
  * 持久化 Shell 执行结果
  */
 export interface ShellResult {
@@ -33,6 +47,17 @@ export class PersistentShell {
   private proc: ChildProcess | null = null;
   private initialCwd: string;
   private _ready = false;
+  /** 并发保护：当前是否有命令正在执行 */
+  private _executing = false;
+  /** 超时后需要重建 Shell（防止 stdout 残留污染下次命令） */
+  private _needsReset = false;
+  /** 排队等待执行的命令 */
+  private _queue: Array<{
+    command: string;
+    timeout: number;
+    resolve: (result: ShellResult) => void;
+    reject: (error: Error) => void;
+  }> = [];
 
   constructor(cwd?: string) {
     this.initialCwd = cwd ?? process.cwd();
@@ -52,9 +77,17 @@ export class PersistentShell {
    * 启动 bash 子进程
    */
   private spawn(): void {
+    // 清理敏感环境变量，防止通过 env/printenv 泄漏
+    const cleanEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && !SENSITIVE_ENV_VARS.includes(key)) {
+        cleanEnv[key] = value;
+      }
+    }
+
     this.proc = spawn('bash', ['--noediting', '--noprofile', '--norc'], {
       cwd: this.initialCwd,
-      env: { ...process.env, PS1: '', PS2: '', PROMPT_COMMAND: '' },
+      env: { ...cleanEnv, PS1: '', PS2: '', PROMPT_COMMAND: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -73,9 +106,46 @@ export class PersistentShell {
   }
 
   /**
-   * 执行命令并等待结果
+   * 执行命令并等待结果（带并发排队保护）
    */
   async execute(command: string, timeout: number): Promise<ShellResult> {
+    // 如果已有命令在执行，排队等待
+    if (this._executing) {
+      return new Promise<ShellResult>((resolve, reject) => {
+        this._queue.push({ command, timeout, resolve, reject });
+      });
+    }
+
+    this._executing = true;
+    try {
+      return await this._executeInternal(command, timeout);
+    } finally {
+      this._executing = false;
+      // 处理排队的下一个命令
+      this._processQueue();
+    }
+  }
+
+  /**
+   * 处理排队的命令
+   */
+  private _processQueue(): void {
+    if (this._queue.length === 0) return;
+    const next = this._queue.shift()!;
+    // 使用 execute 而非 _executeInternal 以保持互斥
+    this.execute(next.command, next.timeout).then(next.resolve, next.reject);
+  }
+
+  /**
+   * 内部执行命令（无并发保护）
+   */
+  private async _executeInternal(command: string, timeout: number): Promise<ShellResult> {
+    // 超时后重建 Shell，防止残留 stdout 污染
+    if (this._needsReset) {
+      this._needsReset = false;
+      this.reset();
+    }
+
     this.ensureRunning();
 
     const proc = this.proc!;
@@ -92,8 +162,9 @@ export class PersistentShell {
       let settled = false;
 
       const cleanup = () => {
-        proc.stdout!.removeListener('data', onStdout);
-        proc.stderr!.removeListener('data', onStderr);
+        proc.stdout?.removeListener('data', onStdout);
+        proc.stderr?.removeListener('data', onStderr);
+        proc.removeListener('exit', onExit);
         clearTimeout(timer);
       };
 
@@ -110,6 +181,8 @@ export class PersistentShell {
         cleanup();
         // 超时：发送 SIGINT 终止当前命令（不杀 shell 进程）
         proc.kill('SIGINT');
+        // 标记需要重建 Shell（防止残留 stdout 污染下次命令）
+        this._needsReset = true;
         reject(new Error(`命令超时 (${timeout}ms)`));
       }, timeout);
 
@@ -146,8 +219,8 @@ export class PersistentShell {
         stderrBuf += chunk.toString('utf-8');
       };
 
-      proc.stdout!.on('data', onStdout);
-      proc.stderr!.on('data', onStderr);
+      proc.stdout?.on('data', onStdout);
+      proc.stderr?.on('data', onStderr);
 
       // 处理进程意外退出
       const onExit = (code: number | null) => {
@@ -182,6 +255,12 @@ export class PersistentShell {
    * 关闭 Shell
    */
   close(): void {
+    // 拒绝所有排队中的命令，防止 Promise 永远 pending（内存泄漏）
+    const pendingQueue = this._queue.splice(0);
+    for (const item of pendingQueue) {
+      item.reject(new Error('Shell closed'));
+    }
+
     if (this.proc && !this.proc.killed) {
       this.proc.stdin?.end();
       this.proc.kill('SIGTERM');

@@ -9,6 +9,7 @@
  */
 
 import type { AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
+import { getSubAgentConfig } from '@/core/config/RuntimeConfig';
 
 /**
  * 子代理隔离模式
@@ -86,8 +87,9 @@ export class SubAgentContext {
   constructor(options: SubAgentOptions) {
     this.task = options.task;
     this.parentContext = options.parentContext;
-    this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
-    this.maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const subAgentCfg = getSubAgentConfig();
+    this.timeout = options.timeout ?? subAgentCfg?.timeout ?? DEFAULT_TIMEOUT;
+    this.maxIterations = options.maxIterations ?? subAgentCfg?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.depth = options.depth ?? 0;
     this.isolation = options.isolation ?? 'none';
     this.role = options.role ?? 'general-purpose';
@@ -120,7 +122,7 @@ export class SubAgentContext {
    * 检查嵌套深度是否超限
    */
   isDepthExceeded(): boolean {
-    return this.depth >= MAX_NESTING_DEPTH;
+    return this.depth >= (getSubAgentConfig()?.maxNestingDepth ?? MAX_NESTING_DEPTH);
   }
 
   /**
