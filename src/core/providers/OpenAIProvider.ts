@@ -153,9 +153,33 @@ export class OpenAIProvider extends BaseLLMProvider {
     const client = this.getClient(config);
 
     try {
-      // 转换所有消息为 OpenAI 格式
+      // 分离 system 消息和对话消息
+      // system 消息可能携带 ContentBlock[]（结构化 system prompt），需单独提取为纯文本
+      const systemMessages = messages.filter((m) => m.role === 'system');
+      const chatMessages = messages.filter((m) => m.role !== 'system');
+
+      // 提取 system prompt 文本（兼容 string 和 ContentBlock[] 两种格式）
+      // OpenAI 自动缓存前缀匹配的 prompt，无需显式标记
+      const systemText = systemMessages
+        .map((m) => {
+          if (typeof m.content === 'string') return m.content;
+          if (Array.isArray(m.content)) {
+            return (m.content as ContentBlock[])
+              .filter((b) => b.type === 'text' && b.text)
+              .map((b) => b.text)
+              .join('\n\n');
+          }
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n');
+
+      // 转换对话消息为 OpenAI 格式
       const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-      for (const msg of messages) {
+      if (systemText) {
+        openaiMessages.push({ role: 'system', content: systemText });
+      }
+      for (const msg of chatMessages) {
         openaiMessages.push(...this.convertMessage(msg));
       }
 
@@ -213,8 +237,8 @@ export class OpenAIProvider extends BaseLLMProvider {
           timedOut = true;
           abortController.abort();
           // 中断 async iterator
-          if ('controller' in stream && typeof (stream as any).controller?.abort === 'function') {
-            (stream as any).controller.abort();
+          if ('controller' in stream && typeof (stream as unknown as Record<string, { abort?: () => void }>).controller?.abort === 'function') {
+            (stream as unknown as Record<string, { abort: () => void }>).controller.abort();
           }
         }
       }, 5000);
@@ -224,6 +248,7 @@ export class OpenAIProvider extends BaseLLMProvider {
         id: string;
         name: string;
         arguments: string;
+        emitted: boolean;  // 是否已发出 tool_use_end
       }> = new Map();
 
       let finishReason: string | null = null;
@@ -260,6 +285,7 @@ export class OpenAIProvider extends BaseLLMProvider {
                   id: tc.id ?? `tc-${idx}`,
                   name: tc.function?.name ?? '',
                   arguments: '',
+                  emitted: false,
                 });
 
                 if (tc.function?.name) {
@@ -290,6 +316,29 @@ export class OpenAIProvider extends BaseLLMProvider {
           if (choice.finish_reason) {
             finishReason = choice.finish_reason;
             receivedEnd = true;
+
+            // 正常结束时：发出所有已累积的工具调用并标记为 emitted
+            // 防止后面的"流中断恢复"逻辑重复 emit
+            if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'stop') {
+              for (const [, acc] of toolCallAccumulator) {
+                if (acc.emitted) continue;
+                acc.emitted = true;
+                let input: Record<string, unknown> = {};
+                try {
+                  input = JSON.parse(acc.arguments || '{}');
+                } catch {
+                  input = {
+                    _parse_error: true,
+                    _raw_input: acc.arguments?.substring(0, 500) ?? '',
+                    _error_message: `工具参数 JSON 解析失败（已接收 ${acc.arguments?.length ?? 0} 字符），可能是流传输被截断`,
+                  };
+                }
+                yield {
+                  type: 'tool_use_end',
+                  toolCall: { id: acc.id, name: acc.name, input },
+                };
+              }
+            }
           }
         }
 
@@ -314,8 +363,10 @@ export class OpenAIProvider extends BaseLLMProvider {
         clearInterval(timeoutCheckInterval);
       }
 
-      // 流中断恢复：发出已累积的工具调用（即使参数不完整）
+      // 流中断恢复：发出尚未 emit 的工具调用（即使参数不完整）
       for (const [, acc] of toolCallAccumulator) {
+        if (acc.emitted) continue; // 跳过已发出的
+        acc.emitted = true;
         let input: Record<string, unknown> = {};
         try {
           input = JSON.parse(acc.arguments || '{}');
@@ -344,7 +395,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       const hasToolCalls = toolCallAccumulator.size > 0;
       let stopReason: StopReason;
       if (timedOut && !receivedEnd) {
-        stopReason = 'max_tokens'; // 超时中断，让 AgentLoop 的重试逻辑处理
+        stopReason = 'interrupted'; // 超时中断，区分于正常的 max_tokens
       } else {
         stopReason = (finishReason === 'tool_calls' || hasToolCalls) ? 'tool_use'
           : finishReason === 'length' ? 'max_tokens'

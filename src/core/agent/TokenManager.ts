@@ -73,6 +73,10 @@ export class TokenManager {
   /**
    * 裁剪消息使其适合上下文窗口
    * 保留 system prompt (第一条) 和最近的消息
+   *
+   * 关键约束：保证 tool_use/tool_result 配对完整性
+   * assistant(tool_use) 必须与后续 user(tool_result) 成对出现，
+   * 否则 Anthropic API 会返回 400 错误。
    */
   fitWindow(messages: Message[]): Message[] {
     const maxInputTokens = this.maxContextTokens - this.reservedOutputTokens;
@@ -94,6 +98,30 @@ export class TokenManager {
       if (tokenCount + msgTokens > maxInputTokens) break;
       kept.unshift(rest[i]);
       tokenCount += msgTokens;
+    }
+
+    // 保证 tool_use/tool_result 配对完整性
+    // 如果第一条保留消息是 tool_result（user 消息中包含 tool_result block），
+    // 需要一并保留其前面的 assistant(tool_use) 消息
+    while (kept.length > 0) {
+      const first = kept[0];
+      if (first.role === 'user' && Array.isArray(first.content)) {
+        const hasToolResult = first.content.some((b: { type: string }) => b.type === 'tool_result');
+        if (hasToolResult) {
+          // 找到 kept 在 rest 中的起始索引
+          const restIdx = rest.indexOf(first);
+          if (restIdx > 0 && rest[restIdx - 1].role === 'assistant') {
+            // 前面有配对的 assistant 消息，加入保留列表
+            kept.unshift(rest[restIdx - 1]);
+            break;
+          } else {
+            // 找不到配对的 assistant，移除这条孤立的 tool_result
+            kept.shift();
+            continue;
+          }
+        }
+      }
+      break;
     }
 
     return [systemMsg, ...kept];

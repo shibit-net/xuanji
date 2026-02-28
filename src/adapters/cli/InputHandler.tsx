@@ -93,6 +93,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   }, [historyPointer]);
 
   // 获取 stdin
+  // Ink 内部 API（非公开合约），版本升级时需重点回归测试
   const { stdin, internal_eventEmitter } = useStdin();
 
   // 加载历史记录（初始化时）
@@ -105,7 +106,10 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
         const savedHistory = configManager.getConfig().history || [];
         setHistory(savedHistory);
       } catch (err) {
-        // 加载失败，使用空历史记录
+        // ENOENT is expected on first run
+        if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.debug('Failed to load history:', err);
+        }
       }
     };
     loadHistory();
@@ -122,7 +126,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
         await configManager.load();
         await configManager.save({ history });
       } catch (err) {
-        // 保存失败，静默忽略
+        console.debug('Failed to save history:', err);
       }
     };
 

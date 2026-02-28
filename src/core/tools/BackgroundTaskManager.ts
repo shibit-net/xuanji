@@ -81,17 +81,18 @@ export class BackgroundTaskManager {
    * 启动后台任务
    */
   startTask(command: string, env?: Record<string, string>): BackgroundTaskResult {
+    const maxConcurrent = getConcurrencyConfig()?.maxBackgroundTasks ?? MAX_CONCURRENT_TASKS;
     // 检查并发限制
     const runningCount = Array.from(this.tasks.values()).filter(
       (t) => t.status === 'running',
     ).length;
-    if (runningCount >= (getConcurrencyConfig()?.maxBackgroundTasks ?? MAX_CONCURRENT_TASKS)) {
+    if (runningCount >= maxConcurrent) {
       return {
         taskId: '',
         status: 'failed',
         command,
         startedAt: Date.now(),
-        stderr: `已达后台任务上限 (${getConcurrencyConfig()?.maxBackgroundTasks ?? MAX_CONCURRENT_TASKS})，请等待现有任务完成或使用 task_output 查看结果后再试。`,
+        stderr: `已达后台任务上限 (${maxConcurrent})，请等待现有任务完成或使用 task_output 查看结果后再试。`,
       };
     }
 
@@ -205,8 +206,15 @@ export class BackgroundTaskManager {
 
     // 阻塞等待
     return new Promise<BackgroundTaskResult>((resolve) => {
+      const resolver = (result: BackgroundTaskResult) => {
+        clearTimeout(timer);
+        resolve(result);
+      };
+
       const timer = setTimeout(() => {
-        // 超时但任务还在运行，返回当前状态
+        // 超时：从 resolvers 中移除自己，防止闭包泄漏
+        const idx = entry.resolvers.indexOf(resolver);
+        if (idx !== -1) entry.resolvers.splice(idx, 1);
         resolve({
           taskId,
           status: 'running',
@@ -217,10 +225,7 @@ export class BackgroundTaskManager {
         });
       }, timeout);
 
-      entry.resolvers.push((result) => {
-        clearTimeout(timer);
-        resolve(result);
-      });
+      entry.resolvers.push(resolver);
     });
   }
 
@@ -228,9 +233,20 @@ export class BackgroundTaskManager {
    * 列出所有任务
    */
   listTasks(): BackgroundTaskResult[] {
-    return Array.from(this.tasks.values()).map((entry) =>
-      this.buildResult(entry),
-    );
+    return Array.from(this.tasks.values()).map((entry) => {
+      // 运行中的任务返回轻量结果，避免频繁 Buffer.concat
+      if (entry.status === 'running') {
+        return {
+          taskId: entry.taskId,
+          status: entry.status,
+          command: entry.command,
+          startedAt: entry.startedAt,
+          stdout: `[运行中，已输出 ${entry.outputSize} bytes]`,
+          stderr: '',
+        };
+      }
+      return this.buildResult(entry);
+    });
   }
 
   /**

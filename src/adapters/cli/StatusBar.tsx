@@ -26,9 +26,18 @@ function formatNumber(num: number): string {
 }
 
 /**
- * StatusBar — 底部状态栏，显示模型和 Token 用量
+ * 格式化费用显示
  */
-export function StatusBar({ model, usage }: StatusBarProps) {
+function formatCost(cost: number): string {
+  if (cost === 0) return '$0.00';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+/**
+ * StatusBar — 底部状态栏，显示模型、Token 用量和费用
+ */
+export function StatusBar({ model, usage, cost }: StatusBarProps) {
   const totalTokens = usage.input + usage.output;
 
   return (
@@ -39,13 +48,21 @@ export function StatusBar({ model, usage }: StatusBarProps) {
       <Text color="gray" dimColor> │ </Text>
 
       {/* Token 用量 */}
-      <Text color="cyan">📊 Token: </Text>
+      <Text color="cyan">📊 </Text>
       <Text color="green">↑{formatNumber(usage.input)}</Text>
       <Text color="gray" dimColor> / </Text>
       <Text color="yellow">↓{formatNumber(usage.output)}</Text>
       <Text color="gray" dimColor> (</Text>
       <Text color="white">{formatNumber(totalTokens)}</Text>
       <Text color="gray" dimColor>)</Text>
+
+      {/* 费用 */}
+      {cost > 0 && (
+        <>
+          <Text color="gray" dimColor> │ </Text>
+          <Text color="magenta">💰 {formatCost(cost)}</Text>
+        </>
+      )}
     </Box>
   );
 }

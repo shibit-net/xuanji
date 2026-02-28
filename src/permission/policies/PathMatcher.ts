@@ -68,6 +68,8 @@ export function globToRegex(pattern: string): RegExp {
 export class PathMatcher {
   /** 编译后的正则缓存 */
   private cache: Map<string, RegExp> = new Map();
+  /** 缓存上限，超出后清空重建 */
+  private static readonly MAX_CACHE_SIZE = 500;
 
   /**
    * 检查路径是否匹配模式
@@ -90,6 +92,9 @@ export class PathMatcher {
     let regex = this.cache.get(pattern);
     if (!regex) {
       regex = globToRegex(pattern);
+      if (this.cache.size >= PathMatcher.MAX_CACHE_SIZE) {
+        this.cache.clear();
+      }
       this.cache.set(pattern, regex);
     }
     return regex.test(filePath);

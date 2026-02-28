@@ -25,6 +25,7 @@ export class SessionStorage {
   private baseDir: string;
   private autoBackup: boolean;
   private maxSessions: number;
+  private _writeLock: Promise<void> = Promise.resolve();
 
   constructor(options?: Partial<SessionStorageOptions>) {
     this.baseDir = options?.baseDir || DEFAULT_BASE_DIR;
@@ -64,7 +65,7 @@ export class SessionStorage {
       try {
         await fs.copyFile(paths.messages, paths.messagesBackup);
       } catch (error) {
-        // 文件不存在时忽略
+        log.debug('Backup failed:', error);
       }
     }
 
@@ -132,7 +133,7 @@ export class SessionStorage {
       const checkpointsContent = await fs.readFile(paths.checkpoints, 'utf-8');
       checkpoints = JSON.parse(checkpointsContent);
     } catch (error) {
-      // Checkpoints 文件不存在时返回空数组
+      log.debug('Load checkpoint failed:', error);
     }
 
     // 4. 如果有损坏行，发出警告
@@ -182,8 +183,8 @@ export class SessionStorage {
       if (line.trim() !== '') {
         try {
           messages.push(JSON.parse(line));
-        } catch {
-          // 跳过损坏行
+        } catch (err) {
+          log.debug('Parse message line failed:', err);
         }
       }
     }
@@ -205,20 +206,30 @@ export class SessionStorage {
   }
 
   /**
-   * 更新元数据
+   * 带互斥保护的元数据更新
    */
   async updateMetadata(
     sessionId: string,
     updater: (meta: SessionMetadata) => SessionMetadata
   ): Promise<void> {
-    const paths = this.getSessionPaths(sessionId);
-    const metaContent = await fs.readFile(paths.meta, 'utf-8');
-    const metadata: SessionMetadata = JSON.parse(metaContent);
-    const updatedMetadata = updater(metadata);
-    // 原子写入：先写临时文件再 rename
-    const tmpPath = paths.meta + '.tmp';
-    await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
-    await fs.rename(tmpPath, paths.meta);
+    // 使用 Promise 链实现简单互斥锁
+    const release = this._writeLock;
+    let resolve!: () => void;
+    this._writeLock = new Promise<void>(r => { resolve = r; });
+
+    await release;
+    try {
+      const paths = this.getSessionPaths(sessionId);
+      const metaContent = await fs.readFile(paths.meta, 'utf-8');
+      const metadata: SessionMetadata = JSON.parse(metaContent);
+      const updatedMetadata = updater(metadata);
+      // 原子写入：先写临时文件再 rename
+      const tmpPath = paths.meta + '.tmp';
+      await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
+      await fs.rename(tmpPath, paths.meta);
+    } finally {
+      resolve();
+    }
   }
 
   /**
@@ -287,7 +298,7 @@ export class SessionStorage {
     try {
       await fs.access(paths.meta);
       return true;
-    } catch {
+    } catch { /* ENOENT expected */
       return false;
     }
   }
@@ -319,7 +330,8 @@ export class SessionStorage {
       try {
         JSON.parse(line); // 验证 JSON 格式
         validLines.push(line);
-      } catch {
+      } catch (err) {
+        log.debug('Repair line failed:', err);
         corruptedLines++;
       }
     }

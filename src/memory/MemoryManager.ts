@@ -61,9 +61,13 @@ export class MemoryManager implements IMemoryStore {
   /** 缓存条目上限（超出后淘汰最旧的条目） */
   private static readonly CACHE_MAX_ENTRIES = 2000;
   private initialized = false;
+  /** 防止并发 init() 重复加载 */
+  private initPromise: Promise<void> | null = null;
   private saveCount = 0;
   private hookRegistry: HookRegistry | null = null;
   private _compacting = false;
+  /** Promise 队列：确保并发 save() 不丢数据（排队而非 skip） */
+  private _saveQueue: Promise<void> = Promise.resolve();
 
   constructor(config?: Partial<MemoryConfig>, projectRoot?: string) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
@@ -82,7 +86,14 @@ export class MemoryManager implements IMemoryStore {
   /** 异步初始化（加载已有记忆到内存缓存） */
   async init(): Promise<void> {
     if (this.initialized) return;
+    // 防止并发 init() 重复加载
+    if (!this.initPromise) {
+      this.initPromise = this._doInit();
+    }
+    return this.initPromise;
+  }
 
+  private async _doInit(): Promise<void> {
     try {
       this.cachedEntries = await this.longTerm.readAll(this.config.longTermMaxEntries);
       log.info(`Memory system initialized: ${this.cachedEntries.length} entries loaded`);
@@ -102,9 +113,20 @@ export class MemoryManager implements IMemoryStore {
     }
   }
 
-  /** 保存会话记忆 */
+  /** 保存会话记忆（Promise 队列，并发调用自动排队，不丢数据） */
   async save(session: SessionMemory): Promise<void> {
     if (!this.config.enabled) return;
+
+    // 将 save 操作链式排队，确保串行执行且不丢弃
+    this._saveQueue = this._saveQueue.then(
+      () => this._saveInternal(session),
+      () => this._saveInternal(session), // 前一个失败也要继续执行新的
+    );
+    return this._saveQueue;
+  }
+
+  /** 保存内部实现 */
+  private async _saveInternal(session: SessionMemory): Promise<void> {
 
     // 触发 PreMemorySave Hook
     if (this.hookRegistry) {
@@ -330,6 +352,32 @@ export class MemoryManager implements IMemoryStore {
   setProvider(provider: ILLMProvider, config: ProviderConfig): void {
     this.compactor.setProvider(provider, config);
     log.info('LLM Provider injected into MemoryCompactor');
+  }
+
+  /**
+   * 关闭资源（VectorStore 数据库连接等）
+   * 在 reinitialize 或退出前调用
+   */
+  async shutdown(): Promise<void> {
+    // 等待进行中的 save 完成
+    await this._saveQueue;
+
+    if (this.vectorStore) {
+      try {
+        this.vectorStore.close();
+      } catch (err) {
+        log.warn('Failed to close VectorStore:', err);
+      }
+      this.vectorStore = null;
+    }
+
+    this.embeddingService = null;
+    this.migrator = null;
+    this.vectorReady = false;
+    this.vectorReadyPromise = null;
+    this.initPromise = null;
+    this.initialized = false;
+    log.debug('MemoryManager shutdown complete');
   }
 
   /**

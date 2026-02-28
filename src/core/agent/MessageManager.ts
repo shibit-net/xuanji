@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { Message, ContentBlock, ToolResult } from '@/core/types';
-import { middleTruncate, MAX_TOOL_RESULT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolResultLength } from '@/core/utils/truncation';
 
 /**
  * 消息管理器接口
@@ -25,7 +25,8 @@ export interface IMessageManager {
  */
 export class MessageManager implements IMessageManager {
   private systemPrompt: string;
-  private systemPromptSuffix: string = '';
+  /** 多来源 system prompt 后缀（支持 hook、memory 等同时注入，互不覆盖） */
+  private systemPromptSuffixes: Map<string, string> = new Map();
   private messages: Message[] = [];
 
   constructor(systemPrompt?: string) {
@@ -43,8 +44,10 @@ export class MessageManager implements IMessageManager {
     });
 
     // 返回 system + 完整历史
+    // system content 使用 ContentBlock[] 格式，区分稳定部分和动态后缀
+    // Provider 可据此决定各自的 Prompt Caching 策略
     return [
-      { role: 'system', content: this.getFullSystemPrompt() },
+      { role: 'system', content: this.getSystemPromptBlocks() },
       ...this.messages,
     ];
   }
@@ -88,20 +91,21 @@ export class MessageManager implements IMessageManager {
 
     for (const [toolUseId, result] of results) {
       // 对每条 tool_result 内容做截断保护，防止超大内容发给 LLM API
-      const content = middleTruncate(result.content, MAX_TOOL_RESULT_LENGTH);
+      const content = middleTruncate(result.content, getMaxToolResultLength());
 
       // 如果有多模态内容块（如图片），构建 content 数组
+      // Anthropic API tool_result 的 content 字段支持 string | ContentBlock[]
+      // 但我们的 ContentBlock 类型定义 content 为 string，此处将多模态内容序列化为 JSON
+      // Provider 层负责在发送前解析还原
       if (result.contentBlocks && result.contentBlocks.length > 0) {
-        const multiContent: Array<Record<string, unknown>> = [
+        const multiContent = [
           { type: 'text', text: content },
+          ...result.contentBlocks.map(block => ({ ...block })),
         ];
-        for (const block of result.contentBlocks) {
-          multiContent.push(block as unknown as Record<string, unknown>);
-        }
         toolResultBlocks.push({
           type: 'tool_result',
           tool_use_id: toolUseId,
-          content: multiContent as unknown as string,
+          content: JSON.stringify(multiContent),
           is_error: result.isError,
         });
       } else {
@@ -142,7 +146,7 @@ export class MessageManager implements IMessageManager {
    */
   getMessages(): Message[] {
     return [
-      { role: 'system', content: this.getFullSystemPrompt() },
+      { role: 'system', content: this.getSystemPromptBlocks() },
       ...this.messages,
     ];
   }
@@ -172,17 +176,58 @@ export class MessageManager implements IMessageManager {
   /**
    * 设置系统提示词后缀（用于动态注入记忆上下文等）
    */
-  setSystemPromptSuffix(suffix: string): void {
-    this.systemPromptSuffix = suffix;
+  /**
+   * 设置系统提示词后缀（按来源 key 区分，互不覆盖）
+   * @param suffix 后缀内容（空字符串则移除该 key）
+   * @param key 来源标识，默认 'default'
+   */
+  setSystemPromptSuffix(suffix: string, key: string = 'default'): void {
+    if (suffix) {
+      this.systemPromptSuffixes.set(key, suffix);
+    } else {
+      this.systemPromptSuffixes.delete(key);
+    }
   }
 
   /**
-   * 获取完整系统提示词（基础 + 后缀）
+   * 获取完整系统提示词（基础 + 后缀）— 纯字符串格式
+   * 保留为 fallback，供需要纯文本的场景使用
    */
-  private getFullSystemPrompt(): string {
-    return this.systemPromptSuffix
-      ? `${this.systemPrompt}\n\n${this.systemPromptSuffix}`
+  getFullSystemPromptText(): string {
+    const suffixes = Array.from(this.systemPromptSuffixes.values()).filter(Boolean);
+    return suffixes.length > 0
+      ? `${this.systemPrompt}\n\n${suffixes.join('\n\n')}`
       : this.systemPrompt;
+  }
+
+  /**
+   * 构建结构化 system prompt blocks
+   *
+   * 将 system prompt 拆分为独立的 ContentBlock[]，区分稳定基础部分和动态后缀：
+   * - Block 0: 基础 system prompt（含 Skill 描述）— 每轮稳定，适合缓存
+   * - Block 1+: 动态后缀（memory/reminder/hooks 注入）— 可能每轮变化
+   *
+   * 各 Provider 根据此结构实现各自的 Prompt Caching 策略：
+   * - Anthropic: 在稳定 block 上标记 cache_control
+   * - OpenAI: 拼接为字符串，利用自动前缀缓存
+   * - 其他: 直接拼接为字符串
+   */
+  private getSystemPromptBlocks(): ContentBlock[] {
+    const blocks: ContentBlock[] = [];
+
+    // Block 0: 基础 system prompt（最稳定的部分）
+    if (this.systemPrompt) {
+      blocks.push({ type: 'text', text: this.systemPrompt });
+    }
+
+    // Block 1+: 动态后缀（memory context, reminder context, hooks 等）
+    for (const suffix of this.systemPromptSuffixes.values()) {
+      if (suffix) {
+        blocks.push({ type: 'text', text: suffix });
+      }
+    }
+
+    return blocks;
   }
 
   /**

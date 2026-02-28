@@ -6,7 +6,7 @@ import { BaseTool } from './BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import glob from 'fast-glob';
 import path from 'node:path';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
 import { getGlobConfig } from '@/core/config/RuntimeConfig';
 
 const MAX_FILES = 1000; // 最多返回文件数
@@ -90,7 +90,7 @@ export class GlobTool extends BaseTool {
       }
 
       // 输出长度截断
-      output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
+      output = middleTruncate(output, getMaxToolOutputLength());
 
       return this.success(output, {
         totalMatches: sortedFiles.length,

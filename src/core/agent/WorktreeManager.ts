@@ -6,7 +6,7 @@
 // 子代理在独立的 worktree 中工作，不影响主工作目录。
 //
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { logger } from '@/core/logger';
@@ -68,8 +68,8 @@ export class WorktreeManager {
     }
 
     try {
-      // 创建 worktree + 新分支
-      execSync(`git worktree add "${wtPath}" -b "${branch}"`, {
+      // 创建 worktree + 新分支（使用 execFileSync 避免命令注入）
+      execFileSync('git', ['worktree', 'add', wtPath, '-b', branch], {
         cwd,
         stdio: 'pipe',
       });
@@ -111,8 +111,8 @@ export class WorktreeManager {
         }).trim();
       } catch { /* ignore */ }
 
-      // 移除 worktree
-      execSync(`git worktree remove "${wtPath}" --force`, {
+      // 移除 worktree（使用 execFileSync 避免命令注入）
+      execFileSync('git', ['worktree', 'remove', wtPath, '--force'], {
         cwd: process.cwd(),
         stdio: 'pipe',
       });
@@ -120,7 +120,7 @@ export class WorktreeManager {
       // 删除关联分支
       if (branch && branch.startsWith('xuanji-')) {
         try {
-          execSync(`git branch -D "${branch}"`, {
+          execFileSync('git', ['branch', '-D', branch], {
             cwd: process.cwd(),
             stdio: 'pipe',
           });

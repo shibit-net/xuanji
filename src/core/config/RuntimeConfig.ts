@@ -14,7 +14,7 @@ let _config: AppConfig | null = null;
  * 设置运行时配置（由 ChatSession.init() 调用）
  */
 export function setRuntimeConfig(config: AppConfig): void {
-  _config = config;
+  _config = Object.freeze(config) as AppConfig;
 }
 
 /**

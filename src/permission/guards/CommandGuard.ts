@@ -20,8 +20,9 @@ import { t } from '@/core/i18n';
  * 这些命令可能导致系统不可逆损坏
  */
 const EXTREME_DANGER_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
-  { pattern: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+|--recursive\s+--force\s+|--force\s+--recursive\s+)\/(\s|$)/, description: '删除根目录 (rm -rf /)' },
-  { pattern: /\bsudo\s+rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+|--recursive\s+--force\s+|--force\s+--recursive\s+)\/(\s|$)/, description: '以 root 权限删除根目录' },
+  { pattern: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+|--recursive\s+--force\s+|--force\s+--recursive\s+)\/(\s|$|\*)/, description: '删除根目录 (rm -rf /)' },
+  { pattern: /\bsudo\s+rm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+|--recursive\s+--force\s+|--force\s+--recursive\s+)\/(\s|$|\*)/, description: '以 root 权限删除根目录' },
+  { pattern: /\brm\b.*--no-preserve-root/, description: '删除根目录 (--no-preserve-root)' },
   { pattern: /:\(\)\{.*\|.*&\s*\}\s*;/, description: 'Fork bomb — 系统资源耗尽' },
   { pattern: /\bdd\s+.*\bof\s*=\s*\/dev\/[a-z]/, description: '直接写入设备 (dd of=/dev/...)' },
   { pattern: /\bmkfs\b/, description: '格式化文件系统 (mkfs)' },
@@ -243,9 +244,10 @@ export class CommandGuard {
     return deniedCommands.some((pattern) => {
       // 精确匹配命令名
       if (commandName === pattern) return true;
-      // 模式匹配 (含通配符)
+      // 模式匹配 (含通配符) — 先转义正则特殊字符，再将 * 转为 .*
       if (pattern.includes('*')) {
-        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
+        const regex = new RegExp('^' + escaped + '$');
         return regex.test(commandName) || regex.test(fullCommand);
       }
       // 子串匹配
@@ -260,7 +262,8 @@ export class CommandGuard {
     return allowedCommands.some((pattern) => {
       if (commandName === pattern) return true;
       if (pattern.includes('*')) {
-        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
+        const regex = new RegExp('^' + escaped + '$');
         return regex.test(commandName);
       }
       return false;

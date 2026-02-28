@@ -5,6 +5,7 @@
 import type { MemoryEntry, RetrieveOptions } from './types';
 import type { VectorSearchResult } from '@/embedding/VectorStore';
 import { logger } from '@/core/logger';
+import { STOP_WORDS } from '@/core/utils/stopwords';
 
 const log = logger.child({ module: 'hybrid-retriever' });
 
@@ -15,19 +16,6 @@ const HYBRID_WEIGHTS = {
   timeDecay: 0.2,
   accessFrequency: 0.1,
 };
-
-/** 停用词（复用 MemoryRetriever 的停用词表） */
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has',
-  'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
-  'might', 'can', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-  'as', 'into', 'through', 'during', 'before', 'after', 'and', 'or', 'but',
-  'if', 'not', 'no', 'so', 'than', 'too', 'very', 'just', 'this', 'that',
-  'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us',
-  'my', 'your', 'his', 'its', 'our', 'their', 'what', 'which', 'who', 'how',
-  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
-  '上', '也', '到', '说', '要', '你', '会', '没有', '这', '那', '什么',
-]);
 
 /**
  * 混合检索器

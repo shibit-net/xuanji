@@ -235,6 +235,8 @@ export class WecomBot implements IMAdapter {
       });
       this.server = null;
     }
+    this._callbacksRegistered = false;
+    this._currentFormatter = null;
   }
 
   // ── HTTP 服务器 ────────────────────────────────────────
@@ -394,7 +396,15 @@ export class WecomBot implements IMAdapter {
     }
 
     // 处理消息并回复（串行化：AgentLoop 不支持并发 run）
-    const task = () => this.processAndReply(fromUser, content);
+    // 排队前标记用户处理中（防止重传导致重复排队）
+    this.processingUsers.add(fromUser);
+    const task = async () => {
+      try {
+        await this.processAndReply(fromUser, content);
+      } finally {
+        this.processingUsers.delete(fromUser);
+      }
+    };
     this.processingLock = this.processingLock.then(task, task);
   }
 
@@ -423,7 +433,6 @@ export class WecomBot implements IMAdapter {
       return;
     }
 
-    this.processingUsers.add(userId);
     this.log('开始调用 ChatSession 处理...');
     const formatter = new MessageFormatter();
 
@@ -449,8 +458,6 @@ export class WecomBot implements IMAdapter {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       formatter.appendText(`\n❌ 执行失败: ${msg}`);
-    } finally {
-      this.processingUsers.delete(userId);
     }
 
     const reply = formatter.format();

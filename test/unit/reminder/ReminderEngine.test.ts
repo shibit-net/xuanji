@@ -12,10 +12,16 @@ import { StorageBackend } from '@/memory/StorageBackend';
 import type { Reminder, ReminderInput } from '@/reminder/types';
 import type { MemoryEntry } from '@/memory/types';
 
+/** 获取本地日期字符串 YYYY-MM-DD（与 ReminderEngine.getToday() 保持一致） */
+function getLocalToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function createReminderInput(overrides: Partial<ReminderInput> = {}): ReminderInput {
   return {
     content: 'Submit weekly report',
-    triggerDate: new Date().toISOString().split('T')[0]!, // 今天
+    triggerDate: getLocalToday(), // 今天（本地时间）
     recurring: 'once',
     source: 'user_explicit',
     ...overrides,
@@ -141,7 +147,7 @@ describe('ReminderEngine', () => {
       await engine.init();
 
       // 设置一个今天到期的提醒
-      const today = new Date().toISOString().split('T')[0]!;
+      const today = getLocalToday();
       await engine.setReminder(createReminderInput({ triggerDate: today }));
 
       const context = await engine.checkOnStartup();
@@ -184,7 +190,7 @@ describe('ReminderEngine', () => {
       const engine = createEngine();
       await engine.init();
 
-      const today = new Date().toISOString().split('T')[0]!;
+      const today = getLocalToday();
       const reminder = await engine.setReminder(createReminderInput({ triggerDate: today }));
 
       await engine.markDone(reminder.id);
@@ -300,7 +306,7 @@ describe('ReminderEngine', () => {
           {
             id: 'rem_1',
             content: 'Submit report',
-            triggerDate: new Date().toISOString().split('T')[0]!,
+            triggerDate: getLocalToday(),
             recurring: 'once' as const,
             status: 'active' as const,
             source: 'user_explicit' as const,

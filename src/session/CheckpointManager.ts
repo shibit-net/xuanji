@@ -188,16 +188,16 @@ export class CheckpointManager {
 
         if (snapshot.content === null) {
           // 快照时文件不存在 → 删除文件（恢复到"不存在"状态）
-          if (existsSync(snapshot.path)) {
-            await unlink(snapshot.path);
+          if (existsSync(resolved)) {
+            await unlink(resolved);
           }
         } else {
           // 确保目录存在
-          const dir = dirname(snapshot.path);
+          const dir = dirname(resolved);
           if (!existsSync(dir)) {
             await mkdir(dir, { recursive: true });
           }
-          await writeFile(snapshot.path, snapshot.content, 'utf-8');
+          await writeFile(resolved, snapshot.content, 'utf-8');
         }
       } catch (fileErr) {
         // 单个文件恢复失败不阻塞其他文件

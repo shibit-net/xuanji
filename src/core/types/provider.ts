@@ -21,7 +21,7 @@ export type StreamEventType =
 /**
  * 停止原因
  */
-export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens';
+export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'interrupted';
 
 /**
  * 流事件

@@ -247,6 +247,8 @@ export class PersistentShell {
    * 重置 Shell（销毁重建）
    */
   reset(): void {
+    // 注意：reset 会将 cwd 回退到初始目录（丢失 cd 过的路径）
+    // 这是超时后的安全降级行为，因为无法可靠获取被卡住的 shell 的当前 cwd
     this.close();
     this.spawn();
   }

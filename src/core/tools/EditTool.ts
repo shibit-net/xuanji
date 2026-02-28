@@ -3,6 +3,7 @@
 // ============================================================
 
 import { readFile, writeFile, access } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 
@@ -11,7 +12,18 @@ import { BaseTool } from './BaseTool';
  */
 export class EditTool extends BaseTool {
   readonly name = 'edit_file';
-  readonly description = '对文件进行精确的字符串替换。需要提供要查找的原始字符串和替换后的新字符串。默认情况下原始字符串必须在文件中唯一匹配，使用 replace_all=true 可替换所有匹配项。';
+  readonly description = [
+    '对文件进行精确的字符串替换。',
+    '',
+    '# 使用指南',
+    '- 编辑前必须先用 read_file 读取文件内容，确保了解当前代码结构',
+    '- old_string 必须与文件内容完全匹配 (包括缩进和空格)',
+    '- 如果 old_string 匹配多处, 需要提供更多上下文使其唯一, 或使用 replace_all=true',
+    '- replace_all=true 适合变量重命名等批量替换场景',
+    '- 优先使用 edit_file 而非 write_file 修改已有文件 — 仅发送差异, 更安全高效',
+    '- 不要添加未被要求的注释、文档或类型注解',
+    '- 删除代码时直接删除, 不要留"// removed"注释或未使用的变量',
+  ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
@@ -37,10 +49,16 @@ export class EditTool extends BaseTool {
   };
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const path = input.path as string;
+    const rawPath = input.path as string;
     const oldStr = input.old_string as string;
     const newStr = input.new_string as string;
     const replaceAll = (input.replace_all as boolean) ?? false;
+    const path = resolve(rawPath);
+
+    // 路径穿越保护：禁止编辑敏感系统目录
+    if (this.isSensitivePath(path)) {
+      return this.error(`安全限制: 不允许编辑路径 "${path}"。该路径位于受保护的系统或用户目录。`);
+    }
 
     try {
       // 检查文件是否存在
@@ -66,15 +84,19 @@ export class EditTool extends BaseTool {
       // 非全局替换时要求唯一匹配
       if (!replaceAll && occurrences > 1) {
         // 找到所有匹配位置的行号和上下文
-        const lines = content.split('\n');
         const matchLines: { lineNum: number; context: string }[] = [];
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].includes(oldStr.split('\n')[0])) {
-            matchLines.push({
-              lineNum: i + 1,
-              context: lines[i].trim().slice(0, 80),
-            });
-          }
+        let searchFrom = 0;
+        while (true) {
+          const idx = content.indexOf(oldStr, searchFrom);
+          if (idx === -1) break;
+          // 计算行号：idx 之前有多少个 \n
+          const lineNum = content.slice(0, idx).split('\n').length;
+          const lineContent = content.split('\n')[lineNum - 1] ?? '';
+          matchLines.push({
+            lineNum,
+            context: lineContent.trim().slice(0, 80),
+          });
+          searchFrom = idx + 1;
         }
         const locations = matchLines
           .map((m) => `  行 ${m.lineNum}: ${m.context}`)

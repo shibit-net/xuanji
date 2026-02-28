@@ -4,30 +4,7 @@
 
 import type { SessionMemory, ToolCallRecord, MemoryConfig } from './types';
 import { DEFAULT_MEMORY_CONFIG } from './types';
-
-/** 中文停用词 */
-const STOP_WORDS_ZH = new Set([
-  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一', '一个',
-  '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好',
-  '自己', '这', '他', '她', '它', '们', '那', '些', '什么', '怎么', '为什么',
-  '可以', '已经', '这个', '那个', '还是', '但是', '所以', '如果', '因为',
-]);
-
-/** 英文停用词 */
-const STOP_WORDS_EN = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
-  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
-  'before', 'after', 'above', 'below', 'between', 'out', 'off', 'over',
-  'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when',
-  'where', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-  'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-  'same', 'so', 'than', 'too', 'very', 'just', 'because', 'but', 'and',
-  'or', 'if', 'while', 'this', 'that', 'these', 'those', 'i', 'you',
-  'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
-  'my', 'your', 'his', 'its', 'our', 'their', 'what', 'which', 'who',
-]);
+import { STOP_WORDS_EN, STOP_WORDS_ZH } from '@/core/utils/stopwords';
 
 /** 文件路径正则 */
 const FILE_PATH_RE = /(?:\/|\.\/|\.\.\/)?[\w\-./]+\.\w{1,10}/g;

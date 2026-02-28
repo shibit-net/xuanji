@@ -381,6 +381,17 @@ async function main(): Promise<void> {
   const session = new ChatSession({ model: args.model });
   await session.init();
 
+  // 注册退出清理（MCP 子进程、PersistentShell、SQLite 等）
+  let cleanedUp = false;
+  const cleanupOnExit = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    await session.cleanup().catch(() => {});
+  };
+  process.on('SIGINT', () => { cleanupOnExit().finally(() => process.exit(0)); });
+  process.on('SIGTERM', () => { cleanupOnExit().finally(() => process.exit(0)); });
+  process.on('beforeExit', () => { cleanupOnExit(); });
+
   const agentLoop = session.getAgentLoop();
   const config = session.getConfig();
 

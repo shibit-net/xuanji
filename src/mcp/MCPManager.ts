@@ -86,8 +86,8 @@ export class MCPManager {
         this.clients.set(serverConfig.name, client);
 
         // 监听重连失败事件，从工具列表移除不可用的服务器
-        if (client instanceof MCPClient) {
-          client.on('reconnect_failed', (name: string) => {
+        if (typeof (client as any).on === 'function') {
+          (client as any).on('reconnect_failed', (name: string) => {
             log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
             this.clients.delete(name);
           });

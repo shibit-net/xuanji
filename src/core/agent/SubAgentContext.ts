@@ -83,6 +83,7 @@ export class SubAgentContext {
   readonly isolation: IsolationMode;
   readonly role: AgentRoleType;
   readonly useLightModel: boolean;
+  private maxNestingDepth: number;
 
   constructor(options: SubAgentOptions) {
     this.task = options.task;
@@ -90,6 +91,7 @@ export class SubAgentContext {
     const subAgentCfg = getSubAgentConfig();
     this.timeout = options.timeout ?? subAgentCfg?.timeout ?? DEFAULT_TIMEOUT;
     this.maxIterations = options.maxIterations ?? subAgentCfg?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    this.maxNestingDepth = subAgentCfg?.maxNestingDepth ?? MAX_NESTING_DEPTH;
     this.depth = options.depth ?? 0;
     this.isolation = options.isolation ?? 'none';
     this.role = options.role ?? 'general-purpose';
@@ -122,7 +124,7 @@ export class SubAgentContext {
    * 检查嵌套深度是否超限
    */
   isDepthExceeded(): boolean {
-    return this.depth >= (getSubAgentConfig()?.maxNestingDepth ?? MAX_NESTING_DEPTH);
+    return this.depth >= this.maxNestingDepth;
   }
 
   /**

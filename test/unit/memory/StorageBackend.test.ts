@@ -81,7 +81,7 @@ describe('StorageBackend', () => {
   });
 
   describe('readRecent', () => {
-    it('should read last N records', async () => {
+    it('should read last N records in chronological order (oldest first)', async () => {
       const filePath = join(tempDir, 'test.jsonl');
       for (let i = 0; i < 5; i++) {
         await storage.append(filePath, { id: i });
@@ -89,8 +89,8 @@ describe('StorageBackend', () => {
 
       const records = await storage.readRecent<{ id: number }>(filePath, 3);
       expect(records).toHaveLength(3);
-      expect(records[0]?.id).toBe(4); // 最后一条
-      expect(records[2]?.id).toBe(2);
+      expect(records[0]?.id).toBe(2); // 最旧的（在最近3条中）
+      expect(records[2]?.id).toBe(4); // 最新的
     });
   });
 

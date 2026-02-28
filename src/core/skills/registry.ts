@@ -230,7 +230,7 @@ export class SkillRegistry {
    * 渲染一个 Skill (支持异步 render)
    */
   async render(skillId: string, options?: SkillRenderOptions): Promise<string> {
-    const cacheKey = `${skillId}:${JSON.stringify(options?.params || {})}`;
+    const cacheKey = `${skillId}:${JSON.stringify(options?.params || {}, Object.keys(options?.params || {}).sort())}`;
 
     // 检查缓存
     if (this.cache.has(cacheKey)) {

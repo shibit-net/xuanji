@@ -34,9 +34,9 @@ export class AnthropicProvider extends BaseLLMProvider {
     const systemMessages = messages.filter((m) => m.role === 'system');
     const chatMessages = messages.filter((m) => m.role !== 'system');
 
-    const systemPrompt = systemMessages
-      .map((m) => (typeof m.content === 'string' ? m.content : ''))
-      .join('\n');
+    // 构建 system prompt blocks（支持 Prompt Caching）
+    // MessageManager 输出结构化 ContentBlock[]，区分稳定基础部分和动态后缀
+    const systemBlocks = this.buildSystemBlocks(systemMessages);
 
     // 构造 Anthropic API 请求参数
     const params: Anthropic.MessageCreateParamsStreaming = {
@@ -49,12 +49,14 @@ export class AnthropicProvider extends BaseLLMProvider {
         // 直接传递，无需 cast（类型兼容）
         content: m.content as string | Anthropic.MessageParam['content'],
       })),
-      ...(systemPrompt ? { system: systemPrompt } : {}),
+      ...(systemBlocks.length > 0 ? { system: systemBlocks } : {}),
       ...(tools.length > 0 ? {
-        tools: tools.map((t) => ({
+        tools: tools.map((t, i) => ({
           name: t.name,
           description: t.description,
           input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+          // 在最后一个工具上添加缓存断点（Anthropic 最多支持 4 个断点，LIFO 匹配）
+          ...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
         })),
       } : {}),
       ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
@@ -263,10 +265,10 @@ export class AnthropicProvider extends BaseLLMProvider {
           currentToolInput = '';
         }
 
-        // 合成 end 事件，标记为 max_tokens 以触发 AgentLoop 的重试逻辑
+        // 合成 end 事件，标记为 interrupted 表示流传输中断（非正常 max_tokens）
         yield {
           type: 'end',
-          stopReason: 'max_tokens',
+          stopReason: 'interrupted',
           usage: { input: 0, output: 0 },
         };
       }
@@ -301,5 +303,55 @@ export class AnthropicProvider extends BaseLLMProvider {
         clearInterval(timeoutCheckInterval);
       }
     }
+  }
+
+  /**
+   * 构建 Anthropic system prompt blocks（支持 Prompt Caching）
+   *
+   * 缓存策略：
+   * - 当 system content 为 ContentBlock[]（结构化模式）时：
+   *   在第一个 block（基础 system prompt，跨轮次稳定）上设置缓存断点，
+   *   后续 blocks（memory/reminder 等动态内容）不标记缓存。
+   *   这样基础 prompt 前缀匹配率更高，缓存命中率更好。
+   *
+   * - 当 system content 为 string（兼容模式）时：
+   *   整个字符串作为一个 block 标记缓存。
+   *
+   * Anthropic 的 ephemeral 缓存有效期 5 分钟，按前缀匹配。
+   * 最多支持 4 个缓存断点，按 LIFO 顺序匹配。
+   */
+  private buildSystemBlocks(
+    systemMessages: Message[],
+  ): Anthropic.TextBlockParam[] {
+    const blocks: Anthropic.TextBlockParam[] = [];
+
+    for (const msg of systemMessages) {
+      if (typeof msg.content === 'string') {
+        // 兼容纯字符串模式：整体标记缓存
+        if (msg.content) {
+          blocks.push({
+            type: 'text',
+            text: msg.content,
+            cache_control: { type: 'ephemeral' },
+          });
+        }
+      } else if (Array.isArray(msg.content)) {
+        // 结构化模式：第一个 block 标记缓存（基础 prompt，稳定）
+        // 后续 blocks 不标记（动态后缀，每轮可能变化）
+        const textBlocks = msg.content.filter(
+          (b) => b.type === 'text' && b.text,
+        );
+        for (let i = 0; i < textBlocks.length; i++) {
+          blocks.push({
+            type: 'text',
+            text: textBlocks[i].text!,
+            // 仅在第一个 block（基础 system prompt）上标记缓存
+            ...(i === 0 ? { cache_control: { type: 'ephemeral' } } : {}),
+          });
+        }
+      }
+    }
+
+    return blocks;
   }
 }

@@ -258,6 +258,36 @@ export interface MCPServerRuntime {
 // ============================================================
 
 /**
+ * MCP 客户端公共接口
+ *
+ * MCPClient (stdio) 和 MCPSSEClient (SSE) 都实现此接口。
+ */
+export interface IMCPClient {
+  /** 启动连接 */
+  start(): Promise<void>;
+  /** 获取工具列表 */
+  listTools(): Promise<MCPTool[]>;
+  /** 获取 Prompt 列表 */
+  listPrompts(): Promise<MCPPrompt[]>;
+  /** 调用工具 */
+  callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult>;
+  /** 获取 Prompt */
+  getPrompt(name: string, args?: Record<string, string>): Promise<GetPromptResult>;
+  /** 关闭连接 */
+  close(): Promise<void>;
+  /** 获取当前状态 */
+  getState(): MCPServerState;
+  /** 获取服务器名称 */
+  getName(): string;
+  /** 获取服务器信息 */
+  getServerInfo(): { name: string; version: string } | undefined;
+  /** 获取服务器能力 */
+  getServerCapabilities(): Record<string, unknown> | undefined;
+  /** 获取当前重连尝试次数 */
+  getReconnectAttempts(): number;
+}
+
+/**
  * 延迟启动的 Promise
  */
 export interface LazyPromise<T> {

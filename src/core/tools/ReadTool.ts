@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import path from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
 
 /**
  * 单行格式化后的估算开销：行号前缀 "     N │ " 约 10 字符
@@ -41,7 +41,19 @@ const MIME_MAP: Record<string, string> = {
  */
 export class ReadTool extends BaseTool {
   readonly name = 'read_file';
-  readonly description = '读取指定文件的内容。支持文本文件（带行号）、PDF 文件（提取文本）、图片文件（base64 编码，可用于 Vision 分析）。';
+  readonly description = [
+    '读取指定文件的内容。支持文本、PDF、图片。',
+    '',
+    '# 支持的文件类型',
+    '- 文本文件: 带行号输出, 支持 offset/limit 分页读取大文件',
+    '- PDF 文件: 提取文本内容, 大 PDF (>10 页) 必须提供 pages 参数, 每次最多 20 页',
+    '- 图片文件 (PNG/JPG/GIF/WebP): 返回 base64 编码, 可被 Vision 模型理解',
+    '',
+    '# 使用指南',
+    '- 在修改文件前必须先读取, 理解现有代码再提出修改',
+    '- 多个文件可以并行读取 (多次调用 read_file)',
+    '- 大文件 (>10MB) 会自动使用流式读取, 建议配合 offset/limit 分段读取',
+  ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
@@ -140,7 +152,7 @@ export class ReadTool extends BaseTool {
       output += `\n\n... [文件过大，已省略后续 ${remaining} 行。请使用 offset/limit 参数分页读取，如 offset=${startIdx + MAX_FORMAT_LINES + 1} limit=500]`;
     }
 
-    output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
+    output = middleTruncate(output, getMaxToolOutputLength());
 
     return this.success(output, {
       totalLines: lines.length,
@@ -184,7 +196,7 @@ export class ReadTool extends BaseTool {
       .map((line, i) => `${String(startIdx + i + 1).padStart(6)} │ ${line}`)
       .join('\n');
 
-    let output = middleTruncate(numbered, MAX_TOOL_OUTPUT_LENGTH);
+    let output = middleTruncate(numbered, getMaxToolOutputLength());
     const sizeMB = Math.round(fileSize / 1024 / 1024);
     output = `[大文件: ${sizeMB}MB, 流式读取]\n${output}`;
 
@@ -232,7 +244,7 @@ export class ReadTool extends BaseTool {
 
       await parser.destroy();
 
-      text = middleTruncate(text, MAX_TOOL_OUTPUT_LENGTH);
+      text = middleTruncate(text, getMaxToolOutputLength());
 
       return this.success(
         `[PDF] ${filePath} (${totalPages} 页)\n${pages ? `页码范围: ${pages}\n` : ''}\n${text}`,
@@ -276,15 +288,16 @@ export class ReadTool extends BaseTool {
   // ============================================================
 
   private async readImage(filePath: string, ext: string): Promise<ToolResult> {
+    // 先检查大小，防止超大文件导致 OOM
+    const fileStats = await stat(filePath);
+    const sizeKB = Math.round(fileStats.size / 1024);
+    if (fileStats.size > 20 * 1024 * 1024) {
+      return this.error(`图片文件过大 (${sizeKB}KB)，超过 20MB 限制`);
+    }
+
     const imageBuffer = await readFile(filePath);
     const base64 = imageBuffer.toString('base64');
     const mimeType = MIME_MAP[ext] ?? 'application/octet-stream';
-
-    // 限制图片大小
-    const sizeKB = Math.round(imageBuffer.length / 1024);
-    if (imageBuffer.length > 20 * 1024 * 1024) {
-      return this.error(`图片文件过大 (${sizeKB}KB)，超过 20MB 限制`);
-    }
 
     return {
       content: `[Image] ${filePath} (${sizeKB}KB, ${mimeType})`,

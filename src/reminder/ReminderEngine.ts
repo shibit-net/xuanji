@@ -233,6 +233,12 @@ export class ReminderEngine implements IReminderEngine {
       return;
     }
 
+    // 幂等保护：如果已经是目标状态则跳过
+    if (reminder.status === status) {
+      log.debug(`Reminder ${id} already in status ${status}, skipping`);
+      return;
+    }
+
     reminder.status = status;
 
     // 处理循环提醒：完成后自动创建下一个
@@ -270,13 +276,21 @@ export class ReminderEngine implements IReminderEngine {
         const date = new Date(Date.UTC(year, month - 1, day + 7));
         return date.toISOString().split('T')[0]!;
       }
-      case 'monthly':
+      case 'monthly': {
         month += 1;
         if (month > 12) { month = 1; year += 1; }
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      case 'yearly':
-        year += 1;
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        // 使用 Date.UTC 自动处理目标月天数不足的情况
+        // 例：1月31日 → 2月28日（或29日）；3月31日 → 4月30日
+        const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate(); // month 已+1，month-0 即目标月最后一天
+        const safeDay = Math.min(day, maxDay);
+        return `${year}-${String(month).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+      }
+      case 'yearly': {
+        // 同样处理闰年边界（2月29日 → 非闰年2月28日）
+        const maxDayY = new Date(Date.UTC(year + 1, month, 0)).getUTCDate();
+        const safeDayY = Math.min(day, maxDayY);
+        return `${year + 1}-${String(month).padStart(2, '0')}-${String(safeDayY).padStart(2, '0')}`;
+      }
       default:
         return currentDate;
     }
@@ -298,9 +312,10 @@ export class ReminderEngine implements IReminderEngine {
     return firstWord ?? 'Unknown';
   }
 
-  /** 获取今天日期字符串 (YYYY-MM-DD) */
+  /** 获取今天日期字符串 (YYYY-MM-DD)，使用本地时间 */
   private getToday(): string {
-    return new Date().toISOString().split('T')[0]!;
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   /** 计算从今天到目标日期的天数 */

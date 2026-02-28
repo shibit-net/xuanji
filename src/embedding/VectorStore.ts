@@ -30,8 +30,10 @@ export interface SkillEmbeddingRecord {
  * 数据库路径: ~/.xuanji/vector.db
  */
 export class VectorStore {
+  // TODO: 使用 BetterSqlite3.Database 替代 any（需处理 ensureReady 后的非空断言链）
   private db: any = null;
   private ready = false;
+  private vecAvailable = false;
   private dbPath: string;
 
   constructor(dbPath: string) {
@@ -53,8 +55,10 @@ export class VectorStore {
       try {
         const sqliteVec = await import('sqlite-vec');
         sqliteVec.load(this.db);
+        this.vecAvailable = true;
         log.info('sqlite-vec extension loaded');
       } catch (err) {
+        this.vecAvailable = false;
         log.warn('sqlite-vec extension not available, vector search will be disabled:', err);
       }
 
@@ -104,23 +108,53 @@ export class VectorStore {
         memory.source,
       );
       insertVector.run(memory.id, embeddingBuf, now);
-      try {
+      if (this.vecAvailable) {
         insertVecIndex.run(memory.id, embeddingBuf);
-      } catch {
-        // sqlite-vec 扩展不可用时静默跳过
       }
     });
 
     transaction();
   }
 
-  /** 批量插入 */
+  /** 批量插入（单一事务，避免嵌套事务开销） */
   insertBatch(memories: MemoryEntry[], embeddings: Float32Array[]): void {
     this.ensureReady();
 
+    if (memories.length !== embeddings.length) {
+      throw new Error(`insertBatch: memories (${memories.length}) and embeddings (${embeddings.length}) length mismatch`);
+    }
+
+    const insertMemoryStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO memories (id, type, content, keywords, confidence, created_at, last_accessed_at, access_count, project_path, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertVectorStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO memory_vectors (memory_id, embedding, updated_at)
+      VALUES (?, ?, ?)
+    `);
+    const insertVecIndexStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO vec_memories (rowid, embedding)
+      VALUES ((SELECT rowid FROM memories WHERE id = ?), ?)
+    `);
+
+    const now = new Date().toISOString();
+
     const transaction = this.db.transaction(() => {
       for (let i = 0; i < memories.length; i++) {
-        this.insertMemory(memories[i], embeddings[i]);
+        const memory = memories[i];
+        const embedding = embeddings[i];
+        const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+
+        insertMemoryStmt.run(
+          memory.id, memory.type, memory.content,
+          JSON.stringify(memory.keywords), memory.confidence,
+          memory.createdAt, memory.lastAccessedAt, memory.accessCount,
+          memory.projectPath ?? null, memory.source,
+        );
+        insertVectorStmt.run(memory.id, embeddingBuf, now);
+        if (this.vecAvailable) {
+          insertVecIndexStmt.run(memory.id, embeddingBuf);
+        }
       }
     });
 
@@ -179,7 +213,7 @@ export class VectorStore {
     return rows.map((row: any) => ({
       skillId: row.skill_id,
       skillName: row.skill_name,
-      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4),
+      embedding: new Float32Array(Buffer.from(row.embedding).buffer),
       description: row.description,
     }));
   }
@@ -272,10 +306,12 @@ export class VectorStore {
       `).all(PAGE_SIZE, offset);
 
       for (const row of rows) {
+        // 使用 Buffer.from() 复制确保字节对齐（防止 Float32Array RangeError）
+        const alignedBuf = Buffer.from(row.vec_embedding);
         const storedEmbedding = new Float32Array(
-          row.vec_embedding.buffer,
-          row.vec_embedding.byteOffset,
-          row.vec_embedding.byteLength / 4,
+          alignedBuf.buffer,
+          alignedBuf.byteOffset,
+          alignedBuf.byteLength / 4,
         );
         const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
         results.push({
@@ -305,7 +341,7 @@ export class VectorStore {
   }
 
   private ensureReady(): void {
-    if (!this.ready) {
+    if (!this.ready || !this.db) {
       throw new Error('VectorStore not initialized. Call init() first.');
     }
   }

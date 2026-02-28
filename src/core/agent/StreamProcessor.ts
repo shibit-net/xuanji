@@ -34,6 +34,11 @@ export class StreamProcessor {
     this.textHandler = handler;
   }
 
+  /** 获取当前 textHandler（供外部包装扩展） */
+  getTextHandler(): ((text: string) => void) | undefined {
+    return this.textHandler;
+  }
+
   onThinkingDelta(handler: (thinking: string) => void): void {
     this.thinkingHandler = handler;
   }

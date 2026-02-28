@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import type { MemoryEntry, MemoryEntryType, MemoryConfig } from './types';
 import { DEFAULT_MEMORY_CONFIG } from './types';
 import { StorageBackend } from './StorageBackend';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'LongTermMemory' });
 
 /** 记忆类型到文件名的映射 */
 const TYPE_FILE_MAP: Record<MemoryEntryType, string> = {
@@ -46,10 +49,14 @@ export class LongTermMemory {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
   }
 
-  /** 保存单条记忆 */
+  /** 保存单条记忆（写入失败不中断主流程） */
   async save(entry: MemoryEntry): Promise<void> {
     const filePath = this.getFilePath(entry);
-    await this.storage.append(filePath, entry);
+    try {
+      await this.storage.append(filePath, entry);
+    } catch (err) {
+      log.warn(`Failed to save memory entry: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /** 批量保存 */
@@ -141,15 +148,25 @@ export class LongTermMemory {
     const allFileNames = new Set(Object.values(TYPE_FILE_MAP));
     const entries: MemoryEntry[] = [];
 
+    // 当有 limit 时，对每个文件均匀分配配额，确保全局总数不超限
+    const perFileLimit = limit ? Math.max(1, Math.ceil(limit / allFileNames.size)) : undefined;
+
     for (const fileName of allFileNames) {
       const filePath = join(dir, fileName);
-      if (limit) {
-        const records = await this.storage.readRecent<MemoryEntry>(filePath, limit);
+      if (perFileLimit) {
+        const records = await this.storage.readRecent<MemoryEntry>(filePath, perFileLimit);
         entries.push(...records);
       } else {
         const records = await this.storage.readAll<MemoryEntry>(filePath);
         entries.push(...records);
       }
+    }
+
+    // 全局截断（perFileLimit 是向上取整的近似值，可能略超 limit）
+    if (limit && entries.length > limit) {
+      // 按创建时间降序排列后取前 limit 条
+      entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return entries.slice(0, limit);
     }
 
     return entries;

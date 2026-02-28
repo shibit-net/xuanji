@@ -4,24 +4,12 @@
 
 import type { MemoryEntry, RetrieveOptions } from './types';
 import { logger } from '@/core/logger';
+import { STOP_WORDS } from '@/core/utils/stopwords';
 
 const log = logger.child({ module: 'memory-retriever' });
 
 /** 文件路径正则 */
 const FILE_PATH_RE = /(?:\/|\.\/|\.\.\/)?[\w\-./]+\.\w{1,10}/g;
-
-/** 停用词 */
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has',
-  'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
-  'might', 'can', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-  'as', 'into', 'through', 'during', 'before', 'after', 'and', 'or', 'but',
-  'if', 'not', 'no', 'so', 'than', 'too', 'very', 'just', 'this', 'that',
-  'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us',
-  'my', 'your', 'his', 'its', 'our', 'their', 'what', 'which', 'who', 'how',
-  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
-  '上', '也', '到', '说', '要', '你', '会', '没有', '这', '那', '什么',
-]);
 
 /** 评分权重 */
 const WEIGHTS = {

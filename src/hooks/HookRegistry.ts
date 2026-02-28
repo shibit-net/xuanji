@@ -222,37 +222,48 @@ export class HookRegistry {
       return null;
     }
 
+    // 预编译 toolName 正则（避免每次事件触发都重新编译）
+    let toolNameRegex: RegExp | null = null;
+    if (handler.match?.toolName) {
+      try {
+        toolNameRegex = new RegExp(handler.match.toolName);
+      } catch (regexErr) {
+        logger.child({ module: 'HookRegistry' }).warn(
+          `Invalid regex pattern in hook match.toolName: "${handler.match.toolName}"`,
+        );
+        return null; // 正则编译失败，跳过该 handler
+      }
+    }
+
+    /** 工具名称匹配检查（匹配返回 true 表示应继续执行 handler） */
+    const matchesToolName = (context: HookEventContext): boolean => {
+      if (toolNameRegex && context.toolName) {
+        return toolNameRegex.test(context.toolName);
+      }
+      return true; // 无 match 条件时默认匹配
+    };
+
     switch (handler.type) {
       case 'command':
         return async (context) => {
-          // 工具名称匹配
-          if (handler.match?.toolName && context.toolName) {
-            const regex = new RegExp(handler.match.toolName);
-            if (!regex.test(context.toolName)) {
-              return { success: true, blocked: false };
-            }
+          if (!matchesToolName(context)) {
+            return { success: true, blocked: false };
           }
           return executeCommandHandler(handler, context);
         };
 
       case 'prompt':
         return async (context) => {
-          if (handler.match?.toolName && context.toolName) {
-            const regex = new RegExp(handler.match.toolName);
-            if (!regex.test(context.toolName)) {
-              return { success: true, blocked: false };
-            }
+          if (!matchesToolName(context)) {
+            return { success: true, blocked: false };
           }
           return executePromptHandler(handler, context);
         };
 
       case 'agent':
         return async (context) => {
-          if (handler.match?.toolName && context.toolName) {
-            const regex = new RegExp(handler.match.toolName);
-            if (!regex.test(context.toolName)) {
-              return { success: true, blocked: false };
-            }
+          if (!matchesToolName(context)) {
+            return { success: true, blocked: false };
           }
           return executeAgentHandler(handler, context);
         };

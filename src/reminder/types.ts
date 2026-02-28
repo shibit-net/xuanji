@@ -2,6 +2,8 @@
 // 提醒系统 — 类型定义
 // ============================================================
 
+import type { MemoryEntry } from '@/memory/types';
+
 /**
  * 提醒循环类型
  */
@@ -114,7 +116,7 @@ export interface IReminderEngine {
   dismiss(id: string): Promise<void>;
 
   /** 检查关系维护提醒 (距上次互动超过阈值) */
-  checkNeglectedRelationships(thresholdDays?: number): Promise<RelationshipReminder[]>;
+  checkNeglectedRelationships(thresholdDays?: number, relationshipMemories?: MemoryEntry[]): Promise<RelationshipReminder[]>;
 
   /** 格式化提醒上下文为 Markdown (注入 System Prompt) */
   formatForPrompt(context: ReminderContext): string;

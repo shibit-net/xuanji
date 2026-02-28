@@ -21,7 +21,7 @@ describe('CostTracker', () => {
     expect(cost).toBe(18);
   });
 
-  it('calculateCost() 应计算 cache token 费用（避免双重计费）', () => {
+  it('calculateCost() 应独立计算 cache token 费用', () => {
     const usage: TokenUsage = {
       input: 1_000_000,
       output: 0,
@@ -29,12 +29,12 @@ describe('CostTracker', () => {
       cacheWrite: 1_000_000,
     };
     const cost = tracker.calculateCost(usage);
-    // cache read/write 的 token 从 input 中扣除，避免双重计费
-    // 非缓存 input: max(0, 1M - 1M - 1M) = 0，input 费: 0
+    // Anthropic 的 input_tokens 不含 cache tokens，各自独立计费
+    // input: 1M × 3/M = 3
     // cacheRead: 1M × 0.3/M = 0.3
     // cacheWrite: 1M × 3.75/M = 3.75
-    // 总计: 0 + 0.3 + 3.75 = 4.05
-    expect(cost).toBeCloseTo(4.05, 2);
+    // 总计: 3 + 0.3 + 3.75 = 7.05
+    expect(cost).toBeCloseTo(7.05, 2);
   });
 
   it('calculateCost() 未知模型应返回 0', () => {

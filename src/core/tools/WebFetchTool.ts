@@ -4,7 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 
 /** 默认超时 (ms) */
@@ -197,7 +197,7 @@ export class WebFetchTool extends BaseTool {
       }
 
       // 截断过长内容
-      content = middleTruncate(content, MAX_TOOL_OUTPUT_LENGTH);
+      content = middleTruncate(content, getMaxToolOutputLength());
 
       // 构建输出
       let output = `# ${finalUrl}\n\n`;
@@ -266,7 +266,14 @@ export class WebFetchTool extends BaseTool {
    * 判断是否为内网/本地地址（不应升级为 HTTPS）
    */
   private isPrivateAddress(hostname: string): boolean {
-    return this.isSSRFTarget(hostname);
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
+    if (hostname === '0.0.0.0') return true;
+    if (/^127\./.test(hostname)) return true;
+    if (hostname.startsWith('10.')) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
+    if (hostname.startsWith('192.168.')) return true;
+    if (hostname.endsWith('.local')) return true;
+    return false;
   }
 
   /**
@@ -295,8 +302,8 @@ export class WebFetchTool extends BaseTool {
     if (hostname.startsWith('192.168.')) return true;
     // .local 域名
     if (hostname.endsWith('.local')) return true;
-    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10)
-    if (/^f[de]/i.test(hostname)) return true;
+    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10) — URL 中 IPv6 带方括号如 [fd00::1]
+    if (/^\[f[de]/i.test(hostname)) return true;
     return false;
   }
 }

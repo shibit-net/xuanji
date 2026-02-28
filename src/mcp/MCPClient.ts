@@ -83,6 +83,9 @@ export class MCPClient extends EventEmitter {
   private serverCapabilities?: Record<string, unknown>;
   private serverInfo?: { name: string; version: string };
 
+  // 正在 start 时的 Promise（供并发调用者等待）
+  private startPromise?: Promise<void>;
+
   constructor(options: MCPClientOptions) {
     super();
     this.config = options.config;
@@ -99,12 +102,29 @@ export class MCPClient extends EventEmitter {
     }
 
     if (this.state === 'starting') {
+      // 等待正在进行的 start() 完成，而非抛异常（防止并发 call() 竞争）
+      if (this.startPromise) {
+        return this.startPromise;
+      }
       throw new Error(`MCP server "${this.config.name}" is already starting`);
     }
 
     this.state = 'starting';
     this.intentionalClose = false;
     this.log('Starting MCP server...');
+
+    this.startPromise = this._startInternal();
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
+    }
+  }
+
+  /**
+   * 内部启动逻辑
+   */
+  private async _startInternal(): Promise<void> {
 
     try {
       // 合并环境变量
@@ -137,9 +157,11 @@ export class MCPClient extends EventEmitter {
         this.state = 'closed';
         this.rejectAllPending(new Error(`MCP server process exited: ${code ?? signal}`));
 
-        // 非主动关闭且之前是 ready 状态 → 尝试重连
+        // 非主动关闭且之前是 ready 状态 → 尝试重连（捕获 unhandled rejection）
         if (!this.intentionalClose && prevState === 'ready') {
-          this.reconnect();
+          this.reconnect().catch((err) => {
+            this.log(`Reconnect unhandled error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+          });
         }
       });
 
@@ -236,6 +258,12 @@ export class MCPClient extends EventEmitter {
 
     await new Promise((resolve) => setTimeout(resolve, delay));
 
+    // 延迟后再次检查：close() 可能在等待期间被调用
+    if (this.intentionalClose) {
+      this.reconnecting = false;
+      return;
+    }
+
     // 清理状态
     this.state = 'uninitialized';
     this.outputBuffer = '';
@@ -314,6 +342,9 @@ export class MCPClient extends EventEmitter {
     }
 
     const id = this.nextId++;
+    if (this.nextId > 2_000_000_000) {
+      this.nextId = 1;
+    }
     const request: JSONRPCRequest = {
       jsonrpc: '2.0',
       id,
@@ -416,10 +447,25 @@ export class MCPClient extends EventEmitter {
     // 拒绝所有待处理的请求
     this.rejectAllPending(new Error('MCP client is closing'));
 
-    // 关闭进程
+    // 关闭进程并等待退出
     if (this.process) {
-      this.process.kill('SIGTERM');
+      const proc = this.process;
       this.process = undefined;
+
+      // 等待进程退出（最多 5 秒）
+      await new Promise<void>((resolve) => {
+        const forceKillTimer = setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+          resolve();
+        }, 5000);
+
+        proc.once('exit', () => {
+          clearTimeout(forceKillTimer);
+          resolve();
+        });
+
+        proc.kill('SIGTERM');
+      });
     }
 
     this.state = 'closed';

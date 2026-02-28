@@ -7,7 +7,7 @@ import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { getSharedShell } from './PersistentShell';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -125,7 +125,7 @@ export class BashTool extends BaseTool {
       if (result.stderr) output += (output ? '\n' : '') + `[stderr]\n${result.stderr}`;
 
       // 中间截断过长输出
-      output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
+      output = middleTruncate(output, getMaxToolOutputLength());
 
       if (result.exitCode !== 0) {
         return this.error(`命令退出码: ${result.exitCode}\n${output}`, { exitCode: result.exitCode });

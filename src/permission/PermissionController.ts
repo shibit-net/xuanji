@@ -57,6 +57,9 @@ export class PermissionController implements IPermissionController {
   private planReviewHandler: PlanReviewHandler | null = null;
   private config: PermissionConfig;
 
+  /** 决策缓存最大容量 */
+  private static readonly MAX_DECISION_CACHE = 500;
+
   /** 会话级决策缓存: cacheKey → allowed */
   private decisionCache: Map<string, boolean> = new Map();
 
@@ -171,8 +174,8 @@ export class PermissionController implements IPermissionController {
     toolName: string,
     input: Record<string, unknown>,
   ): GuardCheckResult | null {
-    // 文件操作类工具
-    if (['read_file', 'write_file', 'edit_file', 'glob', 'grep'].includes(toolName)) {
+    // 文件操作类工具（包括 notebook_edit 等扩展写入工具）
+    if (['read_file', 'write_file', 'edit_file', 'glob', 'grep', 'notebook_edit'].includes(toolName)) {
       return this.fileGuard.check(toolName, input, this.policyEngine);
     }
 
@@ -215,6 +218,10 @@ export class PermissionController implements IPermissionController {
 
           // 更新缓存 (如果用户选择了 Always/Never)
           if (confirmation.remember) {
+            if (this.decisionCache.size >= PermissionController.MAX_DECISION_CACHE) {
+              // 清空重建（与 PathMatcher 策略一致）
+              this.decisionCache.clear();
+            }
             this.decisionCache.set(guardResult.cacheKey, confirmation.allowed);
             this.log.debug(`Cache set: ${guardResult.cacheKey} → ${confirmation.allowed}`);
           }

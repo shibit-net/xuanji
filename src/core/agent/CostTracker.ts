@@ -37,23 +37,24 @@ export class CostTracker {
    * 计算本次调用费用
    */
   calculateCost(usage: TokenUsage): number {
+    // 延迟解析：如果 cachedPricing 为 null 且有 resolver，尝试重新解析
+    if (!this.cachedPricing && this.pricingResolver) {
+      this.cachedPricing = this.pricingResolver.resolve(this.model);
+    }
     const pricing = this.cachedPricing;
     if (!pricing) return 0;
 
     let cost = 0;
-    // cache read/write 的 token 应按专用价格计费，从 input 中扣除避免双重计费
-    let inputTokens = usage.input;
+    // input tokens 直接计费（Anthropic 的 input_tokens 不含 cache tokens）
+    cost += (usage.input / 1_000_000) * pricing.inputPerMillion;
+    cost += (usage.output / 1_000_000) * pricing.outputPerMillion;
+    // cache read/write 独立计费
     if (usage.cacheRead && pricing.cacheReadPerMillion) {
       cost += (usage.cacheRead / 1_000_000) * pricing.cacheReadPerMillion;
-      inputTokens = Math.max(0, inputTokens - usage.cacheRead);
     }
     if (usage.cacheWrite && pricing.cacheWritePerMillion) {
       cost += (usage.cacheWrite / 1_000_000) * pricing.cacheWritePerMillion;
-      inputTokens = Math.max(0, inputTokens - usage.cacheWrite);
     }
-    cost += (inputTokens / 1_000_000) * pricing.inputPerMillion;
-    cost += (usage.output / 1_000_000) * pricing.outputPerMillion;
-
     return cost;
   }
 

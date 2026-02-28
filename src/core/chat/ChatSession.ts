@@ -583,6 +583,7 @@ export class ChatSession {
     this.memoryManager = null;
     this.reminderContext = null;
     this.pricingResolver = null;
+    this.intentRouted = false;
     this.config = null;
     this.provider = null;
     this.registry = null;

@@ -668,7 +668,7 @@
             agentId: wecomAgentId.value,
             token: wecomToken.value,
             encodingAESKey: wecomAesKey.value,
-            port: parseInt(wecomPort.value) || 80,
+            port: parseInt(wecomPort.value, 10) || 80,
           },
         };
         break;

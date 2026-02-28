@@ -127,7 +127,16 @@ export class ContextCompressor {
       }).catch(() => {});
     }
 
-    const systemMsg = messages[0]!;
+    const systemMsg = messages[0];
+    if (!systemMsg) {
+      return {
+        compressed: messages,
+        originalTokens,
+        compressedTokens: originalTokens,
+        compressionRatio: 0,
+        summary: '',
+      };
+    }
     const rest = messages.slice(1);
     const recentBoundary = this.findRecentBoundary(rest, this.config.keepRecentRounds);
     const oldMessages = rest.slice(0, recentBoundary);
@@ -206,7 +215,16 @@ export class ContextCompressor {
     }
 
     // 分离 system prompt
-    const systemMsg = messages[0]!;
+    const systemMsg = messages[0];
+    if (!systemMsg) {
+      return {
+        compressed: messages,
+        originalTokens,
+        compressedTokens: originalTokens,
+        compressionRatio: 0,
+        summary: '',
+      };
+    }
     const rest = messages.slice(1);
 
     // 计算保留最近 N 轮的消息边界

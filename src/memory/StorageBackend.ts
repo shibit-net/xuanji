@@ -15,20 +15,15 @@ const log = logger.child({ module: 'storage-backend' });
  * 参考 SessionRecorder / AuditLogger 的模式：
  * - 追加写入（appendFile）
  * - 容错解析（逐行 JSON.parse）
- * - 静默失败（不抛异常）
  * - 原子性覆盖（先写 .tmp 再 rename）
  */
 export class StorageBackend {
-  /** 追加一条记录到 JSONL 文件 */
+  /** 追加一条记录到 JSONL 文件（失败时抛出异常） */
   async append<T>(filePath: string, record: T): Promise<void> {
-    try {
-      const dir = join(filePath, '..');
-      await mkdir(dir, { recursive: true });
-      const line = JSON.stringify(record) + '\n';
-      await appendFile(filePath, line, 'utf-8');
-    } catch (err) {
-      log.warn(`Failed to append to ${filePath}: ${err instanceof Error ? err.message : err}`);
-    }
+    const dir = join(filePath, '..');
+    await mkdir(dir, { recursive: true });
+    const line = JSON.stringify(record) + '\n';
+    await appendFile(filePath, line, 'utf-8');
   }
 
   /** 读取所有记录 */
@@ -51,7 +46,7 @@ export class StorageBackend {
     }
   }
 
-  /** 从文件末尾读取最近 N 条记录 */
+  /** 从文件末尾读取最近 N 条记录（返回时间正序：最旧在前，最新在后） */
   async readRecent<T>(filePath: string, limit: number): Promise<T[]> {
     try {
       if (!existsSync(filePath)) return [];
@@ -65,6 +60,8 @@ export class StorageBackend {
           // 跳过格式错误的行
         }
       }
+      // 反转为正序（与 readAll 保持一致：最旧在前，最新在后）
+      records.reverse();
       return records;
     } catch {
       return [];

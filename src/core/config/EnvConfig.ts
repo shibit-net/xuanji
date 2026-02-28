@@ -37,7 +37,10 @@ export function getEnvProviderConfig(): Partial<ProviderConfig> {
   if (model) config.model = model;
 
   const maxTokens = process.env[ENV_KEYS.XUANJI_MAX_TOKENS];
-  if (maxTokens) config.maxTokens = parseInt(maxTokens, 10);
+  if (maxTokens) {
+    const parsed = parseInt(maxTokens, 10);
+    if (!isNaN(parsed) && parsed > 0) config.maxTokens = parsed;
+  }
 
   return config;
 }

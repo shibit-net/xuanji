@@ -46,12 +46,12 @@ export class ConfigLoader implements IConfigLoader {
 
     const envUIConfig = getEnvUIConfig();
     if (Object.keys(envUIConfig).length > 0) {
-      config.ui = { ...config.ui, ...envUIConfig };
+      config.ui = { ...config.ui, ...envUIConfig } as typeof config.ui;
     }
 
     const envMemoryConfig = getEnvMemoryConfig();
     if (Object.keys(envMemoryConfig).length > 0) {
-      config.memory = { ...config.memory, ...envMemoryConfig };
+      config.memory = { ...config.memory, ...envMemoryConfig } as typeof config.memory;
     }
 
     // 5. 加载 MCP 配置（独立文件 ~/.xuanji/mcp.json）

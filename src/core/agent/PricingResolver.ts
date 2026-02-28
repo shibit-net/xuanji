@@ -160,9 +160,10 @@ export class PricingResolver {
       return { ...models[model], source: 'config' };
     }
 
-    // 模糊匹配
-    for (const [key, pricing] of Object.entries(models)) {
-      if (model.includes(key) || key.includes(model)) {
+    // 前缀匹配（优先更长的 key）
+    const sorted = Object.entries(models).sort((a, b) => b[0].length - a[0].length);
+    for (const [key, pricing] of sorted) {
+      if (model.startsWith(key) || key.startsWith(model)) {
         return { ...pricing, source: 'config' };
       }
     }
@@ -180,15 +181,22 @@ export class PricingResolver {
       if (this.isRemoteEnabled()) {
         this.fetchRemotePricing().catch(() => {});
       }
+      // 超过 2 倍 TTL，清空过期缓存，降级到 builtin
+      const maxTolerance = (this.config.cacheTTL ?? DEFAULT_CACHE_TTL) * 2;
+      if (Date.now() > this.remoteCacheExpiry + maxTolerance) {
+        this.remoteCache.clear();
+        return null;
+      }
     }
 
     // 精确匹配
     const exact = this.remoteCache.get(model);
     if (exact) return exact;
 
-    // 模糊匹配
-    for (const [key, pricing] of this.remoteCache) {
-      if (model.includes(key) || key.includes(model)) {
+    // 前缀匹配（优先更长的 key）
+    const sorted = [...this.remoteCache.entries()].sort((a, b) => b[0].length - a[0].length);
+    for (const [key, pricing] of sorted) {
+      if (model.startsWith(key) || key.startsWith(model)) {
         return pricing;
       }
     }
@@ -205,9 +213,10 @@ export class PricingResolver {
       return { ...BUILTIN_PRICING[model], source: 'builtin' };
     }
 
-    // 双向模糊匹配
-    for (const [key, pricing] of Object.entries(BUILTIN_PRICING)) {
-      if (model.startsWith(key) || model.includes(key)) {
+    // 前缀匹配（优先更长的 key）
+    const sorted = Object.entries(BUILTIN_PRICING).sort((a, b) => b[0].length - a[0].length);
+    for (const [key, pricing] of sorted) {
+      if (model.startsWith(key) || key.startsWith(model)) {
         return { ...pricing, source: 'builtin' };
       }
     }
@@ -260,7 +269,7 @@ export class PricingResolver {
       const data = await resp.json() as { success?: boolean; data?: RemoteModelPrice[] } | RemoteModelPrice[];
       const prices: RemoteModelPrice[] = Array.isArray(data)
         ? data
-        : (data as any)?.data ?? [];
+        : ((data as { data?: RemoteModelPrice[] })?.data ?? []);
 
       if (prices.length === 0) {
         log.debug('Remote pricing API returned empty list');

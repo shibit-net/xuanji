@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MessageManager } from '@/core/agent/MessageManager';
+import type { ContentBlock } from '@/core/types';
+
+/**
+ * 从 system message 的 content (ContentBlock[]) 中提取纯文本
+ */
+function extractSystemText(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') return content;
+  return (content as ContentBlock[])
+    .filter((b) => b.type === 'text' && b.text)
+    .map((b) => b.text)
+    .join('\n\n');
+}
 
 describe('MessageManager', () => {
   let manager: MessageManager;
@@ -21,7 +33,9 @@ describe('MessageManager', () => {
   it('build() 应使用自定义 system prompt', () => {
     const custom = new MessageManager('自定义提示词');
     const messages = custom.build('测试');
-    expect(messages[0].content).toBe('自定义提示词');
+    // system content 现在是 ContentBlock[]（结构化 system prompt blocks）
+    const text = extractSystemText(messages[0].content);
+    expect(text).toBe('自定义提示词');
   });
 
   it('build() 应累积用户消息', () => {
@@ -35,11 +49,11 @@ describe('MessageManager', () => {
 
   it('默认 system prompt 应包含基本角色描述', () => {
     const messages = manager.build('test');
-    const systemContent = messages[0].content as string;
+    const systemText = extractSystemText(messages[0].content);
     // 默认 fallback prompt 包含角色名和工具使用提示
     // 正式的详细 prompt（含工具名称）由 Skill 系统注入
-    expect(systemContent).toContain('Xuanji');
-    expect(systemContent).toContain('tool');
+    expect(systemText).toContain('Xuanji');
+    expect(systemText).toContain('tool');
   });
 
   // ---- addAssistantMessage() ----
@@ -96,6 +110,39 @@ describe('MessageManager', () => {
     expect(h1).not.toBe(h2);  // 不同引用
   });
 
+  // ---- system prompt blocks (Prompt Caching 结构化输出) ----
+
+  it('system content 应输出为 ContentBlock[] 格式', () => {
+    const messages = manager.build('test');
+    const systemContent = messages[0].content;
+    expect(Array.isArray(systemContent)).toBe(true);
+    const blocks = systemContent as ContentBlock[];
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
+    expect(blocks[0].type).toBe('text');
+    expect(blocks[0].text).toBeTruthy();
+  });
+
+  it('setSystemPromptSuffix() 应添加额外的 system prompt block', () => {
+    manager.setSystemPromptSuffix('记忆上下文...', 'memory');
+    const messages = manager.build('test');
+    const blocks = messages[0].content as ContentBlock[];
+    // Block 0: 基础 prompt, Block 1: memory suffix
+    expect(blocks.length).toBe(2);
+    expect(blocks[1].text).toBe('记忆上下文...');
+  });
+
+  it('多个 suffix 应对应多个 blocks', () => {
+    manager.setSystemPromptSuffix('记忆上下文', 'memory');
+    manager.setSystemPromptSuffix('提醒上下文', 'reminder');
+    const messages = manager.build('test');
+    const blocks = messages[0].content as ContentBlock[];
+    // Block 0: 基础 prompt, Block 1: memory, Block 2: reminder
+    expect(blocks.length).toBe(3);
+    const texts = blocks.map((b) => b.text);
+    expect(texts).toContain('记忆上下文');
+    expect(texts).toContain('提醒上下文');
+  });
+
   // ---- clear() ----
 
   it('clear() 应清空历史', () => {
@@ -111,6 +158,7 @@ describe('MessageManager', () => {
   it('setSystemPrompt() 应更新 system prompt', () => {
     manager.setSystemPrompt('新的提示词');
     const messages = manager.build('测试');
-    expect(messages[0].content).toBe('新的提示词');
+    const text = extractSystemText(messages[0].content);
+    expect(text).toBe('新的提示词');
   });
 });

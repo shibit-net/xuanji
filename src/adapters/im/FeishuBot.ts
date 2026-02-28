@@ -138,6 +138,8 @@ export class FeishuBot implements IMAdapter {
     // SDK 没有提供显式的 stop 方法，设置 running=false 防止后续处理即可
     this.wsClient = null;
     this.client = null;
+    this._callbacksRegistered = false;
+    this._currentFormatter = null;
     this.log('飞书机器人已停止');
   }
 

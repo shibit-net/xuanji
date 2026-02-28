@@ -11,6 +11,8 @@
 import type { AgentConfig, ILLMProvider, IToolRegistry, Tool, ToolResult, ToolSchema } from '@/core/types';
 import type { IMemoryStore } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
+import type { HookListener } from '@/hooks/EventEmitter';
+import type { HookEventContext } from '@/hooks/types';
 import { AgentLoop } from './AgentLoop';
 import { SubAgentContext } from './SubAgentContext';
 import { emitSubAgentToolUse, type SubAgentHookContext } from './SubAgentHooks';
@@ -48,12 +50,14 @@ class FilteredToolRegistry implements IToolRegistry {
     this.restrictedTools = new Set(restrictedTools);
   }
 
-  register(tool: Tool): void {
-    this.inner.register(tool);
+  register(_tool: Tool): void {
+    // 子代理不允许修改父注册表的工具列表
+    throw new Error('Sub-agent cannot register tools');
   }
 
-  unregister(name: string): void {
-    this.inner.unregister(name);
+  unregister(_name: string): void {
+    // 子代理不允许修改父注册表的工具列表
+    throw new Error('Sub-agent cannot unregister tools');
   }
 
   get(name: string): Tool | undefined {
@@ -129,7 +133,7 @@ export async function runSubAgent(
   );
 
   // 注入 Hook（子代理模式）
-  let postToolUseListener: ((ctx: Record<string, unknown>) => Promise<{ success: boolean; blocked: boolean }>) | null = null;
+  let postToolUseListener: HookListener | null = null;
   if (hookRegistry) {
     agentLoop.setHookRegistry(hookRegistry);
 
@@ -140,13 +144,13 @@ export async function runSubAgent(
       depth: context.depth,
       task: context.task,
     };
-    postToolUseListener = async (ctx) => {
+    postToolUseListener = async (ctx: HookEventContext) => {
       emitSubAgentToolUse(hookCtx, {
         toolName: ctx.toolName ?? '',
         toolInput: ctx.toolInput as Record<string, unknown>,
-        toolResult: ctx.toolResult,
-        toolIsError: ctx.toolIsError,
-        toolDuration: ctx.toolDuration,
+        toolResult: ctx.toolResult as string | undefined,
+        toolIsError: ctx.toolIsError as boolean | undefined,
+        toolDuration: ctx.toolDuration as number | undefined,
       });
       return { success: true, blocked: false };
     };
@@ -177,11 +181,12 @@ export async function runSubAgent(
   log.info(`[${subAgentId}] Starting sub-agent (depth=${context.depth}, timeout=${context.timeout}ms)`);
 
   // 7. 带超时执行
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   try {
     const runPromise = agentLoop.run(context.task);
 
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timeoutTimer = setTimeout(() => {
         agentLoop.stop();
         timedOut = true;
         reject(new Error(`Sub-agent timed out after ${context.timeout}ms`));
@@ -197,6 +202,10 @@ export async function runSubAgent(
       outputText += `\n[Sub-agent error: ${errMsg}]`;
     }
   } finally {
+    // 清理 timeout timer，防止 Promise 泄漏和 unhandled rejection
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+    }
     // 清理 PostToolUse listener，防止内存泄漏
     if (hookRegistry && postToolUseListener) {
       hookRegistry.removeListener('PostToolUse', postToolUseListener);

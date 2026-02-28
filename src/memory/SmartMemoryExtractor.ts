@@ -299,7 +299,7 @@ ${conversationContent}
     try {
       // 尝试提取 JSON 数组（可能包裹在 markdown 代码块中）
       const jsonMatch = responseText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/)
-        ?? responseText.match(/(\[[\s\S]*\])/);
+        ?? responseText.match(/(\[[\s\S]*\])/); // 贪婪：从第一个 [ 到最后一个 ];
 
       if (!jsonMatch) {
         log.warn('No JSON array found in response');

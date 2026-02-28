@@ -25,4 +25,5 @@ export { SleepTool } from './SleepTool';
 export { EnterPlanModeTool } from './EnterPlanModeTool';
 export { ExitPlanModeTool } from './ExitPlanModeTool';
 export { NotebookEditTool } from './NotebookEditTool';
+export { WorktreeTool } from './WorktreeTool';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';

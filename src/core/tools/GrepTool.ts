@@ -8,7 +8,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import glob from 'fast-glob';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
 import { getGrepConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -118,7 +118,8 @@ export class GrepTool extends BaseTool {
       } = input as unknown as GrepInput;
 
       const resolvedPath = path.resolve(searchPath);
-      const contextLines = Math.min(context, getGrepConfig()?.maxContextLines ?? MAX_CONTEXT_LINES);
+      const grepCfg = getGrepConfig();
+      const contextLines = Math.min(context, grepCfg?.maxContextLines ?? MAX_CONTEXT_LINES);
 
       // 优先使用 ripgrep
       if (isRipgrepAvailable()) {
@@ -149,11 +150,12 @@ export class GrepTool extends BaseTool {
     outputMode: OutputMode,
     context: number,
   ): Promise<ToolResult> {
+    const grepCfg = getGrepConfig();
     const args: string[] = [];
 
     // 基本参数
     args.push('--json'); // JSON Lines 输出格式
-    args.push('--max-count', String(getGrepConfig()?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE));
+    args.push('--max-count', String(grepCfg?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE));
 
     if (caseInsensitive) {
       args.push('--case-insensitive');
@@ -203,7 +205,7 @@ export class GrepTool extends BaseTool {
         try {
           const results = this.parseRipgrepOutput(output, searchPath, outputMode);
           let formattedOutput = this.formatResults(results, outputMode, searchPath);
-          formattedOutput = middleTruncate(formattedOutput, MAX_TOOL_OUTPUT_LENGTH);
+          formattedOutput = middleTruncate(formattedOutput, getMaxToolOutputLength());
 
           resolve(this.success(formattedOutput, {
             totalMatches: results.totalMatches,
@@ -275,6 +277,8 @@ export class GrepTool extends BaseTool {
           });
         }
       } else if (entry.type === 'context' && mode === 'content') {
+        // 注意：相邻匹配间的 context 行可能被归属到前一个 match 的 after 而非后一个的 before
+        // 这是 ripgrep JSON 输出顺序导致的已知限制，不影响内容完整性
         // 上下文行
         const filePath = entry.data.path?.text;
         const lineNumber = entry.data.line_number;
@@ -360,7 +364,7 @@ export class GrepTool extends BaseTool {
     const results = await this.searchFilesJS(files, regex, outputMode, contextLines);
 
     let output = this.formatResults(results, outputMode, basePath);
-    output = middleTruncate(output, MAX_TOOL_OUTPUT_LENGTH);
+    output = middleTruncate(output, getMaxToolOutputLength());
 
     return this.success(output, {
       totalFiles: files.length,
@@ -378,6 +382,9 @@ export class GrepTool extends BaseTool {
     mode: OutputMode,
     context: number,
   ): Promise<SearchResults> {
+    const grepCfg = getGrepConfig();
+    const maxMatchesPerFile = grepCfg?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE;
+    const maxMatches = grepCfg?.maxMatches ?? MAX_MATCHES;
     const results: SearchResults = {
       matchedFiles: 0,
       totalMatches: 0,
@@ -425,7 +432,7 @@ export class GrepTool extends BaseTool {
                     : undefined,
               });
 
-              if (fileMatches.length >= (getGrepConfig()?.maxMatchesPerFile ?? MAX_MATCHES_PER_FILE)) break;
+              if (fileMatches.length >= maxMatchesPerFile) break;
             }
           }
         }
@@ -441,7 +448,7 @@ export class GrepTool extends BaseTool {
           }
         }
 
-        if (results.matchedFiles >= (getGrepConfig()?.maxMatches ?? MAX_MATCHES)) break;
+        if (results.matchedFiles >= maxMatches) break;
       } catch {
         continue;
       }

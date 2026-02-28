@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import type { LogEntry } from '../types';
 
+type LogSource = LogEntry['source'];
+
 const LOGS_DIR = join(homedir(), '.xuanji', 'logs');
 
 /**
@@ -82,10 +84,10 @@ export class LogSystem {
   /**
    * 记录 info 级别日志
    */
-  async info(source: string, message: string): Promise<void> {
+  async info(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
       timestamp: new Date().toISOString().split('T')[1].slice(0, 8), // HH:mm:ss
-      source: source as any,
+      source,
       message,
       level: 'info',
     };
@@ -95,10 +97,10 @@ export class LogSystem {
   /**
    * 记录 warn 级别日志
    */
-  async warn(source: string, message: string): Promise<void> {
+  async warn(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
       timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
-      source: source as any,
+      source,
       message,
       level: 'warn',
     };
@@ -108,10 +110,10 @@ export class LogSystem {
   /**
    * 记录 error 级别日志
    */
-  async error(source: string, message: string): Promise<void> {
+  async error(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
       timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
-      source: source as any,
+      source,
       message,
       level: 'error',
     };
@@ -146,6 +148,10 @@ export class LogSystem {
           if (line) {
             try {
               const entry = JSON.parse(line) as LogEntry;
+              // 按当前 minLevel 过滤
+              const entryLevel = LogSystem.LEVEL_ORDER[entry.level] ?? 0;
+              const minLevelVal = LogSystem.LEVEL_ORDER[this.minLevel] ?? 0;
+              if (entryLevel < minLevelVal) continue;
               logs.push(entry);
               if (logs.length >= maxLines) {
                 return logs.slice(0, maxLines);

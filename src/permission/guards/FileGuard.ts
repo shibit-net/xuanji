@@ -107,7 +107,7 @@ export class FileGuard {
         category,
         riskLevel: 'danger',
         description: t('perm.guard_denied_path', { path: filePath }),
-        cacheKey: `${category}:denied:${filePath}`,
+        cacheKey: `${category}:denied:${normalizedPath}`,
       };
     }
 
@@ -161,7 +161,7 @@ export class FileGuard {
         category,
         riskLevel: 'warn',
         description: t('perm.guard_outside_project', { path: filePath }),
-        cacheKey: `${category}:outside:${path.dirname(filePath)}`,
+        cacheKey: `${category}:outside:${path.dirname(normalizedPath)}`,
       };
     }
 
@@ -171,7 +171,7 @@ export class FileGuard {
       category,
       riskLevel: 'safe',
       description: t(key, { path: filePath }),
-      cacheKey: `${category}:${filePath}`,
+      cacheKey: `${category}:${normalizedPath}`,
     };
   }
 

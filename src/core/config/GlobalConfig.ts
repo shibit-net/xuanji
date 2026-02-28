@@ -19,8 +19,12 @@ export async function loadGlobalConfig(): Promise<Record<string, unknown>> {
   try {
     const text = await readFile(GLOBAL_CONFIG_PATH, 'utf-8');
     return JSON.parse(text);
-  } catch {
-    // 配置文件不存在或解析失败，返回空
+  } catch (error) {
+    // 文件不存在时静默返回空对象；JSON 语法错误时 warn 提示用户
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // eslint-disable-next-line no-console
+      console.warn(`[Xuanji] Failed to parse config.json: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   return {};
 }
@@ -46,8 +50,8 @@ export function deepMergeConfig(
     const srcVal = source[key];
     const tgtVal = result[key];
     if (
-      srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
-      tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+      srcVal !== null && srcVal !== undefined && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+      tgtVal !== null && tgtVal !== undefined && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
     ) {
       result[key] = deepMergeConfig(
         tgtVal as Record<string, unknown>,

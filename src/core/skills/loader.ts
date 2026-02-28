@@ -22,6 +22,11 @@ export class SkillLoader {
     private basePath: string = process.cwd()
   ) {}
 
+  /** 获取关联的 SkillRegistry */
+  getRegistry(): SkillRegistry {
+    return this.registry;
+  }
+
   /**
    * 加载 Skill
    */
@@ -45,12 +50,13 @@ export class SkillLoader {
     }
 
     // 设置超时
-    const timeoutPromise = new Promise<void>((_, reject) =>
-      setTimeout(
+    let timeoutTimer: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      timeoutTimer = setTimeout(
         () => reject(new Error('Skill loading timeout')),
         timeout
-      )
-    );
+      );
+    });
 
     try {
       await Promise.race([
@@ -59,6 +65,8 @@ export class SkillLoader {
       ]);
     } catch (error) {
       log.error('Failed to load skills:', error);
+    } finally {
+      clearTimeout(timeoutTimer!);
     }
 
     // 应用过滤
@@ -117,7 +125,7 @@ export class SkillLoader {
         }
       }
     } catch (error) {
-      // 目录不存在时，静默失败
+      log.debug('Scan custom skills failed:', error);
     }
   }
 
@@ -205,9 +213,11 @@ export class SkillLoader {
   private async loadYamlSkill(filePath: string): Promise<Skill | undefined> {
     try {
       // 延迟导入 yaml 库，避免强制依赖
-      const yaml = await import('js-yaml' as any);
+      // @ts-expect-error -- js-yaml 无类型声明，动态延迟导入避免强制依赖
+      const yaml = await import('js-yaml');
       const content = await fs.readFile(filePath, 'utf-8');
-      const skill = yaml.load(content);
+      // 使用 JSON_SCHEMA 确保安全（禁用 !!js/function 等危险标签）
+      const skill = yaml.load(content, { schema: yaml.JSON_SCHEMA });
 
       if (this.isValidSkill(skill)) {
         return skill as Skill;
@@ -216,7 +226,7 @@ export class SkillLoader {
       log.warn(`Invalid Skill format in ${filePath}`);
       return undefined;
     } catch (error) {
-      if ((error as any).code === 'MODULE_NOT_FOUND') {
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND') {
         log.warn('js-yaml not installed, skipping YAML skill loading');
       } else {
         throw new Error(`Failed to load YAML Skill: ${String(error)}`);
@@ -269,12 +279,14 @@ let globalLoader: SkillLoader | null = null;
 
 /**
  * 获取全局 Skill 加载器
+ *
+ * 注意: 后续调用如果传入不同的 registry/basePath，会重新创建实例
  */
 export function getSkillLoader(
   registry: SkillRegistry,
   basePath?: string
 ): SkillLoader {
-  if (!globalLoader) {
+  if (!globalLoader || globalLoader.getRegistry() !== registry) {
     globalLoader = new SkillLoader(registry, basePath);
   }
   return globalLoader;

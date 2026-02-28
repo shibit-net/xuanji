@@ -141,7 +141,7 @@ export class BotManager {
       try {
         await this.stopBot(type);
       } catch (error) {
-        // 忽略停止失败
+        this.logSystem.error('Bot', `Failed to stop bot ${type}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

@@ -78,6 +78,9 @@ export class MCPSSEClient extends EventEmitter {
   // SSE 连接
   private abortController?: AbortController;
 
+  // 正在 start 时的 Promise（供并发调用者等待）
+  private startPromise?: Promise<void>;
+
   // 服务器信息
   private serverCapabilities?: Record<string, unknown>;
   private serverInfo?: { name: string; version: string };
@@ -99,12 +102,29 @@ export class MCPSSEClient extends EventEmitter {
   async start(): Promise<void> {
     if (this.state === 'ready') return;
     if (this.state === 'starting') {
+      // 等待正在进行的 start() 完成，而非抛异常（防止并发 call() 竞争）
+      if (this.startPromise) {
+        return this.startPromise;
+      }
       throw new Error(`MCP SSE server "${this.config.name}" is already starting`);
     }
 
     this.state = 'starting';
     this.intentionalClose = false;
     this.log('Connecting to SSE endpoint...');
+
+    this.startPromise = this._startInternal();
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
+    }
+  }
+
+  /**
+   * 内部启动逻辑
+   */
+  private async _startInternal(): Promise<void> {
 
     try {
       // 启动 SSE 监听
@@ -180,13 +200,17 @@ export class MCPSSEClient extends EventEmitter {
 
         if (!this.intentionalClose) {
           this.state = 'closed';
-          this.reconnect();
+          this.reconnect().catch((err) => {
+            this.log(`Reconnect unhandled error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+          });
         }
       }
     };
 
-    // 不阻塞 start()，异步处理 SSE 流
-    processChunk();
+    // 不阻塞 start()，异步处理 SSE 流（捕获未处理 rejection）
+    processChunk().catch((err) => {
+      this.log(`SSE processChunk unhandled error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
   }
 
   /**
@@ -196,6 +220,8 @@ export class MCPSSEClient extends EventEmitter {
     let data = '';
     for (const line of event.split('\n')) {
       if (line.startsWith('data: ')) {
+        // SSE 规范：多行 data 之间用 \n 连接
+        if (data) data += '\n';
         data += line.slice(6);
       }
     }
@@ -278,6 +304,9 @@ export class MCPSSEClient extends EventEmitter {
     }
 
     const id = this.nextId++;
+    if (this.nextId > 2_000_000_000) {
+      this.nextId = 1;
+    }
     const request: JSONRPCRequest = {
       jsonrpc: '2.0',
       id,
@@ -298,7 +327,17 @@ export class MCPSSEClient extends EventEmitter {
     });
 
     // 发送 HTTP POST
-    await this.sendHTTP(request);
+    try {
+      await this.sendHTTP(request);
+    } catch (err) {
+      // 发送失败：清理 pending request，避免超时 timer 泄漏
+      const pending = this.pendingRequests.get(id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(id);
+      }
+      throw err;
+    }
 
     return promise;
   }
@@ -339,6 +378,12 @@ export class MCPSSEClient extends EventEmitter {
     this.emit('reconnecting', { name: this.config.name, attempt: this.reconnectAttempts, delay });
 
     await new Promise((resolve) => setTimeout(resolve, delay));
+
+    // 延迟后再次检查：close() 可能在等待期间被调用
+    if (this.intentionalClose) {
+      this.reconnecting = false;
+      return;
+    }
 
     this.state = 'uninitialized';
     this.toolsCache = undefined;

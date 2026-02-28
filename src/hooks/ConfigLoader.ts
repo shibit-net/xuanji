@@ -143,6 +143,14 @@ export class HookConfigLoader {
       return null;
     }
 
+    // 安全: 项目级配置不允许 command 类型 handler（防止恶意仓库通过 .xuanji/hooks.json 执行任意命令）
+    if (handler.type === 'command' && this.isProjectSource(source)) {
+      log.warn(
+        `Security: command handler in project-level config is not allowed (${event} in ${source}), skipping`,
+      );
+      return null;
+    }
+
     // command 类型必须有 script
     if (handler.type === 'command' && typeof handler.script !== 'string') {
       log.warn(`Command handler missing "script" in ${event} (${source}), skipping`);
@@ -178,6 +186,14 @@ export class HookConfigLoader {
       'CheckpointCreated', 'CheckpointRestored',
     ];
     return validEvents.includes(event);
+  }
+
+  /**
+   * 判断配置来源是否为项目级（非全局）
+   */
+  private isProjectSource(source: string): boolean {
+    // 全局配置路径: ~/.xuanji/hooks.json
+    return !source.startsWith(os.homedir() + path.sep + '.xuanji' + path.sep);
   }
 
   /**

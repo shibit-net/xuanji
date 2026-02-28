@@ -119,6 +119,8 @@ export class DingtalkBot implements IMAdapter {
       this.ws.close();
       this.ws = null;
     }
+    this._callbacksRegistered = false;
+    this._currentFormatter = null;
   }
 
   /**
