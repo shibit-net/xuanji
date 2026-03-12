@@ -3,6 +3,7 @@
 // ============================================================
 
 import { create } from 'zustand';
+import type { PermissionRequestData, PlanReviewRequestData, AskUserRequestData } from '../global';
 
 // 消息类型
 export interface Message {
@@ -49,6 +50,11 @@ interface ChatStore {
   currentStreamingText: string;
   activeToolCalls: Map<string, ToolCall>;
 
+  // 权限交互状态
+  permissionRequest: PermissionRequestData | null;
+  planReviewRequest: PlanReviewRequestData | null;
+  askUserRequest: AskUserRequestData | null;
+
   // 操作
   sendMessage: (content: string) => void;
   addMessage: (message: Message) => void;
@@ -56,6 +62,11 @@ interface ChatStore {
   setStatus: (status: ChatStatus) => void;
   clearMessages: () => void;
   reset: () => void;
+
+  // 权限交互操作
+  setPermissionRequest: (request: PermissionRequestData | null) => void;
+  setPlanReviewRequest: (request: PlanReviewRequestData | null) => void;
+  setAskUserRequest: (request: AskUserRequestData | null) => void;
 
   // 内部方法
   _handleAgentText: (text: string) => void;
@@ -88,6 +99,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   currentStreamingId: null,
   currentStreamingText: '',
   activeToolCalls: new Map(),
+
+  // 权限交互状态
+  permissionRequest: null,
+  planReviewRequest: null,
+  askUserRequest: null,
 
   // 操作
   sendMessage: async (content) => {
@@ -164,6 +180,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       activeToolCalls: new Map(),
     });
   },
+
+  // ============================================================
+  // 权限交互操作
+  // ============================================================
+
+  setPermissionRequest: (request) => set({ permissionRequest: request }),
+  setPlanReviewRequest: (request) => set({ planReviewRequest: request }),
+  setAskUserRequest: (request) => set({ askUserRequest: request }),
 
   // ============================================================
   // Agent 流式事件处理器
@@ -337,5 +361,18 @@ if (typeof window !== 'undefined' && window.electron) {
 
   window.electron.onAgentEnd((state) => {
     useChatStore.getState()._handleAgentEnd(state);
+  });
+
+  // 权限交互事件监听
+  window.electron.onPermissionRequest((data) => {
+    useChatStore.getState().setPermissionRequest(data);
+  });
+
+  window.electron.onPlanReviewRequest((data) => {
+    useChatStore.getState().setPlanReviewRequest(data);
+  });
+
+  window.electron.onAskUserRequest((data) => {
+    useChatStore.getState().setAskUserRequest(data);
   });
 }

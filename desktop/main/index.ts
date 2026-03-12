@@ -212,6 +212,17 @@ function setupAgentProcessListeners() {
       case 'send-result':
         // send-message 的完成通知（非请求式）
         break;
+
+      // 权限交互请求（子进程 → renderer）
+      case 'permission:request':
+        mainWindow.webContents.send('permission:request', msg.data);
+        break;
+      case 'plan-review:request':
+        mainWindow.webContents.send('plan-review:request', msg.data);
+        break;
+      case 'ask-user:request':
+        mainWindow.webContents.send('ask-user:request', msg.data);
+        break;
     }
   });
 
@@ -407,4 +418,125 @@ ipcMain.handle('settings:update-config', async (_event, data: any) => {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
   }
+});
+
+// ============================================================
+// IPC 通信 - 会话管理
+// ============================================================
+
+ipcMain.handle('session:save', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('session-save', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('session:resume', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('session-resume', data, 60000);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('session:list', async () => {
+  if (!sessionReady) return { success: true, sessions: [] };
+  try {
+    return await sendRequest('session-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('session:delete', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('session-delete', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('checkpoint:create', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('checkpoint-create', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('checkpoint:list', async () => {
+  if (!sessionReady) return { success: true, checkpoints: [] };
+  try {
+    return await sendRequest('checkpoint-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('checkpoint:rewind', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('checkpoint-rewind', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
+// IPC 通信 - 记忆管理
+// ============================================================
+
+ipcMain.handle('memory:retrieve', async (_event, data: any) => {
+  if (!sessionReady) return { success: true, entries: [] };
+  try {
+    return await sendRequest('memory-retrieve', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('memory:stats', async () => {
+  if (!sessionReady) return { success: true, stats: null };
+  try {
+    return await sendRequest('memory-stats');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
+// IPC 通信 - 工具统计
+// ============================================================
+
+ipcMain.handle('usage:stats', async () => {
+  if (!sessionReady) return { success: true, stats: null };
+  try {
+    return await sendRequest('get-usage-stats');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
+// IPC 通信 - 权限交互（双向）
+// ============================================================
+
+ipcMain.handle('permission:respond', async (_event, data: any) => {
+  if (!agentProcess) return;
+  agentProcess.send({ type: 'permission-response', data });
+});
+
+ipcMain.handle('plan-review:respond', async (_event, data: any) => {
+  if (!agentProcess) return;
+  agentProcess.send({ type: 'plan-review-response', data });
+});
+
+ipcMain.handle('ask-user:respond', async (_event, data: any) => {
+  if (!agentProcess) return;
+  agentProcess.send({ type: 'ask-user-response', data });
 });

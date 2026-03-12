@@ -3,7 +3,8 @@
 // ============================================================
 
 import React, { useState } from 'react';
-import { Clock, Wrench, Database, FileText, X } from 'lucide-react';
+import { Clock, Wrench, Database, FileText, X, Plus, RotateCcw, Loader2 } from 'lucide-react';
+import { useCheckpointManager } from '../hooks/useCheckpointManager';
 
 interface RightPanelProps {
   onToggle: () => void;
@@ -63,34 +64,136 @@ export default function RightPanel({ onToggle }: RightPanelProps) {
 
 // Checkpoint 标签
 function CheckpointTab() {
+  const { checkpoints, loading, createCheckpoint, rewindToCheckpoint } = useCheckpointManager();
+  const [creating, setCreating] = useState(false);
+  const [rewinding, setRewinding] = useState<string | null>(null);
+  const [labelInput, setLabelInput] = useState('');
+  const [showLabelInput, setShowLabelInput] = useState(false);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    const label = labelInput.trim() || undefined;
+    await createCheckpoint(label);
+    setCreating(false);
+    setLabelInput('');
+    setShowLabelInput(false);
+  };
+
+  const handleRewind = async (checkpointId: string) => {
+    if (!confirm('确定要回滚到此 checkpoint 吗？这将丢弃之后的所有消息。')) return;
+
+    setRewinding(checkpointId);
+    const messageCount = await rewindToCheckpoint(checkpointId);
+    setRewinding(null);
+
+    if (messageCount !== null) {
+      alert(`已回滚到 checkpoint，当前消息数：${messageCount}`);
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return '今天';
+    }
+    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  };
+
   return (
     <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">⏱️ Checkpoint 时间线</div>
 
-      <div className="space-y-2">
-        <div className="p-3 bg-bg-primary rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 bg-primary rounded-full" />
-            <div className="text-sm font-semibold">CP1: 初始设计</div>
-          </div>
-          <div className="text-xs text-text-secondary mb-2">15:00</div>
-          <div className="text-xs text-text-secondary">
-            📄 修改文件: auth.ts, login.ts
-          </div>
-          <div className="flex gap-2 mt-2">
-            <button className="text-xs px-2 py-1 bg-bg-secondary rounded hover:bg-bg-tertiary transition-colors">
-              查看变更
+      {loading ? (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 size={20} className="animate-spin text-text-secondary" />
+        </div>
+      ) : checkpoints.length === 0 ? (
+        <div className="text-center text-sm text-text-secondary py-8">
+          暂无 checkpoint
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {checkpoints.map((cp) => (
+            <div key={cp.id} className="p-3 bg-bg-primary rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 bg-primary rounded-full" />
+                <div className="text-sm font-semibold truncate">
+                  {cp.label || `Checkpoint ${cp.id.slice(0, 8)}`}
+                </div>
+              </div>
+              <div className="text-xs text-text-secondary mb-1">
+                {formatDate(cp.createdAt)} {formatTime(cp.createdAt)}
+              </div>
+              <div className="text-xs text-text-secondary mb-2">
+                📄 消息数: {cp.messageCount} (索引: {cp.messageIndex})
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleRewind(cp.id)}
+                  disabled={rewinding === cp.id}
+                  className="flex items-center gap-1 text-xs px-2 py-1 bg-bg-secondary rounded hover:bg-bg-tertiary transition-colors disabled:opacity-50"
+                >
+                  {rewinding === cp.id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <RotateCcw size={12} />
+                  )}
+                  <span>回滚到此</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 创建 Checkpoint */}
+      {showLabelInput ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={labelInput}
+            onChange={(e) => setLabelInput(e.target.value)}
+            placeholder="输入 checkpoint 标签（可选）"
+            className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowLabelInput(false)}
+              disabled={creating}
+              className="flex-1 px-3 py-2 bg-bg-tertiary text-sm rounded hover:bg-bg-primary transition-colors disabled:opacity-50"
+            >
+              取消
             </button>
-            <button className="text-xs px-2 py-1 bg-bg-secondary rounded hover:bg-bg-tertiary transition-colors">
-              回滚到此
+            <button
+              onClick={handleCreate}
+              disabled={creating}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm disabled:opacity-50"
+            >
+              {creating ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Plus size={16} />
+              )}
+              <span>创建</span>
             </button>
           </div>
         </div>
-      </div>
-
-      <button className="w-full px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm">
-        + 创建 Checkpoint
-      </button>
+      ) : (
+        <button
+          onClick={() => setShowLabelInput(true)}
+          disabled={creating}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm disabled:opacity-50"
+        >
+          <Plus size={16} />
+          <span>创建 Checkpoint</span>
+        </button>
+      )}
     </div>
   );
 }

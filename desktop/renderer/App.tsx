@@ -10,6 +10,10 @@ import RightPanel from './components/RightPanel';
 import InputArea from './components/InputArea';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
+import PermissionDialog from './components/PermissionDialog';
+import PlanReviewDialog from './components/PlanReviewDialog';
+import AskUserDialog from './components/AskUserDialog';
+import { useChatStore } from './stores/chatStore';
 
 type ViewMode = 'chat' | 'settings';
 
@@ -17,6 +21,14 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
+
+  // 权限交互状态
+  const permissionRequest = useChatStore((state) => state.permissionRequest);
+  const planReviewRequest = useChatStore((state) => state.planReviewRequest);
+  const askUserRequest = useChatStore((state) => state.askUserRequest);
+  const setPermissionRequest = useChatStore((state) => state.setPermissionRequest);
+  const setPlanReviewRequest = useChatStore((state) => state.setPlanReviewRequest);
+  const setAskUserRequest = useChatStore((state) => state.setAskUserRequest);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
@@ -51,6 +63,28 @@ export default function App() {
 
       {/* 状态栏 */}
       <StatusBar />
+
+      {/* 权限交互对话框 */}
+      {permissionRequest && (
+        <PermissionDialog
+          request={permissionRequest}
+          onClose={() => setPermissionRequest(null)}
+        />
+      )}
+
+      {planReviewRequest && (
+        <PlanReviewDialog
+          request={planReviewRequest}
+          onClose={() => setPlanReviewRequest(null)}
+        />
+      )}
+
+      {askUserRequest && (
+        <AskUserDialog
+          request={askUserRequest}
+          onClose={() => setAskUserRequest(null)}
+        />
+      )}
     </div>
   );
 }

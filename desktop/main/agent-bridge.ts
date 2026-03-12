@@ -42,6 +42,53 @@ process.on('message', async (msg: any) => {
     case 'update-config':
       handleUpdateConfig(msg.requestId, msg.data);
       break;
+
+    // ============ 会话管理 ============
+    case 'session-save':
+      handleSessionSave(msg.requestId, msg.data);
+      break;
+    case 'session-resume':
+      handleSessionResume(msg.requestId, msg.data);
+      break;
+    case 'session-list':
+      handleSessionList(msg.requestId);
+      break;
+    case 'session-delete':
+      handleSessionDelete(msg.requestId, msg.data);
+      break;
+    case 'checkpoint-create':
+      handleCheckpointCreate(msg.requestId, msg.data);
+      break;
+    case 'checkpoint-list':
+      handleCheckpointList(msg.requestId);
+      break;
+    case 'checkpoint-rewind':
+      handleCheckpointRewind(msg.requestId, msg.data);
+      break;
+
+    // ============ 记忆管理 ============
+    case 'memory-retrieve':
+      handleMemoryRetrieve(msg.requestId, msg.data);
+      break;
+    case 'memory-stats':
+      handleMemoryStats(msg.requestId);
+      break;
+
+    // ============ 工具统计 ============
+    case 'get-usage-stats':
+      handleGetUsageStats(msg.requestId);
+      break;
+
+    // ============ 权限交互响应 ============
+    case 'permission-response':
+      handlePermissionResponse(msg.data);
+      break;
+    case 'plan-review-response':
+      handlePlanReviewResponse(msg.data);
+      break;
+    case 'ask-user-response':
+      handleAskUserResponse(msg.data);
+      break;
   }
 });
 
@@ -85,6 +132,9 @@ async function handleInit() {
         });
       },
     });
+
+    // 注入权限交互 Handler
+    injectInteractionHandlers();
 
     process.send?.({
       type: 'init-result',
@@ -342,6 +392,282 @@ async function handleUpdateConfig(requestId: string, data: any) {
         error: err instanceof Error ? err.message : String(err),
       },
     });
+  }
+}
+
+// ============================================================
+// 会话管理
+// ============================================================
+
+async function handleSessionSave(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const sessionId = await session.saveSession(data?.name, data?.options);
+    process.send?.({ requestId, data: { success: true, sessionId } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleSessionResume(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const ctx = await session.resumeSession(data?.sessionId);
+    process.send?.({
+      requestId,
+      data: {
+        success: true,
+        sessionId: ctx.sessionId,
+        usage: ctx.usage,
+        historyMessages: ctx.historyMessages,
+        messageCount: ctx.messages?.length || 0,
+      },
+    });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleSessionList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, sessions: [] } });
+    return;
+  }
+  try {
+    const sessions = await session.listSessions();
+    process.send?.({ requestId, data: { success: true, sessions } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleSessionDelete(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    await session.deleteSession(data?.sessionId);
+    process.send?.({ requestId, data: { success: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleCheckpointCreate(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const checkpointId = await session.createCheckpoint(data?.label);
+    process.send?.({ requestId, data: { success: true, checkpointId } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleCheckpointList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, checkpoints: [] } });
+    return;
+  }
+  try {
+    const checkpoints = await session.listCheckpoints();
+    process.send?.({ requestId, data: { success: true, checkpoints } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleCheckpointRewind(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const messageCount = await session.rewindToCheckpoint(data?.checkpointId);
+    process.send?.({ requestId, data: { success: true, messageCount } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// 记忆管理
+// ============================================================
+
+async function handleMemoryRetrieve(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, entries: [] } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: true, entries: [], stats: null } });
+      return;
+    }
+    const entries = await memoryManager.retrieve(data?.query || '', data?.options);
+    process.send?.({
+      requestId,
+      data: {
+        success: true,
+        entries: entries.map((e: any) => ({
+          type: e.type,
+          content: e.content,
+          tags: e.tags,
+          createdAt: e.createdAt,
+          score: e.score,
+        })),
+      },
+    });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleMemoryStats(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, stats: null } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: true, stats: null } });
+      return;
+    }
+    const stats = await memoryManager.getStats();
+    process.send?.({ requestId, data: { success: true, stats } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// 工具统计
+// ============================================================
+
+async function handleGetUsageStats(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, stats: null } });
+    return;
+  }
+  try {
+    const state = session.getState();
+    process.send?.({
+      requestId,
+      data: {
+        success: true,
+        stats: {
+          status: state.status,
+          tokenUsage: state.tokenUsage,
+          cost: state.cost,
+          currentIteration: state.currentIteration,
+        },
+      },
+    });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// 权限交互 (双向 IPC)
+// ============================================================
+
+// 存储 pending 的权限请求 resolve 回调
+const pendingPermissions = new Map<string, (result: any) => void>();
+const pendingPlanReviews = new Map<string, (result: any) => void>();
+const pendingAskUsers = new Map<string, (result: any) => void>();
+let permissionIdCounter = 0;
+
+/**
+ * 在 handleInit 完成后注入三个 Handler
+ */
+function injectInteractionHandlers() {
+  if (!session) return;
+
+  // 1. 权限确认 Handler
+  session.setConfirmationHandler(async (request: any, guardResult: any) => {
+    const id = `perm-${++permissionIdCounter}`;
+    process.send?.({
+      type: 'permission:request',
+      data: {
+        id,
+        toolName: request.toolName,
+        input: request.input,
+        riskLevel: guardResult?.riskLevel || 'warn',
+        description: guardResult?.description || '',
+        suggestion: guardResult?.suggestion || '',
+      },
+    });
+    return new Promise((resolve) => {
+      pendingPermissions.set(id, resolve);
+    });
+  });
+
+  // 2. 计划审查 Handler
+  session.setPlanReviewHandler(async (plan: any) => {
+    const id = `plan-${++permissionIdCounter}`;
+    process.send?.({
+      type: 'plan-review:request',
+      data: {
+        id,
+        content: typeof plan === 'string' ? plan : plan?.content || '',
+        title: plan?.title || '执行计划',
+      },
+    });
+    return new Promise((resolve) => {
+      pendingPlanReviews.set(id, resolve);
+    });
+  });
+
+  // 3. 用户提问 Handler
+  session.setAskUserHandler(async (question: any) => {
+    const id = `ask-${++permissionIdCounter}`;
+    process.send?.({
+      type: 'ask-user:request',
+      data: {
+        id,
+        question: typeof question === 'string' ? question : question?.question || '',
+        options: question?.options || [],
+      },
+    });
+    return new Promise((resolve) => {
+      pendingAskUsers.set(id, resolve);
+    });
+  });
+}
+
+function handlePermissionResponse(data: any) {
+  const resolve = pendingPermissions.get(data.id);
+  if (resolve) {
+    pendingPermissions.delete(data.id);
+    resolve(data.result);
+  }
+}
+
+function handlePlanReviewResponse(data: any) {
+  const resolve = pendingPlanReviews.get(data.id);
+  if (resolve) {
+    pendingPlanReviews.delete(data.id);
+    resolve(data.result);
+  }
+}
+
+function handleAskUserResponse(data: any) {
+  const resolve = pendingAskUsers.get(data.id);
+  if (resolve) {
+    pendingAskUsers.delete(data.id);
+    resolve(data.result);
   }
 }
 
