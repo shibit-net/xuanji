@@ -9,7 +9,22 @@ export default defineConfig({
     react(),
     electron([
       {
-        // 主进程入口
+        // Preload 脚本入口（放在前面，先编译完成，不触发 startup）
+        entry: 'main/preload.ts',
+        onstart(options) {
+          // preload 编译完成后不启动 Electron，等主进程编译完再启动
+        },
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: ['electron'],
+            },
+          },
+        },
+      },
+      {
+        // 主进程入口（后编译，编译完成后启动 Electron）
         entry: 'main/index.ts',
         onstart(options) {
           options.startup();
@@ -25,18 +40,6 @@ export default defineConfig({
                 if (builtins.includes(id)) return true;
                 return false;
               },
-            },
-          },
-        },
-      },
-      {
-        // Preload 脚本入口
-        entry: 'main/preload.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
             },
           },
         },

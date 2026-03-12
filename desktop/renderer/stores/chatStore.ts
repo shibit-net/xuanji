@@ -21,6 +21,7 @@ export interface ToolCall {
   name: string;
   status: 'pending' | 'success' | 'error';
   duration?: number;
+  startTime?: number;
 }
 
 // 状态类型
@@ -262,7 +263,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       id: data.id,
       name: data.name,
       status: 'pending',
+      startTime: Date.now(),
     };
+
+    // 记录日志
+    get().addLog('tool', `🔧 ${data.name} 开始执行`);
 
     // 更新活跃工具列表
     const newToolCalls = new Map(activeToolCalls);
@@ -293,7 +298,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     if (toolCall) {
       toolCall.status = data.isError ? 'error' : 'success';
+      // 计算 duration
+      if (toolCall.startTime) {
+        toolCall.duration = Date.now() - toolCall.startTime;
+      }
       newToolCalls.set(data.id, toolCall);
+
+      // 记录日志
+      const statusIcon = data.isError ? '❌' : '✅';
+      const durationText = toolCall.duration ? ` (${toolCall.duration}ms)` : '';
+      get().addLog('tool', `${statusIcon} ${data.name} ${data.isError ? '执行失败' : '执行完成'}${durationText}`);
     }
 
     // 更新消息的 toolCalls
