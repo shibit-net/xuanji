@@ -96,19 +96,24 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                 key={index}
                 className="bg-bg-primary/50 rounded p-2 text-sm"
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-warning">🛠️</span>
+                <div className="flex items-center gap-2">
+                  {tool.status === 'pending' ? (
+                    <Loader2 size={14} className="animate-spin text-yellow-500" />
+                  ) : tool.status === 'success' ? (
+                    <span className="text-green-500">✓</span>
+                  ) : (
+                    <span className="text-red-500">✗</span>
+                  )}
                   <span className="font-mono">{tool.name}</span>
                   <span className="text-xs text-text-secondary ml-auto">
-                    {tool.duration ? `${tool.duration}ms` : '执行中...'}
+                    {tool.status === 'pending'
+                      ? '执行中...'
+                      : tool.duration
+                        ? `${tool.duration}ms`
+                        : tool.status === 'success' ? '完成' : '失败'
+                    }
                   </span>
                 </div>
-                {tool.status === 'success' && (
-                  <div className="text-success text-xs">✓ 成功</div>
-                )}
-                {tool.status === 'error' && (
-                  <div className="text-error text-xs">✗ 失败</div>
-                )}
               </div>
             ))}
           </div>

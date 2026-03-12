@@ -43,7 +43,6 @@ interface ChatStore {
       output: number;
     };
     cost: number;
-    latency: number;
   };
 
   // 当前流式消息
@@ -101,7 +100,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       output: 0,
     },
     cost: 0,
-    latency: 0,
   },
 
   currentStreamingId: null,
@@ -375,6 +373,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 // ============================================================
 
 if (typeof window !== 'undefined' && window.electron) {
+  // 初始化时获取配置，更新 model 名称
+  window.electron.agentInit().then((result) => {
+    if (result.success && result.config?.model) {
+      useChatStore.setState((state) => ({
+        stats: { ...state.stats, model: result.config.model },
+      }));
+    }
+  }).catch(() => {});
+
   // 绑定流式事件监听器
   window.electron.onAgentText((text) => {
     useChatStore.getState()._handleAgentText(text);

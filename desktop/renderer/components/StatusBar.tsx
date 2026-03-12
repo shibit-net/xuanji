@@ -27,7 +27,6 @@ export default function StatusBar() {
           ↑{stats.tokenUsage.input.toLocaleString()} ↓{stats.tokenUsage.output.toLocaleString()}
         </div>
         <div>${stats.cost.toFixed(4)}</div>
-        <div>延迟 {stats.latency}ms</div>
       </div>
     </div>
   );
