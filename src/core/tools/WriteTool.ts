@@ -3,9 +3,10 @@
 // ============================================================
 
 import { dirname, resolve } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { DiffRenderer } from '../utils/DiffRenderer';
 
 /**
  * 写入文件工具
@@ -52,10 +53,30 @@ export class WriteTool extends BaseTool {
       const dir = dirname(path);
       await mkdir(dir, { recursive: true });
 
+      // 检查文件是否已存在（用于生成 diff）
+      let existingContent: string | null = null;
+      try {
+        await access(path);
+        existingContent = await readFile(path, 'utf-8');
+      } catch {
+        // 文件不存在，创建新文件
+      }
+
       // 写入文件
       await writeFile(path, content, 'utf-8');
 
       const lines = content.split('\n').length;
+
+      // 如果文件已存在，生成 diff 预览
+      if (existingContent !== null) {
+        const diffPreview = DiffRenderer.renderPreview(existingContent, content, path);
+        const stats = DiffRenderer.getStats(existingContent, content);
+        return this.success(
+          `已写入 ${path} (${lines} 行, ${content.length} 字符)\n\n${diffPreview}`,
+          { ...stats, lines, chars: content.length, filePath: path }
+        );
+      }
+
       return this.success(`已写入 ${path} (${lines} 行, ${content.length} 字符)`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

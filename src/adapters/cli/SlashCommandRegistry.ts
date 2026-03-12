@@ -94,10 +94,47 @@ export class SlashCommandRegistry {
   }
 
   /**
-   * 格式化帮助信息
+   * 格式化帮助信息（按分组显示）
    */
   formatHelp(): string {
     const commands = this.getAll();
+    if (commands.length === 0) {
+      return '没有已注册的命令';
+    }
+
+    // 按分组整理
+    const grouped = new Map<string, SlashCommand[]>();
+    for (const cmd of commands) {
+      if (cmd.hidden) continue;
+      const group = cmd.group || '其他';
+      if (!grouped.has(group)) {
+        grouped.set(group, []);
+      }
+      grouped.get(group)!.push(cmd);
+    }
+
+    // 构建帮助文本
+    const lines: string[] = [];
+    for (const [group, cmds] of grouped) {
+      lines.push(`\n【${group}】`);
+      const maxLen = Math.max(...cmds.map((c) => c.name.length));
+      for (const cmd of cmds) {
+        const icon = cmd.icon ? `${cmd.icon} ` : '';
+        lines.push(`  ${icon}${cmd.name.padEnd(maxLen + 2)} ${cmd.description}`);
+        if (cmd.usage) {
+          lines.push(`    用法: ${cmd.usage}`);
+        }
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * 格式化帮助信息（简洁版，旧格式兼容）
+   */
+  formatHelpSimple(): string {
+    const commands = this.getAll().filter(c => !c.hidden);
     if (commands.length === 0) {
       return '没有已注册的命令';
     }

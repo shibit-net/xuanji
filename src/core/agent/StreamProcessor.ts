@@ -29,6 +29,12 @@ export class StreamProcessor {
   private toolStartHandler?: (toolCall: ToolCall) => void;
   private toolDeltaHandler?: (id: string, name: string, receivedBytes: number) => void;
   private usageHandler?: (usage: TokenUsage) => void;
+  private interruptChecker?: () => boolean;
+  
+  // 🆕 累积 buffer（用于 fallback 和手动 flush）
+  private _currentText = '';
+  private _currentThinking = '';
+  private _currentToolInputBuffer = '';
 
   onTextDelta(handler: (text: string) => void): void {
     this.textHandler = handler;
@@ -59,14 +65,41 @@ export class StreamProcessor {
     this.usageHandler = handler;
   }
 
+  /** 设置中断检查器（用于立即停止流式消费） */
+  setInterruptChecker(checker: () => boolean): void {
+    this.interruptChecker = checker;
+  }
+
+  /**
+   * 🆕 手动 flush 累积的内容（在关键节点调用，如用户追加输入时）
+   * 返回当前累积的所有内容，但不清空 buffer
+   */
+  flush(): { text: string; thinking: string; toolInput: string } {
+    return {
+      text: this._currentText,
+      thinking: this._currentThinking,
+      toolInput: this._currentToolInputBuffer,
+    };
+  }
+
+  /**
+   * 🆕 重置累积 buffer（在新一轮开始时调用）
+   */
+  reset(): void {
+    this._currentText = '';
+    this._currentThinking = '';
+    this._currentToolInputBuffer = '';
+  }
+
   /**
    * 消费流式响应
    */
   async consume(stream: AsyncIterable<StreamEvent>): Promise<ProcessResult> {
     const toolCalls: ToolCall[] = [];
     const contentBlocks: ContentBlock[] = [];
-    let currentText = '';
-    let currentThinking = '';
+    // 🆕 使用实例变量存储累积内容（支持外部 flush）
+    this._currentText = '';
+    this._currentThinking = '';
     let stopReason: StopReason = 'end_turn';
     let totalUsage: TokenUsage = { input: 0, output: 0 };
 
@@ -74,15 +107,22 @@ export class StreamProcessor {
     let currentToolInputSize = 0;
     let currentToolId: string | undefined;
     let currentToolName: string | undefined;
+    // 🆕 重置 tool input buffer
+    this._currentToolInputBuffer = '';
     // delta 回调节流：避免大文件流式传输时过于频繁地触发 UI 更新
     let lastDeltaNotifyTime = 0;
     const DELTA_THROTTLE_MS = 500;
 
     for await (const event of stream) {
+      // 立即检查中断标志（优先级最高）
+      if (this.interruptChecker?.()) {
+        break; // 立即退出循环，停止消费 stream
+      }
+
       switch (event.type) {
         case 'text_delta': {
           if (event.text) {
-            currentText += event.text;
+            this._currentText += event.text;  // 🆕 使用实例变量
             this.textHandler?.(event.text);
           }
           break;
@@ -90,7 +130,7 @@ export class StreamProcessor {
 
         case 'thinking_delta': {
           if (event.thinking) {
-            currentThinking += event.thinking;
+            this._currentThinking += event.thinking;  // 🆕 使用实例变量
             this.thinkingHandler?.(event.thinking);
           }
           break;
@@ -102,6 +142,7 @@ export class StreamProcessor {
             currentToolId = event.toolCall.id;
             currentToolName = event.toolCall.name;
             currentToolInputSize = 0;
+            this._currentToolInputBuffer = '';  // 🆕 重置 buffer
             const toolCall: ToolCall = {
               id: event.toolCall.id,
               name: event.toolCall.name,
@@ -114,8 +155,12 @@ export class StreamProcessor {
 
         case 'tool_use_delta': {
           // 工具 input JSON 流式传输中：追踪接收进度
-          const deltaSize = event.text?.length ?? 0;
+          const deltaText = event.text ?? '';
+          const deltaSize = deltaText.length;
           currentToolInputSize += deltaSize;
+          // 🆕 累积 JSON 片段（作为 Provider 的 fallback）
+          this._currentToolInputBuffer += deltaText;
+          
           if (this.toolDeltaHandler && currentToolId && currentToolName) {
             const now = Date.now();
             if (now - lastDeltaNotifyTime >= DELTA_THROTTLE_MS) {
@@ -128,10 +173,25 @@ export class StreamProcessor {
 
         case 'tool_use_end': {
           if (event.toolCall?.id && event.toolCall?.name) {
+            // 🆕 自己解析累积的 JSON（作为 Provider 的 fallback）
+            let parsedInput = event.toolCall.input;
+            if (!parsedInput && this._currentToolInputBuffer) {
+              try {
+                parsedInput = JSON.parse(this._currentToolInputBuffer);
+              } catch (parseErr) {
+                // JSON 解析失败：标记错误但不抛出异常
+                parsedInput = { 
+                  _parse_error: true, 
+                  _raw: this._currentToolInputBuffer.slice(0, 500),  // 只保留前 500 字符
+                  _error_message: parseErr instanceof Error ? parseErr.message : String(parseErr),
+                };
+              }
+            }
+            
             const toolCall: ToolCall = {
               id: event.toolCall.id,
               name: event.toolCall.name,
-              input: event.toolCall.input ?? {},
+              input: parsedInput ?? {},
             };
             toolCalls.push(toolCall);
             this.toolUseHandler?.(toolCall);
@@ -140,15 +200,16 @@ export class StreamProcessor {
             currentToolId = undefined;
             currentToolName = undefined;
             currentToolInputSize = 0;
+            this._currentToolInputBuffer = '';  // 🆕 清空 buffer
 
             // 先把之前累积的文本作为 content block
-            if (currentText) {
-              contentBlocks.push({ type: 'text', text: currentText });
-              currentText = '';
+            if (this._currentText) {
+              contentBlocks.push({ type: 'text', text: this._currentText });
+              this._currentText = '';
             }
-            if (currentThinking) {
-              contentBlocks.push({ type: 'thinking', thinking: currentThinking });
-              currentThinking = '';
+            if (this._currentThinking) {
+              contentBlocks.push({ type: 'thinking', thinking: this._currentThinking });
+              this._currentThinking = '';
             }
             // 工具调用作为 content block
             contentBlocks.push({
@@ -199,11 +260,11 @@ export class StreamProcessor {
     }
 
     // 处理剩余文本
-    if (currentText) {
-      contentBlocks.push({ type: 'text', text: currentText });
+    if (this._currentText) {
+      contentBlocks.push({ type: 'text', text: this._currentText });
     }
-    if (currentThinking) {
-      contentBlocks.push({ type: 'thinking', thinking: currentThinking });
+    if (this._currentThinking) {
+      contentBlocks.push({ type: 'thinking', thinking: this._currentThinking });
     }
 
     return { stopReason, toolCalls, usage: totalUsage, contentBlocks };

@@ -20,6 +20,10 @@ export type HookEvent =
   | 'SubAgentStart'
   | 'SubAgentEnd'
   | 'SubAgentToolUse'
+  | 'TeamStart'
+  | 'TeamEnd'
+  | 'TeamMemberStart'
+  | 'TeamMemberEnd'
   | 'CheckpointCreated'
   | 'CheckpointRestored';
 
@@ -45,6 +49,10 @@ export const ALL_EVENTS: HookEvent[] = [
   'SubAgentStart',
   'SubAgentEnd',
   'SubAgentToolUse',
+  'TeamStart',
+  'TeamEnd',
+  'TeamMemberStart',
+  'TeamMemberEnd',
   'CheckpointCreated',
   'CheckpointRestored',
 ];
@@ -150,6 +158,10 @@ export interface HookEventContext {
   checkpointLabel?: string;
   /** 子代理 ID（SubAgent* 事件） */
   subAgentId?: string;
+  /** 团队 ID（Team* 事件） */
+  teamId?: string;
+  /** 团队成员 ID（TeamMember* 事件） */
+  memberId?: string;
   /** 记忆内容（PreMemorySave） */
   memoryContent?: string;
   /** 自定义数据 */
@@ -159,6 +171,18 @@ export interface HookEventContext {
 }
 
 // ─── Handler 执行结果 ──────────────────────────────────
+
+/**
+ * Hook Mock 结果（跳过真实工具执行，直接返回模拟结果）
+ */
+export interface HookMockResult {
+  /** 模拟的工具输出内容 */
+  content: string;
+  /** 是否为错误结果 */
+  isError?: boolean;
+  /** 附加元数据 */
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * Handler 执行结果
@@ -182,6 +206,12 @@ export interface HookHandlerResult {
   duration?: number;
   /** 是否应阻塞后续执行（仅同步事件） */
   blocked?: boolean;
+  /** 修改后的工具输入参数（PreToolUse 专用） */
+  modifiedInput?: Record<string, unknown>;
+  /** 替换工具名称（PreToolUse 专用） */
+  replaceTool?: string;
+  /** 模拟工具结果，跳过真实执行（PreToolUse 专用） */
+  mockResult?: HookMockResult;
 }
 
 // ─── 配置结构 ──────────────────────────────────────────

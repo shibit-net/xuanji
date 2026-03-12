@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased]
+
+### 新增
+
+- **并行工具 UI 优化** — 树状结构展示，提升视觉清晰度
+  - 新增 `ParallelToolGroup` 组件：动态执行区域的树状展示（使用 `┌─`, `├─`, `└─` 构建层级）
+  - 新增 `ParallelToolGroupCompact` 组件：静态历史区域的紧凑/展开模式
+  - 新增 `tool_group` 消息类型：统一展示已完成的并行工具组
+  - 实时进度显示：`⚡ Parallel Execution (2/3 completed)`
+  - 支持 Tab 导航和 Enter 展开/折叠并行工具组
+  - 文档: `doc/parallel-ui-optimization.md`
+
+- **Agent Team 优化** — 大幅提升团队协作功能的可用性
+  - 新增 `quick_team` 工具：使用预定义模板快速创建团队（只需 2 个参数）
+  - 5 个内置模板：code-review, research, architecture-debate, data-pipeline, feature-development
+  - 优化 `agent_team` tool description：明确的使用场景和决策指引
+  - System prompt 增加多 agent 协作指引：何时使用 SubAgent vs Team
+  - 新增团队模板系统（`src/core/agent/team/templates.ts`）
+  - 文档：`docs/agent-team-optimization.md`
+
+- **权限系统优化** — 分层确认机制，平衡安全与效率
+  - 新增 `confirmWrite` 配置：控制文件写入确认策略
+    - `ask`: 每次写入都需要确认（保守模式）
+    - `plan-only`: 依赖 LLM 通过 plan_review 主动确认（默认，平衡模式）
+    - `auto`: 项目内写入自动放行（激进模式）
+  - `warnLevel` 默认值从 `auto-allow` 改为 `ask`（更保守）
+  - GuardCheckResult 增加上下文信息（isProjectPath、isSensitiveFile）
+  - 优化决策逻辑：safe/warn/danger 分层处理
+  - 文档: `docs/permission-optimization.md`
+
+- **Agent Team 协作功能** — 多 agent 协同完成复杂任务
+  - 新增 `agent_team` 工具：创建和管理 agent 团队
+  - 支持 5 种协作策略：sequential（串行）、parallel（并行）、hierarchical（层级）、debate（辩论）、pipeline（流水线）
+  - 团队成员配置：角色、能力、优先级、系统提示
+  - Hook 事件支持：TeamStart、TeamEnd、TeamMemberStart、TeamMemberEnd
+  - 文档: `docs/agent-team.md`
+  - 示例: `examples/agent-team-examples.js`
+
+- **Light Model 配置支持** — 支持单独配置轻量模型
+  - Settings UI 新增 "轻量模型" 配置项（快捷键 2）
+  - 新增环境变量 `XUANJI_LIGHT_MODEL`
+  - 用于上下文压缩、子代理等低复杂度任务
+  - 相比主模型节省约 67% 成本（Haiku vs Sonnet）
+  - 文档: `docs/LIGHT_MODEL_GUIDE.md`
+
+### 优化
+
+- **CLI UI 系统重构** — 模块化和交互增强
+  - `SlashCommand` 类型增强：支持 `group`（分组）、`icon`（图标）、`usage`（使用示例）、`aliases`（别名）、`hidden`（隐藏）
+  - `SlashCommandRegistry.formatHelp()`：按分组显示命令，支持图标和使用说明
+  - 新增 `HelpPanel` 组件：交互式帮助面板，支持 ↑↓ 导航、Enter 查看详情、/ 搜索过滤
+  - `QuickAction` 类型增强：支持 `icon`（图标）、`priority`（优先级排序）
+  - `QuickActions` 组件优化：自动按优先级排序，显示图标
+  - `SettingsMode` 视觉优化：增加边框、版本显示、选中项描述、操作提示框
+- **国际化系统重构** — 模块化组织
+  - 拆分 `messages.ts` 为多个模块：`zh_common`、`en_common`、`zh_settings`、`en_settings`
+  - 新增 `locales/` 目录，按功能分类翻译文件
+  - 更好的维护性和可扩展性
+
 ## [0.2.0] - 2026-02-26
 
 P1 阶段完成 — 权限控制、项目感知、遥测日志、搜索工具。

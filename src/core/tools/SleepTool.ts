@@ -4,6 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { sleep } from '@/core/utils/sleep';
 
 /** 最大等待秒数 */
 const MAX_SECONDS = 300;
@@ -43,7 +44,7 @@ export class SleepTool extends BaseTool {
     }
 
     const seconds = Math.min(raw, MAX_SECONDS);
-    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    await sleep(seconds * 1000);
 
     return this.success(`已等待 ${seconds} 秒`);
   }

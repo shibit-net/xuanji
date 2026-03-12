@@ -16,10 +16,10 @@ interface SettingsModeProps {
   configManager: ConfigManager;
 }
 
-const TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
-  { id: 'llm', label: t('settings.tab.llm'), icon: '🤖' },
-  { id: 'ui', label: t('settings.tab.ui'), icon: '🎨' },
-  { id: 'bots_config', label: t('settings.tab.bots'), icon: '💬' },
+const TABS: Array<{ id: SettingsTab; label: string; icon: string; description?: string }> = [
+  { id: 'llm', label: t('settings.tab.llm'), icon: '🤖', description: t('settings.tab.llm_desc') },
+  { id: 'ui', label: t('settings.tab.ui'), icon: '🎨', description: t('settings.tab.ui_desc') },
+  { id: 'bots_config', label: t('settings.tab.bots'), icon: '💬', description: t('settings.tab.bots_desc') },
 ];
 
 /**
@@ -80,10 +80,11 @@ export function SettingsMode({ onExit, configManager }: SettingsModeProps) {
 
   // 渲染菜单
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" borderStyle="round" borderColor="#7C8CF5" paddingX={1}>
       {/* 标题 */}
-      <Box marginBottom={1}>
+      <Box marginBottom={1} justifyContent="space-between">
         <Text bold color="#7C8CF5">{t('settings.title')}</Text>
+        <Text color="gray" dimColor>v{process.env.npm_package_version || '1.0.0'}</Text>
       </Box>
 
       {/* 标签页菜单 */}
@@ -91,18 +92,25 @@ export function SettingsMode({ onExit, configManager }: SettingsModeProps) {
         {TABS.map((tab, i) => {
           const isSelected = i === selectedIndex;
           return (
-            <Box key={tab.id}>
-              <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
-                {isSelected ? '▶ ' : '  '}
-                {tab.icon} {tab.label}
-              </Text>
+            <Box key={tab.id} flexDirection="column">
+              <Box>
+                <Text color={isSelected ? '#7C8CF5' : 'gray'} bold={isSelected}>
+                  {isSelected ? '▶ ' : '  '}
+                  {tab.icon} {tab.label}
+                </Text>
+              </Box>
+              {isSelected && tab.description && (
+                <Box marginLeft={4}>
+                  <Text color="gray" dimColor>  {tab.description}</Text>
+                </Box>
+              )}
             </Box>
           );
         })}
       </Box>
 
       {/* 操作提示 */}
-      <Box>
+      <Box borderStyle="single" borderColor="gray" paddingX={1}>
         <Text color="gray" dimColor>{t('settings.hint')}</Text>
       </Box>
     </Box>

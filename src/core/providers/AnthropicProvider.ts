@@ -16,10 +16,20 @@ export class AnthropicProvider extends BaseLLMProvider {
   private log = logger.child({ module: 'AnthropicProvider' });
 
   private getClient(config: ProviderConfig): Anthropic {
+    // 显式检查 API Key，不依赖 SDK 的环境变量回退
+    if (!config.apiKey || config.apiKey.trim() === '') {
+      throw new Error(
+        '未配置 API Key。请通过以下方式之一设置：\n' +
+        '1. 环境变量: export XUANJI_API_KEY="your-key"\n' +
+        '2. 全局配置: 编辑 ~/.xuanji/config.json\n' +
+        '3. 项目配置: 编辑 .xuanji/config.json',
+      );
+    }
+
     return new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
-      timeout: config.timeout ?? 120_000,
+      timeout: config.timeout ?? 600_000,
     });
   }
 
@@ -38,10 +48,14 @@ export class AnthropicProvider extends BaseLLMProvider {
     // MessageManager 输出结构化 ContentBlock[]，区分稳定基础部分和动态后缀
     const systemBlocks = this.buildSystemBlocks(systemMessages);
 
+    // 🆕 动态计算 max_tokens：基于输入内容和模型限制
+    const estimatedInputTokens = this.estimateInputTokens(systemBlocks, chatMessages, tools);
+    const adjustedMaxTokens = this.calculateMaxTokens(config.model, config.maxTokens || 65536, estimatedInputTokens);
+
     // 构造 Anthropic API 请求参数
     const params: Anthropic.MessageCreateParamsStreaming = {
       model: config.model,
-      max_tokens: config.maxTokens || 65536,
+      max_tokens: adjustedMaxTokens,
       stream: true,
       messages: chatMessages.map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -51,21 +65,56 @@ export class AnthropicProvider extends BaseLLMProvider {
       })),
       ...(systemBlocks.length > 0 ? { system: systemBlocks } : {}),
       ...(tools.length > 0 ? {
-        tools: tools.map((t, i) => ({
+        tools: tools.map((t, index) => ({
           name: t.name,
           description: t.description,
           input_schema: t.input_schema as Anthropic.Tool.InputSchema,
-          // 在最后一个工具上添加缓存断点（Anthropic 最多支持 4 个断点，LIFO 匹配）
-          ...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+          // 🆕 Phase 1 优化：只在最后一个工具上标记缓存（工具列表作为整体缓存）
+          // Anthropic 支持最多 4 个缓存断点，工具 + system 共用
+          // ⚠️ 重要：不能给每个工具都标记缓存，会导致缓存断点数超限 → API 429 错误
+          ...(index === tools.length - 1 ? {
+            cache_control: { type: 'ephemeral' as const },
+          } : {}),
         })),
       } : {}),
-      ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
+      // ❌ Extended Thinking 模式下不支持 temperature 参数（必须为 1）
+      // 当启用 thinking 时，不传 temperature 参数
+      ...(config.temperature !== undefined && !config.thinking ? { temperature: config.temperature } : {}),
     };
 
-    // 调试日志
-    this.log.debug(`Request: model=${params.model}, max_tokens=${params.max_tokens}, messages=${chatMessages.length}, tools=${tools.length}`);
+    // 🆕 P0 优化：Extended Thinking 支持
+    // 注意：@anthropic-ai/sdk v0.39.0 的类型定义尚未包含 adaptive thinking
+    // 但 API 实际支持该功能（Claude 4.5+），因此使用 any 绕过类型检查
+    if (config.thinking) {
+      (params as any).thinking = config.thinking.type === 'adaptive'
+        ? { type: 'adaptive', effort: config.thinking.effort ?? 'medium' }
+        : { type: 'enabled', budget_tokens: config.thinking.budgetTokens ?? 10000 };
+    }
 
-    let timeoutCheckInterval: NodeJS.Timeout | undefined; // 提升到外层，确保清理
+    // 调试日志：统计缓存断点数量
+    let cacheBreakpoints = 0;
+    if (Array.isArray(params.system)) {
+      cacheBreakpoints += params.system.filter((b: any) => b.cache_control).length;
+    }
+    if (params.tools) {
+      cacheBreakpoints += (params.tools as any[]).filter((t: any) => t.cache_control).length;
+    }
+    this.log.debug(`Request: model=${params.model}, max_tokens=${params.max_tokens}, messages=${chatMessages.length}, tools=${tools.length}, cache_breakpoints=${cacheBreakpoints}`);
+
+    // 🆕 打印完整请求体用于调试（仅打印结构，不打印完整内容）
+    this.log.debug(`Request structure: {
+  model: "${params.model}",
+  max_tokens: ${params.max_tokens},
+  stream: ${params.stream},
+  system: ${Array.isArray(params.system) ? `[${params.system.length} blocks]` : 'undefined'},
+  messages: ${JSON.stringify(chatMessages.map(m => ({
+    role: m.role,
+    contentType: typeof m.content,
+    contentLength: typeof m.content === 'string' ? m.content.length : (m.content as any[])?.length
+  })))},
+  tools: ${params.tools ? `[${(params.tools as any[]).length} tools]` : 'undefined'},
+  temperature: ${params.temperature ?? 'undefined'}
+}`);
 
     try {
       const stream = client.messages.stream(params);
@@ -78,32 +127,8 @@ export class AnthropicProvider extends BaseLLMProvider {
       let eventCount = 0;
       const eventTypeCounts: Record<string, number> = {};
 
-      // 应用层超时保护：per-event 超时（防止 SDK 超时盲区导致卡住）
-      //
-      // 问题背景：
-      // @anthropic-ai/sdk 的 timeout 配置只覆盖初始 HTTP 请求阶段，一旦响应头返回，
-      // 超时定时器就被 clearTimeout，之后的流式数据读取完全没有超时保护。
-      // 如果代理层或网络层在流传输中途静默断开连接（不发送 error 事件），
-      // ReadableStream 会正常 EOF，导致 for await 循环正常退出，但消息不完整。
-      //
-      // 解决方案：
-      // 在应用层实现 per-event 超时：如果超过 N 秒没有收到新事件，主动 abort stream。
-      // 这样可以在代理层/网络层卡住时及时中止，触发恢复逻辑。
-      const PER_EVENT_TIMEOUT_MS = 30_000; // 30 秒未收到新事件视为超时
-      let lastEventTime = Date.now();
-      let perEventTimedOut = false;
-      timeoutCheckInterval = setInterval(() => {
-        const elapsed = Date.now() - lastEventTime;
-        if (elapsed > PER_EVENT_TIMEOUT_MS) {
-          this.log.warn(`Per-event timeout: ${elapsed}ms elapsed since last event, aborting stream`);
-          perEventTimedOut = true;
-          stream.controller.abort(); // 主动中止流
-        }
-      }, 5000); // 每 5 秒检查一次
-
       try {
         for await (const event of stream) {
-          lastEventTime = Date.now(); // 重置超时计时器
           eventCount++;
           eventTypeCounts[event.type] = (eventTypeCounts[event.type] ?? 0) + 1;
           switch (event.type) {
@@ -214,7 +239,11 @@ export class AnthropicProvider extends BaseLLMProvider {
           }
         }
       } catch (streamErr) {
-        if (streamErr instanceof Error && streamErr.name === 'AbortError') {
+        if (streamErr instanceof Error && (
+          streamErr.name === 'AbortError' ||
+          streamErr.name === 'APIUserAbortError' ||
+          streamErr.message.includes('aborted')
+        )) {
           // 超时或用户中止 — 走恢复逻辑
           this.log.warn(`Stream aborted: ${streamErr.message}`);
         } else {
@@ -223,29 +252,9 @@ export class AnthropicProvider extends BaseLLMProvider {
         }
       }
 
-      // 流提前结束的恢复处理
+      // 流提前结束的恢复处理（静默 EOF：代理层断开但无 error 事件）
       if (!receivedEnd) {
         this.log.warn(`Stream ended without message_delta event. totalEvents=${eventCount}, eventTypes=${JSON.stringify(eventTypeCounts)}, hasOpenToolUse=${!!(currentToolId && currentToolName)}, toolInputSize=${currentToolInput?.length ?? 0}`);
-
-        // 如果是 per-event 超时导致的中断，抛出明确的超时错误让 RetryPolicy 处理
-        if (perEventTimedOut) {
-          // 先发出已累积的工具调用（如果有）
-          if (currentToolId && currentToolName) {
-            yield {
-              type: 'tool_use_end',
-              toolCall: {
-                id: currentToolId,
-                name: currentToolName,
-                input: {
-                  _truncated: true,
-                  _raw_input: currentToolInput?.substring(0, 500) ?? '',
-                  _error_message: `流传输超时：工具 "${currentToolName}" 的参数在接收 ${currentToolInput?.length ?? 0} 字符后超时中断`,
-                },
-              },
-            };
-          }
-          throw new Error('Stream per-event timeout: no data received for 30 seconds');
-        }
 
         // 如果有未完成的工具调用，合成截断错误事件
         if (currentToolId && currentToolName) {
@@ -297,12 +306,13 @@ export class AnthropicProvider extends BaseLLMProvider {
           `4. API 服务暂时不可用（请稍后重试）`;
       }
 
-      throw new Error(errorMessage);
-    } finally {
-      // 确保清理超时检查定时器
-      if (timeoutCheckInterval) {
-        clearInterval(timeoutCheckInterval);
+      // 保留原始错误的 status 属性（如 Anthropic SDK 的 429/500 等），
+      // 确保 RetryPolicy.shouldRetry() 能通过 status 码判断是否重试
+      const wrappedError = new Error(errorMessage);
+      if (err instanceof Error && 'status' in err) {
+        (wrappedError as Error & { status: number }).status = (err as Error & { status: number }).status;
       }
+      throw wrappedError;
     }
   }
 
@@ -337,22 +347,117 @@ export class AnthropicProvider extends BaseLLMProvider {
           });
         }
       } else if (Array.isArray(msg.content)) {
-        // 结构化模式：第一个 block 标记缓存（基础 prompt，稳定）
-        // 后续 blocks 不标记（动态后缀，每轮可能变化）
+        // 结构化模式：所有非最后一个 block 标记缓存（Phase 1 优化）
+        // 最后一个 block 不缓存（可能是动态后缀，如 memory/reminder）
         const textBlocks = msg.content.filter(
           (b) => b.type === 'text' && b.text,
         );
         for (let i = 0; i < textBlocks.length; i++) {
+          const isLast = i === textBlocks.length - 1;
           blocks.push({
             type: 'text',
             text: textBlocks[i].text!,
-            // 仅在第一个 block（基础 system prompt）上标记缓存
-            ...(i === 0 ? { cache_control: { type: 'ephemeral' } } : {}),
+            // 🆕 优化：所有非最后一个 block 都标记缓存
+            ...(!isLast ? { cache_control: { type: 'ephemeral' } } : {}),
           });
         }
       }
     }
 
     return blocks;
+  }
+
+  /**
+   * 估算输入 tokens 数量（粗略估算）
+   * 规则：英文 ~4 字符/token，中文 ~1.5 字符/token，JSON ~1.2 字符/token
+   */
+  private estimateInputTokens(
+    systemBlocks: Anthropic.TextBlockParam[],
+    chatMessages: Message[],
+    tools: ToolSchema[],
+  ): number {
+    let totalChars = 0;
+
+    // System prompt
+    for (const block of systemBlocks) {
+      totalChars += block.text?.length || 0;
+    }
+
+    // Chat messages
+    for (const msg of chatMessages) {
+      if (typeof msg.content === 'string') {
+        totalChars += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          totalChars += (block as any).text?.length || (block as any).content?.length || 0;
+        }
+      }
+    }
+
+    // Tools (JSON schema)
+    totalChars += JSON.stringify(tools).length;
+
+    // 粗略估算：平均 3 字符/token
+    return Math.ceil(totalChars / 3);
+  }
+
+  /**
+   * 根据模型限制和输入 tokens 动态计算 max_tokens
+   *
+   * 模型限制：
+   * - claude-opus-4: 总 200k，输出最大 16384
+   * - claude-sonnet-4/4.5: 总 200k，输出最大 64000
+   * - claude-haiku-4/4.5: 总 200k，输出最大 64000
+   * - claude-3.5-sonnet: 总 200k，输出最大 8192
+   * - claude-3.5-haiku: 总 200k，输出最大 8192
+   *
+   * 计算公式：
+   * max_tokens = min(
+   *   用户配置,
+   *   模型输出限制,
+   *   总上下文窗口 - 输入tokens - 安全边距
+   * )
+   */
+  private calculateMaxTokens(modelName: string, requestedMaxTokens: number, estimatedInputTokens: number): number {
+    const normalizedModel = modelName.replace(/^\[.*?\]/, '').toLowerCase();
+
+    // 获取模型限制
+    let contextWindow: number;
+    let outputLimit: number;
+
+    if (normalizedModel.includes('opus-4')) {
+      contextWindow = 200000;
+      outputLimit = 16384;
+    } else if (normalizedModel.includes('sonnet-4') || normalizedModel.includes('haiku-4')) {
+      contextWindow = 200000;
+      outputLimit = 64000;
+    } else if (normalizedModel.includes('3.5') || normalizedModel.includes('3-5')) {
+      contextWindow = 200000;
+      outputLimit = 8192;
+    } else if (normalizedModel.includes('claude-3')) {
+      contextWindow = 200000;
+      outputLimit = 4096;
+    } else {
+      // 未知模型，使用保守值
+      contextWindow = 200000;
+      outputLimit = 8192;
+      this.log.warn(`Unknown model ${modelName}, using conservative limits`);
+    }
+
+    // 安全边距（预留给响应元数据等）
+    const safetyMargin = 1000;
+
+    // 基于上下文窗口的最大输出
+    const contextBasedMax = Math.max(0, contextWindow - estimatedInputTokens - safetyMargin);
+
+    // 取最小值
+    const finalMaxTokens = Math.min(requestedMaxTokens, outputLimit, contextBasedMax);
+
+    // 日志记录
+    if (finalMaxTokens < requestedMaxTokens) {
+      this.log.debug(`max_tokens adjusted: ${requestedMaxTokens} → ${finalMaxTokens} (input: ~${estimatedInputTokens}, context: ${contextWindow}, output_limit: ${outputLimit})`);
+    }
+
+    return Math.max(1024, finalMaxTokens); // 至少保证 1024 tokens 输出空间
   }
 }

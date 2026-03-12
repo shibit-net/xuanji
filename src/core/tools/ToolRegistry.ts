@@ -22,6 +22,9 @@ import { EnterPlanModeTool } from './EnterPlanModeTool';
 import { ExitPlanModeTool } from './ExitPlanModeTool';
 import { NotebookEditTool } from './NotebookEditTool';
 import { WorktreeTool } from './WorktreeTool';
+import { LSTool } from './LSTool';
+import { MultiEditTool } from './MultiEditTool';
+// TeamTool 和 QuickTeamTool 在 ChatSession.initTaskTool() 中动态注册
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -145,13 +148,18 @@ export class ToolRegistry implements IToolRegistry {
   /**
    * 执行工具
    */
-  async execute(name: string, input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
       return {
         content: `未知工具: ${name}`,
         isError: true,
       };
+    }
+
+    // 如果外部已中止，直接返回
+    if (signal?.aborted) {
+      return { content: '[Aborted] Tool execution was cancelled.', isError: true };
     }
 
     // 📋 Plan Mode 检查：拦截写操作
@@ -193,20 +201,34 @@ export class ToolRegistry implements IToolRegistry {
         abortController.abort();
       }, timeout);
 
+      // 链式中止：外部 signal 中止时，自动中止此工具的 controller
+      const onAbort = () => abortController.abort();
+      signal?.addEventListener('abort', onAbort, { once: true });
+
       try {
         const result = await Promise.race([
           tool.execute(input, abortController.signal),
           new Promise<ToolResult>((_, reject) => {
             abortController.signal.addEventListener('abort', () => {
-              reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`));
+              // 区分超时中止 vs 外部中止
+              if (signal?.aborted) {
+                reject(new Error(`工具 "${name}" 被外部中止`));
+              } else {
+                reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`));
+              }
             });
           }),
         ]);
         return result;
       } finally {
         clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onAbort);
       }
     } catch (err) {
+      // 外部中止（用户 Ctrl+C / stop()）时返回友好的中止消息
+      if (signal?.aborted) {
+        return { content: '[Aborted] Tool execution was cancelled.', isError: true };
+      }
       const message = err instanceof Error ? err.message : String(err);
       logger.child({ module: 'ToolRegistry' }).warn(`Tool "${name}" execution error: ${message}`);
       return {
@@ -240,5 +262,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new ExitPlanModeTool());
   registry.register(new NotebookEditTool());
   registry.register(new WorktreeTool());
+  registry.register(new LSTool());
+  registry.register(new MultiEditTool());
+  // TeamTool 和 QuickTeamTool 在 ChatSession.initTaskTool() 中动态注册（需要注入依赖）
   return registry;
 }

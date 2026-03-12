@@ -16,6 +16,12 @@ import { enableKittyProtocol, disableKittyProtocol, parseCSIu } from './utils/Ki
 export interface InputHandlerProps {
   onSubmit: (text: string) => void;
   isActive: boolean;
+  /** 当输入 buffer 为空时按特殊键触发（如 '?' 打开快捷操作面板） */
+  onQuickAction?: (key: string) => void;
+  /** 隐藏渲染输出（保持 stdin 监听和 Kitty 协议活跃，但不占用终端行数） */
+  hidden?: boolean;
+  /** 中断追加模式：Agent 执行中可输入补充指令，提示符变为 "+ " */
+  interruptMode?: boolean;
 }
 
 /**
@@ -62,7 +68,7 @@ function parseTraditionalKey(data: string): {
  * - Fallback 到传统 ANSI 序列
  * - 支持 Shift+Enter 换行
  */
-export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
+export function InputHandler({ onSubmit, isActive, onQuickAction, hidden, interruptMode }: InputHandlerProps) {
   const [lines, setLines] = useState<string[]>(['']);
   const [cursorLine, setCursorLine] = useState(0);
   const [cursorCol, setCursorCol] = useState(0);
@@ -70,6 +76,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   // 历史记录状态
   const [history, setHistory] = useState<string[]>([]);
   const [historyPointer, setHistoryPointer] = useState(-1); // -1 表示当前输入（未导航）
+  const [tempInput, setTempInput] = useState(''); // 保存用户开始导航前的输入
 
   const linesRef = useRef<string[]>(['']);
   const cursorLineRef = useRef(0);
@@ -77,11 +84,14 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   const lastCharTimeRef = useRef(0);
   const historyRef = useRef<string[]>([]);
   const historyPointerRef = useRef(-1);
+  const tempInputRef = useRef('');
+  const onQuickActionRef = useRef(onQuickAction);
 
   // 同步 ref
   linesRef.current = lines;
   cursorLineRef.current = cursorLine;
   cursorColRef.current = cursorCol;
+  onQuickActionRef.current = onQuickAction;
 
   // 同步历史记录 ref
   useEffect(() => {
@@ -91,6 +101,10 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   useEffect(() => {
     historyPointerRef.current = historyPointer;
   }, [historyPointer]);
+
+  useEffect(() => {
+    tempInputRef.current = tempInput;
+  }, [tempInput]);
 
   // 获取 stdin
   // Ink 内部 API（非公开合约），版本升级时需重点回归测试
@@ -108,7 +122,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
       } catch (err) {
         // ENOENT is expected on first run
         if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          console.debug('Failed to load history:', err);
+          // ENOENT 是正常情况（首次运行），非 ENOENT 错误静默忽略
         }
       }
     };
@@ -126,7 +140,7 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
         await configManager.load();
         await configManager.save({ history });
       } catch (err) {
-        console.debug('Failed to save history:', err);
+        // 历史记录保存失败：非关键错误，静默忽略
       }
     };
 
@@ -160,7 +174,10 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
     if (direction === 'up') {
       // 上箭头：浏览更旧的记录
       if (historyPointerRef.current === -1) {
-        // 首次按上箭头：跳转到最新的历史记录
+        // 首次按上箭头：保存当前输入，跳转到最新的历史记录
+        const currentText = linesRef.current.join('\n');
+        setTempInput(currentText); // 保存当前输入
+
         const newPointer = hist.length - 1;
         setHistoryPointer(newPointer);
         const historyText = hist[newPointer];
@@ -194,20 +211,31 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
         setCursorLine(historyLines.length - 1);
         setCursorCol(historyLines[historyLines.length - 1].length);
       } else {
-        // 到达最新记录，清空输入框（返回初始状态）
+        // 到达最新记录，恢复之前保存的输入
         setHistoryPointer(-1);
-        setLines(['']);
-        setCursorLine(0);
-        setCursorCol(0);
+        const savedInput = tempInputRef.current;
+        const savedLines = savedInput ? savedInput.split('\n') : [''];
+        setLines(savedLines);
+        setCursorLine(savedLines.length - 1);
+        setCursorCol(savedLines[savedLines.length - 1].length);
+        setTempInput(''); // 清空临时输入
       }
     }
   };
 
   // 插入字符
   const insertChar = (char: string) => {
+    // Buffer 为空时，特殊字符触发快捷操作（如 '?' 打开操作面板）
+    const isBufferEmpty = linesRef.current.length === 1 && linesRef.current[0] === '';
+    if (isBufferEmpty && onQuickActionRef.current && char === '?') {
+      onQuickActionRef.current(char);
+      return;
+    }
+
     // 用户开始输入新内容，退出历史导航模式
     if (historyPointerRef.current !== -1) {
       setHistoryPointer(-1);
+      setTempInput(''); // 清空临时保存的输入
     }
 
     lastCharTimeRef.current = Date.now();
@@ -224,6 +252,12 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
 
   // 删除字符
   const deleteChar = () => {
+    // 用户开始编辑内容，退出历史导航模式
+    if (historyPointerRef.current !== -1) {
+      setHistoryPointer(-1);
+      setTempInput(''); // 清空临时保存的输入
+    }
+
     const cl = cursorLineRef.current;
     const cc = cursorColRef.current;
     if (cc > 0) {
@@ -327,8 +361,47 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
       // Ctrl+C: \x03 — 永远不拦截，让 Ink App 层处理
       if (data === '\x03') return;
 
-      // 不活跃时不处理其他输入
-      if (!isActive) return;
+      // 不活跃时：将 CSI u 序列转译为传统序列，让 Ink useInput 能正确解析
+      // 原因：启用 Kitty 键盘协议后，终端发送 CSI u 编码的按键事件，
+      //       但 Ink 的 parseKeypress 不理解 CSI u，导致 Tab/Enter/q/Esc 等全部失效。
+      //       这里将 CSI u 转译为传统转义序列后重新 emit。
+      if (!isActive) {
+        const csiKey = parseCSIu(data);
+        if (csiKey) {
+          let translated: string | null = null;
+          switch (csiKey.name) {
+            case 'tab': translated = '\t'; break;
+            case 'return': translated = '\r'; break;
+            case 'escape': translated = '\x1b'; break;
+            case 'backspace': translated = '\x7f'; break;
+            case 'space': translated = ' '; break;
+            case 'char':
+              if (csiKey.ctrl && csiKey.char === 'c') {
+                // Ctrl+C: 不转译，直接 passthrough（已被上面的 \x03 检查覆盖，此为防御）
+                return;
+              }
+              if (csiKey.char) {
+                // 字母/数字等字符：转译为原始字符（如 q → 'q'）
+                if (csiKey.ctrl) {
+                  // Ctrl+字母：转为控制字符 (Ctrl+A = 0x01, etc.)
+                  const code = csiKey.char.toLowerCase().charCodeAt(0) - 96;
+                  if (code >= 1 && code <= 26) {
+                    translated = String.fromCharCode(code);
+                  }
+                } else {
+                  translated = csiKey.char;
+                }
+              }
+              break;
+          }
+          // 将转译后的序列重新 emit，让 Ink useInput 处理
+          if (translated !== null && internal_eventEmitter) {
+            internal_eventEmitter.emit('input', translated);
+          }
+        }
+        // 非 CSI u 序列（传统序列）在 !isActive 时直接穿透给 Ink useInput
+        return;
+      }
 
       // 尝试解析 CSI u
       const csiKey = parseCSIu(data);
@@ -418,32 +491,42 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
           }
           break;
         case 'up':
-          if (linesRef.current.length > 1) {
+          // 多行模式下，如果已经在浏览历史记录，继续使用历史导航而非行内导航
+          if (historyPointerRef.current !== -1) {
+            navigateHistory('up');
+          } else if (linesRef.current.length > 1) {
             // 多行模式：行内导航
             if (cursorLineRef.current > 0) {
               const prevLine = linesRef.current[cursorLineRef.current - 1] || '';
               setCursorLine(cursorLineRef.current - 1);
               setCursorCol(Math.min(cursorColRef.current, prevLine.length));
+            } else {
+              // 已到第一行，开始历史导航
+              navigateHistory('up');
             }
-          } else if (linesRef.current.length === 1 && linesRef.current[0] === '') {
-            // 单行且为空：历史记录导航
+          } else {
+            // 单行模式：历史记录导航（无论是否为空）
             navigateHistory('up');
           }
-          // 单行但有内容：不处理（等待用户按 Shift+Enter 进入多行）
           break;
         case 'down':
-          if (linesRef.current.length > 1) {
+          // 多行模式下，如果已经在浏览历史记录，继续使用历史导航而非行内导航
+          if (historyPointerRef.current !== -1) {
+            navigateHistory('down');
+          } else if (linesRef.current.length > 1) {
             // 多行模式：行内导航
             if (cursorLineRef.current < linesRef.current.length - 1) {
               const nextLine = linesRef.current[cursorLineRef.current + 1] || '';
               setCursorLine(cursorLineRef.current + 1);
               setCursorCol(Math.min(cursorColRef.current, nextLine.length));
+            } else {
+              // 已到最后一行，开始历史导航
+              navigateHistory('down');
             }
-          } else if (linesRef.current.length === 1 && linesRef.current[0] === '') {
-            // 单行且为空：历史记录导航
+          } else {
+            // 单行模式：历史记录导航（无论是否为空）
             navigateHistory('down');
           }
-          // 单行但有内容：不处理
           break;
         case 'meta':
           if (traditionalKey.key === 'return') {
@@ -468,11 +551,18 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
     };
   }, [isActive, internal_eventEmitter]);
 
+  // 隐藏模式：不渲染任何内容（保持 stdin 监听和 Kitty 协议活跃）
+  if (hidden) return null;
+
   const isMultiline = lines.length > 1;
   const maxDisplayLines = 5;
   const startLine = Math.max(0, cursorLine - maxDisplayLines + 1);
   const displayLines = lines.slice(startLine, startLine + maxDisplayLines);
   const displayCursorLine = cursorLine - startLine;
+
+  // 提示符：正常模式 "❯ "，中断追加模式 "+ "
+  const promptChar = interruptMode ? '+ ' : '❯ ';
+  const promptColor = interruptMode ? '#FBBF24' : '#7C8CF5';
 
   // 获取终端宽度，用于单行超长文本的视口滚动
   const { stdout } = useStdout();
@@ -481,20 +571,24 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   const cursorWidth = 1; // 光标 █ 占 1 个字符
   const availableWidth = termWidth - promptWidth - cursorWidth;
 
-  // 单行模式
+  // ---------------------------------------------------------------
+  // 统一用 <Box flexDirection="column"> 包裹单行和多行，
+  // 避免单行/多行切换时 Ink 渲染树不同导致旧行残留在终端上。
+  // ---------------------------------------------------------------
+
+  // 单行模式：超长文本做视口滚动
   if (!isMultiline) {
     const line = lines[0] || '';
 
     // 超长文本：视口滚动，确保 Ink 知道组件只占一行，避免终端软换行导致重绘异常
+    let lineContent: React.ReactNode;
     if (line.length > availableWidth) {
       // 计算可见窗口：光标在窗口的 70% 位置（偏左），留出右侧空间
       const ellipsisWidth = 1; // "…" 占位
-      let viewStart = 0;
-      let viewEnd = line.length;
       const windowSize = availableWidth;
 
-      viewStart = Math.max(0, cursorCol - Math.floor(windowSize * 0.7));
-      viewEnd = viewStart + windowSize;
+      let viewStart = Math.max(0, cursorCol - Math.floor(windowSize * 0.7));
+      let viewEnd = viewStart + windowSize;
       if (viewEnd > line.length) {
         viewEnd = line.length;
         viewStart = Math.max(0, viewEnd - windowSize);
@@ -509,29 +603,33 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
       const visibleBefore = line.slice(adjustedStart, cursorCol);
       const visibleAfter = line.slice(cursorCol, adjustedEnd);
 
-      return (
-        <Box>
-          <Text color="#7C8CF5" bold>❯ </Text>
-          <Text>
-            {hasLeftEllipsis && <Text color="gray">…</Text>}
-            {visibleBefore}
-            <Text color="gray">█</Text>
-            {visibleAfter}
-            {hasRightEllipsis && <Text color="gray">…</Text>}
-          </Text>
-        </Box>
+      lineContent = (
+        <Text>
+          {hasLeftEllipsis && <Text color="gray">…</Text>}
+          {visibleBefore}
+          <Text color="gray">█</Text>
+          {visibleAfter}
+          {hasRightEllipsis && <Text color="gray">…</Text>}
+        </Text>
       );
-    }
-
-    // 正常长度文本
-    return (
-      <Box>
-        <Text color="#7C8CF5" bold>❯ </Text>
+    } else {
+      lineContent = (
         <Text>
           {line.slice(0, cursorCol)}
           <Text color="gray">█</Text>
           {line.slice(cursorCol)}
         </Text>
+      );
+    }
+
+    // 与多行模式共用同一棵组件树（都是 <Box flexDirection="column"> 包裹），
+    // 避免模式切换时 Ink diff 不对齐导致残行
+    return (
+      <Box flexDirection="column">
+        <Box key={0}>
+          <Text color={promptColor} bold>{promptChar}</Text>
+          {lineContent}
+        </Box>
       </Box>
     );
   }
@@ -539,24 +637,29 @@ export function InputHandler({ onSubmit, isActive }: InputHandlerProps) {
   // 多行模式
   return (
     <Box flexDirection="column">
-      {displayLines.map((line, i) => (
-        <Box key={i}>
-          {i === 0 && <Text color="#7C8CF5" bold>❯ </Text>}
-          {i !== 0 && i === displayCursorLine && <Text color="#A78BFA">│ </Text>}
-          {i !== 0 && i !== displayCursorLine && <Text color="gray">│ </Text>}
-          <Text>
-            {i === displayCursorLine ? (
-              <>
-                {line.slice(0, cursorCol)}
-                <Text color="gray">█</Text>
-                {line.slice(cursorCol)}
-              </>
-            ) : (
-              line
-            )}
-          </Text>
-        </Box>
-      ))}
+      {displayLines.map((line, i) => {
+        // 使用全局行号作为 key，确保 Ink 能正确识别哪一行被删除，
+        // 避免 backspace 合并行时旧行内容残留在终端上
+        const globalLineIndex = startLine + i;
+        return (
+          <Box key={globalLineIndex}>
+            {i === 0 && <Text color={promptColor} bold>{promptChar}</Text>}
+            {i !== 0 && i === displayCursorLine && <Text color="#A78BFA">│ </Text>}
+            {i !== 0 && i !== displayCursorLine && <Text color="gray">│ </Text>}
+            <Text>
+              {i === displayCursorLine ? (
+                <>
+                  {line.slice(0, cursorCol)}
+                  <Text color="gray">█</Text>
+                  {line.slice(cursorCol)}
+                </>
+              ) : (
+                line
+              )}
+            </Text>
+          </Box>
+        );
+      })}
       {lines.length > maxDisplayLines && (
         <Box>
           <Text color="gray" dimColor>  {t('input.multiline_hint', { count: lines.length })}</Text>

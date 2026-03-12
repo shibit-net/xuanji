@@ -16,6 +16,18 @@ export type MemoryEntryType =
   | 'relationship'     // 人际关系（联系人/喜好/互动）
   | 'important_date';  // 重要日期（生日/纪念日/截止日）
 
+/** 记忆条目元数据（用于结构化信息） */
+export interface MemoryMetadata {
+  /** 对于 important_date 类型：日期值 (ISO 格式: "2026-03-15") */
+  dateValue?: string;
+  /** 日期类型 */
+  dateType?: 'deadline' | 'birthday' | 'anniversary' | 'reminder';
+  /** 是否循环 */
+  recurring?: 'yearly' | 'monthly' | 'none';
+  /** 关联人物 */
+  relatedPerson?: string;
+}
+
 /** 单条记忆条目 */
 export interface MemoryEntry {
   id: string;
@@ -28,6 +40,8 @@ export interface MemoryEntry {
   lastAccessedAt: string;
   accessCount: number;
   projectPath?: string;
+  /** 结构化元数据（可选，用于时效性记忆等特殊处理） */
+  metadata?: MemoryMetadata;
 }
 
 /** 工具调用记录 */
@@ -64,6 +78,7 @@ export interface IMemoryStore {
   save(session: SessionMemory): Promise<void>;
   retrieve(query: string, options?: RetrieveOptions): Promise<MemoryEntry[]>;
   compact(): Promise<void>;
+  getStats(): Promise<{ total: number; byType: Record<string, number> }>;
 }
 
 /** 记忆配置 */

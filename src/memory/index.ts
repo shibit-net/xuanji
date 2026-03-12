@@ -23,4 +23,5 @@ export { MemoryRetriever } from './MemoryRetriever';
 export { MemoryCompactor } from './MemoryCompactor';
 export { MemoryManager } from './MemoryManager';
 export { SmartMemoryExtractor } from './SmartMemoryExtractor';
+export { SmartMemoryExtractorV2 } from './SmartMemoryExtractorV2';
 export { HybridRetriever } from './HybridRetriever';

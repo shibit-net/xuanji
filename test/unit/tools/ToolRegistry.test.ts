@@ -145,7 +145,9 @@ describe('createDefaultRegistry()', () => {
     expect(registry.has('exit_plan_mode')).toBe(true);
     expect(registry.has('notebook_edit')).toBe(true);
     expect(registry.has('enter_worktree')).toBe(true);
-    expect(registry.getAll().length).toBe(18);
+    expect(registry.has('list_directory')).toBe(true);
+    expect(registry.has('multi_edit')).toBe(true);
+    expect(registry.getAll().length).toBe(20);
   });
 
   it('所有工具都应有合法的 Schema', () => {

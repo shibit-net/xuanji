@@ -127,6 +127,8 @@ export class SkillLoader {
         }
       }
     } catch (error) {
+      // 目录不存在时静默跳过
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       log.debug('Scan custom skills failed:', error);
     }
   }

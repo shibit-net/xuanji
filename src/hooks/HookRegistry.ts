@@ -115,7 +115,7 @@ export class HookRegistry {
   async emitSync(
     event: HookEvent,
     context: Partial<HookEventContext> = {},
-  ): Promise<{ blocked: boolean; results: HookHandlerResult[] }> {
+  ): Promise<{ blocked: boolean; results: HookHandlerResult[]; reason?: string }> {
     if (this.options.disabled) {
       return { blocked: false, results: [] };
     }

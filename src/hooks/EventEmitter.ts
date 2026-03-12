@@ -99,7 +99,7 @@ export class HookEventEmitter {
   async emitSync(
     event: HookEvent,
     context: HookEventContext,
-  ): Promise<{ blocked: boolean; results: HookHandlerResult[] }> {
+  ): Promise<{ blocked: boolean; results: HookHandlerResult[]; reason?: string }> {
     const eventListeners = this.listeners.get(event);
     if (!eventListeners || eventListeners.length === 0) {
       return { blocked: false, results: [] };
@@ -107,6 +107,7 @@ export class HookEventEmitter {
 
     const results: HookHandlerResult[] = [];
     let blocked = false;
+    let reason: string | undefined;
 
     for (const listener of eventListeners) {
       try {
@@ -119,6 +120,7 @@ export class HookEventEmitter {
 
         if (result.blocked) {
           blocked = true;
+          reason = result.error || 'Blocked by hook';
           break;
         }
       } catch (error) {
@@ -129,11 +131,12 @@ export class HookEventEmitter {
         };
         results.push(errorResult);
         blocked = true;
+        reason = errorResult.error;
         break;
       }
     }
 
-    return { blocked, results };
+    return { blocked, results, reason };
   }
 
   /**

@@ -71,9 +71,17 @@ const SENSITIVE_FILE_PATTERNS = [
  */
 export class FileGuard {
   private pathMatcher: PathMatcher;
+  private ignoreFilter?: { isIgnored(path: string): boolean };
 
   constructor() {
     this.pathMatcher = new PathMatcher();
+  }
+
+  /**
+   * 设置 Ignore 过滤器（由 ChatSession 注入）
+   */
+  setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void {
+    this.ignoreFilter = filter;
   }
 
   /**
@@ -99,6 +107,16 @@ export class FileGuard {
     // 判断操作类型
     const isWrite = toolName === 'write_file' || toolName === 'edit_file' || toolName === 'notebook_edit';
     const category = isWrite ? 'fileWrite' : 'fileRead';
+
+    // Step 0: .xuanji/ignore 检查 (最高优先级)
+    if (this.ignoreFilter?.isIgnored(normalizedPath)) {
+      return {
+        category,
+        riskLevel: 'danger',
+        description: t('perm.guard_ignored_path', { path: filePath }),
+        cacheKey: `${category}:ignored:${normalizedPath}`,
+      };
+    }
 
     // 检查是否命中黑名单
     const deniedPaths = policyEngine.getDeniedPaths();
@@ -141,6 +159,10 @@ export class FileGuard {
         riskLevel: isWrite ? 'danger' : 'warn',
         description: t(key, { name: path.basename(filePath) }),
         cacheKey: `${category}:sensitive:${path.basename(filePath)}`,
+        context: {
+          isProjectPath: !this.isOutsideProject(normalizedPath),
+          isSensitiveFile: true,
+        },
       };
     }
 
@@ -152,6 +174,9 @@ export class FileGuard {
         riskLevel: 'safe',
         description: t('perm.guard_allowed_path', { path: filePath }),
         cacheKey: `${category}:allowed`,
+        context: {
+          isProjectPath: !this.isOutsideProject(normalizedPath),
+        },
       };
     }
 
@@ -162,6 +187,9 @@ export class FileGuard {
         riskLevel: 'warn',
         description: t('perm.guard_outside_project', { path: filePath }),
         cacheKey: `${category}:outside:${path.dirname(normalizedPath)}`,
+        context: {
+          isProjectPath: false,
+        },
       };
     }
 
@@ -172,6 +200,9 @@ export class FileGuard {
       riskLevel: 'safe',
       description: t(key, { path: filePath }),
       cacheKey: `${category}:${normalizedPath}`,
+      context: {
+        isProjectPath: !this.isOutsideProject(normalizedPath),
+      },
     };
   }
 

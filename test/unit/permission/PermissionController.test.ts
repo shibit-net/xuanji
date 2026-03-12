@@ -38,21 +38,21 @@ describe('PermissionController', () => {
   });
 
   describe('safe 级别 — 自动放行', () => {
-    it('读取普通文件应自动放行 (auto-safe)', async () => {
+    it('读取普通文件应自动放行 (auto-safe-read)', async () => {
       const result = await controller.check(
         createRequest('read_file', { file_path: process.cwd() + '/src/index.ts' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-safe');
+      expect(result.checkedBy).toBe('auto-safe-read');
       expect(mockHandler).not.toHaveBeenCalled();
     });
 
-    it('写入普通项目文件应自动放行 (auto-safe)', async () => {
+    it('写入普通项目文件应委托给 plan_review (plan-delegated)', async () => {
       const result = await controller.check(
         createRequest('write_file', { file_path: process.cwd() + '/test.txt' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-safe');
+      expect(result.checkedBy).toBe('plan-delegated');
       expect(mockHandler).not.toHaveBeenCalled();
     });
 
@@ -66,41 +66,81 @@ describe('PermissionController', () => {
     });
   });
 
-  describe('warn 级别 — 自动放行 (默认 warnLevel: auto-allow)', () => {
-    it('sudo 命令应自动放行 (auto-warn)', async () => {
+  describe('warn 级别 — 默认需要确认 (warnLevel: ask)', () => {
+    it('sudo 命令应触发确认 (user-confirmation)', async () => {
       const result = await controller.check(
         createRequest('bash', { command: 'sudo apt install vim' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-warn');
-      expect(mockHandler).not.toHaveBeenCalled();
+      expect(result.checkedBy).toBe('user-confirmation');
+      expect(mockHandler).toHaveBeenCalled();
     });
 
-    it('git push --force 应自动放行 (auto-warn)', async () => {
+    it('git push --force 应触发确认 (user-confirmation)', async () => {
       const result = await controller.check(
         createRequest('bash', { command: 'git push --force origin main' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-warn');
-      expect(mockHandler).not.toHaveBeenCalled();
+      expect(result.checkedBy).toBe('user-confirmation');
+      expect(mockHandler).toHaveBeenCalled();
     });
 
-    it('项目外写入应自动放行 (auto-warn)', async () => {
+    it('项目外写入应触发确认 (user-confirmation)', async () => {
       const result = await controller.check(
         createRequest('write_file', { file_path: '/tmp/test.txt' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-warn');
-      expect(mockHandler).not.toHaveBeenCalled();
+      expect(result.checkedBy).toBe('user-confirmation');
+      expect(mockHandler).toHaveBeenCalled();
     });
 
-    it('读取 .env 文件应自动放行 (auto-warn)', async () => {
+    it('读取 .env 文件应触发确认 (user-confirmation)', async () => {
       const result = await controller.check(
         createRequest('read_file', { file_path: '/project/.env' }),
       );
       expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('user-confirmation');
+      expect(mockHandler).toHaveBeenCalled();
+    });
+  });
+
+  describe('warn 级别 — warnLevel: auto-allow (自动放行)', () => {
+    let autoAllowController: PermissionController;
+
+    beforeEach(() => {
+      autoAllowController = new PermissionController(createConfig({ warnLevel: 'auto-allow' }));
+    });
+
+    it('sudo 命令应自动放行 (auto-warn)', async () => {
+      const result = await autoAllowController.check(
+        createRequest('bash', { command: 'sudo apt install vim' }),
+      );
+      expect(result.allowed).toBe(true);
       expect(result.checkedBy).toBe('auto-warn');
-      expect(mockHandler).not.toHaveBeenCalled();
+    });
+
+    it('git push --force 应自动放行 (auto-warn)', async () => {
+      const result = await autoAllowController.check(
+        createRequest('bash', { command: 'git push --force origin main' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('auto-warn');
+    });
+
+    it('项目外写入应自动放行 (auto-warn)', async () => {
+      const result = await autoAllowController.check(
+        createRequest('write_file', { file_path: '/tmp/test.txt' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('auto-warn');
+    });
+
+    it('读取 .env 文件应自动放行 (auto-warn)', async () => {
+      const result = await autoAllowController.check(
+        createRequest('read_file', { file_path: '/project/.env' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.checkedBy).toBe('auto-warn');
     });
   });
 
@@ -166,7 +206,7 @@ describe('PermissionController', () => {
       // 第二次: 命中缓存
       const result = await askController.check(createRequest('bash', { command: 'sudo ls /tmp' }));
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('cache');
+      expect(result.checkedBy).toBe('session-cache');
       expect(askMockHandler).toHaveBeenCalledTimes(1);
     });
 
@@ -256,7 +296,7 @@ describe('PermissionController', () => {
       // 第二次: 命中缓存 (同一系统路径前缀)
       const result = await controller.check(createRequest('write_file', { file_path: '/etc/hostname' }));
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('cache');
+      expect(result.checkedBy).toBe('session-cache');
       expect(mockHandler).toHaveBeenCalledTimes(1);
     });
 
@@ -267,7 +307,7 @@ describe('PermissionController', () => {
       await controller.check(createRequest('write_file', { file_path: '/etc/hosts' }));
       const result = await controller.check(createRequest('write_file', { file_path: '/etc/hostname' }));
       expect(result.allowed).toBe(false);
-      expect(result.checkedBy).toBe('cache');
+      expect(result.checkedBy).toBe('session-cache');
     });
 
     it('updateConfig 应清空缓存', async () => {

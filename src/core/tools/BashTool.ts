@@ -8,8 +8,9 @@ import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { getSharedShell } from './PersistentShell';
 import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
-import { getToolTimeouts } from '@/core/config/RuntimeConfig';
+import { getToolTimeouts, getRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
+import type { SandboxExecutor, SandboxConfig } from './sandbox/SandboxExecutor';
 
 const log = logger.child({ module: 'BashTool' });
 
@@ -82,6 +83,11 @@ export class BashTool extends BaseTool {
     required: ['command'],
   };
 
+  /** 沙箱执行器（可选，延迟初始化） */
+  private sandboxExecutor: SandboxExecutor | null = null;
+  /** 沙箱初始化 Promise（防止并发竞态） */
+  private sandboxInitPromise: Promise<void> | null = null;
+
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const command = input.command as string;
     const timeout = Math.min(
@@ -90,6 +96,12 @@ export class BashTool extends BaseTool {
     );
     const runInBackground = (input.run_in_background as boolean | undefined) ?? false;
     // description 参数仅用于权限确认 UI，不影响执行逻辑
+
+    // 延迟初始化沙箱（使用 Promise 去重防竞态）
+    if (!this.sandboxInitPromise) {
+      this.sandboxInitPromise = this.initSandbox();
+    }
+    await this.sandboxInitPromise;
 
     try {
       // 沙箱检查: 检测命令是否尝试操作受限目录
@@ -115,7 +127,27 @@ export class BashTool extends BaseTool {
         );
       }
 
-      // 前台同步执行：使用持久化 Shell
+      // 前台同步执行：优先使用沙箱，降级到持久化 Shell
+      if (this.sandboxExecutor) {
+        try {
+          const result = await this.sandboxExecutor.execute(command, process.cwd(), timeout);
+
+          let output = '';
+          if (result.stdout) output += result.stdout;
+          if (result.stderr) output += (output ? '\n' : '') + `[stderr]\n${result.stderr}`;
+          output = middleTruncate(output, getMaxToolOutputLength());
+
+          if (result.exitCode !== 0) {
+            return this.error(`命令退出码: ${result.exitCode}\n${output}`, { exitCode: result.exitCode });
+          }
+          return this.success(output || '(无输出)', { exitCode: result.exitCode, sandboxed: true });
+        } catch (sandboxErr) {
+          log.warn('Sandbox execution failed, falling back to direct execution. Command:', command, sandboxErr);
+          // 沙箱执行失败，降级到直接执行
+        }
+      }
+
+      // 降级：使用持久化 Shell（无沙箱）
       const shell = getSharedShell();
       const result = await shell.execute(command, timeout);
 
@@ -135,6 +167,53 @@ export class BashTool extends BaseTool {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`执行命令失败: ${message}`);
+    }
+  }
+
+  // ============================================================
+  // 沙箱初始化
+  // ============================================================
+
+  /**
+   * 延迟初始化沙箱执行器
+   */
+  private async initSandbox(): Promise<void> {
+    try {
+      const config = getRuntimeConfig();
+      const sandboxConfig = config?.tools?.bash?.sandbox as SandboxConfig | undefined;
+
+      if (!sandboxConfig?.enabled) {
+        return;
+      }
+
+      if (sandboxConfig.mode === 'none') {
+        return;
+      }
+
+      const { SeatbeltExecutor } = await import('./sandbox/SeatbeltExecutor');
+      const { BubblewrapExecutor } = await import('./sandbox/BubblewrapExecutor');
+
+      // 按优先级尝试各沙箱执行器
+      const executors: SandboxExecutor[] = [];
+
+      if (sandboxConfig.mode === 'auto' || sandboxConfig.mode === 'seatbelt') {
+        executors.push(new SeatbeltExecutor(sandboxConfig));
+      }
+      if (sandboxConfig.mode === 'auto' || sandboxConfig.mode === 'bwrap') {
+        executors.push(new BubblewrapExecutor(sandboxConfig));
+      }
+
+      for (const executor of executors) {
+        if (await executor.isAvailable()) {
+          this.sandboxExecutor = executor;
+          log.info(`Bash sandbox enabled: ${executor.getName()}`);
+          return;
+        }
+      }
+
+      log.warn('Sandbox enabled but no executor available, falling back to direct execution');
+    } catch (err) {
+      log.debug('Sandbox init failed:', err);
     }
   }
 

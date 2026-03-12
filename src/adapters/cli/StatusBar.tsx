@@ -11,6 +11,10 @@ export interface StatusBarProps {
   model: string;
   usage: TokenUsage;
   cost: number;
+  /** 已登录用户名（未登录时为 null） */
+  username?: string | null;
+  /** 是否处于 Plan Mode */
+  isPlanMode?: boolean;
 }
 
 /**
@@ -29,11 +33,26 @@ function formatNumber(num: number): string {
 /**
  * StatusBar — 底部状态栏，显示模型、Token 用量和费用
  */
-export function StatusBar({ model, usage, cost }: StatusBarProps) {
+export function StatusBar({ model, usage, cost, username, isPlanMode }: StatusBarProps) {
   const totalTokens = usage.input + usage.output;
 
   return (
-    <Box borderStyle="round" borderColor="#7C8CF5" paddingX={1} marginTop={1}>
+    <Box borderStyle="round" borderColor={isPlanMode ? 'yellow' : '#7C8CF5'} paddingX={1}>
+      {/* Plan Mode 标签 */}
+      {isPlanMode && (
+        <>
+          <Text color="yellow" bold>[PLAN]</Text>
+          <Text color="gray" dimColor> │ </Text>
+        </>
+      )}
+      {/* 用户信息 */}
+      {username && (
+        <>
+          <Text color="#34D399" bold>{username}</Text>
+          <Text color="gray" dimColor> │ </Text>
+        </>
+      )}
+
       {/* 模型名称 */}
       <Text color="#7C8CF5" bold>🤖 {model}</Text>
 
@@ -55,6 +74,10 @@ export function StatusBar({ model, usage, cost }: StatusBarProps) {
           <Text color="magenta">💰 {CostTracker.formatCost(cost)}</Text>
         </>
       )}
+
+      {/* 快捷键提示 */}
+      <Text color="gray" dimColor> │ </Text>
+      <Text color="gray" dimColor>? 快捷操作</Text>
     </Box>
   );
 }

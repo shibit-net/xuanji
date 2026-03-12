@@ -111,6 +111,13 @@ export class CostTracker {
   }
 
   /**
+   * 恢复费用状态（用于 session resume）
+   */
+  restore(totalCost: number): void {
+    this.totalCost = totalCost;
+  }
+
+  /**
    * 获取当前定价来源
    */
   getPricingSource(): string {

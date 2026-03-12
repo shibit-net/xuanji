@@ -30,6 +30,9 @@ function parseArgs(argv: string[]): {
   wecom: boolean;
   // GUI 模式
   gui: boolean;
+  // 守护进程
+  daemon: boolean;
+  daemonAction?: 'start' | 'stop' | 'status';
 } {
   const args = argv.slice(2);
   const result = {
@@ -42,6 +45,8 @@ function parseArgs(argv: string[]): {
     feishu: false,
     wecom: false,
     gui: false,
+    daemon: false,
+    daemonAction: undefined as 'start' | 'stop' | 'status' | undefined,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -68,6 +73,16 @@ function parseArgs(argv: string[]): {
         break;
       case 'gui':
         result.gui = true;
+        break;
+      case 'daemon':
+        result.daemon = true;
+        // 下一个参数是 start/stop/status
+        if (args[i + 1] && !args[i + 1].startsWith('-')) {
+          const action = args[++i];
+          if (action === 'start' || action === 'stop' || action === 'status') {
+            result.daemonAction = action;
+          }
+        }
         break;
       case '--dingtalk':
         result.dingtalk = true;
@@ -105,6 +120,9 @@ function printHelp(): void {
     xuanji bot --feishu          启动飞书机器人
     xuanji bot --wecom           启动企业微信机器人
     xuanji bot                   自动启动 config.json 中 enabled 的机器人
+    xuanji daemon start          启动提醒守护进程
+    xuanji daemon stop           停止提醒守护进程
+    xuanji daemon status         查看守护进程状态
 
   选项:
     -h, --help           显示帮助信息
@@ -139,6 +157,7 @@ function printHelp(): void {
     /bots       机器人管理
     /lang       切换语言
     /init       初始化配置
+    /doctor     系统诊断
     /exit       退出
 
   环境变量:
@@ -288,58 +307,26 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
  * 启动 Electron GUI 模式
  */
 async function startGui(): Promise<void> {
-  const { execFile } = await import('child_process');
+  const { spawn } = await import('child_process');
   const { resolve, dirname } = await import('path');
   const { fileURLToPath } = await import('url');
-  const { existsSync } = await import('fs');
 
-  // 查找 electron 可执行文件
-  let electronPath: string;
-  try {
-    const electronModule = await import('electron');
-    electronPath = (electronModule as unknown as { default: string }).default || 'electron';
-  } catch {
-    // 回退：从 node_modules/.bin 查找
-    const sourceDir = dirname(fileURLToPath(import.meta.url));
-    electronPath = resolve(sourceDir, '..', 'node_modules', '.bin', 'electron');
-  }
-
-  // 确定主进程路径：优先使用编译后的版本（dist），如果不存在则自动构建
-  // 注：构建脚本 --outDir dist/electron，所以文件在 dist/electron/main.cjs
   const sourceDir = dirname(fileURLToPath(import.meta.url));
-  const distMainPath = resolve(sourceDir, '..', 'dist', 'electron', 'main.cjs');
-
-  let mainPath: string;
-  if (existsSync(distMainPath)) {
-    // 使用已编译的版本
-    mainPath = distMainPath;
-  } else {
-    console.log('⚠️  未找到编译的 Electron 文件，尝试自动构建...');
-    try {
-      const { execSync } = await import('child_process');
-      execSync('npm run build:electron', {
-        cwd: resolve(sourceDir, '..'),
-        stdio: 'inherit'
-      });
-      if (!existsSync(distMainPath)) {
-        throw new Error(`构建后仍未找到文件: ${distMainPath}`);
-      }
-      mainPath = distMainPath;
-    } catch (err) {
-      console.error('❌ Electron 构建失败:', err instanceof Error ? err.message : String(err));
-      process.exit(1);
-    }
-  }
+  const desktopDir = resolve(sourceDir, '..', 'desktop');
 
   console.log('✦ 正在启动璇玑桌面应用...');
+  console.log('  位置:', desktopDir);
 
-  const child = execFile(electronPath, [mainPath], {
-    env: { ...process.env },
-  }, (error: Error | null) => {
-    if (error && (error as NodeJS.ErrnoException).code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-      console.error('❌ GUI 启动失败:', error.message);
-      process.exit(1);
-    }
+  // 执行 npm run electron:dev
+  const child = spawn('npm', ['run', 'electron:dev'], {
+    cwd: desktopDir,
+    stdio: 'inherit',
+    shell: true,
+  });
+
+  child.on('error', (err) => {
+    console.error('❌ GUI 启动失败:', err.message);
+    process.exit(1);
   });
 
   child.on('exit', (code) => {
@@ -462,25 +449,75 @@ async function main(): Promise<void> {
       },
       onMemoryQuery: async (query?: string) => {
         const memoryManager = session.getMemoryManager();
-        if (!memoryManager) return '';
-        const entries = await memoryManager.retrieve(query ?? '', { maxResults: 20 });
-        if (entries.length === 0) return '';
-        return entries.map((e: any, i: number) =>
-          `${i + 1}. [${e.type}] ${e.content}${e.keywords?.length ? ` (${e.keywords.slice(0, 3).join(', ')})` : ''}`
-        ).join('\n');
+        if (!memoryManager) return '❌ 记忆系统未启用';
+        
+        // 使用新的 MemoryCommands 处理器
+        const { MemoryCommands } = await import('@/adapters/cli/MemoryCommands');
+        const handler = new MemoryCommands(memoryManager);
+        return handler.handle(query || 'list');
       },
       // ─── 会话持久化回调 ─────────────────────────────
       onSessionSave: async (name?: string) => session.saveSession(name),
-      onSessionResume: async (sessionId: string) => session.resumeSession(sessionId),
+      onSessionResume: async (sessionId: string) => {
+        const ctx = await session.resumeSession(sessionId);
+        return {
+          sessionId: ctx.sessionId,
+          messageCount: ctx.messages.length,
+          usage: ctx.usage,
+          historyMessages: ctx.historyMessages,
+        };
+      },
       onSessionList: async () => session.listSessions(),
       onSessionDelete: async (sessionId: string) => session.deleteSession(sessionId),
       onCheckpointCreate: async (label?: string) => session.createCheckpoint(label),
       onCheckpointRewind: async (checkpointId: string) => session.rewindToCheckpoint(checkpointId),
       onCheckpointList: async () => session.listCheckpoints(),
+      onDoctorQuery: async () => session.getDiagnostics(),
+      // ─── SubAgent 进度事件绑定 ──────────────────────────
+      onSubAgentSetup: (callbacks: any) => {
+        // 延迟 1s 等 ChatSession 初始化完成后绑定 HookRegistry
+        setTimeout(() => {
+          const hookRegistry = session.getHookRegistry();
+          if (!hookRegistry) return;
+
+          hookRegistry.addListener('SubAgentStart', async (ctx) => {
+            callbacks.onStart({
+              subAgentId: ctx.subAgentId ?? '',
+              task: (ctx.data?.task as string) ?? '',
+              depth: (ctx.data?.depth as number) ?? 1,
+              role: (ctx.data?.role as string) ?? 'general-purpose',
+            });
+            return { success: true };
+          });
+
+          hookRegistry.addListener('SubAgentToolUse', async (ctx) => {
+            callbacks.onToolUse({
+              subAgentId: ctx.subAgentId ?? '',
+              toolName: ctx.toolName ?? '',
+            });
+            return { success: true };
+          });
+
+          hookRegistry.addListener('SubAgentEnd', async (ctx) => {
+            callbacks.onEnd({
+              subAgentId: ctx.subAgentId ?? '',
+              result: ctx.data?.result as string | undefined,
+            });
+            return { success: true };
+          });
+        }, 1000);
+      },
     });
   };
 
-  render(React.createElement(AppWithLogo));
+  // 渲染 App，配置选项以减少终端滚动问题
+  const { waitUntilExit } = render(React.createElement(AppWithLogo), {
+    patchConsole: false,  // 禁用 console 拦截，减少输出干扰和滚动
+    exitOnCtrlC: false,   // 自定义退出处理（已在 App 中通过 useInput 实现）
+  });
+
+  // 等待应用退出
+  await waitUntilExit;
 }
 
 // 启动

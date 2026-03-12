@@ -59,7 +59,7 @@ export class TodoStorageTool extends BaseTool {
     required: ['title'],
   };
 
-  readonly readonly = false;
+  readonly readonly = true;
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const title = input.title as string;
@@ -77,7 +77,8 @@ export class TodoStorageTool extends BaseTool {
         activeForm: input.activeForm as string | undefined,
       });
 
-      return this.success(JSON.stringify(todo, null, 2));
+      const summary = `✅ 已创建: ${todo.title} (${todo.id})${manager.formatProgress()}`;
+      return this.success(summary);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return this.error(`创建任务失败: ${msg}`);

@@ -7,6 +7,7 @@
 
 import { MCPClient } from './MCPClient';
 import { MCPSSEClient } from './MCPSSEClient';
+import { HttpMCPClient } from './HttpMCPClient';
 import type {
   MCPConfig,
   MCPTool,
@@ -30,6 +31,8 @@ export class MCPManager {
   private config?: MCPConfig;
   private initialized = false;
   private _shutdown = false;
+  /** 初始化锁，防止并发初始化 */
+  private initPromise?: Promise<void>;
 
   /** reconnect 后工具变更回调 */
   onToolsChanged?: (serverName: string) => void;
@@ -53,11 +56,28 @@ export class MCPManager {
    * @param config MCP 配置
    */
   async initialize(config: MCPConfig): Promise<void> {
+    // 并发安全：如果正在初始化，等待完成
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
     if (this.initialized) {
       log.warn('Already initialized, skipping');
       return;
     }
 
+    this.initPromise = this._doInitialize(config);
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = undefined;
+    }
+  }
+
+  /**
+   * 内部初始化实现
+   */
+  private async _doInitialize(config: MCPConfig): Promise<void> {
     this.config = config;
 
     // 创建所有 MCPClient（但不启动）
@@ -70,9 +90,18 @@ export class MCPManager {
       try {
         let client: IMCPClient;
 
-        if (serverConfig.transport === 'sse') {
+        const transport = serverConfig.transport ?? 'stdio';
+
+        if (transport === 'sse') {
           // SSE transport
           client = new MCPSSEClient({
+            config: serverConfig,
+            timeout: config.timeout,
+            debug: process.env.MCP_DEBUG === 'true',
+          });
+        } else if (transport === 'http') {
+          // HTTP transport
+          client = new HttpMCPClient({
             config: serverConfig,
             timeout: config.timeout,
             debug: process.env.MCP_DEBUG === 'true',
@@ -89,20 +118,18 @@ export class MCPManager {
         this.clients.set(serverConfig.name, client);
 
         // 监听重连失败事件，从工具列表移除不可用的服务器
-        if (typeof (client as any).on === 'function') {
-          (client as any).on('reconnect_failed', (name: string) => {
-            log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
-            this.clients.delete(name);
-          });
+        client.on('reconnect_failed', (name: string) => {
+          log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
+          this.clients.delete(name);
+        });
 
-          // 监听重连成功事件，刷新工具 schema 并通知外部
-          (client as any).on('reconnected', (name: string) => {
-            log.info(`MCP server "${name}" reconnected, refreshing tools`);
-            this.refreshServerTools(name).catch((err) => {
-              log.warn(`Failed to refresh tools for "${name}" after reconnect:`, err);
-            });
+        // 监听重连成功事件，刷新工具 schema 并通知外部
+        client.on('reconnected', (name: string) => {
+          log.info(`MCP server "${name}" reconnected, refreshing tools`);
+          this.refreshServerTools(name).catch((err) => {
+            log.warn(`Failed to refresh tools for "${name}" after reconnect:`, err);
           });
-        }
+        });
 
         log.info(`Registered MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
       } catch (error) {
@@ -168,6 +195,11 @@ export class MCPManager {
     toolName: string,
     args?: Record<string, unknown>
   ): Promise<CallToolResult> {
+    // 并发安全：等待初始化完成
+    if (this.initPromise) {
+      await this.initPromise;
+    }
+
     if (this._shutdown) {
       throw new Error('MCPManager has been shut down');
     }
@@ -195,6 +227,11 @@ export class MCPManager {
     promptName: string,
     args?: Record<string, string>
   ): Promise<GetPromptResult> {
+    // 并发安全：等待初始化完成
+    if (this.initPromise) {
+      await this.initPromise;
+    }
+
     const client = this.clients.get(serverName);
     if (!client) {
       throw new Error(`MCP server "${serverName}" not found`);

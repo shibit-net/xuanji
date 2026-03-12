@@ -52,6 +52,7 @@ export class MemoryManager implements IMemoryStore {
   private compactor: MemoryCompactor;
   private projectKnowledge: ProjectKnowledge | null = null;
   private smartExtractor: SmartMemoryExtractor | null = null;
+  private smartExtractorV2: import('./SmartMemoryExtractorV2').SmartMemoryExtractorV2 | null = null;
   private embeddingService: EmbeddingService | null = null;
   private vectorStore: VectorStore | null = null;
   private migrator: EmbeddingMigrator | null = null;
@@ -143,8 +144,22 @@ export class MemoryManager implements IMemoryStore {
     try {
       let entries: MemoryEntry[] = [];
 
-      // 优先使用 SmartMemoryExtractor (LLM 驱动的智能提取)
-      if (this.smartExtractor) {
+      // 优先使用 SmartMemoryExtractorV2 (LLM 主动决策版)
+      if (this.smartExtractorV2) {
+        try {
+          entries = await this.smartExtractorV2.extractFromSession(session);
+          log.debug(`SmartExtractorV2 extracted ${entries.length} memories`);
+        } catch (extractErrV2) {
+          log.warn('SmartExtractorV2 failed, falling back to V1:', extractErrV2);
+          // 降级到 V1
+          if (this.smartExtractor) {
+            entries = await this.smartExtractor.extractFromSession(session);
+          } else {
+            entries = await this.compactor.compactSessionAsync(session);
+          }
+        }
+      } else if (this.smartExtractor) {
+        // 使用 V1（兼容模式）
         try {
           entries = await this.smartExtractor.extractFromSession(session);
           log.debug(`SmartExtractor extracted ${entries.length} memories`);
@@ -188,7 +203,9 @@ export class MemoryManager implements IMemoryStore {
         this.hookRegistry.emit('PostMemorySave', {
           sessionId: session.sessionId,
           data: { entriesCount: entries.length },
-        }).catch(() => {});
+        }).catch((err) => {
+          log.debug('PostMemorySave hook emit failed:', err);
+        });
       }
 
       // 检查是否需要触发压缩
@@ -342,6 +359,22 @@ export class MemoryManager implements IMemoryStore {
     log.info('SmartMemoryExtractor injected');
   }
 
+  /**
+   * 设置智能记忆提取器 V2 (LLM 主动决策版)
+   * 由 ChatSession 在初始化时注入
+   */
+  setSmartExtractorV2(extractor: import('./SmartMemoryExtractorV2').SmartMemoryExtractorV2): void {
+    this.smartExtractorV2 = extractor;
+    
+    // 注入记忆检索器（用于获取已有记忆）
+    extractor.setMemoryRetriever({
+      retrieve: (query: string, options?: any) => this.retrieve(query, options),
+      getAll: () => this.cachedEntries,
+    });
+    
+    log.info('SmartMemoryExtractorV2 injected with retriever');
+  }
+
   /** 注入 HookRegistry */
   setHookRegistry(hookRegistry: HookRegistry): void {
     this.hookRegistry = hookRegistry;
@@ -395,6 +428,38 @@ export class MemoryManager implements IMemoryStore {
     return this.config;
   }
 
+  /**
+   * 获取记忆统计信息
+   */
+  async getStats(): Promise<{ total: number; byType: Record<string, number> }> {
+    const byType: Record<string, number> = {
+      shortTerm: 0, // ShortTermMemory 不记录条目数，始终为 0
+      longTerm: 0,
+      project: 0,
+    };
+
+    // 统计长期记忆
+    try {
+      const longTermEntries = await this.longTerm.readAll();
+      byType.longTerm = longTermEntries.length;
+    } catch {
+      // 忽略错误
+    }
+
+    // 统计项目知识
+    if (this.projectKnowledge) {
+      try {
+        const projectEntries = await this.longTerm.readProject();
+        byType.project = projectEntries.length;
+      } catch {
+        // 忽略错误
+      }
+    }
+
+    const total = Object.values(byType).reduce((sum, count) => sum + count, 0);
+    return { total, byType };
+  }
+
   // ────────── 私有方法 ──────────
 
   /** 初始化向量系统（异步，不阻塞主流程） */
@@ -429,7 +494,8 @@ export class MemoryManager implements IMemoryStore {
       this.vectorReady = true;
       log.info('Vector system ready');
     } catch (err) {
-      log.warn('Embedding service unavailable, using keyword fallback:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Embedding service unavailable, using keyword fallback: ${msg}`);
       this.vectorReady = false;
     }
   }

@@ -9,17 +9,23 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
+import { sleep } from '@/core/utils/sleep';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
   MCPTool,
   MCPPrompt,
+  MCPResource,
+  ResourceContent,
   ListToolsResult,
   ListPromptsResult,
+  ListResourcesResult,
   CallToolParams,
   CallToolResult,
   GetPromptParams,
   GetPromptResult,
+  ReadResourceParams,
+  ReadResourceResult,
   MCPServerConfig,
   MCPServerState,
 } from './types';
@@ -70,6 +76,7 @@ export class MCPClient extends EventEmitter {
   // 缓存的工具和 Prompt 列表
   private toolsCache?: MCPTool[];
   private promptsCache?: MCPPrompt[];
+  private resourcesCache?: MCPResource[];
 
   // 输出缓冲区（处理不完整的 JSON）
   private outputBuffer = '';
@@ -256,7 +263,7 @@ export class MCPClient extends EventEmitter {
     this.log(`Reconnecting "${this.config.name}" in ${delay}ms (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'warn');
     this.emit('reconnecting', { name: this.config.name, attempt: this.reconnectAttempts, delay });
 
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
 
     // 延迟后再次检查：close() 可能在等待期间被调用
     if (this.intentionalClose) {
@@ -269,6 +276,7 @@ export class MCPClient extends EventEmitter {
     this.outputBuffer = '';
     this.toolsCache = undefined;
     this.promptsCache = undefined;
+    this.resourcesCache = undefined;
 
     try {
       await this.start();
@@ -309,6 +317,19 @@ export class MCPClient extends EventEmitter {
   }
 
   /**
+   * 获取资源列表
+   */
+  async listResources(): Promise<MCPResource[]> {
+    if (this.resourcesCache) {
+      return this.resourcesCache;
+    }
+
+    const result = await this.call<ListResourcesResult>('resources/list');
+    this.resourcesCache = result.resources ?? [];
+    return this.resourcesCache;
+  }
+
+  /**
    * 调用工具
    */
   async callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult> {
@@ -328,6 +349,17 @@ export class MCPClient extends EventEmitter {
       arguments: args,
     };
     return this.call<GetPromptResult>('prompts/get', params);
+  }
+
+  /**
+   * 读取资源
+   */
+  async readResource(uri: string): Promise<ResourceContent[]> {
+    const params: ReadResourceParams = {
+      uri,
+    };
+    const result = await this.call<ReadResourceResult>('resources/read', params);
+    return result.contents ?? [];
   }
 
   /**
@@ -453,6 +485,11 @@ export class MCPClient extends EventEmitter {
       const proc = this.process;
       this.process = undefined;
 
+      // 清理所有事件监听器（防止内存泄漏）
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
+      proc.removeAllListeners();
+
       // 等待进程退出（最多 5 秒）
       await new Promise<void>((resolve) => {
         const forceKillTimer = setTimeout(() => {
@@ -510,6 +547,10 @@ export class MCPClient extends EventEmitter {
 
   invalidateToolsCache(): void {
     this.toolsCache = undefined;
+  }
+
+  invalidateResourcesCache(): void {
+    this.resourcesCache = undefined;
   }
 
   /**

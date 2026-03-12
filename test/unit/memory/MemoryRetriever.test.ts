@@ -109,5 +109,56 @@ describe('MemoryRetriever', () => {
       const results = retriever.retrieve('memory leak', memories);
       expect(results[0]?.id).toBe('2');
     });
+
+    it('should filter out overdue deadlines (> 7 days)', () => {
+      const now = new Date();
+      const memories = [
+        // 过期 10 天的 deadline - 应该被过滤
+        createEntry({
+          id: 'deadline-old',
+          type: 'important_date',
+          keywords: ['deadline', 'report'],
+          content: 'Weekly report deadline',
+          metadata: {
+            dateType: 'deadline',
+            dateValue: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            recurring: 'none',
+          },
+        }),
+        // 未过期的 deadline - 应该保留
+        createEntry({
+          id: 'deadline-future',
+          type: 'important_date',
+          keywords: ['deadline', 'project'],
+          content: 'Project deadline',
+          metadata: {
+            dateType: 'deadline',
+            dateValue: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            recurring: 'none',
+          },
+        }),
+        // 生日 - 应该保留（循环记忆）
+        createEntry({
+          id: 'birthday',
+          type: 'important_date',
+          keywords: ['birthday', 'alice'],
+          content: "Alice's birthday",
+          metadata: {
+            dateType: 'birthday',
+            dateValue: '2026-03-08',
+            recurring: 'yearly',
+          },
+        }),
+      ];
+
+      const results = retriever.retrieve('deadline birthday', memories);
+      
+      // 过期 deadline 不应出现
+      expect(results.find(e => e.id === 'deadline-old')).toBeUndefined();
+      // 未过期 deadline 应该出现
+      expect(results.find(e => e.id === 'deadline-future')).toBeDefined();
+      // 生日应该出现
+      expect(results.find(e => e.id === 'birthday')).toBeDefined();
+    });
   });
 });

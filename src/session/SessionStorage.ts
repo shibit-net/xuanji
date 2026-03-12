@@ -14,6 +14,8 @@ import type {
   SessionSnapshot,
   SessionStorageOptions,
   SessionListItem,
+  SessionUsage,
+  HistoryMessage,
 } from './types.js';
 import { logger } from '@/core/logger';
 
@@ -53,6 +55,7 @@ export class SessionStorage {
       meta: path.join(sessionDir, `${sessionId}.meta.json`),
       messages: path.join(sessionDir, `${sessionId}.messages.jsonl`),
       checkpoints: path.join(sessionDir, `${sessionId}.checkpoints.json`),
+      state: path.join(sessionDir, `${sessionId}.state.json`),
       messagesBackup: path.join(sessionDir, `${sessionId}.messages.jsonl.bak`),
     };
   }
@@ -86,7 +89,15 @@ export class SessionStorage {
       'utf-8'
     );
 
-    // 5. 清理旧会话（如果超过限制）
+    // 5. 保存会话状态（usage + historyMessages）
+    if (snapshot.usage || snapshot.historyMessages) {
+      const stateData: { usage?: SessionUsage; historyMessages?: HistoryMessage[] } = {};
+      if (snapshot.usage) stateData.usage = snapshot.usage;
+      if (snapshot.historyMessages) stateData.historyMessages = snapshot.historyMessages;
+      await fs.writeFile(paths.state, JSON.stringify(stateData, null, 2), 'utf-8');
+    }
+
+    // 6. 清理旧会话（如果超过限制）
     if (this.maxSessions > 0) {
       await this.cleanupOldSessions();
     }
@@ -148,7 +159,26 @@ export class SessionStorage {
       );
     }
 
-    return { metadata, messages, checkpoints, corruptedLineCount: corruptedLines.length > 0 ? corruptedLines.length : undefined };
+    // 5. 读取会话状态（usage + historyMessages，兼容旧版无此文件）
+    let usage: SessionUsage | undefined;
+    let historyMessages: HistoryMessage[] | undefined;
+    try {
+      const stateContent = await fs.readFile(paths.state, 'utf-8');
+      const stateData = JSON.parse(stateContent);
+      usage = stateData.usage;
+      historyMessages = stateData.historyMessages;
+    } catch {
+      // 旧版 session 没有 state 文件，静默忽略
+    }
+
+    return {
+      metadata,
+      messages,
+      checkpoints,
+      corruptedLineCount: corruptedLines.length > 0 ? corruptedLines.length : undefined,
+      usage,
+      historyMessages,
+    };
   }
 
   /**
@@ -296,6 +326,7 @@ export class SessionStorage {
           updatedAt: metadata.updatedAt,
           messageCount: metadata.messageCount,
           workingDirectory: metadata.workingDirectory,
+          preview: metadata.preview,
         });
       } catch (error) {
         log.warn(`Failed to read metadata from ${file}, skipping`);
@@ -318,6 +349,7 @@ export class SessionStorage {
       fs.unlink(paths.meta).catch(() => {}),
       fs.unlink(paths.messages).catch(() => {}),
       fs.unlink(paths.checkpoints).catch(() => {}),
+      fs.unlink(paths.state).catch(() => {}),
       fs.unlink(paths.messagesBackup).catch(() => {}),
     ]);
   }

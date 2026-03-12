@@ -270,19 +270,58 @@ export class TodoManager {
   }
 
   /**
-   * 获取未阻塞的待处理任务（blockedBy 为空或所有 blocker 已完成）
+   * 检查是否有活跃的（未完成的）任务
+   *
+   * 同步方法，基于内存中的 todos Map 判断。
+   * 用于 UI 层快速判断用户是否在延续当前任务：
+   * - 有活跃任务 → 用户的下一条消息可能是补充/修正，不应清空 TODO
+   * - 无活跃任务 → 安全地重置 TODO 状态
    */
-  async getAvailable(): Promise<Todo[]> {
-    await this.ensureLoaded();
+  hasActiveTodos(): boolean {
+    if (this.todos.size === 0) return false;
+    return Array.from(this.todos.values()).some(
+      (t) => t.status === 'pending' || t.status === 'in_progress',
+    );
+  }
 
-    return Array.from(this.todos.values()).filter((t) => {
-      if (t.status !== 'pending') return false;
-      if (!t.blockedBy || t.blockedBy.length === 0) return true;
-      // 检查所有 blocker 是否已完成
-      return t.blockedBy.every((blockerId) => {
-        const blocker = this.todos.get(blockerId);
-        return !blocker || blocker.status === 'completed';
-      });
-    });
+  /**
+   * 开始新一轮任务 — 清空所有 todo 数据
+   *
+   * 每次用户发送新消息触发 Agent 执行时调用，
+   * 确保 TODO 列表只包含当前任务创建的 todo。
+   */
+  async startTurn(): Promise<void> {
+    this.todos.clear();
+    this.nextId = 1;
+    this.loaded = true; // 标记已加载，避免从磁盘恢复旧数据
+    await this.persist();
+  }
+
+  /**
+   * 格式化当前 TODO 进度摘要
+   *
+   * 返回包含结构化 JSON 标记的字符串，格式：
+   * <!--TODO_PROGRESS:{"completed":1,"total":3,"items":[...]}-->
+   *
+   * UI 层（TodoPanel）会解析此标记并渲染可视化面板。
+   * 同时保留纯文本回退：LLM 看到的仍是 JSON，可正常理解进度。
+   */
+  formatProgress(): string {
+    const todos = Array.from(this.todos.values())
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    if (todos.length === 0) return '';
+
+    const completed = todos.filter((t) => t.status === 'completed').length;
+    const total = todos.length;
+
+    const items = todos.map((t) => ({
+      title: t.title,
+      status: t.status,
+      ...(t.activeForm ? { activeForm: t.activeForm } : {}),
+    }));
+
+    const progressData = JSON.stringify({ completed, total, items });
+    return `\n<!--TODO_PROGRESS:${progressData}-->`;
   }
 }

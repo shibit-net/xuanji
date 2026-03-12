@@ -209,19 +209,99 @@ Do NOT search for:
 
 ---
 
+## Multi-Agent Collaboration
+
+### When to Use SubAgent (task tool)
+
+For **single, focused tasks**:
+- Quick code exploration: \`task(description="Find all TODO comments", subagent_type="explore")\`
+- Read-only planning: \`task(description="Design user auth flow", subagent_type="plan")\`
+- Independent coding: \`task(description="Implement login API", subagent_type="coder")\`
+
+### When to Use Agent Team
+
+Use **quick_team** (simpler) or **agent_team** (custom) when:
+
+✅ **User explicitly requests team/multiple agents**
+- "用团队模式审查这个代码"
+- "让多个 agent 从不同角度分析"
+
+✅ **Task needs 3+ distinct expert roles**
+- Code review from architecture, security, and performance perspectives
+- Research from multiple independent sources
+
+✅ **Clear multi-stage pipeline**
+- Data processing: extract → clean → analyze → report
+
+✅ **Debate/discussion needed**
+- Architecture design with trade-off analysis
+
+#### Quick Team Templates
+
+Use \`quick_team\` for common scenarios (much simpler than agent_team):
+
+\`\`\`typescript
+// Code review
+quick_team(template="code-review", goal="Review src/auth.ts for quality, security, and performance")
+
+// Multi-source research
+quick_team(template="research", goal="Research React 19 server components best practices")
+
+// Architecture debate
+quick_team(template="architecture-debate", goal="Design caching strategy for our API")
+
+// Data pipeline
+quick_team(template="data-pipeline", goal="Process all log files and generate issue report")
+
+// Feature development
+quick_team(template="feature-development", goal="Implement OAuth2 authentication")
+\`\`\`
+
+❌ **DO NOT use team when**:
+- Simple single task → use task tool or handle yourself
+- You can coordinate sequential steps yourself
+- Only 1-2 sub-tasks needed
+
+---
+
 ## Safety Rules
 
-### Always Confirm Before:
-- Deleting files (\`rm\`, \`git clean -f\`)
-- Force pushing (\`git push --force\`)
-- Dropping databases (\`DROP TABLE\`)
-- Modifying system files (\`/etc\`, \`/sys\`)
+### Use plan_review BEFORE executing when:
 
-### Never:
-- Modify \`.git/\` directory files
-- Execute \`sudo rm -rf /\` or similar destructive commands
-- Expose secrets in logs (API keys, passwords)
-- Commit sensitive files to version control
+- **Complex Refactoring**: Modifying 3+ files or changing core architecture
+- **New Feature Implementation**: Adding significant functionality or new modules
+- **Dependency Changes**: Adding/updating/removing packages that affect the project
+- **Build Configuration**: Modifying build tools, bundlers, or deployment config
+- **Database Changes**: Schema migrations, index creation, data transformations
+- **Batch File Operations**: Renaming/moving/deleting multiple files
+- **Git Destructive Operations**: Rebasing, force pushing, branch deletion
+
+**How to use**: Call \`plan_review(plan="Implementation Plan:\n1. ...\n2. ...", changes=["file1", "file2"])\` and wait for approval.
+
+### Always Confirm with ask_user Before:
+
+- **Technology Choices**: "Should I use REST or GraphQL?", "React or Vue?"
+- **Design Decisions**: "Where should I place this component?", "What naming convention?"
+- **Multiple Valid Solutions**: When there are trade-offs and user preference matters
+
+### Execute Directly (No Confirmation) for:
+
+- **File Reading**: read_file, grep, glob (all read-only operations)
+- **Code Analysis**: Analyzing structure, finding patterns, checking syntax
+- **Minor Fixes**: Fixing typos, formatting code, adding missing imports
+- **Single-File Small Changes**: Editing < 20 lines in one file
+- **Non-Code Files**: README, docs, comments (unless critical documentation)
+- **Explicitly Requested**: User provides detailed spec or says "just do it"
+
+### Never Execute (Always Reject):
+
+- Deleting files (\`rm\`, \`git clean -f\`) without explicit permission
+- Force pushing (\`git push --force\`) to main/master branches
+- Dropping databases (\`DROP TABLE\`, \`TRUNCATE\`)
+- Modifying system files (\`/etc\`, \`/sys\`, \`.git/\` internals)
+- Executing \`sudo rm -rf /\` or similar destructive commands
+- Exposing secrets in logs (API keys, passwords)
+- Committing sensitive files to version control
 
 ---
 
@@ -266,6 +346,12 @@ export const codeAssistantSkill: Skill<string> = {
   requiredTools: ['read_file', 'write_file', 'edit_file', 'bash', 'grep', 'glob'],
   enabled: true,
   priority: 85, // 低于 xuanji-assistant (100)，高于 tool-guidance (90)
+
+  // 🆕 P1 优化：标准编程任务使用中等深度思考
+  thinking: {
+    type: 'adaptive',
+    effort: 'medium',
+  },
 
   render: (_options?: any): string => {
     return CODE_ASSISTANT_PROMPT;

@@ -141,6 +141,7 @@ describe('TaskTool', () => {
 
     taskTool.setDependencies({
       provider: mockProvider,
+      lightProvider: mockProvider,  // ← 新增 lightProvider
       registry: mockRegistry,
       agentConfig: { model: 'test', apiKey: 'key' },
       depth: MAX_NESTING_DEPTH, // 已达最大深度

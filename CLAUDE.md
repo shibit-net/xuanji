@@ -29,11 +29,18 @@
 
 ## 启动方式
 ```bash
-# 开发
+# CLI 模式 (默认)
 npm run dev
 
+# GUI 桌面模式
+npm run dev:gui
+
+# IM 机器人模式
+npm run dev:bot
+
 # 构建
-npm run build
+npm run build           # CLI
+npm run build:gui       # GUI
 
 # 测试
 npm test
@@ -41,6 +48,14 @@ npm test
 # 类型检查
 npm run typecheck
 ```
+
+## GUI 桌面应用
+- 位置: `desktop/`
+- 技术栈: Electron + React 18 + TypeScript + Vite + TailwindCSS
+- 独立项目结构，有自己的 `package.json`
+- 三栏布局: 会话列表 + 对话区 + 右侧面板
+- 气泡式对话界面 + Markdown 渲染 + 代码高亮
+- 工具调用可视化 + 状态栏统计
 
 ## 设计原则
 1. 最小依赖原则: 核心功能自实现

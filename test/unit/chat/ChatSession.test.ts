@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChatSession } from '@/core/chat/ChatSession';
+import { ToolRegistry } from '@/core/tools/ToolRegistry';
 import type { ILLMProvider, StreamEvent, IToolRegistry, ToolResult, ToolSchema, AppConfig } from '@/core/types';
 
 /**
@@ -22,18 +23,10 @@ function createMockProvider(responses: StreamEvent[][] = [[]]): ILLMProvider {
 }
 
 /**
- * 创建 mock ToolRegistry
+ * 创建真实的 ToolRegistry（测试要求必须是 ToolRegistry 实例）
  */
-function createMockRegistry(): IToolRegistry {
-  return {
-    register: vi.fn(),
-    unregister: vi.fn(),
-    get: vi.fn(),
-    getAll: vi.fn(() => []),
-    getSchemas: vi.fn(() => []),
-    has: vi.fn(() => false),
-    execute: vi.fn(async () => ({ content: 'ok', isError: false })),
-  };
+function createMockRegistry(): ToolRegistry {
+  return new ToolRegistry();
 }
 
 /**
@@ -74,7 +67,7 @@ function createMockConfig(): AppConfig {
 
 describe('ChatSession', () => {
   let provider: ILLMProvider;
-  let registry: IToolRegistry;
+  let registry: ToolRegistry;
   let config: AppConfig;
 
   beforeEach(() => {

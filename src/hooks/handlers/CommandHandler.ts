@@ -79,6 +79,7 @@ export async function executeCommandHandler(
           stderr: stderr?.toString() ?? '',
           duration,
           blocked: false,
+          ...parseJsonOutput(stdout?.toString() ?? ''),
         });
       },
     );
@@ -117,4 +118,60 @@ function buildEnvVars(context: HookEventContext): Record<string, string> {
   if (context.memoryContent) env.MEMORY_CONTENT = context.memoryContent.slice(0, 10000);
 
   return env;
+}
+
+/**
+ * 尝试从 stdout 解析 JSON 输出
+ *
+ * Hook 脚本可以输出 JSON 对象来控制工具行为:
+ * - blocked: boolean — 是否阻塞工具执行
+ * - modifiedInput: object — 修改后的工具输入参数
+ * - replaceTool: string — 替换工具名称
+ * - mockResult: { content, isError?, metadata? } — 模拟工具结果
+ *
+ * 非 JSON 输出或解析失败时返回空对象（不影响正常执行）。
+ */
+function parseJsonOutput(stdout: string): Partial<HookHandlerResult> {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const result: Partial<HookHandlerResult> = {};
+
+    // blocked 覆盖
+    if (typeof parsed.blocked === 'boolean') {
+      result.blocked = parsed.blocked;
+    }
+
+    // 修改工具输入
+    if (parsed.modifiedInput && typeof parsed.modifiedInput === 'object' && !Array.isArray(parsed.modifiedInput)) {
+      result.modifiedInput = parsed.modifiedInput as Record<string, unknown>;
+    }
+
+    // 替换工具名称
+    if (typeof parsed.replaceTool === 'string' && parsed.replaceTool.length > 0) {
+      result.replaceTool = parsed.replaceTool;
+    }
+
+    // 模拟工具结果
+    if (parsed.mockResult && typeof parsed.mockResult === 'object' && typeof parsed.mockResult.content === 'string') {
+      result.mockResult = {
+        content: parsed.mockResult.content,
+        isError: typeof parsed.mockResult.isError === 'boolean' ? parsed.mockResult.isError : false,
+        metadata: parsed.mockResult.metadata,
+      };
+    }
+
+    return result;
+  } catch {
+    // JSON 解析失败，静默忽略
+    return {};
+  }
 }

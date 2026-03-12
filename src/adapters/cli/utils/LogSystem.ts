@@ -76,8 +76,8 @@ export class LogSystem {
     try {
       await this.writeToFile(entry);
     } catch (error) {
-      // 日志写入失败不影响应用运行
-      console.error('Failed to write log to file:', error);
+      // 日志写入失败：fallback 到 stderr（避免递归调用 logger）
+      process.stderr.write(`[LogSystem] Failed to write log: ${error}\n`);
     }
   }
 

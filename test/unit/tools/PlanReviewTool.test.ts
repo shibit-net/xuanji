@@ -7,8 +7,10 @@ function createMockController(reviewResult: PlanReviewResult): IPermissionContro
     check: vi.fn(),
     setConfirmationHandler: vi.fn(),
     updateConfig: vi.fn(),
+    getConfig: vi.fn().mockReturnValue({}),
     setPlanReviewHandler: vi.fn(),
     reviewPlan: vi.fn().mockResolvedValue(reviewResult),
+    setIgnoreFilter: vi.fn(),
   };
 }
 

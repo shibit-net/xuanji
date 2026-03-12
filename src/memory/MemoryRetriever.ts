@@ -43,12 +43,15 @@ export class MemoryRetriever {
     const minConfidence = options?.minConfidence ?? 0;
     const types = options?.types;
 
+    // 过滤已过期的时效性记忆
+    const filteredMemories = this.filterExpiredMemories(memories);
+
     const queryKeywords = this.extractQueryKeywords(query);
     if (queryKeywords.length === 0) return [];
 
     const scored: { entry: MemoryEntry; score: number }[] = [];
 
-    for (const entry of memories) {
+    for (const entry of filteredMemories) {
       if (types && !types.includes(entry.type)) continue;
       if (entry.confidence < minConfidence) continue;
 
@@ -155,5 +158,42 @@ export class MemoryRetriever {
   /** 访问频次得分（对数增长） */
   private calcAccessFrequencyScore(accessCount: number): number {
     return Math.min(Math.log2(accessCount + 1) / 10, 1.0);
+  }
+
+  /**
+   * 过滤已过期的时效性记忆
+   * - deadline 过期超过 7 天：不显示
+   * - birthday/anniversary: 保留（循环记忆）
+   */
+  private filterExpiredMemories(memories: MemoryEntry[]): MemoryEntry[] {
+    const now = Date.now();
+    const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 天容忍期
+
+    return memories.filter(entry => {
+      // 只处理 important_date 类型
+      if (entry.type !== 'important_date') return true;
+      
+      // 没有元数据或日期值：保留
+      if (!entry.metadata?.dateValue) return true;
+
+      // 循环记忆（生日、纪念日）：保留
+      if (entry.metadata.recurring && entry.metadata.recurring !== 'none') return true;
+
+      // deadline 类型：检查是否过期
+      if (entry.metadata.dateType === 'deadline') {
+        try {
+          const deadlineTime = new Date(entry.metadata.dateValue).getTime();
+          const overdueMs = now - deadlineTime;
+          // 过期超过 7 天：过滤掉
+          return overdueMs < GRACE_PERIOD_MS;
+        } catch {
+          // 日期解析失败：保留
+          return true;
+        }
+      }
+
+      // 其他类型：保留
+      return true;
+    });
   }
 }

@@ -105,6 +105,9 @@ export interface Skill<T = any> extends SkillMetadata {
   /** 优先级 (越高越先被使用) */
   priority?: number;
 
+  /** 🆕 P1 优化：Extended Thinking 配置（Anthropic Claude 4.5+，可选） */
+  thinking?: import('@/core/types').ThinkingConfig;
+
   /** 渲染方法 (用于 Prompt Skill, 支持同步和异步) */
   render?: (options?: SkillRenderOptions) => string | Promise<string>;
 

@@ -37,6 +37,19 @@ export interface SkillsConfig {
  * Agent 调优配置
  */
 export interface AgentTuningConfig {
+  /** 最大迭代次数（默认 50） */
+  maxIterations?: number;
+
+  /** 上下文压缩配置 */
+  compressor?: {
+    /** 是否启用压缩（默认 false） */
+    enabled?: boolean;
+    /** 压缩阈值（token 数，默认 80000） */
+    threshold?: number;
+    /** 压缩使用的模型（默认使用 lightModel） */
+    model?: string;
+  };
+
   /** 子代理配置 */
   subAgent?: {
     /** 最大嵌套深度 (默认 3) */
@@ -51,9 +64,40 @@ export interface AgentTuningConfig {
 }
 
 /**
+ * 功能特性配置
+ */
+export interface FeaturesConfig {
+  /**
+   * 是否启用工具按需加载（默认 true）
+   *
+   * 启用时：根据激活的 Skill 动态过滤传递给 LLM 的工具集，节省 token
+   * 禁用时：全量传递所有已注册工具（向后兼容）
+   */
+  dynamicToolLoading?: boolean;
+
+  /**
+   * 是否启用智能管家服务（默认 false）
+   *
+   * 启用时：LLM 主动分析上下文并推送通知
+   * 禁用时：仅在会话启动时被动检查提醒
+   */
+  proactiveButler?: boolean;
+
+  /**
+   * 是否启用智能记忆 V2（默认 false）
+   *
+   * 启用时：LLM 主动决策哪些值得记忆，去重/合并/优先级管理
+   * 禁用时：使用规则驱动的提取方式（V1）
+   */
+  smartMemoryV2?: boolean;
+}
+
+/**
  * 应用总配置
  */
 export interface AppConfig {
+  /** 项目根目录（可选） */
+  projectRoot?: string;
   /** LLM Provider 配置 */
   provider: ProviderConfig;
   /** UI 配置 */
@@ -74,24 +118,43 @@ export interface AppConfig {
   mcp?: MCPConfig;
   /** Web Search 配置 */
   webSearch?: WebSearchConfig;
+  /** 智能管家配置 */
+  butler?: import('@/butler/types').ButlerConfig;
   /** 定价配置 */
   pricing?: PricingConfig;
+  /** 天工坊配置 */
+  tiangong?: TiangongConfig;
   /** CLI 输入历史记录（最多 50 条） */
   history?: string[];
+  /** 会话配置 */
+  session?: SessionConfig;
+  /** 功能特性配置 */
+  features?: FeaturesConfig;
 }
 
 /**
  * Web Search 配置
  */
 export interface WebSearchConfig {
-  /** 搜索 API 提供商 */
-  provider: 'tavily' | 'brave';
-  /** API Key（也可通过环境变量 TAVILY_API_KEY / BRAVE_API_KEY 设置） */
-  apiKey?: string;
+  /** 默认搜索引擎 */
+  defaultProvider?: 'tavily' | 'serper' | 'brave' | 'duckduckgo';
+  /** 降级引擎列表（按优先级排序） */
+  fallbackProviders?: Array<'tavily' | 'serper' | 'brave' | 'duckduckgo'>;
+  /** API Keys（也可通过环境变量设置） */
+  apiKeys?: {
+    /** Tavily API Key（环境变量：TAVILY_API_KEY） */
+    tavily?: string;
+    /** Serper API Key（环境变量：SERPER_API_KEY） */
+    serper?: string;
+    /** Brave API Key（环境变量：BRAVE_API_KEY） */
+    brave?: string;
+  };
   /** 缓存 TTL（毫秒，默认 900000 = 15 分钟） */
   cacheTTL?: number;
   /** 每次搜索返回的最大结果数（默认 5） */
   maxResults?: number;
+  /** 速率限制（每分钟请求数，默认 10） */
+  rateLimit?: number;
 }
 
 /**
@@ -131,6 +194,14 @@ export type PermissionLevel = 'always' | 'ask' | 'never';
 export type WarnLevelStrategy = 'auto-allow' | 'ask';
 
 /**
+ * 写入确认策略
+ */
+export type WriteConfirmStrategy = 
+  | 'ask'        // 每次写入都需要确认（保守）
+  | 'auto'       // 项目内写入自动放行（激进）
+  | 'plan-only'; // 依赖 LLM 通过 plan_review 主动确认（默认，平衡）
+
+/**
  * 权限配置
  */
 export interface PermissionConfig {
@@ -140,8 +211,12 @@ export interface PermissionConfig {
   fileRead: PermissionLevel;
   /** 命令执行权限 */
   bashExec: PermissionLevel;
-  /** Warn 级别操作的处理策略（默认 'auto-allow'） */
+  /** Warn 级别操作的处理策略（默认 'ask'，之前是 'auto-allow'） */
   warnLevel?: WarnLevelStrategy;
+  /** 写入操作确认策略（默认 'plan-only'） */
+  confirmWrite?: WriteConfirmStrategy;
+  /** 是否在批量写入时合并确认（默认 false） */
+  confirmBatchWrite?: boolean;
   /** 允许执行的命令白名单模式 */
   allowedCommands?: string[];
   /** 禁止执行的命令黑名单模式 */
@@ -150,6 +225,10 @@ export interface PermissionConfig {
   allowedPaths?: string[];
   /** 禁止操作的文件路径模式 */
   deniedPaths?: string[];
+  /** 是否启用决策持久化（默认 true） */
+  persistDecisions?: boolean;
+  /** 决策存储文件路径（默认 .xuanji/permission-decisions.json） */
+  decisionsFile?: string;
 }
 
 /**
@@ -207,6 +286,26 @@ export interface GlobConfig {
 }
 
 /**
+ * Schema 模式
+ * - compact: 极简模式（仅保留核心功能说明，生产环境）
+ * - detailed: 详细模式（完整说明，调试/首次使用）
+ * - auto: 自动模式（首轮详细，后续简化）
+ */
+export type SchemaMode = 'compact' | 'detailed' | 'auto';
+
+/**
+ * Tool Result 摘要配置
+ */
+export interface ToolResultSummaryConfig {
+  /** 是否启用 tool result 摘要（默认 false） */
+  enabled?: boolean;
+  /** 超过此字符数时触发摘要（默认 10000） */
+  threshold?: number;
+  /** 需要摘要的工具列表（默认 ['read_file', 'bash', 'grep']） */
+  tools?: string[];
+}
+
+/**
  * 工具配置
  */
 export interface ToolsConfig {
@@ -214,6 +313,10 @@ export interface ToolsConfig {
   enabled: string[];
   /** 权限配置 */
   permissions: PermissionConfig;
+  /** 工具 Schema 模式（默认 compact） */
+  schemaMode?: SchemaMode;
+  /** Tool Result 摘要配置 */
+  resultSummary?: ToolResultSummaryConfig;
   /** 超时配置 */
   timeouts?: ToolTimeoutConfig;
   /** 并发限制 */
@@ -224,6 +327,27 @@ export interface ToolsConfig {
   grep?: GrepConfig;
   /** Glob 工具配置 */
   glob?: GlobConfig;
+  /** Bash 工具配置 */
+  bash?: BashToolConfig;
+}
+
+/**
+ * Bash 工具配置
+ */
+export interface BashToolConfig {
+  /** 沙箱配置 */
+  sandbox?: {
+    /** 是否启用沙箱 */
+    enabled: boolean;
+    /** 沙箱模式: auto=自动选择, seatbelt=macOS, bwrap=Linux, none=禁用 */
+    mode: 'auto' | 'seatbelt' | 'bwrap' | 'none';
+    /** 允许写入的路径列表 */
+    allowedPaths: string[];
+    /** 是否拒绝网络访问 */
+    denyNetwork: boolean;
+    /** 是否拒绝系统路径写入 */
+    denySystemPaths: boolean;
+  };
 }
 
 // ============================================================
@@ -286,4 +410,32 @@ export interface BotsConfig {
   dingtalk?: DingtalkBotConfig;
   feishu?: FeishuBotConfig;
   wecom?: WecomBotConfig;
+}
+
+/**
+ * 天工坊配置
+ */
+export interface TiangongConfig {
+  /** Registry API 地址 */
+  registryURL?: string;
+  /** 用户 API Key */
+  apiKey?: string;
+  /** 是否启用自动更新检查 */
+  autoUpdate?: boolean;
+  /** 信任的发布者列表 */
+  trustedPublishers?: string[];
+}
+
+/**
+ * 会话配置
+ */
+export interface SessionConfig {
+  /** 是否启用自动保存（默认 true） */
+  autoSave?: boolean;
+  /** 保存间隔（轮数），0 = 仅退出时保存，1 = 每轮保存（默认 1） */
+  autoSaveInterval?: number;
+  /** 最大保留会话数（默认 50） */
+  maxSessions?: number;
+  /** 单个会话最大消息数（默认 100），达到上限时自动归档并创建新会话，0 = 不限制 */
+  maxMessages?: number;
 }

@@ -34,15 +34,12 @@ import type {
 import { FileGuard } from './guards/FileGuard';
 import { CommandGuard } from './guards/CommandGuard';
 import { PolicyEngine } from './policies/PolicyEngine';
+import { DecisionStore } from './DecisionStore';
 import { AuditLogger } from '@/core/telemetry';
 import { logger } from '@/core/logger';
 import { t } from '@/core/i18n';
-
-/** 确认超时时间 (ms) */
-const CONFIRMATION_TIMEOUT = 60_000;
-
-/** 计划审查超时时间 (ms) — 用户需要阅读+可能输入文本，给 3 倍 */
-const PLAN_REVIEW_TIMEOUT = 180_000;
+import { join } from 'node:path';
+import { resolve } from 'node:path';
 
 /**
  * PermissionController — 权限决策核心
@@ -63,6 +60,9 @@ export class PermissionController implements IPermissionController {
   /** 会话级决策缓存: cacheKey → allowed */
   private decisionCache: Map<string, boolean> = new Map();
 
+  /** 持久化决策存储（可选） */
+  private decisionStore: DecisionStore | null = null;
+
   /** 确认队列: 保证同一时刻只有一个确认框 */
   private confirmationQueue: Promise<void> = Promise.resolve();
 
@@ -72,6 +72,34 @@ export class PermissionController implements IPermissionController {
     this.commandGuard = new CommandGuard();
     this.policyEngine = new PolicyEngine(config);
     this.auditLogger = new AuditLogger();
+
+    // 初始化持久化存储（异步）
+    this.initDecisionStore().catch((err) => {
+      this.log.warn('Failed to init decision store:', err);
+    });
+  }
+
+  /**
+   * 初始化持久化决策存储（异步）
+   */
+  private async initDecisionStore(): Promise<void> {
+    if (!this.config.persistDecisions) {
+      return;
+    }
+
+    try {
+      const filePath = this.config.decisionsFile
+        ? resolve(this.config.decisionsFile)
+        : join(process.cwd(), '.xuanji', 'permission-decisions.json');
+
+      this.decisionStore = new DecisionStore(filePath);
+      await this.decisionStore.load();
+
+      this.log.debug(`Decision store initialized: ${filePath}`);
+    } catch (err) {
+      this.log.warn('Decision store init failed:', err);
+      this.decisionStore = null;
+    }
   }
 
   /**
@@ -82,6 +110,13 @@ export class PermissionController implements IPermissionController {
   }
 
   /**
+   * 设置 IgnoreFilter 到 FileGuard（公开方法，替代 as any 强制转换）
+   */
+  setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void {
+    this.fileGuard.setIgnoreFilter(filter);
+  }
+
+  /**
    * 更新配置
    */
   updateConfig(config: PermissionConfig): void {
@@ -89,14 +124,28 @@ export class PermissionController implements IPermissionController {
     this.policyEngine.updateConfig(config);
     // 配置变更时清空缓存
     this.decisionCache.clear();
+    // 重新初始化 DecisionStore
+    this.initDecisionStore().catch(() => {});
+  }
+
+  /**
+   * 获取当前配置
+   */
+  getConfig(): PermissionConfig {
+    return this.config;
   }
 
   /**
    * 检查权限 (主入口)
    *
-   * 决策逻辑:
-   *   - safe/warn: 自动放行，信任模型通过 plan_review 工具主动审查
+   * 优化后的决策逻辑:
    *   - danger: 强制用户确认（不可绕过的安全兜底）
+   *   - warn: 根据 warnLevel 配置决策（ask=确认, auto-allow=放行）
+   *   - safe + fileWrite + 项目内: 根据 confirmWrite 配置决策
+   *     - ask: 需要确认
+   *     - plan-only: 依赖 LLM 通过 plan_review（自动放行，但 prompt 引导）
+   *     - auto: 自动放行
+   *   - safe + fileRead: 自动放行
    */
   async check(request: PermissionRequest): Promise<PermissionResult> {
     const { toolName, input, requestId } = request;
@@ -111,33 +160,86 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
-    // 第 2 步: safe/warn 级别处理
-    // safe 级别 — 始终自动放行
+    // 第 2 步: safe 级别处理
+    // safe + fileRead — 始终自动放行
+    if (guardResult.riskLevel === 'safe' && guardResult.category === 'fileRead') {
+      const result: PermissionResult = { allowed: true, checkedBy: 'auto-safe-read' };
+      this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+      return result;
+    }
+
+    // safe + fileWrite — 根据 confirmWrite 配置决策
+    if (guardResult.riskLevel === 'safe' && guardResult.category === 'fileWrite') {
+      const isProjectPath = guardResult.context?.isProjectPath ?? true;
+      
+      if (isProjectPath) {
+        const confirmWrite = this.config.confirmWrite ?? 'plan-only';
+
+        if (confirmWrite === 'ask') {
+          // 需要用户确认
+          this.log.debug(`Write operation requires confirmation (confirmWrite=ask): ${guardResult.description}`);
+          return this.requestConfirmation(request, guardResult);
+        }
+
+        if (confirmWrite === 'plan-only') {
+          // 依赖 LLM 通过 plan_review 主动确认，此处自动放行
+          const result: PermissionResult = { allowed: true, checkedBy: 'plan-delegated' };
+          this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+          return result;
+        }
+
+        // confirmWrite === 'auto'，自动放行
+        const result: PermissionResult = { allowed: true, checkedBy: 'auto-write' };
+        this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+        return result;
+      }
+    }
+
+    // safe + bashExec — 自动放行
     if (guardResult.riskLevel === 'safe') {
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-safe' };
       this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
       return result;
     }
 
-    // warn 级别 — 根据 warnLevel 配置决策
+    // 第 3 步: warn 级别 — 根据 warnLevel 配置决策
     if (guardResult.riskLevel === 'warn') {
-      const warnLevel = this.config.warnLevel ?? 'auto-allow'; // 默认自动放行（向后兼容）
+      const warnLevel = this.config.warnLevel ?? 'ask'; // 默认改为 ask（更保守）
 
       if (warnLevel === 'ask') {
         // 用户配置为需要确认，进入确认流程
         this.log.debug(`Warn-level operation requires confirmation: ${guardResult.description}`);
-        // 检查缓存
-        const cached = this.decisionCache.get(guardResult.cacheKey);
-        if (cached !== undefined) {
-          this.log.debug(`Cache hit: ${guardResult.cacheKey} → ${cached}`);
+
+        // 检查会话缓存
+        const cachedSession = this.decisionCache.get(guardResult.cacheKey);
+        if (cachedSession !== undefined) {
+          this.log.debug(`Session cache hit: ${guardResult.cacheKey} → ${cachedSession}`);
           const result: PermissionResult = {
-            allowed: cached,
-            reason: cached ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
-            checkedBy: 'cache',
+            allowed: cachedSession,
+            reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
+            checkedBy: 'session-cache',
           };
           this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
           return result;
         }
+
+        // 检查持久化缓存（新增）
+        if (this.decisionStore?.isLoaded()) {
+          const cachedPersist = this.decisionStore.get(guardResult.cacheKey);
+          if (cachedPersist !== undefined) {
+            this.log.debug(`Persistent cache hit: ${guardResult.cacheKey} → ${cachedPersist}`);
+            // 回填会话缓存
+            this.decisionCache.set(guardResult.cacheKey, cachedPersist);
+            const result: PermissionResult = {
+              allowed: cachedPersist,
+              reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
+              checkedBy: 'persist-cache',
+            };
+            this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+            return result;
+          }
+        }
+
         // 触发 UI 确认
         return this.requestConfirmation(request, guardResult);
       }
@@ -149,18 +251,35 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
-    // 第 3 步: danger 级别 — 强制确认（安全兜底）
-    // 先检查缓存（用户之前选择了 Always/Never）
-    const cached = this.decisionCache.get(guardResult.cacheKey);
-    if (cached !== undefined) {
-      this.log.debug(`Cache hit: ${guardResult.cacheKey} → ${cached}`);
+    // 第 4 步: danger 级别 — 强制确认（安全兜底）
+    // 先检查会话缓存（用户之前选择了 Always/Never）
+    const cachedSession = this.decisionCache.get(guardResult.cacheKey);
+    if (cachedSession !== undefined) {
+      this.log.debug(`Session cache hit: ${guardResult.cacheKey} → ${cachedSession}`);
       const result: PermissionResult = {
-        allowed: cached,
-        reason: cached ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
-        checkedBy: 'cache',
+        allowed: cachedSession,
+        reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
+        checkedBy: 'session-cache',
       };
       this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
       return result;
+    }
+
+    // 检查持久化缓存（新增）
+    if (this.decisionStore?.isLoaded()) {
+      const cachedPersist = this.decisionStore.get(guardResult.cacheKey);
+      if (cachedPersist !== undefined) {
+        this.log.debug(`Persistent cache hit: ${guardResult.cacheKey} → ${cachedPersist}`);
+        // 回填会话缓存
+        this.decisionCache.set(guardResult.cacheKey, cachedPersist);
+        const result: PermissionResult = {
+          allowed: cachedPersist,
+          reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
+          checkedBy: 'persist-cache',
+        };
+        this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+        return result;
+      }
     }
 
     // 触发 UI 确认
@@ -210,11 +329,8 @@ export class PermissionController implements IPermissionController {
     return new Promise<PermissionResult>((resolve) => {
       this.confirmationQueue = this.confirmationQueue.then(async () => {
         try {
-          // 带超时的确认
-          const confirmation = await this.withTimeout(
-            this.confirmationHandler!(request, guardResult),
-            CONFIRMATION_TIMEOUT,
-          );
+          // 直接 await handler，超时逻辑由 UI 层（App.tsx）负责
+          const confirmation = await this.confirmationHandler!(request, guardResult);
 
           // 更新缓存 (如果用户选择了 Always/Never)
           if (confirmation.remember) {
@@ -223,7 +339,14 @@ export class PermissionController implements IPermissionController {
               this.decisionCache.clear();
             }
             this.decisionCache.set(guardResult.cacheKey, confirmation.allowed);
-            this.log.debug(`Cache set: ${guardResult.cacheKey} → ${confirmation.allowed}`);
+            this.log.debug(`Session cache set: ${guardResult.cacheKey} → ${confirmation.allowed}`);
+
+            // 持久化存储
+            if (this.decisionStore) {
+              this.decisionStore.set(guardResult.cacheKey, confirmation.allowed, request.toolName).catch((err) => {
+                this.log.warn('Failed to persist decision:', err);
+              });
+            }
           }
 
           const permResult: PermissionResult = {
@@ -234,8 +357,8 @@ export class PermissionController implements IPermissionController {
           this.auditLogger.recordPermissionCheck(request, permResult, guardResult, confirmation.remember).catch(() => {});
           resolve(permResult);
         } catch (err) {
-          // 超时或异常: 自动拒绝
-          this.log.warn('Confirmation failed, denying:', err);
+          // handler 异常: 自动拒绝
+          this.log.warn('Confirmation handler error, denying:', err);
           const permResult: PermissionResult = {
             allowed: false,
             reason: t('perm.denied_timeout'),
@@ -245,19 +368,6 @@ export class PermissionController implements IPermissionController {
           resolve(permResult);
         }
       });
-    });
-  }
-
-  /**
-   * 带超时的 Promise
-   */
-  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Confirmation timeout (${ms}ms)`)), ms);
-      promise.then(
-        (value) => { clearTimeout(timer); resolve(value); },
-        (err) => { clearTimeout(timer); reject(err); },
-      );
     });
   }
 
@@ -287,15 +397,13 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
+    // 直接 await handler，超时逻辑由 UI 层（App.tsx）负责
     try {
-      const result = await this.withTimeout(
-        this.planReviewHandler(plan),
-        PLAN_REVIEW_TIMEOUT,
-      );
+      const result = await this.planReviewHandler(plan);
       this.auditLogger.recordPlanReview(plan, result).catch(() => {});
       return result;
     } catch (err) {
-      this.log.warn('Plan review failed, rejecting:', err);
+      this.log.warn('Plan review handler error, rejecting:', err);
       const result: PlanReviewResult = { decision: 'reject' };
       this.auditLogger.recordPlanReview(plan, result).catch(() => {});
       return result;

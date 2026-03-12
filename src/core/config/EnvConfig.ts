@@ -11,6 +11,7 @@ const ENV_KEYS = {
   XUANJI_API_KEY: 'XUANJI_API_KEY',
   XUANJI_BASE_URL: 'XUANJI_BASE_URL',
   XUANJI_MODEL: 'XUANJI_MODEL',
+  XUANJI_LIGHT_MODEL: 'XUANJI_LIGHT_MODEL',
   XUANJI_MAX_TOKENS: 'XUANJI_MAX_TOKENS',
   XUANJI_THEME: 'XUANJI_THEME',
   XUANJI_LANGUAGE: 'XUANJI_LANGUAGE',
@@ -35,6 +36,9 @@ export function getEnvProviderConfig(): Partial<ProviderConfig> {
 
   const model = process.env[ENV_KEYS.XUANJI_MODEL];
   if (model) config.model = model;
+
+  const lightModel = process.env[ENV_KEYS.XUANJI_LIGHT_MODEL];
+  if (lightModel) config.lightModel = lightModel;
 
   const maxTokens = process.env[ENV_KEYS.XUANJI_MAX_TOKENS];
   if (maxTokens) {

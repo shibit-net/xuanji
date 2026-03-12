@@ -82,22 +82,26 @@ class FilteredToolRegistry implements IToolRegistry {
     return this.inner.has(name);
   }
 
-  async execute(name: string, input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     if (this.restrictedTools.has(name)) {
       return {
         content: `Tool "${name}" is not available in sub-agent mode.`,
         isError: true,
       };
     }
-    return this.inner.execute(name, input);
+    return this.inner.execute(name, input, signal);
   }
 }
 
 /**
  * 启动子代理并等待结果
+ *
+ * 🆕 P0 优化：默认使用 lightProvider（Haiku），节省 67% 子代理成本
+ * 除非任务明确要求主模型（context.requireMainModel）
  */
 export async function runSubAgent(
-  provider: ILLMProvider,
+  mainProvider: ILLMProvider,
+  lightProvider: ILLMProvider,
   registry: IToolRegistry,
   parentConfig: AgentConfig,
   context: SubAgentContext,
@@ -123,6 +127,9 @@ export async function runSubAgent(
 
   // 3. 创建过滤后的工具注册表
   const filteredRegistry = new FilteredToolRegistry(registry, context.restrictedTools);
+
+  // 🆕 P0 优化：根据 useLightModel 选择 provider（默认用 lightProvider，探索型代理必用）
+  const provider = context.useLightModel ? lightProvider : mainProvider;
 
   // 4. 创建子代理 AgentLoop
   const agentLoop = new AgentLoop(
@@ -165,17 +172,19 @@ export async function runSubAgent(
     onText: (text) => {
       outputText += text;
     },
-    onError: (error) => {
-      log.warn(`[${subAgentId}] Error:`, error.message);
-    },
+    // ❌ 不注册 onError 回调，避免双重传播
+    // 子代理错误会被下方 catch 块捕获，封装到 tool_result 中返回
+    // 由父代理的 onToolEnd 统一展示，符合"工具执行结果自包含错误"的设计
   });
 
   // 6. 触发 SubAgentStart Hook
   if (hookRegistry) {
     hookRegistry.emit('SubAgentStart', {
       subAgentId,
-      data: { task: context.task, depth: context.depth },
-    }).catch(() => {});
+      data: { task: context.task, depth: context.depth, role: context.role },
+    }).catch((err) => {
+      log.debug('SubAgentStart hook emit failed:', err);
+    });
   }
 
   log.info(`[${subAgentId}] Starting sub-agent (depth=${context.depth}, timeout=${context.timeout}ms)`);
@@ -228,7 +237,9 @@ export async function runSubAgent(
         timedOut,
         iterations: state.currentIteration,
       },
-    }).catch(() => {});
+    }).catch((err) => {
+      log.debug('SubAgentEnd hook emit failed:', err);
+    });
   }
 
   log.info(

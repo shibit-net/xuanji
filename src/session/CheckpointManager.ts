@@ -14,6 +14,8 @@ import { randomUUID } from 'crypto';
 import { readFile, writeFile, unlink, mkdir, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'CheckpointManager' });
 import { dirname, resolve, basename, sep } from 'node:path';
 import type { SessionStorage } from './SessionStorage.js';
 import type { Checkpoint, FileSnapshot, Message } from './types.js';
@@ -71,7 +73,9 @@ export class CheckpointManager {
         checkpointId,
         checkpointLabel: checkpoint.label,
         sessionId,
-      }).catch(() => {});
+      }).catch((err) => {
+        log.debug('CheckpointCreated hook emit failed:', err);
+      });
     }
 
     return checkpointId;
@@ -111,7 +115,9 @@ export class CheckpointManager {
         checkpointId,
         checkpointLabel: checkpoint.label,
         sessionId,
-      }).catch(() => {});
+      }).catch((err) => {
+        log.debug('CheckpointRestored hook emit failed:', err);
+      });
     }
 
     return checkpoint.messageIndex;
@@ -218,7 +224,7 @@ export class CheckpointManager {
         }
       } catch (fileErr) {
         // 单个文件恢复失败不阻塞其他文件
-        logger.child({ module: 'CheckpointManager' }).warn(`Failed to restore file ${snapshot.path}:`, fileErr);
+        log.warn(`Failed to restore file ${snapshot.path}:`, fileErr);
       }
     }
   }

@@ -43,6 +43,18 @@ export interface StreamEvent {
 }
 
 /**
+ * Extended Thinking 配置（Anthropic Claude 4.5+）
+ */
+export interface ThinkingConfig {
+  /** 模式：adaptive（自适应深度）或 enabled（固定 token 预算） */
+  type: 'adaptive' | 'enabled';
+  /** adaptive 模式的深度等级（low/medium/high） */
+  effort?: 'low' | 'medium' | 'high';
+  /** enabled 模式的 token 预算 */
+  budgetTokens?: number;
+}
+
+/**
  * Provider 配置
  */
 export interface ProviderConfig {
@@ -50,6 +62,8 @@ export interface ProviderConfig {
   model: string;
   /** 轻量模型（用于子代理/上下文压缩/摘要等低复杂度任务） */
   lightModel?: string;
+  /** Extended Thinking 配置（Anthropic Claude 4.5+，可选） */
+  thinking?: ThinkingConfig;
   /** 最大输出 token（不设置则由 API 端决定） */
   maxTokens?: number;
   /** 温度参数 */

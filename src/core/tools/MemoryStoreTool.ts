@@ -143,6 +143,8 @@ export class MemoryStoreTool extends BaseTool {
       accessCount: 0,
       // 仅 project_fact 类型标记为项目级记忆
       projectPath: type === 'project_fact' ? process.cwd() : undefined,
+      // 自动解析元数据（特别是 important_date 类型）
+      metadata: this.parseMetadata(type, content),
     };
 
     // 保存
@@ -176,5 +178,53 @@ export class MemoryStoreTool extends BaseTool {
    */
   private generateId(): string {
     return `mem_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  /**
+   * 解析记忆元数据（自动从 content 提取结构化信息）
+   */
+  private parseMetadata(type: MemoryEntryType, content: string): import('@/memory/types').MemoryMetadata | undefined {
+    if (type !== 'important_date') return undefined;
+
+    const metadata: import('@/memory/types').MemoryMetadata = {};
+
+    // 提取日期（支持多种格式）
+    // 格式 1: 2026-03-15, 2026/03/15
+    let dateMatch = content.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (dateMatch) {
+      metadata.dateValue = `${dateMatch[1]}-${dateMatch[2]!.padStart(2, '0')}-${dateMatch[3]!.padStart(2, '0')}`;
+    } else {
+      // 格式 2: 3月15日, 3月15号, March 15
+      dateMatch = content.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/);
+      if (dateMatch) {
+        const now = new Date();
+        const year = now.getFullYear();
+        metadata.dateValue = `${year}-${dateMatch[1]!.padStart(2, '0')}-${dateMatch[2]!.padStart(2, '0')}`;
+      }
+    }
+
+    // 判断日期类型
+    if (content.match(/deadline|截止|due|提交|交付/i)) {
+      metadata.dateType = 'deadline';
+      metadata.recurring = 'none';
+    } else if (content.match(/birthday|生日|诞辰/i)) {
+      metadata.dateType = 'birthday';
+      metadata.recurring = 'yearly';
+    } else if (content.match(/anniversary|纪念日|周年/i)) {
+      metadata.dateType = 'anniversary';
+      metadata.recurring = 'yearly';
+    } else {
+      metadata.dateType = 'reminder';
+      metadata.recurring = 'none';
+    }
+
+    // 提取关联人物（姓名通常在内容开头或 's birthday 前）
+    const personMatch = content.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)'?s?\s+(?:birthday|生日)/i) ||
+                       content.match(/^([\u4e00-\u9fa5]{2,4})\s*(?:的)?\s*(?:生日|纪念日)/);
+    if (personMatch) {
+      metadata.relatedPerson = personMatch[1];
+    }
+
+    return metadata;
   }
 }

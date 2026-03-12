@@ -78,7 +78,7 @@ export const reactLoopDefaultSkill: Skill<any> = {
     model: 'claude-sonnet-4-20250514',
     maxTokens: 4096,
     temperature: 0.7,
-    maxIterations: 50,
+    maxIterations: Infinity,
   } as AgentConfig,
 
   parameters: {
@@ -164,7 +164,7 @@ export const multiTurnHandlingSkill: Skill<any> = {
     model: 'claude-sonnet-4-20250514',
     maxTokens: 8192,
     temperature: 0.5,
-    maxIterations: 100,
+    maxIterations: Infinity,
   } as AgentConfig,
 
   parameters: {

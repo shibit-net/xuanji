@@ -78,8 +78,11 @@ function formatOperation(request: PermissionRequest): string {
  *   - Enter 确认选择
  *   - Y/N/A/V 快捷键直接选择
  *   - Esc 等同于拒绝本次
+ *
+ * 使用 React.memo 避免父组件 state 变化导致不必要的重渲染，
+ * 减少 Ink 动态区域重绘次数，防止终端输出闪烁/堆叠。
  */
-export function PermissionPrompt({ request, guardResult, onConfirm }: PermissionPromptProps) {
+export const PermissionPrompt = React.memo(function PermissionPrompt({ request, guardResult, onConfirm }: PermissionPromptProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isDanger = guardResult.riskLevel === 'danger';
   const isWarn = guardResult.riskLevel === 'warn';
@@ -185,4 +188,4 @@ export function PermissionPrompt({ request, guardResult, onConfirm }: Permission
       </Box>
     </Box>
   );
-}
+});

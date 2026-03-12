@@ -3,13 +3,14 @@
 // ============================================================
 
 import type { TokenUsage } from '@/core/types';
+import type { TodoProgressData } from '../cli/TodoPanel';
 
 /**
  * 聊天消息
  */
 export interface ChatMessage {
   id: number;
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'tool_group';
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -17,9 +18,35 @@ export interface ChatMessage {
   toolDuration?: number;
   /** 该工具是否通过并行方式执行 */
   toolParallel?: boolean;
+  /** 并行工具组的工具列表（仅当 role='tool_group' 时有效） */
+  toolGroupItems?: ParallelToolGroupItem[];
   timestamp: number;
   /** 增量刷出的部分消息（不加 marginBottom，避免视觉断裂） */
   partial?: boolean;
+  /** TODO 进度快照（归档到 Static 时携带，用于渲染 TodoPanel） */
+  todoData?: TodoProgressData;
+}
+
+/**
+ * 并行工具组中的单个工具项
+ */
+export interface ParallelToolGroupItem {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result: string;
+  isError: boolean;
+  duration: number;
+}
+
+/**
+ * 🆕 Pending 用户输入（队列项）
+ */
+export interface PendingUserInput {
+  content: string;
+  timestamp: number;
+  merged?: boolean;       // 是否由多条消息合并而成
+  originalCount?: number; // 合并前的消息数
 }
 
 /**

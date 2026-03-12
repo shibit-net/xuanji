@@ -283,13 +283,44 @@ export class MemoryCompactor {
 
   /** 压缩长期记忆 */
   compactLongTerm(entries: MemoryEntry[]): MemoryEntry[] {
-    // 1. 删除过期条目（时间衰减得分 < 0.01）
+    // 1. 删除过期条目
     const now = Date.now();
     let remaining = entries.filter((entry) => {
+      // 特殊处理：important_date 类型的 deadline
+      if (entry.type === 'important_date' && 
+          entry.metadata?.dateType === 'deadline' && 
+          entry.metadata.dateValue) {
+        try {
+          const deadlineTime = new Date(entry.metadata.dateValue).getTime();
+          const daysOverdue = (now - deadlineTime) / (1000 * 60 * 60 * 24);
+          // 过期超过 30 天的 deadline 删除
+          if (daysOverdue > 30) {
+            log.debug(`Removing overdue deadline: ${entry.id} (${daysOverdue.toFixed(1)} days overdue)`);
+            return false;
+          }
+        } catch {
+          // 日期解析失败：保留
+        }
+      }
+
+      // 豁免循环记忆（生日、纪念日）：永久保留
+      if (entry.type === 'important_date' && 
+          entry.metadata?.recurring && 
+          entry.metadata.recurring !== 'none') {
+        return true;
+      }
+
+      // 原有逻辑：时间衰减过滤
       const ageMs = now - new Date(entry.createdAt).getTime();
       const ageDays = ageMs / (1000 * 60 * 60 * 24);
       const decayScore = Math.pow(0.5, ageDays / this.config.decayHalfLifeDays);
-      return decayScore >= 0.01 || entry.accessCount > 5;
+      
+      // 保留条件：衰减得分 >= 0.01 或 访问次数 > 5
+      const shouldKeep = decayScore >= 0.01 || entry.accessCount > 5;
+      if (!shouldKeep) {
+        log.debug(`Removing decayed entry: ${entry.id} (decay=${decayScore.toFixed(3)}, access=${entry.accessCount})`);
+      }
+      return shouldKeep;
     });
 
     // 2. 合并重复条目（关键词重叠 > 80%）

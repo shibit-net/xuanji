@@ -17,7 +17,7 @@ const zh: Messages = {
   'cli.started': '璇玑 CLI 已启动',
   'cli.exit': '璇玑 CLI 退出',
   'cli.thinking': '🤔 让我想想...',
-  'cli.help_hint': '/help 查看帮助',
+  'cli.help_hint': '按 ? 打开快捷操作 · /help 查看帮助',
   'cli.startup_failed': '启动失败:',
   'cli.tool_executing': '🔧 正在使用 {name}...',
   'cli.processing_stream': '✍️  奋笔疾书中...',
@@ -72,6 +72,7 @@ const zh: Messages = {
   'help.model': '  /model     — 查看或切换模型 (/model <name>)',
   'help.memory': '  /memory    — 查看记忆库 (/memory [query])',
   'help.exit': '  /exit      — 退出璇玑',
+  'help.doctor': '  /doctor    — 系统诊断（模型/MCP/Skill 状态）',
   'help.save': '  /save      — 保存当前会话 (/save [name])',
   'help.resume': '  /resume    — 恢复已保存会话 (/resume [id])',
   'help.sessions': '  /sessions  — 管理已保存会话 (/sessions delete <id>)',
@@ -88,6 +89,7 @@ const zh: Messages = {
   // ── 会话 ──
   'chat.session_reset': '会话已重置',
   'chat.session_interrupted': '已中断执行',
+  'chat.interrupted_append': '已收到补充指令，将在当前步骤完成后处理...',
   'chat.token_label': 'Token',
   'chat.input_label': '输入',
   'chat.output_label': '输出',
@@ -176,6 +178,7 @@ const zh: Messages = {
   // ── LLM 设置 ──
   'llm.title': '🤖 LLM 配置',
   'llm.field_model': '模型',
+  'llm.field_light_model': '轻量模型',
   'llm.field_apikey': 'API Key',
   'llm.field_adapter': 'Adapter',
   'llm.field_baseurl': 'Base URL',
@@ -185,7 +188,7 @@ const zh: Messages = {
   'llm.saved': '{field} 已保存',
   'llm.save_failed': '保存失败',
   'llm.edit_hint': '输入新值 → Enter 保存 | Esc 取消',
-  'llm.hint': '↑↓选择  Enter编辑  1/2/3/4快速编辑  Q=返回',
+  'llm.hint': '↑↓选择  Enter编辑  1/2/3/4/5快速编辑  Q=返回',
 
   // ── 机器人管理 ──
   'bots.title': '🤖 IM 机器人管理',
@@ -315,6 +318,7 @@ const zh: Messages = {
   'perm.guard_sensitive_file_write': '敏感文件写入: {name}',
   'perm.guard_sensitive_file_read': '敏感文件读取: {name}',
   'perm.guard_denied_path': '路径在黑名单中: {path}',
+  'perm.guard_ignored_path': '文件被 .xuanji/ignore 规则阻止: {path}',
   'perm.guard_allowed_path': '路径在白名单中: {path}',
   'perm.guard_outside_project': '项目外写入: {path}',
   'perm.guard_file_write': '写入文件: {path}',
@@ -344,7 +348,7 @@ const en: Messages = {
   'cli.started': 'Xuanji CLI started',
   'cli.exit': 'Xuanji CLI exited',
   'cli.thinking': '🤔 Let me think...',
-  'cli.help_hint': '/help for help',
+  'cli.help_hint': 'Press ? for quick actions · /help for help',
   'cli.startup_failed': 'Startup failed:',
   'cli.tool_executing': '🔧 Using {name}...',
   'cli.processing_stream': '✍️  Writing response...',
@@ -399,6 +403,7 @@ const en: Messages = {
   'help.model': '  /model     — View or switch model (/model <name>)',
   'help.memory': '  /memory    — View memory store (/memory [query])',
   'help.exit': '  /exit      — Exit Xuanji',
+  'help.doctor': '  /doctor    — System diagnostics (model/MCP/skill status)',
   'help.save': '  /save      — Save current session (/save [name])',
   'help.resume': '  /resume    — Resume saved session (/resume [id])',
   'help.sessions': '  /sessions  — Manage saved sessions (/sessions delete <id>)',
@@ -415,6 +420,7 @@ const en: Messages = {
   // ── Chat ──
   'chat.session_reset': 'Session reset',
   'chat.session_interrupted': 'Execution interrupted',
+  'chat.interrupted_append': 'Supplement received, will be processed after current step completes...',
   'chat.token_label': 'Token',
   'chat.input_label': 'Input',
   'chat.output_label': 'Output',
@@ -503,6 +509,7 @@ const en: Messages = {
   // ── LLM Settings ──
   'llm.title': '🤖 LLM Config',
   'llm.field_model': 'Model',
+  'llm.field_light_model': 'Light Model',
   'llm.field_apikey': 'API Key',
   'llm.field_adapter': 'Adapter',
   'llm.field_baseurl': 'Base URL',
@@ -512,7 +519,7 @@ const en: Messages = {
   'llm.saved': '{field} saved',
   'llm.save_failed': 'Save failed',
   'llm.edit_hint': 'Enter new value → Enter to save | Esc to cancel',
-  'llm.hint': '↑↓ Navigate  Enter Edit  1/2/3/4 Quick edit  Q=Back',
+  'llm.hint': '↑↓ Navigate  Enter Edit  1/2/3/4/5 Quick edit  Q=Back',
 
   // ── Bots Management ──
   'bots.title': '🤖 IM Bot Management',
@@ -642,6 +649,7 @@ const en: Messages = {
   'perm.guard_sensitive_file_write': 'Sensitive file write: {name}',
   'perm.guard_sensitive_file_read': 'Sensitive file read: {name}',
   'perm.guard_denied_path': 'Path is in deny list: {path}',
+  'perm.guard_ignored_path': 'File blocked by .xuanji/ignore rule: {path}',
   'perm.guard_allowed_path': 'Path is in allow list: {path}',
   'perm.guard_outside_project': 'Write outside project: {path}',
   'perm.guard_file_write': 'Write file: {path}',

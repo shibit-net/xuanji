@@ -30,7 +30,7 @@ describe('ToolDispatcher', () => {
 
     const result = await dispatcher.execute(toolCall);
     expect(result.content).toBe('result from read_file');
-    expect(registry.execute).toHaveBeenCalledWith('read_file', { path: '/tmp/test.txt' });
+    expect(registry.execute).toHaveBeenCalledWith('read_file', { path: '/tmp/test.txt' }, expect.any(AbortSignal));
   });
 
   it('executeAll() 应顺序执行所有工具调用', async () => {

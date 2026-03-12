@@ -181,4 +181,16 @@ export class TokenManager {
   reset(): void {
     this.totalUsage = { input: 0, output: 0 };
   }
+
+  /**
+   * 恢复累计用量（用于 session resume 时恢复之前的 token 统计）
+   */
+  restoreUsage(usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number }): void {
+    this.totalUsage = {
+      input: usage.input,
+      output: usage.output,
+      cacheRead: usage.cacheRead,
+      cacheWrite: usage.cacheWrite,
+    };
+  }
 }

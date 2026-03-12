@@ -160,4 +160,122 @@ describe('WebFetchTool', () => {
 
     vi.unstubAllGlobals();
   });
+
+  describe('SSRF 防护', () => {
+    it('应阻止访问 localhost', async () => {
+      const result = await tool.execute({ url: 'http://localhost:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 127.0.0.1', async () => {
+      const result = await tool.execute({ url: 'http://127.0.0.1:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 127.0.0.0/8 范围', async () => {
+      const result = await tool.execute({ url: 'http://127.1.2.3:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 10.x.x.x 内网', async () => {
+      const result = await tool.execute({ url: 'http://10.0.0.1' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 172.16-31.x.x 内网', async () => {
+      const result = await tool.execute({ url: 'http://172.16.0.1' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+
+      const result2 = await tool.execute({ url: 'http://172.31.255.255' });
+      expect(result2.isError).toBe(true);
+      expect(result2.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 192.168.x.x 内网', async () => {
+      const result = await tool.execute({ url: 'http://192.168.1.1' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问云元数据端点', async () => {
+      const result = await tool.execute({ url: 'http://169.254.169.254/latest/meta-data' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 .local 域名', async () => {
+      const result = await tool.execute({ url: 'http://myhost.local' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 IPv6 回环地址', async () => {
+      const result = await tool.execute({ url: 'http://[::1]:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 IPv6 ULA (fd00::/8)', async () => {
+      const result = await tool.execute({ url: 'http://[fd00::1]:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止访问 IPv6 link-local (fe80::/10)', async () => {
+      const result = await tool.execute({ url: 'http://[fe80::1]:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止八进制 IP (0177.0.0.1)', async () => {
+      const result = await tool.execute({ url: 'http://0177.0.0.1' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止十六进制 IP (0x7f000001)', async () => {
+      const result = await tool.execute({ url: 'http://0x7f000001' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止十进制整数 IP (2130706433)', async () => {
+      const result = await tool.execute({ url: 'http://2130706433' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应阻止 IPv4-mapped IPv6 (::ffff:127.0.0.1)', async () => {
+      const result = await tool.execute({ url: 'http://[::ffff:127.0.0.1]:8080' });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('安全限制');
+    });
+
+    it('应允许访问正常公网地址', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: 'https://example.com',
+        headers: new Map([['content-type', 'text/plain']]) as any,
+        body: {
+          getReader: () => ({
+            read: vi.fn()
+              .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode('Success') })
+              .mockResolvedValueOnce({ done: true }),
+            releaseLock: vi.fn(),
+          }),
+        },
+      }));
+
+      const result = await tool.execute({ url: 'https://example.com' });
+      expect(result.isError).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+  });
 });

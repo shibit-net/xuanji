@@ -60,7 +60,7 @@ export class TodoUpdateTool extends BaseTool {
     required: ['id'],
   };
 
-  readonly readonly = false;
+  readonly readonly = true;
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const id = input.id as string;
@@ -104,7 +104,12 @@ export class TodoUpdateTool extends BaseTool {
       }
 
       const todo = await manager.update(id, updates);
-      return this.success(JSON.stringify(todo, null, 2));
+
+      const action = updates.status === 'completed' ? '✅ 已完成' :
+                     updates.status === 'in_progress' ? '🔄 开始执行' :
+                     '📝 已更新';
+      const summary = `${action}: ${todo.title} (${todo.id})${manager.formatProgress()}`;
+      return this.success(summary);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return this.error(`更新任务失败: ${msg}`);

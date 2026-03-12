@@ -33,10 +33,8 @@ export class DebugLogger implements ILogger {
     this.namespace = config?.namespace ?? 'xuanji';
     this.fileWriter = fileWriter ?? null;
 
-    // 开发环境: 如果没有设置 DEBUG 环境变量，默认启用 xuanji:*
-    if (!process.env.DEBUG && process.env.NODE_ENV !== 'production') {
-      createDebug.enable('xuanji:*');
-    }
+    // 仅在用户显式设置 DEBUG 环境变量时才输出到终端
+    // 未设置时日志只写入文件（~/.xuanji/logs/core.log），不打扰用户
 
     // 创建不同级别的 debugger 实例
     // debug 包会自动根据 DEBUG 环境变量过滤

@@ -40,6 +40,15 @@ export interface GuardCheckResult {
   description: string;
   /** 缓存 key (e.g. 'bash:git', 'write:/etc/hosts') */
   cacheKey: string;
+  /** 上下文信息（新增） */
+  context?: {
+    /** 是否在项目目录内 */
+    isProjectPath?: boolean;
+    /** 是否是敏感文件 */
+    isSensitiveFile?: boolean;
+    /** 受影响的文件列表（批量操作时） */
+    affectedFiles?: string[];
+  };
 }
 
 /**
@@ -71,10 +80,14 @@ export interface IPermissionController {
   setConfirmationHandler(handler: ConfirmationHandler): void;
   /** 更新配置 */
   updateConfig(config: PermissionConfig): void;
+  /** 获取当前配置 */
+  getConfig(): PermissionConfig;
   /** 设置计划审查处理器 */
   setPlanReviewHandler(handler: PlanReviewHandler): void;
   /** 触发计划审查（由 PlanReviewTool 调用，展示计划让用户确认/拒绝/补充） */
   reviewPlan(plan: string): Promise<PlanReviewResult>;
+  /** 设置 IgnoreFilter 到 FileGuard */
+  setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void;
 }
 
 // ============================================================

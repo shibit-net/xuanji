@@ -179,7 +179,9 @@ export class PricingResolver {
     if (Date.now() > this.remoteCacheExpiry) {
       // 缓存过期，异步刷新（不阻塞当前调用）
       if (this.isRemoteEnabled()) {
-        this.fetchRemotePricing().catch(() => {});
+        this.fetchRemotePricing().catch((err) => {
+          log.debug('Remote pricing refresh failed:', err);
+        });
       }
       // 超过 2 倍 TTL，清空过期缓存，降级到 builtin
       const maxTolerance = (this.config.cacheTTL ?? DEFAULT_CACHE_TTL) * 2;

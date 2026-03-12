@@ -9,6 +9,16 @@ export interface SlashCommand {
   name: string;
   description: string;
   handler: (args: string) => void | Promise<void>;
+  /** 命令分组（用于 help 分类显示） */
+  group?: string;
+  /** 使用示例 */
+  usage?: string;
+  /** 别名 */
+  aliases?: string[];
+  /** 图标（emoji） */
+  icon?: string;
+  /** 是否隐藏（不在 help 中显示） */
+  hidden?: boolean;
 }
 
 /**

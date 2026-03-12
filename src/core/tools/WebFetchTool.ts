@@ -289,13 +289,16 @@ export class WebFetchTool extends BaseTool {
    * 判断是否为内网/本地地址（不应升级为 HTTPS）
    */
   private isPrivateAddress(hostname: string): boolean {
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-    if (hostname === '0.0.0.0') return true;
-    if (/^127\./.test(hostname)) return true;
-    if (hostname.startsWith('10.')) return true;
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
-    if (hostname.startsWith('192.168.')) return true;
-    if (hostname.endsWith('.local')) return true;
+    // URL().hostname 对 IPv6 返回 [::1] 格式，需要去除方括号
+    const cleanHostname = hostname.replace(/^\[|\]$/g, '');
+
+    if (cleanHostname === 'localhost' || cleanHostname === '127.0.0.1' || cleanHostname === '::1') return true;
+    if (cleanHostname === '0.0.0.0') return true;
+    if (/^127\./.test(cleanHostname)) return true;
+    if (cleanHostname.startsWith('10.')) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(cleanHostname)) return true;
+    if (cleanHostname.startsWith('192.168.')) return true;
+    if (cleanHostname.endsWith('.local')) return true;
     return false;
   }
 
@@ -303,7 +306,9 @@ export class WebFetchTool extends BaseTool {
    * 判断 hostname 是否为 IP 字面量（IPv4 或 IPv6）
    */
   private isIPLiteral(hostname: string): boolean {
-    return /^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':');
+    // URL().hostname 对 IPv6 返回 [::1] 格式，需要去除方括号
+    const cleanHostname = hostname.replace(/^\[|\]$/g, '');
+    return /^\d+\.\d+\.\d+\.\d+$/.test(cleanHostname) || cleanHostname.includes(':');
   }
 
   /**
@@ -322,52 +327,70 @@ export class WebFetchTool extends BaseTool {
    * - 十进制整数 IP (2130706433)
    */
   private isSSRFTarget(hostname: string): boolean {
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-    if (hostname === '0.0.0.0') return true;
-    // 云元数据端点
-    if (hostname === '169.254.169.254') return true;
-    if (hostname === 'metadata.google.internal') return true;
-    // 127.0.0.0/8
-    if (/^127\./.test(hostname)) return true;
-    // 10.x.x.x
-    if (hostname.startsWith('10.')) return true;
-    // 172.16-31.x.x
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
-    // 192.168.x.x
-    if (hostname.startsWith('192.168.')) return true;
-    // .local 域名
-    if (hostname.endsWith('.local')) return true;
-    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10) — new URL() 返回的 hostname 不含方括号
-    if (/^fd[0-9a-f]{2}:/i.test(hostname) || /^fe[89ab][0-9a-f]:/i.test(hostname)) return true;
+    // URL().hostname 对 IPv6 返回 [::1] 格式，需要去除方括号
+    const cleanHostname = hostname.replace(/^\[|\]$/g, '');
 
-    // IPv4-mapped IPv6: ::ffff:127.0.0.1 或 [::ffff:127.0.0.1]
-    const ffmpMatch = hostname.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/i);
+    if (cleanHostname === 'localhost' || cleanHostname === '127.0.0.1' || cleanHostname === '::1') return true;
+    if (cleanHostname === '0.0.0.0') return true;
+    // 云元数据端点
+    if (cleanHostname === '169.254.169.254') return true;
+    if (cleanHostname === 'metadata.google.internal') return true;
+    // 127.0.0.0/8
+    if (/^127\./.test(cleanHostname)) return true;
+    // 10.x.x.x
+    if (cleanHostname.startsWith('10.')) return true;
+    // 172.16-31.x.x
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(cleanHostname)) return true;
+    // 192.168.x.x
+    if (cleanHostname.startsWith('192.168.')) return true;
+    // .local 域名
+    if (cleanHostname.endsWith('.local')) return true;
+    // IPv6 ULA (fd00::/8) 和 link-local (fe80::/10)
+    if (/^fd[0-9a-f]{2}:/i.test(cleanHostname) || /^fe[89ab][0-9a-f]:/i.test(cleanHostname)) return true;
+
+    // IPv4-mapped IPv6: ::ffff:127.0.0.1 (URL 会规范化为 ::ffff:7f00:1 等格式)
+    // ::ffff:7f00:0 ~ ::ffff:7fff:ffff (127.0.0.0/8)
+    // ::ffff:a00:0 ~ ::ffff:aff:ffff (10.0.0.0/8)
+    // ::ffff:ac10:0 ~ ::ffff:ac1f:ffff (172.16.0.0/12)
+    // ::ffff:c0a8:0 ~ ::ffff:c0a8:ffff (192.168.0.0/16)
+    if (/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.test(cleanHostname)) {
+      const match = cleanHostname.match(/^::ffff:([0-9a-f]+):([0-9a-f]+)$/i);
+      if (match) {
+        const high = parseInt(match[1], 16);
+        const low = parseInt(match[2], 16);
+        const ipNum = (high << 16) | low;
+        if (this.isPrivateIPNumber(ipNum)) return true;
+      }
+    }
+
+    // IPv4-mapped IPv6: 点分十进制格式 ::ffff:127.0.0.1
+    const ffmpMatch = cleanHostname.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/i);
     if (ffmpMatch) {
       return this.isSSRFTarget(ffmpMatch[1]);
     }
 
-    // IPv4-compatible IPv6: [::127.0.0.1] 或 ::127.0.0.1
-    const v4compatMatch = hostname.match(/^\[?::(\d+\.\d+\.\d+\.\d+)\]?$/);
+    // IPv4-compatible IPv6: ::127.0.0.1
+    const v4compatMatch = cleanHostname.match(/^::(\d+\.\d+\.\d+\.\d+)$/);
     if (v4compatMatch) {
       return this.isSSRFTarget(v4compatMatch[1]);
     }
 
     // 八进制 IP: 0177.0.0.1（各段以 0 开头且包含非 0x 前缀的八进制数字）
-    const octalMatch = hostname.match(/^(0\d+)\.(0\d*)\.(0\d*)\.(0\d*)$/);
+    const octalMatch = cleanHostname.match(/^(0\d+)\.(0\d*)\.(0\d*)\.(0\d*)$/);
     if (octalMatch) {
-      const ipNum = this.parseOctalIP(hostname);
+      const ipNum = this.parseOctalIP(cleanHostname);
       if (ipNum !== null && this.isPrivateIPNumber(ipNum)) return true;
     }
 
     // 十六进制 IP: 0x7f000001
-    if (/^0x[0-9a-fA-F]+$/.test(hostname)) {
-      const ipNum = parseInt(hostname, 16);
+    if (/^0x[0-9a-fA-F]+$/.test(cleanHostname)) {
+      const ipNum = parseInt(cleanHostname, 16);
       if (!isNaN(ipNum) && this.isPrivateIPNumber(ipNum)) return true;
     }
 
     // 十进制整数 IP: 2130706433
-    if (/^\d+$/.test(hostname) && hostname.length > 3) {
-      const ipNum = parseInt(hostname, 10);
+    if (/^\d+$/.test(cleanHostname) && cleanHostname.length > 3) {
+      const ipNum = parseInt(cleanHostname, 10);
       if (!isNaN(ipNum) && this.isPrivateIPNumber(ipNum)) return true;
     }
 

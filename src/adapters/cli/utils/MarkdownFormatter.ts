@@ -16,12 +16,25 @@ export function isMarkdown(text: string): boolean {
 export function formatMarkdown(text: string) {
   const lines = text.split('\n');
   const hasMarkdown = isMarkdown(text);
+  let inCodeBlock = false;
 
   // 处理 markdown 标记
   const formatted = lines.map((line) => {
     // 代码块标记（```）
     if (line.trim().startsWith('```')) {
-      return `┌─ CODE ─┐`;
+      if (!inCodeBlock) {
+        const lang = line.trim().slice(3).trim();
+        inCodeBlock = true;
+        return `── ${lang || 'code'} ${'─'.repeat(20)}`;
+      } else {
+        inCodeBlock = false;
+        return `${'─'.repeat(28)}`;
+      }
+    }
+
+    // 代码块内容：原样保留
+    if (inCodeBlock) {
+      return `  ${line}`;
     }
 
     // 标题：# Level 1, ## Level 2 等
@@ -30,17 +43,24 @@ export function formatMarkdown(text: string) {
       const level = headingMatch[1].length;
       const content = headingMatch[2];
       if (level === 1) {
-        return `\n═══════════════════════════`;
+        return `\n${content}\n${'━'.repeat(Math.min(content.length * 2, 40))}`;
       } else if (level === 2) {
-        return `───────────────────────────`;
+        return `\n▸ ${content}`;
+      } else if (level === 3) {
+        return `  • ${content}`;
       } else {
-        return `  ◆ ${content}`;
+        return `    ▪ ${content}`;
       }
     }
 
-    // 标题内容（标题行后的内容行）
-    if (/^#+\s+/.test(line)) {
-      return line.replace(/^#+\s+/, '  ★ ');
+    // Task List (TODO)
+    const taskMatch = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/);
+    if (taskMatch) {
+      const indent = Math.floor(taskMatch[1].length / 2);
+      const checked = taskMatch[2].toLowerCase() === 'x';
+      const text = taskMatch[3];
+      const checkbox = checked ? '✔' : '☐';
+      return `${'  '.repeat(indent)}${checkbox} ${text}`;
     }
 
     // 无序列表 - 或 *
@@ -60,9 +80,14 @@ export function formatMarkdown(text: string) {
     }
 
     // 引用块 >
-    if (/^>\s+/.test(line)) {
-      const content = line.replace(/^>\s+/, '');
+    if (/^>\s*/.test(line)) {
+      const content = line.replace(/^>\s*/, '');
       return `  ┃ ${content}`;
+    }
+
+    // 水平分隔线
+    if (/^\s*[-*_](\s*[-*_]){2,}\s*$/.test(line) && !(/^\s*[-*]\s+/.test(line))) {
+      return `${'─'.repeat(28)}`;
     }
 
     // 表格行
@@ -70,16 +95,19 @@ export function formatMarkdown(text: string) {
       return line.replace(/\|/g, '│');
     }
 
+    // 行内格式处理
+    let result = line;
+
     // 粗体 **text** 或 __text__
-    let result = line.replace(/\*\*(.+?)\*\*/g, '█ $1 █');
-    result = result.replace(/__(.+?)__/g, '█ $1 █');
+    result = result.replace(/\*\*(.+?)\*\*/g, '$1');
+    result = result.replace(/__(.+?)__/g, '$1');
 
     // 斜体 *text* 或 _text_（但不匹配粗体）
-    result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '▸ $1 ◂');
-    result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '▸ $1 ◂');
+    result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1');
+    result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '$1');
 
     // 代码 `text`
-    result = result.replace(/`([^`]+)`/g, '┌$1┐');
+    result = result.replace(/`([^`]+)`/g, '$1');
 
     // 链接 [text](url)
     result = result.replace(/\[(.+?)\]\((.+?)\)/g, '$1 ($2)');

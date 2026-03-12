@@ -99,7 +99,7 @@ export interface IToolRegistry {
   /** 检查工具是否已注册 */
   has(name: string): boolean;
   /** 执行工具 */
-  execute(name: string, input: Record<string, unknown>): Promise<ToolResult>;
+  execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
   /** 注入权限控制器 */
   setPermissionController?(controller: unknown): void;
   /** 进入 Plan Mode（只读模式） */

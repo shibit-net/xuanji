@@ -342,6 +342,8 @@ export class SkillRegistry {
     const usedSkills: Skill[] = [];
     const order: string[] = [];
     const processed = new Set<string>();
+    // 🆕 收集所有被依赖的 skill ID（这些 skill 不应单独输出，只通过主 skill 的 render 方法访问）
+    const dependedSkills = new Set<string>();
 
     // 按优先级排序
     const skillsToCompose = skillIds
@@ -349,8 +351,15 @@ export class SkillRegistry {
       .filter((s): s is Skill => s !== undefined)
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
+    // 🆕 第一遍：收集所有被依赖的 skill ID
+    for (const skill of skillsToCompose) {
+      if (skill.dependencies && skill.dependencies.length > 0) {
+        skill.dependencies.forEach((depId) => dependedSkills.add(depId));
+      }
+    }
+
     // 递归处理依赖 (异步)
-    const process = async (skill: Skill) => {
+    const process = async (skill: Skill, isDirectRequest: boolean) => {
       if (processed.has(skill.id)) {
         return;
       }
@@ -361,7 +370,7 @@ export class SkillRegistry {
         for (const depId of skill.dependencies) {
           const depSkill = this.get(depId);
           if (depSkill) {
-            await process(depSkill);
+            await process(depSkill, false); // 依赖的 skill 不是直接请求
           }
         }
       }
@@ -375,14 +384,16 @@ export class SkillRegistry {
         includeDependencies: false, // 已手动处理依赖
       });
 
-      if (rendered) {
+      // 🆕 只有直接请求的 skill 或不被任何人依赖的 skill 才输出
+      // 被依赖的 skill 的内容已通过 render() 方法注入到主 skill 的 params.dependencies 中
+      if (rendered && (isDirectRequest || !dependedSkills.has(skill.id))) {
         contents.push(rendered);
       }
     };
 
-    // 处理所有 Skill
+    // 处理所有 Skill（这些都是直接请求）
     for (const skill of skillsToCompose) {
-      await process(skill);
+      await process(skill, true);
     }
 
     const result = contents.join('\n\n');

@@ -149,9 +149,8 @@ describe('TodoManager', () => {
       const tool = new TodoStorageTool();
       const result = await tool.execute({ title: '测试任务' });
       expect(result.isError).toBe(false);
-      const todo = JSON.parse(result.content);
-      expect(todo.title).toBe('测试任务');
-      expect(todo.status).toBe('pending');
+      expect(result.content).toContain('已创建');
+      expect(result.content).toContain('测试任务');
     });
 
     it('空标题应返回错误', async () => {
@@ -201,8 +200,11 @@ describe('TodoManager', () => {
       const tool = new TodoUpdateTool();
       const result = await tool.execute({ id: todo.id, status: 'in_progress' });
       expect(result.isError).toBe(false);
-      const updated = JSON.parse(result.content);
-      expect(updated.status).toBe('in_progress');
+      expect(result.content).toContain('开始执行');
+      expect(result.content).toContain('Task');
+      // 验证 manager 中的状态确实已更新
+      const updated = await manager.get(todo.id);
+      expect(updated?.status).toBe('in_progress');
     });
 
     it('空 id 应返回错误', async () => {

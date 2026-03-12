@@ -1,0 +1,237 @@
+# ============================================================
+# Xuanji 配置示例 — 启用智能记忆 V2
+# ============================================================
+#
+# 本配置展示如何启用和配置智能记忆 V2 功能
+# 将此文件复制为 .xuanji.yaml 并根据需求调整
+
+# ─── 基础配置 ───────────────────────────────────────────
+
+provider:
+  name: anthropic
+  model: claude-3-5-sonnet-20241022
+  apiKey: ${ANTHROPIC_API_KEY}
+  temperature: 0.7
+  maxTokens: 4096
+
+ui:
+  theme: auto
+  language: zh
+  showTokenUsage: true
+  showCost: true
+  showThinking: false
+
+# ─── 功能特性 ───────────────────────────────────────────
+
+features:
+  dynamicToolLoading: true
+  proactiveButler: true
+  
+  # ✨ 启用智能记忆 V2（LLM 主动决策）
+  smartMemoryV2: true
+
+# ─── 智能记忆配置 ───────────────────────────────────────
+
+memory:
+  enabled: true
+  
+  # ─── 容量配置 ───────────────────────────────────────
+  
+  # 短期记忆上限（会话内缓存）
+  shortTermMaxEntries: 100
+  
+  # 长期记忆上限（持久化存储）
+  # 推荐：根据使用频率设置
+  #  - 轻度使用（每天 < 10 会话）: 500
+  #  - 中度使用（每天 10-50 会话）: 1000
+  #  - 重度使用（每天 > 50 会话）: 2000
+  longTermMaxEntries: 1000
+  
+  # ─── 检索配置 ───────────────────────────────────────
+  
+  # 检索时返回的最大结果数
+  retrieveMaxResults: 10
+  
+  # 最大内容长度（字符）
+  maxEntryLength: 500
+  maxPromptLength: 5000
+  
+  # ─── 压缩配置 ───────────────────────────────────────
+  
+  # 超过此数量触发压缩
+  compactionThreshold: 500
+  
+  # 记忆衰减半衰期（天）
+  # 超过此天数未访问的记忆，重要性会衰减
+  decayHalfLifeDays: 30
+  
+  # ─── V2 提取器配置（LLM 决策相关）─────────────────
+  
+  # 提取器使用的模型（null 表示使用默认轻量模型）
+  # 推荐：不设置或设置为 null，将自动使用最便宜的模型
+  # 可选值：
+  #  - null: 自动选择（推荐）
+  #  - "claude-3-haiku-20240307": Claude Haiku（便宜快速）
+  #  - "gpt-4o-mini": GPT-4o mini（便宜）
+  extractorModel: null
+  
+  # 提取器温度（0-1）
+  # 越低越保守（避免过度记忆）
+  # 推荐：0.3
+  extractorTemperature: 0.3
+  
+  # 提取器超时（毫秒）
+  extractorTimeout: 60000
+  
+  # 最小置信度阈值（0.6-1.0）
+  # 低于此阈值的记忆不会被存储
+  # 推荐：0.6
+  extractorMinConfidence: 0.6
+
+# ─── 提醒系统配置（与记忆系统协同）─────────────────────
+
+# reminder:  # ReminderEngine 的配置
+#   enabled: true
+#   neglectThresholdDays: 60  # 关系维护阈值（天）
+#   upcomingDays: 3  # 启动时预览未来 3 天的提醒
+#   storageFile: "reminders.jsonl"
+
+# ─── 工具权限配置 ───────────────────────────────────────
+
+tools:
+  permission:
+    fileWrite: ask
+    fileRead: always
+    bashExec: ask
+    warnLevel: auto-allow
+
+# ─── 使用说明 ───────────────────────────────────────────
+#
+# 智能记忆 V2 vs V1：
+#
+# V1 (规则驱动):
+#   - 按固定规则提取记忆
+#   - 可能重复存储
+#   - 无优先级管理
+#   - 配置：smartMemoryV2: false
+#
+# V2 (LLM 决策):
+#   - LLM 主动判断是否值得记忆
+#   - 自动去重/合并
+#   - 优先级管理（critical/high/normal/low）
+#   - 上下文感知（检索已有记忆）
+#   - 配置：smartMemoryV2: true
+#
+# ─── 决策示例 ───────────────────────────────────────────
+#
+# 示例 1: 新增记忆
+#
+# 用户说："我不吃辣，但微辣可以接受"
+# V2 决策：
+#   action: create
+#   type: user_preference
+#   content: "Cannot eat spicy food, but can accept mildly spicy dishes"
+#   priority: high
+#   confidence: 0.95
+#
+# 示例 2: 更新记忆
+#
+# 用户说："之前说我不吃辣，但其实现在可以吃微辣了"
+# 已有记忆："Cannot eat spicy food"
+# V2 决策：
+#   action: update
+#   type: user_preference
+#   content: "Can now eat mildly spicy food"
+#   priority: high
+#   confidence: 0.98
+#   relatedMemoryId: "mem_001"
+#
+# 示例 3: 合并记忆
+#
+# 用户说："Alice 特别喜欢寿司和刺身"
+# 已有记忆："Alice loves Japanese cuisine"
+# V2 决策：
+#   action: merge
+#   type: relationship
+#   mergedContent: "Alice loves Japanese cuisine, especially sushi and sashimi"
+#   priority: critical
+#   confidence: 0.95
+#
+# 示例 4: 跳过无价值
+#
+# 用户说："帮我格式化这段代码"
+# V2 决策：
+#   action: skip
+#   reason: "纯工具操作，无长期价值信息"
+#
+# ─── 优先级策略 ─────────────────────────────────────────
+#
+# critical:
+#   - 重要日期（生日、纪念日、截止日）
+#   - 关系维护（联系人信息）
+#   - 用户核心偏好
+#
+# high:
+#   - 用户决策（技术选型、项目方向）
+#   - 新偏好（饮食、工作习惯）
+#   - 工具模式（高效workflow）
+#
+# normal:
+#   - 项目事实（架构、配置）
+#   - 会话摘要
+#
+# low:
+#   - 临时信息（可能不值得存储）
+#   - 一次性请求
+#
+# ─── 容量管理 ───────────────────────────────────────────
+#
+# 当记忆使用率 > 80%：
+#   → 只存储 critical/high
+#   → 跳过 normal/low
+#
+# 当记忆使用率 > 90%：
+#   → 只存储 critical
+#   → 跳过 high/normal/low
+#
+# 超过上限：
+#   → 淘汰最旧的 low/normal 记忆
+#   → 保留 critical/high
+#
+# ─── 性能和成本 ─────────────────────────────────────────
+#
+# Token 消耗（每会话）:
+#   - V1: ~300 tokens
+#   - V2: ~700 tokens (+133%)
+#
+# 成本估算（使用 Claude Haiku）:
+#   - 每会话: < $0.001
+#   - 每天 30 会话: < $0.03
+#   - 每月: < $1
+#
+# 优势：
+#   - 避免重复存储，长期节省空间
+#   - 提高检索精度
+#   - 自动优先级管理
+#
+# ─── 故障排查 ───────────────────────────────────────────
+#
+# Q: V2 未生效？
+# A: 检查配置 smartMemoryV2: true
+#    查看日志：grep "SmartMemoryExtractorV2" ~/.xuanji/logs/*.log
+#
+# Q: 记忆重复？
+# A: V2 应该自动去重。如果仍然重复：
+#    1. 确保向量检索已启用
+#    2. 查看决策日志：grep "Decision summary" ~/.xuanji/logs/*.log
+#
+# Q: 重要信息被跳过？
+# A: 可能容量接近上限，优先级为 low/normal 被过滤
+#    解决：扩大容量 longTermMaxEntries: 2000
+#         或调整温度 extractorTemperature: 0.4
+#
+# ─── 更多信息 ───────────────────────────────────────────
+#
+# 详细文档：docs/SMART_MEMORY_V2.md
+# Prompt 设计：docs/SMART_MEMORY_DECISION_PROMPT.md
+# 测试计划：(开发中)

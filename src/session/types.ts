@@ -27,6 +27,8 @@ export interface Message {
 export interface SessionMetadata {
   /** 会话唯一标识 */
   id: string;
+  /** 人类可读短标签，格式: {项目名}-{MMdd}{序号}，如 "xuanji-0703a" */
+  shortLabel?: string;
   /** 会话名称（用户指定或 LLM 生成） */
   name: string;
   /** 创建时间（Unix 时间戳） */
@@ -37,6 +39,8 @@ export interface SessionMetadata {
   messageCount: number;
   /** 会话保存时的工作目录 */
   workingDirectory: string;
+  /** 内容缩略（最近一轮对话摘要） */
+  preview?: string;
   /** Git 仓库信息（如果存在） */
   gitInfo?: {
     branch: string;
@@ -84,6 +88,44 @@ export interface SessionSnapshot {
   messages: Message[];
   checkpoints: Checkpoint[];
   corruptedLineCount?: number;
+  /** 累计 token 用量（用于 resume 时恢复 TokenManager/CostTracker 状态） */
+  usage?: SessionUsage;
+  /** UI 历史消息摘要（用于 resume 时恢复 chatHistory 展示） */
+  historyMessages?: HistoryMessage[];
+}
+
+/**
+ * 会话 token 用量快照
+ */
+export interface SessionUsage {
+  input: number;
+  output: number;
+  cost: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+/**
+ * UI 历史消息（纯文本摘要，用于 resume 后展示）
+ */
+export interface HistoryMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+/**
+ * Resume 返回的完整上下文
+ */
+export interface ResumedSessionContext {
+  /** 会话 ID */
+  sessionId: string;
+  /** LLM 消息历史（用于恢复 AgentLoop） */
+  messages: Message[];
+  /** 累计 token 用量 */
+  usage: SessionUsage;
+  /** UI 历史消息 */
+  historyMessages: HistoryMessage[];
 }
 
 /**
@@ -91,11 +133,15 @@ export interface SessionSnapshot {
  */
 export interface SessionListItem {
   id: string;
+  /** 人类可读短标签 */
+  shortLabel?: string;
   name: string;
   createdAt: number;
   updatedAt: number;
   messageCount: number;
   workingDirectory: string;
+  /** 内容缩略 */
+  preview?: string;
 }
 
 /**

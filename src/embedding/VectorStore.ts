@@ -2,6 +2,7 @@
 // 向量存储 — SQLite + sqlite-vec 本地向量数据库
 // ============================================================
 
+import type Database from 'better-sqlite3';
 import { logger } from '@/core/logger';
 import type { MemoryEntry } from '@/memory/types';
 
@@ -30,8 +31,7 @@ export interface SkillEmbeddingRecord {
  * 数据库路径: ~/.xuanji/vector.db
  */
 export class VectorStore {
-  // TODO: 使用 BetterSqlite3.Database 替代 any（需处理 ensureReady 后的非空断言链）
-  private db: any = null;
+  private db: Database.Database | null = null;
   private ready = false;
   private vecAvailable = false;
   private dbPath: string;
@@ -76,17 +76,17 @@ export class VectorStore {
   insertMemory(memory: MemoryEntry, embedding: Float32Array): void {
     this.ensureReady();
 
-    const insertMemory = this.db.prepare(`
+    const insertMemory = this.db!.prepare(`
       INSERT OR REPLACE INTO memories (id, type, content, keywords, confidence, created_at, last_accessed_at, access_count, project_path, source)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const insertVector = this.db.prepare(`
+    const insertVector = this.db!.prepare(`
       INSERT OR REPLACE INTO memory_vectors (memory_id, embedding, updated_at)
       VALUES (?, ?, ?)
     `);
 
-    const insertVecIndex = this.db.prepare(`
+    const insertVecIndex = this.db!.prepare(`
       INSERT OR REPLACE INTO vec_memories (rowid, embedding)
       VALUES ((SELECT rowid FROM memories WHERE id = ?), ?)
     `);
@@ -94,7 +94,7 @@ export class VectorStore {
     const now = new Date().toISOString();
     const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
 
-    const transaction = this.db.transaction(() => {
+    const transaction = this.db!.transaction(() => {
       insertMemory.run(
         memory.id,
         memory.type,
@@ -124,22 +124,22 @@ export class VectorStore {
       throw new Error(`insertBatch: memories (${memories.length}) and embeddings (${embeddings.length}) length mismatch`);
     }
 
-    const insertMemoryStmt = this.db.prepare(`
+    const insertMemoryStmt = this.db!.prepare(`
       INSERT OR REPLACE INTO memories (id, type, content, keywords, confidence, created_at, last_accessed_at, access_count, project_path, source)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const insertVectorStmt = this.db.prepare(`
+    const insertVectorStmt = this.db!.prepare(`
       INSERT OR REPLACE INTO memory_vectors (memory_id, embedding, updated_at)
       VALUES (?, ?, ?)
     `);
-    const insertVecIndexStmt = this.db.prepare(`
+    const insertVecIndexStmt = this.db!.prepare(`
       INSERT OR REPLACE INTO vec_memories (rowid, embedding)
       VALUES ((SELECT rowid FROM memories WHERE id = ?), ?)
     `);
 
     const now = new Date().toISOString();
 
-    const transaction = this.db.transaction(() => {
+    const transaction = this.db!.transaction(() => {
       for (let i = 0; i < memories.length; i++) {
         const memory = memories[i];
         const embedding = embeddings[i];
@@ -169,7 +169,7 @@ export class VectorStore {
 
     // 尝试使用 sqlite-vec 的向量索引
     try {
-      const rows = this.db.prepare(`
+      const rows = this.db!.prepare(`
         SELECT
           m.id, m.type, m.content, m.keywords, m.confidence,
           m.created_at, m.last_accessed_at, m.access_count,
@@ -199,7 +199,7 @@ export class VectorStore {
     const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const now = new Date().toISOString();
 
-    this.db.prepare(`
+    this.db!.prepare(`
       INSERT OR REPLACE INTO skill_vectors (skill_id, skill_name, embedding, description, updated_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(skillId, skillName, embeddingBuf, description, now);
@@ -209,7 +209,11 @@ export class VectorStore {
   getAllSkillEmbeddings(): SkillEmbeddingRecord[] {
     this.ensureReady();
 
-    const rows = this.db.prepare('SELECT * FROM skill_vectors').all();
+    const rows = this.db!.prepare('SELECT * FROM skill_vectors LIMIT 1000').all();
+    if (rows.length >= 1000) {
+      log.warn('Skill embeddings count exceeds 1000, results are truncated');
+    }
+    
     return rows.map((row: any) => {
       // 使用安全的 Buffer 转换，确保字节对齐（与 bruteForceSearch 一致）
       const buf = Buffer.from(row.embedding);
@@ -226,14 +230,14 @@ export class VectorStore {
   getStoredMemoryIds(): Set<string> {
     this.ensureReady();
 
-    const rows = this.db.prepare('SELECT id FROM memories').all();
+    const rows = this.db!.prepare('SELECT id FROM memories').all();
     return new Set(rows.map((r: any) => r.id));
   }
 
   /** 获取记忆总数 */
   getMemoryCount(): number {
     this.ensureReady();
-    return this.db.prepare('SELECT COUNT(*) as count FROM memories').get().count;
+    return (this.db!.prepare('SELECT COUNT(*) as count FROM memories').get() as any).count;
   }
 
   /** 是否就绪 */
@@ -253,7 +257,7 @@ export class VectorStore {
   // ────────── 私有方法 ──────────
 
   private createTables(): void {
-    this.db.exec(`
+    this.db!.exec(`
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
@@ -285,7 +289,7 @@ export class VectorStore {
 
     // 尝试创建 vec0 虚拟表（sqlite-vec 可用时）
     try {
-      this.db.exec(`
+      this.db!.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
           embedding float[384]
         );
@@ -298,18 +302,18 @@ export class VectorStore {
   /** 暴力搜索（sqlite-vec 不可用时的降级方案，分批加载避免内存爆炸） */
   private bruteForceSearch(queryEmbedding: Float32Array, topK: number): VectorSearchResult[] {
     const PAGE_SIZE = 500;
-    const totalCount = this.db.prepare('SELECT COUNT(*) as count FROM memory_vectors').get().count;
+    const totalCount = (this.db!.prepare('SELECT COUNT(*) as count FROM memory_vectors').get() as any).count;
     const results: VectorSearchResult[] = [];
 
     for (let offset = 0; offset < totalCount; offset += PAGE_SIZE) {
-      const rows = this.db.prepare(`
+      const rows = this.db!.prepare(`
         SELECT m.*, mv.embedding as vec_embedding
         FROM memories m
         INNER JOIN memory_vectors mv ON mv.memory_id = m.id
         LIMIT ? OFFSET ?
       `).all(PAGE_SIZE, offset);
 
-      for (const row of rows) {
+      for (const row of rows as any[]) {
         // 使用 Buffer.from() 复制确保字节对齐（防止 Float32Array RangeError）
         const alignedBuf = Buffer.from(row.vec_embedding);
         const storedEmbedding = new Float32Array(

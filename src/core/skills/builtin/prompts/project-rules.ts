@@ -14,6 +14,9 @@ import { FileIndexer } from '@/context/FileIndexer';
 import { DependencyAnalyzer } from '@/context/DependencyAnalyzer';
 import type { FileIndex } from '@/context/types';
 import { logger } from '@/core/logger';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 const log = logger.child({ module: 'project-rules' });
 
@@ -112,10 +115,6 @@ function formatIndexSummary(index: FileIndex, topN: number): string {
  * 同步加载规则文件
  */
 function loadRulesSync(rootPath: string): import('@/context/types').RulesContent {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const os = require('node:os');
-
   const MAX_FILE_SIZE = 500 * 1024;
   const result: import('@/context/types').RulesContent = {};
 

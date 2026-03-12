@@ -24,8 +24,11 @@ export interface AskUserPromptProps {
  * 1. 无 options：显示文本输入框（Enter 提交，Esc 跳过）
  * 2. options + 单选：↑↓ 导航，Enter 选择
  * 3. options + multiSelect：↑↓ 导航，Space 切换选中，Enter 确认
+ *
+ * 使用 React.memo 避免父组件 state 变化导致不必要的重渲染，
+ * 减少 Ink 动态区域重绘次数，防止终端输出闪烁/堆叠。
  */
-export function AskUserPrompt({ question, options, multiSelect, onAnswer }: AskUserPromptProps) {
+export const AskUserPrompt = React.memo(function AskUserPrompt({ question, options, multiSelect, onAnswer }: AskUserPromptProps) {
   const theme = getTheme();
 
   // 文本输入模式
@@ -42,7 +45,7 @@ export function AskUserPrompt({ question, options, multiSelect, onAnswer }: AskU
       onAnswer={onAnswer}
     />
   );
-}
+});
 
 /**
  * 文本输入模式（原有行为）

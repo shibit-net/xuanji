@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { AggregatedStats } from '@/core/telemetry';
+import { formatDuration, formatNumber } from '@/core/utils/ui';
 
 /**
  * 格式化使用统计为可读文本
@@ -63,18 +64,4 @@ export function formatUsageStats(stats: AggregatedStats, days: number): string {
   }
 
   return lines.join('\n');
-}
-
-/** 格式化数字 (千分位) */
-function formatNumber(n: number): string {
-  return n.toLocaleString('en-US');
-}
-
-/** 格式化耗时 */
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m${seconds}s`;
 }

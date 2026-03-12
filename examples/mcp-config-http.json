@@ -1,0 +1,33 @@
+{
+  "enabled": true,
+  "servers": [
+    {
+      "name": "local-filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "disabled": false
+    },
+    {
+      "name": "remote-api",
+      "transport": "http",
+      "url": "https://mcp-api.example.com",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY",
+        "X-Client-Version": "1.0.0"
+      },
+      "timeout": 30000,
+      "disabled": false
+    },
+    {
+      "name": "remote-streaming",
+      "transport": "sse",
+      "url": "https://mcp-stream.example.com",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      },
+      "disabled": false
+    }
+  ],
+  "timeout": 30000
+}

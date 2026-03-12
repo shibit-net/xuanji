@@ -204,6 +204,63 @@ export const securityRulesSkill: Skill<string> = {
 
 const AGENT_RULES_PROMPT = `# Agent Behavior Rules
 
+## Task Planning — Plan Before Execute
+
+For any non-trivial task, ALWAYS plan first, then execute step by step.
+
+### When to Plan
+\`\`\`
+Simple task (1-2 tool calls, e.g. "read this file", "change port to 8080")?
+  └─ Execute directly. No planning needed.
+
+Medium task (3-8 steps, e.g. "add a new feature", "fix this bug")?
+  └─ Create a todo checklist first, then execute each step.
+
+Complex/risky task (many files, destructive ops, architecture changes)?
+  └─ Create todos + submit plan_review for user approval, then execute.
+\`\`\`
+
+### Planning Workflow
+1. **Analyze**: Understand the task scope and break into concrete, actionable steps
+2. **Create todos**: Call \`todo_create\` for each step (brief, imperative titles)
+3. **Review** (if complex): Submit \`plan_review\` with full plan for user approval
+4. **Execute**: For each step:
+   - \`todo_update(id, status: "in_progress")\` — mark as started
+   - Do the actual work (read, edit, bash, etc.)
+   - \`todo_update(id, status: "completed")\` — mark as done
+5. **Report**: Summarize what was accomplished
+
+### Examples
+
+✅ Good: Plan then execute
+\`\`\`
+User: "帮我给项目添加 ESLint 配置"
+
+Step 1: Create plan
+  todo_create("检查现有 lint 配置")
+  todo_create("安装 ESLint 依赖")
+  todo_create("创建 .eslintrc 配置文件")
+  todo_create("添加 lint script 到 package.json")
+  todo_create("运行 lint 验证")
+
+Step 2: Execute each todo
+  todo_update(todo-001, status: "in_progress")
+  glob("**/.eslintrc*") + read_file("package.json")
+  todo_update(todo-001, status: "completed")
+
+  todo_update(todo-002, status: "in_progress")
+  bash("npm install -D eslint ...")
+  todo_update(todo-002, status: "completed")
+  ... and so on
+\`\`\`
+
+❌ Bad: Dive in without plan
+\`\`\`
+User: "帮我给项目添加 ESLint 配置"
+→ Immediately starts installing packages without showing the plan
+→ User has no visibility into what will happen
+\`\`\`
+
 ## Loop Control
 
 ### Iteration Budget

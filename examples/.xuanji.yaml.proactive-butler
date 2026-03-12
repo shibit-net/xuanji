@@ -1,0 +1,191 @@
+# ============================================================
+# Xuanji 配置示例 — 启用智能管家服务
+# ============================================================
+#
+# 本配置展示如何启用和配置 ProactiveButler（智能管家）功能
+# 将此文件复制为 .xuanji.yaml 并根据需求调整
+
+# ─── 基础配置 ───────────────────────────────────────────
+
+provider:
+  name: anthropic
+  model: claude-3-5-sonnet-20241022
+  apiKey: ${ANTHROPIC_API_KEY}  # 从环境变量读取
+  temperature: 0.7
+  maxTokens: 4096
+
+ui:
+  theme: auto
+  language: zh
+  showTokenUsage: true
+  showCost: true
+  showThinking: false
+
+# ─── 功能特性 ───────────────────────────────────────────
+
+features:
+  # 启用工具按需加载（推荐）
+  dynamicToolLoading: true
+  
+  # ✨ 启用智能管家服务（主动推送功能）
+  proactiveButler: true
+
+# ─── 智能管家配置 ───────────────────────────────────────
+
+butler:
+  # 是否启用管家服务
+  enabled: true
+  
+  # 决策使用的模型（null 表示使用默认轻量模型）
+  # 推荐：不设置或设置为 null，将自动使用最便宜的模型
+  decisionModel: null  # 或指定如 "claude-3-haiku-20240307"
+  
+  # 决策温度（0-1，越低越保守）
+  # 推荐：0.3（偏保守，避免过度推送）
+  decisionTemperature: 0.3
+  
+  # 防骚扰配置
+  antiBother:
+    # 同类型推送最小间隔（分钟）
+    # 示例：设置为 60 表示同类推送至少间隔 1 小时
+    minIntervalMinutes: 60
+    
+    # 静默时段（24小时制，如 "22:00" 到 "08:00"）
+    # 在此时段内，仅推送 urgent 级别的通知
+    quietHours: ["22:00", "08:00"]
+    
+    # 每日摘要时间（可选，24小时制）
+    # 低优先级事项将合并到此时间点推送
+    dailySummaryTime: "09:00"
+  
+  # 定时检查时间点（24小时制）
+  # 管家将在这些时间点主动检查并决策是否推送
+  checkSchedule:
+    - "09:00"  # 早晨
+    - "20:00"  # 晚上
+    # 可以添加更多时间点，如午餐时间、下班时间等
+    # - "12:00"
+    # - "18:00"
+  
+  # 兜底轮询间隔（分钟）
+  # 除了定时检查，还会每隔 N 分钟检查一次（防遗漏）
+  # 设置为 0 禁用兜底轮询
+  fallbackIntervalMinutes: 60
+  
+  # 推送渠道（按优先级）
+  defaultChannels:
+    - system  # 系统通知（macOS/Windows/Linux）
+    # 以下渠道需要额外配置（见下方 bots 部分）
+    # - feishu    # 飞书机器人
+    # - dingtalk  # 钉钉机器人
+    # - wecom     # 企业微信机器人
+  
+  # 推送记录存储文件（相对于 ~/.xuanji/）
+  storageFile: "butler_pushes.jsonl"
+
+# ─── 记忆系统配置 ───────────────────────────────────────
+# 智能管家依赖记忆系统收集上下文
+
+memory:
+  enabled: true
+  
+  # 关系维护阈值（天）
+  # 超过此天数未联系的关系，管家会主动建议维护
+  # 对应 ReminderEngine.checkNeglectedRelationships
+  neglectThresholdDays: 60
+
+# ─── IM 推送渠道配置（可选）───────────────────────────────
+# 如果希望通过飞书/钉钉/企微推送，需配置此部分
+
+# bots:
+#   feishu:
+#     enabled: true
+#     appId: ${FEISHU_APP_ID}
+#     appSecret: ${FEISHU_APP_SECRET}
+#     # webhook: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+#   
+#   dingtalk:
+#     enabled: true
+#     appKey: ${DINGTALK_APP_KEY}
+#     appSecret: ${DINGTALK_APP_SECRET}
+#   
+#   wecom:
+#     enabled: true
+#     corpId: ${WECOM_CORP_ID}
+#     agentId: ${WECOM_AGENT_ID}
+#     secret: ${WECOM_SECRET}
+
+# ─── 提醒系统配置（智能管家依赖）─────────────────────────
+
+# reminder:  # ReminderEngine 的配置
+#   enabled: true
+#   neglectThresholdDays: 60  # 与 memory 配置保持一致
+#   upcomingDays: 3  # 启动时预览未来 3 天的提醒
+#   storageFile: "reminders.jsonl"
+
+# ─── 工具权限配置 ───────────────────────────────────────
+
+tools:
+  permission:
+    fileWrite: ask
+    fileRead: always
+    bashExec: ask
+    warnLevel: auto-allow
+
+# ─── 使用说明 ───────────────────────────────────────────
+#
+# 1. 启动智能管家服务
+#    在 xuanji 会话中执行：
+#    > 启动智能管家服务
+#    
+#    或直接调用：
+#    > 使用 butler_daemon 工具，action 为 start
+#
+# 2. 手动触发检查
+#    > 让管家检查一下是否有需要推送的事项
+#    
+#    或：
+#    > 使用 butler_daemon 工具，action 为 check
+#
+# 3. 停止管家服务
+#    > 停止智能管家服务
+#
+# 4. 查看推送效果
+#    管家将在以下情况主动推送：
+#    - 有过期提醒（OVERDUE）
+#    - 今日重要事项
+#    - 重要生日/纪念日（提前 2 天）
+#    - 长时间未联系的重要关系（60 天+）
+#
+# 5. 推送示例
+#    [09:00] 🎂 你好！有几件事想提醒你：
+#            • Alice 的生日是后天（3月8号），要不要帮你挑个礼物？
+#              我记得她喜欢日料和文艺片
+#            • 周报今天截止，记得提交哦
+#
+# ─── 性能和成本 ─────────────────────────────────────────
+#
+# - 单次决策：300-500 tokens（使用轻量模型 Haiku）
+# - 每天推送：约 2 次定时 + 1 次兜底 = 1000-1500 tokens
+# - 每天成本：< $0.01（基于 Claude Haiku 定价）
+#
+# ─── 故障排查 ───────────────────────────────────────────
+#
+# Q: 管家未初始化？
+# A: 检查 features.proactiveButler: true 是否启用
+#
+# Q: 无推送通知？
+# A: 1. 可能在静默时段且无紧急事项
+#    2. 最近 1 小时内已推送过
+#    3. LLM 决策认为不需要推送
+#    调试：手动触发 check 查看决策理由
+#
+# Q: 系统通知不显示？
+# A: macOS: 系统偏好设置 → 通知 → 终端（允许通知）
+#    Linux: 确保安装 notify-send (sudo apt install libnotify-bin)
+#
+# ─── 更多信息 ───────────────────────────────────────────
+#
+# 详细文档：docs/PROACTIVE_BUTLER.md
+# 测试计划：docs/PROACTIVE_BUTLER_TEST.md
+# 总结文档：docs/PROACTIVE_BUTLER_SUMMARY.md

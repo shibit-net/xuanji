@@ -7,17 +7,23 @@
 
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
+import { sleep } from '@/core/utils/sleep';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,
   MCPTool,
   MCPPrompt,
+  MCPResource,
+  ResourceContent,
   ListToolsResult,
   ListPromptsResult,
+  ListResourcesResult,
   CallToolParams,
   CallToolResult,
   GetPromptParams,
   GetPromptResult,
+  ReadResourceParams,
+  ReadResourceResult,
   MCPServerConfig,
   MCPServerState,
 } from './types';
@@ -69,6 +75,7 @@ export class MCPSSEClient extends EventEmitter {
   // 缓存
   private toolsCache?: MCPTool[];
   private promptsCache?: MCPPrompt[];
+  private resourcesCache?: MCPResource[];
 
   // 重连
   private reconnectAttempts = 0;
@@ -149,8 +156,12 @@ export class MCPSSEClient extends EventEmitter {
     this.abortController = new AbortController();
 
     try {
+      const headers: Record<string, string> = { Accept: 'text/event-stream' };
+      // 如果配置了 SHIBIT_API_KEY，添加认证头（平台代理端点）
+      this.addAuthHeaders(headers);
+
       const response = await fetch(this.config.sseUrl!, {
-        headers: { Accept: 'text/event-stream' },
+        headers,
         signal: this.abortController.signal,
       });
 
@@ -348,9 +359,13 @@ export class MCPSSEClient extends EventEmitter {
    * 通过 HTTP POST 发送请求
    */
   private async sendHTTP(request: JSONRPCRequest): Promise<void> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    // 如果配置了 SHIBIT_API_KEY，添加认证头（平台代理端点）
+    this.addAuthHeaders(headers);
+
     const response = await fetch(this.config.httpUrl!, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(request),
     });
 
@@ -379,7 +394,7 @@ export class MCPSSEClient extends EventEmitter {
     this.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`, 'warn');
     this.emit('reconnecting', { name: this.config.name, attempt: this.reconnectAttempts, delay });
 
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
 
     // 延迟后再次检查：close() 可能在等待期间被调用
     if (this.intentionalClose) {
@@ -417,12 +432,24 @@ export class MCPSSEClient extends EventEmitter {
     return this.promptsCache;
   }
 
+  async listResources(): Promise<MCPResource[]> {
+    if (this.resourcesCache) return this.resourcesCache;
+    const result = await this.call<ListResourcesResult>('resources/list');
+    this.resourcesCache = result.resources ?? [];
+    return this.resourcesCache;
+  }
+
   async callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult> {
     return this.call<CallToolResult>('tools/call', { name, arguments: args } as CallToolParams);
   }
 
   async getPrompt(name: string, args?: Record<string, string>): Promise<GetPromptResult> {
     return this.call<GetPromptResult>('prompts/get', { name, arguments: args } as GetPromptParams);
+  }
+
+  async readResource(uri: string): Promise<ResourceContent[]> {
+    const result = await this.call<ReadResourceResult>('resources/read', { uri } as ReadResourceParams);
+    return result.contents ?? [];
   }
 
   async close(): Promise<void> {
@@ -449,6 +476,21 @@ export class MCPSSEClient extends EventEmitter {
 
   invalidateToolsCache(): void {
     this.toolsCache = undefined;
+  }
+
+  invalidateResourcesCache(): void {
+    this.resourcesCache = undefined;
+  }
+
+  /**
+   * 为请求添加认证头
+   * 如果 MCP 配置了 env.SHIBIT_API_KEY（平台代理端点），自动添加 Authorization 头
+   */
+  private addAuthHeaders(headers: Record<string, string>): void {
+    const apiKey = this.config.env?.SHIBIT_API_KEY;
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
   }
 
   private log(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {

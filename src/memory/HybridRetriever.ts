@@ -56,6 +56,8 @@ export class HybridRetriever {
       if (types && !types.includes(memory.type)) continue;
       // 置信度过滤
       if (memory.confidence < minConfidence) continue;
+      // 过期记忆过滤
+      if (!this.isMemoryValid(memory)) continue;
 
       const vectorScore = Math.max(0, similarity);
       const keywordScore = this.calcKeywordScore(memory, queryKeywords, query);
@@ -144,5 +146,39 @@ export class HybridRetriever {
     }
 
     return Array.from(keywords);
+  }
+
+  /**
+   * 检查记忆是否仍然有效（未过期）
+   * - deadline 过期超过 7 天：无效
+   * - birthday/anniversary: 有效（循环记忆）
+   */
+  private isMemoryValid(memory: MemoryEntry): boolean {
+    // 只处理 important_date 类型
+    if (memory.type !== 'important_date') return true;
+    
+    // 没有元数据或日期值：有效
+    if (!memory.metadata?.dateValue) return true;
+
+    // 循环记忆（生日、纪念日）：有效
+    if (memory.metadata.recurring && memory.metadata.recurring !== 'none') return true;
+
+    // deadline 类型：检查是否过期
+    if (memory.metadata.dateType === 'deadline') {
+      try {
+        const now = Date.now();
+        const deadlineTime = new Date(memory.metadata.dateValue).getTime();
+        const overdueMs = now - deadlineTime;
+        const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 天容忍期
+        // 过期超过 7 天：无效
+        return overdueMs < GRACE_PERIOD_MS;
+      } catch {
+        // 日期解析失败：有效
+        return true;
+      }
+    }
+
+    // 其他类型：有效
+    return true;
   }
 }

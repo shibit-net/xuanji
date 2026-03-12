@@ -12,6 +12,9 @@ const MODEL_ID = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
 const EMBEDDING_DIM = 384;
 const CACHE_MAX_SIZE = 100;
 
+/** HuggingFace 镜像（国内环境 huggingface.co 不通） */
+const HF_MIRROR = 'https://hf-mirror.com';
+
 /**
  * 本地 Embedding 服务（单例）
  *
@@ -21,6 +24,7 @@ const CACHE_MAX_SIZE = 100;
  * - 模型: paraphrase-multilingual-MiniLM-L12-v2 (384 维)
  * - 首次运行自动下载到 ~/.cache/huggingface/
  * - 懒加载：首次 embed() 调用时才初始化
+ * - 支持 HF_ENDPOINT 环境变量自定义镜像，默认使用 hf-mirror.com
  */
 export class EmbeddingService {
   private static instance: EmbeddingService | null = null;
@@ -58,14 +62,29 @@ export class EmbeddingService {
   private async doInit(): Promise<void> {
     try {
       log.info(`Loading embedding model: ${MODEL_ID} ...`);
-      const { pipeline } = await import('@xenova/transformers');
-      this.pipeline = await pipeline('feature-extraction', MODEL_ID, {
+      const transformers = await import('@xenova/transformers');
+
+      // 设置 HuggingFace 镜像：优先环境变量，其次默认镜像
+      const remoteHost = process.env.HF_ENDPOINT || HF_MIRROR;
+      if (transformers.env) {
+        (transformers.env as any).remoteHost = remoteHost;
+      }
+      log.debug(`HuggingFace remote host: ${remoteHost}`);
+
+      this.pipeline = await transformers.pipeline('feature-extraction', MODEL_ID, {
         quantized: false, // FP32 保证精度
       });
       this.ready = true;
       log.info('Embedding model loaded successfully');
     } catch (err) {
-      log.error('Failed to load embedding model:', err);
+      // 网络超时等常见原因简短提示，不打完整堆栈
+      const msg = err instanceof Error ? err.message : String(err);
+      const isNetwork = msg.includes('fetch failed') || msg.includes('TIMEOUT') || msg.includes('ENOTFOUND');
+      if (isNetwork) {
+        log.warn(`Embedding model unavailable (network): ${msg}`);
+      } else {
+        log.error(`Failed to load embedding model: ${msg}`);
+      }
       this.initializing = null;
       throw err;
     }

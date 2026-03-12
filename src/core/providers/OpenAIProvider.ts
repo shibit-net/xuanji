@@ -18,6 +18,16 @@ export class OpenAIProvider extends BaseLLMProvider {
   private log = logger.child({ module: 'OpenAIProvider' });
 
   private getClient(config: ProviderConfig): OpenAI {
+    // 显式检查 API Key，不依赖 SDK 的环境变量回退
+    if (!config.apiKey || config.apiKey.trim() === '') {
+      throw new Error(
+        '未配置 API Key。请通过以下方式之一设置：\n' +
+        '1. 环境变量: export XUANJI_API_KEY="your-key"\n' +
+        '2. 全局配置: 编辑 ~/.xuanji/config.json\n' +
+        '3. 项目配置: 编辑 .xuanji/config.json',
+      );
+    }
+
     // OpenAI SDK 标准 baseURL 格式为 https://api.openai.com/v1
     // 自定义代理（如 shibit.net）可能省略 /v1 后缀，这里自动补全
     let baseURL = config.baseURL;
@@ -28,7 +38,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     return new OpenAI({
       apiKey: config.apiKey,
       baseURL,
-      timeout: config.timeout ?? 120_000,
+      timeout: config.timeout ?? 600_000,
     });
   }
 
@@ -211,29 +221,8 @@ export class OpenAIProvider extends BaseLLMProvider {
         this.log.debug(`Tools: ${JSON.stringify(openaiTools.map(t => 'function' in t ? (t as { function: { name: string } }).function.name : 'unknown'))}`);
       }
 
-      // per-event 超时保护（与 AnthropicProvider 一致）
-      const PER_EVENT_TIMEOUT_MS = 30_000;
-      let lastEventTime = Date.now();
-      let timedOut = false;
-      const abortController = new AbortController();
-
       // 调用 OpenAI Streaming API
-      const stream = await client.chat.completions.create(requestParams, {
-        signal: abortController.signal,
-      });
-
-      const timeoutCheckInterval = setInterval(() => {
-        const elapsed = Date.now() - lastEventTime;
-        if (elapsed > PER_EVENT_TIMEOUT_MS) {
-          this.log.warn(`Per-event timeout: ${elapsed}ms elapsed since last event, aborting stream`);
-          timedOut = true;
-          abortController.abort();
-          // 中断 async iterator
-          if ('controller' in stream && typeof (stream as unknown as Record<string, { abort?: () => void }>).controller?.abort === 'function') {
-            (stream as unknown as Record<string, { abort: () => void }>).controller.abort();
-          }
-        }
-      }, 5000);
+      const stream = await client.chat.completions.create(requestParams);
 
       // 工具调用累积状态
       const toolCallAccumulator: Map<number, {
@@ -247,9 +236,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       let chunkCount = 0;
       let receivedEnd = false;
 
-      try {
       for await (const chunk of stream) {
-        lastEventTime = Date.now();
         chunkCount++;
         const choice = chunk.choices?.[0];
 
@@ -343,17 +330,6 @@ export class OpenAIProvider extends BaseLLMProvider {
           yield { type: 'usage', usage };
         }
       }
-      } catch (innerErr) {
-        // 捕获 AbortError（来自 per-event 超时）或网络错误
-        if (timedOut || (innerErr instanceof Error && innerErr.name === 'AbortError')) {
-          this.log.warn('OpenAI stream aborted due to per-event timeout');
-          // 不重新抛出，走下面的恢复逻辑
-        } else {
-          throw innerErr;
-        }
-      } finally {
-        clearInterval(timeoutCheckInterval);
-      }
 
       // 流中断恢复：发出尚未 emit 的工具调用（即使参数不完整）
       for (const [, acc] of toolCallAccumulator) {
@@ -383,16 +359,10 @@ export class OpenAIProvider extends BaseLLMProvider {
       }
 
       // 发出结束事件
-      // 如果流因超时中断且没有收到正常结束，合成超时结束事件
       const hasToolCalls = toolCallAccumulator.size > 0;
-      let stopReason: StopReason;
-      if (timedOut && !receivedEnd) {
-        stopReason = 'interrupted'; // 超时中断，区分于正常的 max_tokens
-      } else {
-        stopReason = (finishReason === 'tool_calls' || hasToolCalls) ? 'tool_use'
-          : finishReason === 'length' ? 'max_tokens'
-          : 'end_turn';
-      }
+      const stopReason: StopReason = (finishReason === 'tool_calls' || hasToolCalls) ? 'tool_use'
+        : finishReason === 'length' ? 'max_tokens'
+        : 'end_turn';
 
       yield {
         type: 'end',

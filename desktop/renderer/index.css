@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Xuanji Desktop - 全局样式
+   ============================================================ */
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply w-full h-full m-0 p-0 overflow-hidden;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-bg-tertiary rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-secondary;
+  }
+
+  /* 代码块样式 */
+  pre {
+    @apply bg-bg-secondary rounded-lg p-4 overflow-x-auto;
+  }
+
+  code {
+    @apply font-mono text-sm;
+  }
+
+  /* 选中文本样式 */
+  ::selection {
+    @apply bg-primary/30;
+  }
+}
+
+/* ============================================================
+   自定义动画
+   ============================================================ */
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* ============================================================
+   工具类
+   ============================================================ */
+
+.glass {
+  @apply bg-bg-secondary/80 backdrop-blur-sm;
+}
+
+.hover-lift {
+  @apply transition-transform duration-200 hover:translate-y-[-2px];
+}

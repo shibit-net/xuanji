@@ -75,6 +75,7 @@ export class TaskTool extends BaseTool {
 
   // 依赖注入
   private provider: ILLMProvider | null = null;
+  private lightProvider: ILLMProvider | null = null;
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
@@ -89,6 +90,7 @@ export class TaskTool extends BaseTool {
    */
   setDependencies(deps: {
     provider: ILLMProvider;
+    lightProvider: ILLMProvider;
     registry: IToolRegistry;
     agentConfig: AgentConfig;
     hookRegistry?: HookRegistry | null;
@@ -96,6 +98,7 @@ export class TaskTool extends BaseTool {
     depth?: number;
   }): void {
     this.provider = deps.provider;
+    this.lightProvider = deps.lightProvider;
     this.registry = deps.registry;
     this.agentConfig = deps.agentConfig;
     this.hookRegistry = deps.hookRegistry ?? null;
@@ -111,7 +114,7 @@ export class TaskTool extends BaseTool {
     const isolation = (input.isolation as IsolationMode) ?? 'none';
 
     // 验证依赖已注入
-    if (!this.provider || !this.registry || !this.agentConfig) {
+    if (!this.provider || !this.lightProvider || !this.registry || !this.agentConfig) {
       return this.error(
         'TaskTool not initialized. Internal error: dependencies not injected.',
       );
@@ -146,6 +149,7 @@ export class TaskTool extends BaseTool {
     try {
       const result = await runSubAgent(
         this.provider,
+        this.lightProvider,
         this.registry,
         this.agentConfig,
         context,

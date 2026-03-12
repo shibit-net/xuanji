@@ -102,9 +102,21 @@ export class ErrorRecovery {
       if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
         return `API 服务端错误: ${error.message}\n提示: 这通常是 API 服务暂时不可用，请稍后重试。如使用代理服务，请检查代理是否正常`;
       }
+      // API 服务内部错误（Anthropic overloaded / api_error）
+      if (error.message.includes('api_error') || error.message.includes('内部错误') || error.message.includes('overloaded')) {
+        return 'API 服务暂时不可用（服务端过载或内部错误），请稍后重试';
+      }
+      // Stream 空响应（服务端建立连接但未返回数据就断开）
+      if (error.message.includes('ended without sending any chunks') || error.message.includes('stream has ended')) {
+        return 'API 服务响应异常（连接已建立但未返回数据），通常是服务端临时故障，请稍后重试';
+      }
       // 超时
       if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
         return `请求超时: ${error.message}\n提示: 请检查网络连接，或在 config.json 中增大 provider.timeout 值`;
+      }
+      // 请求中断（SDK abort，通常由超时或网络中断触发）
+      if (error.name === 'AbortError' || error.message.includes('aborted')) {
+        return `请求被中断，可能由网络波动或超时导致。如频繁出现，请检查网络连接或增大 provider.timeout 值`;
       }
       return error.message;
     }

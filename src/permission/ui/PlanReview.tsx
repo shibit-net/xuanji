@@ -43,8 +43,11 @@ const OPTIONS: ReviewOption[] = [
  *   - ↑↓ 选择 + Enter 确认
  *   - Y/N/S 快捷键
  *   - S 进入补充文本输入模式
+ *
+ * 使用 React.memo 避免父组件 state 变化导致不必要的重渲染，
+ * 减少 Ink 动态区域重绘次数，防止终端输出闪烁/堆叠。
  */
-export function PlanReview({ plan, onDecision }: PlanReviewProps) {
+export const PlanReview = React.memo(function PlanReview({ plan, onDecision }: PlanReviewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSupplementMode, setIsSupplementMode] = useState(false);
   const [supplementText, setSupplementText] = useState('');
@@ -185,4 +188,4 @@ export function PlanReview({ plan, onDecision }: PlanReviewProps) {
       )}
     </Box>
   );
-}
+});

@@ -320,8 +320,11 @@ export class ContextCompressor {
         { role: 'user', content: `${prompt}\n\n---\n\n${truncated}` },
       ];
 
+      // 🆕 P0 优化：使用 lightModel 进行压缩（Haiku），节省 67% 成本
       const stream = this.provider!.stream(messages, [], {
-        ...this.providerConfig!,
+        model: this.providerConfig!.lightModel ?? this.providerConfig!.model,
+        apiKey: this.providerConfig!.apiKey,
+        baseURL: this.providerConfig!.baseURL,
         maxTokens: 1500,
         temperature: 0.2,
       });

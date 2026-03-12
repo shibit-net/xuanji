@@ -309,7 +309,7 @@ export class ReminderEngine implements IReminderEngine {
 
     // 回退：从内容中提取第一个词
     const firstWord = mem.content.split(/[\s,.:]+/)[0];
-    return firstWord ?? 'Unknown';
+    return firstWord || 'Unknown';
   }
 
   /** 获取今天日期字符串 (YYYY-MM-DD)，使用本地时间 */

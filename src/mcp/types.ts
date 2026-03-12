@@ -107,6 +107,68 @@ export interface CallToolResult {
 }
 
 // ============================================================
+// MCP Resource Types
+// ============================================================
+
+/**
+ * MCP 资源定义（对应 resources/list 返回值）
+ */
+export interface MCPResource {
+  /** 资源 URI */
+  uri: string;
+
+  /** 资源名称 */
+  name: string;
+
+  /** 资源描述 */
+  description?: string;
+
+  /** MIME 类型 */
+  mimeType?: string;
+
+  /** URI 模板（如果资源支持参数化，使用 RFC 6570 格式） */
+  uriTemplate?: string;
+}
+
+/**
+ * resources/list 响应
+ */
+export interface ListResourcesResult {
+  resources: MCPResource[];
+}
+
+/**
+ * resources/read 请求参数
+ */
+export interface ReadResourceParams {
+  uri: string;
+}
+
+/**
+ * 资源内容（resources/read 响应中的单个内容项）
+ */
+export interface ResourceContent {
+  /** 资源 URI */
+  uri: string;
+
+  /** MIME 类型 */
+  mimeType?: string;
+
+  /** 文本内容（与 blob 互斥） */
+  text?: string;
+
+  /** 二进制内容（Base64 编码，与 text 互斥） */
+  blob?: string;
+}
+
+/**
+ * resources/read 响应
+ */
+export interface ReadResourceResult {
+  contents: ResourceContent[];
+}
+
+// ============================================================
 // MCP Prompt Types
 // ============================================================
 
@@ -172,7 +234,7 @@ export interface MCPServerConfig {
   name: string;
 
   /** 传输类型（默认 'stdio'） */
-  transport?: 'stdio' | 'sse';
+  transport?: 'stdio' | 'sse' | 'http';
 
   /** 启动命令（如 node）— stdio 模式必填 */
   command: string;
@@ -194,12 +256,24 @@ export interface MCPServerConfig {
 
   /** HTTP RPC 端点 URL — sse 模式必填 */
   httpUrl?: string;
+
+  /** HTTP/SSE 服务器 URL — http/sse 模式可选（统一端点） */
+  url?: string;
+
+  /** 自定义请求头 — http/sse 模式可选 */
+  headers?: Record<string, string>;
+
+  /** 请求超时（毫秒）— http/sse 模式可选 */
+  timeout?: number;
 }
 
 /**
  * MCP 总配置
  */
 export interface MCPConfig {
+  /** 是否启用 MCP（默认 true） */
+  enabled?: boolean;
+
   /** MCP 服务器列表 */
   servers: MCPServerConfig[];
 
@@ -269,10 +343,14 @@ export interface IMCPClient {
   listTools(): Promise<MCPTool[]>;
   /** 获取 Prompt 列表 */
   listPrompts(): Promise<MCPPrompt[]>;
+  /** 获取资源列表 */
+  listResources(): Promise<MCPResource[]>;
   /** 调用工具 */
   callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult>;
   /** 获取 Prompt */
   getPrompt(name: string, args?: Record<string, string>): Promise<GetPromptResult>;
+  /** 读取资源 */
+  readResource(uri: string): Promise<ResourceContent[]>;
   /** 关闭连接 */
   close(): Promise<void>;
   /** 获取当前状态 */
@@ -287,6 +365,10 @@ export interface IMCPClient {
   getReconnectAttempts(): number;
   /** 清除工具列表缓存（重连后刷新工具时使用） */
   invalidateToolsCache(): void;
+  /** 清除资源列表缓存（重连后刷新资源时使用） */
+  invalidateResourcesCache(): void;
+  /** 监听事件（reconnect_failed, reconnected 等） */
+  on(event: string, listener: (...args: any[]) => void): this;
 }
 
 /**

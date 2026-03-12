@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG } from './defaults';
 import { getEnvProviderConfig, getEnvUIConfig, getEnvMemoryConfig } from './EnvConfig';
 import { loadGlobalConfig, GLOBAL_CONFIG_DIR, deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
 import { loadProjectConfig } from './ProjectConfig';
+import { ConfigValidator } from './ConfigValidator';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { logger } from '@/core/logger';
@@ -60,6 +61,9 @@ export class ConfigLoader implements IConfigLoader {
       config.mcp = mcpConfig;
     }
 
+    // 6. 校验配置（打印警告，不阻塞启动）
+    this.validateConfig(config);
+
     this.config = config;
     this.loaded = true;
     return config;
@@ -88,6 +92,33 @@ export class ConfigLoader implements IConfigLoader {
   /** 是否已加载 */
   isLoaded(): boolean {
     return this.loaded;
+  }
+
+  /**
+   * 使用 ConfigValidator 校验配置
+   *
+   * 校验失败只打印警告，不阻塞启动。
+   * 这样可以在用户配置不完整时仍能进入交互模式。
+   */
+  private validateConfig(config: AppConfig): void {
+    try {
+      const result = ConfigValidator.validate(config);
+      if (!result.valid) {
+        // 仅打印警告，不阻塞
+        log.warn(`配置校验发现 ${result.errors.length} 个问题`);
+        for (const error of result.errors) {
+          log.warn(`  [${error.path}] ${error.message}`);
+        }
+      }
+      if (result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          log.debug(`  [${warning.path}] ${warning.message}`);
+        }
+      }
+    } catch (error) {
+      // 校验器本身出错不应影响启动
+      log.debug(`配置校验器异常: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**

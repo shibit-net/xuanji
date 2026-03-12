@@ -6,6 +6,7 @@ import { readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { DiffRenderer } from '../utils/DiffRenderer';
 
 /**
  * 编辑文件工具 (精确字符串替换)
@@ -115,12 +116,22 @@ export class EditTool extends BaseTool {
       const newContent = replaceAll
         ? content.replaceAll(oldStr, newStr)
         : content.replace(oldStr, newStr);
+
+      // ✨ 生成 diff 预览
+      const diffPreview = DiffRenderer.renderPreview(content, newContent, path);
+      const stats = DiffRenderer.getStats(content, newContent);
+
       await writeFile(path, newContent, 'utf-8');
 
       const countInfo = replaceAll && occurrences > 1
         ? ` (共替换 ${occurrences} 处)`
         : '';
-      return this.success(`已编辑 ${path}${countInfo}`);
+
+      // 返回结果包含 diff 预览
+      return this.success(
+        `已编辑 ${path}${countInfo}\n\n${diffPreview}`,
+        { ...stats, filePath: path }
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`编辑文件失败: ${message}`);

@@ -152,5 +152,60 @@ describe('MemoryCompactor', () => {
       const compacted = compactor.compactLongTerm(entries);
       expect(compacted.length).toBeLessThanOrEqual(1000);
     });
+
+    it('should remove overdue deadlines (> 30 days)', () => {
+      const now = new Date();
+      const entries: MemoryEntry[] = [
+        // 过期 40 天的 deadline - 应该被删除
+        createEntry({
+          id: 'deadline-old',
+          type: 'important_date',
+          content: 'Project deadline was March 2, 2026',
+          createdAt: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(),
+          metadata: {
+            dateType: 'deadline',
+            dateValue: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            recurring: 'none',
+          },
+        }),
+        // 过期 7 天的 deadline - 应该保留（在容忍期内）
+        createEntry({
+          id: 'deadline-recent',
+          type: 'important_date',
+          content: 'Report deadline was last week',
+          keywords: ['report', 'deadline', 'weekly'],
+          createdAt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+          metadata: {
+            dateType: 'deadline',
+            dateValue: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            recurring: 'none',
+          },
+        }),
+        // 生日记忆 - 应该保留（循环记忆，即使创建时间久远）
+        createEntry({
+          id: 'birthday',
+          type: 'important_date',
+          content: "Alice's birthday is March 8",
+          keywords: ['alice', 'birthday', 'march'],
+          createdAt: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 天前创建
+          accessCount: 3, // 被访问过 3 次
+          metadata: {
+            dateType: 'birthday',
+            dateValue: '2026-03-08',
+            recurring: 'yearly',
+            relatedPerson: 'Alice',
+          },
+        }),
+      ];
+
+      const compacted = compactor.compactLongTerm(entries);
+      
+      // 过期 deadline 被删除
+      expect(compacted.find(e => e.id === 'deadline-old')).toBeUndefined();
+      // 近期 deadline 保留（在压缩阶段保留，但检索时会过滤）
+      expect(compacted.find(e => e.id === 'deadline-recent')).toBeDefined();
+      // 生日保留（循环记忆不受时间衰减影响）
+      expect(compacted.find(e => e.id === 'birthday')).toBeDefined();
+    });
   });
 });
