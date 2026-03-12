@@ -2,9 +2,11 @@
 // RightPanel - 右侧面板组件
 // ============================================================
 
-import React, { useState } from 'react';
-import { Clock, Wrench, Database, FileText, X, Plus, RotateCcw, Loader2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Clock, Wrench, Database, FileText, X, Plus, RotateCcw, Loader2, Search } from 'lucide-react';
 import { useCheckpointManager } from '../hooks/useCheckpointManager';
+import { useMemoryManager } from '../hooks/useMemoryManager';
+import { useChatStore } from '../stores/chatStore';
 
 interface RightPanelProps {
   onToggle: () => void;
@@ -198,112 +200,310 @@ function CheckpointTab() {
   );
 }
 
-// 工具调用标签
+// 工具调用标签（从 chatStore 的流式事件实时统计）
 function ToolsTab() {
+  const messages = useChatStore((state) => state.messages);
+
+  // 从消息的 toolCalls 中实时统计工具使用
+  const { toolStats, recentCalls } = useMemo(() => {
+    const counts: Record<string, { total: number; success: number; error: number }> = {};
+    const recent: Array<{ name: string; status: string; timestamp: number }> = [];
+
+    for (const msg of messages) {
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          if (!counts[tc.name]) {
+            counts[tc.name] = { total: 0, success: 0, error: 0 };
+          }
+          counts[tc.name].total++;
+          if (tc.status === 'success') counts[tc.name].success++;
+          if (tc.status === 'error') counts[tc.name].error++;
+          recent.push({ name: tc.name, status: tc.status, timestamp: msg.timestamp || 0 });
+        }
+      }
+    }
+
+    // 按调用次数排序
+    const sorted = Object.entries(counts)
+      .sort(([, a], [, b]) => b.total - a.total);
+
+    return {
+      toolStats: sorted,
+      recentCalls: recent.slice(-10).reverse(),
+    };
+  }, [messages]);
+
+  const toolIcons: Record<string, string> = {
+    read_file: '📖', write_file: '📝', edit_file: '✏️', multi_edit: '📋',
+    bash: '💻', glob: '🔎', grep: '🔍', ls: '📂',
+    web_fetch: '🌐', plan_review: '📋', ask_user: '❓',
+    todo_create: '✅', todo_list: '📋', todo_update: '🔄',
+  };
+
   return (
     <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">🛠️ 工具调用统计</div>
 
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between items-center p-2 bg-bg-primary rounded">
-          <span>📖 read_file</span>
-          <span className="text-text-secondary">12 次</span>
+      {toolStats.length === 0 ? (
+        <div className="text-center text-sm text-text-secondary py-8">
+          暂无工具调用记录
         </div>
-        <div className="flex justify-between items-center p-2 bg-bg-primary rounded">
-          <span>✏️ edit_file</span>
-          <span className="text-text-secondary">5 次</span>
-        </div>
-        <div className="flex justify-between items-center p-2 bg-bg-primary rounded">
-          <span>🔍 grep</span>
-          <span className="text-text-secondary">3 次</span>
-        </div>
-      </div>
+      ) : (
+        <>
+          <div className="space-y-2 text-sm">
+            {toolStats.map(([name, stat]) => (
+              <div key={name} className="flex justify-between items-center p-2 bg-bg-primary rounded">
+                <span>{toolIcons[name] || '🔧'} {name}</span>
+                <div className="flex items-center gap-2">
+                  {stat.error > 0 && (
+                    <span className="text-xs text-red-500">{stat.error} 错误</span>
+                  )}
+                  <span className="text-text-secondary">{stat.total} 次</span>
+                </div>
+              </div>
+            ))}
+          </div>
 
-      <div className="text-sm font-semibold mt-4 mb-2">⏱️ 最近调用</div>
-      <div className="space-y-1 text-xs text-text-secondary">
-        <div>• 15:45 read_file(auth.ts) 0.3s</div>
-        <div>• 15:44 edit_file(api.ts) 0.5s</div>
-      </div>
+          {recentCalls.length > 0 && (
+            <>
+              <div className="text-sm font-semibold mt-4 mb-2">⏱️ 最近调用</div>
+              <div className="space-y-1 text-xs text-text-secondary">
+                {recentCalls.map((call, idx) => {
+                  const time = call.timestamp
+                    ? new Date(call.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                    : '--:--';
+                  const statusIcon = call.status === 'success' ? '✓' : call.status === 'error' ? '✗' : '…';
+                  const statusColor = call.status === 'success' ? 'text-green-500' : call.status === 'error' ? 'text-red-500' : 'text-yellow-500';
+                  return (
+                    <div key={idx}>
+                      <span>{time}</span>{' '}
+                      <span className={statusColor}>{statusIcon}</span>{' '}
+                      <span>{call.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
 // 记忆库标签
 function MemoryTab() {
+  const { entries, stats, loading, error, retrieve } = useMemoryManager();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+
+  const handleSearch = () => {
+    if (searchQuery.trim()) {
+      retrieve(searchQuery, selectedType ? { type: selectedType } : undefined);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  const memoryTypes = [
+    { value: 'user_preference', label: '👤 偏好', icon: '👤' },
+    { value: 'project_fact', label: '📂 项目知识', icon: '📂' },
+    { value: 'decision', label: '💡 决策', icon: '💡' },
+    { value: 'tool_pattern', label: '🛠️ 工具模式', icon: '🛠️' },
+    { value: 'error_resolution', label: '🔧 错误解决', icon: '🔧' },
+  ];
+
   return (
     <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">💾 记忆库</div>
 
-      <input
-        type="text"
-        placeholder="搜索记忆..."
-        className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary"
-      />
-
-      <div className="space-y-2">
-        <div className="text-xs font-semibold text-text-secondary">📂 偏好 (23 条)</div>
-        <div className="pl-2 space-y-1 text-sm">
-          <div className="p-2 bg-bg-primary rounded hover:bg-bg-tertiary cursor-pointer transition-colors">
-            代码风格偏好
+      {/* 统计信息 */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="p-2 bg-bg-primary rounded">
+            <div className="text-text-secondary">总数</div>
+            <div className="text-lg font-semibold">{stats.total || 0}</div>
           </div>
-          <div className="p-2 bg-bg-primary rounded hover:bg-bg-tertiary cursor-pointer transition-colors">
-            命名规范
-          </div>
+          {stats.byType && Object.entries(stats.byType).length > 0 && (
+            <div className="p-2 bg-bg-primary rounded">
+              <div className="text-text-secondary">类型</div>
+              <div className="text-lg font-semibold">{Object.keys(stats.byType).length}</div>
+            </div>
+          )}
         </div>
+      )}
 
-        <div className="text-xs font-semibold text-text-secondary mt-3">📂 项目知识 (87 条)</div>
-        <div className="pl-2 space-y-1 text-sm">
-          <div className="p-2 bg-bg-primary rounded hover:bg-bg-tertiary cursor-pointer transition-colors">
-            数据库 Schema
-          </div>
-        </div>
+      {/* 搜索框 */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="搜索记忆..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="flex-1 bg-bg-primary border border-bg-tertiary rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary"
+        />
+        <button
+          onClick={handleSearch}
+          disabled={!searchQuery.trim() || loading}
+          className="px-3 py-1.5 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm disabled:opacity-50"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+        </button>
       </div>
 
-      <button className="w-full px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm">
-        + 添加记忆
-      </button>
+      {/* 类型筛选 */}
+      <div className="flex flex-wrap gap-1">
+        <button
+          onClick={() => setSelectedType(null)}
+          className={`text-xs px-2 py-1 rounded transition-colors ${
+            selectedType === null ? 'bg-primary text-white' : 'bg-bg-primary hover:bg-bg-tertiary'
+          }`}
+        >
+          全部
+        </button>
+        {memoryTypes.map((type) => (
+          <button
+            key={type.value}
+            onClick={() => setSelectedType(type.value)}
+            className={`text-xs px-2 py-1 rounded transition-colors ${
+              selectedType === type.value ? 'bg-primary text-white' : 'bg-bg-primary hover:bg-bg-tertiary'
+            }`}
+          >
+            {type.icon}
+          </button>
+        ))}
+      </div>
+
+      {/* 错误提示 */}
+      {error && (
+        <div className="text-xs text-red-500 p-2 bg-red-500/10 rounded border border-red-500/30">
+          {error}
+        </div>
+      )}
+
+      {/* 记忆列表 */}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {entries.length === 0 ? (
+          <div className="text-center text-sm text-text-secondary py-8">
+            {searchQuery ? '没有找到匹配的记忆' : '输入关键词搜索记忆'}
+          </div>
+        ) : (
+          entries.map((entry, index) => (
+            <div key={index} className="p-2 bg-bg-primary rounded hover:bg-bg-tertiary transition-colors text-sm">
+              <div className="flex items-start justify-between mb-1">
+                <span className="text-xs text-text-secondary">{entry.type}</span>
+                {entry.score !== undefined && (
+                  <span className="text-xs text-primary">{(entry.score * 100).toFixed(0)}%</span>
+                )}
+              </div>
+              <div className="text-sm">{entry.content}</div>
+              {entry.tags && entry.tags.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {entry.tags.map((tag, idx) => (
+                    <span key={idx} className="text-xs px-1 py-0.5 bg-bg-secondary rounded">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {entry.createdAt && (
+                <div className="text-xs text-text-secondary mt-1">
+                  {new Date(entry.createdAt).toLocaleString('zh-CN')}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
 
-// 日志流标签
+// 日志流标签（从 chatStore 读取真实日志）
 function LogsTab() {
+  const logs = useChatStore((state) => state.logs);
+  const clearLogs = useChatStore((state) => state.clearLogs);
+  const [filter, setFilter] = useState<string | null>(null);
+
+  const filteredLogs = filter
+    ? logs.filter((log) => log.level === filter)
+    : logs;
+
+  const levelColors: Record<string, string> = {
+    error: 'text-red-500',
+    warn: 'text-yellow-500',
+    info: 'text-green-500',
+    debug: 'text-primary',
+    tool: 'text-blue-400',
+  };
+
+  const formatTime = (ts: number) => {
+    return new Date(ts).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
+
   return (
     <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">📋 日志流</div>
 
       <div className="flex gap-2 text-xs">
-        <button className="px-2 py-1 bg-primary text-white rounded">全部</button>
-        <button className="px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary">错误</button>
-        <button className="px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary">Hook</button>
+        {[
+          { value: null, label: '全部' },
+          { value: 'error', label: '错误' },
+          { value: 'warn', label: '警告' },
+          { value: 'info', label: '信息' },
+          { value: 'tool', label: '工具' },
+        ].map((item) => (
+          <button
+            key={item.label}
+            onClick={() => setFilter(item.value)}
+            className={`px-2 py-1 rounded transition-colors ${
+              filter === item.value
+                ? 'bg-primary text-white'
+                : 'bg-bg-primary hover:bg-bg-tertiary'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      <div className="space-y-1 text-xs font-mono">
-        <div className="p-2 bg-bg-primary rounded">
-          <span className="text-text-secondary">15:45:12</span>{' '}
-          <span className="text-success">INFO</span>{' '}
-          <span>向量检索耗时 23ms</span>
+      {filteredLogs.length === 0 ? (
+        <div className="text-center text-sm text-text-secondary py-8">
+          暂无日志记录
         </div>
-        <div className="p-2 bg-bg-primary rounded">
-          <span className="text-text-secondary">15:45:10</span>{' '}
-          <span className="text-primary">DEBUG</span>{' '}
-          <span>意图路由: code</span>
+      ) : (
+        <div className="space-y-1 text-xs font-mono max-h-96 overflow-y-auto">
+          {filteredLogs.slice().reverse().map((log, idx) => (
+            <div key={idx} className="p-2 bg-bg-primary rounded">
+              <span className="text-text-secondary">{formatTime(log.timestamp)}</span>{' '}
+              <span className={levelColors[log.level] || 'text-text-secondary'}>
+                {log.level.toUpperCase()}
+              </span>{' '}
+              <span>{log.message}</span>
+            </div>
+          ))}
         </div>
-        <div className="p-2 bg-bg-primary rounded">
-          <span className="text-text-secondary">15:45:08</span>{' '}
-          <span className="text-warning">WARN</span>{' '}
-          <span>慢 Hook: lint (1.2s)</span>
-        </div>
-      </div>
+      )}
 
-      <div className="flex gap-2">
-        <button className="text-xs px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary">
-          清空
-        </button>
-        <button className="text-xs px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary">
-          导出
-        </button>
-      </div>
+      {logs.length > 0 && (
+        <div className="flex gap-2">
+          <button
+            onClick={clearLogs}
+            className="text-xs px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary transition-colors"
+          >
+            清空
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -55,6 +55,9 @@ interface ChatStore {
   planReviewRequest: PlanReviewRequestData | null;
   askUserRequest: AskUserRequestData | null;
 
+  // 日志流
+  logs: Array<{ timestamp: number; level: string; message: string }>;
+
   // 操作
   sendMessage: (content: string) => void;
   addMessage: (message: Message) => void;
@@ -67,6 +70,10 @@ interface ChatStore {
   setPermissionRequest: (request: PermissionRequestData | null) => void;
   setPlanReviewRequest: (request: PlanReviewRequestData | null) => void;
   setAskUserRequest: (request: AskUserRequestData | null) => void;
+
+  // 日志操作
+  addLog: (level: string, message: string) => void;
+  clearLogs: () => void;
 
   // 内部方法
   _handleAgentText: (text: string) => void;
@@ -104,6 +111,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   permissionRequest: null,
   planReviewRequest: null,
   askUserRequest: null,
+
+  // 日志流
+  logs: [],
 
   // 操作
   sendMessage: async (content) => {
@@ -188,6 +198,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setPermissionRequest: (request) => set({ permissionRequest: request }),
   setPlanReviewRequest: (request) => set({ planReviewRequest: request }),
   setAskUserRequest: (request) => set({ askUserRequest: request }),
+
+  // ============================================================
+  // 日志操作
+  // ============================================================
+
+  addLog: (level, message) =>
+    set((state) => ({
+      logs: [
+        ...state.logs,
+        { timestamp: Date.now(), level, message },
+      ].slice(-100), // 最多保留 100 条
+    })),
+
+  clearLogs: () => set({ logs: [] }),
 
   // ============================================================
   // Agent 流式事件处理器
@@ -304,6 +328,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       content: `❌ 错误：${error}`,
       timestamp: Date.now(),
     };
+
+    // 添加到日志
+    get().addLog('error', error);
 
     set((state) => ({
       messages: [...state.messages, errorMessage],

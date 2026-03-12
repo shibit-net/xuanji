@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld('electron', {
   // ============ 工具统计 ============
   usageStats: () => ipcRenderer.invoke('usage:stats'),
 
+  // ============ 高级功能 ============
+  compact: (data: any) => ipcRenderer.invoke('compact', data),
+  getDiagnostics: () => ipcRenderer.invoke('get-diagnostics'),
+
   // ============ 权限交互 ============
   onPermissionRequest: (callback: (data: any) => void) => {
     ipcRenderer.on('permission:request', (_event, data) => callback(data));

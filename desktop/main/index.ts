@@ -523,6 +523,28 @@ ipcMain.handle('usage:stats', async () => {
 });
 
 // ============================================================
+// IPC 通信 - 高级功能
+// ============================================================
+
+ipcMain.handle('compact', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('compact', data, 60000);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('get-diagnostics', async () => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('get-diagnostics');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
 // IPC 通信 - 权限交互（双向）
 // ============================================================
 

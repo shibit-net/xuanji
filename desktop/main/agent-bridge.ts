@@ -79,6 +79,14 @@ process.on('message', async (msg: any) => {
       handleGetUsageStats(msg.requestId);
       break;
 
+    // ============ 高级功能 ============
+    case 'compact':
+      handleCompact(msg.requestId, msg.data);
+      break;
+    case 'get-diagnostics':
+      handleGetDiagnostics(msg.requestId);
+      break;
+
     // ============ 权限交互响应 ============
     case 'permission-response':
       handlePermissionResponse(msg.data);
@@ -574,6 +582,47 @@ async function handleGetUsageStats(requestId: string) {
         },
       },
     });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// 高级功能
+// ============================================================
+
+async function handleCompact(requestId: string, data: any) {
+  if (!agentLoop) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const result = await agentLoop.compact(data?.instruction);
+    process.send?.({
+      requestId,
+      data: {
+        success: true,
+        result: result ? {
+          originalTokens: result.originalTokens,
+          compressedTokens: result.compressedTokens,
+          compressionRatio: result.compressionRatio,
+          summary: result.summary,
+        } : null,
+      },
+    });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleGetDiagnostics(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const report = await session.getDiagnostics();
+    process.send?.({ requestId, data: { success: true, report } });
   } catch (err) {
     process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }

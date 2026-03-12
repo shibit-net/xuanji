@@ -53,6 +53,10 @@ export interface ElectronAPI {
   // 工具统计
   usageStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
 
+  // 高级功能
+  compact: (data: any) => Promise<{ success: boolean; result?: CompactResult; error?: string }>;
+  getDiagnostics: () => Promise<{ success: boolean; report?: string; error?: string }>;
+
   // 权限交互
   onPermissionRequest: (callback: (data: PermissionRequestData) => void) => void;
   permissionRespond: (data: any) => Promise<void>;
@@ -114,6 +118,13 @@ export interface AskUserRequestData {
   id: string;
   question: string;
   options?: string[];
+}
+
+export interface CompactResult {
+  originalTokens: number;
+  compressedTokens: number;
+  compressionRatio: number;
+  summary: string;
 }
 
 declare global {

@@ -13,14 +13,18 @@ import SettingsPanel from './components/SettingsPanel';
 import PermissionDialog from './components/PermissionDialog';
 import PlanReviewDialog from './components/PlanReviewDialog';
 import AskUserDialog from './components/AskUserDialog';
+import StatsDialog from './components/StatsDialog';
+import DiagnosticsDialog from './components/DiagnosticsDialog';
 import { useChatStore } from './stores/chatStore';
 
 type ViewMode = 'chat' | 'settings';
+type DialogType = 'stats' | 'diagnostics' | null;
 
 export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
+  const [activeDialog, setActiveDialog] = useState<DialogType>(null);
 
   // 权限交互状态
   const permissionRequest = useChatStore((state) => state.permissionRequest);
@@ -30,10 +34,31 @@ export default function App() {
   const setPlanReviewRequest = useChatStore((state) => state.setPlanReviewRequest);
   const setAskUserRequest = useChatStore((state) => state.setAskUserRequest);
 
+  // 压缩上下文
+  const handleCompact = async () => {
+    try {
+      const result = await window.electron.compact({});
+      if (result.success && result.result) {
+        alert(`压缩完成！\n原始: ${result.result.originalTokens} tokens\n压缩后: ${result.result.compressedTokens} tokens\n压缩率: ${(result.result.compressionRatio * 100).toFixed(1)}%`);
+      } else if (result.error) {
+        alert(`压缩失败: ${result.error}`);
+      } else {
+        alert('没有足够的上下文需要压缩');
+      }
+    } catch (err) {
+      alert(`压缩失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
       {/* 标题栏 */}
-      <TitleBar />
+      <TitleBar
+        onCompact={handleCompact}
+        onShowStats={() => setActiveDialog('stats')}
+        onShowDiagnostics={() => setActiveDialog('diagnostics')}
+        onToggleRightPanel={() => setRightPanelVisible(!rightPanelVisible)}
+      />
 
       {/* 主内容区域 */}
       <div className="flex flex-1 overflow-hidden">
@@ -84,6 +109,15 @@ export default function App() {
           request={askUserRequest}
           onClose={() => setAskUserRequest(null)}
         />
+      )}
+
+      {/* 功能对话框 */}
+      {activeDialog === 'stats' && (
+        <StatsDialog onClose={() => setActiveDialog(null)} />
+      )}
+
+      {activeDialog === 'diagnostics' && (
+        <DiagnosticsDialog onClose={() => setActiveDialog(null)} />
       )}
     </div>
   );
