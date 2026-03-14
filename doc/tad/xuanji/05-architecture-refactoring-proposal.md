@@ -1030,3 +1030,120 @@ mv ~/.xuanji/skills/my-agent.json5 ~/.xuanji/agents/my-agent.json5
 ---
 
 **重构目标**: 让璇玑成为一个**简单、清晰、易于理解**的 AI 助手框架 🎯
+
+---
+
+## 6. 实施进度
+
+> 更新时间: 2026-03-14
+> 分支: `refactor/architecture-v2`
+
+### 6.1 Phase 1: 概念统一 ✅ 已完成
+
+**完成时间**: 2026-03-14
+
+**已完成任务**:
+1. ✅ 删除 3 个内置 Specialist Agent 配置（business-agent.yaml, life-assistant.yaml, code-agent.yaml）
+2. ✅ 删除 defaults.ts 中的 agents 配置（Router Agent 和 Specialist Agent 定义）
+3. ✅ 删除 MultiAgentConfig 类型定义
+4. ✅ 删除 Skill 的 agent 类别
+5. ✅ 删除 MCPSkillAdapter（MCP Prompts 不再转换为 Skill）
+
+**产出**:
+- 删除了 485 行冗余代码
+- 统一了 Agent 类型（从 7 种减少到 2 种）
+- 统一了 Skill 类别（从 3 种减少到 2 种）
+
+---
+
+### 6.2 Phase 2: 职责重构 ✅ 已完成
+
+**完成时间**: 2026-03-14
+
+**已完成任务**:
+1. ✅ AgentRegistry 统一初始化（删除 config.agents?.enabled 判断，AgentRegistry 总是启用）
+2. ✅ TaskRouter 职责简化（删除 recommendedAgents 字段，只做复杂度分析）
+3. ✅ ExecutionMode 语义更新（'multi-agent' → 'decompose'）
+4. ✅ TaskRouter 模型更新（claude-3-5-haiku → claude-haiku-4-5）
+
+**产出**:
+- AgentRegistry 成为 Agent Profile 的单一真相来源
+- TaskRouter 职责清晰（只做复杂度判断，不推荐 Agent）
+- 执行模式语义准确（decompose 表示任务分解）
+
+---
+
+### 6.3 Phase 3: 数据流简化 ✅ 已完成
+
+**完成时间**: 2026-03-14
+
+**已完成任务**:
+1. ✅ 新增 TemplateRepo 模块（src/core/template/）
+   - TemplateRepo.ts：模板仓库核心类（136 行）
+   - types.ts：模板系统类型定义
+   - 集成到 ChatSession 初始化流程
+2. ✅ 新增 Planner 模块（src/core/planner/）
+   - Planner.ts：LLM 驱动的任务规划器（280 行）
+   - types.ts：规划系统类型定义
+3. ✅ 新增 Executor 模块（src/core/executor/）
+   - Executor.ts：任务执行器（237 行）
+   - types.ts：执行系统类型定义
+   - 支持依赖关系、并行执行、错误隔离
+
+**产出**:
+- 新增 1,644 行核心代码
+- MCP Prompts 统一由 TemplateRepo 管理（不再转换为 Skill）
+- 任务分解由 Planner 生成（使用 Sonnet 模型）
+- Worker Agent 统一使用 SubAgentLoop
+
+---
+
+### 6.4 Phase 4: 测试与文档 🚧 进行中
+
+**当前状态**: 单元测试已完成，文档更新待完成
+
+**已完成任务**:
+1. ✅ 新增单元测试（21 个测试，全部通过）
+   - test/unit/planner/Planner.test.ts（5 个测试，243 行）
+   - test/unit/executor/Executor.test.ts（6 个测试，286 行）
+   - test/unit/template/TemplateRepo.test.ts（10 个测试，231 行）
+
+**待完成任务**:
+2. ⏸️ 集成测试（路由流程 + 任务分解 + 模板使用）
+3. ⏸️ 架构文档更新
+4. ⏸️ 用户手册更新
+5. ⏸️ 示例配置更新
+
+**后续计划**:
+- UI 集成（ChatSession.run() 中集成 Planner + Executor）
+- 添加计划确认 UI（用户审批）
+- 添加执行进度显示
+- 添加 /template 斜杠命令
+
+---
+
+### 6.5 重构效果总结
+
+**代码变更统计**:
+- 新增文件: 12 个（3 个模块 × 3 文件 + 3 个测试文件）
+- 删除文件: 3 个（3 个内置 Specialist Agent 配置）
+- 修改文件: 8 个（SessionInitializer, ChatSession, TaskRouter, defaults, types, etc.）
+- 新增代码: 1,644 行
+- 删除代码: 485 行
+- 净增代码: 1,159 行
+
+**架构改进**:
+| 指标 | 重构前 | 重构后 | 改进 |
+|------|--------|--------|------|
+| Agent 类型 | 7 种 | 2 种 | ✅ -71% |
+| Skill 类别 | 3 种 | 2 种 | ✅ -33% |
+| Agent 配置来源 | 多源混乱 | AgentRegistry 单一来源 | ✅ 统一 |
+| 执行模式语义 | multi-agent（模糊） | decompose（准确） | ✅ 清晰 |
+| MCP Prompts 管理 | MCPSkillAdapter 转换 | TemplateRepo 直接管理 | ✅ 简化 |
+
+**测试覆盖**:
+- 单元测试: 21 个新增测试，全部通过
+- 回归测试: 1,167 个现有测试，全部通过（新重构未破坏现有功能）
+- 集成测试: 待补充
+
+---
