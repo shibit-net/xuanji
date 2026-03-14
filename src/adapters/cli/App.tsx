@@ -44,6 +44,7 @@ import type { ChatMessage, AppMode, PendingUserInput, ParallelToolGroupItem } fr
 import type { PermissionRequest, GuardCheckResult, UserConfirmation, ConfirmationHandler, PlanReviewResult, PlanReviewHandler } from '@/permission/types';
 import { PermissionPrompt } from '@/permission/ui/PermissionPrompt';
 import { PlanReview } from '@/permission/ui/PlanReview';
+import { PlanConfirm } from './PlanConfirm';
 import { AskUserPrompt } from './AskUserPrompt';
 import { UsageStatsRecorder } from '@/core/telemetry';
 import { DailyUsageStats } from '@/core/telemetry/DailyUsageStats';
@@ -76,6 +77,8 @@ export interface AppProps {
   onPermissionSetup?: (handler: ConfirmationHandler) => void;
   /** 计划审查处理器注册回调 (由 ChatSession 提供) */
   onPlanReviewSetup?: (handler: PlanReviewHandler) => void;
+  /** 执行计划确认处理器注册回调 (由 ChatSession 提供) */
+  onPlanConfirmSetup?: (handler: (plan: import('@/core/routing/types').ExecutionPlan) => Promise<boolean>) => void;
   /** 模型切换回调 (返回新模型名) */
   onModelChange?: (model: string) => Promise<string>;
   /** 记忆查询回调 (返回格式化的记忆条目) */
@@ -88,9 +91,9 @@ export interface AppProps {
   onAskUserSetup?: (handler: (request: { question: string; options?: string[]; multiSelect?: boolean; default?: string }) => Promise<string>) => void;
   // ─── 会话持久化回调 ─────────────────────────────────────
   /** 保存当前会话 */
-  onSessionSave?: (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => Promise<string>;
+  onSessionSave?: (name?: string, historyMessages?: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }>) => Promise<string>;
   /** 恢复会话 */
-  onSessionResume?: (sessionId: string) => Promise<{ sessionId: string; messageCount: number; usage: { input: number; output: number; cost: number }; historyMessages: Array<{ role: string; content: string; timestamp: number }> }>;
+  onSessionResume?: (sessionId: string) => Promise<{ sessionId: string; messageCount: number; usage: { input: number; output: number; cost: number }; historyMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }> }>;
   /** 列出会话 */
   onSessionList?: () => Promise<Array<{ id: string; name: string; updatedAt: number; messageCount: number; preview?: string }>>;
   /** 删除会话 */
@@ -331,7 +334,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAgentQuery, onTemplateQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onPlanConfirmSetup, onModelChange, onMemoryQuery, onAgentQuery, onTemplateQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -359,6 +362,11 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
     plan: string;
     resolve: (result: PlanReviewResult) => void;
   } | null>(null);
+  // 执行计划确认状态
+  const [pendingPlanConfirm, setPendingPlanConfirm] = useState<{
+    plan: import('@/core/routing/types').ExecutionPlan;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
   // AskUser 状态（Agent 向用户提问）
   const [pendingUserQuestion, setPendingUserQuestion] = useState<{
     question: string;
@@ -372,6 +380,8 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   pendingPermissionRef.current = pendingPermission;
   const pendingPlanReviewRef = useRef(pendingPlanReview);
   pendingPlanReviewRef.current = pendingPlanReview;
+  const pendingPlanConfirmRef = useRef(pendingPlanConfirm);
+  pendingPlanConfirmRef.current = pendingPlanConfirm;
   const pendingUserQuestionRef = useRef(pendingUserQuestion);
   pendingUserQuestionRef.current = pendingUserQuestion;
 
@@ -390,6 +400,14 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
     }
     pendingPlanReviewRef.current?.resolve(result);
     setPendingPlanReview(null);
+  }, []);
+  const handlePlanConfirm = useCallback((confirmed: boolean) => {
+    const resolve = pendingPlanConfirmRef.current?.resolve;
+    if (resolve && (resolve as any).__timeoutId) {
+      clearTimeout((resolve as any).__timeoutId);
+    }
+    pendingPlanConfirmRef.current?.resolve(confirmed);
+    setPendingPlanConfirm(null);
   }, []);
   const handleUserAnswer = useCallback((answer: string) => {
     const resolve = pendingUserQuestionRef.current?.resolve;
@@ -623,6 +641,24 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
     };
     onPlanReviewSetup(handler);
   }, [onPlanReviewSetup]);
+
+  // 注册执行计划确认处理器（含超时逻辑）
+  useEffect(() => {
+    if (!onPlanConfirmSetup) return;
+    const handler = async (plan: import('@/core/routing/types').ExecutionPlan): Promise<boolean> => {
+      return new Promise<boolean>((resolve) => {
+        setPendingPlanConfirm({ plan, resolve });
+
+        // 超时自动拒绝（120 秒）
+        const timeoutId = setTimeout(() => {
+          setPendingPlanConfirm(null);
+          resolve(false);
+        }, 120_000);
+        (resolve as any).__timeoutId = timeoutId;
+      });
+    };
+    onPlanConfirmSetup(handler);
+  }, [onPlanConfirmSetup]);
 
   // 注册 AskUser 处理器（含超时逻辑）
   useEffect(() => {
@@ -1804,12 +1840,14 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           }
           try {
             const name = args?.trim() || undefined;
-            // 将当前 UI 消息转换为 historyMessages
-            const historyMessages = messages.map(msg => ({
-              role: msg.role,
-              content: msg.content,
-              timestamp: msg.timestamp,
-            }));
+            // 将当前 UI 消息转换为 historyMessages（过滤掉工具消息）
+            const historyMessages = messages
+              .filter(msg => msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system')
+              .map(msg => ({
+                role: msg.role as 'user' | 'assistant' | 'system',
+                content: msg.content,
+                timestamp: msg.timestamp,
+              }));
             const sessionId = await p().onSessionSave!(name, historyMessages);
             p().addSystemMessage(t('session.saved', { id: sessionId.slice(0, 8) + '...' }));
           } catch (err) {
@@ -2494,6 +2532,14 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
         />
       )}
 
+      {/* 执行计划确认对话框 */}
+      {pendingPlanConfirm && (
+        <PlanConfirm
+          plan={pendingPlanConfirm.plan}
+          onConfirm={handlePlanConfirm}
+        />
+      )}
+
       {/* Agent 提问对话框 */}
       {pendingUserQuestion && (
         <AskUserPrompt
@@ -2584,12 +2630,14 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
             return result.messageCount;
           }}
           onSave={onSessionSave ? async (name?: string) => {
-            // 将当前 UI 消息转换为 historyMessages
-            const historyMessages = messages.map(msg => ({
-              role: msg.role,
-              content: msg.content,
-              timestamp: msg.timestamp,
-            }));
+            // 将当前 UI 消息转换为 historyMessages（过滤掉工具消息）
+            const historyMessages = messages
+              .filter(msg => msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system')
+              .map(msg => ({
+                role: msg.role as 'user' | 'assistant' | 'system',
+                content: msg.content,
+                timestamp: msg.timestamp,
+              }));
             return onSessionSave(name, historyMessages);
           } : undefined}
           onDelete={onSessionDelete}

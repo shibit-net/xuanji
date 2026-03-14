@@ -440,6 +440,7 @@ async function main(): Promise<void> {
       model: config.provider.model,
       onPermissionSetup: (handler: any) => session.setConfirmationHandler(handler),
       onPlanReviewSetup: (handler: any) => session.setPlanReviewHandler(handler),
+      onPlanConfirmSetup: (handler: any) => session.setPlanConfirmHandler(handler),
       onAskUserSetup: (handler: any) => session.setAskUserHandler(handler),
       onModelChange: async (newModel: string) => {
         const newConfig = { ...session.getConfig() };

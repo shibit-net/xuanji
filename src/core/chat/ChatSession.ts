@@ -35,6 +35,15 @@ import { BackgroundTaskManager } from '@/core/tools/BackgroundTaskManager';
 const log = logger.child({ module: 'ChatSession' });
 
 /**
+ * 计划确认处理器
+ * @param plan 执行计划
+ * @returns Promise<boolean> true=确认执行，false=取消执行
+ */
+export type PlanConfirmHandler = (
+  plan: import('@/core/routing/types').ExecutionPlan
+) => Promise<boolean>;
+
+/**
  * ChatSession 初始化选项
  */
 export interface ChatSessionOptions {
@@ -71,6 +80,7 @@ export class ChatSession {
   private taskRouter: import('@/core/routing').TaskRouter | null = null;
   private planner: import('@/core/planner').Planner | null = null;
   private executor: import('@/core/executor').Executor | null = null;
+  private onPlanConfirm: PlanConfirmHandler | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
@@ -561,11 +571,22 @@ export class ChatSession {
 
     log.info(`📋 Generated plan: ${plan.steps.length} steps`);
 
-    // 2. 如果配置要求确认计划，可以在这里触发回调
-    // TODO: 实现计划确认 UI
-    // if (this.config?.routing?.executionPlan?.requireConfirmation) {
-    //   // 通过回调让 UI 层处理确认
-    // }
+    // 2. 如果配置要求确认计划，调用 UI 回调
+    if (this.config?.planner?.requireConfirmation && this.onPlanConfirm) {
+      log.info('⏸️  Waiting for user confirmation...');
+      const confirmed = await this.onPlanConfirm(plan);
+      if (!confirmed) {
+        log.info('❌ Plan rejected by user');
+        // 将拒绝消息添加到历史
+        if (this.agentLoop) {
+          this.agentLoop.getMessageManager().addAssistantMessage([
+            { type: 'text', text: '已取消任务执行。' },
+          ]);
+        }
+        return;
+      }
+      log.info('✅ Plan confirmed by user');
+    }
 
     // 3. 执行计划
     const result = await this.executor.execute(plan, {
@@ -1108,6 +1129,13 @@ export class ChatSession {
         (askUserTool as AskUserTool).setHandler(handler);
       }
     }
+  }
+
+  /**
+   * 设置计划确认处理器 (由 UI 层调用)
+   */
+  setPlanConfirmHandler(handler: PlanConfirmHandler): void {
+    this.onPlanConfirm = handler;
   }
 
   /**
