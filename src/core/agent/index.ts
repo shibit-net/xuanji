@@ -16,13 +16,11 @@ export { runSubAgent } from './SubAgentLoop';
 export { SubAgentContext } from './SubAgentContext';
 export { emitSubAgentToolUse, createSubAgentToolUseHook, type SubAgentHookContext } from './SubAgentHooks';
 
-// Multi-Agent System
-export { AgentCoordinator } from './AgentCoordinator';
-export { AgentFactory } from './AgentFactory';
-export { AgentLoader } from './AgentLoader';
-export { RouterAgent } from './RouterAgent';
-export { SpecialistAgent } from './SpecialistAgent';
-export { CoordinatorAgent, type CoordinationMode, type TeamConfig as CoordinatorTeamConfig } from './CoordinatorAgent';
+// Multi-Agent System (Phase 0)
+export { AgentRegistry } from './AgentRegistry';
+export { OrchestratorAgent } from './OrchestratorAgent';
+export { ConfigurableWorkerAgent } from './ConfigurableWorkerAgent';
+export { ExecutionPlanner } from './ExecutionPlanner';
 export type {
   AgentRole,
   AgentInput,

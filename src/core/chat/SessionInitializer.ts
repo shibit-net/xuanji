@@ -21,7 +21,6 @@ import { DEFAULT_MEMORY_CONFIG } from '@/memory/types';
 import { MCPManager } from '@/mcp/MCPManager';
 import { logger } from '@/core/logger';
 import { MCPToolAdapter } from '@/mcp/MCPToolAdapter';
-import { MCPSkillAdapter } from '@/mcp/MCPSkillAdapter';
 import { createEnhancedWebSearchTool } from '@/mcp/search';
 import { MemoryStoreTool } from '@/core/tools/MemoryStoreTool';
 import { MemorySearchTool } from '@/core/tools/MemorySearchTool';
@@ -441,15 +440,6 @@ export class SessionInitializer {
       for (const { serverName, tool } of mcpTools) {
         const adapter = new MCPToolAdapter(serverName, tool);
         baseRegistry.register(adapter);
-      }
-
-      // 注册 MCP Prompts 到 SkillRegistry
-      if (skillRegistry) {
-        const mcpPrompts = await mcpManager.getAllPrompts();
-        for (const { serverName, prompt } of mcpPrompts) {
-          const skillAdapter = new MCPSkillAdapter(serverName, prompt);
-          skillRegistry.register(skillAdapter);
-        }
       }
 
       log.info(`✨ MCP 系统已启用 (${mcpConfig.servers.length} 个服务器)`);

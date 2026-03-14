@@ -456,14 +456,8 @@ async function main(): Promise<void> {
         const handler = new MemoryCommands(memoryManager);
         return handler.handle(query || 'list');
       },
-      onAgentQuery: async (args: string) => {
-        const coordinator = (session as any).agentCoordinator;
-        if (!coordinator) return '❌ Multi-Agent 系统未启用\n提示: 在配置中设置 agents.enabled = true';
-
-        // 使用新的 AgentCommands 处理器
-        const { AgentCommands } = await import('@/adapters/cli/AgentCommands');
-        const handler = new AgentCommands(coordinator);
-        return handler.handle(args || 'list');
+      onAgentQuery: async (_args: string) => {
+        return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
       },
       // ─── 会话持久化回调 ─────────────────────────────
       onSessionSave: async (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => {

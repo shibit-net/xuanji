@@ -66,7 +66,7 @@ export async function generateDiagnostics(ctx: DiagnosticsContext): Promise<stri
     const builtinSkills = allSkills.filter(s => [
       'xuanji-assistant', 'memory-context', 'project-rules', 'life-secretary',
       'code-assistant', 'tool-guidance', 'security-rules', 'agent-rules',
-      'react-loop-default', 'multi-turn-handling', 'commit', 'review-pr',
+      'commit', 'review-pr',
     ].includes(s.id));
     const customSkills = allSkills.filter(s => !builtinSkills.includes(s));
     const mcpSkills = customSkills.filter(s => s.id.includes(':'));

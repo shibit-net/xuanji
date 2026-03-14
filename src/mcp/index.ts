@@ -12,7 +12,6 @@ export * from './HttpMCPClient';
 export * from './MCPManager';
 export * from './ResourceDiscovery';
 export * from './MCPToolAdapter';
-export * from './MCPSkillAdapter';
 export * from './tools';
 export * from './transports';
 export * from './search';

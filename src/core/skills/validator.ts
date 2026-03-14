@@ -235,7 +235,6 @@ export class SkillValidator {
     lines.push('Summary:');
     lines.push(`  Total Skills: ${stats.totalSkills}`);
     lines.push(`  - Prompt: ${stats.byCategory.prompt}`);
-    lines.push(`  - Agent: ${stats.byCategory.agent}`);
     lines.push(`  - Workflow: ${stats.byCategory.workflow}`);
     lines.push(`  Enabled: ${stats.enabled}`);
     lines.push(`  Disabled: ${stats.disabled}`);
