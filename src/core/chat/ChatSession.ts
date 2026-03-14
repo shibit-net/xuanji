@@ -67,6 +67,8 @@ export class ChatSession {
   private reminderEngine: import('@/reminder').IReminderEngine | null = null;
   private proactiveButler: import('@/butler').IProactiveButler | null = null;
   private mcpManager: MCPManager | null = null;
+  private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
+  private orchestrator: import('@/core/agent/OrchestratorAgent').OrchestratorAgent | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   /** 轻量 Provider（用于压缩、子代理等低复杂度任务） */
@@ -223,6 +225,28 @@ export class ChatSession {
       this._MemoryManagerClass
     );
 
+    // 初始化 Multi-Agent 系统（AgentRegistry + OrchestratorAgent）
+    if (this.config.agents?.enabled) {
+      try {
+        const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+        this.agentRegistry = new AgentRegistry();
+        await this.agentRegistry.init();
+
+        const { OrchestratorAgent } = await import('@/core/agent/OrchestratorAgent');
+        this.orchestrator = new OrchestratorAgent(
+          this.provider!,
+          this.agentRegistry,
+          this.memoryManager!,
+          this.skillRegistry!,
+          this.baseRegistry!,
+        );
+
+        log.info('🤖 Multi-Agent system initialized (Orchestrator mode)');
+      } catch (err) {
+        log.warn('Multi-Agent system init failed, falling back to single-agent mode:', err);
+      }
+    }
+
     this.initialized = true;
 
     // 🔥 启动 ProactiveButler 后台服务
@@ -352,6 +376,103 @@ export class ChatSession {
       throw new Error('❌ 未配置 API Key，请使用 /settings 命令配置');
     }
 
+    // ✨ Multi-Agent 模式
+    if (this.config.agents?.enabled && this.orchestrator && this.agentRegistry) {
+      await this.runWithOrchestrator(userMessage);
+      return;
+    }
+
+    // 降级：单 Agent 模式（原有逻辑）
+    await this.runSingleAgent(userMessage);
+  }
+
+
+
+  /**
+   * 使用 Orchestrator 系统执行（新的 Multi-Agent 架构）
+   */
+  private async runWithOrchestrator(userMessage: string): Promise<void> {
+    try {
+      // Phase 1: 意图分析（仅首轮）
+      let delegation: import('@/core/agent/types').AgentDelegation;
+
+      if (!this.intentRouted) {
+        this.intentRouted = true;
+        delegation = await this.orchestrator!.analyze(userMessage);
+
+        log.info(
+          `Orchestrator: ${userMessage.slice(0, 50)} → ${delegation.agentId}`
+        );
+
+        // 触发 onInfo 回调（通知 UI 路由结果）
+        const callbacks = (this.agentLoop as any)?.callbacks;
+        if (callbacks?.onInfo) {
+          callbacks.onInfo(
+            `🎯 路由到 ${delegation.agentId}`
+          );
+        }
+      } else {
+        // 后续轮次：复用上一次的委派（暂时简化处理）
+        // TODO: 支持会话期间切换 Agent
+        const lastAgentId = this.config!.agents!.defaultAgent ?? 'code-agent';
+        delegation = {
+          agentId: lastAgentId,
+          context: {
+            task: userMessage,
+            constraints: [],
+            preferences: [],
+          },
+          reasoning: '继续使用当前 Agent',
+          collaborative: false,
+        };
+      }
+
+      // Phase 2: 委派给 Worker Agent 执行
+      const result = await this.orchestrator!.delegate(delegation);
+
+      // 触发回调（result 是字符串，直接输出）
+      const callbacks = (this.agentLoop as any)?.callbacks;
+      if (result) {
+        callbacks?.onText?.(result);
+      }
+
+      // 更新状态
+      // 注意：当前简化实现无法获取 tokenUsage 和 cost，暂时传入空值
+      callbacks?.onEnd?.({
+        status: 'idle',
+        messages: this.agentLoop?.getMessageHistory() ?? [],
+        tokenUsage: { input: 0, output: 0 },
+        cost: 0,
+        currentIteration: 0,
+        model: this.config!.provider.model,
+        currentSkill: {
+          name: delegation.agentId,
+          icon: '🤖',
+        },
+      });
+
+      // ✨ 自动保存会话
+      this.turnCount++;
+      if (this.config?.session?.autoSave !== false) {
+        this.autoSaveAfterTurn().catch((err) => {
+          log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+
+      // ✨ 消息淘汰检查
+      await this.evictIfNeeded();
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      log.error('Orchestrator execution failed:', err);
+
+      const callbacks = (this.agentLoop as any)?.callbacks;
+      callbacks?.onError?.(err);
+      callbacks?.onEnd?.(this.getState());
+    }
+  }
+
+
+  private async runSingleAgent(userMessage: string): Promise<void> {
     // 首条消息：基于意图动态过滤 Skill，重建 system prompt
     if (!this.intentRouted && this.skillRegistry && this.config) {
       this.intentRouted = true;
@@ -369,12 +490,12 @@ export class ChatSession {
           log.debug(`Regex skill matcher: ${filteredIds.length}/${enabledIds.length} skills matched`);
         }
 
-        // 🆕 获取激活的 Skill 对象（用于工具过滤）
+        // 获取激活的 Skill 对象（用于工具过滤）
         const activeSkills = filteredIds
           .map(id => this.skillRegistry!.get(id))
           .filter((s): s is import('@/core/skills/types').Skill => s !== undefined);
 
-        // 🆕 如果启用动态工具加载，更新工具过滤器
+        // 如果启用动态工具加载，更新工具过滤器
         if (this.config.features?.dynamicToolLoading && this.registry) {
           const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
           if (this.registry instanceof DynamicToolFilter) {
@@ -383,13 +504,12 @@ export class ChatSession {
           }
         }
 
-        // 🆕 P1 优化：根据激活的 Skill 计算并设置 Extended Thinking 配置
+        // P1 优化：根据激活的 Skill 计算并设置 Extended Thinking 配置
         const thinkingConfig = this.computeThinkingConfig(activeSkills);
         if (thinkingConfig) {
           this.agentLoop!.setThinking(thinkingConfig);
           log.info(`Extended Thinking: ${thinkingConfig.type}${thinkingConfig.type === 'adaptive' ? `, effort=${thinkingConfig.effort}` : ''}`);
         } else {
-          // 没有 Skill 要求 Thinking，使用默认配置（来自 config）
           this.agentLoop!.setThinking(this.config.provider.thinking);
         }
 
@@ -432,7 +552,6 @@ export class ChatSession {
           const memorySummary = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(memories);
           this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary, 'memory');
         } else {
-          // 本轮无相关记忆，清除上一轮的 memory suffix
           this.agentLoop!.getMessageManager().setSystemPromptSuffix('', 'memory');
         }
       } catch (memErr) {
@@ -442,7 +561,7 @@ export class ChatSession {
 
     await this.agentLoop!.run(userMessage);
 
-    // ✨ 自动保存会话
+    // 自动保存会话
     this.turnCount++;
     if (this.config?.session?.autoSave !== false) {
       this.autoSaveAfterTurn().catch((err) => {
@@ -450,7 +569,7 @@ export class ChatSession {
       });
     }
 
-    // ✨ 消息淘汰检查：达到上限时归档当前会话并开启新会话
+    // 消息淘汰检查
     await this.evictIfNeeded();
   }
 
@@ -478,6 +597,8 @@ export class ChatSession {
     // 按间隔保存
     if (this.turnCount % interval === 0) {
       const state = this.agentLoop.getState();
+      // 从 LLM 消息中提取 UI 可展示的历史消息
+      const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
       await this.sessionManager.save(messages as SessionMessage[], undefined, {
         usage: {
           input: state.tokenUsage.input,
@@ -486,8 +607,49 @@ export class ChatSession {
           cacheRead: state.tokenUsage.cacheRead,
           cacheWrite: state.tokenUsage.cacheWrite,
         },
+        historyMessages,
       });
       log.debug(`Auto-saved session (turn ${this.turnCount})`);
+    }
+  }
+
+  /**
+   * 从 LLM 消息历史中提取 UI 可展示的历史消息
+   * 只保留 user 和 assistant 的文本内容
+   */
+  /**
+   * 从 LLM 消息历史中提取 UI 可展示的历史消息
+   * 只保留 user 和 assistant 的文本内容
+   */
+  private extractHistoryMessages(messages: SessionMessage[]): HistoryMessage[] {
+    try {
+      const result: HistoryMessage[] = [];
+
+      for (const msg of messages) {
+        if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+
+        let text = '';
+        if (typeof msg.content === 'string') {
+          text = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          // ContentBlock[] — 提取文本块（过滤掉 thinking 等其他类型）
+          const textBlocks = msg.content.filter((block: any) => block.type === 'text' && block.text);
+          text = textBlocks.map((block: any) => block.text).join('\n');
+        }
+
+        if (!text.trim()) continue;
+
+        result.push({
+          role: msg.role as 'user' | 'assistant',
+          content: text,
+          timestamp: Date.now(),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      log.error('Extract history messages failed:', error instanceof Error ? error.message : String(error));
+      return []; // 返回空数组而不是抛出异常
     }
   }
 
@@ -619,6 +781,8 @@ export class ChatSession {
     this.config = null;
     this.provider = null;
     this.registry = null;
+    this.agentRegistry = null;
+    this.orchestrator = null;
     this.hookRegistry = new HookRegistry(); // 重建 HookRegistry，防止 handler 重复注册
     this.initialized = false;
 
@@ -644,6 +808,7 @@ export class ChatSession {
       if (messages.length > 0) {
         try {
           const state = this.agentLoop.getState();
+          const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
           await this.sessionManager.save(messages as SessionMessage[], undefined, {
             usage: {
               input: state.tokenUsage.input,
@@ -652,6 +817,7 @@ export class ChatSession {
               cacheRead: state.tokenUsage.cacheRead,
               cacheWrite: state.tokenUsage.cacheWrite,
             },
+            historyMessages,
           });
           log.debug('Final session save on cleanup');
         } catch (err) {
@@ -682,6 +848,17 @@ export class ChatSession {
     // 停止 AgentLoop
     if (this.agentLoop) {
       this.agentLoop.stop();
+    }
+
+
+    if (this.orchestrator) {
+      // Orchestrator 清理（如果有缓存的 Worker Agent）
+      this.orchestrator = null;
+    }
+    if (this.agentRegistry) {
+      // AgentRegistry 清理（停止文件监听）
+      this.agentRegistry.dispose();
+      this.agentRegistry = null;
     }
 
     // 关闭 PersistentShell（bash 子进程）
@@ -905,6 +1082,13 @@ export class ChatSession {
         (askUserTool as AskUserTool).setHandler(handler);
       }
     }
+  }
+
+  /**
+   * 获取 Agent Registry（用于 IPC 接口）
+   */
+  getAgentRegistry(): import('@/core/agent/AgentRegistry').AgentRegistry | null {
+    return this.agentRegistry;
   }
 
   /**

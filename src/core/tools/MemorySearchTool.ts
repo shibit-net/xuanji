@@ -171,6 +171,7 @@ export class MemorySearchTool extends BaseTool {
       user_fact: 'User Fact',
       relationship: 'Relationship',
       important_date: 'Important Date',
+      agent_knowledge: 'Agent Knowledge',
     };
     return labels[type] ?? type;
   }

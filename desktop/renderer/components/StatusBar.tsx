@@ -11,13 +11,17 @@ export default function StatusBar() {
 
   return (
     <div className="h-7 bg-bg-secondary border-t border-bg-tertiary flex items-center justify-between px-4 text-xs text-text-secondary">
-      {/* 左侧：当前 Skill */}
+      {/* 左侧：当前 Skill + 模型 */}
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span>{currentSkill.icon}</span>
-          <span>{currentSkill.name}</span>
-        </div>
-        <div>·</div>
+        {currentSkill && (
+          <>
+            <div className="flex items-center gap-2">
+              <span>{currentSkill.icon}</span>
+              <span>{currentSkill.name}</span>
+            </div>
+            <div>·</div>
+          </>
+        )}
         <div>{stats.model}</div>
       </div>
 

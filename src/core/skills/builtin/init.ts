@@ -15,8 +15,6 @@ import {
   toolGuidanceSkill,
   securityRulesSkill,
   agentRulesSkill,
-  reactLoopDefaultSkill,
-  multiTurnHandlingSkill,
   commitSkill,
   reviewPRSkill,
 } from './index';
@@ -34,10 +32,6 @@ export function initializeBuiltinSkills(registry: SkillRegistry): void {
   registry.register(toolGuidanceSkill);
   registry.register(securityRulesSkill);
   registry.register(agentRulesSkill);
-
-  // 注册 Agent Skills
-  registry.register(reactLoopDefaultSkill);
-  registry.register(multiTurnHandlingSkill);
 
   // 注册 Workflow Skills
   registry.register(commitSkill);
@@ -57,8 +51,6 @@ export function getBuiltinSkills() {
     toolGuidanceSkill,
     securityRulesSkill,
     agentRulesSkill,
-    reactLoopDefaultSkill,
-    multiTurnHandlingSkill,
     commitSkill,
     reviewPRSkill,
   ];

@@ -10,14 +10,16 @@ import RightPanel from './components/RightPanel';
 import InputArea from './components/InputArea';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
+import AgentManager from './components/AgentManager';
 import PermissionDialog from './components/PermissionDialog';
 import PlanReviewDialog from './components/PlanReviewDialog';
 import AskUserDialog from './components/AskUserDialog';
 import StatsDialog from './components/StatsDialog';
 import DiagnosticsDialog from './components/DiagnosticsDialog';
+import { ToastProvider } from './components/Toast';
 import { useChatStore } from './stores/chatStore';
 
-type ViewMode = 'chat' | 'settings';
+type ViewMode = 'chat' | 'settings' | 'agents';
 type DialogType = 'stats' | 'diagnostics' | null;
 
 export default function App() {
@@ -51,74 +53,79 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
-      {/* 标题栏 */}
-      <TitleBar
-        onCompact={handleCompact}
-        onShowStats={() => setActiveDialog('stats')}
-        onShowDiagnostics={() => setActiveDialog('diagnostics')}
-        onToggleRightPanel={() => setRightPanelVisible(!rightPanelVisible)}
-      />
+    <ToastProvider>
+      <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
+        {/* 标题栏 */}
+        <TitleBar
+          onCompact={handleCompact}
+          onShowStats={() => setActiveDialog('stats')}
+          onShowDiagnostics={() => setActiveDialog('diagnostics')}
+          onToggleRightPanel={() => setRightPanelVisible(!rightPanelVisible)}
+        />
 
-      {/* 主内容区域 */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* 左侧边栏 */}
-        {sidebarVisible && (
-          <Sidebar
-            onToggle={() => setSidebarVisible(!sidebarVisible)}
-            onOpenSettings={() => setViewMode(viewMode === 'settings' ? 'chat' : 'settings')}
+        {/* 主内容区域 */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* 左侧边栏 */}
+          {sidebarVisible && (
+            <Sidebar
+              onToggle={() => setSidebarVisible(!sidebarVisible)}
+              onOpenSettings={() => setViewMode(viewMode === 'settings' ? 'chat' : 'settings')}
+              onOpenAgents={() => setViewMode(viewMode === 'agents' ? 'chat' : 'agents')}
+            />
+          )}
+
+          {/* 中间内容区 */}
+          {viewMode === 'settings' ? (
+            <SettingsPanel onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'agents' ? (
+            <AgentManager onClose={() => setViewMode('chat')} />
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <ChatArea />
+              <InputArea />
+            </div>
+          )}
+
+          {/* 右侧面板（仅对话模式显示） */}
+          {viewMode === 'chat' && rightPanelVisible && (
+            <RightPanel onToggle={() => setRightPanelVisible(!rightPanelVisible)} />
+          )}
+        </div>
+
+        {/* 状态栏 */}
+        <StatusBar />
+
+        {/* 权限交互对话框 */}
+        {permissionRequest && (
+          <PermissionDialog
+            request={permissionRequest}
+            onClose={() => setPermissionRequest(null)}
           />
         )}
 
-        {/* 中间内容区 */}
-        {viewMode === 'settings' ? (
-          <SettingsPanel onClose={() => setViewMode('chat')} />
-        ) : (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <ChatArea />
-            <InputArea />
-          </div>
+        {planReviewRequest && (
+          <PlanReviewDialog
+            request={planReviewRequest}
+            onClose={() => setPlanReviewRequest(null)}
+          />
         )}
 
-        {/* 右侧面板（仅对话模式显示） */}
-        {viewMode === 'chat' && rightPanelVisible && (
-          <RightPanel onToggle={() => setRightPanelVisible(!rightPanelVisible)} />
+        {askUserRequest && (
+          <AskUserDialog
+            request={askUserRequest}
+            onClose={() => setAskUserRequest(null)}
+          />
+        )}
+
+        {/* 功能对话框 */}
+        {activeDialog === 'stats' && (
+          <StatsDialog onClose={() => setActiveDialog(null)} />
+        )}
+
+        {activeDialog === 'diagnostics' && (
+          <DiagnosticsDialog onClose={() => setActiveDialog(null)} />
         )}
       </div>
-
-      {/* 状态栏 */}
-      <StatusBar />
-
-      {/* 权限交互对话框 */}
-      {permissionRequest && (
-        <PermissionDialog
-          request={permissionRequest}
-          onClose={() => setPermissionRequest(null)}
-        />
-      )}
-
-      {planReviewRequest && (
-        <PlanReviewDialog
-          request={planReviewRequest}
-          onClose={() => setPlanReviewRequest(null)}
-        />
-      )}
-
-      {askUserRequest && (
-        <AskUserDialog
-          request={askUserRequest}
-          onClose={() => setAskUserRequest(null)}
-        />
-      )}
-
-      {/* 功能对话框 */}
-      {activeDialog === 'stats' && (
-        <StatsDialog onClose={() => setActiveDialog(null)} />
-      )}
-
-      {activeDialog === 'diagnostics' && (
-        <DiagnosticsDialog onClose={() => setActiveDialog(null)} />
-      )}
-    </div>
+    </ToastProvider>
   );
 }

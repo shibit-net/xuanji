@@ -79,6 +79,23 @@ process.on('message', async (msg: any) => {
       handleGetUsageStats(msg.requestId);
       break;
 
+    // ============ Agent 管理 ============
+    case 'agent-list':
+      handleAgentList(msg.requestId);
+      break;
+    case 'agent-get':
+      handleAgentGet(msg.requestId, msg.data);
+      break;
+    case 'agent-create':
+      handleAgentCreate(msg.requestId, msg.data);
+      break;
+    case 'agent-update':
+      handleAgentUpdate(msg.requestId, msg.data);
+      break;
+    case 'agent-delete':
+      handleAgentDelete(msg.requestId, msg.data);
+      break;
+
     // ============ 高级功能 ============
     case 'compact':
       handleCompact(msg.requestId, msg.data);
@@ -331,27 +348,45 @@ async function handleUpdateConfig(requestId: string, data: any) {
   }
 
   try {
-    // 读取当前配置文件并更新
     const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
-    const configLoader = new ConfigLoader();
-    const currentConfig = await configLoader.load();
+    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
 
-    // 合并新配置
+    // 1. 读取仅全局配置（不包含环境变量覆盖）
+    const globalConfig = await GlobalConfig.readGlobalConfig();
+
+    // 2. 确保 provider 对象存在
+    if (!globalConfig.provider) {
+      globalConfig.provider = {} as any;
+    }
+
+    // 3. 合并新配置
+    let needPersist = false;
     if (data.apiKey && !data.apiKey.startsWith('***')) {
-      currentConfig.provider.apiKey = data.apiKey;
+      globalConfig.provider.apiKey = data.apiKey;
+      needPersist = true;
     }
     if (data.model) {
-      currentConfig.provider.model = data.model;
+      globalConfig.provider.model = data.model;
+      needPersist = true;
     }
     if (data.adapter) {
-      currentConfig.provider.adapter = data.adapter;
+      globalConfig.provider.adapter = data.adapter;
+      needPersist = true;
     }
     if (data.baseURL !== undefined) {
-      currentConfig.provider.baseURL = data.baseURL;
+      globalConfig.provider.baseURL = data.baseURL;
+      needPersist = true;
     }
 
-    // 重新初始化 ChatSession
-    await session.reinitialize(currentConfig);
+    // 4. 持久化到全局配置文件
+    if (needPersist) {
+      await GlobalConfig.writeGlobalConfig(globalConfig);
+    }
+
+    // 5. 重新加载完整配置（包含环境变量）并重新初始化
+    const configLoader = new ConfigLoader();
+    const fullConfig = await configLoader.load();
+    await session.reinitialize(fullConfig);
     agentLoop = session.getAgentLoop();
 
     // 重新注册事件回调
@@ -623,6 +658,121 @@ async function handleGetDiagnostics(requestId: string) {
   try {
     const report = await session.getDiagnostics();
     process.send?.({ requestId, data: { success: true, report } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// Agent 管理
+// ============================================================
+
+async function handleAgentList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, agents: [] } });
+    return;
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    if (!agentRegistry) {
+      process.send?.({ requestId, data: { success: true, agents: [] } });
+      return;
+    }
+    const agents = agentRegistry.getEnabled();
+    process.send?.({ requestId, data: { success: true, agents } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleAgentGet(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    if (!agentRegistry) {
+      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      return;
+    }
+    const agent = agentRegistry.get(data?.agentId);
+    if (!agent) {
+      process.send?.({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
+      return;
+    }
+    process.send?.({ requestId, data: { success: true, agent } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleAgentCreate(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    if (!agentRegistry) {
+      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      return;
+    }
+
+    // 保存到 YAML 文件（全局或项目级）
+    const scope = data?.scope || 'global';
+    await agentRegistry.saveToFile(data?.config, scope);
+
+    process.send?.({ requestId, data: { success: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleAgentUpdate(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    if (!agentRegistry) {
+      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      return;
+    }
+
+    // 更新 YAML 文件（自动检测 scope）
+    const existingAgent = agentRegistry.get(data?.agentId);
+    if (!existingAgent || !existingAgent.metadata) {
+      process.send?.({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
+      return;
+    }
+
+    const scope = existingAgent.metadata.source === 'project' ? 'project' : 'global';
+    await agentRegistry.saveToFile(data?.config, scope);
+
+    process.send?.({ requestId, data: { success: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleAgentDelete(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    if (!agentRegistry) {
+      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      return;
+    }
+
+    // 删除 YAML 文件
+    await agentRegistry.deleteFile(data?.agentId);
+
+    process.send?.({ requestId, data: { success: true } });
   } catch (err) {
     process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }

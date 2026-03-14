@@ -27,11 +27,11 @@ export function useSessionManager() {
     }
   };
 
-  const saveSession = async (name?: string) => {
+  const saveSession = async (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await window.electron.sessionSave({ name });
+      const result = await window.electron.sessionSave({ name, options: { historyMessages } });
       if (result.success) {
         await loadSessions();
         return result.sessionId;

@@ -22,7 +22,7 @@ export interface SkillMetadata {
   description: string;
 
   /** 分类 */
-  category: 'prompt' | 'agent' | 'workflow';
+  category: 'prompt' | 'workflow';
 
   /** 标签 (e.g., ["system", "core"]) */
   tags: string[];
@@ -200,7 +200,7 @@ export interface SkillValidationResult {
  */
 export interface SkillQueryFilter {
   /** 分类 */
-  category?: 'prompt' | 'agent' | 'workflow';
+  category?: 'prompt' | 'workflow';
 
   /** 标签 */
   tags?: string[];

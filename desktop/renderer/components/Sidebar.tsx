@@ -3,16 +3,17 @@
 // ============================================================
 
 import React, { useState } from 'react';
-import { Search, Plus, Settings, HelpCircle, Trash2, Loader2 } from 'lucide-react';
+import { Search, Plus, Settings, HelpCircle, Trash2, Loader2, Bot } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { useSessionManager } from '../hooks/useSessionManager';
 
 interface SidebarProps {
   onToggle: () => void;
   onOpenSettings: () => void;
+  onOpenAgents: () => void;
 }
 
-export default function Sidebar({ onToggle, onOpenSettings }: SidebarProps) {
+export default function Sidebar({ onToggle, onOpenSettings, onOpenAgents }: SidebarProps) {
   const reset = useChatStore((state) => state.reset);
   const { sessions, loading, resumeSession, deleteSession } = useSessionManager();
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,8 +26,37 @@ export default function Sidebar({ onToggle, onOpenSettings }: SidebarProps) {
   const handleResumeSession = async (sessionId: string) => {
     const result = await resumeSession(sessionId);
     if (result) {
-      // 恢复成功，chatStore 会通过 agent-bridge 自动更新消息
-      console.log('Session resumed:', result);
+      // 先清空当前消息（await 确保 reset 完成后再添加）
+      await reset();
+
+      // 将历史消息添加到 chatStore
+      if (result.historyMessages && result.historyMessages.length > 0) {
+        const { addMessage } = useChatStore.getState();
+        for (const msg of result.historyMessages) {
+          addMessage({
+            id: `restored-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            timestamp: msg.timestamp,
+          });
+        }
+      }
+
+      // 恢复 usage 统计
+      if (result.usage) {
+        useChatStore.setState((state) => ({
+          stats: {
+            ...state.stats,
+            tokenUsage: {
+              input: result.usage.input ?? 0,
+              output: result.usage.output ?? 0,
+            },
+            cost: result.usage.cost ?? 0,
+          },
+        }));
+      }
+
+      console.log('Session resumed:', result.sessionId, `${result.historyMessages?.length ?? 0} messages`);
     }
   };
 
@@ -145,6 +175,14 @@ export default function Sidebar({ onToggle, onOpenSettings }: SidebarProps) {
         </button>
 
         <button
+          onClick={onOpenAgents}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
+        >
+          <Bot size={16} className="text-text-secondary" />
+          <span>Agent 管理</span>
+        </button>
+
+        <button
           onClick={onOpenSettings}
           className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
         >
@@ -152,7 +190,10 @@ export default function Sidebar({ onToggle, onOpenSettings }: SidebarProps) {
           <span>设置</span>
         </button>
 
-        <button className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm">
+        <button
+          onClick={() => window.open('https://github.com/shibit/xuanji', '_blank')}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
+        >
           <HelpCircle size={16} className="text-text-secondary" />
           <span>帮助</span>
         </button>

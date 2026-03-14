@@ -122,7 +122,20 @@
       "Bash(lsof -ti:9100 2>/dev/null | xargs kill -9 2>/dev/null; rm -rf desktop/dist-electron desktop/node_modules/.vite && npm run dev:gui 2>&1)",
       "Bash(git commit:*)",
       "Bash(git add:*)",
-      "Bash(cd /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop && npx tsc --noEmit --pretty 2>&1 | head -80)"
+      "Bash(cd /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop && npx tsc --noEmit --pretty 2>&1 | head -80)",
+      "Bash(find . -path ./node_modules -prune -o -path ./desktop/node_modules -prune -o -name \"*.ts\" -type f -exec grep -l \"slashRegistry\\\\|SlashCommandRegistry\" {} \\\\; | head -10)",
+      "Bash(node --import tsx test-session-save.mjs 2>&1 | head -100)",
+      "Bash(ls -lt ~/.xuanji/sessions/*.state.json)",
+      "Bash(xargs cat:*)",
+      "Bash(npx tsc:*)",
+      "Bash(tsx scripts/migrate-yaml-to-json5.ts --dry-run)",
+      "Bash(npx tsx:*)",
+      "Bash(/tmp/test-toast.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(git checkout:*)",
+      "Bash(mv scripts/refactor-remove-agent-coordinator.js scripts/refactor-remove-agent-coordinator.cjs && node scripts/refactor-remove-agent-coordinator.cjs)",
+      "Bash(node scripts/refactor-remove-session-initializer.cjs)",
+      "Bash(npm test:*)"
     ]
   }
 }

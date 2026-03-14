@@ -80,11 +80,13 @@ export interface AppProps {
   onModelChange?: (model: string) => Promise<string>;
   /** 记忆查询回调 (返回格式化的记忆条目) */
   onMemoryQuery?: (query?: string) => Promise<string>;
+  /** Agent 查询回调 (返回格式化的 Agent 信息) */
+  onAgentQuery?: (args: string) => Promise<string>;
   /** AskUser 处理器注册回调 (由 ChatSession 提供) */
   onAskUserSetup?: (handler: (request: { question: string; options?: string[]; multiSelect?: boolean; default?: string }) => Promise<string>) => void;
   // ─── 会话持久化回调 ─────────────────────────────────────
   /** 保存当前会话 */
-  onSessionSave?: (name?: string) => Promise<string>;
+  onSessionSave?: (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => Promise<string>;
   /** 恢复会话 */
   onSessionResume?: (sessionId: string) => Promise<{ sessionId: string; messageCount: number; usage: { input: number; output: number; cost: number }; historyMessages: Array<{ role: string; content: string; timestamp: number }> }>;
   /** 列出会话 */
@@ -327,7 +329,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAgentQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -1450,7 +1452,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   // 将 props 和闭包变量存入 ref，让稳定的命令处理器能访问最新值
   const propsRef = useRef({
     agentLoop, model, exit, addSystemMessage, logSystem,
-    onModelChange, onMemoryQuery,
+    onModelChange, onMemoryQuery, onAgentQuery,
     onSessionSave, onSessionResume, onSessionList, onSessionDelete,
     onCheckpointCreate, onCheckpointRewind, onCheckpointList,
     cycleLanguage, handleInitCommand,
@@ -1461,7 +1463,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   });
   propsRef.current = {
     agentLoop, model, exit, addSystemMessage, logSystem,
-    onModelChange, onMemoryQuery,
+    onModelChange, onMemoryQuery, onAgentQuery,
     onSessionSave, onSessionResume, onSessionList, onSessionDelete,
     onCheckpointCreate, onCheckpointRewind, onCheckpointList,
     cycleLanguage, handleInitCommand,
@@ -1751,6 +1753,25 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           }
         },
       },
+      {
+        name: '/agent',
+        description: '管理 Multi-Agent 系统',
+        group: '系统',
+        icon: '🤖',
+        handler: async (args) => {
+          if (!p().onAgentQuery) {
+            p().addSystemMessage('❌ Multi-Agent 系统未启用\n提示: 在配置中设置 agents.enabled = true');
+            return;
+          }
+          try {
+            const result = await p().onAgentQuery!(args || '');
+            p().addSystemMessage(result);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(`❌ Agent 命令执行失败: ${errMsg}`);
+          }
+        },
+      },
       // ─── 会话持久化命令 ──────────────────────────────
       {
         name: '/save',
@@ -1762,7 +1783,13 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           }
           try {
             const name = args?.trim() || undefined;
-            const sessionId = await p().onSessionSave!(name);
+            // 将当前 UI 消息转换为 historyMessages
+            const historyMessages = messages.map(msg => ({
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.timestamp,
+            }));
+            const sessionId = await p().onSessionSave!(name, historyMessages);
             p().addSystemMessage(t('session.saved', { id: sessionId.slice(0, 8) + '...' }));
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -2522,10 +2549,28 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
               setUsage(usageRef.current);
               setCost(result.usage.cost);
             }
+            // 恢复历史消息到聊天框
+            if (result.historyMessages && result.historyMessages.length > 0) {
+              const historyMsgs: ChatMessage[] = result.historyMessages.map((m) => ({
+                id: ++msgIdRef.current,
+                role: m.role as 'user' | 'assistant' | 'system',
+                content: m.content,
+                timestamp: m.timestamp,
+              }));
+              setMessages((prev) => [...prev, ...historyMsgs]);
+            }
             setShowSessionPanel(false);
             return result.messageCount;
           }}
-          onSave={onSessionSave}
+          onSave={onSessionSave ? async (name?: string) => {
+            // 将当前 UI 消息转换为 historyMessages
+            const historyMessages = messages.map(msg => ({
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.timestamp,
+            }));
+            return onSessionSave(name, historyMessages);
+          } : undefined}
           onDelete={onSessionDelete}
           onClose={() => setShowSessionPanel(false)}
         />

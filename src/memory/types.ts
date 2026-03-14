@@ -14,7 +14,9 @@ export type MemoryEntryType =
   // Phase 2 新增：生活场景记忆类型
   | 'user_fact'        // 用户事实（职业/居住地/家庭）
   | 'relationship'     // 人际关系（联系人/喜好/互动）
-  | 'important_date';  // 重要日期（生日/纪念日/截止日）
+  | 'important_date'   // 重要日期（生日/纪念日/截止日）
+  // Multi-Agent 新增：Agent 专属知识库
+  | 'agent_knowledge'; // Agent 知识库条目
 
 /** 记忆条目元数据（用于结构化信息） */
 export interface MemoryMetadata {
@@ -26,6 +28,10 @@ export interface MemoryMetadata {
   recurring?: 'yearly' | 'monthly' | 'none';
   /** 关联人物 */
   relatedPerson?: string;
+  /** 对于 agent_knowledge 类型：数据源路径 */
+  source?: string;
+  /** 对于 agent_knowledge 类型：数据源类型 */
+  sourceType?: 'csv' | 'json' | 'markdown';
 }
 
 /** 单条记忆条目 */
@@ -79,6 +85,8 @@ export interface IMemoryStore {
   retrieve(query: string, options?: RetrieveOptions): Promise<MemoryEntry[]>;
   compact(): Promise<void>;
   getStats(): Promise<{ total: number; byType: Record<string, number> }>;
+  /** 添加单条记忆条目（用于 Agent 知识库等场景） */
+  add?(entry: Partial<MemoryEntry>): Promise<void>;
 }
 
 /** 记忆配置 */

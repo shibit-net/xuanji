@@ -119,6 +119,7 @@ export class SessionInitializer {
       log.warn('Failed to init ignore filter:', err);
     });
 
+
     return {
       config,
       provider,
@@ -623,4 +624,6 @@ export class SessionInitializer {
       log.warn('Hook system init failed:', err);
     }
   }
+
+
 }

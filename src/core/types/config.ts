@@ -25,12 +25,6 @@ export interface SkillsConfig {
 
   /** Skill 参数覆盖 */
   overrides?: Record<string, Record<string, any>>;
-
-  /** Agent 配置 */
-  agent?: {
-    /** 使用哪个 Agent Skill */
-    skillId?: string;
-  };
 }
 
 /**
@@ -110,6 +104,8 @@ export interface AppConfig {
   skills?: SkillsConfig;
   /** 子代理配置 */
   agent?: AgentTuningConfig;
+  /** Multi-Agent 系统配置 */
+  agents?: MultiAgentConfig;
   /** 记忆系统配置 */
   memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
@@ -438,4 +434,18 @@ export interface SessionConfig {
   maxSessions?: number;
   /** 单个会话最大消息数（默认 100），达到上限时自动归档并创建新会话，0 = 不限制 */
   maxMessages?: number;
+}
+
+/**
+ * Multi-Agent 系统配置
+ */
+export interface MultiAgentConfig {
+  /** 是否启用 Multi-Agent 系统（默认 false） */
+  enabled?: boolean;
+  /** 默认 Agent ID（路由失败时使用） */
+  defaultAgent?: string;
+  /** 置信度阈值（低于此值使用默认 Agent，默认 0.6） */
+  confidenceThreshold?: number;
+  /** Agent 定义列表 */
+  definitions?: Array<import('@/core/agent/types').AgentDefinition>;
 }

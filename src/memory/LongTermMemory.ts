@@ -23,6 +23,8 @@ const TYPE_FILE_MAP: Record<MemoryEntryType, string> = {
   user_fact: 'personal.jsonl',
   relationship: 'personal.jsonl',
   important_date: 'personal.jsonl',
+  // Multi-Agent 新增：Agent 专属知识库
+  agent_knowledge: 'agent-knowledge.jsonl',
 };
 
 /**

@@ -523,6 +523,55 @@ ipcMain.handle('usage:stats', async () => {
 });
 
 // ============================================================
+// IPC 通信 - Agent 管理
+// ============================================================
+
+ipcMain.handle('agent:list', async () => {
+  if (!sessionReady) return { success: true, agents: [] };
+  try {
+    return await sendRequest('agent-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('agent:get', async (_event, data: { agentId: string }) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('agent-get', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('agent:create', async (_event, data: { config: any }) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('agent-create', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('agent:update', async (_event, data: { agentId: string; config: any }) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('agent-update', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('agent:delete', async (_event, data: { agentId: string }) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('agent-delete', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
 // IPC 通信 - 高级功能
 // ============================================================
 

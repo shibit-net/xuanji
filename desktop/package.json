@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on tcp:9100 && electron .\"",
+    "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
     "typecheck": "tsc --noEmit"
   },

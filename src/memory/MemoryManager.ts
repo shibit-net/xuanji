@@ -460,6 +460,28 @@ export class MemoryManager implements IMemoryStore {
     return { total, byType };
   }
 
+  /**
+   * 添加单条记忆条目（用于 Agent 知识库等场景）
+   */
+  async add(entry: Partial<MemoryEntry>): Promise<void> {
+    const completeEntry: MemoryEntry = {
+      id: entry.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      type: entry.type || 'agent_knowledge',
+      content: entry.content || '',
+      keywords: entry.keywords || [],
+      source: entry.source || 'unknown',
+      confidence: entry.confidence ?? 1.0,
+      createdAt: entry.createdAt || new Date().toISOString(),
+      lastAccessedAt: entry.lastAccessedAt || new Date().toISOString(),
+      accessCount: entry.accessCount ?? 0,
+      projectPath: entry.projectPath,
+      metadata: entry.metadata,
+    };
+
+    // 添加到长期记忆
+    await this.longTerm.save(completeEntry);
+  }
+
   // ────────── 私有方法 ──────────
 
   /** 初始化向量系统（异步，不阻塞主流程） */
@@ -557,6 +579,8 @@ export class MemoryManager implements IMemoryStore {
       user_fact: '用户事实',
       relationship: '人际关系',
       important_date: '重要日期',
+      // Multi-Agent 新增标签
+      agent_knowledge: 'Agent 知识库',
     };
     return labels[type] ?? type;
   }

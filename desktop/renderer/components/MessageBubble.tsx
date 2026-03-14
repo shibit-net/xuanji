@@ -2,11 +2,11 @@
 // MessageBubble - 消息气泡组件
 // ============================================================
 
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { User, Bot, Loader2 } from 'lucide-react';
+import { User, Bot, Loader2, Copy, Check } from 'lucide-react';
 import type { Message } from '../stores/chatStore';
 
 interface MessageBubbleProps {
@@ -16,6 +16,13 @@ interface MessageBubbleProps {
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isThinking = message.role === 'assistant' && message.thinking;
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const handleCopyCode = async (code: string, id: string) => {
+    await navigator.clipboard.writeText(code);
+    setCopiedCode(id);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
@@ -61,15 +68,31 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
+                  const codeString = String(children).replace(/\n$/, '');
+                  const codeId = `code-${message.id}-${codeString.slice(0, 20)}`;
+
                   return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
+                    <div className="relative group">
+                      <SyntaxHighlighter
+                        style={vscDarkPlus}
+                        language={match[1]}
+                        PreTag="div"
+                        {...props}
+                      >
+                        {codeString}
+                      </SyntaxHighlighter>
+                      <button
+                        onClick={() => handleCopyCode(codeString, codeId)}
+                        className="absolute top-2 right-2 p-1.5 bg-bg-tertiary/80 hover:bg-bg-tertiary rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="复制代码"
+                      >
+                        {copiedCode === codeId ? (
+                          <Check size={14} className="text-green-500" />
+                        ) : (
+                          <Copy size={14} className="text-text-secondary" />
+                        )}
+                      </button>
+                    </div>
                   ) : (
                     <code className={className} {...props}>
                       {children}

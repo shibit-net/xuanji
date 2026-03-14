@@ -35,7 +35,7 @@ interface ChatStore {
   currentSkill: {
     name: string;
     icon: string;
-  };
+  } | null;
   stats: {
     model: string;
     tokenUsage: {
@@ -89,10 +89,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // 初始状态
   messages: [],
   status: 'idle',
-  currentSkill: {
-    name: '编程助手',
-    icon: '🛠️',
-  },
+  currentSkill: null,
   stats: {
     model: 'Claude Haiku 4',
     tokenUsage: {
@@ -361,9 +358,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       activeToolCalls: new Map(),
       stats: {
         ...prevState.stats,
+        model: state.model || prevState.stats.model,
         tokenUsage: state.tokenUsage,
         cost: state.cost,
       },
+      // 更新当前 Skill
+      currentSkill: state.currentSkill ? {
+        name: state.currentSkill.name,
+        icon: state.currentSkill.icon || '🛠️',
+      } : prevState.currentSkill,
     }));
   },
 }));

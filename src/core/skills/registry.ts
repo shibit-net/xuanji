@@ -588,7 +588,6 @@ export class SkillRegistry {
       totalSkills: this.skills.size,
       byCategory: {
         prompt: 0,
-        agent: 0,
         workflow: 0,
       },
       byTag: {} as Record<string, number>,

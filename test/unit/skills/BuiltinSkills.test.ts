@@ -10,10 +10,6 @@ import {
   memoryContextSkill,
   lifeSecretarySkill,
 } from '@/core/skills/builtin/prompts';
-import {
-  reactLoopDefaultSkill,
-  multiTurnHandlingSkill,
-} from '@/core/skills/builtin/agents';
 import { initializeBuiltinSkills } from '@/core/skills/builtin/init';
 
 describe('Built-in Skills', () => {
@@ -34,8 +30,6 @@ describe('Built-in Skills', () => {
       expect(registry.has('project-rules')).toBe(true);
       expect(registry.has('memory-context')).toBe(true);
       expect(registry.has('life-secretary')).toBe(true);
-      expect(registry.has('react-loop-default')).toBe(true);
-      expect(registry.has('multi-turn-handling')).toBe(true);
     });
 
     it('should register correct number of skills', () => {
@@ -43,7 +37,7 @@ describe('Built-in Skills', () => {
       initializeBuiltinSkills(registry);
 
       const stats = registry.getStats();
-      expect(stats.totalSkills).toBe(12);
+      expect(stats.totalSkills).toBe(10);
     });
   });
 
@@ -266,39 +260,6 @@ describe('Built-in Skills', () => {
   });
 
   // ============================================================
-  // Agent Skills
-  // ============================================================
-
-  describe('react-loop-default', () => {
-    it('should include ReAct protocol in render output', () => {
-      const result = reactLoopDefaultSkill.render!();
-      expect(result).toContain('ReAct Loop Protocol');
-      expect(result).toContain('THINK');
-      expect(result).toContain('ACT');
-      expect(result).toContain('OBSERVE');
-    });
-
-    it('should include configuration in render output', () => {
-      const result = reactLoopDefaultSkill.render!();
-      expect(result).toContain('Current Configuration');
-      expect(result).toContain('maxTokens');
-    });
-
-    it('should apply parameter overrides', async () => {
-      const config = await reactLoopDefaultSkill.execute!({ model: 'gpt-4o' });
-      expect(config.model).toBe('gpt-4o');
-    });
-  });
-
-  describe('multi-turn-handling', () => {
-    it('should include context continuity rules', () => {
-      const result = multiTurnHandlingSkill.render!();
-      expect(result).toContain('Context Continuity');
-      expect(result).toContain('Avoid redundancy');
-    });
-  });
-
-  // ============================================================
   // composeBatch — Skill 组合
   // ============================================================
 
@@ -352,8 +313,6 @@ describe('Built-in Skills', () => {
         'tool-guidance',
         'security-rules',
         'agent-rules',
-        'react-loop-default',    // agent category
-        'multi-turn-handling',   // agent category
       ];
 
       // 模拟 ChatSession 的过滤逻辑
@@ -367,9 +326,6 @@ describe('Built-in Skills', () => {
       expect(promptSkillIds).toContain('tool-guidance');
       expect(promptSkillIds).toContain('security-rules');
       expect(promptSkillIds).toContain('agent-rules');
-      // Agent skills should be excluded
-      expect(promptSkillIds).not.toContain('react-loop-default');
-      expect(promptSkillIds).not.toContain('multi-turn-handling');
     });
   });
 });

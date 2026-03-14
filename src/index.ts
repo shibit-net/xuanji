@@ -450,14 +450,25 @@ async function main(): Promise<void> {
       onMemoryQuery: async (query?: string) => {
         const memoryManager = session.getMemoryManager();
         if (!memoryManager) return '❌ 记忆系统未启用';
-        
+
         // 使用新的 MemoryCommands 处理器
         const { MemoryCommands } = await import('@/adapters/cli/MemoryCommands');
         const handler = new MemoryCommands(memoryManager);
         return handler.handle(query || 'list');
       },
+      onAgentQuery: async (args: string) => {
+        const coordinator = (session as any).agentCoordinator;
+        if (!coordinator) return '❌ Multi-Agent 系统未启用\n提示: 在配置中设置 agents.enabled = true';
+
+        // 使用新的 AgentCommands 处理器
+        const { AgentCommands } = await import('@/adapters/cli/AgentCommands');
+        const handler = new AgentCommands(coordinator);
+        return handler.handle(args || 'list');
+      },
       // ─── 会话持久化回调 ─────────────────────────────
-      onSessionSave: async (name?: string) => session.saveSession(name),
+      onSessionSave: async (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => {
+        return session.saveSession(name, { historyMessages });
+      },
       onSessionResume: async (sessionId: string) => {
         const ctx = await session.resumeSession(sessionId);
         return {

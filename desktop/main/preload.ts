@@ -73,6 +73,13 @@ contextBridge.exposeInMainWorld('electron', {
   // ============ 工具统计 ============
   usageStats: () => ipcRenderer.invoke('usage:stats'),
 
+  // ============ Agent 管理 ============
+  agentList: () => ipcRenderer.invoke('agent:list'),
+  agentGet: (data: { agentId: string }) => ipcRenderer.invoke('agent:get', data),
+  agentCreate: (data: { config: any }) => ipcRenderer.invoke('agent:create', data),
+  agentUpdate: (data: { agentId: string; config: any }) => ipcRenderer.invoke('agent:update', data),
+  agentDelete: (data: { agentId: string }) => ipcRenderer.invoke('agent:delete', data),
+
   // ============ 高级功能 ============
   compact: (data: any) => ipcRenderer.invoke('compact', data),
   getDiagnostics: () => ipcRenderer.invoke('get-diagnostics'),

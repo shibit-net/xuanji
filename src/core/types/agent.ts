@@ -122,6 +122,13 @@ export interface AgentState {
   tokenUsage: TokenUsage;
   cost: number;
   currentIteration: number;
+  /** 当前使用的模型名称 */
+  model?: string;
+  /** 当前激活的 Skill */
+  currentSkill?: {
+    name: string;
+    icon?: string;
+  };
 }
 
 /**
