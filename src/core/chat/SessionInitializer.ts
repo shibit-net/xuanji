@@ -58,6 +58,7 @@ export interface InitResult {
   reminderContext: string | null;
   proactiveButler: import('@/butler').IProactiveButler | null;
   mcpManager: MCPManager | null;
+  templateRepo: import('@/core/template').TemplateRepo | null;
   _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null;
 }
 
@@ -110,10 +111,13 @@ export class SessionInitializer {
     // 8. 初始化 MCP 系统
     const mcpManager = await this.initMCPSystem(config, skillRegistry, baseRegistry);
 
-    // 9. 初始化 Web Search
+    // 9. 初始化 TemplateRepo（依赖 MCP 系统）
+    const templateRepo = mcpManager ? await this.initTemplateRepo(mcpManager) : null;
+
+    // 10. 初始化 Web Search
     this.initWebSearch(config, baseRegistry, mcpManager);
 
-    // 10. 等待 Ignore Filter 加载完成（不阻塞）
+    // 11. 等待 Ignore Filter 加载完成（不阻塞）
     await ignoreFilterPromise.catch((err) => {
       log.warn('Failed to init ignore filter:', err);
     });
@@ -132,6 +136,7 @@ export class SessionInitializer {
       reminderContext,
       proactiveButler,
       mcpManager,
+      templateRepo,
       _MemoryManagerClass,
     };
   }
@@ -564,6 +569,23 @@ export class SessionInitializer {
       hookRegistry,
       memoryStore: memoryManager,
     });
+  }
+
+  /**
+   * 初始化模板仓库（依赖 MCP 系统）
+   */
+  private async initTemplateRepo(
+    mcpManager: MCPManager,
+  ): Promise<import('@/core/template').TemplateRepo | null> {
+    try {
+      const { TemplateRepo } = await import('@/core/template');
+      const templateRepo = new TemplateRepo(mcpManager);
+      log.info('✨ TemplateRepo initialized');
+      return templateRepo;
+    } catch (err) {
+      log.warn('Failed to init TemplateRepo:', err);
+      return null;
+    }
   }
 
   /**

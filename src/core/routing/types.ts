@@ -10,7 +10,7 @@ export type RoutingMode = 'auto' | 'always' | 'never';
 /**
  * 执行模式
  */
-export type ExecutionMode = 'direct' | 'multi-agent';
+export type ExecutionMode = 'direct' | 'decompose';
 
 /**
  * 任务复杂度
@@ -57,8 +57,6 @@ export interface TaskComplexity {
   parallelizable: boolean;
   /** 复杂度等级 */
   complexity: ComplexityLevel;
-  /** 推荐的 Agent IDs */
-  recommendedAgents?: string[];
   /** 分析理由 */
   reasoning?: string;
 }

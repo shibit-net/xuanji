@@ -100,61 +100,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   features: {
     dynamicToolLoading: true, // 默认启用工具按需加载
   },
-  agents: {
-    enabled: false, // 默认禁用 Multi-Agent 模式（需要用户显式启用）
-    defaultAgent: 'code-assistant',
-    confidenceThreshold: 0.6,
-    definitions: [
-      // Router Agent
-      {
-        id: 'router',
-        name: 'Intent Router',
-        role: 'router',
-        description: 'Analyzes user intent and recommends the best specialist agent',
-        enabled: true,
-        config: {
-          model: '[CC]claude-haiku-4-5-20251001', // 使用轻量模型降低成本
-          systemPrompt: 'You are an intent analysis router. Analyze user messages and recommend the best specialist agent.',
-          tools: [],
-          maxTokens: 2000,
-          temperature: 0.3,
-        },
-      },
-      // Default Specialist Agent
-      {
-        id: 'code-assistant',
-        name: 'Code Assistant',
-        role: 'specialist',
-        description: 'General-purpose coding assistant for software development tasks',
-        domains: ['coding', 'development', 'programming', 'debugging'],
-        keywords: ['code', '代码', 'bug', 'implement', '实现', 'refactor', '重构'],
-        priority: 5,
-        enabled: true,
-        config: {
-          model: '[CC]claude-sonnet-4-5-20250929',
-          systemPrompt: ['xuanji-assistant', 'code-assistant', 'tool-guidance', 'security-rules', 'agent-rules'],
-          tools: [
-            'read_file',
-            'write_file',
-            'edit_file',
-            'multi_edit',
-            'bash',
-            'grep_search',
-            'list_files',
-            'web_search',
-            'web_fetch',
-            'plan_review',
-            'memory_store',
-            'memory_retrieve',
-            'memory_delete',
-          ],
-          maxIterations: 25,
-          temperature: 0.7,
-          maxTokens: 4096,
-        },
-      },
-    ],
-  },
   butler: {
     enabled: true, // ✅ 启用智能管家
     decisionModel: null, // 使用默认轻量模型

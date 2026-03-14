@@ -67,6 +67,7 @@ export class ChatSession {
   private reminderEngine: import('@/reminder').IReminderEngine | null = null;
   private proactiveButler: import('@/butler').IProactiveButler | null = null;
   private mcpManager: MCPManager | null = null;
+  private templateRepo: import('@/core/template').TemplateRepo | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
@@ -133,6 +134,7 @@ export class ChatSession {
     this.reminderContext = initResult.reminderContext;
     this.proactiveButler = initResult.proactiveButler;
     this.mcpManager = initResult.mcpManager;
+    this.templateRepo = initResult.templateRepo;
     this._MemoryManagerClass = initResult._MemoryManagerClass;
 
     // 设置运行时配置（供工具模块读取）
@@ -225,16 +227,14 @@ export class ChatSession {
     );
 
     // 初始化 Agent Registry（用于管理 Agent Profile）
-    if (this.config.agents?.enabled) {
-      try {
-        const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
-        this.agentRegistry = new AgentRegistry();
-        await this.agentRegistry.init();
+    try {
+      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      this.agentRegistry = new AgentRegistry();
+      await this.agentRegistry.init();
 
-        log.info('🤖 Agent Registry initialized');
-      } catch (err) {
-        log.warn('Agent Registry init failed:', err);
-      }
+      log.info('🤖 Agent Registry initialized');
+    } catch (err) {
+      log.warn('Agent Registry init failed:', err);
     }
 
     this.initialized = true;
@@ -981,6 +981,13 @@ export class ChatSession {
    */
   getAgentRegistry(): import('@/core/agent/AgentRegistry').AgentRegistry | null {
     return this.agentRegistry;
+  }
+
+  /**
+   * 获取 TemplateRepo（用于 CLI 命令）
+   */
+  getTemplateRepo(): import('@/core/template').TemplateRepo | null {
+    return this.templateRepo;
   }
 
   /**

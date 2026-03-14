@@ -148,7 +148,6 @@ ${context ? `## 会话上下文\n- 消息数: ${context.messageCount}\n- 已使�
   "domains": ["领域1", "领域2"],
   "parallelizable": true/false,
   "complexity": "simple"/"medium"/"complex",
-  "recommendedAgents": ["agent-id-1", "agent-id-2"],
   "reasoning": "简短说明判断理由"
 }
 \`\`\`
@@ -202,7 +201,6 @@ ${context ? `## 会话上下文\n- 消息数: ${context.messageCount}\n- 已使�
         domains: parsed.domains,
         parallelizable: parsed.parallelizable,
         complexity: parsed.complexity,
-        recommendedAgents: parsed.recommendedAgents || [],
         reasoning: parsed.reasoning,
       };
     } catch (error) {

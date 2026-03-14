@@ -135,7 +135,10 @@
       "Bash(git checkout:*)",
       "Bash(mv scripts/refactor-remove-agent-coordinator.js scripts/refactor-remove-agent-coordinator.cjs && node scripts/refactor-remove-agent-coordinator.cjs)",
       "Bash(node scripts/refactor-remove-session-initializer.cjs)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(awk 'NR>=437 && NR<=449 {print}' src/core/types/config.ts)",
+      "Bash(cd src/core/types && cp config.ts config.ts.bak && awk 'NR<437 || NR>450' config.ts.bak > config.ts && rm config.ts.bak)",
+      "Bash(grep -n \"name: '/help'\" src/adapters/cli/App.tsx)"
     ]
   }
 }

@@ -3,7 +3,7 @@
  *
  * 根据任务复杂度自动选择执行模式：
  * - 简单任务 → 直接执行（AgentLoop）
- * - 复杂任务 → Multi-Agent 系统（Orchestrator）
+ * - 复杂任务 → 任务分解（Planner + Executor）
  */
 
 import type {
@@ -28,7 +28,7 @@ export const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
     minStepsForMultiAgent: 5,
     tokenThreshold: 8000,
     useAnalyzer: true,
-    analyzerModel: 'claude-3-5-haiku-20241022',
+    analyzerModel: 'claude-haiku-4-5-20251001',
     cacheTTL: 300, // 5 分钟
   },
 
@@ -88,9 +88,9 @@ export class TaskRouter {
     }
 
     if (this.config.mode === 'always') {
-      log.debug('Routing to multi-agent mode (config forced)');
+      log.debug('Routing to decompose mode (config forced)');
       return {
-        mode: 'multi-agent',
+        mode: 'decompose',
         reason: 'config-forced',
         timestamp: new Date().toISOString(),
       };
@@ -99,9 +99,9 @@ export class TaskRouter {
     // 2. 检测显式触发词
     const trigger = this.triggerDetector.detect(userInput);
     if (trigger) {
-      log.debug('Routing to multi-agent mode (explicit trigger)', { trigger });
+      log.debug('Routing to decompose mode (explicit trigger)', { trigger });
       return {
-        mode: 'multi-agent',
+        mode: 'decompose',
         reason: 'explicit-trigger',
         trigger,
         timestamp: new Date().toISOString(),
@@ -115,16 +115,16 @@ export class TaskRouter {
         context,
       );
 
-      // 判断是否需要 Multi-Agent
-      const needsMultiAgent =
+      // 判断是否需要任务分解
+      const needsDecompose =
         complexity.complexity === 'complex' ||
         complexity.requiresSpecialist ||
         complexity.estimatedSteps >= this.config.complexity.minStepsForMultiAgent;
 
-      if (needsMultiAgent) {
-        log.debug('Routing to multi-agent mode (complexity)', { complexity });
+      if (needsDecompose) {
+        log.debug('Routing to decompose mode (complexity)', { complexity });
         return {
-          mode: 'multi-agent',
+          mode: 'decompose',
           reason: 'complexity',
           complexity,
           timestamp: new Date().toISOString(),
@@ -150,7 +150,7 @@ export class TaskRouter {
   }
 
   /**
-   * 检查是否应该在运行时升级到 Multi-Agent
+   * 检查是否应该在运行时升级到任务分解模式
    *
    * @param currentSteps 当前已执行步骤数
    * @param currentTokens 当前已消耗 token 数
@@ -166,7 +166,7 @@ export class TaskRouter {
     const shouldUpgrade = currentSteps >= maxSteps || currentTokens >= maxTokens;
 
     if (shouldUpgrade) {
-      log.info('Suggesting runtime upgrade to multi-agent', {
+      log.info('Suggesting runtime upgrade to decompose mode', {
         currentSteps,
         currentTokens,
         thresholds: { maxSteps, maxTokens },

@@ -104,8 +104,6 @@ export interface AppConfig {
   skills?: SkillsConfig;
   /** 子代理配置 */
   agent?: AgentTuningConfig;
-  /** Multi-Agent 系统配置 */
-  agents?: MultiAgentConfig;
   /** 记忆系统配置 */
   memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
@@ -436,16 +434,3 @@ export interface SessionConfig {
   maxMessages?: number;
 }
 
-/**
- * Multi-Agent 系统配置
- */
-export interface MultiAgentConfig {
-  /** 是否启用 Multi-Agent 系统（默认 false） */
-  enabled?: boolean;
-  /** 默认 Agent ID（路由失败时使用） */
-  defaultAgent?: string;
-  /** 置信度阈值（低于此值使用默认 Agent，默认 0.6） */
-  confidenceThreshold?: number;
-  /** Agent 定义列表 */
-  definitions?: Array<import('@/core/agent/types').AgentDefinition>;
-}
