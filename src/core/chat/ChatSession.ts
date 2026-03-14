@@ -68,7 +68,6 @@ export class ChatSession {
   private proactiveButler: import('@/butler').IProactiveButler | null = null;
   private mcpManager: MCPManager | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
-  private orchestrator: import('@/core/agent/OrchestratorAgent').OrchestratorAgent | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   /** 轻量 Provider（用于压缩、子代理等低复杂度任务） */
@@ -225,25 +224,16 @@ export class ChatSession {
       this._MemoryManagerClass
     );
 
-    // 初始化 Multi-Agent 系统（AgentRegistry + OrchestratorAgent）
+    // 初始化 Agent Registry（用于管理 Agent Profile）
     if (this.config.agents?.enabled) {
       try {
         const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
         this.agentRegistry = new AgentRegistry();
         await this.agentRegistry.init();
 
-        const { OrchestratorAgent } = await import('@/core/agent/OrchestratorAgent');
-        this.orchestrator = new OrchestratorAgent(
-          this.provider!,
-          this.agentRegistry,
-          this.memoryManager!,
-          this.skillRegistry!,
-          this.baseRegistry!,
-        );
-
-        log.info('🤖 Multi-Agent system initialized (Orchestrator mode)');
+        log.info('🤖 Agent Registry initialized');
       } catch (err) {
-        log.warn('Multi-Agent system init failed, falling back to single-agent mode:', err);
+        log.warn('Agent Registry init failed:', err);
       }
     }
 
@@ -376,101 +366,9 @@ export class ChatSession {
       throw new Error('❌ 未配置 API Key，请使用 /settings 命令配置');
     }
 
-    // ✨ Multi-Agent 模式
-    if (this.config.agents?.enabled && this.orchestrator && this.agentRegistry) {
-      await this.runWithOrchestrator(userMessage);
-      return;
-    }
-
-    // 降级：单 Agent 模式（原有逻辑）
+    // 单 Agent 模式（统一执行路径）
     await this.runSingleAgent(userMessage);
   }
-
-
-
-  /**
-   * 使用 Orchestrator 系统执行（新的 Multi-Agent 架构）
-   */
-  private async runWithOrchestrator(userMessage: string): Promise<void> {
-    try {
-      // Phase 1: 意图分析（仅首轮）
-      let delegation: import('@/core/agent/types').AgentDelegation;
-
-      if (!this.intentRouted) {
-        this.intentRouted = true;
-        delegation = await this.orchestrator!.analyze(userMessage);
-
-        log.info(
-          `Orchestrator: ${userMessage.slice(0, 50)} → ${delegation.agentId}`
-        );
-
-        // 触发 onInfo 回调（通知 UI 路由结果）
-        const callbacks = (this.agentLoop as any)?.callbacks;
-        if (callbacks?.onInfo) {
-          callbacks.onInfo(
-            `🎯 路由到 ${delegation.agentId}`
-          );
-        }
-      } else {
-        // 后续轮次：复用上一次的委派（暂时简化处理）
-        // TODO: 支持会话期间切换 Agent
-        const lastAgentId = this.config!.agents!.defaultAgent ?? 'code-agent';
-        delegation = {
-          agentId: lastAgentId,
-          context: {
-            task: userMessage,
-            constraints: [],
-            preferences: [],
-          },
-          reasoning: '继续使用当前 Agent',
-          collaborative: false,
-        };
-      }
-
-      // Phase 2: 委派给 Worker Agent 执行
-      const result = await this.orchestrator!.delegate(delegation);
-
-      // 触发回调（result 是字符串，直接输出）
-      const callbacks = (this.agentLoop as any)?.callbacks;
-      if (result) {
-        callbacks?.onText?.(result);
-      }
-
-      // 更新状态
-      // 注意：当前简化实现无法获取 tokenUsage 和 cost，暂时传入空值
-      callbacks?.onEnd?.({
-        status: 'idle',
-        messages: this.agentLoop?.getMessageHistory() ?? [],
-        tokenUsage: { input: 0, output: 0 },
-        cost: 0,
-        currentIteration: 0,
-        model: this.config!.provider.model,
-        currentSkill: {
-          name: delegation.agentId,
-          icon: '🤖',
-        },
-      });
-
-      // ✨ 自动保存会话
-      this.turnCount++;
-      if (this.config?.session?.autoSave !== false) {
-        this.autoSaveAfterTurn().catch((err) => {
-          log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
-        });
-      }
-
-      // ✨ 消息淘汰检查
-      await this.evictIfNeeded();
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error('Orchestrator execution failed:', err);
-
-      const callbacks = (this.agentLoop as any)?.callbacks;
-      callbacks?.onError?.(err);
-      callbacks?.onEnd?.(this.getState());
-    }
-  }
-
 
   private async runSingleAgent(userMessage: string): Promise<void> {
     // 首条消息：基于意图动态过滤 Skill，重建 system prompt
@@ -782,7 +680,6 @@ export class ChatSession {
     this.provider = null;
     this.registry = null;
     this.agentRegistry = null;
-    this.orchestrator = null;
     this.hookRegistry = new HookRegistry(); // 重建 HookRegistry，防止 handler 重复注册
     this.initialized = false;
 
@@ -850,11 +747,6 @@ export class ChatSession {
       this.agentLoop.stop();
     }
 
-
-    if (this.orchestrator) {
-      // Orchestrator 清理（如果有缓存的 Worker Agent）
-      this.orchestrator = null;
-    }
     if (this.agentRegistry) {
       // AgentRegistry 清理（停止文件监听）
       this.agentRegistry.dispose();

@@ -16,11 +16,8 @@ export { runSubAgent } from './SubAgentLoop';
 export { SubAgentContext } from './SubAgentContext';
 export { emitSubAgentToolUse, createSubAgentToolUseHook, type SubAgentHookContext } from './SubAgentHooks';
 
-// Multi-Agent System (Phase 0)
+// Multi-Agent System (v2: 简化架构)
 export { AgentRegistry } from './AgentRegistry';
-export { OrchestratorAgent } from './OrchestratorAgent';
-export { ConfigurableWorkerAgent } from './ConfigurableWorkerAgent';
-export { ExecutionPlanner } from './ExecutionPlanner';
 export type {
   AgentRole,
   AgentInput,
