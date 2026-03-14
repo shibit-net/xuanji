@@ -6,6 +6,9 @@ import type { ProviderConfig, RetryConfig } from './provider';
 import type { MemoryConfig } from '@/memory/types';
 import type { MCPConfig } from '@/mcp/types';
 import type { PricingConfig } from './pricing';
+import type { RoutingConfig } from '@/core/routing/types';
+import type { PlannerConfig } from '@/core/planner/types';
+import type { ExecutorConfig } from '@/core/executor/types';
 
 /**
  * Skill 系统配置
@@ -124,6 +127,12 @@ export interface AppConfig {
   session?: SessionConfig;
   /** 功能特性配置 */
   features?: FeaturesConfig;
+  /** 任务路由配置 */
+  routing?: RoutingConfig;
+  /** 任务规划器配置 */
+  planner?: PlannerConfig;
+  /** 任务执行器配置 */
+  executor?: ExecutorConfig;
 }
 
 /**

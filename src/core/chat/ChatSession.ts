@@ -68,6 +68,9 @@ export class ChatSession {
   private proactiveButler: import('@/butler').IProactiveButler | null = null;
   private mcpManager: MCPManager | null = null;
   private templateRepo: import('@/core/template').TemplateRepo | null = null;
+  private taskRouter: import('@/core/routing').TaskRouter | null = null;
+  private planner: import('@/core/planner').Planner | null = null;
+  private executor: import('@/core/executor').Executor | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
@@ -237,6 +240,47 @@ export class ChatSession {
       log.warn('Agent Registry init failed:', err);
     }
 
+    // 初始化 TaskRouter, Planner, Executor（任务分解系统）
+    try {
+      const { TaskRouter, DEFAULT_ROUTING_CONFIG } = await import('@/core/routing/TaskRouter');
+      const { Planner } = await import('@/core/planner/Planner');
+      const { Executor } = await import('@/core/executor/Executor');
+
+      // 创建 TaskRouter（用于路由决策）
+      const routingConfig = this.config.routing || DEFAULT_ROUTING_CONFIG;
+      this.taskRouter = new TaskRouter(routingConfig, this.provider!);
+
+      // 创建 Planner（用于任务规划）
+      this.planner = new Planner(
+        this.provider!,
+        this.config.planner,
+      );
+
+      // 创建 Executor（用于任务执行）
+      // 构建 AgentConfig（用于 Worker Agent）
+      const agentConfig = {
+        model: this.config.provider.model,
+        apiKey: this.config.provider.apiKey,
+        baseURL: this.config.provider.baseURL,
+        maxTokens: this.config.provider.maxTokens,
+        temperature: this.config.provider.temperature,
+        // systemPrompt 由 SubAgentLoop 动态构建
+        maxIterations: this.config.agent?.maxIterations,
+      };
+
+      this.executor = new Executor(
+        this.provider!,
+        this.lightProvider!,
+        this.registry!,
+        agentConfig,
+        this.config.executor,
+      );
+
+      log.info('🎯 TaskRouter, Planner, Executor initialized');
+    } catch (err) {
+      log.warn('Task decomposition system init failed:', err);
+    }
+
     this.initialized = true;
 
     // 🔥 启动 ProactiveButler 后台服务
@@ -366,6 +410,30 @@ export class ChatSession {
       throw new Error('❌ 未配置 API Key，请使用 /settings 命令配置');
     }
 
+    // 🆕 任务路由决策（如果 TaskRouter 可用）
+    if (this.taskRouter && this.config.routing?.mode !== 'never') {
+      try {
+        const decision = await this.taskRouter.route(userMessage, {
+          sessionId: this.sessionManager.getActiveSessionId() ?? 'unknown',
+          messageCount: this.agentLoop!.getMessageHistory().length,
+          usedAgents: [],
+          currentMode: 'direct',
+        });
+
+        log.info(`🎯 Routing decision: ${decision.mode} (reason: ${decision.reason})`);
+
+        // decompose 模式：任务分解执行
+        if (decision.mode === 'decompose') {
+          await this.runWithPlanner(userMessage, decision);
+          return;
+        }
+
+        // direct 模式：继续执行 runSingleAgent
+      } catch (routeErr) {
+        log.warn('Routing failed, fallback to direct mode:', routeErr);
+      }
+    }
+
     // 单 Agent 模式（统一执行路径）
     await this.runSingleAgent(userMessage);
   }
@@ -468,6 +536,72 @@ export class ChatSession {
     }
 
     // 消息淘汰检查
+    await this.evictIfNeeded();
+  }
+
+  /**
+   * 🆕 使用 Planner + Executor 执行任务分解
+   */
+  private async runWithPlanner(
+    userMessage: string,
+    decision: import('@/core/routing/types').RoutingDecision
+  ): Promise<void> {
+    if (!this.planner || !this.executor) {
+      throw new Error('Planner or Executor not initialized');
+    }
+
+    log.info('🎯 Starting task decomposition...');
+
+    // 1. 生成执行计划
+    const plan = await this.planner.plan({
+      userInput: userMessage,
+      complexity: decision.complexity!,
+      availableAgents: this.agentRegistry ? this.agentRegistry.getAllIds() : [],
+    });
+
+    log.info(`📋 Generated plan: ${plan.steps.length} steps`);
+
+    // 2. 如果配置要求确认计划，可以在这里触发回调
+    // TODO: 实现计划确认 UI
+    // if (this.config?.routing?.executionPlan?.requireConfirmation) {
+    //   // 通过回调让 UI 层处理确认
+    // }
+
+    // 3. 执行计划
+    const result = await this.executor.execute(plan, {
+      onSubTaskStart: (order, description) => {
+        log.debug(`📌 SubTask ${order} started: ${description}`);
+        // TODO: 通过回调更新 UI 进度
+      },
+      onSubTaskComplete: (taskResult) => {
+        const status = taskResult.status === 'success' ? '✅' : taskResult.status === 'failed' ? '❌' : '⏭️';
+        log.debug(`${status} SubTask ${taskResult.order} completed`);
+        // TODO: 通过回调更新 UI 进度
+      },
+      onProgress: (current, total) => {
+        log.debug(`📊 Progress: ${current}/${total}`);
+        // TODO: 通过回调更新 UI 进度
+      },
+    });
+
+    log.info(`🎉 Plan executed: ${result.status} (${result.subTaskResults.length} tasks)`);
+
+    // 4. 将执行结果注入到 AgentLoop 的历史中（作为 assistant 消息）
+    if (this.agentLoop) {
+      this.agentLoop.getMessageManager().addAssistantMessage([
+        { type: 'text', text: result.summary },
+      ]);
+    }
+
+    // 5. 自动保存会话
+    this.turnCount++;
+    if (this.config?.session?.autoSave !== false) {
+      this.autoSaveAfterTurn().catch((err) => {
+        log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
+      });
+    }
+
+    // 6. 消息淘汰检查
     await this.evictIfNeeded();
   }
 

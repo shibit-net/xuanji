@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { AppConfig } from '@/core/types';
+import { DEFAULT_ROUTING_CONFIG } from '@/core/routing/TaskRouter';
 
 /**
  * 默认应用配置
@@ -113,5 +114,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     fallbackIntervalMinutes: 60, // 每小时兜底检查
     defaultChannels: ['system'],
     storageFile: 'butler_pushes.jsonl',
+  },
+  routing: DEFAULT_ROUTING_CONFIG, // 使用 TaskRouter 默认配置
+  planner: {
+    model: 'claude-3-5-sonnet-20241022', // Planner 使用 Sonnet 模型
+    maxSteps: 10,
+    timeout: 30000,
+    requireConfirmation: true, // 默认需要用户确认计划
+  },
+  executor: {
+    maxConcurrent: 3, // 最多并行执行 3 个子任务
+    timeout: 300000, // 5 分钟超时
+    stopOnError: false, // 默认不在错误时停止（继续执行其他任务）
   },
 };
