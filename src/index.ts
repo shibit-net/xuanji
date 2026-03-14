@@ -459,6 +459,16 @@ async function main(): Promise<void> {
       onAgentQuery: async (_args: string) => {
         return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
       },
+      onTemplateQuery: async (args: string) => {
+        const templateRepo = session.getTemplateRepo();
+        if (!templateRepo) {
+          return '❌ 模板系统未启用\n提示: 请确保 MCP 系统已配置';
+        }
+
+        const { TemplateCommands } = await import('@/adapters/cli/TemplateCommands');
+        const handler = new TemplateCommands(templateRepo);
+        return handler.handle(args);
+      },
       // ─── 会话持久化回调 ─────────────────────────────
       onSessionSave: async (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => {
         return session.saveSession(name, { historyMessages });

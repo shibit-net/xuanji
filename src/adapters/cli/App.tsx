@@ -82,6 +82,8 @@ export interface AppProps {
   onMemoryQuery?: (query?: string) => Promise<string>;
   /** Agent 查询回调 (返回格式化的 Agent 信息) */
   onAgentQuery?: (args: string) => Promise<string>;
+  /** Template 查询回调 (返回格式化的模板信息) */
+  onTemplateQuery?: (args: string) => Promise<string>;
   /** AskUser 处理器注册回调 (由 ChatSession 提供) */
   onAskUserSetup?: (handler: (request: { question: string; options?: string[]; multiSelect?: boolean; default?: string }) => Promise<string>) => void;
   // ─── 会话持久化回调 ─────────────────────────────────────
@@ -329,7 +331,7 @@ function toolReducer(state: ToolStateShape, action: ToolAction): ToolStateShape 
 // App 主组件
 // ============================================================
 
-export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAgentQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
+export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, onModelChange, onMemoryQuery, onAgentQuery, onTemplateQuery, onAskUserSetup, onSessionSave, onSessionResume, onSessionList, onSessionDelete, onCheckpointCreate, onCheckpointRewind, onCheckpointList, onPlanModeEnter, onPlanModeExit, isPlanMode, onSubAgentSetup, onDoctorQuery }: AppProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<AppMode>('chat');
   // 使用 useReducer 合并 status/activeTools，避免多次 setState 导致多次渲染
@@ -1452,7 +1454,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   // 将 props 和闭包变量存入 ref，让稳定的命令处理器能访问最新值
   const propsRef = useRef({
     agentLoop, model, exit, addSystemMessage, logSystem,
-    onModelChange, onMemoryQuery, onAgentQuery,
+    onModelChange, onMemoryQuery, onAgentQuery, onTemplateQuery,
     onSessionSave, onSessionResume, onSessionList, onSessionDelete,
     onCheckpointCreate, onCheckpointRewind, onCheckpointList,
     cycleLanguage, handleInitCommand,
@@ -1463,7 +1465,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   });
   propsRef.current = {
     agentLoop, model, exit, addSystemMessage, logSystem,
-    onModelChange, onMemoryQuery, onAgentQuery,
+    onModelChange, onMemoryQuery, onAgentQuery, onTemplateQuery,
     onSessionSave, onSessionResume, onSessionList, onSessionDelete,
     onCheckpointCreate, onCheckpointRewind, onCheckpointList,
     cycleLanguage, handleInitCommand,
@@ -1769,6 +1771,25 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             p().addSystemMessage(`❌ Agent 命令执行失败: ${errMsg}`);
+          }
+        },
+      },
+      {
+        name: '/template',
+        description: '管理 MCP Prompts 模板',
+        group: '系统',
+        icon: '📝',
+        handler: async (args) => {
+          if (!p().onTemplateQuery) {
+            p().addSystemMessage('❌ 模板系统未启用\n提示: 请确保 MCP 系统已配置');
+            return;
+          }
+          try {
+            const result = await p().onTemplateQuery!(args || '');
+            p().addSystemMessage(result);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(`❌ Template 命令执行失败: ${errMsg}`);
           }
         },
       },
