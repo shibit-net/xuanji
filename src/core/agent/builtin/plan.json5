@@ -1,0 +1,69 @@
+{
+  // ============================================================
+  // Plan Agent - 架构规划型子代理
+  // ============================================================
+
+  id: 'plan',
+  name: '架构师',
+  description: '设计实现方案，制定技术架构（只读）',
+
+  avatar: '🧠',
+  color: 'from-purple-500 to-indigo-600',
+
+  model: {
+    primary: '[CC]claude-opus-4-6',  // 架构设计需要复杂推理
+    fallback: '[CC]claude-sonnet-4-5-20250929',
+    maxTokens: 32000,
+  },
+
+  systemPrompt: "You are a software architect agent.\n\nYour role:\n- Design implementation plans for complex features\n- Identify critical files and components\n- Consider architectural trade-offs\n- Return step-by-step plans with rationale\n\nApproach:\n1. Analyze the codebase structure\n2. Identify existing patterns and conventions\n3. Propose a detailed implementation plan\n4. List files to create/modify\n5. Highlight potential risks and dependencies\n\nConstraints:\n- You CANNOT modify files (planning only)\n- You CANNOT execute code\n- Focus on design, not implementation\n- Be thorough but concise",
+
+  // 只读工具
+  tools: [
+    { name: 'read_file', required: true },
+    { name: 'glob', required: true },
+    { name: 'grep', required: true },
+    { name: 'ls', required: false },
+    { name: 'ask_user', required: true },
+    { name: 'web_fetch', required: false },
+  ],
+
+  execution: {
+    mode: 'react',
+    maxIterations: 30,
+    timeout: 300000,  // 5 minutes
+    streaming: true,
+    parallelTools: true,
+  },
+
+  permissions: {
+    fileRead: 'always',
+    fileWrite: 'deny',  // 禁止写入
+    bashExec: 'deny',   // 禁止命令执行
+    network: 'ask',
+    allowedPaths: [],
+    deniedPaths: [],
+    allowedCommands: [],
+    deniedCommands: ['*'],
+  },
+
+  skills: {
+    builtin: ['code-assistant', 'tool-guidance'],
+    custom: [],
+  },
+
+  capabilities: [
+    '架构设计',
+    '技术方案评估',
+    '代码结构分析',
+    '实施计划制定',
+  ],
+
+  tags: ['subagent', 'readonly', 'planning', 'architecture'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSubAgent: true,
+  },
+}

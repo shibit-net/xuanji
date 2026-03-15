@@ -82,6 +82,8 @@ export class ChatSession {
   private executor: import('@/core/executor').Executor | null = null;
   private onPlanConfirm: PlanConfirmHandler | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
+  private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
+  private intentRouter: import('@/core/intent').IntentRouter | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
   /** 轻量 Provider（用于压缩、子代理等低复杂度任务） */
@@ -149,6 +151,7 @@ export class ChatSession {
     this.mcpManager = initResult.mcpManager;
     this.templateRepo = initResult.templateRepo;
     this._MemoryManagerClass = initResult._MemoryManagerClass;
+    this.providerManager = initResult.providerManager;
 
     // 设置运行时配置（供工具模块读取）
     const { setRuntimeConfig } = await import('@/core/config/RuntimeConfig');
@@ -161,6 +164,20 @@ export class ChatSession {
 
     // 初始化 Task Tool
     await this.initTaskTool();
+
+    // 初始化 Agent Registry（用于管理 Agent Profile）— 提前到 DynamicToolFilter 之前
+    try {
+      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      this.agentRegistry = new AgentRegistry();
+      await this.agentRegistry.init();
+
+      log.info('🤖 Agent Registry initialized');
+    } catch (err) {
+      log.warn('Agent Registry init failed:', err);
+    }
+
+    // 初始化 Multi-Agent 工具（条件：features.multiAgentTools）
+    await this.initMultiAgentTools();
 
     // 如果启用动态工具加载，包装为 DynamicToolFilter
     if (this.config.features?.dynamicToolLoading && this.skillRegistry) {
@@ -239,15 +256,19 @@ export class ChatSession {
       this._MemoryManagerClass
     );
 
-    // 初始化 Agent Registry（用于管理 Agent Profile）
-    try {
-      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
-      this.agentRegistry = new AgentRegistry();
-      await this.agentRegistry.init();
-
-      log.info('🤖 Agent Registry initialized');
-    } catch (err) {
-      log.warn('Agent Registry init failed:', err);
+    // 初始化 IntentRouter（意图路由系统）
+    if (this.config.features?.intentRouter && this.agentRegistry) {
+      try {
+        const { IntentRouter } = await import('@/core/intent');
+        this.intentRouter = new IntentRouter(this.agentRegistry, this.config.provider);
+        this.intentRouter.init().catch(err => {
+          log.warn('IntentRouter init failed:', err);
+          this.intentRouter = null;
+        });
+        log.info('🎯 IntentRouter initialized (async)');
+      } catch (err) {
+        log.warn('IntentRouter init failed:', err);
+      }
     }
 
     // 初始化 TaskRouter, Planner, Executor（任务分解系统）
@@ -342,6 +363,68 @@ export class ChatSession {
     const quickTeamTool = new QuickTeamTool();
     this.baseRegistry.register(quickTeamTool);
     this._quickTeamTool = quickTeamTool;
+  }
+
+  /**
+   * 初始化 Multi-Agent 工具（条件：features.multiAgentTools）
+   */
+  private async initMultiAgentTools(): Promise<void> {
+    if (!this.config?.features?.multiAgentTools) return;
+    if (!this.agentRegistry || !this.providerManager || !this.baseRegistry) return;
+
+    const agentConfig = {
+      model: this.config.provider.model,
+      apiKey: this.config.provider.apiKey,
+      baseURL: this.config.provider.baseURL,
+      maxTokens: this.config.provider.maxTokens,
+      temperature: this.config.provider.temperature,
+      maxIterations: this.config.agent?.maxIterations,
+    };
+
+    const deps = {
+      providerManager: this.providerManager,
+      agentRegistry: this.agentRegistry,
+      registry: this.baseRegistry as IToolRegistry,
+      agentConfig,
+      hookRegistry: this.hookRegistry,
+      memoryStore: this.memoryManager,
+    };
+
+    try {
+      // DelegateTool
+      const { DelegateTool } = await import('@/core/tools/DelegateTool');
+      const delegateTool = new DelegateTool();
+      delegateTool.setDependencies(deps);
+      this.baseRegistry.register(delegateTool);
+
+      // ListAgentsTool
+      const { ListAgentsTool } = await import('@/core/tools/ListAgentsTool');
+      const listAgentsTool = new ListAgentsTool();
+      listAgentsTool.setAgentRegistry(this.agentRegistry);
+      this.baseRegistry.register(listAgentsTool);
+
+      // MatchAgentTool
+      const { MatchAgentTool } = await import('@/core/tools/MatchAgentTool');
+      const matchAgentTool = new MatchAgentTool();
+      matchAgentTool.setDependencies({ agentRegistry: this.agentRegistry });
+      this.baseRegistry.register(matchAgentTool);
+
+      // OrchestrateTool
+      const { OrchestrateTool } = await import('@/core/tools/OrchestrateTool');
+      const orchestrateTool = new OrchestrateTool();
+      orchestrateTool.setDependencies(deps);
+      this.baseRegistry.register(orchestrateTool);
+
+      // PipelineTool
+      const { PipelineTool } = await import('@/core/tools/PipelineTool');
+      const pipelineTool = new PipelineTool();
+      pipelineTool.setDependencies(deps);
+      this.baseRegistry.register(pipelineTool);
+
+      log.info('🤖 Multi-Agent tools registered (5 tools)');
+    } catch (err) {
+      log.warn('Multi-Agent tools init failed:', err);
+    }
   }
 
   /**
@@ -835,6 +918,8 @@ export class ChatSession {
     this.provider = null;
     this.registry = null;
     this.agentRegistry = null;
+    this.providerManager = null;
+    this.intentRouter = null;
     this.hookRegistry = new HookRegistry(); // 重建 HookRegistry，防止 handler 重复注册
     this.initialized = false;
 
@@ -907,6 +992,10 @@ export class ChatSession {
       this.agentRegistry.dispose();
       this.agentRegistry = null;
     }
+
+    // 清理 IntentRouter
+    this.intentRouter = null;
+    this.providerManager = null;
 
     // 关闭 PersistentShell（bash 子进程）
     try {

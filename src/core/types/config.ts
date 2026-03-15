@@ -87,6 +87,12 @@ export interface FeaturesConfig {
    * 禁用时：使用规则驱动的提取方式（V1）
    */
   smartMemoryV2?: boolean;
+
+  /** 是否启用 Multi-Agent 工具（默认 false） */
+  multiAgentTools?: boolean;
+
+  /** 是否启用意图路由系统（默认 false） */
+  intentRouter?: boolean;
 }
 
 /**

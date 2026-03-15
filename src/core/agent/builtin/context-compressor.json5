@@ -1,0 +1,63 @@
+{
+  // ============================================================
+  // Context Compressor Agent - 上下文压缩专家
+  // ============================================================
+  // 职责：压缩长对话历史，生成简洁摘要，保留关键信息
+  // 使用场景：AgentLoop 在上下文超过阈值时调用
+
+  id: 'context-compressor',
+  name: '上下文压缩器',
+  description: '压缩长对话历史，生成简洁摘要，保留关键信息',
+
+  avatar: '🗜️',
+  color: 'from-green-500 to-teal-600',
+
+  model: {
+    // 使用 Haiku 而非 Sonnet（上下文压缩是简单的摘要任务）
+    // 成本降低约 90%，速度提升约 50%
+    primary: '[CC]claude-haiku-4-5-20251001',
+    fallback: '[CC]claude-haiku-4-5-20251001',
+    maxTokens: 1500,  // 摘要输出中等长度
+  },
+
+  systemPrompt: '你是一个对话历史压缩专家。你的任务是将长对话历史压缩成简洁的摘要。\n\n## 压缩原则\n\n1. **保留关键信息**：任务目标、重要决策、错误教训、待办事项\n2. **简洁明了**：用简短的语言概括，避免冗余\n3. **结构化**：使用清晰的分组和标题\n4. **可读性**：确保摘要易于理解，方便后续查阅\n\n## 输出格式\n\n使用以下格式组织摘要：\n\n```\n[上下文摘要 - AI 生成]\n\n## 主要任务\n- 任务 1: 简要描述\n- 任务 2: 简要描述\n\n## 重要决策\n- 决策 1: 简要说明\n- 决策 2: 简要说明\n\n## 关键信息\n- 信息 1: 简要描述\n- 信息 2: 简要描述\n\n## 待办事项（如果有）\n- [ ] 待办 1\n- [ ] 待办 2\n```\n\n## 要求\n\n1. 摘要长度控制在原内容的 20-30%\n2. 重点保留用户的意图和 Agent 的关键操作\n3. 忽略重复的、无关紧要的对话\n4. 如果有错误或问题，务必保留\n5. 使用中文输出',
+
+  tools: [],  // 上下文压缩不需要工具
+
+  execution: {
+    mode: 'react',
+    maxIterations: 1,  // 单次调用即可
+    timeout: 15000,    // 15 秒超时（比 IntentAnalyzer 稍长）
+    streaming: true,
+  },
+
+  permissions: {
+    fileRead: 'never',
+    fileWrite: 'never',
+    bashExec: 'never',
+    network: 'never',
+  },
+
+  skills: {
+    builtin: [],
+    custom: [],
+  },
+
+  capabilities: [
+    '对话历史压缩',
+    '摘要生成',
+    '关键信息提取',
+    '结构化输出',
+  ],
+
+  tags: ['system', 'compressor', 'summary', 'internal'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSystemAgent: true,
+    usageScenario: 'context-compression',
+    // 内部系统 Agent，不对外展示
+    internal: true,
+  },
+}

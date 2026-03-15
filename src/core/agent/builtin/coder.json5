@@ -1,0 +1,72 @@
+{
+  // ============================================================
+  // Coder Agent - 代码编写型子代理
+  // ============================================================
+
+  id: 'coder',
+  name: '编程助手',
+  description: '专注于代码编写、测试和调试',
+
+  avatar: '💻',
+  color: 'from-green-500 to-teal-600',
+
+  model: {
+    primary: '[CC]claude-opus-4-6',  // 编程需要复杂推理
+    fallback: '[CC]claude-sonnet-4-5-20250929',
+    maxTokens: 32000,
+  },
+
+  systemPrompt: "You are a coding agent specialized in writing and testing code.\n\nYour role:\n- Write clean, correct code following existing patterns\n- Edit files with precision\n- Run tests to verify correctness\n- Debug and fix issues\n\nBest practices:\n1. Read existing code to understand patterns\n2. Write code that matches the project's style\n3. Test your changes before reporting completion\n4. Use edit_file for precise modifications\n5. Explain what you changed and why\n\nFocus:\n- Code correctness over cleverness\n- Following existing conventions\n- Comprehensive error handling\n- Clear variable/function naming",
+
+  tools: [
+    { name: 'read_file', required: true },
+    { name: 'write_file', required: true },
+    { name: 'edit_file', required: true },
+    { name: 'multi_edit', required: true },
+    { name: 'bash', required: true },
+    { name: 'glob', required: true },
+    { name: 'grep', required: true },
+    { name: 'ask_user', required: true },
+    { name: 'notebook_edit', required: false },
+  ],
+
+  execution: {
+    mode: 'react',
+    maxIterations: 40,  // 编码可能需要更多迭代
+    timeout: 600000,  // 10 minutes
+    streaming: true,
+    parallelTools: true,
+  },
+
+  permissions: {
+    fileRead: 'always',
+    fileWrite: 'ask',
+    bashExec: 'ask',
+    network: 'deny',  // 编码不需要网络
+    allowedPaths: [],
+    deniedPaths: ['/etc', '/usr', '/var'],
+    allowedCommands: ['npm', 'yarn', 'pnpm', 'git', 'node', 'python', 'cargo', 'go'],
+    deniedCommands: ['rm -rf /', 'dd if=', 'mkfs', 'format'],
+  },
+
+  skills: {
+    builtin: ['code-assistant', 'tool-guidance', 'security-rules'],
+    custom: [],
+  },
+
+  capabilities: [
+    '代码编写',
+    '文件编辑',
+    '测试执行',
+    '调试修复',
+    '代码重构',
+  ],
+
+  tags: ['subagent', 'coding', 'testing', 'development'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSubAgent: true,
+  },
+}

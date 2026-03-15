@@ -1,0 +1,64 @@
+{
+  // ============================================================
+  // Intent Analyzer Agent - 意图分析专家
+  // ============================================================
+  // 职责：分析用户输入，识别意图并匹配合适的模块（Skill/MCP/Agent）
+  // 使用场景：IntentRouter 在向量匹配未命中时调用
+
+  id: 'intent-analyzer',
+  name: '意图分析器',
+  description: '分析用户输入，识别意图并匹配合适的模块（Skill/MCP/Agent）',
+
+  avatar: '🎯',
+  color: 'from-blue-500 to-purple-600',
+
+  model: {
+    // 使用 Haiku 而非 Sonnet（意图分类是简单任务）
+    // 成本降低约 90%，速度提升约 50%
+    primary: '[CC]claude-haiku-4-5-20251001',
+    fallback: '[CC]claude-haiku-4-5-20251001',
+    maxTokens: 1000,  // 意图分类输出很短
+  },
+
+  systemPrompt: '你是一个智能助手的意图识别系统。根据用户输入，选择最合适的模块来处理。\n\n## 任务\n\n分析用户输入的意图，选择 1-3 个最合适的模块来处理（按优先级排序）。\n\n## 输出格式\n\n返回 JSON 数组，格式如下：\n```json\n[\n  {\n    "moduleId": "模块的 ID",\n    "confidence": 0.95,\n    "reason": "选择原因（简短，一句话）"\n  }\n]\n```\n\n## 要求\n\n1. confidence 范围 0-1，表示匹配置信度\n2. 只返回真正相关的模块，不确定的不要返回\n3. 如果没有合适的模块，返回空数组 []\n4. reason 用中文简短说明选择理由\n5. 只返回 JSON，不要其他文字',
+
+  tools: [],  // 意图分析不需要工具
+
+  execution: {
+    mode: 'react',
+    maxIterations: 1,  // 单次调用即可
+    timeout: 10000,    // 10 秒超时
+    streaming: true,   // 使用流式输出
+    parallelTools: false,
+  },
+
+  permissions: {
+    fileRead: 'never',
+    fileWrite: 'never',
+    bashExec: 'never',
+    network: 'never',
+  },
+
+  skills: {
+    builtin: [],
+    custom: [],
+  },
+
+  capabilities: [
+    '意图识别',
+    '模块匹配',
+    'Skill 路由',
+    'MCP 工具路由',
+  ],
+
+  tags: ['system', 'intent', 'router', 'internal'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSystemAgent: true,
+    usageScenario: 'intent-classification',
+    // 内部系统 Agent，不对外展示
+    internal: true,
+  },
+}

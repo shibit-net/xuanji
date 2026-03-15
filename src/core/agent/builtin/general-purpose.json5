@@ -1,0 +1,72 @@
+{
+  // ============================================================
+  // General-Purpose Agent - 通用型子代理
+  // ============================================================
+
+  id: 'general-purpose',
+  name: '通用助手',
+  description: '执行各类通用任务的子代理',
+
+  avatar: '🤖',
+  color: 'from-gray-500 to-gray-600',
+
+  model: {
+    primary: '[CC]claude-sonnet-4-5-20250929',
+    fallback: '[CC]claude-haiku-4-5-20251001',
+    maxTokens: 32000,
+  },
+
+  systemPrompt: "You are a sub-agent executing a specific task.\n\nCore principles:\n- Focus on the task and return results concisely\n- Do NOT ask clarifying questions (you are in sub-agent mode)\n- Do NOT start new sub-tasks\n- Complete the assigned task and report back",
+
+  tools: [
+    { name: 'read_file', required: true },
+    { name: 'write_file', required: true },
+    { name: 'edit_file', required: true },
+    { name: 'bash', required: true },
+    { name: 'glob', required: true },
+    { name: 'grep', required: true },
+    { name: 'ask_user', required: true },
+    { name: 'web_fetch', required: false },
+    { name: 'memory_store', required: false },
+    { name: 'memory_search', required: false },
+  ],
+
+  execution: {
+    mode: 'react',
+    maxIterations: 30,
+    timeout: 300000,  // 5 minutes
+    streaming: true,
+    parallelTools: true,
+  },
+
+  permissions: {
+    fileRead: 'always',
+    fileWrite: 'ask',
+    bashExec: 'ask',
+    network: 'ask',
+    allowedPaths: [],
+    deniedPaths: [],
+    allowedCommands: [],
+    deniedCommands: ['rm -rf /', 'dd if=', 'mkfs'],
+  },
+
+  skills: {
+    builtin: ['tool-guidance', 'security-rules'],
+    custom: [],
+  },
+
+  capabilities: [
+    '文件读写',
+    '命令执行',
+    '代码搜索',
+    '网络访问',
+  ],
+
+  tags: ['subagent', 'general', 'default'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSubAgent: true,
+  },
+}

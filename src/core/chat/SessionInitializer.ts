@@ -59,6 +59,7 @@ export interface InitResult {
   proactiveButler: import('@/butler').IProactiveButler | null;
   mcpManager: MCPManager | null;
   templateRepo: import('@/core/template').TemplateRepo | null;
+  providerManager: import('@/core/providers/ProviderManager').ProviderManager | null;
   _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null;
 }
 
@@ -81,6 +82,15 @@ export class SessionInitializer {
 
     // 2. 初始化 Provider
     const { provider, lightProvider } = this.initProvider(config);
+
+    // 2.5 创建 ProviderManager（用于 Multi-Agent 工具）
+    let providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
+    try {
+      const { ProviderManager } = await import('@/core/providers/ProviderManager');
+      providerManager = new ProviderManager(config);
+    } catch (err) {
+      log.warn('ProviderManager init failed:', err);
+    }
 
     // 3. 初始化工具注册表
     const { baseRegistry, registry, permissionController, ignoreFilterPromise } =
@@ -137,6 +147,7 @@ export class SessionInitializer {
       proactiveButler,
       mcpManager,
       templateRepo,
+      providerManager,
       _MemoryManagerClass,
     };
   }
