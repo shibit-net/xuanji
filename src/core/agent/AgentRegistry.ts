@@ -13,6 +13,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { watch, type FSWatcher } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import JSON5 from 'json5';
 import { parse as parseYAML } from 'yaml';
 import { promisify } from 'node:util';
@@ -20,6 +21,10 @@ import globCb from 'glob';
 import type { ConfigurableAgentConfig } from './types';
 
 const glob = promisify(globCb);
+
+// ESM 兼容：__dirname 在 ESM 模式下不存在
+const __filename_esm = fileURLToPath(import.meta.url);
+const __dirname_esm = path.dirname(__filename_esm);
 
 export class AgentRegistry {
   private agents = new Map<string, ConfigurableAgentConfig>();
@@ -29,7 +34,7 @@ export class AgentRegistry {
   constructor(configPaths?: string[]) {
     // 默认配置路径（优先级：项目 > 全局 > 内置）
     this.configPaths = configPaths || [
-      path.join(__dirname, 'builtin'),                        // 内置 Agent
+      path.join(__dirname_esm, 'builtin'),                     // 内置 Agent
       path.join(os.homedir(), '.xuanji/agents'),             // 全局 Agent
       path.join(process.cwd(), '.xuanji/agents'),            // 项目级 Agent
     ];
@@ -90,8 +95,10 @@ export class AgentRegistry {
       // 验证配置
       this.validateConfig(config);
 
-      // 添加元数据
+      // 添加元数据（保留 JSON5 中的额外字段如 builtin/isSubAgent）
+      const runtimeMeta = config.metadata || {};
       config.metadata = {
+        ...runtimeMeta,
         source: this.getSource(filePath),
         filePath,
         createdAt: new Date().toISOString(),
@@ -237,9 +244,13 @@ ${agent.capabilities.map(cap => `- ${cap}`).join('\n')}
       throw new Error('缺少模型配置: model.primary');
     }
 
-    // 检查工具列表
-    if (!Array.isArray(config.tools) || config.tools.length === 0) {
-      throw new Error('工具列表不能为空');
+    // 检查工具列表（系统内部 Agent 允许为空）
+    const isInternalAgent = config.metadata?.internal === true;
+    if (!Array.isArray(config.tools)) {
+      throw new Error('tools 必须是数组');
+    }
+    if (!isInternalAgent && config.tools.length === 0) {
+      throw new Error('工具列表不能为空（系统内部 Agent 除外）');
     }
 
     // 检查 Skills 配置

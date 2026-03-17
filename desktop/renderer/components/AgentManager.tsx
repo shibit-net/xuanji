@@ -75,16 +75,28 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     return result;
   }, [agents, searchQuery, filterSource, filterStatus, sortBy]);
 
-  // 分组
+  // 分组（按公开/内部分组）
   const groupedAgents = useMemo(() => {
-    return filteredAndSortedAgents.reduce((groups, agent) => {
-      const source = agent.metadata?.source || 'unknown';
-      if (!groups[source]) {
-        groups[source] = [];
+    const publicAgents: typeof agents = [];
+    const internalAgents: typeof agents = [];
+
+    filteredAndSortedAgents.forEach((agent) => {
+      if (agent.metadata?.internal === true) {
+        internalAgents.push(agent);
+      } else {
+        publicAgents.push(agent);
       }
-      groups[source].push(agent);
-      return groups;
-    }, {} as Record<string, typeof agents>);
+    });
+
+    const groups: Record<string, typeof agents> = {};
+    if (publicAgents.length > 0) {
+      groups['public'] = publicAgents;
+    }
+    if (internalAgents.length > 0) {
+      groups['internal'] = internalAgents;
+    }
+
+    return groups;
   }, [filteredAndSortedAgents]);
 
   const handleSelectAgent = (agent: any) => {
@@ -180,17 +192,56 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     }
   };
 
-  const getSourceLabel = (source: string) => {
-    switch (source) {
-      case 'builtin':
-        return '📦 内置';
-      case 'global':
-        return '🌐 全局';
-      case 'project':
-        return '📁 项目';
+  const getGroupLabel = (group: string) => {
+    switch (group) {
+      case 'public':
+        return '🌟 公开 Agent';
+      case 'internal':
+        return '🔧 内部系统 Agent';
       default:
         return '未知';
     }
+  };
+
+  // Agent 类型标识
+  const getAgentTypeInfo = (agent: any) => {
+    const metadata = agent.metadata || {};
+
+    // 主 Agent
+    if (metadata.isMainAgent) {
+      return {
+        type: '主 Agent',
+        typeEn: 'Main Agent',
+        icon: '⭐',
+        color: 'text-yellow-500',
+        bgColor: 'bg-yellow-500/20',
+        description: '用户直接交互的主 Agent',
+      };
+    }
+
+    // 子 Agent（包括 SubAgent 和 SystemAgent）
+    if (metadata.isSubAgent || metadata.isSystemAgent) {
+      return {
+        type: '子 Agent',
+        typeEn: 'Sub Agent',
+        icon: '🤖',
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-500/20',
+        description: metadata.isSystemAgent
+          ? '系统内部专用子代理（上下文压缩、意图分析等）'
+          : '执行特定任务的专业子代理',
+      };
+    }
+
+    // 自定义 Agent
+    return {
+      type: '自定义',
+      typeEn: 'Custom Agent',
+      icon: '📝',
+      color: 'text-purple-500',
+      bgColor: 'bg-purple-500/20',
+      description: '用户自定义 Agent',
+    };
   };
 
   return (
@@ -340,41 +391,56 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               </div>
             ) : (
               <div className="space-y-3">
-                {Object.entries(groupedAgents).map(([source, groupAgents]) => {
+                {Object.entries(groupedAgents).map(([group, groupAgents]) => {
                   const agentList = groupAgents as typeof agents;
                   return (
-                    <div key={source}>
+                    <div key={group}>
                       <div className="text-xs text-text-secondary px-2 py-1 mb-1 flex items-center justify-between">
-                        <span>{getSourceLabel(source)}</span>
+                        <span>{getGroupLabel(group)}</span>
                         <span>{agentList.length}</span>
                       </div>
-                      {agentList.map((agent: any) => (
-                        <button
-                          key={agent.id}
-                          onClick={() => handleSelectAgent(agent)}
-                          className={`
-                            w-full text-left px-3 py-2 rounded mb-1 transition-colors
-                            ${selectedAgent?.id === agent.id
-                              ? 'bg-primary/20 border-l-2 border-primary'
-                              : 'hover:bg-bg-tertiary'
-                            }
-                          `}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            {getSourceIcon(source)}
-                            <span className="text-sm font-medium truncate flex-1">
-                              {agent.name}
-                            </span>
-                            {agent.enabled === false && (
-                              <span className="text-xs text-red-500">禁</span>
-                            )}
-                          </div>
-                          <div className="text-xs text-text-secondary truncate">
-                            {agent.description}
-                          </div>
-                          {agent.tags && agent.tags.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {agent.tags.slice(0, 3).map((tag: string) => (
+                      {agentList.map((agent: any) => {
+                        const typeInfo = getAgentTypeInfo(agent);
+                        const source = agent.metadata?.source || 'unknown';
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => handleSelectAgent(agent)}
+                            className={`
+                              w-full text-left px-3 py-2 rounded mb-1 transition-colors
+                              ${selectedAgent?.id === agent.id
+                                ? 'bg-primary/20 border-l-2 border-primary'
+                                : 'hover:bg-bg-tertiary'
+                              }
+                            `}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              {getSourceIcon(source)}
+                              <span className="text-sm font-medium truncate flex-1">
+                                {agent.name}
+                              </span>
+                              {/* Agent 类型徽章 */}
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${typeInfo.bgColor}`}
+                                title={typeInfo.description}
+                              >
+                                {typeInfo.icon}
+                              </span>
+                              {agent.enabled === false && (
+                                <span className="text-xs text-red-500">禁</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-text-secondary truncate">
+                              {agent.description}
+                            </div>
+                            {/* Agent 类型英文标签 + Tags */}
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${typeInfo.bgColor} ${typeInfo.color}`}
+                              >
+                                {typeInfo.typeEn}
+                              </span>
+                              {agent.tags && agent.tags.slice(0, 2).map((tag: string) => (
                                 <span
                                   key={tag}
                                   className="text-xs bg-bg-tertiary px-1.5 py-0.5 rounded"
@@ -383,9 +449,9 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                                 </span>
                               ))}
                             </div>
-                          )}
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   );
                 })}

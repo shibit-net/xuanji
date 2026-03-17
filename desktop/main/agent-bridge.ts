@@ -73,6 +73,21 @@ process.on('message', async (msg: any) => {
     case 'memory-stats':
       handleMemoryStats(msg.requestId);
       break;
+    case 'memory-get-config':
+      handleGetMemoryConfig(msg.requestId);
+      break;
+    case 'memory-save-config':
+      handleSaveMemoryConfig(msg.requestId, msg.data);
+      break;
+    case 'memory-manual-flush':
+      handleManualMemoryFlush(msg.requestId);
+      break;
+    case 'memory-extract-topics':
+      handleExtractTopics(msg.requestId);
+      break;
+    case 'memory-get-list':
+      handleGetMemoryList(msg.requestId, msg.data);
+      break;
 
     // ============ 工具统计 ============
     case 'get-usage-stats':
@@ -94,6 +109,25 @@ process.on('message', async (msg: any) => {
       break;
     case 'agent-delete':
       handleAgentDelete(msg.requestId, msg.data);
+      break;
+
+    // ============ Skills / Tools / MCP 查询 ============
+    case 'skills-list':
+      handleSkillsList(msg.requestId);
+      break;
+    case 'tools-list':
+      handleToolsList(msg.requestId);
+      break;
+    case 'mcp-list':
+      handleMcpList(msg.requestId);
+      break;
+
+    // ============ Prompt 配置管理 ============
+    case 'prompt-get-config':
+      handlePromptGetConfig(msg.requestId);
+      break;
+    case 'prompt-save-config':
+      handlePromptSaveConfig(msg.requestId, msg.data);
       break;
 
     // ============ 高级功能 ============
@@ -122,7 +156,23 @@ process.on('message', async (msg: any) => {
  */
 async function handleInit() {
   try {
-    session = new ChatSession();
+    session = new ChatSession({
+      callbacks: {
+        // 连续会话通知回调
+        onResumeNotification: (summary: string, memoryCount: number) => {
+          process.send?.({
+            type: 'session:resume-notification',
+            data: { summary, memoryCount },
+          });
+        },
+        onArchiveNotification: (result) => {
+          process.send?.({
+            type: 'session:archive-notification',
+            data: result,
+          });
+        },
+      },
+    });
     await session.init();
     agentLoop = session.getAgentLoop();
 
@@ -594,6 +644,211 @@ async function handleMemoryStats(requestId: string) {
   }
 }
 
+// 获取记忆配置
+async function handleGetMemoryConfig(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, config: null } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: true, config: null } });
+      return;
+    }
+    const config = memoryManager.getConfig();
+    process.send?.({ requestId, data: { success: true, config } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// 保存记忆配置
+async function handleSaveMemoryConfig(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: 'Session not initialized' } });
+    return;
+  }
+  try {
+    const memoryConfig = data.config;
+    if (!memoryConfig) {
+      process.send?.({ requestId, data: { success: false, error: 'No config provided' } });
+      return;
+    }
+
+    // 1. 读取当前全局配置
+    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
+    const currentConfig = await GlobalConfig.readGlobalConfig();
+
+    // 2. 合并 memory 配置
+    const updatedConfig = {
+      ...currentConfig,
+      memory: {
+        ...currentConfig.memory,
+        ...memoryConfig,
+      },
+    };
+
+    // 3. 保存到全局配置文件
+    await GlobalConfig.writeGlobalConfig(updatedConfig);
+
+    // 4. 热更新运行时 MemoryManager 配置（如果可能）
+    const memoryManager = session.getMemoryManager();
+    if (memoryManager) {
+      // 注意：这里只是更新配置，不重新初始化组件
+      // 完整的配置生效需要重新初始化会话
+      (memoryManager as any).config = updatedConfig.memory;
+    }
+
+    process.send?.({ requestId, data: { success: true, requiresRestart: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// 手动触发记忆刷新
+async function handleManualMemoryFlush(requestId: string) {
+  if (!session || !agentLoop) {
+    process.send?.({ requestId, data: { success: false, error: 'Session or AgentLoop not initialized' } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      return;
+    }
+    const intelligentFlush = memoryManager.getIntelligentFlush();
+    if (!intelligentFlush) {
+      process.send?.({ requestId, data: { success: false, error: 'IntelligentFlush not enabled' } });
+      return;
+    }
+
+    // 获取当前消息历史
+    const messageManager = agentLoop.getMessageManager();
+    const messages = messageManager?.getMessages() || [];
+
+    // 获取配置和会话ID
+    const sessionManager = session.getSessionManager();
+    const sessionId = sessionManager?.getActiveSessionId() || undefined;
+
+    // 手动触发刷新（强制触发：timeSinceLastFlush 设为超大值）
+    const context = {
+      messages: messages as any[],
+      currentTokens: 1000000, // 强制触发：设置一个超大值
+      maxTokens: 100, // 强制触发：设置一个很小的 maxTokens
+      timeSinceLastFlush: 999999999, // 强制触发：设置一个超大值
+      sessionId,
+    };
+
+    const flushed = await intelligentFlush.checkAndFlush(context);
+    process.send?.({ requestId, data: { success: true, flushed } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// 手动提取主题
+async function handleExtractTopics(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: false, error: 'Session not initialized' } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      return;
+    }
+
+    // 调用 MemoryManager 的 extractTopics 方法
+    const dayKey = new Date().toISOString().split('T')[0]; // 今天的日期
+    await memoryManager.extractTopics(dayKey);
+    process.send?.({ requestId, data: { success: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// 获取记忆列表
+async function handleGetMemoryList(requestId: string, data: any) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, memories: [] } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      process.send?.({ requestId, data: { success: true, memories: [] } });
+      return;
+    }
+
+    // 从 MemoryManager 获取缓存的记忆条目
+    const allMemories = (memoryManager as any).cachedEntries || [];
+
+    // 为没有 category 字段的记忆自动推断 category（兼容旧版本数据）
+    const enrichedMemories = allMemories.map((m: any) => {
+      if (m.category) return m; // 已有 category，保持不变
+
+      // 根据 type 推断 category
+      let category = 'fact'; // 默认类别
+
+      // Timeline: 会话摘要
+      if (m.type === 'session_summary') {
+        category = 'timeline';
+      }
+      // Topic: 用户偏好、重要日期、关系
+      else if (m.type === 'user_preference' || m.type === 'important_date' || m.type === 'relationship') {
+        category = 'topic';
+      }
+      // Fact: 其他所有类型（决策、错误解决、工具模式、项目事实、用户事实）
+      else {
+        category = 'fact';
+      }
+
+      return { ...m, category };
+    });
+
+    // 应用过滤条件
+    let filteredMemories = enrichedMemories;
+
+    // 按 category 过滤
+    if (data.category && data.category !== 'all') {
+      filteredMemories = filteredMemories.filter((m: any) => m.category === data.category);
+    }
+
+    // 按 type 过滤
+    if (data.type && data.type !== 'all') {
+      filteredMemories = filteredMemories.filter((m: any) => m.type === data.type);
+    }
+
+    // 按查询词过滤（搜索 content 和 keywords）
+    if (data.query && data.query.trim()) {
+      const query = data.query.toLowerCase();
+      filteredMemories = filteredMemories.filter((m: any) => {
+        const content = (m.content || '').toLowerCase();
+        const keywords = (m.keywords || []).join(' ').toLowerCase();
+        return content.includes(query) || keywords.includes(query);
+      });
+    }
+
+    // 按时间排序（最新在前）
+    filteredMemories.sort((a: any, b: any) => {
+      const aTime = new Date(a.lastAccessedAt || a.createdAt).getTime();
+      const bTime = new Date(b.lastAccessedAt || b.createdAt).getTime();
+      return bTime - aTime;
+    });
+
+    // 限制数量
+    const limit = data.limit || 100;
+    const memories = filteredMemories.slice(0, limit);
+
+    process.send?.({ requestId, data: { success: true, memories } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
 // ============================================================
 // 工具统计
 // ============================================================
@@ -678,6 +933,7 @@ async function handleAgentList(requestId: string) {
       process.send?.({ requestId, data: { success: true, agents: [] } });
       return;
     }
+    // 获取所有启用的 Agent（包括内部系统 Agent）
     const agents = agentRegistry.getEnabled();
     process.send?.({ requestId, data: { success: true, agents } });
   } catch (err) {
@@ -771,6 +1027,398 @@ async function handleAgentDelete(requestId: string, data: any) {
 
     // 删除 YAML 文件
     await agentRegistry.deleteFile(data?.agentId);
+
+    process.send?.({ requestId, data: { success: true } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// Skills / Tools / MCP 查询
+// ============================================================
+
+async function handleSkillsList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, skills: [] } });
+    return;
+  }
+  try {
+    const skillRegistry = session.getSkillRegistry();
+    const skills = skillRegistry.list().map((skill: any) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description || '',
+      type: skill.category || 'prompt',
+      category: skill.sceneCategory || undefined,
+      enabled: skill.enabled ?? true,
+      requiredTools: skill.requiredTools || [],
+      triggers: skill.triggers || [],
+      tags: skill.tags || [],
+    }));
+    process.send?.({ requestId, data: { success: true, skills } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleToolsList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, tools: [] } });
+    return;
+  }
+  try {
+    const baseRegistry = session.getBaseRegistry();
+    if (!baseRegistry) {
+      process.send?.({ requestId, data: { success: true, tools: [] } });
+      return;
+    }
+
+    // 使用 TOOL_CATEGORIES 做分类映射
+    const { TOOL_CATEGORIES } = await import('../../src/core/tools/ToolCategories.js');
+    const coreSet = new Set<string>(TOOL_CATEGORIES.CORE);
+    const metaSet = new Set<string>(TOOL_CATEGORIES.META);
+    const sceneMap = new Map<string, string>();
+    for (const [sceneName, sceneTools] of Object.entries(TOOL_CATEGORIES.SCENE)) {
+      for (const t of sceneTools as readonly string[]) {
+        sceneMap.set(t, sceneName);
+      }
+    }
+
+    const categorize = (name: string): string => {
+      if (coreSet.has(name)) return 'core';
+      if (metaSet.has(name)) return 'meta';
+      if (sceneMap.has(name)) return sceneMap.get(name)!;
+      return 'other';
+    };
+
+    const allTools = baseRegistry.getAll();
+    const tools = allTools.map((tool: any) => ({
+      name: tool.name,
+      description: tool.description || '',
+      category: categorize(tool.name),
+      required: tool.required ?? false,
+      readonly: tool.readonly ?? true,
+    }));
+    process.send?.({ requestId, data: { success: true, tools } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleMcpList(requestId: string) {
+  if (!session) {
+    process.send?.({ requestId, data: { success: true, servers: [] } });
+    return;
+  }
+  try {
+    const mcpManager = session.getMCPManager();
+    if (!mcpManager) {
+      process.send?.({ requestId, data: { success: true, servers: [] } });
+      return;
+    }
+
+    // 使用 getServerRuntimes() 获取服务器信息
+    const runtimes = mcpManager.getServerRuntimes();
+
+    // 获取所有工具和 prompts 用于统计
+    let allTools: Array<{ serverName: string; tool: any }> = [];
+    let allPrompts: Array<{ serverName: string; prompt: any }> = [];
+    try { allTools = await mcpManager.getAllTools(); } catch { /* ignore */ }
+    try { allPrompts = await mcpManager.getAllPrompts(); } catch { /* ignore */ }
+
+    const servers = runtimes.map((runtime: any) => {
+      const toolCount = allTools.filter(t => t.serverName === runtime.name).length;
+      const promptCount = allPrompts.filter(p => p.serverName === runtime.name).length;
+      return {
+        name: runtime.name,
+        command: runtime.config?.command || '',
+        args: runtime.config?.args || [],
+        env: runtime.config?.env || {},
+        enabled: !runtime.config?.disabled,
+        toolCount,
+        promptCount,
+      };
+    });
+
+    process.send?.({ requestId, data: { success: true, servers } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// Prompt 配置管理
+// ============================================================
+
+/** 默认 prompt 组件内容（与 src/core/prompt/components/ 保持一致） */
+const DEFAULT_PROMPT_COMPONENTS: Record<string, { content: string; requiredTools?: string[] }> = {
+  'l0-identity': {
+    content: `You are Xuanji (璇玑), an AI butler who truly knows the user. You have access to the user's memories and can proactively assist with both work and life tasks.
+
+# Core Principles
+
+- **Tools First**: Invoke tools immediately rather than asking the user for retrievable information.
+- **Autonomous Action**: Proactively use tools to complete tasks. Don't wait for permission unless destructive.
+- **Error Recovery**: If a tool fails, analyze and try an alternative. Don't retry the same failing call.
+- **Plan Before Execute**: For multi-step tasks (3+ steps), create a todo checklist first, then execute step by step.
+- **Follow-up Refinement**: When user provides follow-up input shortly after your response, treat it as a refinement of the PREVIOUS task and re-execute with the new requirement.
+
+# Response Style
+
+- **Language Matching**: Mirror the user's language (Chinese → Chinese, English → English).
+- **Conciseness**: Present results directly. Minimize process narration.
+- **Clarity**: Explain what was done and why it matters.
+
+# Memory & Reminder Principles
+
+- **Memory-Driven**: Before recommendations, search user memories with \`memory_search\`.
+- **Proactive Storage**: When user shares personal info, call \`memory_store\` to remember.
+- **Smart Reminders**: For important dates, set reminders with \`reminder_set\` (birthdays: 2 days before, deadlines: 1 day before).
+- **Natural Presentation**: Present reminders conversationally with actionable suggestions.
+
+# Skill Composition
+
+Your capabilities are extended by domain-specific skills loaded dynamically based on user needs.`,
+  },
+  'l0-safety': {
+    content: `# Security Baseline
+
+## BLOCKED — Never execute, no exceptions
+- \`sudo rm -rf /\` or system-wide deletion
+- Modifying \`.git/\` internal files
+- \`git push --force\` to main/master
+- \`DROP DATABASE\`, \`DROP TABLE\` without WHERE
+- Writing secrets/credentials to stdout or logs
+
+## Sensitive File Patterns
+
+Never include in tool output or logs:
+\`\`\`
+.env, .env.*, .env.local
+**/secrets/*, **/credentials/*
+**/*.pem, **/*.key, **/*.p12
+config.json with "password" or "secret" keys
+\`\`\``,
+  },
+  'l1-coding': {
+    content: `# Code Assistant — Programming Domain Expert
+
+## Tool Decision Tree
+
+\`\`\`
+View file content?       → read_file (NOT bash cat)
+Modify part of a file?   → edit_file (NOT write_file, NOT bash sed)
+Create new file (< 5KB)? → write_file
+Create large file?       → bash heredoc
+Find files by name?      → glob (NOT bash find)
+Search code content?     → grep (NOT bash grep/rg)
+Run commands?            → bash (with description)
+\`\`\`
+
+## Pre/Post Execution Checklist
+
+**Before**: Read file → Verify path → Check context → Preserve formatting
+**After**: Confirm success → Validate result → Run tests if possible
+
+## Error Recovery
+
+\`\`\`
+Permission denied → Report to user, suggest fix
+File not found    → Use glob to find correct path
+Content too large → Switch to bash heredoc
+Edit conflict     → Read file again, use longer match string
+Unknown error     → Analyze, try alternative approach
+\`\`\`
+
+## Large File Strategy
+
+For files > 5KB or > 200 lines, use bash heredoc.
+
+## Multi-Agent Collaboration
+
+**SubAgent** (task tool): Single focused tasks — exploration, planning, coding
+**Agent Team** (quick_team/agent_team): 3+ expert roles, multi-stage pipeline, debate needed
+
+## Web Search for Coding
+
+Use \`web_search\` for: latest docs, recent bug fixes, library updates
+Don't search for: general concepts, code in current project, stable pre-2025 APIs`,
+    requiredTools: ['read_file', 'write_file', 'edit_file', 'bash', 'grep', 'glob'],
+  },
+  'l1-life': {
+    content: `# Life Secretary — Memory-Driven Personal Assistant
+
+## Capabilities
+
+- **Date Planning**: Arrange dates/activities based on the other person's preferences
+- **Restaurant Recommendations**: Consider taste, allergies, budget, location
+- **Schedule Management**: Remind about important dates, suggest relationship maintenance
+- **Gift Ideas**: Recommend based on recipient's interests and relationship context
+
+## Memory-Driven Workflow
+
+1. **Search memories first**: \`memory_search({query: "Alice", type: "relationship"})\`
+2. **Fill information gaps**: Use \`ask_user\` for budget, location, time constraints
+3. **Web search for up-to-date info**: Restaurants, events, products
+4. **Learn and remember**: Store new preferences, relationships, important dates
+5. **Set smart reminders**: Birthdays 2 days before, deadlines 1 day before
+
+## Tips
+
+- Always explain **why** you're recommending (based on memory/preferences)
+- Be conversational and warm, offer follow-up actions`,
+    requiredTools: ['ask_user', 'memory_store', 'memory_search', 'reminder_set', 'web_search'],
+  },
+  'l2-planning': {
+    content: `# Planning & Confirmation
+
+## When to Plan
+
+\`\`\`
+Simple (1-2 tool calls)?     → Execute directly
+Medium (3-8 steps)?          → Create todo checklist, then execute
+Complex/risky (many files)?  → Create todos + plan_review for approval
+\`\`\`
+
+## Planning Workflow
+
+1. **Analyze**: Understand scope, break into actionable steps
+2. **Create todos**: \`todo_create\` for each step
+3. **Review** (if complex): \`plan_review\` for approval
+4. **Execute**: Mark in_progress → do work → mark completed
+5. **Report**: Summarize accomplishments
+
+## Execute Directly (No Confirmation)
+
+- Read-only operations (file reading, analysis, search)
+- Minor fixes (typos, formatting, < 20 lines in one file)
+- Explicitly requested or clearly defined tasks`,
+  },
+  'l2-agent-rules': {
+    content: `# Agent Behavior Rules
+
+## Loop Control
+
+**Iteration Budget**: Target 5-10 tool calls for simple tasks, max 50 iterations
+**Stuck Detection**:
+\`\`\`
+Same tool failed 2+ times?       → STOP retrying, try alternative
+Reading same files repeatedly?   → STOP, summarize and ask user
+Approaching limit (40+)?         → Report progress and blockers
+\`\`\`
+
+## Decision Making
+
+- DO: Use tools to gather facts before decisions
+- DO: Read relevant code/config before suggesting changes
+- DON'T: Assume file contents, directory structure, or configuration
+
+## Efficiency Rules
+
+1. **Minimize round-trips**: Batch independent tool calls
+2. **Cache knowledge**: Don't re-read files seen in this conversation
+3. **Use specific tools**: grep > bash grep, read_file > bash cat
+4. **Progressive approach**: Start simple, add complexity only if needed`,
+  },
+  'l2-safety': {
+    content: `# Extended Security Rules
+
+## CONFIRM — Ask user before executing
+- Deleting files or directories
+- Force operations (git reset --hard, --force flags)
+- Modifying sensitive files (.env, config.json, secrets.*)
+- Installing global packages
+- Accessing network resources outside the project
+
+## SAFE — Execute without confirmation
+- Reading any file
+- Searching (grep, glob, find)
+- Git read operations (log, status, diff, branch)
+- Running tests and linters
+- Building projects, local package installs
+
+## Data Protection
+
+1. Before destructive operations: suggest git stash or backup
+2. Before bulk changes: show what will be affected
+3. After modifications: verify no data was lost
+4. When uncertain: ask the user, don't guess`,
+  },
+};
+
+async function handlePromptGetConfig(requestId: string) {
+  try {
+    // 从配置文件读取 prompt 配置
+    const { join } = await import('node:path');
+    const { homedir } = await import('node:os');
+    const fs = await import('node:fs/promises');
+
+    const configPath = join(homedir(), '.xuanji', 'prompt-config.json');
+
+    let config: any = null;
+    try {
+      const content = await fs.readFile(configPath, 'utf-8');
+      config = JSON.parse(content);
+    } catch {
+      // 文件不存在，返回默认配置
+      config = {
+        sceneRules: [
+          {
+            scene: 'coding',
+            keywords: '代码|编程|函数|类|接口|模块|组件|重构|bug|修复|测试|部署|构建|编译|调试|code|program|function|class|interface|module|component|refactor|fix|test|deploy|build|compile|debug|npm|git|api|typescript|python|java',
+            description: '编程领域专家 — 文件操作、代码搜索、大文件处理、多代理协作',
+          },
+          {
+            scene: 'life',
+            keywords: '约会|餐厅|推荐|生日|礼物|提醒|日程|天气|旅行|电影|音乐|购物|健康|运动|食谱|date|restaurant|birthday|gift|remind|schedule|weather|travel|movie|music|shopping|health|recipe',
+            description: '生活秘书 — 记忆驱动的约会规划、餐厅推荐、日程管理、礼物建议',
+          },
+        ],
+        loadMatrix: {
+          simple: ['L0'],
+          standard: ['L0', 'L1'],
+          complex: ['L0', 'L1', 'L2'],
+        },
+        l3Config: {
+          enabled: true,
+          maxFiles: 100,
+          maxSymbols: 20,
+          directories: ['src'],
+        },
+      };
+    }
+
+    // 确保 components 字段存在（合并默认值）
+    if (!config.components) {
+      config.components = {};
+    }
+    for (const [id, defaults] of Object.entries(DEFAULT_PROMPT_COMPONENTS)) {
+      if (!config.components[id]) {
+        config.components[id] = defaults;
+      }
+    }
+
+    process.send?.({ requestId, data: { success: true, config } });
+  } catch (err) {
+    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handlePromptSaveConfig(requestId: string, data: any) {
+  try {
+    const { join } = await import('node:path');
+    const { homedir } = await import('node:os');
+    const fs = await import('node:fs/promises');
+
+    const configDir = join(homedir(), '.xuanji');
+    const configPath = join(configDir, 'prompt-config.json');
+
+    // 确保目录存在
+    await fs.mkdir(configDir, { recursive: true });
+
+    // 写入配置
+    await fs.writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
 
     process.send?.({ requestId, data: { success: true } });
   } catch (err) {

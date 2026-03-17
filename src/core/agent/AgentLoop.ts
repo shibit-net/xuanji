@@ -193,6 +193,9 @@ export class AgentLoop {
     this.agentLoopLogger = new AgentLoopLogger(sessionId, this.config.model);
 
     try {
+      // 🆕 Phase 1: 记忆检索与注入
+      await this.injectMemoryContext(userMessage);
+
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 
@@ -892,5 +895,145 @@ export class AgentLoop {
    */
   setPricingResolver(resolver: PricingResolver): void {
     this.costTracker.setPricingResolver(resolver);
+  }
+
+  /**
+   * 🆕 Phase 1: 记忆检索与注入
+   *
+   * 从记忆系统检索与用户输入相关的历史记忆，并注入到 System Prompt 中
+   *
+   * @param userMessage 用户输入
+   */
+  private async injectMemoryContext(userMessage: string): Promise<void> {
+    if (!this.memoryStore) {
+      this.log.debug('Memory store not available, skipping memory injection');
+      return;
+    }
+
+    try {
+      const startTime = Date.now();
+
+      // 1. 检索相关记忆（混合检索：向量 + 关键词）
+      const relevantMemories = await this.memoryStore.retrieve(userMessage, {
+        maxResults: 5,           // 最多5条相关记忆
+        minConfidence: 0.6,      // 最低相关度阈值（60%）
+        scope: 'all',            // 检索全部范围（全局 + 项目）
+      });
+
+      if (relevantMemories.length === 0) {
+        this.log.debug('No relevant memories found');
+        return;
+      }
+
+      // 2. 格式化记忆（OpenClaw风格：Timeline/Topic/Fact分类）
+      const memoryContext = this.formatMemoryContext(relevantMemories);
+
+      // 3. 注入到 System Prompt（使用独立 key 'memory'，不与其他后缀冲突）
+      this.messageManager.setSystemPromptSuffix(memoryContext, 'memory');
+
+      const durationMs = Date.now() - startTime;
+
+      // 4. 记录日志
+      this.log.info(
+        `Memory context injected: ${relevantMemories.length} entries, ` +
+        `${memoryContext.length} chars, ${durationMs}ms`
+      );
+
+      // 5. 通知 UI（可选）
+      this.callbacks.onInfo?.(
+        `📚 已加载 ${relevantMemories.length} 条相关记忆`
+      );
+    } catch (err) {
+      this.log.warn('Memory injection failed:', err);
+      // 记忆检索失败不影响主流程，继续执行
+    }
+  }
+
+  /**
+   * 🆕 格式化记忆上下文（OpenClaw风格分类）
+   *
+   * 将记忆条目按 category 分组展示：
+   * - 📅 Timeline: 历史会话摘要
+   * - 🏷️ Topic: 用户偏好、项目知识
+   * - 📌 Fact: 技能、代码片段
+   *
+   * @param memories 记忆条目列表
+   * @returns 格式化后的 Markdown 文本
+   */
+  private formatMemoryContext(memories: import('@/memory/types').MemoryEntry[]): string {
+    // 按 category 分组
+    const timeline = memories.filter(m => m.category === 'timeline');
+    const topic = memories.filter(m => m.category === 'topic');
+    const fact = memories.filter(m => m.category === 'fact');
+
+    const parts: string[] = ['\n## 相关记忆'];
+
+    // Timeline: 历史会话摘要
+    if (timeline.length > 0) {
+      parts.push('\n### 📅 历史会话');
+      timeline.forEach((m, idx) => {
+        const timeAgo = this.formatTimeAgo(m.createdAt);
+        const preview = m.content.slice(0, 150).replace(/\n/g, ' ');
+        parts.push(`${idx + 1}. [${timeAgo}] ${preview}`);
+      });
+    }
+
+    // Topic: 用户偏好、项目知识
+    if (topic.length > 0) {
+      parts.push('\n### 🏷️ 用户偏好与项目知识');
+      topic.forEach((m, idx) => {
+        const preview = m.content.slice(0, 100).replace(/\n/g, ' ');
+        parts.push(`${idx + 1}. ${preview}`);
+      });
+    }
+
+    // Fact: 技能、代码片段
+    if (fact.length > 0) {
+      parts.push('\n### 📌 相关知识');
+      fact.forEach((m, idx) => {
+        const preview = m.content.slice(0, 100).replace(/\n/g, ' ');
+        parts.push(`${idx + 1}. ${preview}`);
+      });
+    }
+
+    // 添加使用提示
+    parts.push('\n> 💡 以上记忆可能包含与当前任务相关的历史上下文、用户偏好或项目知识。');
+
+    return parts.join('\n');
+  }
+
+  /**
+   * 🆕 格式化时间距离（友好的时间显示）
+   *
+   * @param isoDate ISO 格式日期字符串
+   * @returns 友好的时间描述（如 "2天前", "1小时前"）
+   */
+  private formatTimeAgo(isoDate: string): string {
+    try {
+      const now = Date.now();
+      const then = new Date(isoDate).getTime();
+      const diffMs = now - then;
+
+      const minute = 60 * 1000;
+      const hour = 60 * minute;
+      const day = 24 * hour;
+      const week = 7 * day;
+
+      if (diffMs < hour) {
+        const mins = Math.floor(diffMs / minute);
+        return mins <= 1 ? '刚刚' : `${mins}分钟前`;
+      } else if (diffMs < day) {
+        const hours = Math.floor(diffMs / hour);
+        return `${hours}小时前`;
+      } else if (diffMs < week) {
+        const days = Math.floor(diffMs / day);
+        return `${days}天前`;
+      } else {
+        const weeks = Math.floor(diffMs / week);
+        return `${weeks}周前`;
+      }
+    } catch {
+      return '最近';
+    }
   }
 }

@@ -1,0 +1,45 @@
+/**
+ * ============================================================
+ * L2 Component: Safety — 完整安全规则
+ * ============================================================
+ * 从 security.ts 补充 CONFIRM/SAFE 分类和 Data Protection。
+ * 仅 complex 任务加载。
+ * ~200 tokens
+ */
+
+import type { PromptComponent, PromptBuildContext } from '../types';
+
+const SAFETY_FULL_PROMPT = `# Extended Security Rules
+
+## CONFIRM — Ask user before executing
+- Deleting files or directories (\`rm\`, \`git clean\`)
+- Force operations (\`git reset --hard\`, \`--force\` flags)
+- Modifying sensitive files (\`.env\`, \`config.json\`, \`secrets.*\`)
+- Installing global packages (\`npm install -g\`, \`pip install\`)
+- Accessing network resources outside the project
+
+## SAFE — Execute without confirmation
+- Reading any file
+- Searching (grep, glob, find)
+- Git read operations (log, status, diff, branch)
+- Running tests and linters
+- Building projects, local package installs
+
+## Data Protection
+
+1. Before destructive operations: suggest \`git stash\` or backup
+2. Before bulk changes: show what will be affected
+3. After modifications: verify no data was lost
+4. When uncertain: ask the user, don't guess`;
+
+export const l2Safety: PromptComponent = {
+  id: 'l2-safety',
+  name: 'Extended Security Rules',
+  layer: 'L2',
+  priority: 70,
+  estimatedTokens: 200,
+
+  render(_context: PromptBuildContext): string {
+    return SAFETY_FULL_PROMPT;
+  },
+};

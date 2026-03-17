@@ -112,6 +112,11 @@ export interface AppProps {
   onSubAgentSetup?: (callbacks: SubAgentUICallbacks) => void;
   /** 系统诊断查询回调 (由 ChatSession 提供) */
   onDoctorQuery?: () => Promise<string>;
+  // ─── 连续会话回调 ─────────────────────────────────────
+  /** 恢复会话通知 */
+  onResumeNotification?: (summary: string, memoryCount: number) => void;
+  /** 归档完成通知 */
+  onArchiveNotification?: (result: { archivedCount: number; memoriesExtracted: number; summary?: string }) => void;
 }
 
 /** SubAgent 进度回调（App.tsx 提供给 index.ts 注册到 HookRegistry） */

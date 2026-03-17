@@ -223,6 +223,14 @@ function setupAgentProcessListeners() {
       case 'ask-user:request':
         mainWindow.webContents.send('ask-user:request', msg.data);
         break;
+
+      // 会话通知事件
+      case 'session:resume-notification':
+        mainWindow.webContents.send('session:resume-notification', msg.data);
+        break;
+      case 'session:archive-notification':
+        mainWindow.webContents.send('session:archive-notification', msg.data);
+        break;
     }
   });
 
@@ -509,6 +517,51 @@ ipcMain.handle('memory:stats', async () => {
   }
 });
 
+ipcMain.handle('memory:get-config', async () => {
+  if (!sessionReady) return { success: true, config: null };
+  try {
+    return await sendRequest('memory-get-config');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('memory:save-config', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: 'Session not ready' };
+  try {
+    return await sendRequest('memory-save-config', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('memory:manual-flush', async () => {
+  if (!sessionReady) return { success: false, error: 'Session not ready' };
+  try {
+    return await sendRequest('memory-manual-flush');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('memory:extract-topics', async () => {
+  if (!sessionReady) return { success: false, error: 'Session not ready' };
+  try {
+    return await sendRequest('memory-extract-topics');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('memory:get-list', async (_event, data: any) => {
+  if (!sessionReady) return { success: true, memories: [] };
+  try {
+    return await sendRequest('memory-get-list', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 // ============================================================
 // IPC 通信 - 工具统计
 // ============================================================
@@ -566,6 +619,59 @@ ipcMain.handle('agent:delete', async (_event, data: { agentId: string }) => {
   if (!sessionReady) return { success: false, error: '会话未初始化' };
   try {
     return await sendRequest('agent-delete', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
+// IPC 通信 - Skills / Tools / MCP 查询
+// ============================================================
+
+ipcMain.handle('skills:list', async () => {
+  if (!sessionReady) return { success: true, skills: [] };
+  try {
+    return await sendRequest('skills-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('tools:list', async () => {
+  if (!sessionReady) return { success: true, tools: [] };
+  try {
+    return await sendRequest('tools-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('mcp:list', async () => {
+  if (!sessionReady) return { success: true, servers: [] };
+  try {
+    return await sendRequest('mcp-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
+// IPC 通信 - Prompt 配置管理
+// ============================================================
+
+ipcMain.handle('prompt:get-config', async () => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('prompt-get-config');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('prompt:save-config', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('prompt-save-config', data);
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

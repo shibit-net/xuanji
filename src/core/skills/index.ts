@@ -15,7 +15,6 @@ export type {
   SkillValidationResult,
   SkillRenderOptions,
   SkillRegistryOptions,
-  SkillComposeResult,
 } from './types';
 
 // 导出 SkillRegistry

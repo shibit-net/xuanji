@@ -2,6 +2,37 @@
 // 全局类型定义
 // ============================================================
 
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  type: 'prompt' | 'agent' | 'workflow';
+  category?: string;
+  enabled: boolean;
+  requiredTools?: string[];
+  triggers?: string[];
+  tags?: string[];
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  required: boolean;
+  readonly: boolean;
+  inputSchema?: any;
+}
+
+export interface MCPServerInfo {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled: boolean;
+  toolCount?: number;
+  promptCount?: number;
+}
+
 export interface ElectronAPI {
   getVersion: () => Promise<string>;
   minimize: () => void;
@@ -50,12 +81,29 @@ export interface ElectronAPI {
   memoryRetrieve: (data: any) => Promise<{ success: boolean; entries?: MemoryEntry[]; error?: string }>;
   memoryStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
 
+  // 记忆系统高级功能
+  getMemoryStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
+  getMemoryConfig: () => Promise<{ success: boolean; config?: any; error?: string }>;
+  saveMemoryConfig: (data: { config: any }) => Promise<{ success: boolean; requiresRestart?: boolean; error?: string }>;
+  manualMemoryFlush: () => Promise<{ success: boolean; error?: string }>;
+  extractTopics: () => Promise<{ success: boolean; error?: string }>;
+  getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) => Promise<{ success: boolean; memories?: any[]; error?: string }>;
+
   // 工具统计
   usageStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
 
   // 高级功能
   compact: (data: any) => Promise<{ success: boolean; result?: CompactResult; error?: string }>;
   getDiagnostics: () => Promise<{ success: boolean; report?: string; error?: string }>;
+
+  // Skills / Tools / MCP 查询
+  skillsList: () => Promise<{ success: boolean; skills?: SkillInfo[]; error?: string }>;
+  toolsList: () => Promise<{ success: boolean; tools?: ToolInfo[]; error?: string }>;
+  mcpList: () => Promise<{ success: boolean; servers?: MCPServerInfo[]; error?: string }>;
+
+  // Prompt 配置管理
+  promptGetConfig: () => Promise<{ success: boolean; config?: PromptConfig; error?: string }>;
+  promptSaveConfig: (data: PromptConfig) => Promise<{ success: boolean; error?: string }>;
 
   // 权限交互
   onPermissionRequest: (callback: (data: PermissionRequestData) => void) => void;
@@ -66,6 +114,10 @@ export interface ElectronAPI {
 
   onAskUserRequest: (callback: (data: AskUserRequestData) => void) => void;
   askUserRespond: (data: any) => Promise<void>;
+
+  // 通用事件监听
+  on: (channel: string, callback: (...args: any[]) => void) => void;
+  off: (channel: string, callback: (...args: any[]) => void) => void;
 }
 
 // ============================================================
@@ -125,6 +177,37 @@ export interface CompactResult {
   compressedTokens: number;
   compressionRatio: number;
   summary: string;
+}
+
+export interface PromptComponentConfig {
+  content: string;
+  requiredTools?: string[];
+}
+
+export interface PromptConfig {
+  sceneRules: SceneMatchRule[];
+  loadMatrix: LoadMatrixConfig;
+  l3Config: L3Config;
+  components?: Record<string, PromptComponentConfig>;
+}
+
+export interface SceneMatchRule {
+  scene: 'coding' | 'life';
+  keywords: string;
+  description: string;
+}
+
+export interface LoadMatrixConfig {
+  simple: string[];
+  standard: string[];
+  complex: string[];
+}
+
+export interface L3Config {
+  enabled: boolean;
+  maxFiles: number;
+  maxSymbols: number;
+  directories: string[];
 }
 
 declare global {

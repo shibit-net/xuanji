@@ -18,6 +18,9 @@ export type MemoryEntryType =
   // Multi-Agent 新增：Agent 专属知识库
   | 'agent_knowledge'; // Agent 知识库条目
 
+/** 记忆分类（OpenClaw 启发） */
+export type MemoryCategory = 'timeline' | 'topic' | 'fact';
+
 /** 记忆条目元数据（用于结构化信息） */
 export interface MemoryMetadata {
   /** 对于 important_date 类型：日期值 (ISO 格式: "2026-03-15") */
@@ -32,6 +35,8 @@ export interface MemoryMetadata {
   source?: string;
   /** 对于 agent_knowledge 类型：数据源类型 */
   sourceType?: 'csv' | 'json' | 'markdown';
+  /** 记忆重要性等级（影响遗忘曲线） */
+  importance?: 'high' | 'medium' | 'low';
 }
 
 /** 单条记忆条目 */
@@ -48,6 +53,29 @@ export interface MemoryEntry {
   projectPath?: string;
   /** 结构化元数据（可选，用于时效性记忆等特殊处理） */
   metadata?: MemoryMetadata;
+
+  // ═══ OpenClaw 启发的新字段 ═══
+
+  /** 记忆分类（timeline: 时间线记录, topic: 主题知识, fact: 用户事实） */
+  category?: MemoryCategory;
+
+  /** 所属主题 ID（用于主题聚合，如 "user-preferences", "project-xuanji"） */
+  topicId?: string;
+
+  /** 日期键（格式: "2026-03-16"，用于按日分组时间线记忆） */
+  dayKey?: string;
+
+  /** 所属会话 ID（用于追溯记忆来源） */
+  sessionId?: string;
+
+  /** 关联记忆 ID 列表（相关记忆的引用） */
+  relatedMemories?: string[];
+
+  /** 提取来源记忆 ID（记录从哪条 timeline 记忆提取而来） */
+  extractedFrom?: string;
+
+  /** 被替代记忆 ID（记录被哪条新记忆替代，用于知识更新） */
+  supersededBy?: string;
 }
 
 /** 工具调用记录 */
@@ -108,6 +136,56 @@ export interface MemoryConfig {
   extractorTimeout?: number;
   /** 最小置信度阈值（默认 0.6） */
   extractorMinConfidence?: number;
+
+  // Phase 4 新增：智能记忆刷新配置（OpenClaw 启发）
+  /** 智能刷新配置 */
+  intelligentFlush?: {
+    /** 是否启用智能刷新（默认 true） */
+    enabled?: boolean;
+    /** Token 阈值（0-1，默认 0.75） */
+    tokenThreshold?: number;
+    /** 时间阈值（毫秒，默认 1800000 = 30 分钟） */
+    timeThreshold?: number;
+    /** 价值评分阈值（0-100，默认 50） */
+    valueThreshold?: number;
+    /** 保留最近 N 条消息（默认 5） */
+    keepRecentMessages?: number;
+  };
+
+  // Phase 3 新增：主题提取配置（OpenClaw 启发）
+  /** 主题提取配置 */
+  topicExtraction?: {
+    /** 是否启用主题提取（默认 true） */
+    enabled?: boolean;
+    /** 自动触发时机（默认 "session-end"） */
+    autoTrigger?: 'session-end' | 'daily' | 'manual';
+    /** 主题合并相似度阈值（默认 0.85） */
+    mergeThreshold?: number;
+    /** 最小提取条目数（默认 2） */
+    minEntriesForExtraction?: number;
+  };
+
+  // Phase 2 新增：记忆格式化配置（OpenClaw 风格）
+  /** 记忆格式化配置 */
+  formatting?: {
+    /** 格式化风格（默认 "openclaw"） */
+    style?: 'openclaw' | 'simple';
+    /** 是否显示访问次数（默认 true） */
+    showAccessCount?: boolean;
+    /** 是否显示关联记忆（默认 true） */
+    showRelatedMemories?: boolean;
+    /** 最多显示最近 N 条时间线（默认 10） */
+    maxTimelineItems?: number;
+  };
+
+  // Phase 5 新增：Token 估算配置
+  /** Token 估算配置 */
+  tokenEstimation?: {
+    /** 估算方法（默认 "simple"） */
+    method?: 'simple' | 'tiktoken';
+    /** 字符数/Token 比例（默认 3，用于 simple 方法） */
+    charsPerToken?: number;
+  };
 }
 
 /** 默认记忆配置 */
@@ -125,4 +203,31 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   extractorTemperature: 0.3,
   extractorTimeout: 60_000,
   extractorMinConfidence: 0.6,
+  // Phase 4 智能刷新默认配置（OpenClaw 启发）
+  intelligentFlush: {
+    enabled: true,
+    tokenThreshold: 0.75,
+    timeThreshold: 30 * 60 * 1000, // 30 分钟
+    valueThreshold: 50,
+    keepRecentMessages: 5,
+  },
+  // Phase 3 主题提取默认配置（OpenClaw 启发）
+  topicExtraction: {
+    enabled: true,
+    autoTrigger: 'session-end',
+    mergeThreshold: 0.85,
+    minEntriesForExtraction: 2,
+  },
+  // Phase 2 记忆格式化默认配置（OpenClaw 风格）
+  formatting: {
+    style: 'openclaw',
+    showAccessCount: true,
+    showRelatedMemories: true,
+    maxTimelineItems: 10,
+  },
+  // Phase 5 Token 估算默认配置
+  tokenEstimation: {
+    method: 'simple',
+    charsPerToken: 3,
+  },
 };

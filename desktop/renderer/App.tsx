@@ -11,15 +11,20 @@ import InputArea from './components/InputArea';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
 import AgentManager from './components/AgentManager';
+import SkillsManager from './components/SkillsManager';
+import ToolsManager from './components/ToolsManager';
+import MCPManager from './components/MCPManager';
 import PermissionDialog from './components/PermissionDialog';
 import PlanReviewDialog from './components/PlanReviewDialog';
 import AskUserDialog from './components/AskUserDialog';
 import StatsDialog from './components/StatsDialog';
 import DiagnosticsDialog from './components/DiagnosticsDialog';
+import PromptManager from './components/PromptManager';
+import MemoryManager from './components/MemoryManager';
 import { ToastProvider } from './components/Toast';
 import { useChatStore } from './stores/chatStore';
 
-type ViewMode = 'chat' | 'settings' | 'agents';
+type ViewMode = 'chat' | 'settings' | 'agents' | 'skills' | 'tools' | 'mcp' | 'system-prompt' | 'memory';
 type DialogType = 'stats' | 'diagnostics' | null;
 
 export default function App() {
@@ -71,6 +76,11 @@ export default function App() {
               onToggle={() => setSidebarVisible(!sidebarVisible)}
               onOpenSettings={() => setViewMode(viewMode === 'settings' ? 'chat' : 'settings')}
               onOpenAgents={() => setViewMode(viewMode === 'agents' ? 'chat' : 'agents')}
+              onOpenSkills={() => setViewMode(viewMode === 'skills' ? 'chat' : 'skills')}
+              onOpenTools={() => setViewMode(viewMode === 'tools' ? 'chat' : 'tools')}
+              onOpenMCP={() => setViewMode(viewMode === 'mcp' ? 'chat' : 'mcp')}
+              onOpenSystemPrompt={() => setViewMode(viewMode === 'system-prompt' ? 'chat' : 'system-prompt')}
+              onOpenMemory={() => setViewMode(viewMode === 'memory' ? 'chat' : 'memory')}
             />
           )}
 
@@ -79,6 +89,16 @@ export default function App() {
             <SettingsPanel onClose={() => setViewMode('chat')} />
           ) : viewMode === 'agents' ? (
             <AgentManager onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'skills' ? (
+            <SkillsManager onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'tools' ? (
+            <ToolsManager onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'mcp' ? (
+            <MCPManager onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'system-prompt' ? (
+            <PromptManager onClose={() => setViewMode('chat')} />
+          ) : viewMode === 'memory' ? (
+            <MemoryManager onClose={() => setViewMode('chat')} />
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden">
               <ChatArea />

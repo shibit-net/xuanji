@@ -121,39 +121,6 @@ describe('SkillRegistry Async', () => {
     expect(result).toBe('main + dependency content');
   });
 
-  it('should compose multiple async skills', async () => {
-    const registry = new SkillRegistry();
-
-    const skill1: Skill = {
-      id: 'first',
-      name: 'First',
-      version: '1.0.0',
-      description: 'first',
-      category: 'prompt',
-      tags: [],
-      priority: 100,
-      render: async () => 'first content',
-    };
-
-    const skill2: Skill = {
-      id: 'second',
-      name: 'Second',
-      version: '1.0.0',
-      description: 'second',
-      category: 'prompt',
-      tags: [],
-      priority: 50,
-      render: () => 'second content',
-    };
-
-    registry.register(skill1);
-    registry.register(skill2);
-
-    const result = await registry.compose('first', 'second');
-    expect(result).toContain('first content');
-    expect(result).toContain('second content');
-  });
-
   it('should gracefully handle failed async dependency', async () => {
     const registry = new SkillRegistry();
 

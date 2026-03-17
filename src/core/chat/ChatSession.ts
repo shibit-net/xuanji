@@ -19,7 +19,6 @@ import { ToolRegistry } from '@/core/tools/ToolRegistry';
 import { AskUserTool, type AskUserHandler } from '@/core/tools/AskUserTool';
 import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { SkillRegistry } from '@/core/skills';
-import type { VectorSkillMatcher } from '@/core/skills/VectorSkillMatcher';
 import type { IMemoryStore } from '@/memory/types';
 import { MCPManager } from '@/mcp/MCPManager';
 import { logger } from '@/core/logger';
@@ -44,6 +43,21 @@ export type PlanConfirmHandler = (
 ) => Promise<boolean>;
 
 /**
+ * 会话级别的回调接口
+ */
+export interface SessionCallbacks {
+  /** 恢复上次对话通知 */
+  onResumeNotification?: (summary: string, memoryCount: number) => void;
+
+  /** 自动归档通知 */
+  onArchiveNotification?: (result: {
+    archivedCount: number;
+    memoriesExtracted: number;
+    summary?: string;
+  }) => void;
+}
+
+/**
  * ChatSession 初始化选项
  */
 export interface ChatSessionOptions {
@@ -55,6 +69,8 @@ export interface ChatSessionOptions {
   registry?: IToolRegistry;
   /** 已有的配置 (跳过自动加载) */
   config?: AppConfig;
+  /** 会话回调 */
+  callbacks?: SessionCallbacks;
 }
 
 /**
@@ -69,7 +85,6 @@ export interface ChatSessionOptions {
 export class ChatSession {
   private agentLoop: AgentLoop | null = null;
   private skillRegistry: SkillRegistry | null = null;
-  private vectorSkillMatcher: VectorSkillMatcher | null = null;
   private permissionController: IPermissionController | null = null;
   private memoryManager: IMemoryStore | null = null;
   private reminderContext: string | null = null;
@@ -111,9 +126,14 @@ export class ChatSession {
   private _ignoreFilterPromise: Promise<void> | null = null;
   /** 缓存 MemoryManager 类引用，避免重复 dynamic import */
   private _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null = null;
+  /** 上次记忆刷新时间（用于 IntelligentMemoryFlush 触发条件） */
+  private lastFlushTime: number = Date.now();
+  /** 会话回调 */
+  private sessionCallbacks?: SessionCallbacks;
 
   constructor(options: ChatSessionOptions = {}) {
     this.options = options;
+    this.sessionCallbacks = options.callbacks;
     this.sessionManager = new SessionManager();
     this.checkpointManager = new CheckpointManager(this.sessionManager.getStorage());
     this.hookRegistry = new HookRegistry();
@@ -153,14 +173,18 @@ export class ChatSession {
     this._MemoryManagerClass = initResult._MemoryManagerClass;
     this.providerManager = initResult.providerManager;
 
+    // 🆕 重建 SessionManager（注入配置、Provider、MemoryManager）
+    this.sessionManager = new SessionManager({
+      sessionConfig: this.config.session,
+      provider: this.provider,
+      providerConfig: this.config.provider,
+      memoryManager: this.memoryManager || undefined,
+    });
+    this.checkpointManager = new CheckpointManager(this.sessionManager.getStorage());
+
     // 设置运行时配置（供工具模块读取）
     const { setRuntimeConfig } = await import('@/core/config/RuntimeConfig');
     setRuntimeConfig(this.config);
-
-    // 初始化 VectorSkillMatcher（异步，不阻塞）
-    if (this.skillRegistry) {
-      this.initVectorSkillMatcherAsync(this.skillRegistry);
-    }
 
     // 初始化 Task Tool
     await this.initTaskTool();
@@ -180,19 +204,11 @@ export class ChatSession {
     await this.initMultiAgentTools();
 
     // 如果启用动态工具加载，包装为 DynamicToolFilter
-    if (this.config.features?.dynamicToolLoading && this.skillRegistry) {
+    if (this.config.features?.dynamicToolLoading) {
       const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
       const filter = new DynamicToolFilter(this.baseRegistry!);
-
-      // 设置默认的 activeSkills（所有启用的 Skill）
-      const enabledIds = this.config.skills?.enabled ?? [];
-      const defaultActiveSkills = enabledIds
-        .map(id => this.skillRegistry!.get(id))
-        .filter((s): s is import('@/core/skills/types').Skill => s !== undefined);
-
-      filter.setActiveSkills(defaultActiveSkills);
       this.registry = filter;
-      log.debug(`DynamicToolFilter enabled with ${defaultActiveSkills.length} default skills`);
+      log.debug('DynamicToolFilter enabled');
     }
 
     // 如果启用 Schema 优化，初始化 ToolSchemaOptimizer
@@ -314,6 +330,56 @@ export class ChatSession {
 
     this.initialized = true;
 
+    // 🆕 尝试恢复上一次对话（连续会话模式）
+    console.log('[ChatSession] Checking auto-resume...', {
+      hasSessionManager: !!this.sessionManager,
+      hasSessionConfig: !!this.config.session,
+    });
+
+    if (this.sessionManager && this.config.session) {
+      try {
+        console.log('[ChatSession] Calling SessionManager.initialize()...');
+        const resumeResult = await this.sessionManager.initialize();
+        console.log('[ChatSession] SessionManager.initialize() result:', resumeResult);
+
+        if (resumeResult.resumed && resumeResult.sessionId) {
+          console.log(`[ChatSession] 📂 Auto-resumed session ${resumeResult.sessionId}`);
+          log.info(`📂 Auto-resumed session ${resumeResult.sessionId}`);
+
+          // 注入恢复的记忆到 system prompt
+          if (resumeResult.memories && resumeResult.memories.length > 0 && this.agentLoop) {
+            if (this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+              const memoryPrompt = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(resumeResult.memories);
+              // 通过 MessageManager 注入 system prompt suffix
+              this.agentLoop.getMessageManager().setSystemPromptSuffix(memoryPrompt, 'resumed-memories');
+              log.debug(`Injected ${resumeResult.memories.length} memories to system prompt`);
+            }
+          }
+
+          // 显示恢复提示（通过 callbacks.onResumeNotification）
+          console.log('[ChatSession] Checking notification callback...', {
+            showNotification: this.config.session?.showResumeNotification,
+            hasCallback: !!this.sessionCallbacks?.onResumeNotification,
+          });
+
+          if (this.config.session?.showResumeNotification && this.sessionCallbacks?.onResumeNotification) {
+            console.log('[ChatSession] Calling onResumeNotification...');
+            this.sessionCallbacks.onResumeNotification(
+              resumeResult.summary || '继续上次对话...',
+              resumeResult.memories?.length || 0
+            );
+          }
+        } else {
+          console.log('[ChatSession] No session to resume');
+        }
+      } catch (err) {
+        console.error('[ChatSession] Failed to auto-resume session:', err);
+        log.warn('Failed to auto-resume session:', err);
+      }
+    } else {
+      console.log('[ChatSession] Auto-resume skipped (no SessionManager or config)');
+    }
+
     // 🔥 启动 ProactiveButler 后台服务
     if (this.proactiveButler && this.config.butler?.enabled) {
       try {
@@ -331,17 +397,6 @@ export class ChatSession {
   }
 
   // ─── 保留的辅助初始化方法 ──────────────────────────────────
-
-  /**
-   * 异步初始化 VectorSkillMatcher (不阻塞启动)
-   */
-  private initVectorSkillMatcherAsync(skillRegistry: SkillRegistry): void {
-    if (this.memoryManager) {
-      this.initVectorSkillMatcher(skillRegistry).catch((err) => {
-        log.warn('VectorSkillMatcher init failed:', err);
-      });
-    }
-  }
 
   /**
    * 初始化 Task 相关工具 (TaskTool, TeamTool, QuickTeamTool)
@@ -461,38 +516,6 @@ export class ChatSession {
   }
 
   /**
-   * 🆕 P1 优化：根据激活 Skill 计算 Extended Thinking 配置
-   * 优先级：enabled (固定预算) > adaptive high > adaptive medium > adaptive low > undefined
-   */
-  private computeThinkingConfig(skills: import('@/core/skills/types').Skill[]): import('@/core/types').ThinkingConfig | undefined {
-    let maxEffort: 'low' | 'medium' | 'high' | undefined = undefined;
-
-    for (const skill of skills) {
-      if (!skill.thinking) continue;
-
-      // 如果有 Skill 明确指定 enabled 模式（固定 token 预算），优先使用
-      if (skill.thinking.type === 'enabled') {
-        return skill.thinking;
-      }
-
-      // adaptive 模式：取最高 effort
-      const effort = skill.thinking.effort ?? 'medium';
-      if (!maxEffort || this.effortLevel(effort) > this.effortLevel(maxEffort)) {
-        maxEffort = effort;
-      }
-    }
-
-    return maxEffort ? { type: 'adaptive', effort: maxEffort } : undefined;
-  }
-
-  /**
-   * 计算 effort 的优先级（high > medium > low）
-   */
-  private effortLevel(effort: string): number {
-    return { low: 1, medium: 2, high: 3 }[effort] ?? 0;
-  }
-
-  /**
    * 运行一轮对话
    */
   async run(userMessage: string): Promise<void> {
@@ -532,71 +555,13 @@ export class ChatSession {
   }
 
   private async runSingleAgent(userMessage: string): Promise<void> {
-    // 首条消息：基于意图动态过滤 Skill，重建 system prompt
-    if (!this.intentRouted && this.skillRegistry && this.config) {
+    // 首条消息：基于意图动态选择场景，重建 system prompt
+    if (!this.intentRouted && this.config) {
       this.intentRouted = true;
       try {
-        const skillsConfig = this.config.skills;
-        const enabledIds = skillsConfig?.enabled ?? [];
-
-        // 优先使用向量匹配，降级到正则匹配
-        let filteredIds: string[];
-        if (this.vectorSkillMatcher?.isInitialized()) {
-          filteredIds = await this.vectorSkillMatcher.matchSkills(enabledIds, userMessage);
-          log.debug(`Vector skill matcher: ${filteredIds.length}/${enabledIds.length} skills matched`);
-        } else {
-          filteredIds = this.skillRegistry.filterByIntent(enabledIds, userMessage);
-          log.debug(`Regex skill matcher: ${filteredIds.length}/${enabledIds.length} skills matched`);
-        }
-
-        // 获取激活的 Skill 对象（用于工具过滤）
-        const activeSkills = filteredIds
-          .map(id => this.skillRegistry!.get(id))
-          .filter((s): s is import('@/core/skills/types').Skill => s !== undefined);
-
-        // 如果启用动态工具加载，更新工具过滤器
-        if (this.config.features?.dynamicToolLoading && this.registry) {
-          const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
-          if (this.registry instanceof DynamicToolFilter) {
-            this.registry.setActiveSkills(activeSkills);
-            log.info(`Intent routing: ${activeSkills.length} skills → ${this.registry.getSchemas().length} tools`);
-          }
-        }
-
-        // P1 优化：根据激活的 Skill 计算并设置 Extended Thinking 配置
-        const thinkingConfig = this.computeThinkingConfig(activeSkills);
-        if (thinkingConfig) {
-          this.agentLoop!.setThinking(thinkingConfig);
-          log.info(`Extended Thinking: ${thinkingConfig.type}${thinkingConfig.type === 'adaptive' ? `, effort=${thinkingConfig.effort}` : ''}`);
-        } else {
-          this.agentLoop!.setThinking(this.config.provider.thinking);
-        }
-
-        // 如果意图过滤后 Skill 列表有变化，重新渲染 system prompt
-        if (filteredIds.length < enabledIds.length) {
-          const promptSkillIds = filteredIds.filter((id) => {
-            const skill = this.skillRegistry!.get(id);
-            return skill && skill.category === 'prompt' && (skill.enabled ?? true);
-          });
-
-          if (promptSkillIds.length > 0) {
-            let systemPrompt = await this.skillRegistry.composeBatch(promptSkillIds, {
-              params: {
-                toolList: this.registry!.getSchemas(),
-                language: this.config.ui.language ?? 'zh',
-              },
-            });
-
-            if (this.reminderContext) {
-              systemPrompt = systemPrompt + '\n\n' + this.reminderContext;
-            }
-
-            this.agentLoop!.getMessageManager().setSystemPrompt(systemPrompt);
-            log.info(`System prompt rebuilt: ${promptSkillIds.length} skills, ${this.registry!.getSchemas().length} tools`);
-          }
-        }
+        await this.routeWithLayeredPrompt(userMessage);
       } catch (routeErr) {
-        log.debug('Intent routing failed, using full system prompt:', routeErr);
+        log.debug('Intent routing failed, using default prompt:', routeErr);
       }
     }
 
@@ -622,14 +587,84 @@ export class ChatSession {
 
     // 自动保存会话
     this.turnCount++;
-    if (this.config?.session?.autoSave !== false) {
-      this.autoSaveAfterTurn().catch((err) => {
-        log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
-      });
-    }
+    // 连续会话模式下，自动保存已被归档机制取代
+    // 但为了兼容性，仍然在每轮后保存（用于中途退出恢复）
+    this.autoSaveAfterTurn().catch((err) => {
+      log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
+    });
+
+    // 智能记忆刷新（OpenClaw 启发）
+    await this.checkAndFlushMemory();
 
     // 消息淘汰检查
     await this.evictIfNeeded();
+
+    // 🆕 连续会话归档检查
+    await this.checkAndArchive();
+  }
+
+  /**
+   * 新路由：使用 LayeredPromptBuilder + IntentAnalyzer
+   */
+  private async routeWithLayeredPrompt(userMessage: string): Promise<void> {
+    const { LayeredPromptBuilder } = await import('@/core/prompt');
+
+    // 创建 builder（内置 IntentAnalyzer）
+    const builder = new LayeredPromptBuilder();
+
+    // 尝试初始化 Embedding（不阻塞）
+    try {
+      const { EmbeddingService } = await import('@/embedding/EmbeddingService');
+      const embeddingService = EmbeddingService.getInstance();
+      if (embeddingService.isReady()) {
+        builder.getIntentAnalyzer().constructor.prototype.embeddingService = embeddingService;
+      }
+    } catch (err) {
+      log.debug('Embedding service not available, using keyword-only matching:', err);
+    }
+
+    await builder.init();
+
+    // 构建 prompt（自动分析意图）
+    const result = await builder.build({
+      userMessage,
+      language: this.config!.ui.language ?? 'zh',
+      toolList: this.registry!.getSchemas(),
+    });
+
+    log.info(
+      `Intent analysis: scene=${result.scene}, complexity=${result.complexity}, ` +
+      `components=${result.components.length}, tokens~${result.estimatedTokens}`,
+    );
+
+    // 更新工具过滤器（基于场景）
+    if (this.config!.features?.dynamicToolLoading && this.registry) {
+      const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
+      if (this.registry instanceof DynamicToolFilter) {
+        if (result.scene) {
+          this.registry.setScene(result.scene, result.requiredTools);
+          log.info(`Scene routing: ${result.scene} → ${this.registry.getSchemas().length} tools`);
+        }
+      }
+    }
+
+    // 设置 thinking 配置
+    if (result.thinking) {
+      this.agentLoop!.setThinking(result.thinking);
+      log.info(
+        `Extended Thinking: ${result.thinking.type}` +
+        `${result.thinking.type === 'adaptive' ? `, effort=${result.thinking.effort}` : ''}`,
+      );
+    } else {
+      this.agentLoop!.setThinking(this.config!.provider.thinking);
+    }
+
+    // 更新 system prompt
+    let finalPrompt = result.prompt;
+    if (this.reminderContext) {
+      finalPrompt = finalPrompt + '\n\n' + this.reminderContext;
+    }
+    this.agentLoop!.getMessageManager().setSystemPrompt(finalPrompt);
   }
 
   /**
@@ -699,11 +734,10 @@ export class ChatSession {
 
     // 5. 自动保存会话
     this.turnCount++;
-    if (this.config?.session?.autoSave !== false) {
-      this.autoSaveAfterTurn().catch((err) => {
-        log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
-      });
-    }
+    // 连续会话模式下，自动保存作为备份机制
+    this.autoSaveAfterTurn().catch((err) => {
+      log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
+    });
 
     // 6. 消息淘汰检查
     await this.evictIfNeeded();
@@ -718,6 +752,8 @@ export class ChatSession {
 
   /**
    * 自动保存当前会话（每轮对话后调用）
+   *
+   * 连续会话模式下，用于中途退出恢复，不再作为主要的持久化机制
    */
   private async autoSaveAfterTurn(): Promise<void> {
     if (!this.agentLoop) return;
@@ -725,28 +761,21 @@ export class ChatSession {
     const messages = this.agentLoop.getMessageHistory();
     if (messages.length === 0) return;
 
-    const interval = this.config?.session?.autoSaveInterval ?? 1;
-
-    // interval = 0: 仅退出时保存（不自动保存）
-    if (interval === 0) return;
-
-    // 按间隔保存
-    if (this.turnCount % interval === 0) {
-      const state = this.agentLoop.getState();
-      // 从 LLM 消息中提取 UI 可展示的历史消息
-      const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
-      await this.sessionManager.save(messages as SessionMessage[], undefined, {
-        usage: {
-          input: state.tokenUsage.input,
-          output: state.tokenUsage.output,
-          cost: state.cost,
-          cacheRead: state.tokenUsage.cacheRead,
-          cacheWrite: state.tokenUsage.cacheWrite,
-        },
-        historyMessages,
-      });
-      log.debug(`Auto-saved session (turn ${this.turnCount})`);
-    }
+    // 连续会话模式：每轮都保存（作为备份机制）
+    const state = this.agentLoop.getState();
+    // 从 LLM 消息中提取 UI 可展示的历史消息
+    const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
+    await this.sessionManager.save(messages as SessionMessage[], undefined, {
+      usage: {
+        input: state.tokenUsage.input,
+        output: state.tokenUsage.output,
+        cost: state.cost,
+        cacheRead: state.tokenUsage.cacheRead,
+        cacheWrite: state.tokenUsage.cacheWrite,
+      },
+      historyMessages,
+    });
+    log.debug(`Auto-saved session (turn ${this.turnCount})`);
   }
 
   /**
@@ -786,6 +815,128 @@ export class ChatSession {
     } catch (error) {
       log.error('Extract history messages failed:', error instanceof Error ? error.message : String(error));
       return []; // 返回空数组而不是抛出异常
+    }
+  }
+
+  /**
+   * 智能记忆刷新（OpenClaw 启发 + LLM 价值评估）
+   *
+   * 触发条件：
+   * - 上下文超过 75%
+   * - 距上次刷新超过 30 分钟
+   *
+   * 执行流程：
+   * 1. 调用 IntelligentMemoryFlush.checkAndFlush()
+   * 2. LLM 评估对话价值
+   * 3. 分类归档（topic / timeline / discard）
+   * 4. 清理消息历史（保留最近 N 条）
+   * 5. 更新 lastFlushTime
+   */
+  private async checkAndFlushMemory(): Promise<void> {
+    if (!this.memoryManager || !this._MemoryManagerClass || !(this.memoryManager instanceof this._MemoryManagerClass)) {
+      return;
+    }
+
+    // 检查配置是否启用智能刷新
+    const flushConfig = this.config?.memory?.intelligentFlush;
+    if (flushConfig && flushConfig.enabled === false) {
+      return;
+    }
+
+    try {
+      const memoryManager = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
+      const intelligentFlush = memoryManager.getIntelligentFlush();
+
+      if (!intelligentFlush || !this.agentLoop) {
+        return;
+      }
+
+      const messages = this.agentLoop.getMessageHistory();
+      const currentTokens = this.estimateTokens(messages);
+      const maxTokens = this.config?.provider.maxTokens || 200000;
+      const timeSinceLastFlush = Date.now() - this.lastFlushTime;
+      const sessionId = this.sessionManager.getActiveSessionId() ?? undefined;
+
+      const context = {
+        messages: messages as import('@/core/types').Message[],
+        currentTokens,
+        maxTokens,
+        timeSinceLastFlush,
+        sessionId,
+      };
+
+      const flushed = await intelligentFlush.checkAndFlush(context);
+
+      if (flushed) {
+        this.lastFlushTime = Date.now();
+        log.info('Memory flushed successfully', {
+          currentTokens,
+          maxTokens,
+          timeSinceLastFlush: Math.round(timeSinceLastFlush / 60000) + ' min',
+        });
+      }
+    } catch (err) {
+      log.warn('Failed to check and flush memory:', err);
+    }
+  }
+
+  /**
+   * 估算当前消息的 token 数量
+   *
+   * 简单实现：字符数 / N（可配置）
+   * 更精确的实现可以使用 tiktoken 库
+   */
+  private estimateTokens(messages: any[]): number {
+    let totalChars = 0;
+
+    for (const msg of messages) {
+      if (typeof msg.content === 'string') {
+        totalChars += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.text) {
+            totalChars += block.text.length;
+          }
+          if (block.thinking) {
+            totalChars += block.thinking.length;
+          }
+        }
+      }
+    }
+
+    // 从配置读取 charsPerToken 比例（默认 3）
+    const charsPerToken = this.config?.memory?.tokenEstimation?.charsPerToken ?? 3;
+    return Math.ceil(totalChars / charsPerToken);
+  }
+
+  /**
+   * 从 timeline 记忆中提取主题（OpenClaw 启发）
+   *
+   * 通常在会话结束、保存或淘汰时调用，
+   * 自动从今天的 timeline 记忆中提取可复用的 topic 记忆。
+   *
+   * @param dayKey 可选，指定要提取的日期（默认今天）
+   */
+  private async extractTopicsFromTimeline(dayKey?: string): Promise<void> {
+    if (!this.memoryManager || !this._MemoryManagerClass || !(this.memoryManager instanceof this._MemoryManagerClass)) {
+      return;
+    }
+
+    // 检查配置是否启用主题提取
+    const topicConfig = this.config?.memory?.topicExtraction;
+    if (topicConfig && topicConfig.enabled === false) {
+      return;
+    }
+
+    try {
+      const memoryManager = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
+      const topics = await memoryManager.extractTopics(dayKey);
+
+      if (topics.length > 0) {
+        log.info(`Extracted ${topics.length} topics from timeline memories`);
+      }
+    } catch (err) {
+      log.warn('Failed to extract topics from timeline:', err);
     }
   }
 
@@ -848,6 +999,11 @@ export class ChatSession {
       });
       log.debug('Eviction: archived current session');
 
+      // 2.5. 从 timeline 记忆中提取主题（OpenClaw 启发）
+      await this.extractTopicsFromTimeline().catch((extractErr) => {
+        log.debug('Topic extraction failed during eviction:', extractErr);
+      });
+
       // 3. 重置 AgentLoop（清空消息、token 计数、费用）
       this.agentLoop.reset();
       this.agentLoop.getTokenManager().reset();
@@ -870,6 +1026,77 @@ export class ChatSession {
     } catch (err) {
       log.warn('Message eviction failed:', err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /**
+   * 检查并执行归档（连续会话模式）
+   */
+  private async checkAndArchive(): Promise<void> {
+    if (!this.agentLoop || !this.sessionManager || !this.config?.session) {
+      return;
+    }
+
+    const messageCount = this.agentLoop.getMessageHistory().length;
+    const state = this.agentLoop.getState();
+    const tokenCount = state.tokenUsage.input + state.tokenUsage.output;
+
+    // 检查是否需要归档
+    if (!this.sessionManager.shouldArchive(messageCount, tokenCount)) {
+      return;
+    }
+
+    log.info('📦 Archive condition met, archiving in background...');
+
+    // 异步归档（不阻塞用户）
+    this.archiveInBackground(messageCount).catch((err) => {
+      log.warn('Background archive failed:', err instanceof Error ? err.message : String(err));
+    });
+  }
+
+  /**
+   * 后台归档流程
+   */
+  private async archiveInBackground(currentMessageIndex: number): Promise<void> {
+    if (!this.agentLoop || !this.sessionManager || !this.config?.session) {
+      return;
+    }
+
+    try {
+      const messages = this.agentLoop.getMessageHistory();
+
+      const result = await this.sessionManager.archive(
+        messages as SessionMessage[],
+        currentMessageIndex
+      );
+
+      log.info(
+        `✓ Archived ${result.archivedCount} messages, ` +
+        `extracted ${result.memoriesExtracted} memories`
+      );
+
+      // 截断 AgentLoop 中的旧消息（保留最近的）
+      const keepCount = this.config.session.archiveStrategy?.keepRecentMessages ?? 10;
+      const keptMessages = messages.slice(-keepCount);
+
+      // 使用 replaceMessages 替换消息历史
+      this.agentLoop.getMessageManager().replaceMessages(keptMessages);
+
+      log.debug(`Kept recent ${keepCount} messages after archive`);
+
+      // 通知用户归档完成
+      if (this.sessionCallbacks?.onArchiveNotification) {
+        this.sessionCallbacks.onArchiveNotification(result);
+      }
+    } catch (err) {
+      log.warn('Archive failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * 设置会话回调
+   */
+  setSessionCallbacks(callbacks: SessionCallbacks): void {
+    this.sessionCallbacks = callbacks;
   }
 
   /**
@@ -908,7 +1135,6 @@ export class ChatSession {
     // 清空当前状态
     this.agentLoop = null;
     this.skillRegistry = null;
-    this.vectorSkillMatcher = null;
     this.permissionController = null;
     this.memoryManager = null;
     this.reminderContext = null;
@@ -939,8 +1165,8 @@ export class ChatSession {
    * PersistentShell bash 进程等资源。
    */
   async cleanup(): Promise<void> {
-    // ✨ 退出时最终保存会话
-    if (this.config?.session?.autoSave !== false && this.agentLoop) {
+    // ✨ 退出时最终保存会话（连续模式：始终保存）
+    if (this.agentLoop) {
       const messages = this.agentLoop.getMessageHistory();
       if (messages.length > 0) {
         try {
@@ -1235,6 +1461,20 @@ export class ChatSession {
   }
 
   /**
+   * 获取基础工具注册表（用于 IPC 接口）
+   */
+  getBaseRegistry(): ToolRegistry | null {
+    return this.baseRegistry;
+  }
+
+  /**
+   * 获取 MCP Manager（用于 IPC 接口）
+   */
+  getMCPManager(): MCPManager | null {
+    return this.mcpManager;
+  }
+
+  /**
    * 获取 TemplateRepo（用于 CLI 命令）
    */
   getTemplateRepo(): import('@/core/template').TemplateRepo | null {
@@ -1270,27 +1510,5 @@ export class ChatSession {
       permissionController: this.permissionController,
       initialized: this.initialized,
     });
-  }
-
-  /**
-   * 异步初始化 VectorSkillMatcher（不阻塞启动）
-   */
-  private async initVectorSkillMatcher(skillRegistry: SkillRegistry): Promise<void> {
-    if (!this._MemoryManagerClass) return;
-    if (!(this.memoryManager instanceof this._MemoryManagerClass)) return;
-
-    const mm = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
-
-    // 等待向量系统就绪（通过 Promise，不再轮询）
-    const ready = await mm.waitForVectorReady();
-    if (!ready) return;
-
-    const embeddingService = mm.getEmbeddingService();
-    const vectorStore = mm.getVectorStore();
-    if (!embeddingService || !vectorStore) return;
-
-    const { VectorSkillMatcher } = await import('@/core/skills/VectorSkillMatcher');
-    this.vectorSkillMatcher = new VectorSkillMatcher(embeddingService, vectorStore);
-    await this.vectorSkillMatcher.init(skillRegistry);
   }
 }

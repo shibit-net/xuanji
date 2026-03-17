@@ -138,7 +138,13 @@
       "Bash(npm test:*)",
       "Bash(awk 'NR>=437 && NR<=449 {print}' src/core/types/config.ts)",
       "Bash(cd src/core/types && cp config.ts config.ts.bak && awk 'NR<437 || NR>450' config.ts.bak > config.ts && rm config.ts.bak)",
-      "Bash(grep -n \"name: '/help'\" src/adapters/cli/App.tsx)"
+      "Bash(grep -n \"name: '/help'\" src/adapters/cli/App.tsx)",
+      "Bash(git stash:*)",
+      "Bash(ls:*)",
+      "Bash(timeout:*)",
+      "Bash(node:*)",
+      "Bash(find:*)",
+      "Bash(ssh:*)"
     ]
   }
 }

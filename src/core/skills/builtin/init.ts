@@ -3,37 +3,25 @@
  * Built-in Skills - Initialization
  * ============================================================
  * 初始化并注册所有内置 Skill
+ *
+ * 重构后：只注册真正的 Skill（Workflow），
+ * Prompt 类内容已迁移到 LayeredPromptBuilder。
  */
 
 import type { SkillRegistry } from '../registry';
 import {
-  xuanjiAssistantSkill,
-  projectRulesSkill,
-  memoryContextSkill,
-  codeAssistantSkill,
-  lifeSecretarySkill,
-  toolGuidanceSkill,
-  securityRulesSkill,
-  agentRulesSkill,
   commitSkill,
   reviewPRSkill,
 } from './index';
 
 /**
  * 初始化所有内置 Skill
+ *
+ * 只注册 Workflow Skill（真正的技能），
+ * Prompt 内容由 LayeredPromptBuilder 管理。
  */
 export function initializeBuiltinSkills(registry: SkillRegistry): void {
-  // 注册 Prompt Skills
-  registry.register(projectRulesSkill); // 先注册依赖
-  registry.register(xuanjiAssistantSkill);
-  registry.register(memoryContextSkill); // 记忆上下文 (priority 95)
-  registry.register(codeAssistantSkill); // 编程领域 Skill
-  registry.register(lifeSecretarySkill); // 生活秘书 Skill (priority 90)
-  registry.register(toolGuidanceSkill);
-  registry.register(securityRulesSkill);
-  registry.register(agentRulesSkill);
-
-  // 注册 Workflow Skills
+  // 注册 Workflow Skills（真正的技能）
   registry.register(commitSkill);
   registry.register(reviewPRSkill);
 }
@@ -43,14 +31,6 @@ export function initializeBuiltinSkills(registry: SkillRegistry): void {
  */
 export function getBuiltinSkills() {
   return [
-    projectRulesSkill,
-    xuanjiAssistantSkill,
-    memoryContextSkill,
-    codeAssistantSkill,
-    lifeSecretarySkill,
-    toolGuidanceSkill,
-    securityRulesSkill,
-    agentRulesSkill,
     commitSkill,
     reviewPRSkill,
   ];

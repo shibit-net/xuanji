@@ -13,11 +13,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: '[CC]claude-sonnet-4-5-20250929',
     lightModel: '[CC]claude-haiku-4-5-20251001',
     adapter: 'anthropic',
-    maxTokens: 64000,  // ✅ 修复：claude-sonnet-4-5 限制为 64000
+    maxTokens: 64000,  // claude-sonnet-4-5 上限（代理服务直连时有效）
     temperature: undefined,
     timeout: 120_000,
     baseURL: 'https://shibit.net',
-    // 🆕 P0 优化：Extended Thinking 默认配置（自适应模式，中等深度）
+    // thinking 功能仅在直连官方 API 时生效，代理服务不支持
     thinking: {
       type: 'adaptive',
       effort: 'medium',
@@ -62,13 +62,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   skills: {
     enabled: [
-      'xuanji-assistant',
-      'memory-context',
-      'code-assistant',
-      'life-secretary',
-      'tool-guidance',
-      'security-rules',
-      'agent-rules',
+      // Workflow Skills（真正的技能）
+      'commit',
+      'review-pr',
     ],
     disabled: [],
     loadCustom: true,
@@ -83,6 +79,33 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxPromptLength: 5000,
     compactionThreshold: 500,
     decayHalfLifeDays: 30,
+    // Phase 4: 智能记忆刷新配置（OpenClaw 启发）
+    intelligentFlush: {
+      enabled: true,
+      tokenThreshold: 0.75,
+      timeThreshold: 30 * 60 * 1000, // 30 分钟
+      valueThreshold: 50,
+      keepRecentMessages: 5,
+    },
+    // Phase 3: 主题提取配置（OpenClaw 启发）
+    topicExtraction: {
+      enabled: true,
+      autoTrigger: 'session-end',
+      mergeThreshold: 0.85,
+      minEntriesForExtraction: 2,
+    },
+    // Phase 2: 记忆格式化配置（OpenClaw 风格）
+    formatting: {
+      style: 'openclaw',
+      showAccessCount: true,
+      showRelatedMemories: true,
+      maxTimelineItems: 10,
+    },
+    // Phase 5: Token 估算配置
+    tokenEstimation: {
+      method: 'simple',
+      charsPerToken: 3,
+    },
   },
   agent: {
     subAgent: {
@@ -93,13 +116,26 @@ export const DEFAULT_CONFIG: AppConfig = {
     },
   },
   session: {
-    autoSave: true,
-    autoSaveInterval: 1,
+    archiveThresholds: {
+      messageCount: 50,      // 50 条消息
+      tokenCount: 100_000,   // 100k tokens
+      timeMinutes: 120,      // 2 小时
+    },
+    archiveStrategy: {
+      keepRecentMessages: 10,
+      generateSummary: true,
+      extractKeyPoints: true,
+    },
+    autoResumeLastSession: true,
+    memoryRetrievalCount: 20,
+    showResumeNotification: true,
     maxSessions: 50,
-    maxMessages: 100,
   },
   features: {
     dynamicToolLoading: true, // 默认启用工具按需加载
+    useLayeredPromptBuilder: true, // 默认使用分层 Prompt 构建器
+    multiAgentTools: true, // 🆕 默认启用 Multi-Agent 工具（委托、编排、管道）
+    intentRouter: true, // 🆕 默认启用意图路由系统
   },
   butler: {
     enabled: true, // ✅ 启用智能管家

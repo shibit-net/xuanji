@@ -12,10 +12,8 @@ import type {
   SkillValidationResult,
   SkillRenderOptions,
   SkillRegistryOptions,
-  SkillComposeResult,
   WorkflowResult,
 } from './types';
-import { CORE_SKILL_IDS } from './types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
@@ -326,139 +324,6 @@ export class SkillRegistry {
     return result;
   }
 
-  /**
-   * 组合多个 Skill (异步版本)
-   */
-  async compose(...skillIds: string[]): Promise<string> {
-    return this.composeBatch(skillIds);
-  }
-
-  /**
-   * 组合一个 Skill 数组 (异步版本)
-   */
-  async composeBatch(skillIds: string[], options?: SkillRenderOptions): Promise<string> {
-    const startTime = Date.now();
-    const contents: string[] = [];
-    const usedSkills: Skill[] = [];
-    const order: string[] = [];
-    const processed = new Set<string>();
-    // 🆕 收集所有被依赖的 skill ID（这些 skill 不应单独输出，只通过主 skill 的 render 方法访问）
-    const dependedSkills = new Set<string>();
-
-    // 按优先级排序
-    const skillsToCompose = skillIds
-      .map((id) => this.get(id))
-      .filter((s): s is Skill => s !== undefined)
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-
-    // 🆕 第一遍：收集所有被依赖的 skill ID
-    for (const skill of skillsToCompose) {
-      if (skill.dependencies && skill.dependencies.length > 0) {
-        skill.dependencies.forEach((depId) => dependedSkills.add(depId));
-      }
-    }
-
-    // 递归处理依赖 (异步)
-    const process = async (skill: Skill, isDirectRequest: boolean) => {
-      if (processed.has(skill.id)) {
-        return;
-      }
-      processed.add(skill.id);
-
-      // 先处理依赖
-      if (skill.dependencies) {
-        for (const depId of skill.dependencies) {
-          const depSkill = this.get(depId);
-          if (depSkill) {
-            await process(depSkill, false); // 依赖的 skill 不是直接请求
-          }
-        }
-      }
-
-      // 再处理自己
-      order.push(skill.id);
-      usedSkills.push(skill);
-
-      const rendered = await this.render(skill.id, {
-        params: options?.params,
-        includeDependencies: false, // 已手动处理依赖
-      });
-
-      // 🆕 只有直接请求的 skill 或不被任何人依赖的 skill 才输出
-      // 被依赖的 skill 的内容已通过 render() 方法注入到主 skill 的 params.dependencies 中
-      if (rendered && (isDirectRequest || !dependedSkills.has(skill.id))) {
-        contents.push(rendered);
-      }
-    };
-
-    // 处理所有 Skill（这些都是直接请求）
-    for (const skill of skillsToCompose) {
-      await process(skill, true);
-    }
-
-    const result = contents.join('\n\n');
-    const renderTime = Date.now() - startTime;
-
-    return result;
-  }
-
-  /**
-   * 获取组合结果的详细信息 (异步版本)
-   */
-  async composeDetail(...skillIds: string[]): Promise<SkillComposeResult> {
-    const startTime = Date.now();
-    const order: string[] = [];
-    const processed = new Set<string>();
-    const allSkills: Skill[] = [];
-
-    const process = (skillId: string) => {
-      if (processed.has(skillId)) {
-        return;
-      }
-      processed.add(skillId);
-
-      const skill = this.get(skillId);
-      if (!skill) {
-        return;
-      }
-
-      // 先处理依赖
-      if (skill.dependencies) {
-        for (const depId of skill.dependencies) {
-          process(depId);
-        }
-      }
-
-      order.push(skillId);
-      allSkills.push(skill);
-    };
-
-    for (const id of skillIds) {
-      process(id);
-    }
-
-    const content = await this.composeBatch(skillIds);
-    const renderTime = Date.now() - startTime;
-
-    return {
-      content,
-      skills: allSkills,
-      order,
-      metadata: {
-        totalSkills: allSkills.length,
-        totalDependencies: Array.from(processed).length - skillIds.length,
-        renderTime,
-      },
-    };
-  }
-
-  /**
-   * 清空缓存
-   */
-  clearCache(): void {
-    this.cache.clear();
-  }
-
   // ────────── Workflow Skill 执行 ──────────
 
   /**
@@ -513,64 +378,6 @@ export class SkillRegistry {
       }));
   }
 
-  // ────────── 意图路由 ──────────
-
-  /** 始终加载的核心 Skill（不参与意图过滤） */
-  private static CORE_SKILLS = CORE_SKILL_IDS;
-
-  /** 场景 Skill 的意图关键词映射 */
-  private static INTENT_KEYWORDS: Record<string, RegExp> = {
-    'code-assistant': /(?:代码|编程|函数|文件|目录|项目|bug|fix|refactor|debug|compile|build|npm|git|import|export|class|function|component|api|error|test|config|deploy|typescript|javascript|python|java|code|file|folder|package|module|install|run|script)/i,
-    'life-secretary': /(?:约会|餐厅|吃什么|推荐|生日|礼物|纪念日|日程|安排|计划|预约|提醒|天气|电影|活动|旅行|购物|健身|date|dinner|restaurant|birthday|gift|schedule|plan|remind|weather|movie|travel|shop)/i,
-  };
-
-  /**
-   * 基于用户消息的意图过滤 Skill 列表
-   *
-   * 核心 Skill 始终保留，场景 Skill 按意图关键词匹配。
-   * 如果无法判断意图（无明显关键词），保留所有 Skill。
-   *
-   * @deprecated 使用 VectorSkillMatcher.matchSkills() 替代，提供更精确的语义匹配。
-   * 此方法保留作为 VectorSkillMatcher 不可用时的降级方案。
-   */
-  filterByIntent(enabledIds: string[], userMessage: string): string[] {
-    if (!userMessage || userMessage.length < 3) return enabledIds;
-
-    const coreIds: string[] = [];
-    const sceneIds: string[] = [];
-
-    for (const id of enabledIds) {
-      if (SkillRegistry.CORE_SKILLS.has(id)) {
-        coreIds.push(id);
-      } else {
-        sceneIds.push(id);
-      }
-    }
-
-    // 如果没有场景 Skill，直接返回
-    if (sceneIds.length === 0) return enabledIds;
-
-    // 检测匹配的场景 Skill
-    const matchedSceneIds: string[] = [];
-    for (const id of sceneIds) {
-      const pattern = SkillRegistry.INTENT_KEYWORDS[id];
-      if (!pattern) {
-        // 未配置意图关键词的 Skill，始终保留
-        matchedSceneIds.push(id);
-      } else if (pattern.test(userMessage)) {
-        matchedSceneIds.push(id);
-      }
-    }
-
-    // 如果没有匹配到任何场景 Skill，保留所有（安全降级）
-    if (matchedSceneIds.length === 0) return enabledIds;
-
-    log.debug(`Intent filter: ${enabledIds.length} → ${coreIds.length + matchedSceneIds.length} skills ` +
-      `(matched: ${matchedSceneIds.join(', ')})`);
-
-    return [...coreIds, ...matchedSceneIds];
-  }
-
   /**
    * 清空所有 Skill
    */
@@ -588,6 +395,7 @@ export class SkillRegistry {
       totalSkills: this.skills.size,
       byCategory: {
         prompt: 0,
+        action: 0,
         workflow: 0,
       },
       byTag: {} as Record<string, number>,

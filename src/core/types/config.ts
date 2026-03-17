@@ -93,6 +93,11 @@ export interface FeaturesConfig {
 
   /** 是否启用意图路由系统（默认 false） */
   intentRouter?: boolean;
+
+  /**
+   * 是否使用分层 Prompt 构建器（默认 true）
+   */
+  useLayeredPromptBuilder?: boolean;
 }
 
 /**
@@ -436,16 +441,40 @@ export interface TiangongConfig {
 }
 
 /**
- * 会话配置
+ * 会话配置（连续模式）
  */
 export interface SessionConfig {
-  /** 是否启用自动保存（默认 true） */
-  autoSave?: boolean;
-  /** 保存间隔（轮数），0 = 仅退出时保存，1 = 每轮保存（默认 1） */
-  autoSaveInterval?: number;
+  /** 归档触发条件（满足任一即触发） */
+  archiveThresholds: {
+    /** 消息数阈值（默认 50 条） */
+    messageCount: number;
+    /** Token 数阈值（默认 100k） */
+    tokenCount: number;
+    /** 时间阈值（分钟，默认 120） */
+    timeMinutes: number;
+  };
+
+  /** 归档策略 */
+  archiveStrategy: {
+    /** 归档后保留最近消息数（默认 10） */
+    keepRecentMessages: number;
+    /** 是否生成会话摘要（默认 true） */
+    generateSummary: boolean;
+    /** 是否提取关键点（默认 true） */
+    extractKeyPoints: boolean;
+  };
+
+  /** 启动时是否自动恢复上一次对话（默认 true） */
+  autoResumeLastSession: boolean;
+  /** 检索记忆条数（默认 20） */
+  memoryRetrievalCount: number;
+  /** 是否显示恢复提示（默认 true） */
+  showResumeNotification: boolean;
+
+  // 向后兼容字段（逐步废弃）
+  /** @deprecated 使用 archiveThresholds.messageCount */
+  maxMessages?: number;
   /** 最大保留会话数（默认 50） */
   maxSessions?: number;
-  /** 单个会话最大消息数（默认 100），达到上限时自动归档并创建新会话，0 = 不限制 */
-  maxMessages?: number;
 }
 

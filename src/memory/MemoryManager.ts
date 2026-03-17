@@ -24,6 +24,9 @@ import type { SmartMemoryExtractor } from './SmartMemoryExtractor';
 import type { EmbeddingService } from '@/embedding/EmbeddingService';
 import type { VectorStore } from '@/embedding/VectorStore';
 import type { EmbeddingMigrator } from './migration/EmbeddingMigrator';
+import { TopicExtractor } from './TopicExtractor';
+import { MemoryFormatter } from './MemoryFormatter';
+import { IntelligentMemoryFlush } from './IntelligentMemoryFlush';
 import { logger } from '@/core/logger';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 
@@ -69,6 +72,12 @@ export class MemoryManager implements IMemoryStore {
   private _compacting = false;
   /** Promise 队列：确保并发 save() 不丢数据（排队而非 skip） */
   private _saveQueue: Promise<void> = Promise.resolve();
+  /** OpenClaw 启发的主题提取器 */
+  private topicExtractor: TopicExtractor | null = null;
+  /** OpenClaw 启发的记忆格式化器 */
+  private memoryFormatter: MemoryFormatter = new MemoryFormatter();
+  /** 智能记忆刷新器 */
+  private intelligentFlush: IntelligentMemoryFlush | null = null;
 
   constructor(config?: Partial<MemoryConfig>, projectRoot?: string) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
@@ -303,8 +312,19 @@ export class MemoryManager implements IMemoryStore {
     }
   }
 
-  /** 格式化记忆为 Markdown 片段（用于注入 system prompt） */
+  /** 格式化记忆为 Markdown 片段（用于注入 system prompt）*/
   formatForPrompt(entries: MemoryEntry[]): string {
+    // 优先使用 OpenClaw 风格的 MemoryFormatter
+    try {
+      const formatted = this.memoryFormatter.formatForPrompt(entries);
+      if (formatted) {
+        return formatted;
+      }
+    } catch (err) {
+      log.debug('MemoryFormatter failed, using fallback:', err);
+    }
+
+    // 降级到简单格式
     if (entries.length === 0) return '';
 
     const lines: string[] = ['### Relevant Past Context'];
@@ -322,6 +342,70 @@ export class MemoryManager implements IMemoryStore {
     }
 
     return result;
+  }
+
+  /**
+   * 从 timeline 记忆中提取主题（OpenClaw 启发）
+   *
+   * 每天自动提取或手动触发：
+   * - 识别重复主题并聚类
+   * - 使用 LLM 提取核心知识
+   * - 去重和合并相似主题
+   * - 保留追溯链路
+   *
+   * @param dayKey - 可选，指定要提取的日期（格式: "2026-03-16"）。不指定则提取今天的
+   * @returns 提取的 topic 记忆列表
+   */
+  async extractTopics(dayKey?: string): Promise<MemoryEntry[]> {
+    if (!this.topicExtractor) {
+      throw new Error('TopicExtractor not initialized. Call setProvider() first.');
+    }
+
+    // 1. 获取 timeline 记忆
+    const targetDay = dayKey || new Date().toISOString().split('T')[0];
+    const timelineMemories = this.cachedEntries.filter(
+      (e) => e.category === 'timeline' && e.dayKey === targetDay
+    );
+
+    if (timelineMemories.length === 0) {
+      log.info(`No timeline memories found for ${targetDay}`);
+      return [];
+    }
+
+    // 2. 获取已存在的 topic 记忆（用于去重）
+    const existingTopics = this.cachedEntries.filter((e) => e.category === 'topic');
+
+    // 3. 提取主题
+    const extractedTopics = await this.topicExtractor.extractTopicsFromTimeline(
+      timelineMemories,
+      existingTopics
+    );
+
+    // 4. 持久化到长期记忆
+    if (extractedTopics.length > 0) {
+      await this.longTerm.saveBatch(extractedTopics);
+
+      // 更新内存缓存
+      this.cachedEntries.push(...extractedTopics);
+      if (this.cachedEntries.length > MemoryManager.CACHE_MAX_ENTRIES) {
+        this.cachedEntries = this.cachedEntries.slice(
+          this.cachedEntries.length - MemoryManager.CACHE_MAX_ENTRIES
+        );
+      }
+
+      // 实时更新向量存储
+      if (this.migrator && this.vectorReady) {
+        for (const entry of extractedTopics) {
+          this.migrator.migrateOne(entry).catch((err) => {
+            log.debug(`Failed to embed new topic ${entry.id}:`, err);
+          });
+        }
+      }
+
+      log.info(`Extracted ${extractedTopics.length} topics from ${timelineMemories.length} timeline memories`);
+    }
+
+    return extractedTopics;
   }
 
   /** 重置短期记忆（新会话开始时） */
@@ -381,11 +465,45 @@ export class MemoryManager implements IMemoryStore {
   }
 
   /**
-   * 注入 LLM Provider（启用智能压缩）
+   * 注入 LLM Provider（启用智能压缩 + 主题提取 + 智能刷新）
    */
   setProvider(provider: ILLMProvider, config: ProviderConfig): void {
     this.compactor.setProvider(provider, config);
-    log.info('LLM Provider injected into MemoryCompactor');
+
+    // 初始化 TopicExtractor（OpenClaw 启发）
+    const topicConfig = this.config.topicExtraction || {};
+    this.topicExtractor = new TopicExtractor({
+      llmProvider: provider,
+      providerConfig: {
+        ...config,
+        model: config.lightModel || config.model, // 优先使用轻量模型
+        temperature: 0.2,
+        maxTokens: 200,
+      },
+      embeddingService: this.embeddingService ?? undefined,
+      mergeThreshold: topicConfig.mergeThreshold ?? 0.85,
+      minEntriesForExtraction: topicConfig.minEntriesForExtraction ?? 2,
+    });
+
+    // 初始化 IntelligentMemoryFlush（OpenClaw 启发 + LLM 价值评估）
+    const flushConfig = this.config.intelligentFlush || {};
+    if (flushConfig.enabled !== false) {
+      this.intelligentFlush = new IntelligentMemoryFlush(
+        provider,
+        config,
+        this,
+        {
+          tokenThreshold: flushConfig.tokenThreshold ?? 0.75,
+          timeThreshold: flushConfig.timeThreshold ?? (30 * 60 * 1000),
+          valueThreshold: flushConfig.valueThreshold ?? 50,
+          keepRecentMessages: flushConfig.keepRecentMessages ?? 5,
+        }
+      );
+    } else {
+      this.intelligentFlush = null;
+    }
+
+    log.info('LLM Provider injected into MemoryCompactor, TopicExtractor, and IntelligentMemoryFlush');
   }
 
   /**
@@ -429,35 +547,49 @@ export class MemoryManager implements IMemoryStore {
   }
 
   /**
+   * 获取智能记忆刷新器（供 ChatSession 使用）
+   */
+  getIntelligentFlush(): IntelligentMemoryFlush | null {
+    return this.intelligentFlush;
+  }
+
+  /**
    * 获取记忆统计信息
    */
-  async getStats(): Promise<{ total: number; byType: Record<string, number> }> {
-    const byType: Record<string, number> = {
-      shortTerm: 0, // ShortTermMemory 不记录条目数，始终为 0
-      longTerm: 0,
-      project: 0,
+  async getStats(): Promise<{
+    total: number;
+    byType: Record<string, number>;
+    byCategory?: { timeline?: number; topic?: number; fact?: number };
+  }> {
+    const byType: Record<string, number> = {};
+    const byCategory = {
+      timeline: 0,
+      topic: 0,
+      fact: 0,
     };
 
-    // 统计长期记忆
-    try {
-      const longTermEntries = await this.longTerm.readAll();
-      byType.longTerm = longTermEntries.length;
-    } catch {
-      // 忽略错误
+    // 统计长期记忆（从缓存中统计更准确）
+    const allEntries = this.cachedEntries;
+
+    // 按类型统计
+    for (const entry of allEntries) {
+      const type = entry.type || 'unknown';
+      byType[type] = (byType[type] || 0) + 1;
     }
 
-    // 统计项目知识
-    if (this.projectKnowledge) {
-      try {
-        const projectEntries = await this.longTerm.readProject();
-        byType.project = projectEntries.length;
-      } catch {
-        // 忽略错误
+    // 按分类统计
+    for (const entry of allEntries) {
+      if (entry.category === 'timeline') {
+        byCategory.timeline++;
+      } else if (entry.category === 'topic') {
+        byCategory.topic++;
+      } else if (entry.category === 'fact') {
+        byCategory.fact++;
       }
     }
 
-    const total = Object.values(byType).reduce((sum, count) => sum + count, 0);
-    return { total, byType };
+    const total = allEntries.length;
+    return { total, byType, byCategory };
   }
 
   /**

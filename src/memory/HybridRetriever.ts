@@ -9,12 +9,22 @@ import { STOP_WORDS } from '@/core/utils/stopwords';
 
 const log = logger.child({ module: 'hybrid-retriever' });
 
-/** 混合评分权重 */
+/** 混合评分权重（优化：时间衰减是核心，访问频次已整合到衰减计算中） */
 const HYBRID_WEIGHTS = {
-  vectorSimilarity: 0.5,
-  keywordMatch: 0.2,
-  timeDecay: 0.2,
-  accessFrequency: 0.1,
+  vectorSimilarity: 0.5,   // 语义相似度仍是基础
+  keywordMatch: 0.15,      // 略降低
+  timeDecay: 0.3,          // 提升（人类记忆的核心）
+  accessFrequency: 0.05,   // 降低（已整合到 timeDecay 中）
+};
+
+/** 不同记忆类型的基础半衰期（天） */
+const MEMORY_TYPE_HALF_LIFE: Record<string, number> = {
+  'user-preference': 90,    // 用户偏好：90 天
+  'project-knowledge': 60,  // 项目知识：60 天
+  'skill-pattern': 120,     // 技能模式：120 天
+  'important_date': 180,    // 重要日期：180 天
+  'conversation': 30,       // 日常对话：30 天
+  'short-term': 7,          // 短期记忆：7 天
 };
 
 /**
@@ -35,14 +45,17 @@ export class HybridRetriever {
 
   /**
    * 对向量检索候选集进行混合重评分
+   *
+   * @param minWeight - 最低权重阈值（默认 0.25），低于此值的记忆被过滤
    */
   rerank(
     candidates: VectorSearchResult[],
     query: string,
-    options?: RetrieveOptions,
+    options?: RetrieveOptions & { minWeight?: number },
   ): MemoryEntry[] {
     const maxResults = options?.maxResults ?? 10;
     const minConfidence = options?.minConfidence ?? 0;
+    const minWeight = options?.minWeight ?? 0.25;  // 新增：权重阈值
     const types = options?.types;
 
     const queryKeywords = this.extractKeywords(query);
@@ -61,7 +74,7 @@ export class HybridRetriever {
 
       const vectorScore = Math.max(0, similarity);
       const keywordScore = this.calcKeywordScore(memory, queryKeywords, query);
-      const timeScore = this.calcTimeDecayScore(memory.createdAt);
+      const timeScore = this.calcTimeDecayScore(memory);
       const accessScore = this.calcAccessFrequencyScore(memory.accessCount);
 
       const finalScore =
@@ -73,7 +86,12 @@ export class HybridRetriever {
       // 乘以置信度
       const adjustedScore = finalScore * memory.confidence;
 
-      if (adjustedScore > 0.01) {
+      // 计算综合权重（用于过滤低价值记忆）
+      const frequencyBonus = 1 + Math.log2(memory.accessCount + 1) * 0.1;
+      const weight = timeScore * frequencyBonus;
+
+      // 只保留高权重记忆（避免 LLM 幻觉）
+      if (weight >= minWeight && adjustedScore > 0.01) {
         scored.push({ entry: memory, score: adjustedScore });
       }
     }
@@ -119,11 +137,36 @@ export class HybridRetriever {
     return Math.min(score / queryKeywords.length, 1.0);
   }
 
-  /** 时间衰减得分（指数衰减，半衰期可配置） */
-  private calcTimeDecayScore(createdAt: string): number {
-    const ageMs = Date.now() - new Date(createdAt).getTime();
+  /**
+   * 时间衰减得分（人类化记忆模型）
+   *
+   * 改进：
+   * 1. 使用 lastAccessedAt 而非 createdAt（记忆加固效应）
+   * 2. 访问频次延长半衰期（常用记忆衰减慢）
+   * 3. 根据记忆类型调整基础半衰期
+   * 4. 重要性影响衰减速度
+   */
+  private calcTimeDecayScore(memory: MemoryEntry): number {
+    // 1. 使用最近访问时间（而非创建时间）
+    const lastAccess = new Date(memory.lastAccessedAt || memory.createdAt).getTime();
+    const ageMs = Date.now() - lastAccess;
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
-    return Math.pow(0.5, ageDays / this.decayHalfLifeDays);
+
+    // 2. 根据记忆类型获取基础半衰期
+    const baseHalfLife = MEMORY_TYPE_HALF_LIFE[memory.type] || this.decayHalfLifeDays;
+
+    // 3. 访问频次延长半衰期（对数增长，防止过度）
+    const frequencyBonus = Math.log2(memory.accessCount + 1) * 5;
+
+    // 4. 重要性调整半衰期
+    const importanceMultiplier = memory.metadata?.importance === 'high' ? 1.5 :
+                                 memory.metadata?.importance === 'low' ? 0.7 : 1.0;
+
+    // 5. 计算有效半衰期
+    const effectiveHalfLife = (baseHalfLife + frequencyBonus) * importanceMultiplier;
+
+    // 6. 指数衰减
+    return Math.pow(0.5, ageDays / effectiveHalfLife);
   }
 
   /** 访问频次得分（对数增长，防止过度提权） */

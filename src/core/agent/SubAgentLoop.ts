@@ -132,11 +132,13 @@ export async function runSubAgent(
   const provider = context.useLightModel ? lightProvider : mainProvider;
 
   // 4. 创建子代理 AgentLoop
+  // 🆕 子 Agent 不自动注入记忆（memoryStore 传 undefined）
+  // retrieve_memory 工具仍然可用（工具有自己的 memoryStore 引用）
   const agentLoop = new AgentLoop(
     provider,
     filteredRegistry,
     agentConfig,
-    memoryStore ?? undefined,
+    undefined,  // ← 不传递 memoryStore，禁用自动注入
   );
 
   // 注入 Hook（子代理模式）

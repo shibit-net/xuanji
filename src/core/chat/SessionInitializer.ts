@@ -24,6 +24,7 @@ import { MCPToolAdapter } from '@/mcp/MCPToolAdapter';
 import { createEnhancedWebSearchTool } from '@/mcp/search';
 import { MemoryStoreTool } from '@/core/tools/MemoryStoreTool';
 import { MemorySearchTool } from '@/core/tools/MemorySearchTool';
+import { RetrieveMemoryTool } from '@/core/tools/RetrieveMemoryTool';
 import { ReminderSetTool } from '@/core/tools/ReminderSetTool';
 import { ReminderCheckTool } from '@/core/tools/ReminderCheckTool';
 import { HookRegistry } from '@/hooks/HookRegistry';
@@ -307,10 +308,13 @@ export class SessionInitializer {
       // 注册记忆工具
       const memoryStoreTool = new MemoryStoreTool();
       const memorySearchTool = new MemorySearchTool();
+      const retrieveMemoryTool = new RetrieveMemoryTool();  // 🆕 记忆检索工具
       memoryStoreTool.setMemoryManager(memoryManager);
       memorySearchTool.setMemoryManager(memoryManager);
+      retrieveMemoryTool.setMemoryStore(memoryManager);     // 🆕 注入记忆存储
       baseRegistry.register(memoryStoreTool);
       baseRegistry.register(memorySearchTool);
+      baseRegistry.register(retrieveMemoryTool);            // 🆕 注册工具
 
       // 初始化 SmartMemoryExtractor V2（LLM 主动决策版）
       if (memoryManager instanceof MemoryManager) {
@@ -496,32 +500,30 @@ export class SessionInitializer {
   }
 
   /**
-   * 构建 System Prompt（基于启用的 Skill）
+   * 构建 System Prompt（基于 LayeredPromptBuilder）
+   *
+   * 初始构建使用 standard 复杂度 + coding 场景（默认）。
+   * 每轮对话时 ChatSession.runSingleAgent 会根据用户消息重新分析意图。
    */
   async buildSystemPrompt(
-    skillRegistry: SkillRegistry,
+    _skillRegistry: SkillRegistry,
     registry: IToolRegistry,
     config: AppConfig,
   ): Promise<string | undefined> {
-    const skillsConfig = config.skills;
-    const enabledIds = skillsConfig?.enabled ?? [];
-    let systemPrompt: string | undefined = undefined;
-
-    if (enabledIds.length > 0) {
-      const promptSkillIds = enabledIds.filter((id) => {
-        const skill = skillRegistry.get(id);
-        return skill && skill.category === 'prompt' && (skill.enabled ?? true);
-      });
-      if (promptSkillIds.length > 0) {
-        systemPrompt = await skillRegistry.composeBatch(promptSkillIds, {
-          params: {
-            toolList: registry.getSchemas(),
-            language: config.ui.language ?? 'zh',
-          },
-        });
-      }
+    const { LayeredPromptBuilder } = await import('@/core/prompt');
+    const builder = new LayeredPromptBuilder();
+    await builder.init();
+    const result = await builder.build({
+      scene: 'coding',
+      complexity: 'standard',
+      language: config.ui.language ?? 'zh',
+      toolList: registry.getSchemas(),
+    });
+    if (result.prompt) {
+      log.info(`System prompt built via LayeredPromptBuilder: ${result.components.length} components, ~${result.estimatedTokens} tokens`);
+      return result.prompt;
     }
-    return systemPrompt;
+    return undefined;
   }
 
   /**

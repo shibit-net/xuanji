@@ -83,8 +83,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     };
 
     // 🆕 P0 优化：Extended Thinking 支持
-    // 注意：@anthropic-ai/sdk v0.39.0 的类型定义尚未包含 adaptive thinking
-    // 但 API 实际支持该功能（Claude 4.5+），因此使用 any 绕过类型检查
+    // adaptive 模式直接透传，Anthropic SDK 原生处理（代理服务已支持）
     if (config.thinking) {
       (params as any).thinking = config.thinking.type === 'adaptive'
         ? { type: 'adaptive', effort: config.thinking.effort ?? 'medium' }

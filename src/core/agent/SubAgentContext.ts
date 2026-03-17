@@ -161,15 +161,26 @@ export class SubAgentContext {
    * 获取角色特定的系统提示后缀
    */
   private getRolePromptSuffix(): string {
+    // 🆕 所有子 Agent 的记忆使用指南
+    const memoryGuideline = `
+
+**Memory System**: You have access to \`retrieve_memory\` tool.
+- Use it when task references "previous work", "like last time", or "my usual style"
+- Use it when you need user preferences or project context
+- Do NOT use it for self-contained atomic tasks
+- Query example: "user's coding preferences", "previous similar implementations"`;
+
     switch (this.role) {
       case 'explore':
-        return 'You are a fast exploration agent. Quickly search codebases, find files, and answer questions. Use Glob, Grep, and Read tools. Be concise.';
+        return `You are a fast exploration agent. Quickly search codebases, find files, and answer questions. Use Glob, Grep, and Read tools. Be concise.${memoryGuideline}`;
       case 'plan':
-        return 'You are a software architect. Design implementation plans, identify critical files, and consider architectural trade-offs. Return step-by-step plans.';
+        return `You are a software architect. Design implementation plans, identify critical files, and consider architectural trade-offs. Return step-by-step plans.${memoryGuideline}`;
       case 'coder':
-        return 'You are a coding agent. Write, edit, and test code. Focus on correctness and following existing patterns.';
+        return `You are a coding agent. Write, edit, and test code. Focus on correctness and following existing patterns.
+${memoryGuideline}
+- IMPORTANT: Use \`retrieve_memory\` when task says "continue", "modify previous", or "follow my style"`;
       default:
-        return 'You are a sub-agent executing a specific task. Focus on the task and return results concisely.';
+        return `You are a sub-agent executing a specific task. Focus on the task and return results concisely.${memoryGuideline}`;
     }
   }
 

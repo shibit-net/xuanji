@@ -424,6 +424,10 @@ async function main(): Promise<void> {
   // 交互模式: 启动 Ink 应用（带启动 logo 动画）
   const { StartupLogo } = await import('./adapters/cli/StartupLogo');
 
+  // 会话通知状态（在 App 组件外部定义，用于跨组件共享）
+  let resumeNotificationText: string | null = null;
+  let archiveNotificationText: string | null = null;
+
   // 创建一个包装组件来处理 logo 和主界面的切换
   const AppWithLogo = () => {
     const [showLogo, setShowLogo] = React.useState(true);
@@ -522,6 +526,15 @@ async function main(): Promise<void> {
             return { success: true };
           });
         }, 1000);
+      },
+      // ─── 连续会话通知 ──────────────────────────────────
+      onResumeNotification: (summary: string, memoryCount: number) => {
+        resumeNotificationText = `📂 已恢复上次对话：${summary}（检索到 ${memoryCount} 条记忆）`;
+      },
+      onArchiveNotification: (result) => {
+        archiveNotificationText = `📦 已归档 ${result.archivedCount} 条消息，提取 ${result.memoriesExtracted} 条记忆`;
+        // 3 秒后自动清除通知
+        setTimeout(() => { archiveNotificationText = null; }, 3000);
       },
     });
   };

@@ -254,7 +254,7 @@ export interface ConfigurableAgentConfig {
   /** Agent 名称 */
   name: string;
   /** 版本号 */
-  version: string;
+  version?: string;
   /** 作者 */
   author?: string;
   /** 描述 */
@@ -272,7 +272,7 @@ export interface ConfigurableAgentConfig {
 
   // ========== 专属 Skills ==========
   /** Skills 配置 */
-  skills: {
+  skills?: {
     /** 引用内置 Skill ID */
     builtin?: string[];
     /** 自定义 Skill */
@@ -281,7 +281,7 @@ export interface ConfigurableAgentConfig {
 
   // ========== 专属知识库 ==========
   /** 知识库配置 */
-  knowledgeBase: {
+  knowledgeBase?: {
     /** 存储路径 */
     path: string;
     /** 数据源 */
@@ -298,24 +298,39 @@ export interface ConfigurableAgentConfig {
 
   // ========== System Prompt ==========
   /** System Prompt */
-  systemPrompt: string;
+  systemPrompt: string | null;
 
   // ========== 模型配置 ==========
   /** 模型配置 */
   model: {
     /** 主模型 */
-    primary: 'sonnet' | 'opus' | 'haiku';
+    primary: string;
     /** 降级模型 */
-    fallback?: 'sonnet' | 'opus' | 'haiku';
+    fallback?: string;
+    /** 最大 Token */
+    maxTokens?: number;
+    /** 温度 */
+    temperature?: number;
+    /** Thinking 配置 */
+    thinking?: {
+      type?: 'enabled' | 'disabled' | 'adaptive';
+      effort?: 'low' | 'medium' | 'high';
+    };
   };
 
   // ========== 执行配置 ==========
   /** 执行配置 */
   execution: {
+    /** 执行模式 */
+    mode?: 'react' | 'plan' | 'chain';
     /** 最大迭代次数 */
     maxIterations: number;
-    /** 超时时间（秒） */
+    /** 超时时间（毫秒） */
     timeout: number;
+    /** 是否流式输出 */
+    streaming?: boolean;
+    /** 是否并行工具 */
+    parallelTools?: boolean;
     /** 错误时重试 */
     retryOnError?: boolean;
   };
@@ -323,18 +338,34 @@ export interface ConfigurableAgentConfig {
   // ========== 权限控制 ==========
   /** 权限配置 */
   permissions: {
-    /** 允许读取文件 */
-    allowFileRead: boolean;
-    /** 允许写入文件 */
-    allowFileWrite: boolean;
-    /** 允许执行命令 */
-    allowBashExecution: boolean;
-    /** 允许网络访问 */
-    allowNetworkAccess: boolean;
-    /** 受限路径 */
+    /** 文件读取权限 */
+    fileRead?: 'always' | 'ask' | 'deny';
+    /** 文件写入权限 */
+    fileWrite?: 'always' | 'ask' | 'deny';
+    /** 命令执行权限 */
+    bashExec?: 'always' | 'ask' | 'deny';
+    /** 网络访问权限 */
+    network?: 'always' | 'ask' | 'deny';
+    /** 允许的路径 */
+    allowedPaths?: string[];
+    /** 禁止的路径 */
+    deniedPaths?: string[];
+    /** 允许的命令 */
+    allowedCommands?: string[];
+    /** 禁止的命令 */
+    deniedCommands?: string[];
+    /** 受限路径（旧字段，兼容） */
     restrictedPaths?: string[];
-    /** 允许访问的域名 */
+    /** 允许访问的域名（旧字段，兼容） */
     allowedDomains?: string[];
+    /** 允许读取文件（旧字段，兼容） */
+    allowFileRead?: boolean;
+    /** 允许写入文件（旧字段，兼容） */
+    allowFileWrite?: boolean;
+    /** 允许执行命令（旧字段，兼容） */
+    allowBashExecution?: boolean;
+    /** 允许网络访问（旧字段，兼容） */
+    allowNetworkAccess?: boolean;
   };
 
   // ========== 成本控制 ==========
@@ -345,6 +376,12 @@ export interface ConfigurableAgentConfig {
     /** 预算警告阈值 */
     budgetAlert?: number;
   };
+
+  // ========== 显示配置 ==========
+  /** 头像 */
+  avatar?: string;
+  /** 颜色 */
+  color?: string;
 
   // ========== 启用状态 ==========
   /** 是否启用 */
@@ -361,6 +398,14 @@ export interface ConfigurableAgentConfig {
     createdAt: string;
     /** 更新时间 */
     updatedAt: string;
+    /** 是否为内置 Agent */
+    builtin?: boolean;
+    /** 是否为 SubAgent */
+    isSubAgent?: boolean;
+    /** 是否为主 Agent */
+    isMainAgent?: boolean;
+    /** 额外元数据 */
+    [key: string]: any;
   };
 }
 

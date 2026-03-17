@@ -70,6 +70,15 @@ contextBridge.exposeInMainWorld('electron', {
   memoryRetrieve: (data: any) => ipcRenderer.invoke('memory:retrieve', data),
   memoryStats: () => ipcRenderer.invoke('memory:stats'),
 
+  // ============ 记忆系统高级功能 ============
+  getMemoryStats: () => ipcRenderer.invoke('memory:stats'),
+  getMemoryConfig: () => ipcRenderer.invoke('memory:get-config'),
+  saveMemoryConfig: (data: { config: any }) => ipcRenderer.invoke('memory:save-config', data),
+  manualMemoryFlush: () => ipcRenderer.invoke('memory:manual-flush'),
+  extractTopics: () => ipcRenderer.invoke('memory:extract-topics'),
+  getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) =>
+    ipcRenderer.invoke('memory:get-list', data),
+
   // ============ 工具统计 ============
   usageStats: () => ipcRenderer.invoke('usage:stats'),
 
@@ -79,6 +88,15 @@ contextBridge.exposeInMainWorld('electron', {
   agentCreate: (data: { config: any }) => ipcRenderer.invoke('agent:create', data),
   agentUpdate: (data: { agentId: string; config: any }) => ipcRenderer.invoke('agent:update', data),
   agentDelete: (data: { agentId: string }) => ipcRenderer.invoke('agent:delete', data),
+
+  // ============ Skills / Tools / MCP 查询 ============
+  skillsList: () => ipcRenderer.invoke('skills:list'),
+  toolsList: () => ipcRenderer.invoke('tools:list'),
+  mcpList: () => ipcRenderer.invoke('mcp:list'),
+
+  // ============ Prompt 配置管理 ============
+  promptGetConfig: () => ipcRenderer.invoke('prompt:get-config'),
+  promptSaveConfig: (data: any) => ipcRenderer.invoke('prompt:save-config', data),
 
   // ============ 高级功能 ============
   compact: (data: any) => ipcRenderer.invoke('compact', data),
@@ -99,4 +117,12 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('ask-user:request', (_event, data) => callback(data));
   },
   askUserRespond: (data: any) => ipcRenderer.invoke('ask-user:respond', data),
+
+  // ============ 通用事件监听 ============
+  on: (channel: string, callback: (...args: any[]) => void) => {
+    ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+  },
+  off: (channel: string, callback: (...args: any[]) => void) => {
+    ipcRenderer.removeListener(channel, (_event, ...args) => callback(...args));
+  },
 });

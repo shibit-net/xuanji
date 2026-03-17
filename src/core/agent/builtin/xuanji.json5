@@ -19,6 +19,7 @@
     fallback: '[CC]claude-haiku-4-5-20251001',
     maxTokens: 64000,
     // temperature 使用默认值（省略）
+    // thinking 功能仅在直连官方 API 时生效（AnthropicProvider 会自动检测并跳过代理服务）
     thinking: {
       type: 'adaptive',
       effort: 'medium',

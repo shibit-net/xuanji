@@ -1,0 +1,91 @@
+{
+  // ============================================================
+  // Stock Analyst Agent - 股票分析型 SubAgent
+  // ============================================================
+  // 示例：如何创建自定义 SubAgent
+
+  id: 'stock-analyst',
+  name: '股票分析师',
+  description: '专业的股票数据分析和投资建议 Agent',
+
+  avatar: '📈',
+  color: 'from-green-500 to-blue-600',
+
+  // 模型配置（可以使用不同的模型）
+  model: {
+    primary: '[CC]claude-sonnet-4-5-20250929',  // 中等复杂度
+    fallback: '[CC]claude-haiku-4-5-20251001',
+    maxTokens: 32000,
+  },
+
+  // SystemPrompt - 定义 Agent 的行为
+  systemPrompt: `你是一个专业的股票分析 Agent。
+
+你的职责：
+- 分析股票数据和市场趋势
+- 提供投资建议和风险评估
+- 生成技术分析报告
+- 监控市场异常
+
+约束：
+- 所有建议仅供参考，不构成投资决策
+- 强调风险管理
+- 使用专业术语但保持清晰
+- 基于数据而非主观判断`,
+
+  // 工具列表（SubAgent 需要的工具）
+  tools: [
+    { name: 'read_file', required: true },
+    { name: 'web_fetch', required: true },     // 获取实时数据
+    { name: 'bash', required: true },          // 运行分析脚本
+    { name: 'glob', required: true },
+    { name: 'grep', required: true },
+    { name: 'ask_user', required: true },
+  ],
+
+  // 执行配置
+  execution: {
+    mode: 'react',
+    maxIterations: 30,
+    timeout: 300000,  // 5 分钟
+    streaming: true,
+    parallelTools: true,
+  },
+
+  // 权限配置
+  permissions: {
+    fileRead: 'always',
+    fileWrite: 'deny',      // 分析任务通常只读
+    bashExec: 'ask',        // 运行脚本需要确认
+    network: 'always',      // 需要获取实时数据
+    allowedPaths: [],
+    deniedPaths: [],
+    allowedCommands: ['python', 'node'],  // 只允许运行分析脚本
+    deniedCommands: ['rm', 'dd', 'mkfs'],
+  },
+
+  // Skills 配置
+  skills: {
+    builtin: ['tool-guidance'],
+    custom: [],
+  },
+
+  // 能力标签
+  capabilities: [
+    '股票数据分析',
+    '技术指标计算',
+    '投资建议生成',
+    '风险评估',
+  ],
+
+  // 标签（重要：标记为 SubAgent）
+  tags: ['subagent', 'finance', 'analysis'],
+  enabled: true,
+
+  // 元数据（重要：标记为 SubAgent）
+  metadata: {
+    builtin: false,       // 不是内置的
+    isSubAgent: true,     // ✅ 关键：标记为 SubAgent
+    category: 'finance',  // 自定义分类
+  },
+}

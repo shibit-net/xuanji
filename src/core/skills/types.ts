@@ -22,7 +22,7 @@ export interface SkillMetadata {
   description: string;
 
   /** 分类 */
-  category: 'prompt' | 'workflow';
+  category: 'prompt' | 'action' | 'workflow';
 
   /** 标签 (e.g., ["system", "core"]) */
   tags: string[];
@@ -200,7 +200,7 @@ export interface SkillValidationResult {
  */
 export interface SkillQueryFilter {
   /** 分类 */
-  category?: 'prompt' | 'workflow';
+  category?: 'prompt' | 'action' | 'workflow';
 
   /** 标签 */
   tags?: string[];
@@ -211,37 +211,3 @@ export interface SkillQueryFilter {
   /** 搜索关键词 */
   search?: string;
 }
-
-/**
- * Skill 组合结果
- */
-export interface SkillComposeResult {
-  /** 组合后的内容 */
-  content: string;
-
-  /** 使用的 Skill */
-  skills: Skill[];
-
-  /** 组合顺序 */
-  order: string[];
-
-  /** 元数据 */
-  metadata: {
-    totalSkills: number;
-    totalDependencies: number;
-    renderTime: number;
-  };
-}
-
-/**
- * 始终加载的核心 Skill ID（不参与意图过滤和向量匹配）
- * 统一定义，避免 registry.ts 和 VectorSkillMatcher.ts 各自维护
- */
-export const CORE_SKILL_IDS = new Set([
-  'xuanji-assistant',
-  'project-rules',
-  'memory-context',
-  'tool-guidance',
-  'security-rules',
-  'agent-rules',
-]);

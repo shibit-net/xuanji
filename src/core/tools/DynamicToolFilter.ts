@@ -2,12 +2,12 @@
 // M6 工具系统 — 动态工具过滤器
 // ============================================================
 //
-// 根据激活的 Skill 动态过滤传递给 LLM 的工具集
+// 根据激活的场景动态过滤传递给 LLM 的工具集
 // 使用包装器模式实现 IToolRegistry 接口，零侵入原有架构
 
 import type { IToolRegistry, Tool, ToolSchema, ToolResult } from '@/core/types';
-import type { Skill } from '@/core/skills/types';
-import { computeAllowedTools } from './ToolCategories';
+import type { SceneType } from '@/core/prompt/types';
+import { computeAllowedToolsByScene } from './ToolCategories';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'DynamicToolFilter' });
@@ -16,19 +16,15 @@ const log = logger.child({ module: 'DynamicToolFilter' });
  * 动态工具过滤器
  *
  * 职责：
- * 1. 根据激活的 Skill，计算允许的工具集
+ * 1. 根据激活的场景，计算允许的工具集
  * 2. 作为 ToolRegistry 的包装器，实现 IToolRegistry 接口
  * 3. 拦截 getSchemas/get/getAll/has/execute，返回过滤后的结果
  * 4. 拦截 register/unregister，防止通过 Filter 修改基础注册表
- *
- * 架构：
- * - baseRegistry: 原始 ToolRegistry（全量工具）
- * - activeSkills: 当前激活的 Skill 列表（由 ChatSession 设置）
- * - getAllowedToolNames(): 计算允许的工具名称集合
  */
 export class DynamicToolFilter implements IToolRegistry {
   private baseRegistry: IToolRegistry;
-  private activeSkills: Skill[] = [];
+  private currentScene: SceneType | null = null;
+  private sceneExtraTools: string[] = [];
 
   constructor(registry: IToolRegistry) {
     this.baseRegistry = registry;
@@ -36,20 +32,24 @@ export class DynamicToolFilter implements IToolRegistry {
   }
 
   /**
-   * 设置激活的 Skill（ChatSession 在意图路由后调用）
+   * 设置当前场景（由 ChatSession.routeWithLayeredPrompt 调用）
    */
-  setActiveSkills(skills: Skill[]): void {
-    this.activeSkills = skills;
+  setScene(scene: SceneType, extraTools?: string[]): void {
+    this.currentScene = scene;
+    this.sceneExtraTools = extraTools || [];
     const allowedTools = this.getAllowedToolNames();
-    log.debug(`Active skills updated: ${skills.map(s => s.id).join(', ')}`);
-    log.debug(`Allowed tools (${allowedTools.size}): ${Array.from(allowedTools).join(', ')}`);
+    log.debug(`Scene set to: ${scene}, allowed tools (${allowedTools.size}): ${Array.from(allowedTools).join(', ')}`);
   }
 
   /**
    * 计算当前允许的工具名称集合
    */
   private getAllowedToolNames(): Set<string> {
-    return computeAllowedTools(this.activeSkills);
+    if (this.currentScene) {
+      return computeAllowedToolsByScene(this.currentScene, this.sceneExtraTools);
+    }
+    // 未设置场景时，返回全量工具
+    return new Set(this.baseRegistry.getSchemas().map(s => s.name));
   }
 
   // ===== 实现 IToolRegistry 接口 =====
@@ -102,7 +102,7 @@ export class DynamicToolFilter implements IToolRegistry {
     if (!allowed.has(name)) {
       log.warn(`execute("${name}"): tool not available in current context`);
       return {
-        content: `Tool "${name}" is not available in current context. Active skills: ${this.activeSkills.map(s => s.id).join(', ')}.`,
+        content: `Tool "${name}" is not available in current context. Scene: ${this.currentScene || 'none'}.`,
         isError: true,
       };
     }
