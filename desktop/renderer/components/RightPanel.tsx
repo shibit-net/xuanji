@@ -3,18 +3,20 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Clock, Wrench, Database, FileText, X, Plus, RotateCcw, Loader2, Search } from 'lucide-react';
+import { Clock, Wrench, Database, FileText, X, Plus, RotateCcw, Loader2, Search, Activity } from 'lucide-react';
 import { useCheckpointManager } from '../hooks/useCheckpointManager';
 import { useMemoryManager } from '../hooks/useMemoryManager';
 import { useChatStore } from '../stores/chatStore';
+import WorkspaceMonitor from './WorkspaceMonitor';
 
 interface RightPanelProps {
   onToggle: () => void;
 }
 
-type TabId = 'checkpoint' | 'tools' | 'memory' | 'logs';
+type TabId = 'workspace' | 'checkpoint' | 'tools' | 'memory' | 'logs';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
+  { id: 'workspace', label: '监控', icon: <Activity size={16} /> },
   { id: 'checkpoint', label: 'Checkpoint', icon: <Clock size={16} /> },
   { id: 'tools', label: '工具', icon: <Wrench size={16} /> },
   { id: 'memory', label: '记忆', icon: <Database size={16} /> },
@@ -22,7 +24,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
 ];
 
 export default function RightPanel({ onToggle }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('checkpoint');
+  const [activeTab, setActiveTab] = useState<TabId>('workspace');
 
   return (
     <div className="w-80 bg-bg-secondary flex flex-col border-l border-bg-tertiary">
@@ -54,12 +56,22 @@ export default function RightPanel({ onToggle }: RightPanelProps) {
       </div>
 
       {/* 内容区域 */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-hidden">
+        {activeTab === 'workspace' && <WorkspaceTab />}
         {activeTab === 'checkpoint' && <CheckpointTab />}
         {activeTab === 'tools' && <ToolsTab />}
         {activeTab === 'memory' && <MemoryTab />}
         {activeTab === 'logs' && <LogsTab />}
       </div>
+    </div>
+  );
+}
+
+// Workspace 监控标签
+function WorkspaceTab() {
+  return (
+    <div className="h-full w-full">
+      <WorkspaceMonitor />
     </div>
   );
 }
@@ -108,7 +120,8 @@ function CheckpointTab() {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="h-full overflow-y-auto p-4">
+      <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">⏱️ Checkpoint 时间线</div>
 
       {loading ? (
@@ -196,6 +209,7 @@ function CheckpointTab() {
           <span>创建 Checkpoint</span>
         </button>
       )}
+      </div>
     </div>
   );
 }
@@ -318,6 +332,7 @@ function MemoryTab() {
   ];
 
   return (
+    <div className="h-full overflow-y-auto p-4">
     <div className="space-y-3">
       <div className="text-sm font-semibold mb-2">💾 记忆库</div>
 
@@ -420,6 +435,7 @@ function MemoryTab() {
           ))
         )}
       </div>
+    </div>
     </div>
   );
 }
