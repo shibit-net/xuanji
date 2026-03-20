@@ -8,6 +8,7 @@ import { useChatStore } from '../stores/chatStore';
 
 export default function InputArea() {
   const [input, setInput] = useState('');
+  const [isComposing, setIsComposing] = useState(false); // 输入法组合状态
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useChatStore((state) => state.sendMessage);
   const status = useChatStore((state) => state.status);
@@ -40,7 +41,8 @@ export default function InputArea() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 输入法组合中（如中文输入法输入拼音时），Enter 应该确认候选词，而不是发送消息
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
       handleSubmit();
     }
@@ -59,6 +61,8 @@ export default function InputArea() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={() => setIsComposing(false)}
           placeholder={isRunning ? '输入补充内容，发送后将中断当前执行...' : '输入你的问题... (支持 Markdown)'}
           className="flex-1 bg-bg-primary border border-bg-tertiary rounded-lg px-4 py-2 resize-none focus:outline-none focus:border-primary transition-colors"
           rows={1}

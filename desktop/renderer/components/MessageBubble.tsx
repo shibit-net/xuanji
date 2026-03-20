@@ -53,11 +53,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        {/* 思考状态 */}
-        {isThinking && (
+        {/* 状态提示（回忆中 / 思考中 / 编写中...） */}
+        {(message.statusHint || isThinking) && (
           <div className="flex items-center gap-2 text-sm text-text-secondary mb-2">
             <Loader2 size={14} className="animate-spin" />
-            <span>正在思考...</span>
+            <span>{message.statusHint || '思考中...'}</span>
           </div>
         )}
 
@@ -111,36 +111,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        {/* 工具调用 */}
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mt-3 space-y-2">
-            {message.toolCalls.map((tool, index) => (
-              <div
-                key={index}
-                className="bg-bg-primary/50 rounded p-2 text-sm"
-              >
-                <div className="flex items-center gap-2">
-                  {tool.status === 'pending' ? (
-                    <Loader2 size={14} className="animate-spin text-yellow-500" />
-                  ) : tool.status === 'success' ? (
-                    <span className="text-green-500">✓</span>
-                  ) : (
-                    <span className="text-red-500">✗</span>
-                  )}
-                  <span className="font-mono">{tool.name}</span>
-                  <span className="text-xs text-text-secondary ml-auto">
-                    {tool.status === 'pending'
-                      ? '执行中...'
-                      : tool.duration
-                        ? `${tool.duration}ms`
-                        : tool.status === 'success' ? '完成' : '失败'
-                    }
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* 工具调用已移至状态栏展示，消息气泡中不再重复显示 */}
       </div>
     </div>
   );

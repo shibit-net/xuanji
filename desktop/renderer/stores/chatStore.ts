@@ -4,6 +4,8 @@
 
 import { create } from 'zustand';
 import type { PermissionRequestData, PlanReviewRequestData, AskUserRequestData } from '../global';
+import { useRuntimeStore } from './runtimeStore';
+import { useExecutionStore } from './executionStore';
 
 // 消息类型
 export interface Message {
@@ -12,6 +14,8 @@ export interface Message {
   content: string;
   timestamp?: number;
   thinking?: boolean;
+  /** 拟人化状态提示（如 "回忆中..."、"思考中..."、"编写中..."） */
+  statusHint?: string;
   toolCalls?: ToolCall[];
 }
 
@@ -55,6 +59,10 @@ interface ChatStore {
   planReviewRequest: PlanReviewRequestData | null;
   askUserRequest: AskUserRequestData | null;
 
+  // Plan Mode 状态
+  isPlanMode: boolean;
+  setPlanMode: (active: boolean) => void;
+
   // 日志流
   logs: Array<{ timestamp: number; level: string; message: string }>;
 
@@ -83,6 +91,7 @@ interface ChatStore {
   _handleAgentUsage: (usage: any) => void;
   _handleAgentError: (error: string) => void;
   _handleAgentEnd: (state: any) => void;
+  _handleMessagesRestored: (messages: any[]) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -108,6 +117,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   planReviewRequest: null,
   askUserRequest: null,
 
+  // Plan Mode 状态
+  isPlanMode: false,
+  setPlanMode: (active) => set({ isPlanMode: active }),
+
   // 日志流
   logs: [],
 
@@ -120,6 +133,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       content,
       timestamp: Date.now(),
     };
+
+    // 同步更新 runtimeStore
+    const runtimeStore = useRuntimeStore.getState();
+    runtimeStore.setProcessing(true);
+    runtimeStore.incrementIteration();
+    runtimeStore.resetMessageStream();
+    // 初始化 agentStatus
+    runtimeStore.setAgentStatus({
+      name: 'Xuanji',
+      status: 'idle',
+    });
 
     set((state) => ({
       messages: [...state.messages, userMessage],
@@ -139,6 +163,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           timestamp: Date.now(),
         };
 
+        // 同步更新 runtimeStore
+        useRuntimeStore.getState().setProcessing(false);
+
         set((state) => ({
           messages: [...state.messages, errorMessage],
           status: 'idle',
@@ -152,6 +179,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: `❌ 错误：${err instanceof Error ? err.message : String(err)}`,
         timestamp: Date.now(),
       };
+
+      // 同步更新 runtimeStore
+      useRuntimeStore.getState().setProcessing(false);
 
       set((state) => ({
         messages: [...state.messages, errorMessage],
@@ -216,6 +246,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   _handleAgentText: (text) => {
     const { currentStreamingId, currentStreamingText } = get();
 
+    // 同步更新 runtimeStore
+    useRuntimeStore.getState().appendStreamText(text);
+
     // 如果还没有创建流式消息，创建一个
     if (!currentStreamingId) {
       const newId = `assistant-${Date.now()}`;
@@ -224,6 +257,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         role: 'assistant',
         content: text,
         timestamp: Date.now(),
+        statusHint: '✍️ 编写回复中...',
         toolCalls: [],
       };
 
@@ -239,7 +273,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       set((state) => ({
         messages: state.messages.map((msg) =>
           msg.id === currentStreamingId
-            ? { ...msg, content: updatedText }
+            ? { ...msg, content: updatedText, statusHint: '✍️ 编写回复中...' }
             : msg
         ),
         currentStreamingText: updatedText,
@@ -248,7 +282,37 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   _handleAgentThinking: (thinking) => {
-    set({ status: 'thinking' });
+    // 同步更新 runtimeStore - 累加 thinking 内容
+    const runtimeStore = useRuntimeStore.getState();
+
+    // 手动计算累加后的完整 thinking 内容
+    const currentThinking = runtimeStore.messageStream?.thinking || '';
+    const fullThinking = currentThinking + thinking;
+
+    // 累加到 messageStream
+    runtimeStore.appendStreamThinking(thinking);
+
+    // 更新 agentStatus，设置完整的 thinking 内容
+    runtimeStore.updateAgentStatus({
+      status: 'thinking',
+      currentThought: fullThinking,
+    });
+    runtimeStore.setProcessing(true);
+
+    // 更新气泡状态提示
+    const { currentStreamingId } = get();
+    if (currentStreamingId) {
+      set((state) => ({
+        status: 'thinking',
+        messages: state.messages.map((msg) =>
+          msg.id === currentStreamingId
+            ? { ...msg, statusHint: '💭 思考中...' }
+            : msg
+        ),
+      }));
+    } else {
+      set({ status: 'thinking' });
+    }
   },
 
   _handleAgentToolStart: (data) => {
@@ -261,6 +325,72 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       startTime: Date.now(),
     };
 
+    // 检测 Multi-Agent 工具并提取详细信息
+    let multiAgent: any = undefined;
+
+    if (data.name === 'orchestrate' || data.name === 'agent_team') {
+      const input = data.input as any;
+      multiAgent = {
+        type: data.name as 'orchestrate' | 'agent_team',
+        strategy: input.strategy,
+        teamName: input.team_name,
+        members: (input.members || []).map((m: any) => ({
+          id: m.id,
+          name: m.name || m.role,
+          role: m.role,
+          status: 'idle' as const,
+          progress: 0,
+        })),
+        totalSteps: input.members?.length || 0,
+      };
+    } else if (data.name === 'pipeline') {
+      const input = data.input as any;
+      multiAgent = {
+        type: 'pipeline',
+        strategy: 'pipeline',
+        steps: (input.chain || []).map((step: any, index: number) => ({
+          id: `step-${index}`,
+          name: step.description || step.agent_id,
+          description: step.task_template?.slice(0, 100),
+          status: 'pending' as const,
+          progress: 0,
+        })),
+        currentStep: 0,
+        totalSteps: input.chain?.length || 0,
+      };
+    } else if (data.name === 'quick_team') {
+      const input = data.input as any;
+      multiAgent = {
+        type: 'quick_team',
+        teamName: input.template,
+        strategy: input.template === 'code-review' ? 'sequential' :
+                  input.template === 'research' ? 'parallel' :
+                  input.template === 'architecture-debate' ? 'debate' :
+                  input.template === 'data-pipeline' ? 'pipeline' :
+                  input.template === 'feature-development' ? 'hierarchical' : undefined,
+      };
+    } else if (data.name === 'delegate') {
+      const input = data.input as any;
+      multiAgent = {
+        type: 'delegate',
+        subagentType: input.subagent_type || 'general-purpose',
+      };
+    }
+
+    // 同步更新 runtimeStore
+    useRuntimeStore.getState().addToolCall({
+      id: data.id,
+      name: data.name,
+      status: 'running',
+      input: data.input,
+      startTime: Date.now(),
+      multiAgent,
+    });
+    useRuntimeStore.getState().updateAgentStatus({
+      status: 'executing',
+      currentTool: { name: data.name, status: 'running' },
+    });
+
     // 记录日志
     get().addLog('tool', `🔧 ${data.name} 开始执行`);
 
@@ -268,12 +398,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const newToolCalls = new Map(activeToolCalls);
     newToolCalls.set(data.id, toolCall);
 
-    // 如果有当前流式消息，更新它的 toolCalls
+    // 根据工具名生成拟人化状态提示
+    const toolStatusHint = (() => {
+      const name = data.name;
+      if (name === 'bash') return '💻 执行命令中...';
+      if (name === 'read') return '📖 读取文件中...';
+      if (name === 'write') return '📝 写入文件中...';
+      if (name === 'edit' || name === 'multi_edit') return '✏️ 修改代码中...';
+      if (name === 'glob') return '🔍 扫描目录中...';
+      if (name === 'grep') return '🔎 搜索内容中...';
+      if (name === 'memory_search') return '🧠 检索记忆中...';
+      if (name === 'memory_store') return '💾 保存记忆中...';
+      if (name === 'web_search' || name === 'web_fetch') return '🌐 联网搜索中...';
+      if (name === 'delegate' || name === 'orchestrate') return '🤖 调度子 Agent...';
+      if (name === 'pipeline') return '🔗 运行流水线...';
+      if (name === 'quick_team' || name === 'agent_team') return '👥 协作处理中...';
+      if (name.startsWith('todo_')) return '📋 更新任务列表...';
+      return '⚙️ 执行工具中...';
+    })();
+
+    // 如果有当前流式消息，更新状态提示（不展示具体工具名，workspace 已展示）
     if (currentStreamingId) {
       set((state) => ({
         messages: state.messages.map((msg) =>
           msg.id === currentStreamingId
-            ? { ...msg, toolCalls: Array.from(newToolCalls.values()) }
+            ? { ...msg, statusHint: toolStatusHint }
             : msg
         ),
         activeToolCalls: newToolCalls,
@@ -299,6 +448,53 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
       newToolCalls.set(data.id, toolCall);
 
+      // 同步更新 runtimeStore
+      useRuntimeStore.getState().updateToolCall(data.id, {
+        status: data.isError ? 'error' : 'success',
+        result: data.result,
+        duration: toolCall.duration,
+      });
+
+      // 解析 TODO_PROGRESS 标记并更新 executionStore
+      if (!data.isError && data.result && data.result.includes('<!--TODO_PROGRESS:')) {
+        const match = data.result.match(/<!--TODO_PROGRESS:(.+?)-->/);
+        if (match) {
+          try {
+            const progressData = JSON.parse(match[1]);
+            // progressData = { completed: 1, total: 3, items: [{ id, title, description, status, activeForm }] }
+
+            const executionStore = useExecutionStore.getState();
+
+            // 清空现有任务（TodoManager 返回的是完整列表）
+            useExecutionStore.setState({ todos: [] });
+
+            // 添加新任务
+            if (progressData.items && Array.isArray(progressData.items)) {
+              progressData.items.forEach((item: any) => {
+                // 先添加任务（状态默认为 pending）
+                executionStore.addTodo({
+                  id: item.id,
+                  subject: item.title,
+                  description: item.description || '',
+                  activeForm: item.activeForm,
+                });
+
+                // 如果状态不是 pending，更新状态
+                if (item.status !== 'pending') {
+                  executionStore.updateTodo({
+                    id: item.id,
+                    status: item.status,
+                    activeForm: item.activeForm,
+                  });
+                }
+              });
+            }
+          } catch (err) {
+            console.error('[chatStore] 解析 TODO_PROGRESS 失败:', err);
+          }
+        }
+      }
+
       // 记录日志
       const statusIcon = data.isError ? '❌' : '✅';
       const durationText = toolCall.duration ? ` (${toolCall.duration}ms)` : '';
@@ -316,11 +512,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         activeToolCalls: newToolCalls,
       }));
     } else {
-      set({ activeToolCalls: newToolCalls });
+      // agent:end 已清空 currentStreamingId，回写到最后一条 assistant 消息
+      set((state) => {
+        const lastAssistantIdx = [...state.messages].reverse().findIndex((m) => m.role === 'assistant');
+        if (lastAssistantIdx === -1) return { activeToolCalls: newToolCalls };
+        const idx = state.messages.length - 1 - lastAssistantIdx;
+        return {
+          messages: state.messages.map((msg, i) =>
+            i === idx
+              ? { ...msg, toolCalls: Array.from(newToolCalls.values()) }
+              : msg
+          ),
+          activeToolCalls: newToolCalls,
+        };
+      });
     }
   },
 
   _handleAgentUsage: (usage) => {
+    // 同步更新 runtimeStore
+    useRuntimeStore.getState().addTokenUsage(
+      usage.input || 0,
+      usage.output || 0,
+      usage.cached || 0
+    );
+
     set((state) => ({
       stats: {
         ...state.stats,
@@ -330,6 +546,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   _handleAgentError: (error) => {
+    // 同步更新 runtimeStore
+    useRuntimeStore.getState().setProcessing(false);
+    useRuntimeStore.getState().updateAgentStatus({
+      status: 'error',
+    });
+
     // 添加错误消息
     const errorMessage: Message = {
       id: `error-${Date.now()}`,
@@ -351,11 +573,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   _handleAgentEnd: (state) => {
+    // 同步更新 runtimeStore
+    useRuntimeStore.getState().finishMessageStream();
+    useRuntimeStore.getState().setProcessing(false);
+    useRuntimeStore.getState().updateAgentStatus({
+      status: 'done',
+    });
+
+    // 将所有仍在 pending 的工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
+    const { activeToolCalls, currentStreamingId } = get();
+    const finalizedToolCalls = Array.from(activeToolCalls.values()).map((tc) => {
+      if (tc.status === 'pending') {
+        return {
+          ...tc,
+          status: 'success' as const,
+          duration: tc.startTime ? Date.now() - tc.startTime : undefined,
+        };
+      }
+      return tc;
+    });
+
     set((prevState) => ({
       status: 'idle',
       currentStreamingId: null,
       currentStreamingText: '',
       activeToolCalls: new Map(),
+      // 清除 statusHint + 写入最终工具状态
+      messages: currentStreamingId
+        ? prevState.messages.map((msg) =>
+            msg.id === currentStreamingId
+              ? { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls }
+              : msg
+          )
+        : prevState.messages,
       stats: {
         ...prevState.stats,
         model: state.model || prevState.stats.model,
@@ -368,6 +618,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         icon: state.currentSkill.icon || '🛠️',
       } : prevState.currentSkill,
     }));
+  },
+
+  _handleMessagesRestored: (messages) => {
+    // 将 HistoryMessage[] 转换为 Message[]
+    const restoredMessages: Message[] = messages.map((msg: any, index: number) => ({
+      id: `restored-${msg.timestamp}-${index}`,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      toolCalls: msg.toolCalls?.map((tc: any) => ({
+        id: tc.id,
+        name: tc.name,
+        status: tc.status === 'success' ? 'success' : 'error',
+        startTime: msg.timestamp,
+      })),
+    }));
+
+    // 替换当前消息列表（恢复会话时应该清空现有消息）
+    set({
+      messages: restoredMessages,
+      status: 'idle',
+    });
+
+    // 记录日志
+    get().addLog('info', `已恢复 ${restoredMessages.length} 条历史消息`);
   },
 }));
 
@@ -425,5 +700,56 @@ if (typeof window !== 'undefined' && window.electron) {
 
   window.electron.onAskUserRequest((data) => {
     useChatStore.getState().setAskUserRequest(data);
+  });
+
+  // Plan Mode 事件监听
+  window.electron.onPlanModeEnter(() => {
+    useChatStore.getState().setPlanMode(true);
+  });
+
+  window.electron.onPlanModeExit(() => {
+    useChatStore.getState().setPlanMode(false);
+  });
+
+  // 会话事件监听
+  window.electron.onSessionMessagesRestored((data) => {
+    useChatStore.getState()._handleMessagesRestored(data.messages);
+  });
+
+  // 启动引导（防重复）
+  let bootThinkingReceived = false;
+  let bootGuideReceived = false;
+
+  window.electron.on('session:boot-thinking', () => {
+    if (bootThinkingReceived || bootGuideReceived) return;
+    bootThinkingReceived = true;
+    useChatStore.getState().addMessage({
+      id: `boot-thinking-${Date.now()}`,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      statusHint: '🧠 回忆往事中...',
+    });
+  });
+
+  window.electron.on('session:boot-guide', (data: { message: string }) => {
+    if (bootGuideReceived) return;
+    bootGuideReceived = true;
+    const state = useChatStore.getState();
+    // 找到 thinking 占位消息，替换为实际内容
+    const thinkingMsg = state.messages.find(m => m.id.startsWith('boot-thinking-'));
+    if (thinkingMsg) {
+      state.updateMessage(thinkingMsg.id, {
+        content: data.message,
+        statusHint: undefined,
+      });
+    } else {
+      state.addMessage({
+        id: `boot-guide-${Date.now()}`,
+        role: 'assistant',
+        content: data.message,
+        timestamp: Date.now(),
+      });
+    }
   });
 }

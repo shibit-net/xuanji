@@ -181,10 +181,14 @@ export class PipelineTool extends BaseTool {
           role: step.agent_id as any, // 暂时使用 agent_id 作为 role
         });
 
+        // 获取 Provider 实例
+        const mainProvider = this.providerManager.getProvider(this.agentConfig);
+        const lightProvider = this.providerManager.getLightProvider();
+
         // 执行 SubAgent
         const result = await runSubAgent(
-          this.providerManager,
-          this.agentRegistry,
+          mainProvider,
+          lightProvider,
           this.registry,
           this.agentConfig,
           context,

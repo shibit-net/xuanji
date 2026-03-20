@@ -145,11 +145,18 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set, get) => ({
     }),
 
   finishMessageStream: () =>
-    set((state) => ({
-      messageStream: state.messageStream
-        ? { ...state.messageStream, finished: true }
-        : null,
-    })),
+    set((state) => {
+      if (!state.messageStream) return {};
+      // 将所有仍在 running 的工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
+      const toolCalls = state.messageStream.toolCalls.map((tc) =>
+        tc.status === 'running'
+          ? { ...tc, status: 'success' as const, duration: tc.startTime ? Date.now() - tc.startTime : undefined }
+          : tc
+      );
+      return {
+        messageStream: { ...state.messageStream, toolCalls, finished: true },
+      };
+    }),
 
   resetMessageStream: () => set({ messageStream: null }),
 

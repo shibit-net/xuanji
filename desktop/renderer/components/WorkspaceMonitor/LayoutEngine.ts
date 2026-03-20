@@ -13,7 +13,7 @@ export class LayoutEngine {
       centerY: canvasHeight / 2,
       mainRadius: 40,
       subRadius: 25,
-      orbitRadius: 150,
+      orbitRadius: 150, // 保留，但不再用于圆形布局
       canvasWidth,
       canvasHeight,
     };
@@ -30,12 +30,12 @@ export class LayoutEngine {
   }
 
   /**
-   * 获取主 Agent 位置
+   * 获取主 Agent 位置（树状布局：顶部中央）
    */
   getMainAgentPosition(): Point {
     return {
       x: this.config.centerX,
-      y: this.config.centerY,
+      y: 100, // 距离顶部 100px
     };
   }
 
@@ -47,16 +47,42 @@ export class LayoutEngine {
   }
 
   /**
-   * 计算子 Agent 位置（圆形布局）
+   * 计算子 Agent 位置（树状布局：底部水平排列，自适应间距）
    * @param index 子 Agent 索引
    * @param total 子 Agent 总数
    */
   getSubAgentPosition(index: number, total: number): Point {
-    // 从顶部开始（-90度）
-    const angle = (2 * Math.PI / total) * index - Math.PI / 2;
+    if (total === 0) {
+      return { x: this.config.centerX, y: 300 };
+    }
+
+    const verticalOffset = 200; // 主 Agent 和子 Agent 之间的垂直间距
+    const padding = 60; // 左右边距
+    const subRadius = this.getSubAgentRadius();
+
+    // 计算可用宽度
+    const availableWidth = this.config.canvasWidth - padding * 2 - subRadius * 2 * total;
+
+    // 计算间距（理想间距 120px，但不超过可用宽度）
+    const idealGap = 120;
+    const minGap = 60; // 最小间距
+    let horizontalGap = idealGap;
+
+    if (total > 1) {
+      const requiredWidth = (total - 1) * idealGap;
+      if (requiredWidth > availableWidth) {
+        // 需要缩小间距
+        horizontalGap = Math.max(minGap, availableWidth / (total - 1));
+      }
+    }
+
+    // 计算总宽度和起始位置
+    const totalWidth = total > 1 ? (total - 1) * horizontalGap : 0;
+    const startX = this.config.centerX - totalWidth / 2;
+
     return {
-      x: this.config.centerX + Math.cos(angle) * this.config.orbitRadius,
-      y: this.config.centerY + Math.sin(angle) * this.config.orbitRadius,
+      x: startX + index * horizontalGap,
+      y: 100 + verticalOffset, // 主 Agent Y (100) + 垂直间距
     };
   }
 
@@ -68,17 +94,19 @@ export class LayoutEngine {
   }
 
   /**
-   * 计算连接线路径（贝塞尔曲线）
+   * 计算连接线路径（树状布局：垂直 → 水平 → 垂直）
    */
   getConnectionPath(from: Point, to: Point): Path {
-    const midX = (from.x + to.x) / 2;
+    // 计算中间点（垂直方向的中点）
     const midY = (from.y + to.y) / 2;
-    const controlOffset = 30;
 
     return {
-      start: from,
-      control: { x: midX, y: midY - controlOffset },
-      end: to,
+      points: [
+        from,                      // 起点（主 Agent 底部）
+        { x: from.x, y: midY },    // 垂直向下到中间点
+        { x: to.x, y: midY },      // 水平移动到子 Agent 的 X 坐标
+        to,                        // 垂直向下到子 Agent 顶部
+      ],
     };
   }
 

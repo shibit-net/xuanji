@@ -25,6 +25,10 @@ const TYPE_FILE_MAP: Record<MemoryEntryType, string> = {
   important_date: 'personal.jsonl',
   // Multi-Agent 新增：Agent 专属知识库
   agent_knowledge: 'agent-knowledge.jsonl',
+  // 经验教训系统
+  lesson_learned: 'lessons.jsonl',
+  reusable_pattern: 'lessons.jsonl',
+  unfinished_task: 'unfinished-tasks.jsonl',
 };
 
 /**

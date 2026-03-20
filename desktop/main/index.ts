@@ -122,6 +122,9 @@ async function initChatSession(): Promise<boolean> {
     });
 
     // 等待初始化完成
+    // 注意：先设置持久监听再发 init，避免 init 期间的事件（如 boot-guide）丢失
+    setupAgentProcessListeners();
+
     const initResult = await new Promise<{ success: boolean; error?: string }>((resolve) => {
       const timeout = setTimeout(() => {
         resolve({ success: false, error: '子进程初始化超时（30s）' });
@@ -156,8 +159,6 @@ async function initChatSession(): Promise<boolean> {
       return false;
     }
 
-    // 设置持久的消息监听
-    setupAgentProcessListeners();
     sessionReady = true;
 
     console.log('✅ ChatSession 子进程初始化成功');
@@ -223,13 +224,25 @@ function setupAgentProcessListeners() {
       case 'ask-user:request':
         mainWindow.webContents.send('ask-user:request', msg.data);
         break;
+      case 'plan-mode:enter':
+        mainWindow.webContents.send('plan-mode:enter');
+        break;
+      case 'plan-mode:exit':
+        mainWindow.webContents.send('plan-mode:exit');
+        break;
 
       // 会话通知事件
-      case 'session:resume-notification':
-        mainWindow.webContents.send('session:resume-notification', msg.data);
+      case 'session:boot-thinking':
+        mainWindow.webContents.send('session:boot-thinking', msg.data);
+        break;
+      case 'session:boot-guide':
+        mainWindow.webContents.send('session:boot-guide', msg.data);
         break;
       case 'session:archive-notification':
         mainWindow.webContents.send('session:archive-notification', msg.data);
+        break;
+      case 'session:messages-restored':
+        mainWindow.webContents.send('session:messages-restored', msg.data);
         break;
     }
   });
@@ -277,8 +290,8 @@ async function cleanupAgentProcess() {
 // ============================================================
 
 app.whenReady().then(async () => {
-  await initChatSession();
   createWindow();
+  await initChatSession();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -716,4 +729,35 @@ ipcMain.handle('plan-review:respond', async (_event, data: any) => {
 ipcMain.handle('ask-user:respond', async (_event, data: any) => {
   if (!agentProcess) return;
   agentProcess.send({ type: 'ask-user-response', data });
+});
+
+// ============================================================
+// IPC 通信 - 权限规则管理
+// ============================================================
+
+ipcMain.handle('permission:list', async () => {
+  if (!sessionReady) return { success: true, rules: [] };
+  try {
+    return await sendRequest('permission-list');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('permission:delete', async (_event, data: any) => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('permission-delete', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('permission:clear', async () => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('permission-clear');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 });

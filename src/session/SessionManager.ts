@@ -44,7 +44,7 @@ export interface MemoryDrivenConfig {
 export interface SessionManagerOptions extends Partial<SessionStorageOptions> {
   /** 会话配置 */
   sessionConfig?: SessionConfig;
-  /** 记忆驱动配置（向后兼容，逐步废弃） */
+  /** 记忆驱动配置 */
   memoryDriven?: Partial<MemoryDrivenConfig>;
   /** LLM Provider（用于生成摘要） */
   provider?: ILLMProvider;
@@ -66,7 +66,7 @@ export class SessionManager {
   private activeSessionId: string | null = null;
   /** 会话配置 */
   private sessionConfig: SessionConfig | null = null;
-  /** 记忆驱动配置（向后兼容） */
+  /** 记忆驱动配置 */
   private memoryDrivenConfig: MemoryDrivenConfig;
   /** 会话摘要生成器 */
   private summarizer: SessionSummarizer | null = null;
@@ -152,11 +152,30 @@ export class SessionManager {
         }
       }
 
-      // 2. 只保留最近 N 条消息
+      // 2. 只保留最近 N 条消息（确保窗口不以孤立的 tool_result 开头）
+      // Anthropic/Bedrock 要求每条 tool_result 必须与前一条 assistant 消息的 tool_use 配对，
+      // 若 slice 边界恰好落在配对之间，恢复会话时会抛出 ValidationException。
       const keepCount = this.memoryDrivenConfig.keepRecentMessages;
       if (keepCount > 0 && messages.length > keepCount) {
-        recentMessages = messages.slice(-keepCount);
-        log.info(`Keeping recent ${keepCount} messages (total: ${messages.length})`);
+        let startIdx = messages.length - keepCount;
+        // 从初始边界向前推进，直到第一条消息不是孤立的 tool_result
+        while (startIdx < messages.length - 1) {
+          const firstMsg = messages[startIdx];
+          if (
+            firstMsg.role === 'user' &&
+            Array.isArray(firstMsg.content) &&
+            firstMsg.content.length > 0 &&
+            (firstMsg.content[0] as { type?: string }).type === 'tool_result'
+          ) {
+            startIdx++;
+          } else {
+            break;
+          }
+        }
+        recentMessages = messages.slice(startIdx);
+        log.info(
+          `Keeping recent messages (total: ${messages.length}, window: ${recentMessages.length}, startIdx: ${startIdx})`
+        );
       } else {
         recentMessages = messages;
       }
@@ -164,14 +183,12 @@ export class SessionManager {
 
     const snapshot: SessionSnapshot = {
       metadata,
-      // 记忆驱动字段
       summary,
       keyPoints,
       memoryRefs,
       recentMessages,
-      // 传统字段（向后兼容）
-      messages: this.memoryDrivenConfig.enabled ? [] : messages, // 🔑 新模式不保存完整历史
-      checkpoints: [], // Checkpoint 由 CheckpointManager 独立管理
+      messages: this.memoryDrivenConfig.enabled ? [] : messages,
+      checkpoints: [],
       usage: options?.usage,
       historyMessages: options?.historyMessages,
     };
@@ -233,10 +250,8 @@ export class SessionManager {
       }
     }
 
-    // 向后兼容：如果是旧会话（没有 recentMessages），使用完整 messages
-    const messages = snapshot.recentMessages && snapshot.recentMessages.length > 0
-      ? snapshot.recentMessages
-      : snapshot.messages;
+    // messages.jsonl 已包含 recentMessages 内容（saveSnapshot 时优先写入）
+    const messages = snapshot.messages;
 
     return {
       sessionId,
@@ -425,41 +440,32 @@ export class SessionManager {
     sessionId?: string;
     summary?: string;
     memories?: MemoryEntry[];
+    messages?: Message[];
+    historyMessages?: HistoryMessage[];
   }> {
-    console.log('[SessionManager] initialize() called');
-    console.log('[SessionManager] autoResumeLastSession:', this.sessionConfig?.autoResumeLastSession);
     log.debug(`SessionManager.initialize() called, autoResumeLastSession: ${this.sessionConfig?.autoResumeLastSession}`);
 
     if (!this.sessionConfig?.autoResumeLastSession) {
-      console.log('[SessionManager] Auto-resume is disabled');
       log.debug('Auto-resume is disabled');
       return { resumed: false };
     }
 
     try {
-      // 1. 查找最后一个会话
-      console.log('[SessionManager] Calling list()...');
       const sessions = await this.list();
-      console.log(`[SessionManager] Found ${sessions.length} sessions`);
       log.debug(`Found ${sessions.length} sessions`);
 
       const lastSession = sessions
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
       if (!lastSession) {
-        console.log('[SessionManager] No previous session found');
         log.debug('No previous session found for auto-resume');
         return { resumed: false };
       }
 
-      console.log(`[SessionManager] Last session: ${lastSession.id}, name: ${lastSession.name}`);
       log.debug(`Last session: ${lastSession.id}, name: ${lastSession.name}`);
 
-      // 2. 恢复会话上下文
-      console.log('[SessionManager] Calling resume()...');
       const context = await this.resume(lastSession.id);
 
-      // 3. 检索相关记忆
       let memories: MemoryEntry[] = [];
       if (this.memoryManager) {
         try {
@@ -479,6 +485,8 @@ export class SessionManager {
         sessionId: context.sessionId,
         summary: context.summary,
         memories,
+        messages: context.messages,
+        historyMessages: context.historyMessages,
       };
     } catch (error) {
       log.warn('Failed to auto-resume previous session:', error);

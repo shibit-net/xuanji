@@ -42,13 +42,21 @@ export class MessageManager implements IMessageManager {
 
   /**
    * 构建完整消息数组 (system + history + user)
+   *
+   * 若历史末尾已是 user 消息（如 session restore 后 sanitizeToolPairs
+   * 补入的占位 tool_result），则将新消息追加为 text block 而非 push
+   * 新的 user 消息，避免产生连续 user 消息导致 Anthropic API 400。
    */
   build(userMessage: string): Message[] {
-    // 添加用户消息到历史
-    this.messages.push({
-      role: 'user',
-      content: userMessage,
-    });
+    if (this.messages.length > 0 && this.messages[this.messages.length - 1].role === 'user') {
+      // 末尾已是 user —— 追加 text block（Anthropic 支持混合 tool_result + text）
+      this.appendTextToLastMessage(userMessage);
+    } else {
+      this.messages.push({
+        role: 'user',
+        content: userMessage,
+      });
+    }
 
     // 返回 system + 完整历史
     // system content 使用 ContentBlock[] 格式，区分稳定部分和动态后缀
@@ -306,16 +314,19 @@ export class MessageManager implements IMessageManager {
    *
    * Anthropic API 要求：每个 assistant 消息中的 tool_use 块，
    * 必须在紧随其后的 user 消息中有对应的 tool_result 块。
+   * 反之，每个 user 消息中的 tool_result 块，必须在紧随其前的
+   * assistant 消息中有对应的 tool_use 块。
    * 违反此规则会返回 400/429 错误。
    *
    * 常见破损场景：
    * - Session resume 时 JSONL 行损坏导致 tool_result 消息丢失
    * - 流传输中断后会话保存了不完整的消息历史
-   * - 上下文压缩裁剪了配对的一半
+   * - 上下文压缩 / archive 裁剪了配对的一半
    */
   static sanitizeToolPairs(messages: Message[]): Message[] {
     const result = [...messages];
 
+    // ── Pass 1: 正向 — 为孤立的 tool_use 补入占位 tool_result ──
     for (let i = 0; i < result.length; i++) {
       const msg = result[i];
       if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
@@ -364,6 +375,51 @@ export class MessageManager implements IMessageManager {
           role: 'user',
           content: syntheticBlocks,
         });
+      }
+    }
+
+    // ── Pass 2: 反向 — 移除孤立的 tool_result（无对应 tool_use） ──
+    // 场景：archive / context compress 裁剪了窗口前半部分，
+    //       导致窗口开头的 user 消息包含引用已被删除 assistant 的 tool_result
+    for (let i = 0; i < result.length; i++) {
+      const msg = result[i];
+      if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+
+      // 收集此 user 消息中所有 tool_result 的 tool_use_id
+      const toolResultIds = (msg.content as ContentBlock[])
+        .filter(b => b.type === 'tool_result' && b.tool_use_id)
+        .map(b => (b as { tool_use_id: string }).tool_use_id);
+
+      if (toolResultIds.length === 0) continue;
+
+      // 找前一条 assistant 消息中已有的 tool_use id
+      const prevMsg = i > 0 ? result[i - 1] : undefined;
+      const existingUseIds = new Set<string>();
+      if (prevMsg?.role === 'assistant' && Array.isArray(prevMsg.content)) {
+        for (const block of prevMsg.content as ContentBlock[]) {
+          if (block.type === 'tool_use' && block.id) {
+            existingUseIds.add(block.id);
+          }
+        }
+      }
+
+      // 找出孤立的 tool_result ids
+      const orphanedIds = new Set(toolResultIds.filter(id => !existingUseIds.has(id)));
+      if (orphanedIds.size === 0) continue;
+
+      log.warn(`sanitizeToolPairs: user message[${i}] has ${orphanedIds.size} orphaned tool_result(s): ${[...orphanedIds].join(', ')}`);
+
+      // 过滤掉孤立的 tool_result 块
+      const filteredContent = (msg.content as ContentBlock[]).filter(
+        b => b.type !== 'tool_result' || !orphanedIds.has((b as { tool_use_id?: string }).tool_use_id ?? '')
+      );
+
+      if (filteredContent.length === 0) {
+        // 整条 user 消息为空 → 删除
+        result.splice(i, 1);
+        i--; // 调整索引
+      } else {
+        result[i] = { ...msg, content: filteredContent };
       }
     }
 

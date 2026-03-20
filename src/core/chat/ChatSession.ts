@@ -17,6 +17,8 @@ import type {
 import { AgentLoop, type AgentCallbacks } from '@/core/agent/AgentLoop';
 import { ToolRegistry } from '@/core/tools/ToolRegistry';
 import { AskUserTool, type AskUserHandler } from '@/core/tools/AskUserTool';
+import { EnterPlanModeTool, type PlanModeEnterHandler } from '@/core/tools/EnterPlanModeTool';
+import { ExitPlanModeTool, type PlanModeExitHandler } from '@/core/tools/ExitPlanModeTool';
 import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { SkillRegistry } from '@/core/skills';
 import type { IMemoryStore } from '@/memory/types';
@@ -30,6 +32,7 @@ import type { SessionListItem, Checkpoint, Message as SessionMessage, SessionUsa
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { PricingResolver } from '@/core/agent/PricingResolver';
 import { BackgroundTaskManager } from '@/core/tools/BackgroundTaskManager';
+import { MemoryFlushAgent } from '@/memory/MemoryFlushAgent';
 
 const log = logger.child({ module: 'ChatSession' });
 
@@ -46,8 +49,10 @@ export type PlanConfirmHandler = (
  * 会话级别的回调接口
  */
 export interface SessionCallbacks {
-  /** 恢复上次对话通知 */
-  onResumeNotification?: (summary: string, memoryCount: number) => void;
+  /** 启动引导：开始回忆（展示思考状态） */
+  onBootThinking?: () => void;
+  /** 启动引导消息（作为 assistant 消息展示在对话框） */
+  onBootGuide?: (message: string) => void;
 
   /** 自动归档通知 */
   onArchiveNotification?: (result: {
@@ -55,6 +60,9 @@ export interface SessionCallbacks {
     memoriesExtracted: number;
     summary?: string;
   }) => void;
+
+  /** 恢复消息历史到 GUI */
+  onMessagesRestored?: (messages: import('@/session/types').HistoryMessage[]) => void;
 }
 
 /**
@@ -128,6 +136,8 @@ export class ChatSession {
   private _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null = null;
   /** 上次记忆刷新时间（用于 IntelligentMemoryFlush 触发条件） */
   private lastFlushTime: number = Date.now();
+  /** 记忆刷新 Agent */
+  private memoryFlushAgent: MemoryFlushAgent | null = null;
   /** 会话回调 */
   private sessionCallbacks?: SessionCallbacks;
 
@@ -330,54 +340,96 @@ export class ChatSession {
 
     this.initialized = true;
 
-    // 🆕 尝试恢复上一次对话（连续会话模式）
-    console.log('[ChatSession] Checking auto-resume...', {
-      hasSessionManager: !!this.sessionManager,
-      hasSessionConfig: !!this.config.session,
-    });
-
-    if (this.sessionManager && this.config.session) {
+    // 🆕 初始化 MemoryFlushAgent
+    if (this.provider && this.lightProvider && this.registry && this.memoryManager && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
       try {
-        console.log('[ChatSession] Calling SessionManager.initialize()...');
-        const resumeResult = await this.sessionManager.initialize();
-        console.log('[ChatSession] SessionManager.initialize() result:', resumeResult);
+        this.memoryFlushAgent = new MemoryFlushAgent({
+          provider: this.provider,
+          lightProvider: this.lightProvider,
+          registry: this.registry,
+          parentConfig: {
+            model: this.config!.provider.model,
+            apiKey: this.config!.provider.apiKey,
+            baseURL: this.config!.provider.baseURL,
+            maxTokens: this.config!.provider.maxTokens,
+            temperature: this.config!.provider.temperature,
+          },
+          providerConfig: this.config!.provider,
+          memoryManager: this.memoryManager as InstanceType<typeof this._MemoryManagerClass>,
+          hookRegistry: this.hookRegistry,
+        });
+        log.info('🧠 MemoryFlushAgent initialized');
+      } catch (err) {
+        log.warn('MemoryFlushAgent init failed:', err);
+      }
+    }
 
-        if (resumeResult.resumed && resumeResult.sessionId) {
-          console.log(`[ChatSession] 📂 Auto-resumed session ${resumeResult.sessionId}`);
-          log.info(`📂 Auto-resumed session ${resumeResult.sessionId}`);
+    // 🆕 启动时记忆引导（替代旧的会话恢复逻辑）
+    if (this.memoryFlushAgent) {
+      try {
+        log.debug('Generating boot guide from memory...');
 
-          // 注入恢复的记忆到 system prompt
-          if (resumeResult.memories && resumeResult.memories.length > 0 && this.agentLoop) {
-            if (this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
-              const memoryPrompt = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(resumeResult.memories);
-              // 通过 MessageManager 注入 system prompt suffix
-              this.agentLoop.getMessageManager().setSystemPromptSuffix(memoryPrompt, 'resumed-memories');
-              log.debug(`Injected ${resumeResult.memories.length} memories to system prompt`);
-            }
+        // 通知 GUI 进入思考状态
+        if (this.sessionCallbacks?.onBootThinking) {
+          this.sessionCallbacks.onBootThinking();
+        }
+
+        const guide = await this.memoryFlushAgent.generateBootGuide();
+
+        if (guide.hasGuide) {
+          // 注入相关记忆到 system prompt（LLM 可参考的背景知识）
+          if (guide.memories.length > 0 && this.agentLoop && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+            const memoryPrompt = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(guide.memories);
+            this.agentLoop.getMessageManager().setSystemPromptSuffix(memoryPrompt, 'resumed-memories');
+            log.debug(`Injected ${guide.memories.length} memories to system prompt`);
           }
 
-          // 显示恢复提示（通过 callbacks.onResumeNotification）
-          console.log('[ChatSession] Checking notification callback...', {
-            showNotification: this.config.session?.showResumeNotification,
-            hasCallback: !!this.sessionCallbacks?.onResumeNotification,
-          });
-
-          if (this.config.session?.showResumeNotification && this.sessionCallbacks?.onResumeNotification) {
-            console.log('[ChatSession] Calling onResumeNotification...');
-            this.sessionCallbacks.onResumeNotification(
-              resumeResult.summary || '继续上次对话...',
-              resumeResult.memories?.length || 0
-            );
+          // 发送引导消息到对话框（作为 assistant 消息展示）
+          if (this.sessionCallbacks?.onBootGuide) {
+            this.sessionCallbacks.onBootGuide(guide.guideMessage);
           }
+
+          log.info(`🧠 Boot guide generated with ${guide.memories.length} memories`);
         } else {
-          console.log('[ChatSession] No session to resume');
+          log.debug('No boot guide available (no recent memories)');
         }
       } catch (err) {
-        console.error('[ChatSession] Failed to auto-resume session:', err);
+        log.warn('Boot guide generation failed:', err);
+      }
+    }
+
+    // MemoryFlushAgent 未初始化时的降级日志
+    if (!this.memoryFlushAgent) {
+      log.warn('MemoryFlushAgent not available, session will start without memory context');
+    }
+
+    // 恢复会话上下文
+    // 规则：记忆始终加载，会话上下文仅在文件非空时加载（即上次未被记忆化）
+    if (this.sessionManager && this.config.session) {
+      try {
+        const resumeResult = await this.sessionManager.initialize();
+
+        if (resumeResult.resumed && resumeResult.sessionId) {
+          // 会话上下文非空 = 上次未被记忆化（异常退出），恢复到 AgentLoop + GUI
+          const messagesToRestore = resumeResult.messages;
+          if (messagesToRestore && messagesToRestore.length > 0) {
+            if (this.agentLoop) {
+              this.agentLoop.restoreMessages(messagesToRestore);
+              // 消息本身已包含上下文，清除 boot guide suffix 避免冗余
+              this.agentLoop.getMessageManager().setSystemPromptSuffix('', 'boot-guide');
+              this.agentLoop.getMessageManager().setSystemPromptSuffix('', 'resumed-memories');
+              log.info(`📂 Restored ${messagesToRestore.length} unflushed messages from session ${resumeResult.sessionId}`);
+            }
+            if (resumeResult.historyMessages && resumeResult.historyMessages.length > 0 && this.sessionCallbacks?.onMessagesRestored) {
+              this.sessionCallbacks.onMessagesRestored(resumeResult.historyMessages);
+            }
+          } else {
+            log.debug(`Session ${resumeResult.sessionId} was fully memorized, no messages to restore`);
+          }
+        }
+      } catch (err) {
         log.warn('Failed to auto-resume session:', err);
       }
-    } else {
-      console.log('[ChatSession] Auto-resume skipped (no SessionManager or config)');
     }
 
     // 🔥 启动 ProactiveButler 后台服务
@@ -409,15 +461,42 @@ export class ChatSession {
     this.baseRegistry.register(taskTool);
     this._taskTool = taskTool;
 
-    const { TeamTool } = await import('@/core/tools/TeamTool');
-    const teamTool = new TeamTool();
-    this.baseRegistry.register(teamTool);
-    this._teamTool = teamTool;
+    // 为 TeamTool 和 QuickTeamTool 准备依赖
+    if (this.providerManager && this.config) {
+      const agentConfig = {
+        model: this.config.provider.model,
+        apiKey: this.config.provider.apiKey,
+        baseURL: this.config.provider.baseURL,
+        maxTokens: this.config.provider.maxTokens,
+        temperature: this.config.provider.temperature,
+        maxIterations: this.config.agent?.maxIterations,
+      };
 
-    const { QuickTeamTool } = await import('@/core/tools/QuickTeamTool');
-    const quickTeamTool = new QuickTeamTool();
-    this.baseRegistry.register(quickTeamTool);
-    this._quickTeamTool = quickTeamTool;
+      const mainProvider = this.providerManager.getProvider(agentConfig);
+      const lightProvider = this.providerManager.getLightProvider();
+
+      const deps = {
+        provider: mainProvider,
+        lightProvider: lightProvider,
+        registry: this.baseRegistry as IToolRegistry,
+        agentConfig,
+        hookRegistry: this.hookRegistry,
+        memoryStore: this.memoryManager,
+        depth: 0,
+      };
+
+      const { TeamTool } = await import('@/core/tools/TeamTool');
+      const teamTool = new TeamTool();
+      teamTool.setDependencies(deps);
+      this.baseRegistry.register(teamTool);
+      this._teamTool = teamTool;
+
+      const { QuickTeamTool } = await import('@/core/tools/QuickTeamTool');
+      const quickTeamTool = new QuickTeamTool();
+      quickTeamTool.setDependencies(deps);
+      this.baseRegistry.register(quickTeamTool);
+      this._quickTeamTool = quickTeamTool;
+    }
   }
 
   /**
@@ -585,10 +664,8 @@ export class ChatSession {
 
     await this.agentLoop!.run(userMessage);
 
-    // 自动保存会话
+    // 自动保存会话（用于中途退出恢复）
     this.turnCount++;
-    // 连续会话模式下，自动保存已被归档机制取代
-    // 但为了兼容性，仍然在每轮后保存（用于中途退出恢复）
     this.autoSaveAfterTurn().catch((err) => {
       log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
     });
@@ -734,7 +811,6 @@ export class ChatSession {
 
     // 5. 自动保存会话
     this.turnCount++;
-    // 连续会话模式下，自动保存作为备份机制
     this.autoSaveAfterTurn().catch((err) => {
       log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
     });
@@ -751,9 +827,7 @@ export class ChatSession {
   }
 
   /**
-   * 自动保存当前会话（每轮对话后调用）
-   *
-   * 连续会话模式下，用于中途退出恢复，不再作为主要的持久化机制
+   * 自动保存当前会话（每轮对话后调用，用于中途退出恢复）
    */
   private async autoSaveAfterTurn(): Promise<void> {
     if (!this.agentLoop) return;
@@ -761,9 +835,7 @@ export class ChatSession {
     const messages = this.agentLoop.getMessageHistory();
     if (messages.length === 0) return;
 
-    // 连续会话模式：每轮都保存（作为备份机制）
     const state = this.agentLoop.getState();
-    // 从 LLM 消息中提取 UI 可展示的历史消息
     const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
     await this.sessionManager.save(messages as SessionMessage[], undefined, {
       usage: {
@@ -1075,10 +1147,26 @@ export class ChatSession {
       );
 
       // 截断 AgentLoop 中的旧消息（保留最近的）
+      // 与 SessionManager.save() 相同的边界保护：
+      // 确保窗口不以孤立的 tool_result 开头（Anthropic 要求 tool_result 必须与前一条 assistant 的 tool_use 配对）
       const keepCount = this.config.session.archiveStrategy?.keepRecentMessages ?? 10;
-      const keptMessages = messages.slice(-keepCount);
+      let startIdx = Math.max(0, messages.length - keepCount);
+      while (startIdx < messages.length - 1) {
+        const firstMsg = messages[startIdx];
+        if (
+          firstMsg.role === 'user' &&
+          Array.isArray(firstMsg.content) &&
+          firstMsg.content.length > 0 &&
+          (firstMsg.content[0] as { type?: string }).type === 'tool_result'
+        ) {
+          startIdx++;
+        } else {
+          break;
+        }
+      }
+      const keptMessages = messages.slice(startIdx);
 
-      // 使用 replaceMessages 替换消息历史
+      // 使用 replaceMessages 替换消息历史（sanitizeToolPairs 会修复剩余配对问题）
       this.agentLoop.getMessageManager().replaceMessages(keptMessages);
 
       log.debug(`Kept recent ${keepCount} messages after archive`);
@@ -1165,24 +1253,57 @@ export class ChatSession {
    * PersistentShell bash 进程等资源。
    */
   async cleanup(): Promise<void> {
-    // ✨ 退出时最终保存会话（连续模式：始终保存）
     if (this.agentLoop) {
       const messages = this.agentLoop.getMessageHistory();
       if (messages.length > 0) {
+        const sessionId = this.sessionManager.getActiveSessionId() ?? undefined;
+
+        // 1. 记忆化：通过 MemoryFlushAgent 提取记忆
+        let flushed = false;
+        if (this.memoryFlushAgent) {
+          try {
+            const result = await this.memoryFlushAgent.flushOnExit(
+              messages as import('@/core/types').Message[],
+              sessionId,
+            );
+            flushed = result.extractedMemories > 0;
+            log.info(`Exit memory flush: ${result.extractedMemories} memories, ${result.extractedLessons} lessons in ${result.duration}ms`);
+          } catch (err) {
+            log.warn('MemoryFlushAgent flush failed:', err instanceof Error ? err.message : String(err));
+          }
+        }
+
+        // 2. 保存会话状态
         try {
           const state = this.agentLoop.getState();
           const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
-          await this.sessionManager.save(messages as SessionMessage[], undefined, {
-            usage: {
-              input: state.tokenUsage.input,
-              output: state.tokenUsage.output,
-              cost: state.cost,
-              cacheRead: state.tokenUsage.cacheRead,
-              cacheWrite: state.tokenUsage.cacheWrite,
-            },
-            historyMessages,
-          });
-          log.debug('Final session save on cleanup');
+          if (flushed) {
+            // 记忆化成功：保存空消息（清空会话上下文文件）
+            await this.sessionManager.save([] as SessionMessage[], undefined, {
+              usage: {
+                input: state.tokenUsage.input,
+                output: state.tokenUsage.output,
+                cost: state.cost,
+                cacheRead: state.tokenUsage.cacheRead,
+                cacheWrite: state.tokenUsage.cacheWrite,
+              },
+              historyMessages: [],
+            });
+            log.debug('Session context cleared after successful memory flush');
+          } else {
+            // 记忆化失败：保留完整会话上下文，下次启动恢复
+            await this.sessionManager.save(messages as SessionMessage[], undefined, {
+              usage: {
+                input: state.tokenUsage.input,
+                output: state.tokenUsage.output,
+                cost: state.cost,
+                cacheRead: state.tokenUsage.cacheRead,
+                cacheWrite: state.tokenUsage.cacheWrite,
+              },
+              historyMessages,
+            });
+            log.debug('Session context preserved (memory flush failed or unavailable)');
+          }
         } catch (err) {
           log.warn('Final session save failed:', err instanceof Error ? err.message : String(err));
         }
@@ -1238,6 +1359,9 @@ export class ChatSession {
 
     // 清理后台任务管理器
     BackgroundTaskManager.resetInstance();
+
+    // 清理 MemoryFlushAgent
+    this.memoryFlushAgent = null;
 
     log.info('ChatSession resources cleaned up');
   }
@@ -1451,6 +1575,39 @@ export class ChatSession {
    */
   setPlanConfirmHandler(handler: PlanConfirmHandler): void {
     this.onPlanConfirm = handler;
+  }
+
+  /**
+   * 设置进入 Plan Mode 处理器 (由 UI 层调用)
+   *
+   * 包装逻辑：先切换 ToolRegistry 的 planMode 标志，再通知 UI 层。
+   * 这样写操作拦截（ToolRegistry.execute 的 planMode 检查）可以立即生效。
+   */
+  setPlanModeEnterHandler(handler: PlanModeEnterHandler): void {
+    if (this.baseRegistry) {
+      const enterTool = this.baseRegistry.get('enter_plan_mode');
+      if (enterTool && enterTool instanceof EnterPlanModeTool) {
+        (enterTool as EnterPlanModeTool).setHandler(async () => {
+          this.baseRegistry!.enterPlanMode();
+          return handler();
+        });
+      }
+    }
+  }
+
+  /**
+   * 设置退出 Plan Mode 处理器 (由 UI 层调用)
+   */
+  setPlanModeExitHandler(handler: PlanModeExitHandler): void {
+    if (this.baseRegistry) {
+      const exitTool = this.baseRegistry.get('exit_plan_mode');
+      if (exitTool && exitTool instanceof ExitPlanModeTool) {
+        (exitTool as ExitPlanModeTool).setHandler(async () => {
+          this.baseRegistry!.exitPlanMode();
+          return handler();
+        });
+      }
+    }
   }
 
   /**

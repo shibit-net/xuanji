@@ -182,6 +182,7 @@ export class AgentLoop {
    */
   async run(userMessage: string): Promise<void> {
     this.running = true;
+    this._interrupted = false;  // 每次新运行前重置中断标志
     this.currentIteration = 0;
     const maxIterations = this.config.maxIterations ?? Infinity;
     const startTime = Date.now();

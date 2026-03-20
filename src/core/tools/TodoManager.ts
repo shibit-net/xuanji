@@ -316,9 +316,11 @@ export class TodoManager {
     const total = todos.length;
 
     const items = todos.map((t) => ({
+      id: t.id,
       title: t.title,
+      description: t.description || '',
       status: t.status,
-      ...(t.activeForm ? { activeForm: t.activeForm } : {}),
+      activeForm: t.activeForm,
     }));
 
     const progressData = JSON.stringify({ completed, total, items });

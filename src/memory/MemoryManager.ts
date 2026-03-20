@@ -608,6 +608,19 @@ export class MemoryManager implements IMemoryStore {
       accessCount: entry.accessCount ?? 0,
       projectPath: entry.projectPath,
       metadata: entry.metadata,
+      // OpenClaw 字段
+      category: entry.category,
+      topicId: entry.topicId,
+      dayKey: entry.dayKey,
+      sessionId: entry.sessionId,
+      relatedMemories: entry.relatedMemories,
+      extractedFrom: entry.extractedFrom,
+      supersededBy: entry.supersededBy,
+      // 经验教训字段
+      lessonType: entry.lessonType,
+      problemDescription: entry.problemDescription,
+      solution: entry.solution,
+      applicableScenarios: entry.applicableScenarios,
     };
 
     // 添加到长期记忆
@@ -713,6 +726,10 @@ export class MemoryManager implements IMemoryStore {
       important_date: '重要日期',
       // Multi-Agent 新增标签
       agent_knowledge: 'Agent 知识库',
+      // 经验教训系统
+      lesson_learned: '经验教训',
+      reusable_pattern: '可复用方案',
+      unfinished_task: '未完成任务',
     };
     return labels[type] ?? type;
   }

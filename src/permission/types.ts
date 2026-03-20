@@ -73,6 +73,15 @@ export type ConfirmationHandler = (
 /**
  * 权限控制器接口 (用于 ToolRegistry 依赖注入)
  */
+/** 持久化决策记录（供管理 UI 展示） */
+export interface PersistedDecisionInfo {
+  cacheKey: string;
+  allowed: boolean;
+  toolName: string;
+  timestamp: string;
+  expiresAt?: string;
+}
+
 export interface IPermissionController {
   /** 检查权限（可能触发 UI 确认，是异步的） */
   check(request: PermissionRequest): Promise<PermissionResult>;
@@ -88,6 +97,14 @@ export interface IPermissionController {
   reviewPlan(plan: string): Promise<PlanReviewResult>;
   /** 设置 IgnoreFilter 到 FileGuard */
   setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void;
+
+  // ============ 权限规则管理 ============
+  /** 列出所有持久化决策 */
+  listDecisions(): PersistedDecisionInfo[];
+  /** 删除指定决策（同时清除会话缓存） */
+  deleteDecision(cacheKey: string): Promise<void>;
+  /** 清空所有决策（同时清除会话缓存） */
+  clearDecisions(): Promise<void>;
 }
 
 // ============================================================

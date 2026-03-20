@@ -11,6 +11,8 @@ import WorkspaceMonitor from './WorkspaceMonitor';
 
 interface RightPanelProps {
   onToggle: () => void;
+  width: number;
+  onResize: (width: number) => void;
 }
 
 type TabId = 'workspace' | 'checkpoint' | 'tools' | 'memory' | 'logs';
@@ -23,11 +25,52 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'logs', label: '日志', icon: <FileText size={16} /> },
 ];
 
-export default function RightPanel({ onToggle }: RightPanelProps) {
+export default function RightPanel({ onToggle, width, onResize }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('workspace');
+  const [isResizing, setIsResizing] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [startWidth, setStartWidth] = useState(width);
+
+  // 处理拖拽开始
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true);
+    setStartX(e.clientX);
+    setStartWidth(width);
+    e.preventDefault();
+  };
+
+  // 处理拖拽中和拖拽结束
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = startX - e.clientX;
+      const newWidth = Math.max(280, Math.min(600, startWidth + delta));
+      onResize(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, startX, startWidth, onResize]);
 
   return (
-    <div className="w-80 bg-bg-secondary flex flex-col border-l border-bg-tertiary">
+    <div className="bg-bg-secondary flex flex-col border-l border-bg-tertiary relative" style={{ width: `${width}px` }}>
+      {/* 拖拽手柄 */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary transition-colors z-10"
+        onMouseDown={handleMouseDown}
+        style={{ userSelect: 'none' }}
+      />
+
       {/* 标签页 */}
       <div className="flex items-center justify-between border-b border-bg-tertiary">
         <div className="flex flex-1">

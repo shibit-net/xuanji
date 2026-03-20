@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import RightPanel from './components/RightPanel';
 import InputArea from './components/InputArea';
+import TodoPanel from './components/TodoPanel';
 import StatusBar from './components/StatusBar';
 import SettingsPanel from './components/SettingsPanel';
 import AgentManager from './components/AgentManager';
@@ -29,7 +30,11 @@ type DialogType = 'stats' | 'diagnostics' | null;
 
 export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [rightPanelVisible, setRightPanelVisible] = useState(false);
+  const [rightPanelVisible, setRightPanelVisible] = useState(true);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('rightPanelWidth');
+    return saved ? parseInt(saved, 10) : 320;
+  });
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [activeDialog, setActiveDialog] = useState<DialogType>(null);
 
@@ -55,6 +60,12 @@ export default function App() {
     } catch (err) {
       alert(`压缩失败: ${err instanceof Error ? err.message : String(err)}`);
     }
+  };
+
+  // 处理右侧面板宽度变化
+  const handleRightPanelResize = (width: number) => {
+    setRightPanelWidth(width);
+    localStorage.setItem('rightPanelWidth', width.toString());
   };
 
   return (
@@ -102,13 +113,18 @@ export default function App() {
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden">
               <ChatArea />
+              <TodoPanel />
               <InputArea />
             </div>
           )}
 
           {/* 右侧面板（仅对话模式显示） */}
           {viewMode === 'chat' && rightPanelVisible && (
-            <RightPanel onToggle={() => setRightPanelVisible(!rightPanelVisible)} />
+            <RightPanel
+              onToggle={() => setRightPanelVisible(!rightPanelVisible)}
+              width={rightPanelWidth}
+              onResize={handleRightPanelResize}
+            />
           )}
         </div>
 

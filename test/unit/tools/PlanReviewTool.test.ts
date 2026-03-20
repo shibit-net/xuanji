@@ -11,6 +11,9 @@ function createMockController(reviewResult: PlanReviewResult): IPermissionContro
     setPlanReviewHandler: vi.fn(),
     reviewPlan: vi.fn().mockResolvedValue(reviewResult),
     setIgnoreFilter: vi.fn(),
+    listDecisions: vi.fn().mockReturnValue([]),
+    deleteDecision: vi.fn().mockResolvedValue(undefined),
+    clearDecisions: vi.fn().mockResolvedValue(undefined),
   };
 }
 

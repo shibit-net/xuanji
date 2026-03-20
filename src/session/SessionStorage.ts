@@ -80,7 +80,11 @@ export class SessionStorage {
     await fs.writeFile(paths.meta, JSON.stringify(snapshot.metadata, null, 2), 'utf-8');
 
     // 3. 保存消息（JSONL 格式，流式写入避免内存峰值）
-    await this.writeMessagesStream(paths.messages, snapshot.messages);
+    // 记忆驱动模式：优先写入 recentMessages（最近 N 条），否则写完整 messages
+    const messagesToWrite = (snapshot.recentMessages && snapshot.recentMessages.length > 0)
+      ? snapshot.recentMessages
+      : snapshot.messages;
+    await this.writeMessagesStream(paths.messages, messagesToWrite);
 
     // 4. 保存 checkpoints
     await fs.writeFile(
@@ -89,11 +93,14 @@ export class SessionStorage {
       'utf-8'
     );
 
-    // 5. 保存会话状态（usage + historyMessages）
-    if (snapshot.usage || snapshot.historyMessages) {
-      const stateData: { usage?: SessionUsage; historyMessages?: HistoryMessage[] } = {};
-      if (snapshot.usage) stateData.usage = snapshot.usage;
-      if (snapshot.historyMessages) stateData.historyMessages = snapshot.historyMessages;
+    // 5. 保存会话状态（usage + historyMessages + 记忆驱动字段）
+    const stateData: Record<string, unknown> = {};
+    if (snapshot.usage) stateData.usage = snapshot.usage;
+    if (snapshot.historyMessages) stateData.historyMessages = snapshot.historyMessages;
+    if (snapshot.summary) stateData.summary = snapshot.summary;
+    if (snapshot.keyPoints) stateData.keyPoints = snapshot.keyPoints;
+    if (snapshot.memoryRefs) stateData.memoryRefs = snapshot.memoryRefs;
+    if (Object.keys(stateData).length > 0) {
       await fs.writeFile(paths.state, JSON.stringify(stateData, null, 2), 'utf-8');
     }
 
@@ -159,14 +166,20 @@ export class SessionStorage {
       );
     }
 
-    // 5. 读取会话状态（usage + historyMessages，兼容旧版无此文件）
+    // 5. 读取会话状态（usage + historyMessages + 记忆驱动字段，兼容旧版无此文件）
     let usage: SessionUsage | undefined;
     let historyMessages: HistoryMessage[] | undefined;
+    let summary: string | undefined;
+    let keyPoints: string[] | undefined;
+    let memoryRefs: string[] | undefined;
     try {
       const stateContent = await fs.readFile(paths.state, 'utf-8');
       const stateData = JSON.parse(stateContent);
       usage = stateData.usage;
       historyMessages = stateData.historyMessages;
+      summary = stateData.summary;
+      keyPoints = stateData.keyPoints;
+      memoryRefs = stateData.memoryRefs;
     } catch {
       // 旧版 session 没有 state 文件，静默忽略
     }
@@ -178,38 +191,10 @@ export class SessionStorage {
       corruptedLineCount: corruptedLines.length > 0 ? corruptedLines.length : undefined,
       usage,
       historyMessages,
+      summary,
+      keyPoints,
+      memoryRefs,
     };
-  }
-
-  /**
-   * 追加单条消息到 JSONL 文件（流式写入）
-   */
-  async appendMessage(sessionId: string, message: Message): Promise<void> {
-    // 使用 Promise 链实现简单互斥锁（与 updateMetadata 共享同一把锁）
-    const release = this._writeLock;
-    let resolve!: () => void;
-    this._writeLock = new Promise<void>(r => { resolve = r; });
-
-    await release;
-    try {
-      const paths = this.getSessionPaths(sessionId);
-      const line = JSON.stringify(message) + '\n';
-      await fs.appendFile(paths.messages, line, 'utf-8');
-
-      // 更新元数据中的消息计数（内联更新，避免嵌套锁死锁）
-      const metaContent = await fs.readFile(paths.meta, 'utf-8');
-      const metadata: SessionMetadata = JSON.parse(metaContent);
-      const updatedMetadata = {
-        ...metadata,
-        messageCount: metadata.messageCount + 1,
-        updatedAt: Date.now(),
-      };
-      const tmpPath = paths.meta + '.tmp';
-      await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
-      await fs.rename(tmpPath, paths.meta);
-    } finally {
-      resolve();
-    }
   }
 
   /**

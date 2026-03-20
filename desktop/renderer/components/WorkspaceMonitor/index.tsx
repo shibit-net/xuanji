@@ -62,19 +62,86 @@ export default function WorkspaceMonitor() {
       currentTool: agentStatus?.currentTool?.name,
     };
 
-    // 构建子 Agent 数据（从工具调用映射）
-    const subAgents = (messageStream?.toolCalls || []).map((toolCall) => ({
-      id: toolCall.id,
-      name: toolCall.name,
-      type: 'tool' as const,
-      status: toolCall.status === 'running' ? 'running' as const :
-              toolCall.status === 'success' ? 'success' as const :
-              toolCall.status === 'error' ? 'error' as const : 'idle' as const,
-      task: toolCall.input ? JSON.stringify(toolCall.input).slice(0, 50) : undefined,
-      duration: toolCall.duration,
-      tokenUsage: undefined, // 暂时没有单个工具的 token 统计
-      progress: toolCall.status === 'running' ? 0.5 : undefined,
-    }));
+    // 构建子 Agent 数据（从工具调用映射）- 只显示正在执行的工具，完成后消失
+    const subAgents = (messageStream?.toolCalls || [])
+      .filter((toolCall) => toolCall.status === 'running')
+      .flatMap((toolCall) => {
+        // 如果是 Multi-Agent 工具，展开成员/步骤
+        if (toolCall.multiAgent) {
+          const { type, strategy, teamName, members, steps } = toolCall.multiAgent;
+
+          // 对于团队类型（orchestrate, quick_team, agent_team），展示成员
+          if ((type === 'orchestrate' || type === 'quick_team' || type === 'agent_team') && members && members.length > 0) {
+            return members.map((member: any) => ({
+              id: `${toolCall.id}-${member.id}`,
+              name: member.name,
+              type: 'agent' as const,
+              status: (member.status === 'idle' ? 'idle' :
+                       member.status === 'running' ? 'running' :
+                       member.status === 'success' ? 'success' : 'error') as const,
+              task: member.role,
+              duration: member.duration,
+              tokenUsage: member.tokenUsage,
+              progress: member.progress || 0,
+              multiAgent: {
+                type,
+                strategy,
+                teamName,
+                parentId: toolCall.id,
+              },
+            }));
+          }
+
+          // 对于流水线类型（pipeline），展示步骤
+          if (type === 'pipeline' && steps && steps.length > 0) {
+            return steps.map((step: any, index: number) => ({
+              id: `${toolCall.id}-step-${index}`,
+              name: step.name,
+              type: 'agent' as const,
+              status: (step.status === 'pending' ? 'idle' :
+                       step.status === 'running' ? 'running' :
+                       step.status === 'success' ? 'success' : 'error') as const,
+              task: step.description,
+              progress: step.progress || 0,
+              multiAgent: {
+                type,
+                stepIndex: index,
+                totalSteps: steps.length,
+                parentId: toolCall.id,
+              },
+            }));
+          }
+
+          // 对于委托类型（delegate），展示为单个子代理
+          if (type === 'delegate') {
+            return [{
+              id: toolCall.id,
+              name: `Delegate: ${toolCall.multiAgent.subagentType || 'agent'}`,
+              type: 'delegate' as const,
+              status: 'running' as const,
+              task: (toolCall.input?.description as string) || 'Delegated task',
+              duration: toolCall.duration,
+              progress: 0.5,
+              multiAgent: {
+                type,
+                subagentType: toolCall.multiAgent.subagentType,
+              },
+            }];
+          }
+        }
+
+        // 普通工具调用
+        return [{
+          id: toolCall.id,
+          name: toolCall.name,
+          type: 'tool' as const,
+          status: 'running' as const,
+          task: toolCall.input ? JSON.stringify(toolCall.input).slice(0, 50) : undefined,
+          duration: toolCall.duration,
+          tokenUsage: undefined,
+          progress: 0.5,
+        }];
+      });
 
     // 构建协作关系（主 Agent → 工具）
     const collaborations = subAgents.map((agent) => ({

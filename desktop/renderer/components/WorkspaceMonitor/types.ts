@@ -15,9 +15,7 @@ export interface Circle {
 }
 
 export interface Path {
-  start: Point;
-  control: Point;
-  end: Point;
+  points: Point[];  // 支持多个点的路径，用于直角连接线
 }
 
 export type AgentState = 'idle' | 'thinking' | 'executing' | 'waiting' | 'error' | 'done';
@@ -35,12 +33,23 @@ export interface MainAgentData {
 export interface SubAgentData {
   id: string;
   name: string;
-  type: 'tool' | 'agent';
+  type: 'tool' | 'agent' | 'team' | 'pipeline' | 'delegate';
   status: SubAgentState;
   task?: string;
   duration?: number;
   tokenUsage?: number;
   progress?: number;
+
+  // Multi-Agent 扩展字段
+  multiAgent?: {
+    type: 'orchestrate' | 'pipeline' | 'quick_team' | 'agent_team' | 'delegate';
+    strategy?: string;
+    teamName?: string;
+    parentId?: string;
+    stepIndex?: number;
+    totalSteps?: number;
+    subagentType?: string;
+  };
 }
 
 export interface Collaboration {

@@ -83,28 +83,26 @@ export interface FileSnapshot {
 /**
  * 会话快照（用于保存和恢复）
  *
- * 🆕 记忆驱动模式（方案 A）：
- * - summary: AI 生成的会话摘要（替代完整消息历史）
+ * 记忆驱动模式：
+ * - summary: AI 生成的会话摘要
  * - keyPoints: 关键决策/结论列表
  * - memoryRefs: 相关记忆 ID 引用
- * - recentMessages: 保留最近 N 条消息（兼容性 + 快速上下文）
- * - messages: 向后兼容旧会话（逐步废弃）
+ * - recentMessages: 最近 N 条消息（快速上下文恢复）
+ * - messages: 持久化到 messages.jsonl 的消息（记忆驱动模式下为 recentMessages 内容）
  */
 export interface SessionSnapshot {
   metadata: SessionMetadata;
 
-  // === 记忆驱动字段（新） ===
   /** AI 生成的会话摘要（会话主题、目标、进展） */
   summary?: string;
   /** 关键点列表（重要决策、结论、待办事项） */
   keyPoints?: string[];
   /** 相关记忆 ID 引用（该会话产生或引用的记忆） */
   memoryRefs?: string[];
-  /** 最近 N 条消息（兼容性 + 快速上下文恢复） */
+  /** 最近 N 条消息（saveSnapshot 时优先写入这些消息） */
   recentMessages?: Message[];
 
-  // === 传统字段（兼容旧会话，逐步废弃） ===
-  /** 完整消息历史（旧会话保留，新会话不再保存） */
+  /** 消息历史（从 messages.jsonl 读取） */
   messages: Message[];
 
   checkpoints: Checkpoint[];
@@ -137,18 +135,11 @@ export interface HistoryMessage {
 
 /**
  * Resume 返回的完整上下文
- *
- * 🆕 记忆驱动模式：
- * - summary: 会话摘要
- * - keyPoints: 关键点列表
- * - memories: 检索到的相关记忆条目
- * - recentMessages: 最近的消息（而非完整历史）
  */
 export interface ResumedSessionContext {
   /** 会话 ID */
   sessionId: string;
 
-  // === 记忆驱动字段（新） ===
   /** 会话摘要 */
   summary?: string;
   /** 关键点列表 */
@@ -161,8 +152,7 @@ export interface ResumedSessionContext {
     timestamp: number;
   }>;
 
-  // === 传统字段（兼容） ===
-  /** LLM 消息历史（旧会话完整历史，新会话仅最近 N 条） */
+  /** LLM 消息历史（记忆驱动模式下为最近 N 条） */
   messages: Message[];
   /** 累计 token 用量 */
   usage: SessionUsage;

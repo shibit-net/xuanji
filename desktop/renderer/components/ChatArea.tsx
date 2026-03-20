@@ -15,25 +15,15 @@ export default function ChatArea() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
 
-  // 监听会话事件（恢复通知、归档通知）
+  // 监听归档通知
   useEffect(() => {
-    // 恢复通知处理器
-    const handleResumeNotification = (_event: any, data: { summary: string; memoryCount: number }) => {
-      toast.info(`📂 已恢复上次对话：${data.summary}（检索到 ${data.memoryCount} 条记忆）`, 5000);
-    };
-
-    // 归档通知处理器
-    const handleArchiveNotification = (_event: any, data: { archivedCount: number; memoriesExtracted: number; summary?: string }) => {
+    const handleArchiveNotification = (data: { archivedCount: number; memoriesExtracted: number; summary?: string }) => {
       toast.success(`📦 已归档 ${data.archivedCount} 条消息，提取 ${data.memoriesExtracted} 条记忆`, 3000);
     };
 
-    // 注册事件监听
-    window.electron.on('session:resume-notification', handleResumeNotification);
     window.electron.on('session:archive-notification', handleArchiveNotification);
 
-    // 清理
     return () => {
-      window.electron.off('session:resume-notification', handleResumeNotification);
       window.electron.off('session:archive-notification', handleArchiveNotification);
     };
   }, [toast]);

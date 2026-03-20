@@ -122,6 +122,32 @@ export interface ToolCallState {
   startTime: number;
   endTime?: number;
   duration?: number;
+
+  // Multi-Agent 扩展字段
+  multiAgent?: {
+    type: 'orchestrate' | 'pipeline' | 'quick_team' | 'agent_team' | 'delegate';
+    strategy?: 'sequential' | 'parallel' | 'hierarchical' | 'debate' | 'pipeline';
+    teamName?: string;
+    members?: Array<{
+      id: string;
+      name: string;
+      role: string;
+      status: 'idle' | 'running' | 'success' | 'error';
+      progress?: number;
+      duration?: number;
+      tokenUsage?: number;
+    }>;
+    steps?: Array<{
+      id: string;
+      name: string;
+      description?: string;
+      status: 'pending' | 'running' | 'success' | 'error';
+      progress?: number;
+      output?: string;
+    }>;
+    currentStep?: number;
+    totalSteps?: number;
+  };
 }
 
 export interface MessageStreamState {

@@ -3,7 +3,8 @@
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Eye, EyeOff, Loader2, Check } from 'lucide-react';
+import { X, Save, Eye, EyeOff, Loader2, Check, Shield, Settings } from 'lucide-react';
+import PermissionRulesPanel from './PermissionRulesPanel';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -20,6 +21,8 @@ interface ProviderConfig {
   lightModel: string;
 }
 
+type TabId = 'general' | 'permissions';
+
 const ADAPTERS = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
@@ -33,6 +36,7 @@ const MODELS: Record<string, string[]> = {
 };
 
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<TabId>('general');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -111,9 +115,37 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         </button>
       </div>
 
+      {/* 标签页导航 */}
+      <div className="flex border-b border-bg-tertiary bg-bg-secondary px-4">
+        <button
+          onClick={() => setActiveTab('general')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 transition-colors ${
+            activeTab === 'general'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Settings size={14} />
+          通用
+        </button>
+        <button
+          onClick={() => setActiveTab('permissions')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 transition-colors ${
+            activeTab === 'permissions'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <Shield size={14} />
+          权限规则
+        </button>
+      </div>
+
       {/* 内容 */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        {loading ? (
+        {/* 通用设置 */}
+        {activeTab === 'general' && (
+        loading ? (
           <div className="flex items-center justify-center h-32">
             <Loader2 size={24} className="animate-spin text-primary" />
             <span className="ml-2 text-text-secondary">加载配置中...</span>
@@ -230,6 +262,12 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
               <span>{saving ? '保存中...' : saved ? '已保存' : '保存配置'}</span>
             </button>
           </div>
+        )
+        )}
+
+        {/* 权限规则管理 */}
+        {activeTab === 'permissions' && (
+          <PermissionRulesPanel />
         )}
       </div>
     </div>

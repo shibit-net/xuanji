@@ -16,10 +16,15 @@ export type MemoryEntryType =
   | 'relationship'     // 人际关系（联系人/喜好/互动）
   | 'important_date'   // 重要日期（生日/纪念日/截止日）
   // Multi-Agent 新增：Agent 专属知识库
-  | 'agent_knowledge'; // Agent 知识库条目
+  | 'agent_knowledge'  // Agent 知识库条目
+  // 经验教训系统
+  | 'lesson_learned'   // 经验教训（错误方案→改进、优秀方案→复用）
+  | 'reusable_pattern' // 可复用方案模式
+  // 任务跟踪
+  | 'unfinished_task'; // 未完成的任务（会话中断时保存，下次启动提醒）
 
 /** 记忆分类（OpenClaw 启发） */
-export type MemoryCategory = 'timeline' | 'topic' | 'fact';
+export type MemoryCategory = 'timeline' | 'topic' | 'fact' | 'lesson';
 
 /** 记忆条目元数据（用于结构化信息） */
 export interface MemoryMetadata {
@@ -38,7 +43,6 @@ export interface MemoryMetadata {
   /** 记忆重要性等级（影响遗忘曲线） */
   importance?: 'high' | 'medium' | 'low';
 }
-
 /** 单条记忆条目 */
 export interface MemoryEntry {
   id: string;
@@ -76,6 +80,32 @@ export interface MemoryEntry {
 
   /** 被替代记忆 ID（记录被哪条新记忆替代，用于知识更新） */
   supersededBy?: string;
+
+  // ═══ unfinished_task 字段 ═══
+
+  /** 对于 unfinished_task：用户是否已标记"不再提醒" */
+  dismissed?: boolean;
+
+  /** 对于 unfinished_task：任务执行上下文 */
+  taskContext?: {
+    userInput?: string;
+    completedSteps?: string[];
+    remainingSteps?: string[];
+  };
+
+  // ═══ 经验教训字段 ═══
+
+  /** 经验教训类型 */
+  lessonType?: 'mistake' | 'improvement' | 'best_practice';
+
+  /** 问题描述（错误方案的原始问题） */
+  problemDescription?: string;
+
+  /** 解决方案（改进后的方案或可复用方案） */
+  solution?: string;
+
+  /** 适用场景 */
+  applicableScenarios?: string[];
 }
 
 /** 工具调用记录 */

@@ -30,6 +30,7 @@ import type {
   ConfirmationHandler,
   PlanReviewResult,
   PlanReviewHandler,
+  PersistedDecisionInfo,
 } from './types';
 import { FileGuard } from './guards/FileGuard';
 import { CommandGuard } from './guards/CommandGuard';
@@ -407,6 +408,41 @@ export class PermissionController implements IPermissionController {
       const result: PlanReviewResult = { decision: 'reject' };
       this.auditLogger.recordPlanReview(plan, result).catch(() => {});
       return result;
+    }
+  }
+
+  // ============================================================
+  // 权限规则管理方法
+  // ============================================================
+
+  /**
+   * 列出所有持久化决策（供管理 UI 展示）
+   */
+  listDecisions(): PersistedDecisionInfo[] {
+    return this.decisionStore?.getAll() ?? [];
+  }
+
+  /**
+   * 删除指定决策（同时清除会话级缓存）
+   */
+  async deleteDecision(cacheKey: string): Promise<void> {
+    // 清除会话缓存
+    this.decisionCache.delete(cacheKey);
+    // 清除持久化存储
+    if (this.decisionStore) {
+      await this.decisionStore.delete(cacheKey);
+    }
+  }
+
+  /**
+   * 清空所有决策（同时清除会话级缓存）
+   */
+  async clearDecisions(): Promise<void> {
+    // 清空会话缓存
+    this.decisionCache.clear();
+    // 清空持久化存储
+    if (this.decisionStore) {
+      await this.decisionStore.clear();
     }
   }
 }

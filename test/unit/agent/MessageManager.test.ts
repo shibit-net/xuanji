@@ -38,13 +38,28 @@ describe('MessageManager', () => {
     expect(text).toBe('自定义提示词');
   });
 
-  it('build() 应累积用户消息', () => {
+  it('build() 连续调用应合并为同一条 user 消息（避免连续 user 导致 API 400）', () => {
     manager.build('第一条');
     const messages = manager.build('第二条');
-    // system + 两条 user
-    expect(messages.length).toBe(3);
+    // system + 1 条合并后的 user（连续 build 会 append 而非 push）
+    expect(messages.length).toBe(2);
+    expect(messages[1].role).toBe('user');
+    // 内容已合并（appendTextToLastMessage 将 content 转为 ContentBlock[]）
+    const content = messages[1].content;
+    expect(Array.isArray(content)).toBe(true);
+    const texts = (content as ContentBlock[]).map(b => b.text).join('');
+    expect(texts).toContain('第一条');
+    expect(texts).toContain('第二条');
+  });
+
+  it('build() 中间有 assistant 时应正常累积为独立 user 消息', () => {
+    manager.build('第一条');
+    manager.addAssistantMessage([{ type: 'text', text: '回复' }]);
+    const messages = manager.build('第二条');
+    // system + user1 + assistant + user2
+    expect(messages.length).toBe(4);
     expect(messages[1].content).toBe('第一条');
-    expect(messages[2].content).toBe('第二条');
+    expect(messages[3].content).toBe('第二条');
   });
 
   it('默认 system prompt 应包含基本角色描述', () => {
@@ -147,8 +162,9 @@ describe('MessageManager', () => {
 
   it('clear() 应清空历史', () => {
     manager.build('消息1');
+    manager.addAssistantMessage([{ type: 'text', text: '回复' }]);
     manager.build('消息2');
-    expect(manager.getHistory().length).toBe(2);
+    expect(manager.getHistory().length).toBe(3); // user + assistant + user
     manager.clear();
     expect(manager.getHistory().length).toBe(0);
   });

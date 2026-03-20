@@ -83,11 +83,20 @@ export class AnthropicProvider extends BaseLLMProvider {
     };
 
     // 🆕 P0 优化：Extended Thinking 支持
-    // adaptive 模式直接透传，Anthropic SDK 原生处理（代理服务已支持）
+    // adaptive 模式：直连 Anthropic 官方 API 时透传；经代理/Bedrock 时降级为 enabled
+    // Bedrock 只支持 'disabled' | 'enabled'，不支持 'adaptive'
+    // budget_tokens 自动计算：取 adjustedMaxTokens 的 30%，平衡思考深度和输出空间
     if (config.thinking) {
-      (params as any).thinking = config.thinking.type === 'adaptive'
+      const isDirectAnthropic = !config.baseURL
+        || config.baseURL.includes('api.anthropic.com');
+
+      // 自动计算 budget_tokens：显式配置优先，否则取 max_tokens 的 30%
+      const autoBudget = Math.floor(adjustedMaxTokens * 0.3);
+      const budgetTokens = config.thinking.budgetTokens ?? autoBudget;
+
+      (params as any).thinking = (config.thinking.type === 'adaptive' && isDirectAnthropic)
         ? { type: 'adaptive', effort: config.thinking.effort ?? 'medium' }
-        : { type: 'enabled', budget_tokens: config.thinking.budgetTokens ?? 10000 };
+        : { type: 'enabled', budget_tokens: budgetTokens };
     }
 
     // 调试日志：统计缓存断点数量

@@ -112,8 +112,16 @@ export interface ElectronAPI {
   onPlanReviewRequest: (callback: (data: PlanReviewRequestData) => void) => void;
   planReviewRespond: (data: any) => Promise<void>;
 
+  onPlanModeEnter: (callback: () => void) => void;
+  onPlanModeExit: (callback: () => void) => void;
+
   onAskUserRequest: (callback: (data: AskUserRequestData) => void) => void;
   askUserRespond: (data: any) => Promise<void>;
+
+  // 权限规则管理
+  permissionListRules: () => Promise<{ success: boolean; rules?: PermissionRule[]; error?: string }>;
+  permissionDeleteRule: (data: { cacheKey: string }) => Promise<{ success: boolean; error?: string }>;
+  permissionClearRules: () => Promise<{ success: boolean; error?: string }>;
 
   // 通用事件监听
   on: (channel: string, callback: (...args: any[]) => void) => void;
@@ -158,6 +166,14 @@ export interface PermissionRequestData {
   riskLevel: 'safe' | 'warn' | 'danger';
   description: string;
   suggestion: string;
+}
+
+export interface PermissionRule {
+  cacheKey: string;
+  allowed: boolean;
+  toolName: string;
+  timestamp: string;
+  expiresAt?: string;
 }
 
 export interface PlanReviewRequestData {

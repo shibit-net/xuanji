@@ -144,7 +144,8 @@
       "Bash(timeout:*)",
       "Bash(node:*)",
       "Bash(find:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Read(//Users/kevinshi/.xuanji/memory/**)"
     ]
   }
 }

@@ -172,6 +172,9 @@ export class MemorySearchTool extends BaseTool {
       relationship: 'Relationship',
       important_date: 'Important Date',
       agent_knowledge: 'Agent Knowledge',
+      lesson_learned: 'Lesson Learned',
+      reusable_pattern: 'Reusable Pattern',
+      unfinished_task: 'Unfinished Task',
     };
     return labels[type] ?? type;
   }

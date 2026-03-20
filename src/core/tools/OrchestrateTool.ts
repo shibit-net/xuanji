@@ -200,10 +200,14 @@ export class OrchestrateTool extends BaseTool {
     };
 
     try {
+      // 获取 Provider 实例
+      const mainProvider = this.providerManager.getProvider(this.agentConfig);
+      const lightProvider = this.providerManager.getLightProvider();
+
       // 创建团队管理器
       const teamManager = new TeamManager(
-        this.providerManager,
-        this.agentRegistry,
+        mainProvider,
+        lightProvider,
         this.registry,
         this.agentConfig,
         this.hookRegistry,

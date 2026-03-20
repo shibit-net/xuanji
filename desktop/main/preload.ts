@@ -113,16 +113,38 @@ contextBridge.exposeInMainWorld('electron', {
   },
   planReviewRespond: (data: any) => ipcRenderer.invoke('plan-review:respond', data),
 
+  onPlanModeEnter: (callback: () => void) => {
+    ipcRenderer.on('plan-mode:enter', () => callback());
+  },
+  onPlanModeExit: (callback: () => void) => {
+    ipcRenderer.on('plan-mode:exit', () => callback());
+  },
+
   onAskUserRequest: (callback: (data: any) => void) => {
     ipcRenderer.on('ask-user:request', (_event, data) => callback(data));
   },
   askUserRespond: (data: any) => ipcRenderer.invoke('ask-user:respond', data),
 
+  // ============ 权限规则管理 ============
+  permissionListRules: () => ipcRenderer.invoke('permission:list'),
+  permissionDeleteRule: (data: { cacheKey: string }) => ipcRenderer.invoke('permission:delete', data),
+  permissionClearRules: () => ipcRenderer.invoke('permission:clear'),
+
+  // ============ 会话事件监听 ============
+  onSessionMessagesRestored: (callback: (data: { messages: any[] }) => void) => {
+    ipcRenderer.on('session:messages-restored', (_event, data) => callback(data));
+  },
+
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+    const handler = (_event: any, ...args: any[]) => callback(...args);
+    (callback as any).__ipcHandler = handler;
+    ipcRenderer.on(channel, handler);
   },
   off: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.removeListener(channel, (_event, ...args) => callback(...args));
+    const handler = (callback as any).__ipcHandler;
+    if (handler) {
+      ipcRenderer.removeListener(channel, handler);
+    }
   },
 });

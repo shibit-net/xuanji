@@ -343,29 +343,41 @@ export class CanvasRenderer {
   private drawConnections() {
     if (!this.state) return;
 
-    this.state.collaborations.forEach((collab) => {
-      const fromPos = this.getAgentPosition(collab.from);
-      const toPos = this.getAgentPosition(collab.to);
+    try {
+      this.state.collaborations.forEach((collab) => {
+        const fromPos = this.getAgentPosition(collab.from);
+        const toPos = this.getAgentPosition(collab.to);
 
-      if (fromPos && toPos) {
-        const path = this.layoutEngine.getConnectionPath(fromPos, toPos);
+        if (fromPos && toPos) {
+          const path = this.layoutEngine.getConnectionPath(fromPos, toPos);
 
-        // 绘制贝塞尔曲线（使用璇玑主题色）
-        this.ctx.strokeStyle = collab.active ? '#34D399' : '#3A3A3A'; // success : bg-tertiary
-        this.ctx.lineWidth = collab.active ? 2 : 1;
-        this.ctx.setLineDash(collab.type === 'data' ? [5, 5] : []);
-        this.ctx.beginPath();
-        this.ctx.moveTo(path.start.x, path.start.y);
-        this.ctx.quadraticCurveTo(
-          path.control.x,
-          path.control.y,
-          path.end.x,
-          path.end.y
-        );
-        this.ctx.stroke();
-        this.ctx.setLineDash([]);
-      }
-    });
+          // 检查 path.points 是否有效
+          if (!path.points || !Array.isArray(path.points) || path.points.length === 0) {
+            return;
+          }
+
+          // 绘制直角连接线（使用璇玑主题色）
+          this.ctx.strokeStyle = collab.active ? '#34D399' : '#3A3A3A'; // success : bg-tertiary
+          this.ctx.lineWidth = collab.active ? 2 : 1;
+          this.ctx.setLineDash(collab.type === 'data' ? [5, 5] : []);
+          this.ctx.beginPath();
+
+          // 绘制多段直线
+          path.points.forEach((point, index) => {
+            if (index === 0) {
+              this.ctx.moveTo(point.x, point.y);
+            } else {
+              this.ctx.lineTo(point.x, point.y);
+            }
+          });
+
+          this.ctx.stroke();
+          this.ctx.setLineDash([]);
+        }
+      });
+    } catch (err) {
+      console.error('[CanvasRenderer] drawConnections 错误:', err);
+    }
   }
 
   /**

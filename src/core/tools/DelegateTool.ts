@@ -169,12 +169,16 @@ export class DelegateTool extends BaseTool {
       );
     }
 
+    // 获取 Provider 实例
+    const mainProvider = this.providerManager.getProvider(this.agentConfig);
+    const lightProvider = this.providerManager.getLightProvider();
+
     // 执行子代理
     this.activeCount++;
     try {
       const result = await runSubAgent(
-        this.providerManager,
-        this.agentRegistry,
+        mainProvider,
+        lightProvider,
         this.registry,
         this.agentConfig,
         context,

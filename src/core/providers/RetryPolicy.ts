@@ -105,9 +105,15 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
 
 /**
  * 判断是否为速率限制错误
+ *
+ * ⚠️ 注意：Bedrock 的 ValidationException（如孤立的 tool_result）有时被代理层
+ * 包装为 {"type":"rate_limit_error","message":"...ValidationException..."} 格式，
+ * 导致消息体中包含 "rate_limit" 字符串，但实际是参数校验错误，不应触发冷却重试。
  */
 export function isRateLimitError(error: unknown): boolean {
   if (error instanceof Error) {
+    // ValidationException 是不可恢复的参数校验错误，排除在速率限制之外
+    if (error.message.includes('ValidationException')) return false;
     return error.message.includes('rate_limit') || error.message.includes('429');
   }
   return false;

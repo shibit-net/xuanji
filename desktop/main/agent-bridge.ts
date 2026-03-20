@@ -9,9 +9,26 @@
 //
 
 import { ChatSession } from '../../src/core/chat/ChatSession.js';
+import { getTodoManager } from '../../src/core/tools/TodoStorageTool.js';
 
 let session: ChatSession | null = null;
 let agentLoop: any = null;
+
+/**
+ * 安全地发送消息到主进程
+ */
+function safeSend(message: any) {
+  try {
+    if (process.send && process.connected) {
+      process.send(message);
+    }
+  } catch (err: any) {
+    // 忽略 EPIPE 错误（管道已关闭，通常是主进程退出）
+    if (err.code !== 'EPIPE') {
+      console.error('[agent-bridge] 发送消息失败:', err);
+    }
+  }
+}
 
 /**
  * 处理来自主进程的消息
@@ -148,6 +165,17 @@ process.on('message', async (msg: any) => {
     case 'ask-user-response':
       handleAskUserResponse(msg.data);
       break;
+
+    // ============ 权限规则管理 ============
+    case 'permission-list':
+      handlePermissionList(msg.requestId);
+      break;
+    case 'permission-delete':
+      handlePermissionDelete(msg.requestId, msg.data);
+      break;
+    case 'permission-clear':
+      handlePermissionClear(msg.requestId);
+      break;
   }
 });
 
@@ -158,17 +186,31 @@ async function handleInit() {
   try {
     session = new ChatSession({
       callbacks: {
-        // 连续会话通知回调
-        onResumeNotification: (summary: string, memoryCount: number) => {
-          process.send?.({
-            type: 'session:resume-notification',
-            data: { summary, memoryCount },
+        // 启动引导：思考状态
+        onBootThinking: () => {
+          safeSend({
+            type: 'session:boot-thinking',
+            data: {},
+          });
+        },
+        // 启动引导消息回调
+        onBootGuide: (message: string) => {
+          safeSend({
+            type: 'session:boot-guide',
+            data: { message },
           });
         },
         onArchiveNotification: (result) => {
-          process.send?.({
+          safeSend({
             type: 'session:archive-notification',
             data: result,
+          });
+        },
+        // 恢复消息历史回调
+        onMessagesRestored: (messages) => {
+          safeSend({
+            type: 'session:messages-restored',
+            data: { messages },
           });
         },
       },
@@ -179,25 +221,25 @@ async function handleInit() {
     // 注册流式事件回调，转发到主进程
     session.on({
       onText: (text: string) => {
-        process.send?.({ type: 'agent:text', data: text });
+        safeSend({ type: 'agent:text', data: text });
       },
       onThinking: (thinking: string) => {
-        process.send?.({ type: 'agent:thinking', data: thinking });
+        safeSend({ type: 'agent:thinking', data: thinking });
       },
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-        process.send?.({ type: 'agent:tool-start', data: { id, name, input } });
+        safeSend({ type: 'agent:tool-start', data: { id, name, input } });
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-        process.send?.({ type: 'agent:tool-end', data: { id, name, result, isError } });
+        safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
       },
       onUsage: (usage: any) => {
-        process.send?.({ type: 'agent:usage', data: usage });
+        safeSend({ type: 'agent:usage', data: usage });
       },
       onError: (err: Error) => {
-        process.send?.({ type: 'agent:error', data: err.message });
+        safeSend({ type: 'agent:error', data: err.message });
       },
       onEnd: (state: any) => {
-        process.send?.({
+        safeSend({
           type: 'agent:end',
           data: {
             tokenUsage: state.tokenUsage,
@@ -211,12 +253,12 @@ async function handleInit() {
     // 注入权限交互 Handler
     injectInteractionHandlers();
 
-    process.send?.({
+    safeSend({
       type: 'init-result',
       data: { success: true },
     });
   } catch (err) {
-    process.send?.({
+    safeSend({
       type: 'init-result',
       data: {
         success: false,
@@ -231,7 +273,7 @@ async function handleInit() {
  */
 async function handleSendMessage(message: string) {
   if (!session || !agentLoop) {
-    process.send?.({
+    safeSend({
       type: 'send-result',
       data: { success: false, error: '会话未初始化' },
     });
@@ -239,13 +281,19 @@ async function handleSendMessage(message: string) {
   }
 
   try {
+    // 清空旧任务（如果没有活跃任务）
+    const todoManager = getTodoManager();
+    if (!todoManager.hasActiveTodos()) {
+      await todoManager.startTurn();
+    }
+
     await agentLoop.run(message);
-    process.send?.({
+    safeSend({
       type: 'send-result',
       data: { success: true },
     });
   } catch (err) {
-    process.send?.({
+    safeSend({
       type: 'send-result',
       data: {
         success: false,
@@ -261,12 +309,12 @@ async function handleSendMessage(message: string) {
 function handleInterrupt() {
   if (agentLoop) {
     agentLoop.interrupt();
-    process.send?.({
+    safeSend({
       type: 'interrupt-result',
       data: { success: true },
     });
   } else {
-    process.send?.({
+    safeSend({
       type: 'interrupt-result',
       data: { success: false, error: '会话未初始化' },
     });
@@ -279,12 +327,12 @@ function handleInterrupt() {
 function handleReset() {
   if (session) {
     session.reset();
-    process.send?.({
+    safeSend({
       type: 'reset-result',
       data: { success: true },
     });
   } else {
-    process.send?.({
+    safeSend({
       type: 'reset-result',
       data: { success: false, error: '会话未初始化' },
     });
@@ -296,7 +344,7 @@ function handleReset() {
  */
 function handleGetState(requestId: string) {
   if (!session) {
-    process.send?.({
+    safeSend({
       type: 'state-result',
       requestId,
       data: {
@@ -309,7 +357,7 @@ function handleGetState(requestId: string) {
   }
 
   const state = session.getState();
-  process.send?.({
+  safeSend({
     type: 'state-result',
     requestId,
     data: {
@@ -326,7 +374,7 @@ function handleGetState(requestId: string) {
  */
 function handleGetConfig(requestId: string) {
   if (!session) {
-    process.send?.({
+    safeSend({
       type: 'config-result',
       requestId,
       data: null,
@@ -335,7 +383,7 @@ function handleGetConfig(requestId: string) {
   }
 
   const config = session.getConfig();
-  process.send?.({
+  safeSend({
     type: 'config-result',
     requestId,
     data: {
@@ -355,12 +403,12 @@ function handleGetConfig(requestId: string) {
  */
 function handleGetFullConfig(requestId: string) {
   if (!session) {
-    process.send?.({ type: 'full-config-result', requestId, data: null });
+    safeSend({ type: 'full-config-result', requestId, data: null });
     return;
   }
 
   const config = session.getConfig();
-  process.send?.({
+  safeSend({
     type: 'full-config-result',
     requestId,
     data: {
@@ -389,7 +437,7 @@ function handleGetFullConfig(requestId: string) {
  */
 async function handleUpdateConfig(requestId: string, data: any) {
   if (!session) {
-    process.send?.({
+    safeSend({
       type: 'update-config-result',
       requestId,
       data: { success: false, error: '会话未初始化' },
@@ -442,25 +490,25 @@ async function handleUpdateConfig(requestId: string, data: any) {
     // 重新注册事件回调
     session.on({
       onText: (text: string) => {
-        process.send?.({ type: 'agent:text', data: text });
+        safeSend({ type: 'agent:text', data: text });
       },
       onThinking: (thinking: string) => {
-        process.send?.({ type: 'agent:thinking', data: thinking });
+        safeSend({ type: 'agent:thinking', data: thinking });
       },
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-        process.send?.({ type: 'agent:tool-start', data: { id, name, input } });
+        safeSend({ type: 'agent:tool-start', data: { id, name, input } });
       },
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-        process.send?.({ type: 'agent:tool-end', data: { id, name, result, isError } });
+        safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
       },
       onUsage: (usage: any) => {
-        process.send?.({ type: 'agent:usage', data: usage });
+        safeSend({ type: 'agent:usage', data: usage });
       },
       onError: (err: Error) => {
-        process.send?.({ type: 'agent:error', data: err.message });
+        safeSend({ type: 'agent:error', data: err.message });
       },
       onEnd: (state: any) => {
-        process.send?.({
+        safeSend({
           type: 'agent:end',
           data: {
             tokenUsage: state.tokenUsage,
@@ -471,13 +519,13 @@ async function handleUpdateConfig(requestId: string, data: any) {
       },
     });
 
-    process.send?.({
+    safeSend({
       type: 'update-config-result',
       requestId,
       data: { success: true },
     });
   } catch (err) {
-    process.send?.({
+    safeSend({
       type: 'update-config-result',
       requestId,
       data: {
@@ -494,25 +542,25 @@ async function handleUpdateConfig(requestId: string, data: any) {
 
 async function handleSessionSave(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const sessionId = await session.saveSession(data?.name, data?.options);
-    process.send?.({ requestId, data: { success: true, sessionId } });
+    safeSend({ requestId, data: { success: true, sessionId } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleSessionResume(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const ctx = await session.resumeSession(data?.sessionId);
-    process.send?.({
+    safeSend({
       requestId,
       data: {
         success: true,
@@ -523,72 +571,72 @@ async function handleSessionResume(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleSessionList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, sessions: [] } });
+    safeSend({ requestId, data: { success: true, sessions: [] } });
     return;
   }
   try {
     const sessions = await session.listSessions();
-    process.send?.({ requestId, data: { success: true, sessions } });
+    safeSend({ requestId, data: { success: true, sessions } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleSessionDelete(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     await session.deleteSession(data?.sessionId);
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleCheckpointCreate(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const checkpointId = await session.createCheckpoint(data?.label);
-    process.send?.({ requestId, data: { success: true, checkpointId } });
+    safeSend({ requestId, data: { success: true, checkpointId } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleCheckpointList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, checkpoints: [] } });
+    safeSend({ requestId, data: { success: true, checkpoints: [] } });
     return;
   }
   try {
     const checkpoints = await session.listCheckpoints();
-    process.send?.({ requestId, data: { success: true, checkpoints } });
+    safeSend({ requestId, data: { success: true, checkpoints } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleCheckpointRewind(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const messageCount = await session.rewindToCheckpoint(data?.checkpointId);
-    process.send?.({ requestId, data: { success: true, messageCount } });
+    safeSend({ requestId, data: { success: true, messageCount } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -598,17 +646,17 @@ async function handleCheckpointRewind(requestId: string, data: any) {
 
 async function handleMemoryRetrieve(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, entries: [] } });
+    safeSend({ requestId, data: { success: true, entries: [] } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: true, entries: [], stats: null } });
+      safeSend({ requestId, data: { success: true, entries: [], stats: null } });
       return;
     }
     const entries = await memoryManager.retrieve(data?.query || '', data?.options);
-    process.send?.({
+    safeSend({
       requestId,
       data: {
         success: true,
@@ -622,57 +670,57 @@ async function handleMemoryRetrieve(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleMemoryStats(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, stats: null } });
+    safeSend({ requestId, data: { success: true, stats: null } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: true, stats: null } });
+      safeSend({ requestId, data: { success: true, stats: null } });
       return;
     }
     const stats = await memoryManager.getStats();
-    process.send?.({ requestId, data: { success: true, stats } });
+    safeSend({ requestId, data: { success: true, stats } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 // 获取记忆配置
 async function handleGetMemoryConfig(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, config: null } });
+    safeSend({ requestId, data: { success: true, config: null } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: true, config: null } });
+      safeSend({ requestId, data: { success: true, config: null } });
       return;
     }
     const config = memoryManager.getConfig();
-    process.send?.({ requestId, data: { success: true, config } });
+    safeSend({ requestId, data: { success: true, config } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 // 保存记忆配置
 async function handleSaveMemoryConfig(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: 'Session not initialized' } });
+    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
     return;
   }
   try {
     const memoryConfig = data.config;
     if (!memoryConfig) {
-      process.send?.({ requestId, data: { success: false, error: 'No config provided' } });
+      safeSend({ requestId, data: { success: false, error: 'No config provided' } });
       return;
     }
 
@@ -700,27 +748,27 @@ async function handleSaveMemoryConfig(requestId: string, data: any) {
       (memoryManager as any).config = updatedConfig.memory;
     }
 
-    process.send?.({ requestId, data: { success: true, requiresRestart: true } });
+    safeSend({ requestId, data: { success: true, requiresRestart: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 // 手动触发记忆刷新
 async function handleManualMemoryFlush(requestId: string) {
   if (!session || !agentLoop) {
-    process.send?.({ requestId, data: { success: false, error: 'Session or AgentLoop not initialized' } });
+    safeSend({ requestId, data: { success: false, error: 'Session or AgentLoop not initialized' } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
       return;
     }
     const intelligentFlush = memoryManager.getIntelligentFlush();
     if (!intelligentFlush) {
-      process.send?.({ requestId, data: { success: false, error: 'IntelligentFlush not enabled' } });
+      safeSend({ requestId, data: { success: false, error: 'IntelligentFlush not enabled' } });
       return;
     }
 
@@ -742,44 +790,44 @@ async function handleManualMemoryFlush(requestId: string) {
     };
 
     const flushed = await intelligentFlush.checkAndFlush(context);
-    process.send?.({ requestId, data: { success: true, flushed } });
+    safeSend({ requestId, data: { success: true, flushed } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 // 手动提取主题
 async function handleExtractTopics(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: 'Session not initialized' } });
+    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
       return;
     }
 
     // 调用 MemoryManager 的 extractTopics 方法
     const dayKey = new Date().toISOString().split('T')[0]; // 今天的日期
     await memoryManager.extractTopics(dayKey);
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 // 获取记忆列表
 async function handleGetMemoryList(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, memories: [] } });
+    safeSend({ requestId, data: { success: true, memories: [] } });
     return;
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      process.send?.({ requestId, data: { success: true, memories: [] } });
+      safeSend({ requestId, data: { success: true, memories: [] } });
       return;
     }
 
@@ -843,9 +891,9 @@ async function handleGetMemoryList(requestId: string, data: any) {
     const limit = data.limit || 100;
     const memories = filteredMemories.slice(0, limit);
 
-    process.send?.({ requestId, data: { success: true, memories } });
+    safeSend({ requestId, data: { success: true, memories } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -855,12 +903,12 @@ async function handleGetMemoryList(requestId: string, data: any) {
 
 async function handleGetUsageStats(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, stats: null } });
+    safeSend({ requestId, data: { success: true, stats: null } });
     return;
   }
   try {
     const state = session.getState();
-    process.send?.({
+    safeSend({
       requestId,
       data: {
         success: true,
@@ -873,7 +921,7 @@ async function handleGetUsageStats(requestId: string) {
       },
     });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -883,12 +931,12 @@ async function handleGetUsageStats(requestId: string) {
 
 async function handleCompact(requestId: string, data: any) {
   if (!agentLoop) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const result = await agentLoop.compact(data?.instruction);
-    process.send?.({
+    safeSend({
       requestId,
       data: {
         success: true,
@@ -901,20 +949,20 @@ async function handleCompact(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleGetDiagnostics(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const report = await session.getDiagnostics();
-    process.send?.({ requestId, data: { success: true, report } });
+    safeSend({ requestId, data: { success: true, report } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -924,54 +972,54 @@ async function handleGetDiagnostics(requestId: string) {
 
 async function handleAgentList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, agents: [] } });
+    safeSend({ requestId, data: { success: true, agents: [] } });
     return;
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      process.send?.({ requestId, data: { success: true, agents: [] } });
+      safeSend({ requestId, data: { success: true, agents: [] } });
       return;
     }
     // 获取所有启用的 Agent（包括内部系统 Agent）
     const agents = agentRegistry.getEnabled();
-    process.send?.({ requestId, data: { success: true, agents } });
+    safeSend({ requestId, data: { success: true, agents } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleAgentGet(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
       return;
     }
     const agent = agentRegistry.get(data?.agentId);
     if (!agent) {
-      process.send?.({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
+      safeSend({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
       return;
     }
-    process.send?.({ requestId, data: { success: true, agent } });
+    safeSend({ requestId, data: { success: true, agent } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleAgentCreate(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
       return;
     }
 
@@ -979,58 +1027,58 @@ async function handleAgentCreate(requestId: string, data: any) {
     const scope = data?.scope || 'global';
     await agentRegistry.saveToFile(data?.config, scope);
 
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleAgentUpdate(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
       return;
     }
 
     // 更新 YAML 文件（自动检测 scope）
     const existingAgent = agentRegistry.get(data?.agentId);
     if (!existingAgent || !existingAgent.metadata) {
-      process.send?.({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
+      safeSend({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
       return;
     }
 
     const scope = existingAgent.metadata.source === 'project' ? 'project' : 'global';
     await agentRegistry.saveToFile(data?.config, scope);
 
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleAgentDelete(requestId: string, data: any) {
   if (!session) {
-    process.send?.({ requestId, data: { success: false, error: '会话未初始化' } });
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      process.send?.({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
+      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
       return;
     }
 
     // 删除 YAML 文件
     await agentRegistry.deleteFile(data?.agentId);
 
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -1040,7 +1088,7 @@ async function handleAgentDelete(requestId: string, data: any) {
 
 async function handleSkillsList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, skills: [] } });
+    safeSend({ requestId, data: { success: true, skills: [] } });
     return;
   }
   try {
@@ -1056,21 +1104,21 @@ async function handleSkillsList(requestId: string) {
       triggers: skill.triggers || [],
       tags: skill.tags || [],
     }));
-    process.send?.({ requestId, data: { success: true, skills } });
+    safeSend({ requestId, data: { success: true, skills } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleToolsList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, tools: [] } });
+    safeSend({ requestId, data: { success: true, tools: [] } });
     return;
   }
   try {
     const baseRegistry = session.getBaseRegistry();
     if (!baseRegistry) {
-      process.send?.({ requestId, data: { success: true, tools: [] } });
+      safeSend({ requestId, data: { success: true, tools: [] } });
       return;
     }
 
@@ -1100,21 +1148,21 @@ async function handleToolsList(requestId: string) {
       required: tool.required ?? false,
       readonly: tool.readonly ?? true,
     }));
-    process.send?.({ requestId, data: { success: true, tools } });
+    safeSend({ requestId, data: { success: true, tools } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
 async function handleMcpList(requestId: string) {
   if (!session) {
-    process.send?.({ requestId, data: { success: true, servers: [] } });
+    safeSend({ requestId, data: { success: true, servers: [] } });
     return;
   }
   try {
     const mcpManager = session.getMCPManager();
     if (!mcpManager) {
-      process.send?.({ requestId, data: { success: true, servers: [] } });
+      safeSend({ requestId, data: { success: true, servers: [] } });
       return;
     }
 
@@ -1141,9 +1189,9 @@ async function handleMcpList(requestId: string) {
       };
     });
 
-    process.send?.({ requestId, data: { success: true, servers } });
+    safeSend({ requestId, data: { success: true, servers } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -1399,9 +1447,9 @@ async function handlePromptGetConfig(requestId: string) {
       }
     }
 
-    process.send?.({ requestId, data: { success: true, config } });
+    safeSend({ requestId, data: { success: true, config } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -1420,9 +1468,9 @@ async function handlePromptSaveConfig(requestId: string, data: any) {
     // 写入配置
     await fs.writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
 
-    process.send?.({ requestId, data: { success: true } });
+    safeSend({ requestId, data: { success: true } });
   } catch (err) {
-    process.send?.({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 
@@ -1445,7 +1493,7 @@ function injectInteractionHandlers() {
   // 1. 权限确认 Handler
   session.setConfirmationHandler(async (request: any, guardResult: any) => {
     const id = `perm-${++permissionIdCounter}`;
-    process.send?.({
+    safeSend({
       type: 'permission:request',
       data: {
         id,
@@ -1464,7 +1512,7 @@ function injectInteractionHandlers() {
   // 2. 计划审查 Handler
   session.setPlanReviewHandler(async (plan: any) => {
     const id = `plan-${++permissionIdCounter}`;
-    process.send?.({
+    safeSend({
       type: 'plan-review:request',
       data: {
         id,
@@ -1480,7 +1528,7 @@ function injectInteractionHandlers() {
   // 3. 用户提问 Handler
   session.setAskUserHandler(async (question: any) => {
     const id = `ask-${++permissionIdCounter}`;
-    process.send?.({
+    safeSend({
       type: 'ask-user:request',
       data: {
         id,
@@ -1492,13 +1540,37 @@ function injectInteractionHandlers() {
       pendingAskUsers.set(id, resolve);
     });
   });
+
+  // 4. Plan Mode Enter Handler（LLM 自主进入 Plan Mode）
+  session.setPlanModeEnterHandler(async () => {
+    safeSend({
+      type: 'plan-mode:enter',
+      data: {},
+    });
+    return true;
+  });
+
+  // 5. Plan Mode Exit Handler（LLM 退出 Plan Mode）
+  session.setPlanModeExitHandler(async () => {
+    safeSend({
+      type: 'plan-mode:exit',
+      data: {},
+    });
+    return true;
+  });
 }
 
 function handlePermissionResponse(data: any) {
   const resolve = pendingPermissions.get(data.id);
   if (resolve) {
     pendingPermissions.delete(data.id);
-    resolve(data.result);
+    // 前端发送 { action: 'allow'|'deny'|'always'|'never' }
+    // 后端 PermissionController 期望 { allowed: boolean, remember: boolean }
+    const action = data.result?.action as string | undefined;
+    resolve({
+      allowed: action === 'allow' || action === 'always',
+      remember: action === 'always' || action === 'never',
+    });
   }
 }
 
@@ -1515,6 +1587,56 @@ function handleAskUserResponse(data: any) {
   if (resolve) {
     pendingAskUsers.delete(data.id);
     resolve(data.result);
+  }
+}
+
+// ============================================================
+// 权限规则管理
+// ============================================================
+
+function handlePermissionList(requestId: string) {
+  if (!session) {
+    safeSend({ requestId, data: { success: true, rules: [] } });
+    return;
+  }
+  try {
+    const pc = session.getPermissionController();
+    const rules = pc ? pc.listDecisions() : [];
+    safeSend({ requestId, data: { success: true, rules } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handlePermissionDelete(requestId: string, data: any) {
+  if (!session) {
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc) {
+      await pc.deleteDecision(data?.cacheKey);
+    }
+    safeSend({ requestId, data: { success: true } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handlePermissionClear(requestId: string) {
+  if (!session) {
+    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
+    return;
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc) {
+      await pc.clearDecisions();
+    }
+    safeSend({ requestId, data: { success: true } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }
 }
 

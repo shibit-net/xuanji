@@ -19,7 +19,7 @@ export type IsolationMode = 'none' | 'worktree';
 /**
  * 子代理角色类型
  */
-export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder';
+export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder' | 'memory-extractor' | 'guide-generator';
 
 /**
  * 子代理创建选项

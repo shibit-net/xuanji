@@ -61,7 +61,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => handleRespond('deny')}
             className="p-1 hover:bg-bg-tertiary rounded transition-colors"
             disabled={loading}
           >

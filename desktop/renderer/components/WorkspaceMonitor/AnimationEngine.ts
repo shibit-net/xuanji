@@ -180,11 +180,24 @@ export class AnimationEngine {
   ): Animation {
     const particles: Particle[] = [];
 
+    // 检查 path.points 是否有效
+    if (!path.points || path.points.length < 2) {
+      console.warn('[AnimationEngine] 无效的路径，无法创建粒子动画');
+      return {
+        id: `particle-${id}`,
+        startTime: Date.now(),
+        duration: Infinity,
+        update: () => {},
+        draw: () => {},
+        isComplete: () => false,
+      };
+    }
+
     // 初始化粒子
     for (let i = 0; i < particleCount; i++) {
       particles.push({
-        x: path.start.x,
-        y: path.start.y,
+        x: path.points[0].x,
+        y: path.points[0].y,
         progress: i / particleCount,
         opacity: 1,
       });
@@ -204,13 +217,8 @@ export class AnimationEngine {
             p.progress = 0; // 循环
           }
 
-          // 贝塞尔曲线插值
-          const pos = this.layoutEngine.bezierInterpolate(
-            path.start,
-            path.control,
-            path.end,
-            p.progress
-          );
+          // 沿着多段直线移动
+          const pos = this.interpolateAlongPath(path.points, p.progress);
           p.x = pos.x;
           p.y = pos.y;
         });
@@ -227,6 +235,48 @@ export class AnimationEngine {
       },
       isComplete: () => false,
     };
+  }
+
+  /**
+   * 沿着多段直线插值
+   */
+  private interpolateAlongPath(points: Point[], progress: number): Point {
+    if (points.length < 2) {
+      return points[0] || { x: 0, y: 0 };
+    }
+
+    // 计算每段的长度
+    const segments: { start: Point; end: Point; length: number }[] = [];
+    let totalLength = 0;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const start = points[i];
+      const end = points[i + 1];
+      const length = Math.sqrt(
+        Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
+      );
+      segments.push({ start, end, length });
+      totalLength += length;
+    }
+
+    // 根据 progress 找到对应的段
+    let targetLength = progress * totalLength;
+    let accumulatedLength = 0;
+
+    for (const segment of segments) {
+      if (accumulatedLength + segment.length >= targetLength) {
+        // 在这一段上
+        const segmentProgress = (targetLength - accumulatedLength) / segment.length;
+        return {
+          x: segment.start.x + (segment.end.x - segment.start.x) * segmentProgress,
+          y: segment.start.y + (segment.end.y - segment.start.y) * segmentProgress,
+        };
+      }
+      accumulatedLength += segment.length;
+    }
+
+    // 如果超出范围，返回最后一个点
+    return points[points.length - 1];
   }
 
   /**
