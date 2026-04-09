@@ -34,6 +34,8 @@ export interface SubAgentResult {
   timedOut: boolean;
   /** 迭代次数 */
   iterations: number;
+  /** 是否发生了错误（非超时） */
+  hasError?: boolean;
 }
 
 /**
@@ -169,6 +171,7 @@ export async function runSubAgent(
   // 5. 收集输出
   let outputText = '';
   let timedOut = false;
+  let hasError = false;
 
   agentLoop.on({
     onText: (text) => {
@@ -211,6 +214,7 @@ export async function runSubAgent(
     if (timedOut) {
       outputText += `\n[Sub-agent timed out after ${context.timeout}ms]`;
     } else {
+      hasError = true;
       const errMsg = error instanceof Error ? error.message : String(error);
       outputText += `\n[Sub-agent error: ${errMsg}]`;
     }
@@ -257,6 +261,7 @@ export async function runSubAgent(
     },
     duration,
     timedOut,
+    hasError,
     iterations: state.currentIteration,
   };
 }

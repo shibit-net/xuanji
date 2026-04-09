@@ -302,9 +302,15 @@ export class HttpTransport extends EventEmitter {
         // SSE 模式：只发送请求，响应通过 SSE 接收
         await this.sendHTTP(endpoint, request);
       } else {
-        // 纯 HTTP 模式：同步等待响应
-        const response = await this.sendHTTPSync(endpoint, request);
-        this.handleResponse(response);
+        // 纯 HTTP 模式：同步等待响应，与 timeout promise 竞争
+        // 这样当 timeout 触发时，fetch 也会被中断，避免 unhandled rejection
+        await Promise.race([
+          this.sendHTTPSync(endpoint, request).then(response => {
+            this.handleResponse(response);
+          }),
+          promise.catch(err => { throw err; }),
+        ]);
+        return promise;
       }
     } catch (error) {
       // 发送失败：清理 pending request

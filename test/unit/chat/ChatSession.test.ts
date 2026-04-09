@@ -62,6 +62,9 @@ function createMockConfig(): AppConfig {
       backoffMultiplier: 2,
       retryableStatusCodes: [429, 500, 502, 503, 529],
     },
+    routing: {
+      mode: 'never',
+    } as any,
   };
 }
 
@@ -105,7 +108,8 @@ describe('ChatSession', () => {
   it('缺少 apiKey 应抛出异常', async () => {
     const noKeyConfig = { ...config, provider: { ...config.provider, apiKey: undefined } };
     const session = new ChatSession({ provider, registry, config: noKeyConfig as AppConfig });
-    await expect(session.init()).rejects.toThrow('API Key');
+    await session.init();
+    await expect(session.run('test')).rejects.toThrow('API Key');
   });
 
   // ---- run / stop / reset ----

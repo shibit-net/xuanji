@@ -125,25 +125,43 @@ export class TeamManager implements ITeamManager {
     try {
       log.info(`Team "${this.context.config.name}" executing goal: ${goal}`);
 
-      // 根据策略执行
-      switch (this.context.config.strategy) {
-        case 'sequential':
-          memberResults.push(...await this.executeSequential(goal));
-          break;
-        case 'parallel':
-          memberResults.push(...await this.executeParallel(goal));
-          break;
-        case 'hierarchical':
-          memberResults.push(...await this.executeHierarchical(goal));
-          break;
-        case 'debate':
-          memberResults.push(...await this.executeDebate(goal));
-          break;
-        case 'pipeline':
-          memberResults.push(...await this.executePipeline(goal));
-          break;
-        default:
-          throw new Error(`Unknown team strategy: ${this.context.config.strategy}`);
+      // 整体超时保护 —— 防止团队执行无限期挂起
+      // sequential/pipeline/debate 每个成员都有单独超时，但多成员叠加可能超出总预算
+      const teamTimeout = this.context.config.timeout!;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+      const strategyPromise = (): Promise<TaskExecutionResult[]> => {
+        switch (this.context!.config.strategy) {
+          case 'sequential':
+            return this.executeSequential(goal);
+          case 'parallel':
+            return this.executeParallel(goal);
+          case 'hierarchical':
+            return this.executeHierarchical(goal);
+          case 'debate':
+            return this.executeDebate(goal);
+          case 'pipeline':
+            return this.executePipeline(goal);
+          default:
+            return Promise.reject(new Error(`Unknown team strategy: ${this.context!.config.strategy}`));
+        }
+      };
+
+      const teamTimeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          // 停止后续成员执行（sequential / pipeline / debate 检查 this.running）
+          this.running = false;
+          reject(new Error(
+            `Team "${this.context!.config.name}" timed out after ${(teamTimeout / 1000).toFixed(0)}s`
+          ));
+        }, teamTimeout);
+      });
+
+      try {
+        const results = await Promise.race([strategyPromise(), teamTimeoutPromise]);
+        memberResults.push(...results);
+      } finally {
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
       }
 
       // 聚合结果
@@ -296,16 +314,28 @@ export class TeamManager implements ITeamManager {
   }
 
   /**
-   * 并行执行策略
+   * 并行执行策略（最多 3 个子代理并发）
    */
   private async executeParallel(goal: string): Promise<TaskExecutionResult[]> {
     const members = this.context!.config.members;
+    const MAX_CONCURRENT = 3;
 
-    const promises = members.map(member =>
-      this.executeMemberTask(member, goal, [])
-    );
+    if (members.length <= MAX_CONCURRENT) {
+      // 成员数不超过并发上限，直接全部并行
+      return Promise.all(members.map(member => this.executeMemberTask(member, goal, [])));
+    }
 
-    return Promise.all(promises);
+    // 分批并行，每批最多 MAX_CONCURRENT 个，避免资源耗尽
+    const results: TaskExecutionResult[] = [];
+    for (let i = 0; i < members.length; i += MAX_CONCURRENT) {
+      if (!this.running) break;
+      const batch = members.slice(i, i + MAX_CONCURRENT);
+      const batchResults = await Promise.all(
+        batch.map(member => this.executeMemberTask(member, goal, []))
+      );
+      results.push(...batchResults);
+    }
+    return results;
   }
 
   /**
@@ -467,7 +497,7 @@ export class TeamManager implements ITeamManager {
         taskId: tid,
         memberId: member.id,
         result: result.result,
-        success: !result.timedOut,
+        success: !result.timedOut && !result.hasError,
         duration: result.duration,
         tokensUsed: result.tokensUsed,
       };

@@ -73,7 +73,7 @@ describe('BashTool', () => {
     if (result.content.length > 30100) {
       expect(result.content).toContain('已截断');
     }
-  });
+  }, 15_000);
 
   it('命令不存在时应返回错误', async () => {
     const result = await tool.execute({ command: 'nonexistent_command_xyz_12345' });

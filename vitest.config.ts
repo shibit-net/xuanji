@@ -13,6 +13,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
+    exclude: [
+      // Electron 集成测试依赖未实现的 @/adapters/electron/main 和 preload
+      'test/integration/electron-integration.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],

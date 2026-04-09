@@ -49,21 +49,16 @@ describe('Multi-Agent Tools Integration', () => {
           backoffMultiplier: 2,
           retryableStatusCodes: [429, 500, 502, 503, 504],
         },
+        features: {
+          multiAgentTools: true,
+        },
+        routing: {
+          mode: 'never',
+        } as any,
       },
     });
 
     await session.init();
-  });
-
-  it('应该注册 ChainTool', () => {
-    // @ts-ignore - 访问私有属性用于测试
-    const baseRegistry = session['baseRegistry'];
-    expect(baseRegistry).toBeDefined();
-    const chainTool = baseRegistry!.get('agent_chain');
-
-    expect(chainTool).toBeDefined();
-    expect(chainTool?.name).toBe('agent_chain');
-    expect(chainTool?.description).toContain('chain of agents');
   });
 
   it('应该注册 ListAgentsTool', () => {

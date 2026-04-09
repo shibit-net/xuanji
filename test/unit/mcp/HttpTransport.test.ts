@@ -366,14 +366,8 @@ describe('HttpTransport', () => {
         debug: false,
       });
 
-      mockFetch.mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => {
-          resolve({
-            ok: true,
-            json: async () => ({ jsonrpc: '2.0', id: 1, result: {} }),
-          });
-        }, 500))
-      );
+      // 使用永不 resolve 的 Promise，避免测试结束后 timer 触发 unhandled rejection
+      mockFetch.mockImplementation(() => new Promise(() => {}));
 
       await expect(transport.request('tools/list', {})).rejects.toThrow('timeout');
     }, 2000);
