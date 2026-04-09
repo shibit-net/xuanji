@@ -24,5 +24,10 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test/integration/lesson-system-e2e.test.ts",
+    "test/integration/electron-integration.test.ts"
+  ]
 }

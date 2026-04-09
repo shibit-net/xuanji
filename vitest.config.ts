@@ -16,6 +16,8 @@ export default defineConfig({
     exclude: [
       // Electron 集成测试依赖未实现的 @/adapters/electron/main 和 preload
       'test/integration/electron-integration.test.ts',
+      // learning 模块已删除（src/learning/ 在生产代码中无引用）
+      'test/integration/lesson-system-e2e.test.ts',
     ],
     coverage: {
       provider: 'v8',
