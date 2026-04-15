@@ -25,6 +25,15 @@ export interface TeamMember {
   priority?: number;
   /** 成员特定的系统提示（会追加到角色默认提示后） */
   systemPrompt?: string;
+  /**
+   * 成员独立超时（毫秒）。
+   * 若未设置，由 TeamManager 根据策略自动推算：
+   * - parallel: 等于团队总超时（并行不叠加）
+   * - sequential / pipeline: 团队总超时 / 成员数
+   * - hierarchical: 团队总超时 / (workers + 1)
+   * - debate: 团队总超时 / (成员数 × maxRounds)
+   */
+  timeout?: number;
 }
 
 /**
@@ -88,6 +97,16 @@ export interface TeamConfig {
   enableSharedKnowledge?: boolean;
   /** 是否记录完整消息历史 */
   recordHistory?: boolean;
+  
+  // 🆕 超时分配策略配置
+  /** Hierarchical 模式下 Leader 占用的时间比例（默认 0.5，即 50%） */
+  hierarchicalLeaderRatio?: number;
+  /** Debate 模式下首轮占用的时间比例（默认 0.4，即 40%） */
+  debateFirstRoundRatio?: number;
+  /** 是否启用动态超时调整（默认 true） */
+  enableDynamicTimeout?: boolean;
+  /** 单个成员的最小超时时间（毫秒，默认 30000 即 30s） */
+  minMemberTimeout?: number;
 }
 
 /**
@@ -203,7 +222,13 @@ export interface ITeamManager {
  */
 export const DEFAULT_TEAM_CONFIG = {
   maxRounds: 10,
-  timeout: 600_000, // 10 分钟
+  timeout: 1_800_000, // 30 分钟（多 agent 协作需要充足时间，从 20min 提升到 30min）
   enableSharedKnowledge: true,
   recordHistory: true,
+  
+  // 超时分配策略默认值
+  hierarchicalLeaderRatio: 0.5,   // Leader 占 50%
+  debateFirstRoundRatio: 0.4,     // 首轮占 40%
+  enableDynamicTimeout: true,      // 启用动态调整
+  minMemberTimeout: 30_000,        // 最小 30s
 } as const;

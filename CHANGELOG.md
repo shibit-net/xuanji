@@ -4,6 +4,17 @@
 
 ### 新增
 
+- **Agent Team 超时分配优化** — 根据策略特点智能分配超时时间
+  - **Hierarchical 策略**: Leader 占 50% 时间，Workers 均摊剩余（解决 Leader 超时问题）
+  - **Sequential 策略**: 前松后紧动态分配（第 1 个成员 1.5x，最后 1.0x）
+  - **Debate 策略**: 首轮占 40%，后续均摊（首轮需更多时间理解问题）
+  - **Pipeline 策略**: 根据阶段特点调整（输入 1.3x，处理 1.0x，输出 0.7x）
+  - **Parallel 策略**: 保持独享全部时间（并行不叠加）
+  - 新增配置字段：`hierarchicalLeaderRatio`, `debateFirstRoundRatio`, `enableDynamicTimeout`, `minMemberTimeout`
+  - 默认团队超时从 20 分钟提升到 30 分钟
+  - 新增 `logTimeoutAllocation()` 启动时输出超时分配方案
+  - 设计文档: `tests/multi-agent/TIMEOUT_ALLOCATION_DESIGN.md`
+
 - **并行工具 UI 优化** — 树状结构展示，提升视觉清晰度
   - 新增 `ParallelToolGroup` 组件：动态执行区域的树状展示（使用 `┌─`, `├─`, `└─` 构建层级）
   - 新增 `ParallelToolGroupCompact` 组件：静态历史区域的紧凑/展开模式
