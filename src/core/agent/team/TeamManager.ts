@@ -451,10 +451,14 @@ export class TeamManager implements ITeamManager {
 
   /**
    * 流水线执行策略
+   *
+   * ⚠️ Pipeline 保持用户定义的原始顺序（不按 priority 排序）
+   * 因为流水线的语义是「前一个成员的输出 → 下一个成员的输入」，
+   * 用户定义数组的顺序即为流水线阶段顺序。
    */
   private async executePipeline(goal: string): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
-    const members = this.getSortedMembers();
+    const members = this.context!.config.members;
 
     let currentInput = goal;
 
@@ -511,7 +515,17 @@ export class TeamManager implements ITeamManager {
       let result: SubAgentResult;
 
       // 执行子代理（传入成员索引用于超时计算）
-      const memberTimeout = member.timeout ?? this.calculateMemberTimeout(member, memberIndex);
+      const calculatedTimeout = this.calculateMemberTimeout(member, memberIndex);
+      const memberTimeout = member.timeout ?? calculatedTimeout;
+      
+      // ⚠️ 检测超时冲突：用户显式设置的值小于自动计算的值
+      if (member.timeout && member.timeout < calculatedTimeout) {
+        log.warn(
+          `[${member.id}] explicit timeout (${member.timeout}ms) is shorter than calculated (${calculatedTimeout}ms). ` +
+          `This may cause premature termination. Consider removing member.timeout to use auto-allocation.`
+        );
+      }
+      
       const factoryResult = await this.subAgentFactory.createAndRun(member.role, {
         task: enrichedTask,
         depth: this.depth + 1,
@@ -794,10 +808,16 @@ export class TeamManager implements ITeamManager {
 
     // 计算并显示每个成员的超时
     members.forEach((member, index) => {
-      const timeout = member.timeout ?? this.calculateMemberTimeout(member, index);
+      const calculatedTimeout = this.calculateMemberTimeout(member, index);
+      const timeout = member.timeout ?? calculatedTimeout;
       const label = member.name || member.id;
       const priorityInfo = member.priority !== undefined ? ` (priority=${member.priority})` : '';
-      log.info(`    - ${label}${priorityInfo}: ${timeout}ms (${(timeout / 1000).toFixed(0)}s)`);
+      
+      // 标记显式设置的超时
+      const timeoutSource = member.timeout ? ' [explicit]' : ' [auto]';
+      const warningMark = member.timeout && member.timeout < calculatedTimeout ? ' ⚠️' : '';
+      
+      log.info(`    - ${label}${priorityInfo}: ${timeout}ms (${(timeout / 1000).toFixed(0)}s)${timeoutSource}${warningMark}`);
     });
 
     // 策略特定的额外信息
