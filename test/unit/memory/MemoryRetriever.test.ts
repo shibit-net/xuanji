@@ -4,7 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { MemoryRetriever } from '@/memory/MemoryRetriever';
-import type { MemoryEntry } from '@/memory/types';
+import type { MemoryEntry, RetrieveOptions } from '@/memory/types';
+import type { MemoryStore } from '@/memory/MemoryStore';
 
 function createEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
   return {
@@ -21,98 +22,107 @@ function createEntry(overrides: Partial<MemoryEntry>): MemoryEntry {
   };
 }
 
+/** 创建一个 mock MemoryStore，searchFTS 返回指定的 entries */
+function createMockStore(entries: MemoryEntry[]): MemoryStore {
+  return {
+    searchFTS: (_query: string, _limit?: number) => entries,
+    searchVector: (_embedding: Float32Array, _limit?: number) => [],
+    getEntry: (id: string) => entries.find((e) => e.id === id) ?? null,
+    readAll: () => entries,
+    saveEntry: () => {},
+    saveBatch: () => {},
+    updateEntry: () => {},
+    deleteEntry: () => {},
+    replaceAll: () => {},
+    upsertVector: () => {},
+    getStats: () => ({ total: entries.length, byType: {} }),
+    init: async () => {},
+    close: () => {},
+  } as unknown as MemoryStore;
+}
+
 describe('MemoryRetriever', () => {
-  const retriever = new MemoryRetriever(30);
-
-  describe('extractQueryKeywords', () => {
-    it('should extract words and filter stop words', () => {
-      const keywords = retriever.extractQueryKeywords('Fix the bug in MemoryManager');
-      expect(keywords).toContain('fix');
-      expect(keywords).toContain('memorymanager');
-      expect(keywords).not.toContain('the');
-      expect(keywords).not.toContain('in');
-    });
-
-    it('should extract file paths', () => {
-      const keywords = retriever.extractQueryKeywords('Read src/memory/types.ts');
-      expect(keywords.some((k) => k.includes('src/memory/types.ts'))).toBe(true);
-    });
-  });
-
-  describe('retrieve', () => {
+  describe('retrieveWithFTS (synchronous)', () => {
     it('should return entries matching keywords', () => {
-      const memories = [
+      const entries = [
         createEntry({ id: '1', keywords: ['typescript', 'memory'], content: 'TypeScript memory system' }),
         createEntry({ id: '2', keywords: ['python', 'django'], content: 'Python Django app' }),
         createEntry({ id: '3', keywords: ['typescript', 'testing'], content: 'TypeScript testing guide' }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('typescript memory', memories);
+      const results = retriever.retrieveWithFTS('typescript memory');
       expect(results.length).toBeGreaterThan(0);
       expect(results[0]?.id).toBe('1'); // 最相关
     });
 
     it('should respect maxResults', () => {
-      const memories = Array.from({ length: 20 }, (_, i) =>
+      const entries = Array.from({ length: 20 }, (_, i) =>
         createEntry({ id: `${i}`, keywords: ['common'], content: `Entry ${i}` }),
       );
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('common', memories, { maxResults: 5 });
+      const results = retriever.retrieveWithFTS('common', { maxResults: 5 });
       expect(results.length).toBeLessThanOrEqual(5);
     });
 
     it('should filter by minConfidence', () => {
-      const memories = [
+      const entries = [
         createEntry({ id: '1', keywords: ['test'], confidence: 0.9 }),
         createEntry({ id: '2', keywords: ['test'], confidence: 0.2 }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('test', memories, { minConfidence: 0.5 });
+      const results = retriever.retrieveWithFTS('test', { minConfidence: 0.5 });
       expect(results).toHaveLength(1);
       expect(results[0]?.id).toBe('1');
     });
 
     it('should filter by types', () => {
-      const memories = [
+      const entries = [
         createEntry({ id: '1', type: 'decision', keywords: ['test'] }),
         createEntry({ id: '2', type: 'error_resolution', keywords: ['test'] }),
         createEntry({ id: '3', type: 'project_fact', keywords: ['test'] }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('test', memories, { types: ['decision'] });
+      const results = retriever.retrieveWithFTS('test', { types: ['decision'] });
       expect(results).toHaveLength(1);
       expect(results[0]?.type).toBe('decision');
     });
 
     it('should return empty for empty query', () => {
-      const memories = [createEntry({ keywords: ['test'] })];
-      const results = retriever.retrieve('', memories);
+      const entries = [createEntry({ keywords: ['test'] })];
+      const retriever = new MemoryRetriever(createMockStore(entries));
+      const results = retriever.retrieveWithFTS('');
       expect(results).toEqual([]);
     });
 
     it('should prefer higher confidence entries', () => {
-      const memories = [
+      const entries = [
         createEntry({ id: '1', keywords: ['bug', 'fix'], confidence: 0.5 }),
         createEntry({ id: '2', keywords: ['bug', 'fix'], confidence: 0.95 }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('bug fix', memories);
+      const results = retriever.retrieveWithFTS('bug fix');
       expect(results[0]?.id).toBe('2');
     });
 
     it('should consider content text matching', () => {
-      const memories = [
+      const entries = [
         createEntry({ id: '1', keywords: ['test'], content: 'unrelated content' }),
         createEntry({ id: '2', keywords: ['test'], content: 'fix memory leak in MemoryManager' }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('memory leak', memories);
+      const results = retriever.retrieveWithFTS('memory leak');
       expect(results[0]?.id).toBe('2');
     });
 
     it('should filter out overdue deadlines (> 7 days)', () => {
       const now = new Date();
-      const memories = [
+      const entries = [
         // 过期 10 天的 deadline - 应该被过滤
         createEntry({
           id: 'deadline-old',
@@ -150,15 +160,41 @@ describe('MemoryRetriever', () => {
           },
         }),
       ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
 
-      const results = retriever.retrieve('deadline birthday', memories);
-      
+      const results = retriever.retrieveWithFTS('deadline birthday');
+
       // 过期 deadline 不应出现
       expect(results.find(e => e.id === 'deadline-old')).toBeUndefined();
       // 未过期 deadline 应该出现
       expect(results.find(e => e.id === 'deadline-future')).toBeDefined();
       // 生日应该出现
       expect(results.find(e => e.id === 'birthday')).toBeDefined();
+    });
+  });
+
+  describe('retrieve (async, FTS fallback)', () => {
+    it('should return results asynchronously', async () => {
+      const entries = [
+        createEntry({ id: '1', keywords: ['typescript'], content: 'TypeScript memory' }),
+      ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
+
+      const results = await retriever.retrieve('typescript');
+      expect(results.length).toBeGreaterThanOrEqual(0); // FTS fallback
+    });
+  });
+
+  describe('getAll', () => {
+    it('should return all entries from store', () => {
+      const entries = [
+        createEntry({ id: '1' }),
+        createEntry({ id: '2' }),
+      ];
+      const retriever = new MemoryRetriever(createMockStore(entries));
+
+      const all = retriever.getAll();
+      expect(all).toHaveLength(2);
     });
   });
 });

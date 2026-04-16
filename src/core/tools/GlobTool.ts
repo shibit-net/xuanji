@@ -24,7 +24,7 @@ interface GlobInput {
 export class GlobTool extends BaseTool {
   readonly name = 'glob';
   readonly description =
-    '使用 glob 模式查找文件路径。支持通配符：* (任意字符), ** (递归目录), ? (单字符), [abc] (字符集)';
+    'Find file paths using glob patterns. Supports wildcards: * (any chars), ** (recursive dirs), ? (single char), [abc] (char set). Examples: "**/*.ts" (all TS files), "src/**/test/*.spec.ts" (test files).';
   readonly readonly = true; // ✅ 只读工具，可并行执行
 
   readonly input_schema: JSONSchema = {
@@ -33,17 +33,17 @@ export class GlobTool extends BaseTool {
       pattern: {
         type: 'string',
         description:
-          'glob 模式，如 "**/*.ts" 查找所有 TS 文件，"src/**/*.test.ts" 查找测试文件',
+          'Glob pattern, e.g. "**/*.ts" finds all TS files, "src/**/*.test.ts" finds test files',
       },
       path: {
         type: 'string',
-        description: '搜索根目录（默认为当前工作目录）',
+        description: 'Search root directory (defaults to current working directory)',
       },
       ignore: {
         type: 'array',
         items: { type: 'string' },
         description:
-          '排除模式数组，如 ["**/node_modules/**", "**/dist/**"]（默认已排除 node_modules/.git）',
+          'Exclude patterns array, e.g. ["**/node_modules/**", "**/dist/**"] (node_modules/.git already excluded by default)',
       },
     },
     required: ['pattern'],

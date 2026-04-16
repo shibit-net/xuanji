@@ -98,6 +98,11 @@ class FilteredToolRegistry implements IToolRegistry {
 /**
  * 启动子代理并等待结果
  *
+ * @deprecated 使用 SubAgentFactory.createAndRun() 代替
+ *
+ * 此函数保留用于向后兼容，但不推荐在新代码中使用。
+ * SubAgentFactory 提供了更好的配置管理和 Provider 选择策略。
+ *
  * 🆕 P0 优化：默认使用 lightProvider（Haiku），节省 67% 子代理成本
  * 除非任务明确要求主模型（context.requireMainModel）
  */
@@ -109,6 +114,7 @@ export async function runSubAgent(
   context: SubAgentContext,
   hookRegistry?: HookRegistry | null,
   memoryStore?: IMemoryStore | null,
+  externalSignal?: AbortSignal, // 🔧 添加外部 AbortSignal
 ): Promise<SubAgentResult> {
   const subAgentId = `subagent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startTime = Date.now();
@@ -170,12 +176,52 @@ export async function runSubAgent(
 
   // 5. 收集输出
   let outputText = '';
+  let thinkingText = '';
   let timedOut = false;
   let hasError = false;
 
   agentLoop.on({
     onText: (text) => {
       outputText += text;
+    },
+    onThinking: (thinking) => {
+      thinkingText += thinking;
+      // 触发 AgentThinking Hook，传递给前端
+      if (hookRegistry) {
+        hookRegistry.emit('AgentThinking', {
+          subAgentId,
+          thinkingContent: thinkingText,
+        }).catch((err) => {
+          log.warn('AgentThinking Hook failed:', err);
+        });
+      }
+    },
+    onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+      // 触发 ToolStart Hook，传递给前端（带 subAgentId）
+      if (hookRegistry) {
+        hookRegistry.emit('ToolStart', {
+          subAgentId,
+          toolId: id,
+          toolName: name,
+          toolInput: input,
+        }).catch((err) => {
+          log.warn('ToolStart Hook failed:', err);
+        });
+      }
+    },
+    onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+      // 触发 ToolEnd Hook，传递给前端（带 subAgentId）
+      if (hookRegistry) {
+        hookRegistry.emit('ToolEnd', {
+          subAgentId,
+          toolId: id,
+          toolName: name,
+          toolResult: result,
+          toolIsError: isError,
+        }).catch((err) => {
+          log.warn('ToolEnd Hook failed:', err);
+        });
+      }
     },
     // ❌ 不注册 onError 回调，避免双重传播
     // 子代理错误会被下方 catch 块捕获，封装到 tool_result 中返回
@@ -196,6 +242,14 @@ export async function runSubAgent(
 
   // 7. 带超时执行
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let externalAborted = false;
+  const onExternalAbort = () => {
+    agentLoop.stop();
+    externalAborted = true;
+    log.warn(`[${subAgentId}] Sub-agent aborted by external signal`);
+  };
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
   try {
     const runPromise = agentLoop.run(context.task);
     // 捕获 unhandled rejection（仅在超时场景下 race 已 settled 时生效）
@@ -211,7 +265,9 @@ export async function runSubAgent(
 
     await Promise.race([runPromise, timeoutPromise]);
   } catch (error) {
-    if (timedOut) {
+    if (externalAborted) {
+      outputText += `\n[Sub-agent aborted by user]`;
+    } else if (timedOut) {
       outputText += `\n[Sub-agent timed out after ${context.timeout}ms]`;
     } else {
       hasError = true;
@@ -223,6 +279,8 @@ export async function runSubAgent(
     if (timeoutTimer) {
       clearTimeout(timeoutTimer);
     }
+    // 清理外部 signal 监听器
+    externalSignal?.removeEventListener('abort', onExternalAbort);
     // 清理 PostToolUse listener，防止内存泄漏
     if (hookRegistry && postToolUseListener) {
       hookRegistry.removeListener('PostToolUse', postToolUseListener);

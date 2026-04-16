@@ -26,10 +26,25 @@ export class AnthropicProvider extends BaseLLMProvider {
       );
     }
 
+    // 🆕 记录 baseURL 用于调试
+    if (config.baseURL) {
+      this.log.debug(`Using baseURL: ${config.baseURL}`);
+    }
+
+    // 🆕 超时配置优化：默认 10 分钟，适配长时间思考和工具执行
+    // 注意：此超时是 HTTP 请求层超时，不是 LLM 生成超时
+    // 工具执行超时由 ToolRegistry 单独控制（默认 5 分钟）
+    const timeout = config.timeout ?? 600_000;
+
+    // 🆕 超时预警：如果超时 > 5 分钟，记录日志
+    if (timeout > 300_000) {
+      this.log.debug(`HTTP timeout set to ${timeout}ms (${Math.round(timeout / 60000)}min). Tool execution timeout is separate (default 5min).`);
+    }
+
     return new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
-      timeout: config.timeout ?? 600_000,
+      timeout,
     });
   }
 
@@ -97,6 +112,10 @@ export class AnthropicProvider extends BaseLLMProvider {
       (params as any).thinking = (config.thinking.type === 'adaptive' && isDirectAnthropic)
         ? { type: 'adaptive', effort: config.thinking.effort ?? 'medium' }
         : { type: 'enabled', budget_tokens: budgetTokens };
+
+      console.log('[AnthropicProvider] Thinking 参数:', JSON.stringify((params as any).thinking), 'isDirectAnthropic:', isDirectAnthropic, 'baseURL:', config.baseURL);
+    } else {
+      console.log('[AnthropicProvider] config.thinking 未配置');
     }
 
     // 调试日志：统计缓存断点数量
@@ -125,7 +144,10 @@ export class AnthropicProvider extends BaseLLMProvider {
 }`);
 
     try {
-      const stream = client.messages.stream(params);
+      // 🔧 支持 AbortSignal：传递给 Anthropic SDK
+      const stream = client.messages.stream(params, {
+        signal: config.signal,
+      });
 
       // 当前 tool_use 块 JSON 累积
       let currentToolId: string | undefined;
@@ -159,6 +181,7 @@ export class AnthropicProvider extends BaseLLMProvider {
               if (delta.type === 'text_delta') {
                 yield { type: 'text_delta', text: delta.text };
               } else if (delta.type === 'thinking_delta') {
+                console.log('[AnthropicProvider] 收到 thinking_delta:', delta.thinking?.length || 0, '前50字符:', delta.thinking?.slice(0, 50) || '');
                 yield { type: 'thinking_delta', thinking: delta.thinking };
               } else if (delta.type === 'input_json_delta') {
                 currentToolInput += delta.partial_json;
@@ -300,7 +323,23 @@ export class AnthropicProvider extends BaseLLMProvider {
       // 捕获并增强错误信息
       let errorMessage = err instanceof Error ? err.message : String(err);
 
-      if (errorMessage.includes('status code') || errorMessage.includes('authentication') || errorMessage.includes('APIError')) {
+      // 🆕 超时错误特殊处理
+      const isTimeout = errorMessage.includes('timeout') ||
+                       errorMessage.includes('aborted') ||
+                       errorMessage.includes('ETIMEDOUT');
+
+      if (isTimeout) {
+        errorMessage = `⏱️  请求超时 (${Math.round((config.timeout ?? 600_000) / 1000)}s)\n\n` +
+          `可能原因:\n` +
+          `1. 网络连接不稳定\n` +
+          `2. LLM 响应时间过长（Extended Thinking 模式下可能需要更长时间）\n` +
+          `3. 代理服务超时（如使用中转 API）\n\n` +
+          `建议:\n` +
+          `- 在配置文件中增加 timeout 值（当前: ${config.timeout ?? 600_000}ms）\n` +
+          `- 检查网络连接和代理设置\n` +
+          `- 减少 Extended Thinking 的 budget_tokens\n\n` +
+          `原始错误: ${errorMessage}`;
+      } else if (errorMessage.includes('status code') || errorMessage.includes('authentication') || errorMessage.includes('APIError')) {
         errorMessage += `\n\n调试信息:\n` +
           `- Provider: anthropic\n` +
           `- 模型: ${config.model}\n` +

@@ -38,4 +38,5 @@ export {
   type ErrorRecoveryLog,
   type InterruptLog,
   type SessionCompleteLog,
+  type MemorySaveLog,
 } from './AgentLoopLogger';

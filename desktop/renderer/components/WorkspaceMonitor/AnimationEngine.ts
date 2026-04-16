@@ -8,10 +8,8 @@ import type { LayoutEngine } from './LayoutEngine';
 export class AnimationEngine {
   private animations: Map<string, Animation> = new Map();
   private particles: Map<string, Particle[]> = new Map();
-  private layoutEngine: LayoutEngine;
 
-  constructor(layoutEngine: LayoutEngine) {
-    this.layoutEngine = layoutEngine;
+  constructor(_layoutEngine: LayoutEngine) {
   }
 
   /**

@@ -33,6 +33,9 @@ export interface AgentState {
   // 当前思考内容
   currentThought?: string;
 
+  // 🔧 当前任务描述（团队成员专用）
+  currentTask?: string;
+
   // 当前执行的工具
   currentTools: ToolExecution[];
 
@@ -41,6 +44,25 @@ export interface AgentState {
 
   // 子 Agent
   subAgents: AgentState[];
+
+  // Agent 类型标识
+  agentType?: 'builtin' | 'temporary' | 'custom';
+
+  // Multi-Agent 扩展字段
+  multiAgent?: {
+    type: 'orchestrate' | 'pipeline' | 'quick_team' | 'agent_team' | 'delegate';
+    strategy?: string;
+    teamName?: string;
+    parentId?: string;
+    stepIndex?: number;
+    totalSteps?: number;
+    subagentType?: string;
+    // Debate 策略专用
+    currentRound?: number;
+    maxRounds?: number;
+    /** 辩论角色：正方/反方/裁判 */
+    debateRole?: 'affirmative' | 'negative' | 'judge';
+  };
 
   // 统计
   stats: {
@@ -59,15 +81,19 @@ export interface AgentState {
 interface ActiveAgentStore {
   // ========== 状态 ==========
   mainAgent: AgentState | null;
+  /** 当前正在执行的 Agent ID（主 Agent 或某个 SubAgent） */
+  currentActiveAgentId: string | null;
 
   // ========== Agent 管理 ==========
   startMainAgent: (name: string) => void;
   finishMainAgent: () => void;
   resetAll: () => void;
+  setCurrentActiveAgent: (agentId: string | null) => void;
 
   // ========== 状态更新 ==========
   setAgentStatus: (agentId: string, status: AgentStatus) => void;
   setAgentThought: (agentId: string, thought: string) => void;
+  setAgentTask: (agentId: string, task: string) => void; // 🔧 新增：设置任务
   addAgentTool: (agentId: string, tool: ToolExecution) => void;
   updateAgentTool: (agentId: string, toolId: string, updates: Partial<ToolExecution>) => void;
   setAgentResponse: (agentId: string, response: string) => void;
@@ -78,21 +104,12 @@ interface ActiveAgentStore {
 
   // ========== 统计更新 ==========
   updateAgentStats: (agentId: string, stats: Partial<AgentState['stats']>) => void;
+
+  // ========== Multi-Agent 信息更新 ==========
+  updateAgentMultiAgent: (agentId: string, updates: Partial<AgentState['multiAgent']>) => void;
 }
 
 // ========== 辅助函数：递归查找和更新 Agent ==========
-
-function findAgent(agent: AgentState | null, agentId: string): AgentState | null {
-  if (!agent) return null;
-  if (agent.id === agentId) return agent;
-
-  for (const sub of agent.subAgents) {
-    const found = findAgent(sub, agentId);
-    if (found) return found;
-  }
-
-  return null;
-}
 
 function updateAgentInTree(agent: AgentState | null, agentId: string, updater: (agent: AgentState) => AgentState): AgentState | null {
   if (!agent) return null;
@@ -111,6 +128,7 @@ function updateAgentInTree(agent: AgentState | null, agentId: string, updater: (
 
 export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
   mainAgent: null,
+  currentActiveAgentId: null,
 
   // ========== Agent 管理 ==========
 
@@ -128,7 +146,11 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
       },
     };
 
-    set({ mainAgent: agent });
+    set({ mainAgent: agent, currentActiveAgentId: agent.id });
+  },
+
+  setCurrentActiveAgent: (agentId) => {
+    set({ currentActiveAgentId: agentId });
   },
 
   finishMainAgent: () => {
@@ -158,6 +180,11 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
       ...agent,
       status,
+      // 当 agent 完成时，清空临时状态
+      ...(status === 'done' ? {
+        currentThought: undefined,
+        currentTools: [],
+      } : {}),
     }));
 
     if (updated) {
@@ -172,6 +199,19 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
       ...agent,
       currentThought: thought,
       status: 'thinking',
+    }));
+
+    if (updated) {
+      set({ mainAgent: updated });
+    }
+  },
+
+  setAgentTask: (agentId: string, task: string) => {
+    const { mainAgent } = get();
+
+    const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
+      ...agent,
+      currentTask: task,
     }));
 
     if (updated) {
@@ -272,6 +312,8 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
   removeSubAgent: (parentId: string, subAgentId: string) => {
     const { mainAgent } = get();
 
+    console.log('[activeAgentStore] removeSubAgent 被调用:', { parentId, subAgentId });
+
     const updated = updateAgentInTree(mainAgent, parentId, (agent) => ({
       ...agent,
       subAgents: agent.subAgents.filter(sub => sub.id !== subAgentId),
@@ -279,6 +321,7 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
 
     if (updated) {
       set({ mainAgent: updated });
+      console.log('[activeAgentStore] removeSubAgent 完成，剩余子 Agent:', updated.subAgents?.map(s => s.id));
     }
   },
 
@@ -297,6 +340,24 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
           ...(stats.tokenUsage || {}),
         },
       },
+    }));
+
+    if (updated) {
+      set({ mainAgent: updated });
+    }
+  },
+
+  // ========== Multi-Agent 信息更新 ==========
+
+  updateAgentMultiAgent: (agentId: string, updates: Partial<AgentState['multiAgent']>) => {
+    const { mainAgent } = get();
+
+    const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
+      ...agent,
+      multiAgent: {
+        ...agent.multiAgent,
+        ...updates,
+      } as AgentState['multiAgent'],
     }));
 
     if (updated) {

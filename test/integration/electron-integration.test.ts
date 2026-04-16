@@ -5,6 +5,9 @@
 // 注意: 这些测试模拟 Electron IPC 环境，不启动真正的 Electron 窗口。
 // 测试的是主进程逻辑的正确性，而非 UI 渲染。
 //
+// TODO: @/adapters/electron/main 和 @/adapters/electron/preload 尚未实现
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-nocheck
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

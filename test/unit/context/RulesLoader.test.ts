@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { RulesLoader } from '@/context/RulesLoader';
+import { RulesLoader } from '@/core/config/RulesLoader';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -21,7 +21,7 @@ describe('RulesLoader', () => {
   it('should load XUANJI.md from project root', async () => {
     await writeFile(join(testDir, 'XUANJI.md'), '# Project Rules\n- Rule 1');
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.xuanjiMd).toBe('# Project Rules\n- Rule 1');
   });
@@ -30,13 +30,13 @@ describe('RulesLoader', () => {
     await mkdir(join(testDir, '.xuanji'), { recursive: true });
     await writeFile(join(testDir, '.xuanji', 'rules.md'), '# Custom Rules');
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.projectRules).toBe('# Custom Rules');
   });
 
   it('should handle missing files gracefully', async () => {
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.xuanjiMd).toBeUndefined();
     expect(result.projectRules).toBeUndefined();
@@ -48,7 +48,7 @@ describe('RulesLoader', () => {
     const largeContent = 'x'.repeat(600 * 1024);
     await writeFile(join(testDir, 'XUANJI.md'), largeContent);
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.xuanjiMd).toBeDefined();
     expect(Buffer.byteLength(result.xuanjiMd!, 'utf-8')).toBeLessThanOrEqual(500 * 1024);
@@ -59,7 +59,7 @@ describe('RulesLoader', () => {
     await mkdir(join(testDir, '.xuanji'), { recursive: true });
     await writeFile(join(testDir, '.xuanji', 'rules.md'), '# Custom');
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.xuanjiMd).toBe('# Main');
     expect(result.projectRules).toBe('# Custom');
@@ -69,7 +69,7 @@ describe('RulesLoader', () => {
     // 创建一个同名目录而非文件
     await mkdir(join(testDir, 'XUANJI.md'), { recursive: true });
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
     expect(result.xuanjiMd).toBeUndefined();
   });
@@ -77,8 +77,9 @@ describe('RulesLoader', () => {
   it('should handle empty file', async () => {
     await writeFile(join(testDir, 'XUANJI.md'), '');
 
-    const result = await loader.load(testDir);
+    const result = loader.loadRulesSync(testDir);
 
-    expect(result.xuanjiMd).toBe('');
+    // 空文件返回 undefined（因为 trim 后长度为 0）
+    expect(result.xuanjiMd).toBeUndefined();
   });
 });

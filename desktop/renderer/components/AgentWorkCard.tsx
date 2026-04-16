@@ -7,7 +7,7 @@
 // - SubAgent 嵌套布局
 // ============================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Wrench, Sparkles, CheckCircle, ChevronDown, ChevronRight,
@@ -186,7 +186,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                       <Brain className="w-3.5 h-3.5" />
                       <span className="font-medium">思考</span>
                     </div>
-                    <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed">
+                    <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed max-h-28 overflow-y-auto">
                       {agent.currentThought}
                     </div>
                   </div>

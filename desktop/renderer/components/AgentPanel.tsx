@@ -3,8 +3,8 @@
 // 展示当前执行任务的 Agent 及其行为
 // ============================================================
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { X, Zap, Clock, CheckCircle, AlertCircle, Loader2, Brain, Users } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -54,7 +54,7 @@ export default function AgentPanel({ onToggle }: AgentPanelProps) {
         mainAgent.status = 'thinking';
         mainAgent.currentThought = '正在思考...';
       } else if (lastMsg.toolCalls) {
-        const runningTools = lastMsg.toolCalls.filter(tc => !tc.status || tc.status === 'running');
+        const runningTools = lastMsg.toolCalls.filter(tc => !tc.status || tc.status === 'pending');
         const successTools = lastMsg.toolCalls.filter(tc => tc.status === 'success');
         const errorTools = lastMsg.toolCalls.filter(tc => tc.status === 'error');
 

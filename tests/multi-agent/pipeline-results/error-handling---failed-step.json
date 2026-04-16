@@ -1,0 +1,45 @@
+{
+  "testName": "Error Handling - Failed Step",
+  "status": "documented",
+  "duration": 0,
+  "testPlan": {
+    "name": "Error Handling - Failed Step",
+    "objective": "Verify pipeline handles step failures correctly",
+    "steps": [
+      {
+        "step": 1,
+        "agent": "coder",
+        "task": "Generate valid data",
+        "expectedStatus": "success"
+      },
+      {
+        "step": 2,
+        "agent": "coder",
+        "task": "Intentionally fail (access non-existent file)",
+        "expectedStatus": "failure",
+        "timeout": 30000
+      },
+      {
+        "step": 3,
+        "agent": "coder",
+        "task": "Should not execute if step 2 fails",
+        "expectedStatus": "skipped"
+      }
+    ],
+    "errorHandlingTests": [
+      "Pipeline stops at failed step",
+      "Error message is clear and actionable",
+      "Subsequent steps are not executed",
+      "Partial results from successful steps are preserved",
+      "No resource leaks or hanging processes"
+    ],
+    "expectedBehavior": {
+      "pipelineStatus": "failed",
+      "completedSteps": 1,
+      "failedStep": 2,
+      "skippedSteps": 1,
+      "errorReporting": "Clear error message with step number and cause"
+    }
+  },
+  "note": "Cannot execute due to import issues - test plan documented"
+}

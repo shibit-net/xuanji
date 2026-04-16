@@ -9,8 +9,8 @@
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
-import { X, Eye, BarChart3, FileCode, Database, FileText, Activity } from 'lucide-react';
-import { AgentMonitor, ToolMonitor, ContextView, MemoryView, LogsView } from '../monitors';
+import { X, BarChart3, FileCode, Database, FileText, Activity } from 'lucide-react';
+import { ToolMonitor, ContextView, MemoryView, LogsView } from '../monitors';
 import ActiveAgentView from '../components/ActiveAgentView';
 import { useHistoryStore } from '../stores';
 
@@ -20,7 +20,7 @@ interface InspectorPanelProps {
   onTabChange?: (tab: string) => void;
 }
 
-type TabId = 'workspace' | 'agent' | 'tool' | 'context' | 'memory' | 'logs';
+type TabId = 'workspace' | 'tool' | 'context' | 'memory' | 'logs';
 
 interface Tab {
   id: TabId;
@@ -30,7 +30,6 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'workspace', label: '工作区', icon: <Activity size={14} /> },
-  { id: 'agent', label: 'Agent', icon: <Eye size={14} /> },
   { id: 'tool', label: '工具', icon: <BarChart3 size={14} /> },
   { id: 'context', label: '上下文', icon: <FileCode size={14} /> },
   { id: 'memory', label: '记忆', icon: <Database size={14} /> },
@@ -98,7 +97,6 @@ export default function InspectorPanel({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
-          {activeTab === 'agent' && <AgentMonitor />}
           {activeTab === 'tool' && <ToolMonitor />}
           {activeTab === 'context' && <ContextView />}
           {activeTab === 'memory' && <MemoryView />}

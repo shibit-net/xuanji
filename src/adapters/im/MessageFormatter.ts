@@ -26,21 +26,39 @@ export class MessageFormatter {
     this.textParts.push(text);
   }
 
+  /** 需要在 IM 消息中显示的工具 */
+  private static readonly DISPLAYABLE_TOOLS = new Set([
+    'write_file',
+    'edit_file',
+    'multi_edit',
+    'bash',
+    'task',
+    'team',
+    'todo_create',
+    'todo_update',
+    'enter_plan_mode',
+    'exit_plan_mode',
+  ]);
+
   /**
    * 记录工具开始
    */
   toolStart(name: string, input: Record<string, unknown>): void {
-    this.toolCalls.push({
-      name,
-      input,
-      startTime: Date.now(),
-    });
+    // 只记录需要显示的工具
+    if (MessageFormatter.DISPLAYABLE_TOOLS.has(name)) {
+      this.toolCalls.push({
+        name,
+        input,
+        startTime: Date.now(),
+      });
+    }
   }
 
   /**
    * 记录工具结束
    */
   toolEnd(name: string, result: string, isError: boolean): void {
+    // 只处理已记录的工具（即需要显示的工具）
     const call = this.toolCalls.find(
       (c) => c.name === name && c.result === undefined
     );

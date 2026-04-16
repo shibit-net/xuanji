@@ -46,7 +46,7 @@ export interface ILogger {
 export interface LoggerConfig {
   /** 日志级别（默认: dev=debug, prod=info） */
   level?: LogLevel;
-  /** 日志文件路径（默认: ~/.xuanji/logs/core.log） */
+  /** 日志目录路径（默认: ~/.xuanji/logs，按级别分文件） */
   file?: string;
   /** 是否启用文件输出（默认: true，所有环境启用） */
   enableFile?: boolean;

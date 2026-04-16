@@ -93,6 +93,8 @@ export class AgentLoop {
   private _interrupted = false;
   /** 待追加的用户消息（interrupt 时设置，循环中消费） */
   private _pendingAppendMessage: string | null = null;
+  /** 🔧 全局 AbortController：用于级联终止所有子任务（工具、sub-agent、team） */
+  private _abortController: AbortController | null = null;
 
   constructor(
     provider: ILLMProvider,
@@ -138,7 +140,11 @@ export class AgentLoop {
       config,
       undefined, // thinkingConfig 稍后通过 setThinking() 设置
     );
-    this.resultProcessor = new ResultProcessor(this.messageManager);
+    this.resultProcessor = new ResultProcessor(
+      this.messageManager,
+      this.contextCompressor,
+      this.tokenManager,
+    );
     this.toolExecutionCoordinator = new ToolExecutionCoordinator(
       registry,
       this.toolDispatcher,
@@ -190,13 +196,13 @@ export class AgentLoop {
     const toolStatsMap = new Map<string, { count: number; durationMs: number; errorCount: number }>();
     const sessionToolCalls: ToolCallRecord[] = [];
 
+    // 🔧 创建新的 AbortController（用于级联终止所有子任务）
+    this._abortController = new AbortController();
+
     // 🆕 初始化 AgentLoop 执行日志记录器
     this.agentLoopLogger = new AgentLoopLogger(sessionId, this.config.model);
 
     try {
-      // 🆕 Phase 1: 记忆检索与注入
-      await this.injectMemoryContext(userMessage);
-
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 
@@ -306,7 +312,9 @@ export class AgentLoop {
             isInterrupted: () => this._interrupted,
             getCurrentStream: () => this._currentStream,
             setCurrentStream: (stream) => { this._currentStream = stream; },
-          }
+          },
+          0,  // rateLimitRetryCount
+          this._abortController?.signal,  // 🔧 传递 AbortSignal
         );
 
         // 处理 Stream 结果
@@ -357,6 +365,38 @@ export class AgentLoop {
           break;
         }
 
+        // 🆕 如果需要压缩上下文，执行压缩
+        if (processResult.needsCompression) {
+          this.log.info('Triggering context compression due to max_tokens');
+          const compressionStartTime = Date.now();
+          const compressionResult = await this.contextCompressor.compressAsync(
+            this.messageManager.getMessages(),
+            this.tokenManager,
+          );
+
+          if (compressionResult.compressionRatio > 0) {
+            const compressionDuration = Date.now() - compressionStartTime;
+            this.log.info(
+              `Context compressed: ${compressionResult.originalTokens} → ${compressionResult.compressedTokens} tokens ` +
+              `(${(compressionResult.compressionRatio * 100).toFixed(1)}% reduction, ${compressionDuration}ms)`
+            );
+            this.messageManager.replaceMessages(compressionResult.compressed);
+            this.callbacks.onInfo?.(
+              `✅ 上下文已压缩：${compressionResult.originalTokens} → ${compressionResult.compressedTokens} tokens`
+            );
+
+            // 触发 PostCompact Hook（补充 duration）
+            if (this.hookRegistry) {
+              this.hookRegistry.emit('PostCompact', {
+                originalTokens: compressionResult.originalTokens,
+                compressedTokens: compressionResult.compressedTokens,
+                compressionRatio: compressionResult.compressionRatio,
+                duration: compressionDuration,
+              }).catch(() => {});
+            }
+          }
+        }
+
         if (processResult.shouldContinue) {
           messages = processResult.messages!;
           continue;
@@ -382,28 +422,46 @@ export class AgentLoop {
 
         // 执行工具
         const toolExecStartTime = Date.now();
+        const toolStartTimes = new Map<string, number>();
         const execResult = await this.toolExecutionCoordinator.executeTools(
           result,
           grouping,
           {
-            onToolStart: this.callbacks.onToolStart,
+            onToolStart: async (id, name, input) => {
+              // 通知 UI
+              this.callbacks.onToolStart?.(id, name, input);
+
+              // 🆕 记录工具执行开始
+              toolStartTimes.set(id, Date.now());
+              await this.agentLoopLogger?.logToolExecute(
+                this.currentIteration,
+                id,
+                name,
+                input,
+                grouping.parallelIds.includes(id)
+              );
+            },
             onToolDelta: this.callbacks.onToolDelta,
             onToolEnd: async (id, name, resultContent, isError) => {
               // 通知 UI
               this.callbacks.onToolEnd?.(id, name, resultContent, isError);
 
               // 🆕 记录工具结果
+              const toolDuration = toolStartTimes.has(id)
+                ? Date.now() - toolStartTimes.get(id)!
+                : Date.now() - toolExecStartTime;
               await this.agentLoopLogger?.logToolResult(
                 this.currentIteration,
                 id,
                 name,
                 !isError,
                 resultContent.length,
-                Date.now() - toolExecStartTime,
+                toolDuration,
                 isError ? resultContent : undefined
               );
             },
-          }
+          },
+          this._abortController?.signal, // 🔧 传递 AbortSignal
         );
         const toolExecDurationMs = Date.now() - toolExecStartTime;
         const resultsMap = execResult.resultsMap;
@@ -528,7 +586,10 @@ export class AgentLoop {
 
       // 使用友好化的错误消息
       const friendlyError = new Error(ErrorRecovery.formatError(err));
-      this.callbacks.onError?.(friendlyError);
+
+      // 移除这里的 onError 调用，避免重复通知
+      // 异常会被外层捕获并调用 onError
+      // this.callbacks.onError?.(friendlyError);
 
       // API 错误已在 stream 层重试过，此处记录统计
       this.errorRecovery.recordError(err);
@@ -627,8 +688,27 @@ export class AgentLoop {
               model: this.config.model,
             };
             await this.memoryStore.save(sessionMemory);
+
+            // 🆕 记录记忆保存成功
+            await this.agentLoopLogger?.logMemorySave(
+              this.currentIteration,
+              'session',
+              `session ${sessionId}: ${sessionToolCalls.length} tool calls`,
+              JSON.stringify(sessionMemory).length,
+              true
+            );
           } catch (memoryErr) {
             this.log.debug('Failed to save session memory:', memoryErr);
+
+            // 🆕 记录记忆保存失败
+            await this.agentLoopLogger?.logMemorySave(
+              this.currentIteration,
+              'session',
+              `session ${sessionId}`,
+              0,
+              false,
+              memoryErr instanceof Error ? memoryErr.message : String(memoryErr)
+            );
           }
         }
       }
@@ -642,6 +722,12 @@ export class AgentLoop {
     this.running = false;
     this._interrupted = false;
     this._pendingAppendMessage = null;
+
+    // 🔧 触发 AbortController，级联终止所有子任务
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
 
     // 🆕 记录用户停止
     this.agentLoopLogger?.logInterrupt(
@@ -740,6 +826,9 @@ export class AgentLoop {
    * - interrupt() 中止当前 stream/工具，但 run() 继续循环，
    *   在下一次迭代开始时注入用户追加消息并重新调用 LLM
    *
+   * 🆕 UI 行为：触发 onEnd 回调，让前端结束当前 assistant 消息气泡，
+   *    下一轮回复将在新的消息气泡中显示
+   *
    * @param appendMessage 用户追加的补充指令
    */
   interrupt(appendMessage: string): void {
@@ -782,6 +871,12 @@ export class AgentLoop {
         // 中止失败不影响逻辑
       }
       this._currentStream = null;
+    }
+
+    // 🆕 触发 onEnd 回调，通知前端结束当前消息气泡
+    // 注意：不改变 this.running 状态，循环会继续执行
+    if (this.callbacks.onEnd) {
+      this.callbacks.onEnd(this.getState());
     }
   }
 
@@ -896,145 +991,5 @@ export class AgentLoop {
    */
   setPricingResolver(resolver: PricingResolver): void {
     this.costTracker.setPricingResolver(resolver);
-  }
-
-  /**
-   * 🆕 Phase 1: 记忆检索与注入
-   *
-   * 从记忆系统检索与用户输入相关的历史记忆，并注入到 System Prompt 中
-   *
-   * @param userMessage 用户输入
-   */
-  private async injectMemoryContext(userMessage: string): Promise<void> {
-    if (!this.memoryStore) {
-      this.log.debug('Memory store not available, skipping memory injection');
-      return;
-    }
-
-    try {
-      const startTime = Date.now();
-
-      // 1. 检索相关记忆（混合检索：向量 + 关键词）
-      const relevantMemories = await this.memoryStore.retrieve(userMessage, {
-        maxResults: 5,           // 最多5条相关记忆
-        minConfidence: 0.6,      // 最低相关度阈值（60%）
-        scope: 'all',            // 检索全部范围（全局 + 项目）
-      });
-
-      if (relevantMemories.length === 0) {
-        this.log.debug('No relevant memories found');
-        return;
-      }
-
-      // 2. 格式化记忆（OpenClaw风格：Timeline/Topic/Fact分类）
-      const memoryContext = this.formatMemoryContext(relevantMemories);
-
-      // 3. 注入到 System Prompt（使用独立 key 'memory'，不与其他后缀冲突）
-      this.messageManager.setSystemPromptSuffix(memoryContext, 'memory');
-
-      const durationMs = Date.now() - startTime;
-
-      // 4. 记录日志
-      this.log.info(
-        `Memory context injected: ${relevantMemories.length} entries, ` +
-        `${memoryContext.length} chars, ${durationMs}ms`
-      );
-
-      // 5. 通知 UI（可选）
-      this.callbacks.onInfo?.(
-        `📚 已加载 ${relevantMemories.length} 条相关记忆`
-      );
-    } catch (err) {
-      this.log.warn('Memory injection failed:', err);
-      // 记忆检索失败不影响主流程，继续执行
-    }
-  }
-
-  /**
-   * 🆕 格式化记忆上下文（OpenClaw风格分类）
-   *
-   * 将记忆条目按 category 分组展示：
-   * - 📅 Timeline: 历史会话摘要
-   * - 🏷️ Topic: 用户偏好、项目知识
-   * - 📌 Fact: 技能、代码片段
-   *
-   * @param memories 记忆条目列表
-   * @returns 格式化后的 Markdown 文本
-   */
-  private formatMemoryContext(memories: import('@/memory/types').MemoryEntry[]): string {
-    // 按 category 分组
-    const timeline = memories.filter(m => m.category === 'timeline');
-    const topic = memories.filter(m => m.category === 'topic');
-    const fact = memories.filter(m => m.category === 'fact');
-
-    const parts: string[] = ['\n## 相关记忆'];
-
-    // Timeline: 历史会话摘要
-    if (timeline.length > 0) {
-      parts.push('\n### 📅 历史会话');
-      timeline.forEach((m, idx) => {
-        const timeAgo = this.formatTimeAgo(m.createdAt);
-        const preview = m.content.slice(0, 150).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. [${timeAgo}] ${preview}`);
-      });
-    }
-
-    // Topic: 用户偏好、项目知识
-    if (topic.length > 0) {
-      parts.push('\n### 🏷️ 用户偏好与项目知识');
-      topic.forEach((m, idx) => {
-        const preview = m.content.slice(0, 100).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. ${preview}`);
-      });
-    }
-
-    // Fact: 技能、代码片段
-    if (fact.length > 0) {
-      parts.push('\n### 📌 相关知识');
-      fact.forEach((m, idx) => {
-        const preview = m.content.slice(0, 100).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. ${preview}`);
-      });
-    }
-
-    // 添加使用提示
-    parts.push('\n> 💡 以上记忆可能包含与当前任务相关的历史上下文、用户偏好或项目知识。');
-
-    return parts.join('\n');
-  }
-
-  /**
-   * 🆕 格式化时间距离（友好的时间显示）
-   *
-   * @param isoDate ISO 格式日期字符串
-   * @returns 友好的时间描述（如 "2天前", "1小时前"）
-   */
-  private formatTimeAgo(isoDate: string): string {
-    try {
-      const now = Date.now();
-      const then = new Date(isoDate).getTime();
-      const diffMs = now - then;
-
-      const minute = 60 * 1000;
-      const hour = 60 * minute;
-      const day = 24 * hour;
-      const week = 7 * day;
-
-      if (diffMs < hour) {
-        const mins = Math.floor(diffMs / minute);
-        return mins <= 1 ? '刚刚' : `${mins}分钟前`;
-      } else if (diffMs < day) {
-        const hours = Math.floor(diffMs / hour);
-        return `${hours}小时前`;
-      } else if (diffMs < week) {
-        const days = Math.floor(diffMs / day);
-        return `${days}天前`;
-      } else {
-        const weeks = Math.floor(diffMs / week);
-        return `${weeks}周前`;
-      }
-    } catch {
-      return '最近';
-    }
   }
 }

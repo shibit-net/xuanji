@@ -16,7 +16,7 @@ import { RegistryClient, MCPInstaller, SkillInstaller } from '@/tiangong';
 import { handleSearch, handleInstall, handleList, handleUninstall } from '@/tiangong/commands';
 import { AuthManager } from '@/auth';
 import { GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
-import { getTodoManager } from '@/core/tools/TodoStorageTool';
+import { getTodoManager } from '@/core/tools/TodoTool';
 import { LoginPrompt } from './auth/LoginPrompt';
 import { WhoamiDisplay } from './auth/WhoamiDisplay';
 import { AccountPanel } from './auth/AccountPanel';

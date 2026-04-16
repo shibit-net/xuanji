@@ -15,9 +15,14 @@
   model: {
     // 使用 Haiku 而非 Sonnet（上下文压缩是简单的摘要任务）
     // 成本降低约 90%，速度提升约 50%
-    primary: '[CC]claude-haiku-4-5-20251001',
-    fallback: '[CC]claude-haiku-4-5-20251001',
+    primary: 'claude-haiku-4-5',
     maxTokens: 1500,  // 摘要输出中等长度
+  },
+
+  provider: {
+    adapter: 'anthropic',
+    apiKey: 'sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU',
+    baseURL: 'https://aicoding.2233.ai',
   },
 
   systemPrompt: '你是一个对话历史压缩专家。你的任务是将长对话历史压缩成简洁的摘要。\n\n## 压缩原则\n\n1. **保留关键信息**：任务目标、重要决策、错误教训、待办事项\n2. **简洁明了**：用简短的语言概括，避免冗余\n3. **结构化**：使用清晰的分组和标题\n4. **可读性**：确保摘要易于理解，方便后续查阅\n\n## 输出格式\n\n使用以下格式组织摘要：\n\n```\n[上下文摘要 - AI 生成]\n\n## 主要任务\n- 任务 1: 简要描述\n- 任务 2: 简要描述\n\n## 重要决策\n- 决策 1: 简要说明\n- 决策 2: 简要说明\n\n## 关键信息\n- 信息 1: 简要描述\n- 信息 2: 简要描述\n\n## 待办事项（如果有）\n- [ ] 待办 1\n- [ ] 待办 2\n```\n\n## 要求\n\n1. 摘要长度控制在原内容的 20-30%\n2. 重点保留用户的意图和 Agent 的关键操作\n3. 忽略重复的、无关紧要的对话\n4. 如果有错误或问题，务必保留\n5. 使用中文输出',
@@ -36,11 +41,6 @@
     fileWrite: 'never',
     bashExec: 'never',
     network: 'never',
-  },
-
-  skills: {
-    builtin: [],
-    custom: [],
   },
 
   capabilities: [

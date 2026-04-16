@@ -12,8 +12,8 @@ import type { ILLMProvider, IToolRegistry } from '@/core/types';
 import type { ExecutionPlan } from '@/core/routing/types';
 import type { ExecutorConfig, ExecutionResult, SubTaskResult, ExecutionCallbacks } from './types';
 import { SubAgentContext } from '@/core/agent/SubAgentContext';
-import { runSubAgent } from '@/core/agent/SubAgentLoop';
 import type { AgentConfig } from '@/core/types/agent';
+import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'executor' });
@@ -23,10 +23,10 @@ export class Executor {
 
   constructor(
     private provider: ILLMProvider,
-    private lightProvider: ILLMProvider,
     private toolRegistry: IToolRegistry,
     private agentConfig: AgentConfig,
     config?: ExecutorConfig,
+    private subAgentFactory?: SubAgentFactory,
   ) {
     this.config = {
       maxConcurrent: config?.maxConcurrent || 3,
@@ -163,21 +163,14 @@ export class Executor {
     try {
       log.debug(`Executing subtask: ${taskDescription}`, { agentId });
 
-      // 创建 SubAgentContext
-      const context = new SubAgentContext({
-        task: taskDescription,
-      });
+      if (!this.subAgentFactory) {
+        throw new Error('SubAgentFactory is required for task execution');
+      }
 
-      // 使用 SubAgentLoop 执行子任务
-      const result = await runSubAgent(
-        this.provider,
-        this.lightProvider,
-        this.toolRegistry,
-        this.agentConfig,
-        context,
-        null, // hookRegistry
-        null, // memoryStore
-      );
+      const result = await this.subAgentFactory.createAndRun(agentId ?? 'general-purpose', {
+        task: taskDescription,
+        parentConfig: this.agentConfig,
+      });
 
       const completedAt = new Date().toISOString();
       const duration = Date.now() - startTime;
@@ -187,7 +180,7 @@ export class Executor {
         description: taskDescription,
         agentId,
         status: 'success',
-        result: result.result, // 使用 result 字段而不是 output
+        result: result.result,
         duration,
         startedAt,
         completedAt,

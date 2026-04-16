@@ -10,17 +10,17 @@ import { existsSync } from 'node:fs';
 import { ReminderSetTool } from '@/core/tools/ReminderSetTool';
 import { ReminderCheckTool } from '@/core/tools/ReminderCheckTool';
 import { ReminderEngine } from '@/reminder/ReminderEngine';
-import { StorageBackend } from '@/memory/StorageBackend';
+import { SimpleStorage } from '@/core/SimpleStorage';
 
 describe('ReminderSetTool', () => {
   let tool: ReminderSetTool;
   let engine: ReminderEngine;
   let tempDir: string;
-  let storage: StorageBackend;
+  let storage: SimpleStorage;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-remset-'));
-    storage = new StorageBackend();
+    storage = new SimpleStorage();
     engine = new ReminderEngine({}, storage);
     (engine as any).filePath = join(tempDir, 'reminders.jsonl');
     await engine.init();
@@ -113,11 +113,11 @@ describe('ReminderCheckTool', () => {
   let tool: ReminderCheckTool;
   let engine: ReminderEngine;
   let tempDir: string;
-  let storage: StorageBackend;
+  let storage: SimpleStorage;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-remchk-'));
-    storage = new StorageBackend();
+    storage = new SimpleStorage();
     engine = new ReminderEngine({ upcomingDays: 3 }, storage);
     (engine as any).filePath = join(tempDir, 'reminders.jsonl');
     await engine.init();

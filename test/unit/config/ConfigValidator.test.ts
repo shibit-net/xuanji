@@ -60,7 +60,7 @@ describe('ConfigValidator', () => {
       const apiKeyError = result.errors.find(e => e.path === 'provider.apiKey');
       expect(apiKeyError).toBeDefined();
       expect(apiKeyError?.message).toContain('必填字段缺失');
-      expect(apiKeyError?.message).toContain('ANTHROPIC_API_KEY');
+      expect(apiKeyError?.message).toContain('XUANJI_API_KEY');
     });
 
     it('应检测 provider 整体缺失', () => {
@@ -265,7 +265,7 @@ describe('ConfigValidator', () => {
       ];
 
       const formatted = ConfigValidator.formatErrors(errors);
-      expect(formatted).toContain('ANTHROPIC_API_KEY');
+      expect(formatted).toContain('XUANJI_API_KEY');
       expect(formatted).toContain('环境变量');
     });
 

@@ -13,8 +13,13 @@
 
 // ─── 基础类型 ────────────────────────────────────────
 
-/** 场景类型 */
-export type SceneType = 'coding' | 'life';
+/**
+ * 场景类型
+ * 开放字符串类型，内置场景为 'coding' | 'life'。
+ * 新增场景只需在 src/core/prompt/components/ 下新建 l1-xxx.ts 并声明 scenes: ['xxx']，
+ * LayeredPromptBuilder.init() 会自动扫描注册，无需修改此文件。
+ */
+export type SceneType = string;
 
 /** Prompt 层级 */
 export type PromptLayer = 'L0' | 'L1' | 'L2' | 'L3';
@@ -131,6 +136,8 @@ export interface LayeredPromptBuildOptions {
   language?: string;
   /** 工具列表 */
   toolList?: any[];
+  /** 应用配置（传给 PromptComponent.render 的 context） */
+  config?: import('@/core/types').AppConfig;
 }
 
 // ─── 旧类型兼容（过渡期保留） ─────────────────────────

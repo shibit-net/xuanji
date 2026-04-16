@@ -5,7 +5,7 @@
 // 删除后，下次遇到同类操作会重新询问用户。
 // ============================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Shield, ShieldCheck, ShieldX, Trash2, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import type { PermissionRule } from '../global';
 

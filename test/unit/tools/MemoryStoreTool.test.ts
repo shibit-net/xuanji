@@ -2,27 +2,33 @@
 // MemoryStoreTool 单元测试
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { MemoryStoreTool } from '@/core/tools/MemoryStoreTool';
 import { MemoryManager } from '@/memory/MemoryManager';
+import { MemoryStore } from '@/memory/MemoryStore';
+
+/** 创建隔离的 MemoryManager，使用临时数据库路径 */
+function createIsolatedManager(dbPath: string, projectDir: string): MemoryManager {
+  const manager = new MemoryManager({}, projectDir);
+  (manager as any).store = new MemoryStore(dbPath);
+  return manager;
+}
 
 describe('MemoryStoreTool', () => {
   let tool: MemoryStoreTool;
-  let tempGlobalDir: string;
+  let tempDir: string;
   let tempProjectDir: string;
   let manager: MemoryManager;
 
   beforeEach(async () => {
-    tempGlobalDir = await mkdtemp(join(tmpdir(), 'xuanji-store-global-'));
-    tempProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-store-project-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'xuanji-store-'));
+    tempProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-store-proj-'));
 
-    manager = new MemoryManager({}, tempProjectDir);
-    // 覆盖全局目录实现测试隔离
-    manager['longTerm']['globalDir'] = tempGlobalDir;
+    manager = createIsolatedManager(join(tempDir, 'memory.db'), tempProjectDir);
     await manager.init();
 
     tool = new MemoryStoreTool();
@@ -30,7 +36,7 @@ describe('MemoryStoreTool', () => {
   });
 
   afterEach(async () => {
-    for (const dir of [tempGlobalDir, tempProjectDir]) {
+    for (const dir of [tempDir, tempProjectDir]) {
       if (existsSync(dir)) {
         await rm(dir, { recursive: true, force: true });
       }
@@ -49,19 +55,13 @@ describe('MemoryStoreTool', () => {
     expect(result.content).toContain('Memory stored');
     expect(result.content).toContain('user_preference');
 
-    // 验证文件写入
-    const filePath = join(tempGlobalDir, 'knowledge.jsonl');
-    expect(existsSync(filePath)).toBe(true);
-
-    const content = await readFile(filePath, 'utf-8');
-    const entry = JSON.parse(content.trim());
-    expect(entry.type).toBe('user_preference');
-    expect(entry.content).toBe('Does not eat spicy food');
-    expect(entry.source).toBe('llm-explicit');
-    expect(entry.confidence).toBe(0.9);
+    // 验证写入 SQLite
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(1);
+    expect(stats.byType['user_preference']).toBe(1);
   });
 
-  it('should store relationship memory to personal.jsonl', async () => {
+  it('should store relationship memory', async () => {
     const result = await tool.execute({
       type: 'relationship',
       content: 'Alice likes Japanese cuisine',
@@ -71,17 +71,12 @@ describe('MemoryStoreTool', () => {
 
     expect(result.isError).toBe(false);
 
-    // 验证写入 personal.jsonl
-    const filePath = join(tempGlobalDir, 'personal.jsonl');
-    expect(existsSync(filePath)).toBe(true);
-
-    const content = await readFile(filePath, 'utf-8');
-    const entry = JSON.parse(content.trim());
-    expect(entry.type).toBe('relationship');
-    expect(entry.content).toBe('Alice likes Japanese cuisine');
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(1);
+    expect(stats.byType['relationship']).toBe(1);
   });
 
-  it('should store important_date memory to personal.jsonl', async () => {
+  it('should store important_date memory', async () => {
     const result = await tool.execute({
       type: 'important_date',
       content: "Alice's birthday is March 8th",
@@ -91,8 +86,8 @@ describe('MemoryStoreTool', () => {
 
     expect(result.isError).toBe(false);
 
-    const filePath = join(tempGlobalDir, 'personal.jsonl');
-    expect(existsSync(filePath)).toBe(true);
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(1);
   });
 
   it('should use default confidence of 0.8', async () => {
@@ -185,10 +180,10 @@ describe('MemoryStoreTool', () => {
 
     expect(result.isError).toBe(false);
 
-    const filePath = join(tempGlobalDir, 'knowledge.jsonl');
-    const content = await readFile(filePath, 'utf-8');
-    const entry = JSON.parse(content.trim());
-    expect(entry.keywords).toEqual(['dark', 'mode', 'editor']);
+    // 验证关键词已规范化（通过检索验证）
+    const results = await manager.retrieve('dark mode editor');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]?.keywords).toEqual(['dark', 'mode', 'editor']);
   });
 
   it('should have correct tool metadata', () => {

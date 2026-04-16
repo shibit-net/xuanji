@@ -2,7 +2,7 @@
 // DailyUsageStats 单元测试
 // ============================================================
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'node:path';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -250,6 +250,9 @@ describe('DailyUsageStats', () => {
   // ── 费用趋势 ──
 
   it('should return cost trend', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T12:00:00Z'));
+    try {
     await recordUsage(createRecord('2026-03-07', 'claude-sonnet-4', 1000, 500));
     await recordUsage(createRecord('2026-03-08', 'claude-sonnet-4', 2000, 800));
     await recordUsage(createRecord('2026-03-09', 'claude-sonnet-4', 1500, 600));
@@ -264,9 +267,15 @@ describe('DailyUsageStats', () => {
     expect(trend[2].date).toBe('2026-03-09');
     // 所有日期都应该有费用值（有数据或 0）
     expect(trend.every(t => t.cost >= 0)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should fill missing dates with zero cost', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T12:00:00Z'));
+    try {
     await recordUsage(createRecord('2026-03-07', 'claude-sonnet-4', 1000, 500));
     await recordUsage(createRecord('2026-03-09', 'claude-sonnet-4', 1500, 600));
 
@@ -278,6 +287,9 @@ describe('DailyUsageStats', () => {
     expect(trend[0].cost).toBeGreaterThan(0); // 2026-03-07
     expect(trend[1].cost).toBe(0); // 2026-03-08 (缺失)
     expect(trend[2].cost).toBeGreaterThan(0); // 2026-03-09
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ── 增量聚合 ──

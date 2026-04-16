@@ -19,7 +19,6 @@ vi.mock('@/core/agent/SubAgentLoop', () => ({
 
 describe('Executor', () => {
   let mockProvider: ILLMProvider;
-  let mockLightProvider: ILLMProvider;
   let mockToolRegistry: IToolRegistry;
   let mockAgentConfig: AgentConfig;
   let executor: Executor;
@@ -28,7 +27,6 @@ describe('Executor', () => {
     vi.clearAllMocks(); // 清理所有 mock 调用记录
 
     mockProvider = {} as any;
-    mockLightProvider = {} as any;
     mockToolRegistry = {} as any;
     mockAgentConfig = {
       model: 'claude-3-5-sonnet-20241022',
@@ -38,7 +36,6 @@ describe('Executor', () => {
 
     executor = new Executor(
       mockProvider,
-      mockLightProvider,
       mockToolRegistry,
       mockAgentConfig,
       {
@@ -148,7 +145,6 @@ describe('Executor', () => {
 
       executor = new Executor(
         mockProvider,
-        mockLightProvider,
         mockToolRegistry,
         mockAgentConfig,
         { stopOnError: true },

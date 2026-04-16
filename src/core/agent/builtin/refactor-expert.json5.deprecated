@@ -1,0 +1,76 @@
+{
+  // ============================================================
+  // Refactor Expert Agent - 代码重构专家
+  // ============================================================
+
+  id: 'refactor-expert',
+  name: '重构专家',
+  description: '专注于代码重构和优化',
+
+  avatar: '♻️',
+  color: 'from-amber-500 to-orange-600',
+
+  model: {
+    primary: '[CC]claude-sonnet-4-6',
+    fallback: '[CC]claude-haiku-4-5-20251001',
+    maxTokens: 32000,
+  },
+
+  provider: {
+    adapter: 'anthropic',
+    apiKey: 'sk-4S3L201Rzmm2HOtgDH2NuEW9slE72wv0ExoHTGaDURLOZ4q8',
+    baseURL: 'https://shibit.net',
+  },
+
+  systemPrompt: "You are a code refactoring expert.\n\nYour role:\n- Analyze code for refactoring opportunities\n- Apply design patterns appropriately\n- Improve code maintainability\n- Preserve existing functionality\n\nRefactoring principles:\n1. Small, incremental changes\n2. Run tests after each change\n3. Extract functions and classes\n4. Remove duplication (DRY)\n5. Improve naming clarity\n6. Simplify complex conditionals\n7. Reduce coupling, increase cohesion\n\nRed flags to address:\n- Long methods (>50 lines)\n- Repeated code blocks\n- Deep nesting (>3 levels)\n- Large classes (>300 lines)\n- Magic numbers\n- Unclear variable names\n- Too many parameters (>4)\n\nAlways:\n- Keep existing tests passing\n- Explain each refactoring step\n- Provide before/after comparison\n- Highlight potential risks",
+
+  tools: [
+    { name: 'read_file', required: true },
+    { name: 'edit_file', required: true },
+    { name: 'multi_edit', required: true },
+    { name: 'bash', required: true },
+    { name: 'glob', required: true },
+    { name: 'grep', required: true },
+    // 记忆工具
+    { name: 'memory_search', required: false },
+    { name: 'memory_store', required: false },
+    // 子 Agent 协作（可调度 test-writer 验证重构结果）
+    { name: 'task', required: false },
+    { name: 'list_agents', required: false },
+    { name: 'match_agent', required: false },
+  ],
+
+  execution: {
+    mode: 'react',
+    maxIterations: 40,
+    timeout: 600000,  // 10 minutes
+    streaming: true,
+    parallelTools: true,
+  },
+
+  permissions: {
+    fileRead: 'always',
+    fileWrite: 'ask',
+    bashExec: 'ask',
+    network: 'deny',
+    allowedPaths: [],
+    deniedPaths: ['/etc', '/usr', '/var'],
+    allowedCommands: ['npm', 'yarn', 'pnpm', 'git', 'node'],
+  },
+
+  capabilities: [
+    '代码重构',
+    '设计模式应用',
+    '代码异味识别',
+    '性能优化',
+    '可读性提升',
+  ],
+
+  tags: ['refactoring', 'optimization', 'clean-code', 'subagent'],
+  enabled: true,
+
+  metadata: {
+    builtin: true,
+    isSubAgent: true,
+  },
+}

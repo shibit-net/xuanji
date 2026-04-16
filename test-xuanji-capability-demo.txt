@@ -1,0 +1,25 @@
+Xuanji 功能测试演示
+===================
+
+测试时间: 2026-03-18
+测试项目: xuanji v0.9.0
+
+功能清单:
+1. ✓ 文件读取 (read_file)
+2. ✓ 目录列表 (list_directory)
+3. ✓ 记忆搜索 (memory_search)
+4. ✓ 任务创建 (todo_create)
+5. ✓ 文件查找 (glob)
+6. ✓ 代码搜索 (grep)
+7. ✓ 命令执行 (bash)
+8. ✓ 文件写入 (write_file)
+9. ✓ 文件编辑 (edit_file)
+10. ✓ 记忆存储 (memory_store)
+11. ✓ 任务管理 (todo_list/update)
+12. ✓ 网页抓取 (web_fetch)
+13. ✓ 类型检查 (bash typecheck)
+14. ✓ 多工具并行执行
+
+测试结果: 所有核心功能正常 ✓
+项目版本: v0.9.0
+测试环境: macOS + Node v20.19.0

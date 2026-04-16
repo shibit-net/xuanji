@@ -2,10 +2,12 @@
  * 子代理上下文配置
  *
  * 封装子代理的运行参数，包括:
- * - 父代理上下文摘要（可选传递）
  * - 超时控制
  * - 工具过滤（排除 TaskTool 防止递归）
  * - 嵌套深度追踪
+ *
+ * 注意：子代理不自动继承父代理上下文。
+ * 父代理的 LLM 负责在 task description 中内嵌必要的上下文。
  */
 
 import type { AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
@@ -19,7 +21,7 @@ export type IsolationMode = 'none' | 'worktree';
 /**
  * 子代理角色类型
  */
-export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder' | 'memory-extractor' | 'guide-generator';
+export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder' | 'memory-extractor';
 
 /**
  * 子代理创建选项
@@ -27,8 +29,6 @@ export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder' | '
 export interface SubAgentOptions {
   /** 任务描述（作为子代理的初始 user message） */
   task: string;
-  /** 父代理上下文摘要（可选，显式传递） */
-  parentContext?: string;
   /** 超时（毫秒），默认 300_000（5 分钟） */
   timeout?: number;
   /** 最大迭代次数，默认 30 */
@@ -75,7 +75,6 @@ export const ALWAYS_RESTRICTED_TOOLS = ['task'];
  */
 export class SubAgentContext {
   readonly task: string;
-  readonly parentContext: string | undefined;
   readonly timeout: number;
   readonly maxIterations: number;
   readonly restrictedTools: string[];
@@ -87,7 +86,6 @@ export class SubAgentContext {
 
   constructor(options: SubAgentOptions) {
     this.task = options.task;
-    this.parentContext = options.parentContext;
     const subAgentCfg = getSubAgentConfig();
     this.timeout = options.timeout ?? subAgentCfg?.timeout ?? DEFAULT_TIMEOUT;
     this.maxIterations = options.maxIterations ?? subAgentCfg?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -144,11 +142,6 @@ export class SubAgentContext {
     ].join('\n');
 
     systemPrompt += subAgentHeader;
-
-    // 如果有父上下文，追加
-    if (this.parentContext) {
-      systemPrompt += `\n\n[Parent Context]\n${this.parentContext}`;
-    }
 
     return {
       ...parentConfig,

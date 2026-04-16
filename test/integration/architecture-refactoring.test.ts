@@ -141,12 +141,10 @@ describe('架构重构集成测试', () => {
     let planner: Planner;
     let executor: Executor;
     let mockProvider: ILLMProvider;
-    let mockLightProvider: ILLMProvider;
     let mockToolRegistry: ToolRegistry;
 
     beforeEach(() => {
       mockProvider = createMockProvider([]);
-      mockLightProvider = createMockProvider([]);
       mockToolRegistry = {} as any;
 
       planner = new Planner(mockProvider, {
@@ -158,7 +156,6 @@ describe('架构重构集成测试', () => {
 
       executor = new Executor(
         mockProvider,
-        mockLightProvider,
         mockToolRegistry,
         { model: 'mock-model', systemPrompt: '', maxIterations: 10 } as any,
         { maxConcurrent: 3, timeout: 300000, stopOnError: false },

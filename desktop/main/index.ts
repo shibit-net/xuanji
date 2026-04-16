@@ -19,6 +19,9 @@ let agentProcess: ChildProcess | null = null;
 let sessionReady = false;
 let cachedConfig: any = null;
 
+// 防止并发 initChatSession 调用（如 app.whenReady 和 agent:init IPC 同时触发）
+let initializationInProgress: Promise<boolean> | null = null;
+
 // 用于 agent:get-state / agent:init 等请求-响应式 IPC
 let pendingRequests = new Map<string, { resolve: (val: any) => void; timer: ReturnType<typeof setTimeout> }>();
 let requestIdCounter = 0;
@@ -93,8 +96,27 @@ function findNodePath(): string {
 
 /**
  * 初始化 ChatSession 子进程
+ *
+ * 防重入保护：若初始化已在进行中，直接复用同一个 Promise，
+ * 避免并发创建多个子进程（app.whenReady 与 agent:init IPC 可能同时触发）。
  */
-async function initChatSession(): Promise<boolean> {
+function initChatSession(): Promise<boolean> {
+  if (initializationInProgress) {
+    console.log('⏳ ChatSession 初始化已在进行中，等待完成...');
+    return initializationInProgress;
+  }
+
+  initializationInProgress = _doInitChatSession().finally(() => {
+    initializationInProgress = null;
+  });
+
+  return initializationInProgress;
+}
+
+/**
+ * 真正执行初始化的内部函数
+ */
+async function _doInitChatSession(): Promise<boolean> {
   try {
     // __dirname = desktop/dist-electron, ../.. = 项目根
     const mainProjectRoot = path.resolve(__dirname, '../..');
@@ -106,7 +128,6 @@ async function initChatSession(): Promise<boolean> {
     // agent-bridge.ts 通过 tsx 加载
     const bridgePath = path.join(mainProjectRoot, 'desktop/main/agent-bridge.ts');
     const nodePath = process.env.XUANJI_NODE_PATH || findNodePath();
-    const tsxPath = path.join(mainProjectRoot, 'node_modules/.bin/tsx');
 
     console.log('📂 Node 路径:', nodePath);
     console.log('📂 Bridge 路径:', bridgePath);
@@ -210,8 +231,48 @@ function setupAgentProcessListeners() {
       case 'agent:end':
         mainWindow.webContents.send('agent:end', msg.data);
         break;
+
+      // ─── 可视化监控事件（Hook → renderer）─────────────────────
+      case 'agent:team-start':
+        mainWindow.webContents.send('agent:team-start', msg.data);
+        break;
+      case 'agent:team-member-start':
+        mainWindow.webContents.send('agent:team-member-start', msg.data);
+        break;
+      case 'agent:team-member-end':
+        mainWindow.webContents.send('agent:team-member-end', msg.data);
+        break;
+      case 'agent:team-end':
+        mainWindow.webContents.send('agent:team-end', msg.data);
+        break;
+      case 'agent:thinking-start':
+        mainWindow.webContents.send('agent:thinking-start', msg.data);
+        break;
+      case 'agent:skill-start':
+        mainWindow.webContents.send('agent:skill-start', msg.data);
+        break;
+      case 'agent:skill-end':
+        mainWindow.webContents.send('agent:skill-end', msg.data);
+        break;
+      case 'agent:mcp-start':
+        mainWindow.webContents.send('agent:mcp-start', msg.data);
+        break;
+      case 'agent:mcp-end':
+        mainWindow.webContents.send('agent:mcp-end', msg.data);
+        break;
+      case 'agent:memory-read':
+        mainWindow.webContents.send('agent:memory-read', msg.data);
+        break;
+      case 'agent:memory-write':
+        mainWindow.webContents.send('agent:memory-write', msg.data);
+        break;
+
       case 'send-result':
         // send-message 的完成通知（非请求式）
+        // 若失败（如子进程 agentLoop 尚未初始化），转发 agent:error 通知 renderer 清除 thinking 状态
+        if (!msg.data?.success && mainWindow) {
+          mainWindow.webContents.send('agent:error', msg.data?.error || '消息处理失败，请重试');
+        }
         break;
 
       // 权限交互请求（子进程 → renderer）
@@ -244,6 +305,9 @@ function setupAgentProcessListeners() {
       case 'session:messages-restored':
         mainWindow.webContents.send('session:messages-restored', msg.data);
         break;
+      case 'persona-updated':
+        mainWindow.webContents.send('persona-updated', msg.data);
+        break;
     }
   });
 
@@ -253,7 +317,7 @@ function setupAgentProcessListeners() {
     sessionReady = false;
     cachedConfig = null;
     // 清理所有 pending 请求
-    for (const [id, pending] of pendingRequests) {
+    for (const [, pending] of pendingRequests) {
       clearTimeout(pending.timer);
       pending.resolve({ success: false, error: '子进程已退出' });
     }
@@ -266,15 +330,17 @@ function setupAgentProcessListeners() {
  */
 async function cleanupAgentProcess() {
   if (agentProcess) {
+    console.log('[main] Sending SIGTERM to agent process');
     agentProcess.kill('SIGTERM');
-    // 给子进程 3 秒优雅退出
+    // 给子进程 35 秒优雅退出（需要时间完成：安全网保存 <1s + 记忆化 LLM ~25s + 清空保存 <1s）
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (agentProcess) {
+          console.warn('[main] Agent process did not exit in 35s, sending SIGKILL');
           agentProcess.kill('SIGKILL');
         }
         resolve();
-      }, 3000);
+      }, 35000);
       agentProcess!.once('exit', () => {
         clearTimeout(timer);
         resolve();
@@ -300,15 +366,26 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('window-all-closed', async () => {
-  await cleanupAgentProcess();
+app.on('window-all-closed', () => {
+  // macOS 上关闭所有窗口不退出应用，其他平台触发 quit
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on('before-quit', async () => {
-  await cleanupAgentProcess();
+let isCleaningUp = false;
+app.on('before-quit', (e) => {
+  // Electron 的 before-quit 不支持 async/await，需要 preventDefault + 手动 quit
+  if (!isCleaningUp && agentProcess) {
+    e.preventDefault();
+    isCleaningUp = true;
+    console.log('[main] before-quit: starting cleanup...');
+    cleanupAgentProcess().finally(() => {
+      console.log('[main] before-quit: cleanup finished, quitting app');
+      isCleaningUp = false;
+      app.quit();
+    });
+  }
 });
 
 // ============================================================
@@ -371,12 +448,12 @@ ipcMain.handle('agent:send-message', async (_event, message: string) => {
   return { success: true };
 });
 
-ipcMain.handle('agent:interrupt', async () => {
+ipcMain.handle('agent:interrupt', async (_event, message?: string) => {
   if (!sessionReady || !agentProcess) {
     return { success: false, error: '会话未初始化' };
   }
 
-  agentProcess.send({ type: 'interrupt' });
+  agentProcess.send({ type: 'interrupt', data: { message: message || '' } });
   return { success: true };
 });
 

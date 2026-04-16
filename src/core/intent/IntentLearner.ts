@@ -9,6 +9,9 @@ import path from 'node:path';
 import os from 'node:os';
 import type { Intent, IntentDefinition, IntentDomain } from './types.js';
 import type { VectorIntentMatcher } from './VectorIntentMatcher.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'IntentLearner' });
 
 /**
  * 学习记录
@@ -87,7 +90,7 @@ export class IntentLearner {
         this.learnedIntents.set(type, intentData);
       }
 
-      console.log(`✓ 加载 ${this.learnedIntents.size} 个已学习的意图`);
+      log.debug(`加载 ${this.learnedIntents.size} 个已学习的意图`);
     } catch {
       // 文件不存在，忽略
     }
@@ -103,15 +106,13 @@ export class IntentLearner {
   ): Promise<void> {
     // 只学习高置信度的结果
     if (intent.confidence < this.learningThreshold) {
-      console.log(`  跳过学习（置信度过低: ${intent.confidence}）`);
+      log.debug(`跳过学习（置信度过低: ${intent.confidence}）`);
       return;
     }
 
     const intentType = intent.type;
 
-    console.log(`📚 学习意图: ${intentType}`);
-    console.log(`   样本: "${userInput}"`);
-    console.log(`   置信度: ${intent.confidence}`);
+    log.debug(`学习意图: ${intentType}, 样本: "${userInput}", 置信度: ${intent.confidence}`);
 
     // 1. 检查是否已存在此意图
     const existingIntent = this.learnedIntents.get(intentType);
@@ -181,7 +182,7 @@ export class IntentLearner {
     // 持久化
     await this.save();
 
-    console.log(`✓ 创建新意图: ${intentType}`);
+    log.debug(`创建新意图: ${intentType}`);
   }
 
   /**
@@ -217,9 +218,7 @@ export class IntentLearner {
     // 持久化
     await this.save();
 
-    console.log(`✓ 增强意图 ${intentType}`);
-    console.log(`   新增样本: "${newSample}"`);
-    console.log(`   当前样本数: ${intentDef.examples.length}`);
+    log.debug(`增强意图 ${intentType}, 新增样本: "${newSample}", 当前样本数: ${intentDef.examples.length}`);
   }
 
   /**

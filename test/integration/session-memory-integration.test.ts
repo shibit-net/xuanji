@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { SessionManager } from '@/session/SessionManager';
 import { CheckpointManager } from '@/session/CheckpointManager';
 import { MemoryManager } from '@/memory/MemoryManager';
-import { LongTermMemory } from '@/memory/LongTermMemory';
+import { MemoryStore } from '@/memory/MemoryStore';
 import { ReminderEngine } from '@/reminder/ReminderEngine';
 import { TodoManager } from '@/core/tools/TodoManager';
 import type { Message } from '@/session/types';
@@ -23,14 +23,14 @@ import type { MemoryEntry } from '@/memory/types';
 // ─── 临时测试目录 ───
 let tempDir: string;
 let sessionsDir: string;
-let memoryDir: string;
+let memoryDbPath: string;
 let remindersFile: string;
 let todosFile: string;
 
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'xuanji-integ-'));
   sessionsDir = join(tempDir, 'sessions');
-  memoryDir = join(tempDir, 'memory');
+  memoryDbPath = join(tempDir, 'memory.db');
   remindersFile = join(tempDir, 'reminders.jsonl');
   todosFile = join(tempDir, 'todos.jsonl');
 });
@@ -216,25 +216,26 @@ describe('Memory System', () => {
   ];
 
   beforeAll(async () => {
-    // 使用 global scope（memoryDir 作为 "home" 级别存储）
+    // 使用隔离的 SQLite 数据库
     memoryManager = new MemoryManager(
       { enabled: true, longTermMaxEntries: 1000, retrieveMaxResults: 10 },
     );
+    (memoryManager as any).store = new MemoryStore(memoryDbPath);
 
-    // 直接通过 LongTermMemory 写入（模拟 MemoryStoreTool 路径）
-    const longTerm = memoryManager.getLongTermMemory();
-    await longTerm.saveBatch(testEntries);
-
-    // 初始化（加载刚写入的数据到内存缓存）
     await memoryManager.init();
+
+    // 直接通过 getStore() 写入（模拟 MemoryStoreTool 路径）
+    const store = memoryManager.getStore();
+    store.saveBatch(testEntries);
   });
 
   afterAll(async () => {
     await memoryManager.shutdown();
   });
 
-  it('初始化后缓存条目数正确', () => {
-    expect(memoryManager.getCachedEntryCount()).toBeGreaterThanOrEqual(testEntries.length);
+  it('初始化后条目数正确', async () => {
+    const stats = await memoryManager.getStats();
+    expect(stats.total).toBeGreaterThanOrEqual(testEntries.length);
   });
 
   it('关键词检索 — 食物偏好', async () => {

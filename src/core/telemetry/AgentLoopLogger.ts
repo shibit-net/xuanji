@@ -31,6 +31,8 @@ export type AgentLoopEventType =
   | 'iteration_end'        // 迭代结束
   | 'message_append'       // 用户追加消息
   | 'context_compress'     // 上下文压缩
+  | 'memory_retrieve'      // 记忆检索
+  | 'memory_save'          // 记忆保存
   | 'llm_request'          // LLM 请求
   | 'llm_response'         // LLM 响应
   | 'llm_retry'            // LLM 重试
@@ -100,6 +102,38 @@ export interface ContextCompressLog extends AgentLoopLogBase {
   compressionRatio: number;
   /** 压缩耗时 (ms) */
   durationMs: number;
+}
+
+/** 记忆检索日志 */
+export interface MemoryRetrieveLog extends AgentLoopLogBase {
+  eventType: 'memory_retrieve';
+  /** 检索关键词（脱敏截断） */
+  query: string;
+  /** 检索到的记忆条数 */
+  resultCount: number;
+  /** 注入的上下文长度 (字符数)，0 表示无结果未注入 */
+  injectedLength: number;
+  /** 检索耗时 (ms) */
+  durationMs: number;
+  /** 是否检索成功（false 表示异常） */
+  success: boolean;
+  /** 错误消息（如果失败） */
+  errorMessage?: string;
+}
+
+/** 记忆保存日志 */
+export interface MemorySaveLog extends AgentLoopLogBase {
+  eventType: 'memory_save';
+  /** 保存的记忆类型 */
+  memoryType: 'session' | 'fact' | 'preference';
+  /** 保存的内容摘要（脱敏截断） */
+  contentSummary: string;
+  /** 内容长度 (字符数) */
+  contentLength: number;
+  /** 是否保存成功 */
+  success: boolean;
+  /** 错误消息（如果失败） */
+  errorMessage?: string;
 }
 
 /** LLM 请求日志 */
@@ -274,6 +308,8 @@ export type AgentLoopLog =
   | IterationEndLog
   | MessageAppendLog
   | ContextCompressLog
+  | MemoryRetrieveLog
+  | MemorySaveLog
   | LLMRequestLog
   | LLMResponseLog
   | LLMRetryLog
@@ -409,6 +445,56 @@ export class AgentLoopLogger {
       compressedTokens,
       compressionRatio,
       durationMs,
+    };
+    await this.append(log);
+  }
+
+  /** 记录记忆检索 */
+  async logMemoryRetrieve(
+    iteration: number,
+    query: string,
+    resultCount: number,
+    injectedLength: number,
+    durationMs: number,
+    success: boolean,
+    errorMessage?: string,
+  ): Promise<void> {
+    const log: MemoryRetrieveLog = {
+      timestamp: new Date().toISOString(),
+      eventType: 'memory_retrieve',
+      sessionId: this.sessionId,
+      iteration,
+      model: this.model,
+      query: this.sanitize(query),
+      resultCount,
+      injectedLength,
+      durationMs,
+      success,
+      errorMessage: errorMessage ? this.sanitize(errorMessage) : undefined,
+    };
+    await this.append(log);
+  }
+
+  /** 记录记忆保存 */
+  async logMemorySave(
+    iteration: number,
+    memoryType: 'session' | 'fact' | 'preference',
+    contentSummary: string,
+    contentLength: number,
+    success: boolean,
+    errorMessage?: string,
+  ): Promise<void> {
+    const log: MemorySaveLog = {
+      timestamp: new Date().toISOString(),
+      eventType: 'memory_save',
+      sessionId: this.sessionId,
+      iteration,
+      model: this.model,
+      memoryType,
+      contentSummary: this.sanitize(contentSummary),
+      contentLength,
+      success,
+      errorMessage: errorMessage ? this.sanitize(errorMessage) : undefined,
     };
     await this.append(log);
   }

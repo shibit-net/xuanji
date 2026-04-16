@@ -14,9 +14,7 @@ import { PlanReviewTool } from './PlanReviewTool';
 import { AskUserTool } from './AskUserTool';
 import { TaskOutputTool } from './TaskOutputTool';
 import { WebFetchTool } from './WebFetchTool';
-import { TodoStorageTool } from './TodoStorageTool';
-import { TodoListTool } from './TodoListTool';
-import { TodoUpdateTool } from './TodoUpdateTool';
+import { TodoCreateTool, TodoListTool, TodoUpdateTool } from './TodoTool';
 import { SleepTool } from './SleepTool';
 import { EnterPlanModeTool } from './EnterPlanModeTool';
 import { ExitPlanModeTool } from './ExitPlanModeTool';
@@ -24,7 +22,9 @@ import { NotebookEditTool } from './NotebookEditTool';
 import { WorktreeTool } from './WorktreeTool';
 import { LSTool } from './LSTool';
 import { MultiEditTool } from './MultiEditTool';
-// TeamTool 和 QuickTeamTool 在 ChatSession.initTaskTool() 中动态注册
+import { MatchAgentTool } from './MatchAgentTool';
+import { ListAgentsTool } from './ListAgentsTool';
+// TeamTool 在 ChatSession.initTaskTool() 中动态注册
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -254,7 +254,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new AskUserTool());
   registry.register(new TaskOutputTool());
   registry.register(new WebFetchTool());
-  registry.register(new TodoStorageTool());
+  registry.register(new TodoCreateTool());
   registry.register(new TodoListTool());
   registry.register(new TodoUpdateTool());
   registry.register(new SleepTool());
@@ -264,6 +264,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WorktreeTool());
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
-  // TeamTool 和 QuickTeamTool 在 ChatSession.initTaskTool() 中动态注册（需要注入依赖）
+  // TeamTool, MatchAgentTool, ListAgentsTool 在 ChatSession.initTaskTool() 中动态注册（需要注入依赖）
   return registry;
 }

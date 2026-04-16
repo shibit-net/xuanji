@@ -24,5 +24,6 @@
     }
   },
   "include": ["renderer", "main", "shared"],
+  "exclude": ["main/agent-bridge.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

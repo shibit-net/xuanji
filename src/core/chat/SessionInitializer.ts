@@ -49,7 +49,6 @@ export interface InitOptions {
 export interface InitResult {
   config: AppConfig;
   provider: ILLMProvider;
-  lightProvider: ILLMProvider;
   baseRegistry: ToolRegistry;
   registry: IToolRegistry;
   permissionController: IPermissionController;
@@ -78,11 +77,26 @@ export class SessionInitializer {
    * 执行完整初始化流程
    */
   async initialize(): Promise<InitResult> {
-    // 1. 加载配置
-    const config = await this.initConfig();
+    // 0. 尝试加载 xuanji agent 配置（如果存在，将作为主配置源）
+    let xuanjiAgent: import('@/core/agent/types').ConfigurableAgentConfig | null = null;
+    try {
+      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      const agentRegistry = new AgentRegistry();
+      await agentRegistry.init();
+      const agent = agentRegistry.get('xuanji');
+      xuanjiAgent = agent || null;
+      if (xuanjiAgent) {
+        log.info('🔧 Using xuanji agent configuration');
+      }
+    } catch (err) {
+      log.debug('Failed to load xuanji agent config:', err);
+    }
+
+    // 1. 加载配置（如果有 xuanji agent 配置，将合并其配置）
+    const config = await this.initConfig(xuanjiAgent);
 
     // 2. 初始化 Provider
-    const { provider, lightProvider } = this.initProvider(config);
+    const provider = this.initProvider(config);
 
     // 2.5 创建 ProviderManager（用于 Multi-Agent 工具）
     let providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
@@ -137,7 +151,6 @@ export class SessionInitializer {
     return {
       config,
       provider,
-      lightProvider,
       baseRegistry,
       registry,
       permissionController,
@@ -155,7 +168,7 @@ export class SessionInitializer {
 
   // ─── 子初始化方法 ──────────────────────────────────
 
-  private async initConfig(): Promise<AppConfig> {
+  private async initConfig(xuanjiAgent?: import('@/core/agent/types').ConfigurableAgentConfig | null): Promise<AppConfig> {
     let config: AppConfig;
     if (this.options.config) {
       config = this.options.config;
@@ -166,20 +179,99 @@ export class SessionInitializer {
     if (this.options.model) {
       config.provider.model = this.options.model;
     }
+
+    // 🆕 如果有 xuanji agent 配置，合并其配置（agent 配置优先）
+    if (xuanjiAgent) {
+      log.info('🔧 Merging xuanji agent configuration');
+
+      // 1. Provider 配置
+      if ((xuanjiAgent as any).provider) {
+        const agentProvider = (xuanjiAgent as any).provider;
+        if (agentProvider.adapter) {
+          config.provider.adapter = agentProvider.adapter;
+        }
+        if (agentProvider.baseURL) {
+          config.provider.baseURL = agentProvider.baseURL;
+          log.info(`  baseURL: ${agentProvider.baseURL}`);
+        }
+        if (agentProvider.apiKey) {
+          config.provider.apiKey = agentProvider.apiKey;
+        }
+        if (agentProvider.model) {
+          config.provider.model = agentProvider.model;
+        }
+      }
+
+      // 2. 模型配置
+      if (xuanjiAgent.model) {
+        if (xuanjiAgent.model.primary && !this.options.model) {
+          config.provider.model = xuanjiAgent.model.primary;
+          log.info(`  model: ${xuanjiAgent.model.primary}`);
+        }
+        if (xuanjiAgent.model.maxTokens) {
+          config.provider.maxTokens = xuanjiAgent.model.maxTokens;
+        }
+        if (xuanjiAgent.model.temperature !== undefined) {
+          config.provider.temperature = xuanjiAgent.model.temperature;
+        }
+        if (xuanjiAgent.model.thinking) {
+          config.provider.thinking = xuanjiAgent.model.thinking as any;
+        }
+      }
+
+      // 3. 执行配置
+      if (xuanjiAgent.execution) {
+        if (!config.agent) {
+          config.agent = {} as any;
+        }
+        if (xuanjiAgent.execution.maxIterations !== undefined) {
+          (config.agent as any).maxIterations = xuanjiAgent.execution.maxIterations;
+        }
+        // timeout 不在 AgentTuningConfig 中，跳过
+      }
+
+      // 4. 权限配置
+      if (xuanjiAgent.permissions) {
+        if (!config.tools) {
+          config.tools = {} as any;
+        }
+        if (!config.tools.permissions) {
+          config.tools.permissions = {} as any;
+        }
+        if (xuanjiAgent.permissions.fileRead) {
+          (config.tools.permissions as any).fileRead = xuanjiAgent.permissions.fileRead;
+        }
+        if (xuanjiAgent.permissions.fileWrite) {
+          (config.tools.permissions as any).fileWrite = xuanjiAgent.permissions.fileWrite;
+        }
+        if (xuanjiAgent.permissions.bashExec) {
+          (config.tools.permissions as any).bashExec = xuanjiAgent.permissions.bashExec;
+        }
+        if (xuanjiAgent.permissions.allowedPaths) {
+          (config.tools.permissions as any).allowedPaths = xuanjiAgent.permissions.allowedPaths;
+        }
+        if (xuanjiAgent.permissions.deniedPaths) {
+          (config.tools.permissions as any).deniedPaths = xuanjiAgent.permissions.deniedPaths;
+        }
+        if (xuanjiAgent.permissions.allowedCommands) {
+          (config.tools.permissions as any).allowedCommands = xuanjiAgent.permissions.allowedCommands;
+        }
+        if (xuanjiAgent.permissions.deniedCommands) {
+          (config.tools.permissions as any).deniedCommands = xuanjiAgent.permissions.deniedCommands;
+        }
+      }
+
+      log.info('✅ Xuanji agent configuration merged');
+    }
+
     // ✅ 允许无 API Key 启动，在实际调用 LLM 时再检查
     // 用户可以启动后通过 /settings 配置 API Key
     return config;
   }
 
-  private initProvider(config: AppConfig): {
-    provider: ILLMProvider;
-    lightProvider: ILLMProvider;
-  } {
+  private initProvider(config: AppConfig): ILLMProvider {
     if (this.options.provider) {
-      return {
-        provider: this.options.provider,
-        lightProvider: this.options.provider,
-      };
+      return this.options.provider;
     }
 
     const providerFactory = new ProviderFactory();
@@ -195,23 +287,7 @@ export class SessionInitializer {
       throw new Error(`不支持的模型: ${config.provider.model}`);
     }
 
-    // 初始化 lightProvider（用于压缩、子代理等低复杂度任务）
-    let lightProvider: ILLMProvider;
-    if (config.provider.lightModel) {
-      const light = providerFactory.getByModel(config.provider.lightModel);
-      if (!light) {
-        log.warn(
-          `lightModel "${config.provider.lightModel}" not supported, fallback to main provider`,
-        );
-        lightProvider = provider;
-      } else {
-        lightProvider = light;
-      }
-    } else {
-      lightProvider = provider;
-    }
-
-    return { provider, lightProvider };
+    return provider;
   }
 
   private initToolRegistry(config: AppConfig): {
@@ -308,59 +384,13 @@ export class SessionInitializer {
       // 注册记忆工具
       const memoryStoreTool = new MemoryStoreTool();
       const memorySearchTool = new MemorySearchTool();
-      const retrieveMemoryTool = new RetrieveMemoryTool();  // 🆕 记忆检索工具
+      const retrieveMemoryTool = new RetrieveMemoryTool();
       memoryStoreTool.setMemoryManager(memoryManager);
       memorySearchTool.setMemoryManager(memoryManager);
-      retrieveMemoryTool.setMemoryStore(memoryManager);     // 🆕 注入记忆存储
+      retrieveMemoryTool.setMemoryStore(memoryManager);
       baseRegistry.register(memoryStoreTool);
       baseRegistry.register(memorySearchTool);
-      baseRegistry.register(retrieveMemoryTool);            // 🆕 注册工具
-
-      // 初始化 SmartMemoryExtractor V2（LLM 主动决策版）
-      if (memoryManager instanceof MemoryManager) {
-        try {
-          const useV2 = config.features?.smartMemoryV2 || false;
-
-          if (useV2) {
-            const { SmartMemoryExtractorV2 } = await import('@/memory');
-            const smartExtractorV2 = new SmartMemoryExtractorV2(
-              provider,
-              {
-                model: config.provider.model,
-                apiKey: config.provider.apiKey,
-                baseURL: config.provider.baseURL,
-                maxTokens: config.provider.maxTokens,
-                temperature: config.provider.temperature,
-                adapter: config.provider.adapter,
-              },
-              memoryManager.getConfig(),
-              config.projectRoot,
-            );
-            memoryManager.setSmartExtractorV2(smartExtractorV2);
-            log.info('✨ SmartMemoryExtractor V2 启用（LLM 主动决策）');
-          } else {
-            // 使用 V1（规则 + LLM 辅助提取）
-            const { SmartMemoryExtractor } = await import('@/memory');
-            const smartExtractor = new SmartMemoryExtractor(
-              provider,
-              {
-                model: config.provider.model,
-                apiKey: config.provider.apiKey,
-                baseURL: config.provider.baseURL,
-                maxTokens: config.provider.maxTokens,
-                temperature: config.provider.temperature,
-                adapter: config.provider.adapter,
-              },
-              memoryManager.getConfig(),
-              config.projectRoot,
-            );
-            memoryManager.setSmartExtractor(smartExtractor);
-            log.info('✨ SmartMemoryExtractor V1 启用（规则 + LLM 提取）');
-          }
-        } catch (err) {
-          log.warn('Failed to init SmartMemoryExtractor:', err);
-        }
-      }
+      baseRegistry.register(retrieveMemoryTool);
 
       return { memoryManager, _MemoryManagerClass: MemoryManager };
     } catch (err) {
@@ -561,15 +591,19 @@ export class SessionInitializer {
   injectTaskToolDeps(
     taskTool: any,
     provider: ILLMProvider,
+    lightProvider: ILLMProvider,
     registry: IToolRegistry,
     config: AppConfig,
     systemPrompt: string | undefined,
     hookRegistry: HookRegistry,
     memoryManager: IMemoryStore | null,
+    providerManager: import('@/core/providers/ProviderManager').ProviderManager,
+    agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry,
   ): void {
     if (!taskTool) return;
     taskTool.setDependencies({
-      provider,
+      providerManager,
+      agentRegistry,
       registry,
       agentConfig: {
         model: config.provider.model,
@@ -579,8 +613,11 @@ export class SessionInitializer {
         temperature: config.provider.temperature,
         systemPrompt,
       },
+      parentProvider: provider,
       hookRegistry,
       memoryStore: memoryManager,
+      depth: 0,
+      agentId: 'main', // 🔧 主 Agent ID
     });
   }
 

@@ -13,14 +13,13 @@ interface LlmSettingsProps {
   configManager: ConfigManager;
 }
 
-type EditableField = 'model' | 'lightModel' | 'apiKey' | 'adapter' | 'baseURL';
+type EditableField = 'model' | 'apiKey' | 'adapter' | 'baseURL';
 
 const FIELD_ITEMS: Array<{ key: EditableField; label: string; shortcut: string }> = [
   { key: 'model', label: t('llm.field_model'), shortcut: '1' },
-  { key: 'lightModel', label: t('llm.field_light_model'), shortcut: '2' },
-  { key: 'apiKey', label: t('llm.field_apikey'), shortcut: '3' },
-  { key: 'adapter', label: t('llm.field_adapter'), shortcut: '4' },
-  { key: 'baseURL', label: t('llm.field_baseurl'), shortcut: '5' },
+  { key: 'apiKey', label: t('llm.field_apikey'), shortcut: '2' },
+  { key: 'adapter', label: t('llm.field_adapter'), shortcut: '3' },
+  { key: 'baseURL', label: t('llm.field_baseurl'), shortcut: '4' },
 ];
 
 /**
@@ -59,7 +58,6 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
     if (!config) return '';
     switch (field) {
       case 'model': return config.provider.model || '';
-      case 'lightModel': return config.provider.lightModel || '';
       case 'apiKey': return config.provider.apiKey || '';
       case 'adapter': return config.provider.adapter || '';
       case 'baseURL': return config.provider.baseURL || '';
@@ -70,7 +68,6 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
     if (!config) return t('llm.not_loaded');
     switch (field) {
       case 'model': return config.provider.model || t('llm.not_set');
-      case 'lightModel': return config.provider.lightModel || t('llm.not_set');
       case 'apiKey': return maskApiKey(config.provider.apiKey);
       case 'adapter': return config.provider.adapter || t('llm.auto');
       case 'baseURL': return config.provider.baseURL || 'https://api.anthropic.com';
@@ -101,7 +98,6 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
       const newProvider = { ...config.provider };
       switch (editingField) {
         case 'model': newProvider.model = trimmedValue; break;
-        case 'lightModel': newProvider.lightModel = trimmedValue; break;
         case 'apiKey': newProvider.apiKey = trimmedValue; break;
         case 'adapter': newProvider.adapter = trimmedValue; break;
         case 'baseURL': newProvider.baseURL = trimmedValue; break;
@@ -149,10 +145,9 @@ export function LlmSettings({ onBack, configManager }: LlmSettingsProps) {
     // ---- 菜单模式 ----
     // 数字键快速进入编辑
     if (input === '1') { startEditing('model'); return; }
-    if (input === '2') { startEditing('lightModel'); return; }
-    if (input === '3') { startEditing('apiKey'); return; }
-    if (input === '4') { startEditing('adapter'); return; }
-    if (input === '5') { startEditing('baseURL'); return; }
+    if (input === '2') { startEditing('apiKey'); return; }
+    if (input === '3') { startEditing('adapter'); return; }
+    if (input === '4') { startEditing('baseURL'); return; }
 
     // 上下键导航
     if (key.upArrow) {

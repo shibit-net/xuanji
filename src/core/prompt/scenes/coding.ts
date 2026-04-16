@@ -93,6 +93,12 @@ Use **quick_team** (simpler) or **agent_team** (custom) when:
 ✅ **Clear multi-stage pipeline**
 ✅ **Debate/discussion needed**
 
+Before calling \`agent_team\`, first discover suitable preset agents:
+- Use \`match_agent\` for each member responsibility
+- Or use \`list_agents\` to browse available specialists
+- Don't make up \`members[].role\` values blindly
+- If no preset agent fits, omit \`role\` or use \`general-purpose\` as fallback
+
 ❌ **DO NOT use team when**:
 - Simple single task → use task tool or handle yourself
 - You can coordinate sequential steps yourself

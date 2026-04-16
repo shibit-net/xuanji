@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { MemorySearchTool } from '@/core/tools/MemorySearchTool';
 import { MemoryManager } from '@/memory/MemoryManager';
-import { StorageBackend } from '@/memory/StorageBackend';
+import { MemoryStore } from '@/memory/MemoryStore';
 import type { MemoryEntry } from '@/memory/types';
 
 function createEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
@@ -27,49 +27,59 @@ function createEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   };
 }
 
+/** 创建隔离的 MemoryManager，使用临时数据库路径 */
+function createIsolatedManager(dbPath: string, projectDir: string): MemoryManager {
+  const manager = new MemoryManager({}, projectDir);
+  (manager as any).store = new MemoryStore(dbPath);
+  return manager;
+}
+
 describe('MemorySearchTool', () => {
   let tool: MemorySearchTool;
-  let tempGlobalDir: string;
+  let tempDir: string;
   let tempProjectDir: string;
   let manager: MemoryManager;
-  let storage: StorageBackend;
 
   beforeEach(async () => {
-    tempGlobalDir = await mkdtemp(join(tmpdir(), 'xuanji-search-global-'));
-    tempProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-search-project-'));
-    storage = new StorageBackend();
+    tempDir = await mkdtemp(join(tmpdir(), 'xuanji-search-'));
+    tempProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-search-proj-'));
+    const dbPath = join(tempDir, 'memory.db');
 
-    manager = new MemoryManager({}, tempProjectDir);
-    // 覆盖全局目录实现测试隔离
-    manager['longTerm']['globalDir'] = tempGlobalDir;
+    manager = createIsolatedManager(dbPath, tempProjectDir);
+    await manager.init();
 
-    // 写入一些测试数据
+    // 写入测试数据
     const entries: MemoryEntry[] = [
       createEntry({
+        id: 'mem-food-1',
         type: 'user_preference',
         content: 'Does not eat spicy food, prefers mild cuisine',
         keywords: ['food', 'spicy', 'preference', 'mild'],
         confidence: 0.9,
       }),
       createEntry({
+        id: 'mem-food-2',
         type: 'user_preference',
         content: 'Allergic to peanuts',
         keywords: ['allergy', 'peanuts', 'food', 'health'],
         confidence: 0.95,
       }),
       createEntry({
+        id: 'mem-rel-1',
         type: 'relationship',
         content: 'Alice likes Japanese cuisine',
         keywords: ['Alice', 'japanese', 'cuisine', 'preference'],
         confidence: 0.85,
       }),
       createEntry({
+        id: 'mem-date-1',
         type: 'important_date',
         content: "Alice's birthday is March 8th",
         keywords: ['Alice', 'birthday', 'march'],
         confidence: 0.95,
       }),
       createEntry({
+        id: 'mem-dec-1',
         type: 'decision',
         content: 'Decided to use TypeScript for new project',
         keywords: ['typescript', 'decision', 'project'],
@@ -77,25 +87,17 @@ describe('MemorySearchTool', () => {
       }),
     ];
 
-    // 写入知识文件
-    const knowledgePath = join(tempGlobalDir, 'knowledge.jsonl');
-    const personalPath = join(tempGlobalDir, 'personal.jsonl');
-    const decisionsPath = join(tempGlobalDir, 'decisions.jsonl');
-
-    await storage.append(knowledgePath, entries[0]);
-    await storage.append(knowledgePath, entries[1]);
-    await storage.append(personalPath, entries[2]);
-    await storage.append(personalPath, entries[3]);
-    await storage.append(decisionsPath, entries[4]);
-
-    await manager.init();
+    const store = manager.getStore();
+    for (const entry of entries) {
+      store.saveEntry(entry);
+    }
 
     tool = new MemorySearchTool();
     tool.setMemoryManager(manager);
   });
 
   afterEach(async () => {
-    for (const dir of [tempGlobalDir, tempProjectDir]) {
+    for (const dir of [tempDir, tempProjectDir]) {
       if (existsSync(dir)) {
         await rm(dir, { recursive: true, force: true });
       }
@@ -129,7 +131,6 @@ describe('MemorySearchTool', () => {
     });
 
     expect(result.isError).toBe(false);
-    // 应该只返回 important_date 类型
     if ((result.metadata?.count as number) > 0) {
       expect(result.metadata?.types).toContain('important_date');
     }
@@ -146,11 +147,9 @@ describe('MemorySearchTool', () => {
   });
 
   it('should return no results when memory is empty', async () => {
-    // 创建一个空的 manager 来测试无结果情况
-    const emptyGlobalDir = await mkdtemp(join(tmpdir(), 'xuanji-search-empty-'));
-    const emptyProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-search-emptyp-'));
-    const emptyManager = new MemoryManager({}, emptyProjectDir);
-    emptyManager['longTerm']['globalDir'] = emptyGlobalDir;
+    const emptyDir = await mkdtemp(join(tmpdir(), 'xuanji-search-empty-'));
+    const emptyProjDir = await mkdtemp(join(tmpdir(), 'xuanji-search-emptyp-'));
+    const emptyManager = createIsolatedManager(join(emptyDir, 'memory.db'), emptyProjDir);
     await emptyManager.init();
 
     const emptyTool = new MemorySearchTool();
@@ -164,9 +163,8 @@ describe('MemorySearchTool', () => {
     expect(result.content).toContain('No relevant memories');
     expect(result.metadata?.count).toBe(0);
 
-    // 清理
-    await rm(emptyGlobalDir, { recursive: true, force: true });
-    await rm(emptyProjectDir, { recursive: true, force: true });
+    await rm(emptyDir, { recursive: true, force: true });
+    await rm(emptyProjDir, { recursive: true, force: true });
   });
 
   it('should reject empty query', async () => {
@@ -212,7 +210,6 @@ describe('MemorySearchTool', () => {
 
     expect(result.isError).toBe(false);
     if ((result.metadata?.count as number) > 0) {
-      // 输出中应包含类型标签
       const hasTypeLabel = result.content.includes('User Preference')
         || result.content.includes('Relationship')
         || result.content.includes('Important Date')

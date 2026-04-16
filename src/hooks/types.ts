@@ -25,7 +25,17 @@ export type HookEvent =
   | 'TeamMemberStart'
   | 'TeamMemberEnd'
   | 'CheckpointCreated'
-  | 'CheckpointRestored';
+  | 'CheckpointRestored'
+  // ─── 新增：可视化监控事件 ────────────────────────────────────
+  | 'AgentThinking'    // Agent 进入 Extended Thinking
+  | 'SkillStart'       // Skill 开始执行
+  | 'SkillEnd'         // Skill 执行完成
+  | 'McpToolStart'     // MCP 工具调用开始
+  | 'McpToolEnd'       // MCP 工具调用结束
+  | 'MemoryRead'       // 记忆检索（buildDecisionContext）
+  | 'MemoryWrite'      // 记忆写入
+  | 'ToolStart'        // 工具调用开始（子 Agent）
+  | 'ToolEnd';         // 工具调用结束（子 Agent）
 
 /**
  * 同步事件（可阻塞主流程）
@@ -55,6 +65,15 @@ export const ALL_EVENTS: HookEvent[] = [
   'TeamMemberEnd',
   'CheckpointCreated',
   'CheckpointRestored',
+  'AgentThinking',
+  'SkillStart',
+  'SkillEnd',
+  'McpToolStart',
+  'McpToolEnd',
+  'MemoryRead',
+  'MemoryWrite',
+  'ToolStart',
+  'ToolEnd',
 ];
 
 // ─── Handler 类型 ──────────────────────────────────────
@@ -132,6 +151,8 @@ export interface HookEventContext {
   event: HookEvent;
   /** 时间戳 */
   timestamp: number;
+  /** 工具 ID（ToolStart/ToolEnd） */
+  toolId?: string;
   /** 工具名称（PreToolUse/PostToolUse） */
   toolName?: string;
   /** 工具输入参数（PreToolUse） */
@@ -150,6 +171,10 @@ export interface HookEventContext {
   originalTokens?: number;
   /** 压缩后 token 数（PostCompact） */
   compressedTokens?: number;
+  /** 压缩比例（PostCompact） */
+  compressionRatio?: number;
+  /** 压缩耗时（PostCompact） */
+  duration?: number;
   /** 会话 ID */
   sessionId?: string;
   /** checkpoint ID（CheckpointCreated/CheckpointRestored） */
@@ -168,6 +193,35 @@ export interface HookEventContext {
   data?: Record<string, unknown>;
   /** AbortSignal，Hook 超时时会触发 abort（供 Hook 实现者检测取消） */
   signal?: AbortSignal;
+  // ─── 新增事件字段 ────────────────────────────────────────────
+  /** 思考内容（AgentThinking） */
+  thinkingContent?: string;
+  /** Skill 名称（SkillStart/SkillEnd） */
+  skillName?: string;
+  /** Skill 输入（SkillStart） */
+  skillInput?: Record<string, unknown>;
+  /** Skill 执行耗时（SkillEnd） */
+  skillDuration?: number;
+  /** Skill 是否成功（SkillEnd） */
+  skillSuccess?: boolean;
+  /** MCP 服务器名称（McpToolStart/McpToolEnd） */
+  mcpServerName?: string;
+  /** MCP 工具名称（McpToolStart/McpToolEnd） */
+  mcpToolName?: string;
+  /** MCP 工具输入（McpToolStart） */
+  mcpInput?: Record<string, unknown>;
+  /** MCP 执行耗时（McpToolEnd） */
+  mcpDuration?: number;
+  /** MCP 是否出错（McpToolEnd） */
+  mcpIsError?: boolean;
+  /** 记忆命中数（MemoryRead） */
+  memoryHitCount?: number;
+  /** 检索的层数（MemoryRead） */
+  memoryLayersSearched?: number;
+  /** 记忆写入范围（MemoryWrite） */
+  memoryScope?: string;
+  /** 记忆写入摘要（MemoryWrite） */
+  memorySummary?: string;
 }
 
 // ─── Handler 执行结果 ──────────────────────────────────

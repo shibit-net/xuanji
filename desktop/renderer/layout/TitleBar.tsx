@@ -7,7 +7,7 @@
 // - 窗口控制按钮（最小化、最大化、关闭）
 // ============================================================
 
-import React from 'react';
+
 import { Minus, Square, X } from 'lucide-react';
 import { useRuntimeStore } from '../stores';
 import { useConfigStore } from '../stores';

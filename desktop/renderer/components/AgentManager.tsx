@@ -245,7 +245,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-primary">
+    <div className="flex-1 min-h-0 flex flex-col bg-bg-primary overflow-hidden">
       {/* 标题栏 */}
       <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
         <div className="flex items-center gap-3">

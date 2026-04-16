@@ -9,7 +9,7 @@
 // - 数据来源：historyStore.memoryEntries
 // ============================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Database, Tag, Clock, Star, ChevronDown, ChevronRight } from 'lucide-react';
 import { useHistoryStore } from '../stores';
 

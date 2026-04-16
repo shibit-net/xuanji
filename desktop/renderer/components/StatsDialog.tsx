@@ -2,7 +2,7 @@
 // StatsDialog - 使用统计对话框
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Loader2, RefreshCw } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 

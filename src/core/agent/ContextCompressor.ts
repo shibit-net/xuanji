@@ -185,6 +185,8 @@ export class ContextCompressor {
       this.hookRegistry.emit('PostCompact', {
         originalTokens,
         compressedTokens,
+        compressionRatio,
+        duration: Date.now() - Date.now(), // 实际 duration 需要在调用处计算
       }).catch(() => {});
     }
 
@@ -320,21 +322,31 @@ export class ContextCompressor {
         { role: 'user', content: `${prompt}\n\n---\n\n${truncated}` },
       ];
 
-      // 🆕 P0 优化：使用 lightModel 进行压缩（Haiku），节省 67% 成本
-      const stream = this.provider!.stream(messages, [], {
-        model: this.providerConfig!.lightModel ?? this.providerConfig!.model,
-        apiKey: this.providerConfig!.apiKey,
-        baseURL: this.providerConfig!.baseURL,
-        maxTokens: 1500,
-        temperature: 0.2,
+      // 🆕 使用 Promise.race 添加 30 秒超时保护
+      const compressionPromise = (async () => {
+        // 使用主模型进行压缩
+        const stream = this.provider!.stream(messages, [], {
+          model: this.providerConfig!.model,
+          apiKey: this.providerConfig!.apiKey,
+          baseURL: this.providerConfig!.baseURL,
+          maxTokens: 1500,
+          temperature: 0.2,
+        });
+
+        let responseText = '';
+        for await (const event of stream) {
+          if (event.type === 'text_delta' && event.text) {
+            responseText += event.text;
+          }
+        }
+        return responseText;
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('LLM compression timeout after 30s')), 30000);
       });
 
-      let responseText = '';
-      for await (const event of stream) {
-        if (event.type === 'text_delta' && event.text) {
-          responseText += event.text;
-        }
-      }
+      const responseText = await Promise.race([compressionPromise, timeoutPromise]);
 
       if (responseText.trim().length > 20) {
         this.log.debug(`LLM compression generated ${responseText.length} chars summary`);
@@ -344,7 +356,8 @@ export class ContextCompressor {
       // LLM 返回太短，降级
       this.log.warn('LLM compression returned too short, falling back to rule-based');
     } catch (err) {
-      this.log.warn('LLM compression failed, falling back to rule-based:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.log.warn(`LLM compression failed (${errMsg}), falling back to rule-based`);
     }
 
     // 降级到规则压缩

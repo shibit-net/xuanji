@@ -20,7 +20,7 @@ const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
  */
 export class WebFetchTool extends BaseTool {
   readonly name = 'web_fetch';
-  readonly description = '抓取网页 URL 内容并转换为 Markdown 格式。支持 HTML 页面、JSON API、纯文本。可配合 prompt 参数提取特定信息。';
+  readonly description = 'Fetch web URL content and convert to Markdown format. Supports HTML pages, JSON APIs, plain text. Use prompt parameter to extract specific information.';
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
@@ -30,11 +30,11 @@ export class WebFetchTool extends BaseTool {
       },
       prompt: {
         type: 'string',
-        description: '对抓取内容的提问（可选，仅作为上下文提示返回给 LLM，不会自动摘要）',
+        description: 'Question about fetched content (optional, returned as context hint to LLM, no auto-summarization)',
       },
       timeout: {
         type: 'number',
-        description: `超时时间（毫秒），默认 ${DEFAULT_FETCH_TIMEOUT}`,
+        description: `Timeout in milliseconds, default ${DEFAULT_FETCH_TIMEOUT}`,
         default: DEFAULT_FETCH_TIMEOUT,
       },
     },

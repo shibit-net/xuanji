@@ -3,15 +3,19 @@
 // ============================================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, StopCircle } from 'lucide-react';
+import { Send, StopCircle, Archive, Brain } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
+import { useToast } from './Toast';
 
 export default function InputArea() {
   const [input, setInput] = useState('');
   const [isComposing, setIsComposing] = useState(false); // 输入法组合状态
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [isFlushing, setIsFlushing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useChatStore((state) => state.sendMessage);
   const status = useChatStore((state) => state.status);
+  const toast = useToast();
 
   const isRunning = status === 'thinking' || status === 'executing';
 
@@ -23,13 +27,20 @@ export default function InputArea() {
     }
   }, [input]);
 
+  const addMessage = useChatStore((state) => state.addMessage);
+
   const handleSubmit = () => {
     if (!input.trim()) return;
 
     if (isRunning) {
-      // 执行中：中断当前执行，补充输入作为新消息
-      window.electron.agentInterrupt();
-      sendMessage(input.trim());
+      // 执行中：先将补充输入显示到聊天框，再中断当前执行
+      addMessage({
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: input.trim(),
+        timestamp: Date.now(),
+      });
+      window.electron.agentInterrupt(input.trim());
     } else {
       sendMessage(input.trim());
     }
@@ -52,8 +63,68 @@ export default function InputArea() {
     }
   };
 
+  // 手动触发压缩
+  const handleCompact = async () => {
+    if (isCompacting || isRunning) return;
+
+    setIsCompacting(true);
+    try {
+      const result = await window.electron.compact({});
+      if (result.success) {
+        toast.success('消息压缩完成');
+      } else {
+        toast.error(`压缩失败: ${result.error || '未知错误'}`);
+      }
+    } catch (error) {
+      toast.error(`压缩失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsCompacting(false);
+    }
+  };
+
+  // 手动触发记忆提取
+  const handleMemoryFlush = async () => {
+    if (isFlushing || isRunning) return;
+
+    setIsFlushing(true);
+    try {
+      const result = await window.electron.manualMemoryFlush();
+      if (result.success) {
+        toast.success('记忆提取完成');
+      } else {
+        toast.error(`记忆提取失败: ${result.error || '未知错误'}`);
+      }
+    } catch (error) {
+      toast.error(`记忆提取失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsFlushing(false);
+    }
+  };
+
   return (
-    <div className="border-t border-bg-tertiary bg-bg-secondary">
+    <div className="flex-shrink-0 border-t border-bg-tertiary bg-bg-secondary">
+      {/* 操作按钮 */}
+      <div className="flex items-center gap-2 px-4 pt-3">
+        <button
+          onClick={handleCompact}
+          disabled={isCompacting || isRunning}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="压缩历史消息，减少 token 使用"
+        >
+          <Archive size={14} />
+          <span>{isCompacting ? '压缩中...' : '压缩消息'}</span>
+        </button>
+        <button
+          onClick={handleMemoryFlush}
+          disabled={isFlushing || isRunning}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="提取对话中的记忆，保存到长期记忆库"
+        >
+          <Brain size={14} />
+          <span>{isFlushing ? '提取中...' : '提取记忆'}</span>
+        </button>
+      </div>
+
       {/* 输入框 */}
       <div className="flex items-end gap-2 p-4">
         <textarea

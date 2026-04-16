@@ -8,6 +8,9 @@ import React from 'react';
 import { App } from './adapters/cli/App';
 import { ChatSession } from './core/chat/ChatSession';
 import { createRequire } from 'module';
+import { logger } from './core/logger';
+
+const log = logger.child({ module: 'Main' });
 
 /**
  * 版本号（从 package.json 动态读取）
@@ -110,7 +113,7 @@ function parseArgs(argv: string[]): {
  * 打印帮助信息
  */
 function printHelp(): void {
-  console.log(`
+  log.info(`
   ✦ 璇玑 (Xuanji) v${VERSION} — AI 助手
 
   使用:
@@ -254,7 +257,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
     const msg = '未找到要启动的机器人。\n'
       + '  方式 1: xuanji bot --dingtalk (命令行指定)\n'
       + '  方式 2: 在 ~/.xuanji/config.json 中配置 bots.dingtalk.enabled = true';
-    console.error(`❌ ${msg}`);
+    log.error(msg);
     await logSystem.error('System', msg);
     process.exit(1);
   }
@@ -262,35 +265,35 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   // 4. 启动机器人
   for (const { name, adapter } of adapters) {
     try {
-      console.log(`🤖 正在启动${name}机器人...`);
+      log.info(`正在启动${name}机器人...`);
       await logSystem.info('Bot', `正在启动${name}机器人`);
       await adapter.start(session);
-      console.log(`✅ ${name}机器人已启动`);
+      log.info(`${name}机器人已启动`);
       await logSystem.info('Bot', `${name}机器人已启动`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`❌ ${name}机器人启动失败: ${errMsg}`);
+      log.error(`${name}机器人启动失败: ${errMsg}`);
       await logSystem.error('Bot', `${name}机器人启动失败: ${errMsg}`);
     }
   }
 
-  console.log(`\n✦ 璇玑 Bot 模式运行中 (${adapters.length} 个机器人)`);
-  console.log(`  日志文件: ~/.xuanji/logs/`);
-  console.log(`  Ctrl+C 或 SIGTERM 停止\n`);
+  log.info(`璇玑 Bot 模式运行中 (${adapters.length} 个机器人)`);
+  log.info(`日志文件: ~/.xuanji/logs/`);
+  log.info(`Ctrl+C 或 SIGTERM 停止`);
 
   // 5. 优雅退出
   const shutdown = async (signal: string) => {
-    console.log(`\n⏹️  收到 ${signal}，正在停止机器人...`);
+    log.info(`收到 ${signal}，正在停止机器人...`);
     await logSystem.info('System', `收到 ${signal}，开始优雅退出`);
 
     for (const { name, adapter } of adapters) {
       try {
         await adapter.stop();
-        console.log(`  ✓ ${name}机器人已停止`);
+        log.info(`${name}机器人已停止`);
         await logSystem.info('Bot', `${name}机器人已停止`);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`  ✗ ${name}停止失败: ${errMsg}`);
+        log.error(`${name}停止失败: ${errMsg}`);
         await logSystem.error('Bot', `${name}停止失败: ${errMsg}`);
       }
     }
@@ -314,8 +317,8 @@ async function startGui(): Promise<void> {
   const sourceDir = dirname(fileURLToPath(import.meta.url));
   const desktopDir = resolve(sourceDir, '..', 'desktop');
 
-  console.log('✦ 正在启动璇玑桌面应用...');
-  console.log('  位置:', desktopDir);
+  log.info('正在启动璇玑桌面应用...');
+  log.info(`位置: ${desktopDir}`);
 
   // 执行 npm run electron:dev
   const child = spawn('npm', ['run', 'electron:dev'], {
@@ -325,7 +328,7 @@ async function startGui(): Promise<void> {
   });
 
   child.on('error', (err) => {
-    console.error('❌ GUI 启动失败:', err.message);
+    log.error('GUI 启动失败:', err.message);
     process.exit(1);
   });
 
@@ -342,7 +345,7 @@ async function main(): Promise<void> {
 
   // 版本号
   if (args.version) {
-    console.log(`xuanji v${VERSION}`);
+    log.info(`xuanji v${VERSION}`);
     process.exit(0);
   }
 
@@ -411,9 +414,8 @@ async function main(): Promise<void> {
       onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
         process.stderr.write(`   ${isError ? '✗' : '✓'} ${name}\n`);
       },
-      onError: (err: Error) => console.error(`\n❌ ${err.message}`),
+      onError: (err: Error) => log.error(err.message),
       onEnd: () => {
-        console.log();
         process.exit(0);
       },
     });
@@ -475,7 +477,7 @@ async function main(): Promise<void> {
         return handler.handle(args);
       },
       // ─── 会话持久化回调 ─────────────────────────────
-      onSessionSave: async (name?: string, historyMessages?: Array<{ role: string; content: string; timestamp: number }>) => {
+      onSessionSave: async (name?: string, historyMessages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp: number }>) => {
         return session.saveSession(name, { historyMessages });
       },
       onSessionResume: async (sessionId: string) => {
@@ -551,6 +553,6 @@ async function main(): Promise<void> {
 
 // 启动
 main().catch((err) => {
-  console.error('❌ 启动失败:', err);
+  log.error('启动失败:', err);
   process.exit(1);
 });

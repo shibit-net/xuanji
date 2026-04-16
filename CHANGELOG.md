@@ -4,6 +4,16 @@
 
 ### 新增
 
+- **Agent Team 超时冲突检测** — 自动检测和警告超时配置问题
+  - 新增超时冲突检测：当 `member.timeout` 小于自动计算值时发出警告
+  - 优化超时日志输出：显示 `[auto]` 或 `[explicit]` 标记，`⚠️` 标记冲突
+  - 增强工具文档：`agent_team` 工具的 `timeout` 和 `member.timeout` 字段添加详细说明和最佳实践
+  - 降低 `general-purpose` agent 的 `maxIterations` 从 30 到 15，避免子代理过度执行
+  - 新增测试用例：验证超时分配和冲突检测功能
+  - 文档：`docs/agent-team-best-practices.md`（配置最佳实践）
+  - 文档：`docs/agent-team-timeout-optimization.md`（实战优化示例）
+  - 设计文档：`/tmp/agent_team_timeout_analysis.md`（深度分析报告）
+
 - **Agent Team 超时分配优化** — 根据策略特点智能分配超时时间
   - **Hierarchical 策略**: Leader 占 50% 时间，Workers 均摊剩余（解决 Leader 超时问题）
   - **Sequential 策略**: 前松后紧动态分配（第 1 个成员 1.5x，最后 1.0x）

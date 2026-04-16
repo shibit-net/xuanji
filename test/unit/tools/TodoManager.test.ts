@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TodoManager } from '@/core/tools/TodoManager';
-import { TodoStorageTool, setTodoManager } from '@/core/tools/TodoStorageTool';
-import { TodoListTool } from '@/core/tools/TodoListTool';
-import { TodoUpdateTool } from '@/core/tools/TodoUpdateTool';
+import { TodoCreateTool, TodoListTool, TodoUpdateTool, setTodoManager } from '@/core/tools/TodoTool';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { unlinkSync, existsSync } from 'node:fs';
@@ -142,11 +140,11 @@ describe('TodoManager', () => {
     });
   });
 
-  // ─── TodoStorageTool ─────────────────────────────
+  // ─── TodoCreateTool ─────────────────────────────
 
-  describe('TodoStorageTool', () => {
+  describe('TodoCreateTool', () => {
     it('应创建任务', async () => {
-      const tool = new TodoStorageTool();
+      const tool = new TodoCreateTool();
       const result = await tool.execute({ title: '测试任务' });
       expect(result.isError).toBe(false);
       expect(result.content).toContain('已创建');
@@ -154,7 +152,7 @@ describe('TodoManager', () => {
     });
 
     it('空标题应返回错误', async () => {
-      const tool = new TodoStorageTool();
+      const tool = new TodoCreateTool();
       const result = await tool.execute({ title: '' });
       expect(result.isError).toBe(true);
     });

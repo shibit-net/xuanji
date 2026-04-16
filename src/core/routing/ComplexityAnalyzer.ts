@@ -7,6 +7,7 @@
 import type { ILLMProvider } from '@/core/types';
 import type { TaskComplexity, SessionContext } from './types';
 import { logger } from '@/core/logger';
+import { getRuntimeConfig } from '@/core/config/RuntimeConfig';
 
 const log = logger.child({ module: 'complexity-analyzer' });
 
@@ -53,11 +54,16 @@ export class ComplexityAnalyzer {
       // 3. 调用 LLM 分析（使用 Haiku 降低成本）
       log.debug(`Analyzing task complexity with ${this.model}`);
 
+      // 从 RuntimeConfig 获取完整的 provider 配置
+      const runtimeConfig = getRuntimeConfig();
+
       const stream = this.provider.stream(
         [{ role: 'user', content: prompt }],
         [],
         {
           model: this.model,
+          apiKey: runtimeConfig.provider.apiKey,
+          baseURL: runtimeConfig.provider.baseURL,
           maxTokens: 500,
           temperature: 0.3, // 更确定性的输出
         },

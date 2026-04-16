@@ -82,20 +82,4 @@ export class ProviderFactory {
     return this.getByModel(config.model);
   }
 
-  /**
-   * 创建轻量模型的 ProviderConfig
-   * 如果配置了 lightModel，返回使用 lightModel 的配置副本
-   * 否则返回原始配置（主模型充当轻量模型）
-   */
-  static createLightConfig(config: ProviderConfig): ProviderConfig {
-    if (!config.lightModel) {
-      return config;
-    }
-    return {
-      ...config,
-      model: config.lightModel,
-      // 轻量模型使用更小的 maxTokens
-      maxTokens: Math.min(config.maxTokens ?? 16384, 16384),
-    };
-  }
 }

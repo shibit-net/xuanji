@@ -4,7 +4,6 @@
  * ============================================================
  */
 
-// 新架构
 export { LayeredPromptBuilder } from './LayeredPromptBuilder';
 export { IntentAnalyzer } from './IntentAnalyzer';
 
@@ -19,13 +18,6 @@ export type {
   SceneType,
   PromptBuildContext,
   SceneMatchConfig,
-} from './types';
-
-// 旧架构（过渡期保留，供未迁移的代码使用）
-export { SystemPromptBuilder } from './SystemPromptBuilder';
-export { SceneMatcher } from './SceneMatcher';
-export type { SceneMatchResult } from './SceneMatcher';
-export type {
   PromptBlock,
   SceneTemplate,
   PromptBuildOptions,

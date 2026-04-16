@@ -31,7 +31,6 @@ export async function generateDiagnostics(ctx: DiagnosticsContext): Promise<stri
   lines.push('');
   lines.push('📡 模型配置');
   lines.push(`  模型:     ${provider.model ?? '未配置'}`);
-  lines.push(`  轻量模型: ${provider.lightModel ?? '未配置'}`);
   lines.push(`  服务地址: ${provider.baseURL ?? '未配置'}`);
   lines.push(`  适配器:   ${provider.adapter ?? 'auto'}`);
   lines.push(`  API Key:  ${maskApiKey(provider.apiKey)}`);

@@ -4,7 +4,7 @@
 // 展示工具执行列表
 // ============================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolExecution } from '../stores/activeAgentStore';

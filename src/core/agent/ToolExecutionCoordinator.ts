@@ -134,7 +134,7 @@ export class ToolExecutionCoordinator {
   }
 
   /**
-   * 执行工具（并行 + 串行）
+   * 执行工具（使用 ToolDispatcher 的智能并行策略）
    */
   async executeTools(
     result: ProcessResult,
@@ -144,6 +144,7 @@ export class ToolExecutionCoordinator {
       onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
       onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
     },
+    signal?: AbortSignal, // 🔧 添加 AbortSignal 参数
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     const resultsMap = new Map<string, { content: string; isError: boolean }>();
@@ -172,54 +173,30 @@ export class ToolExecutionCoordinator {
       }
     }
 
-    // 2. 执行并行工具（只读工具）
-    const parallelCalls = result.toolCalls.filter(tc =>
-      grouping.parallelIds.includes(tc.id) &&
-      !grouping.blockedIds.has(tc.id) &&
-      !grouping.mockResults.has(tc.id)
-    );
-
-    if (parallelCalls.length > 0) {
-      const parallelResults = await this.executeParallelTools(
-        parallelCalls,
-        grouping.modifiedToolCalls,
-        callbacks,
-      );
-      for (const [id, result] of parallelResults) {
-        resultsMap.set(id, result);
-      }
-    }
-
-    // 3. 执行串行工具（写入工具）
-    const serialCalls = result.toolCalls.filter(tc =>
-      grouping.serialIds.includes(tc.id) &&
-      !grouping.blockedIds.has(tc.id) &&
-      !grouping.mockResults.has(tc.id)
-    );
-
-    for (const tc of serialCalls) {
-      const mod = grouping.modifiedToolCalls.get(tc.id);
-      const toolName = mod?.name || tc.name;
-      const toolInput = mod?.input || (tc.input as Record<string, unknown>);
-
-      // onToolStart 已在 StreamProcessor 中调用（tool_use_start 和 tool_use_end），不在此处重复调用
-
-      try {
-        const result = await this.toolDispatcher.execute(
-          { id: tc.id, name: toolName, input: toolInput },
-          undefined, // signal
-        );
-
-        resultsMap.set(tc.id, result);
-        callbacks.onToolEnd?.(tc.id, toolName, result.content, result.isError);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const errorResult = {
-          content: `执行失败: ${message}`,
-          isError: true,
+    // 2. 准备需要执行的工具（排除被阻止和 Mock 的）
+    const toolsToExecute = result.toolCalls
+      .filter(tc => !grouping.blockedIds.has(tc.id) && !grouping.mockResults.has(tc.id))
+      .map(tc => {
+        const mod = grouping.modifiedToolCalls.get(tc.id);
+        return {
+          id: tc.id,
+          name: mod?.name || tc.name,
+          input: mod?.input || (tc.input as Record<string, unknown>),
         };
-        resultsMap.set(tc.id, errorResult);
-        callbacks.onToolEnd?.(tc.id, toolName, errorResult.content, true);
+      });
+
+    // 3. 使用 ToolDispatcher.executeAll() 执行所有工具
+    // ToolDispatcher 会自动处理只读工具的并行执行和写工具的串行执行
+    if (toolsToExecute.length > 0) {
+      const dispatcherResults = await this.toolDispatcher.executeAll(toolsToExecute, signal);
+
+      // 合并结果并触发回调
+      for (const [id, toolResult] of dispatcherResults) {
+        resultsMap.set(id, toolResult);
+        const tc = result.toolCalls.find(t => t.id === id);
+        if (tc) {
+          callbacks.onToolEnd?.(id, tc.name, toolResult.content, toolResult.isError);
+        }
       }
     }
 
@@ -242,50 +219,6 @@ export class ToolExecutionCoordinator {
       totalDurationMs,
       statsUpdates,
     };
-  }
-
-  /**
-   * 并行执行工具
-   */
-  private async executeParallelTools(
-    toolCalls: ProcessResult['toolCalls'],
-    modifiedCalls: Map<string, { name: string; input: Record<string, unknown> }>,
-    callbacks: {
-      onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
-      onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
-      onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
-    },
-  ): Promise<Map<string, { content: string; isError: boolean }>> {
-    const results = new Map<string, { content: string; isError: boolean }>();
-
-    const promises = toolCalls.map(async (tc) => {
-      const mod = modifiedCalls.get(tc.id);
-      const toolName = mod?.name || tc.name;
-      const toolInput = mod?.input || (tc.input as Record<string, unknown>);
-
-      // onToolStart 已在 StreamProcessor 中调用（tool_use_start 和 tool_use_end），不在此处重复调用
-
-      try {
-        const result = await this.toolDispatcher.execute(
-          { id: tc.id, name: toolName, input: toolInput },
-          undefined, // signal
-        );
-
-        results.set(tc.id, result);
-        callbacks.onToolEnd?.(tc.id, toolName, result.content, result.isError);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const errorResult = {
-          content: `并行执行失败: ${message}`,
-          isError: true,
-        };
-        results.set(tc.id, errorResult);
-        callbacks.onToolEnd?.(tc.id, toolName, errorResult.content, true);
-      }
-    });
-
-    await Promise.all(promises);
-    return results;
   }
 
   /**

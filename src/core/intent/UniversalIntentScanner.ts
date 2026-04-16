@@ -14,6 +14,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import type { IntentRegistrable, IntentMetadata, ModuleType } from './types.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'UniversalIntentScanner' });
 
 // ESM 模式下获取 __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -103,7 +106,7 @@ export class UniversalIntentScanner {
     const startTime = Date.now();
     const allResults: ScanResult[] = [];
 
-    console.log('⏳ 扫描意图注册模块...');
+    log.debug('扫描意图注册模块...');
 
     for (const { path: scanPath, type } of this.scanPaths) {
       try {
@@ -117,7 +120,7 @@ export class UniversalIntentScanner {
     const duration = Date.now() - startTime;
     const stats = this.computeStats(allResults, duration);
 
-    console.log(`✓ 扫描完成，发现 ${allResults.length} 个可注册模块`);
+    log.debug(`扫描完成，发现 ${allResults.length} 个可注册模块`);
     this.logStats(stats);
 
     return { results: allResults, stats };
@@ -313,21 +316,13 @@ export class UniversalIntentScanner {
    */
   private logStats(stats: ScanStats): void {
     if (stats.total === 0) {
-      console.log('  未发现任何可注册模块');
+      log.debug('未发现任何可注册模块');
       return;
     }
 
-    console.log('  模块类型分布:');
-    for (const [type, count] of stats.byType.entries()) {
-      console.log(`    - ${type}: ${count} 个`);
-    }
-
-    console.log('  领域分布:');
-    for (const [domain, count] of stats.byDomain.entries()) {
-      console.log(`    - ${domain}: ${count} 个`);
-    }
-
-    console.log(`  扫描耗时: ${stats.duration}ms`);
+    const byType = Object.fromEntries(stats.byType);
+    const byDomain = Object.fromEntries(stats.byDomain);
+    log.debug('扫描统计', { byType, byDomain, duration: stats.duration });
   }
 
   /**

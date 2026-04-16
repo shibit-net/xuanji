@@ -6,7 +6,6 @@
 // - 方便 InspectorPanel 导入和使用
 // ============================================================
 
-export { default as AgentMonitor } from './AgentMonitor';
 export { default as ToolMonitor } from './ToolMonitor';
 export { default as ContextView } from './ContextView';
 export { default as MemoryView } from './MemoryView';

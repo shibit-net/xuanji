@@ -1,0 +1,55 @@
+{
+  "testName": "Mixed Agent Types - Explore + Coder",
+  "status": "documented",
+  "duration": 1,
+  "testPlan": {
+    "name": "Mixed Agent Types - Explore + Coder",
+    "objective": "Verify different agent types can work in pipeline",
+    "steps": [
+      {
+        "step": 1,
+        "agent": "explore",
+        "task": "Analyze code file and find TODOs",
+        "capabilities": [
+          "read files",
+          "search patterns",
+          "analyze structure"
+        ],
+        "readonly": true
+      },
+      {
+        "step": 2,
+        "agent": "coder",
+        "task": "Generate implementation for TODOs: {{previous_output}}",
+        "capabilities": [
+          "write code",
+          "create files",
+          "edit files"
+        ],
+        "readonly": false
+      },
+      {
+        "step": 3,
+        "agent": "coder",
+        "task": "Create tests for: {{previous_output}}",
+        "capabilities": [
+          "write tests",
+          "create files"
+        ],
+        "readonly": false
+      }
+    ],
+    "agentTypeTests": [
+      "explore agent can only read (safety)",
+      "coder agent can write (functionality)",
+      "Data flows between different agent types",
+      "Each agent respects its role constraints"
+    ],
+    "interoperabilityTests": [
+      "explore output format is usable by coder",
+      "coder output is readable by subsequent coder",
+      "No agent-specific data loss"
+    ]
+  },
+  "note": "Cannot execute due to import issues - test plan documented"
+}

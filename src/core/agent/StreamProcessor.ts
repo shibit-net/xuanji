@@ -129,15 +129,20 @@ export class StreamProcessor {
         }
 
         case 'thinking_delta': {
+          console.log('[StreamProcessor] thinking_delta 事件:', event.thinking?.length || 0, '前50字符:', event.thinking?.slice(0, 50) || '');
           if (event.thinking) {
             this._currentThinking += event.thinking;  // 🆕 使用实例变量
+            console.log('[StreamProcessor] 调用 thinkingHandler，累计长度:', this._currentThinking.length);
             this.thinkingHandler?.(event.thinking);
+          } else {
+            console.log('[StreamProcessor] thinking_delta 事件但 event.thinking 为空');
           }
           break;
         }
 
         case 'tool_use_start': {
           // 工具调用开始：立即通知
+          console.log('[StreamProcessor] tool_use_start 事件:', event.toolCall);
           if (event.toolCall?.id && event.toolCall?.name) {
             currentToolId = event.toolCall.id;
             currentToolName = event.toolCall.name;
@@ -148,7 +153,10 @@ export class StreamProcessor {
               name: event.toolCall.name,
               input: event.toolCall.input ?? {},
             };
+            console.log('[StreamProcessor] 调用 toolStartHandler:', toolCall);
             this.toolStartHandler?.(toolCall);
+          } else {
+            console.log('[StreamProcessor] tool_use_start 事件缺少 id 或 name');
           }
           break;
         }

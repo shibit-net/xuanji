@@ -2,23 +2,73 @@
 // ChatArea - 对话区组件
 // ============================================================
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChevronDown } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { useChatStore } from '../stores/chatStore';
 import { useToast } from './Toast';
 
+// ============================================================
+// 唯一 ID 生成器（与 chatStore 保持一致）
+// ============================================================
+let messageIdCounter = 0;
+function generateMessageId(prefix = 'msg'): string {
+  return `${prefix}-${Date.now()}-${++messageIdCounter}`;
+}
+
+/** 三点波浪等待动画（LLM 响应前的即时反馈） */
+function TypingIndicator() {
+  return (
+    <div className="flex items-start gap-3 px-1">
+      {/* 与 MessageBubble 的 assistant 头像对齐 */}
+      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <span className="text-sm">🤖</span>
+      </div>
+      <div className="flex items-center gap-1.5 px-4 py-3 bg-bg-secondary rounded-2xl rounded-tl-sm">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="block w-2 h-2 rounded-full bg-text-secondary"
+            style={{
+              animation: 'typing-dot 1.4s ease-in-out infinite',
+              animationDelay: `${i * 0.2}s`,
+            }}
+          />
+        ))}
+      </div>
+      <style>{`
+        @keyframes typing-dot {
+          0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+          30% { opacity: 1; transform: translateY(-4px); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ChatArea() {
   const messages = useChatStore((state) => state.messages);
+  const status = useChatStore((state) => state.status);
+  const currentStreamingId = useChatStore((state) => state.currentStreamingId);
   const toast = useToast();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
 
+  // 是否显示三点等待动画：LLM 收到请求后、第一个 token 到达前
+  const showTypingIndicator = status === 'thinking' && !currentStreamingId;
+
   // 监听归档通知
   useEffect(() => {
     const handleArchiveNotification = (data: { archivedCount: number; memoriesExtracted: number; summary?: string }) => {
-      toast.success(`📦 已归档 ${data.archivedCount} 条消息，提取 ${data.memoriesExtracted} 条记忆`, 3000);
+      // 在聊天区域添加一条系统提示消息，而不是弹出 toast
+      const archiveMessage: Message = {
+        id: generateMessageId('system-archive'),
+        role: 'system',
+        content: `📦 已归档 ${data.archivedCount} 条消息，提取 ${data.memoriesExtracted} 条记忆`,
+        timestamp: Date.now(),
+      };
+      useChatStore.getState().addMessage(archiveMessage);
     };
 
     window.electron.on('session:archive-notification', handleArchiveNotification);
@@ -26,32 +76,32 @@ export default function ChatArea() {
     return () => {
       window.electron.off('session:archive-notification', handleArchiveNotification);
     };
-  }, [toast]);
+  }, []);
 
   // 检查是否在底部
-  const checkIfAtBottom = () => {
+  const checkIfAtBottom = useCallback(() => {
     if (!containerRef.current) return true;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
     const threshold = 100; // 距离底部 100px 内认为在底部
     return scrollHeight - scrollTop - clientHeight < threshold;
-  };
+  }, []);
 
   // 滚动到底部
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
       setShowNewMessageButton(false);
     }
-  };
+  }, []);
 
   // 监听滚动事件
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom();
     setIsAtBottom(atBottom);
     if (atBottom) {
       setShowNewMessageButton(false);
     }
-  };
+  }, [checkIfAtBottom]);
 
   // 消息变化时的自动滚动逻辑
   useEffect(() => {
@@ -62,7 +112,14 @@ export default function ChatArea() {
       // 用户在上方查看历史，显示新消息提示
       setShowNewMessageButton(true);
     }
-  }, [messages]);
+  }, [messages, isAtBottom, scrollToBottom]);
+
+  // typing indicator 出现时也滚动到底部
+  useEffect(() => {
+    if (showTypingIndicator && isAtBottom) {
+      scrollToBottom();
+    }
+  }, [showTypingIndicator, isAtBottom, scrollToBottom]);
 
   // 初始化时滚动到底部
   useEffect(() => {
@@ -70,7 +127,7 @@ export default function ChatArea() {
   }, []);
 
   return (
-    <div className="flex-1 relative">
+    <div className="flex-1 min-h-0 relative">
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -94,6 +151,9 @@ export default function ChatArea() {
             <MessageBubble key={message.id} message={message} />
           ))
         )}
+
+        {/* LLM 响应前的三点等待动画 */}
+        {showTypingIndicator && <TypingIndicator />}
       </div>
 
       {/* 新消息提示按钮 */}

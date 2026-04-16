@@ -4,8 +4,63 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { CanvasRenderer } from './CanvasRenderer';
-import type { WorkspaceState } from './types';
+import type { WorkspaceState, SubAgentData } from './types';
 import { useRuntimeStore } from '../../stores/runtimeStore';
+import { useActiveAgentStore, type AgentState } from '../../stores/activeAgentStore';
+
+// Agent 角色图标映射
+const ROLE_ICON_MAP: Record<string, string> = {
+  xuanji: '🤖',
+  main: '🤖',
+  coder: '🔨',
+  explore: '🔍',
+  plan: '📐',
+  'test-writer': '🧪',
+  'doc-writer': '📝',
+  'memory-extractor': '🧠',
+  'general-purpose': '🎯',
+  'context-compressor': '🗜️',
+  'intent-analyzer': '🎯',
+  delegate: '📦',
+  pipeline: '🔗',
+  tool: '🛠️',
+  agent: '🤖',
+  team: '👥',
+};
+
+// Agent 角色名称映射（友好显示）
+const ROLE_NAME_MAP: Record<string, string> = {
+  'general-purpose': 'General Purpose',
+  coder: 'Coder',
+  explore: 'Explorer',
+  plan: 'Planner',
+  'test-writer': 'Test Writer',
+  'doc-writer': 'Doc Writer',
+  'memory-extractor': 'Memory Extractor',
+  'context-compressor': 'Context Compressor',
+  'intent-analyzer': 'Intent Analyzer',
+};
+
+function getRoleIcon(name: string, type?: string): string {
+  const lower = name.toLowerCase();
+  for (const [key, icon] of Object.entries(ROLE_ICON_MAP)) {
+    if (lower.includes(key)) return icon;
+  }
+  if (type) return ROLE_ICON_MAP[type] || '🤖';
+  return '🤖';
+}
+
+function getFriendlyName(name: string): string {
+  const lower = name.toLowerCase();
+  // 精确匹配
+  if (ROLE_NAME_MAP[lower]) return ROLE_NAME_MAP[lower];
+  // 模糊匹配
+  for (const [key, friendlyName] of Object.entries(ROLE_NAME_MAP)) {
+    if (lower.includes(key)) return friendlyName;
+  }
+  // 默认：首字母大写
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 export default function WorkspaceMonitor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -14,10 +69,14 @@ export default function WorkspaceMonitor() {
 
   // 从 runtimeStore 获取数据
   const agentStatus = useRuntimeStore((state) => state.agentStatus);
-  const messageStream = useRuntimeStore((state) => state.messageStream);
   const tokenUsage = useRuntimeStore((state) => state.tokenUsage);
   const currentIteration = useRuntimeStore((state) => state.currentIteration);
   const isProcessing = useRuntimeStore((state) => state.isProcessing);
+  const currentCallTokens = useRuntimeStore((state) => state.currentCallTokens);
+  const agentActivity = useRuntimeStore((state) => state.agentActivity);
+
+  // 从 activeAgentStore 获取 agent 层级数据
+  const activeMainAgent = useActiveAgentStore((state) => state.mainAgent);
 
   // 初始化渲染器
   useEffect(() => {
@@ -28,10 +87,7 @@ export default function WorkspaceMonitor() {
     renderer.start();
     setIsReady(true);
 
-    // 监听窗口大小变化
-    const handleResize = () => {
-      renderer.resize();
-    };
+    const handleResize = () => { renderer.resize(); };
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -44,146 +100,218 @@ export default function WorkspaceMonitor() {
   useEffect(() => {
     if (!rendererRef.current || !isReady) return;
 
-    // 调试日志
-    console.log('[WorkspaceMonitor] 数据更新:', {
-      agentStatus,
-      messageStream,
-      tokenUsage,
-      currentIteration,
-      isProcessing,
-    });
+    console.log('[WorkspaceMonitor] useEffect 触发');
+    console.log('[WorkspaceMonitor] activeMainAgent:', activeMainAgent);
+    console.log('[WorkspaceMonitor] activeMainAgent?.subAgents:', activeMainAgent?.subAgents);
+    console.log('[WorkspaceMonitor] activeMainAgent?.subAgents.length:', activeMainAgent?.subAgents?.length);
 
     // 构建主 Agent 数据
+    const mainId = 'main';
+
     const mainAgent = {
-      id: 'main',
+      id: mainId,
       name: agentStatus?.name || 'Xuanji',
       status: agentStatus?.status || 'idle',
-      currentThought: agentStatus?.currentThought,
+      roleIcon: getRoleIcon(agentStatus?.name || 'xuanji'),
+      currentThought: activeMainAgent?.currentThought || agentStatus?.currentThought,
       currentTool: agentStatus?.currentTool?.name,
+      currentMoment: agentActivity.currentMoments[mainId],
+      momentHistory: agentActivity.momentHistories[mainId] || [],
+      timelineEvents: agentActivity.timelineEvents[mainId] || [],
     };
 
-    // 构建子 Agent 数据（从工具调用映射）- 只显示正在执行的工具，完成后消失
-    const subAgents = (messageStream?.toolCalls || [])
-      .filter((toolCall) => toolCall.status === 'running')
-      .flatMap((toolCall) => {
-        // 如果是 Multi-Agent 工具，展开成员/步骤
-        if (toolCall.multiAgent) {
-          const { type, strategy, teamName, members, steps } = toolCall.multiAgent;
-
-          // 对于团队类型（orchestrate, quick_team, agent_team），展示成员
-          if ((type === 'orchestrate' || type === 'quick_team' || type === 'agent_team') && members && members.length > 0) {
-            return members.map((member: any) => ({
-              id: `${toolCall.id}-${member.id}`,
-              name: member.name,
-              type: 'agent' as const,
-              status: (member.status === 'idle' ? 'idle' :
-                       member.status === 'running' ? 'running' :
-                       member.status === 'success' ? 'success' : 'error') as const,
-              task: member.role,
-              duration: member.duration,
-              tokenUsage: member.tokenUsage,
-              progress: member.progress || 0,
-              multiAgent: {
-                type,
-                strategy,
-                teamName,
-                parentId: toolCall.id,
-              },
-            }));
+    // 构建子 Agent 数据（从 activeAgentStore 读取）
+    // 递归展平，保留真实父子关系
+    // 判断 agent 或其子 agent 是否仍在活跃
+    const isActiveOrHasActiveChild = (agent: AgentState): boolean => {
+      // 🔧 特殊处理：团队成员即使完成也保留显示，直到整个团队结束
+      if (agent.multiAgent?.type === 'agent_team' && agent.multiAgent?.teamName) {
+        // 检查同一团队中是否还有其他成员在运行
+        const teamName = agent.multiAgent.teamName;
+        const hasActiveTeamMember = (a: AgentState): boolean => {
+          if (a.multiAgent?.type === 'agent_team' && a.multiAgent?.teamName === teamName && a.status !== 'done') {
+            return true;
           }
-
-          // 对于流水线类型（pipeline），展示步骤
-          if (type === 'pipeline' && steps && steps.length > 0) {
-            return steps.map((step: any, index: number) => ({
-              id: `${toolCall.id}-step-${index}`,
-              name: step.name,
-              type: 'agent' as const,
-              status: (step.status === 'pending' ? 'idle' :
-                       step.status === 'running' ? 'running' :
-                       step.status === 'success' ? 'success' : 'error') as const,
-              task: step.description,
-              progress: step.progress || 0,
-              multiAgent: {
-                type,
-                stepIndex: index,
-                totalSteps: steps.length,
-                parentId: toolCall.id,
-              },
-            }));
+          if (a.subAgents && Array.isArray(a.subAgents)) {
+            return a.subAgents.some(child => hasActiveTeamMember(child));
           }
+          return false;
+        };
 
-          // 对于委托类型（delegate），展示为单个子代理
-          if (type === 'delegate') {
-            return [{
-              id: toolCall.id,
-              name: `Delegate: ${toolCall.multiAgent.subagentType || 'agent'}`,
-              type: 'delegate' as const,
-              status: 'running' as const,
-              task: (toolCall.input?.description as string) || 'Delegated task',
-              duration: toolCall.duration,
-              progress: 0.5,
-              multiAgent: {
-                type,
-                subagentType: toolCall.multiAgent.subagentType,
-              },
-            }];
-          }
+        // 如果团队中还有活跃成员，则保留所有团队成员
+        if (activeMainAgent && hasActiveTeamMember(activeMainAgent)) {
+          return true;
+        }
+      }
+
+      if (agent.status !== 'done') return true;
+      if (agent.subAgents && Array.isArray(agent.subAgents)) {
+        return agent.subAgents.some(child => isActiveOrHasActiveChild(child));
+      }
+      return false;
+    };
+
+    const flattenAgents = (agent: AgentState, parentId: string): SubAgentData[] => {
+      const result: SubAgentData[] = [];
+
+      if (!agent.subAgents || !Array.isArray(agent.subAgents)) {
+        return result;
+      }
+
+      console.log('[WorkspaceMonitor] flattenAgents: agent.subAgents.length =', agent.subAgents.length);
+
+      for (const subAgent of agent.subAgents) {
+        console.log('[WorkspaceMonitor] flattenAgents: 处理 subAgent:', subAgent.id, 'status:', subAgent.status);
+
+        // 只展示活跃的 agent，或有活跃子 agent 的 agent（保持结构）
+        if (!isActiveOrHasActiveChild(subAgent)) {
+          console.log('[WorkspaceMonitor] flattenAgents: 跳过非活跃 agent:', subAgent.id);
+          continue;
         }
 
-        // 普通工具调用
-        return [{
-          id: toolCall.id,
-          name: toolCall.name,
-          type: 'tool' as const,
-          status: 'running' as const,
-          task: toolCall.input ? JSON.stringify(toolCall.input).slice(0, 50) : undefined,
-          duration: toolCall.duration,
-          tokenUsage: undefined,
-          progress: 0.5,
-        }];
+        const subId = subAgent.id;
+
+        const mapStatus = (status: string): 'idle' | 'running' | 'success' | 'error' => {
+          if (status === 'done') return 'success';
+          if (status === 'thinking' || status === 'executing' || status === 'responding') return 'running';
+          return status as any;
+        };
+
+        result.push({
+          id: subId,
+          name: getFriendlyName(subAgent.name),
+          type: 'agent',
+          status: mapStatus(subAgent.status),
+          task: subAgent.currentTask || subAgent.currentThought || '', // 🔧 优先使用 currentTask
+          duration: undefined,
+          tokenUsage: subAgent.stats.tokenUsage.input + subAgent.stats.tokenUsage.output,
+          progress: subAgent.status === 'done' ? 1 : (subAgent.status === 'executing' ? 0.5 : 0),
+          roleIcon: getRoleIcon(subAgent.name, 'agent'),
+          agentType: subAgent.agentType, // 传递 Agent 类型
+          currentMoment: agentActivity.currentMoments[subId],
+          momentHistory: agentActivity.momentHistories[subId] || [],
+          timelineEvents: agentActivity.timelineEvents[subId] || [],
+          thinkingText: subAgent.currentTask || subAgent.currentThought, // 🔧 优先使用 currentTask
+          parentAgentId: parentId,
+          multiAgent: subAgent.multiAgent, // 传递 multiAgent 信息
+        });
+
+        // 🔍 调试：打印 multiAgent 信息
+        if (subAgent.multiAgent) {
+          console.log('[WorkspaceMonitor] SubAgent multiAgent:', {
+            id: subId,
+            name: subAgent.name,
+            multiAgent: subAgent.multiAgent,
+          });
+        }
+
+        // 递归处理嵌套的子 agent
+        if (subAgent.subAgents && Array.isArray(subAgent.subAgents) && subAgent.subAgents.length > 0) {
+          result.push(...flattenAgents(subAgent, subId));
+        }
+      }
+
+      return result;
+    };
+
+    const subAgents: SubAgentData[] = activeMainAgent ? flattenAgents(activeMainAgent, 'main') : [];
+
+    // 🔍 调试：打印 activeMainAgent 的结构
+    if (activeMainAgent && activeMainAgent.subAgents.length > 0) {
+      console.log('[WorkspaceMonitor] activeMainAgent.subAgents:', activeMainAgent.subAgents.map(s => ({
+        id: s.id,
+        name: s.name,
+        subAgentsCount: s.subAgents?.length || 0,
+      })));
+    }
+
+    // 计算树形布局位置
+    const treePositions = rendererRef.current.getTreePositions();
+
+    console.log('[WorkspaceMonitor] 树形布局位置计算完成，共', treePositions.size, '个位置');
+
+    // 计算团队边界框
+    const teamBoundaries = rendererRef.current.getLayoutEngine().computeTeamBoundaries(subAgents, treePositions);
+
+    console.log('[WorkspaceMonitor] 团队边界框计算完成，共', teamBoundaries.length, '个团队');
+    teamBoundaries.forEach(boundary => {
+      console.log('[WorkspaceMonitor] 团队边界框:', {
+        teamName: boundary.teamName,
+        strategy: boundary.strategy,
+        memberCount: boundary.memberIds.length,
+        bounds: boundary.bounds,
+      });
+    });
+
+    // 构建协作关系（基于真实的父子关系 + 策略信息）
+    const collaborations = subAgents
+      .filter(agent => !agent.multiAgent?.teamName) // 🔧 过滤掉团队成员，只保留非团队 agent
+      .map((agent) => {
+        const strategy = agent.multiAgent?.strategy;
+        const stepIndex = agent.multiAgent?.stepIndex;
+
+        return {
+          from: agent.parentAgentId || 'main',
+          to: agent.id,
+          type: (strategy as any) || 'task',
+          active: agent.status === 'running',
+          sequenceNumber: stepIndex,
+          isLeaderConnection: strategy === 'hierarchical' && stepIndex === 0,
+          debateRound: strategy === 'debate' ? stepIndex : undefined,
+        };
       });
 
-    // 构建协作关系（主 Agent → 工具）
-    const collaborations = subAgents.map((agent) => ({
+    // 🔧 添加主 agent 到团队边界框的连接
+    const teamConnections = teamBoundaries.map((team) => ({
       from: 'main',
-      to: agent.id,
-      type: 'task' as const,
-      active: agent.status === 'running',
+      to: `team-${team.teamName}`, // 使用团队 ID
+      type: 'team' as any,
+      active: true,
+      isTeamConnection: true, // 标记为团队连接
+      teamBounds: team.bounds, // 传递边界框信息
     }));
 
+    // 🔧 合并团队连接和普通连接
+    const allCollaborations = [...collaborations, ...teamConnections];
+
     // 构建统计信息
+    const now = Date.now();
     const stats = {
       totalTokens: tokenUsage.input + tokenUsage.output,
-      currentTokenDelta: 0, // 暂时没有增量统计
-      duration: 0, // 暂时没有总耗时统计
+      currentCallTokens: currentCallTokens.input + currentCallTokens.output,
+      currentTokenDelta: 0,
+      duration: agentActivity.runStartTime ? now - agentActivity.runStartTime : 0,
       iteration: currentIteration,
+      startTime: agentActivity.runStartTime ?? undefined,
     };
 
     // 构建完整状态
     const state: WorkspaceState = {
       mainAgent,
       subAgents,
-      collaborations,
+      collaborations: allCollaborations, // 使用合并后的连接
       stats,
+      recentEvents: agentActivity.recentEvents,
+      teamBoundaries, // 添加团队边界框
     };
 
-    // 更新渲染器
-    console.log('[WorkspaceMonitor] 更新状态:', state);
+    // 更新画布尺寸（根据 Agent 数量动态调整）
+    rendererRef.current.updateCanvasSize(subAgents);
     rendererRef.current.updateState(state);
   }, [
     agentStatus,
-    messageStream,
     tokenUsage,
     currentIteration,
     isProcessing,
     isReady,
+    currentCallTokens,
+    agentActivity,
+    activeMainAgent,
   ]);
 
   // 处理鼠标移动（悬停检测）
   const handleMouseMove = (_e: React.MouseEvent<HTMLCanvasElement>) => {
     // TODO: 实现悬停检测逻辑
-    // 这里需要根据鼠标位置判断是否悬停在某个 Agent 上
-    // 暂时不实现，留待后续优化
   };
 
   return (
@@ -198,12 +326,53 @@ export default function WorkspaceMonitor() {
       </div>
 
       {/* Canvas 区域 */}
-      <div className="flex-1 w-full overflow-hidden">
+      <div className="flex-1 w-full overflow-auto">
         <canvas
           ref={canvasRef}
-          className="w-full h-full"
+          className="block"
           onMouseMove={handleMouseMove}
         />
+      </div>
+
+      {/* 底部统计区域 */}
+      <div className="h-16 bg-bg-primary border-t border-bg-tertiary flex items-center justify-between px-6">
+        {/* 左侧：Token 统计 */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-secondary">累计 Token:</span>
+            <span className="text-sm font-mono font-semibold text-warning">
+              {tokenUsage.input + tokenUsage.output > 0
+                ? (tokenUsage.input + tokenUsage.output).toLocaleString()
+                : '0'}
+            </span>
+          </div>
+          {currentCallTokens.input + currentCallTokens.output > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-secondary">本次:</span>
+              <span className="text-sm font-mono text-text-secondary">
+                +{(currentCallTokens.input + currentCallTokens.output).toLocaleString()}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* 右侧：迭代次数和耗时 */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-secondary">迭代:</span>
+            <span className="text-sm font-mono font-semibold text-success">
+              {currentIteration}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-secondary">耗时:</span>
+            <span className="text-sm font-mono font-semibold text-primary">
+              {agentActivity.runStartTime
+                ? ((Date.now() - agentActivity.runStartTime) / 1000).toFixed(1)
+                : '0.0'}s
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

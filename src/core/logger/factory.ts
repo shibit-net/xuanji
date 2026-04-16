@@ -10,14 +10,17 @@ import { ConsolaLogger } from './implementations/ConsolaLogger';
 import { getFileWriter } from './implementations/FileWriter';
 
 /**
- * 解析日志文件路径
+ * 解析日志目录路径
  *
- * 优先级：config.file > XUANJI_LOG_FILE > ~/.xuanji/logs/core.log
+ * 优先级：config.file > XUANJI_LOG_DIR > ~/.xuanji/logs
  */
-function resolveLogFilePath(config?: LoggerConfig): string {
-  return config?.file
-    ?? process.env.XUANJI_LOG_FILE
-    ?? path.join(os.homedir(), '.xuanji', 'logs', 'core.log');
+function resolveLogDir(config?: LoggerConfig): string {
+  if (config?.file) {
+    // 如果配置了具体文件路径，取其目录
+    return path.dirname(config.file);
+  }
+  return process.env.XUANJI_LOG_DIR
+    ?? path.join(os.homedir(), '.xuanji', 'logs');
 }
 
 /**
@@ -29,9 +32,9 @@ function resolveLogFilePath(config?: LoggerConfig): string {
  * - 可通过 XUANJI_LOGGER_TYPE 环境变量强制覆盖
  *
  * 文件输出：
- * - 默认启用，写入 ~/.xuanji/logs/core.log
+ * - 默认启用，按级别写入 ~/.xuanji/logs/{debug,info,warn,error}.log
  * - 通过 enableFile: false 禁用
- * - 通过 XUANJI_LOG_FILE 自定义路径
+ * - 通过 XUANJI_LOG_DIR 自定义目录
  */
 export function createLogger(config?: LoggerConfig): ILogger {
   const type = process.env.XUANJI_LOGGER_TYPE
@@ -40,7 +43,7 @@ export function createLogger(config?: LoggerConfig): ILogger {
   // 默认启用文件输出（所有环境）
   const enableFile = config?.enableFile ?? true;
   const fileWriter = enableFile
-    ? getFileWriter(resolveLogFilePath(config))
+    ? getFileWriter(resolveLogDir(config))
     : null;
 
   return type === 'consola'

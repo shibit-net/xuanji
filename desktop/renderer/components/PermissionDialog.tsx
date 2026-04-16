@@ -2,7 +2,7 @@
 // PermissionDialog - 权限确认对话框
 // ============================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, Shield, X } from 'lucide-react';
 import type { PermissionRequestData } from '../global';
 

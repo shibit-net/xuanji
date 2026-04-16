@@ -370,9 +370,12 @@ function ToolExecutionItem({ tool }: { tool: ToolExecution }) {
           {tool.result && (
             <div className="mt-2">
               <div className="font-semibold mb-1">输出结果:</div>
-              <div className="p-2 bg-bg-secondary rounded font-mono text-xs max-h-32 overflow-y-auto">
-                {tool.result.slice(0, 500)}
-                {tool.result.length > 500 && '...'}
+              <div className="p-2 bg-bg-secondary rounded font-mono text-xs max-h-96 overflow-y-auto whitespace-pre-wrap">
+                {/* 编辑类工具显示完整 diff，其他工具截断到 500 字符 */}
+                {['edit_file', 'write_file', 'multi_edit'].includes(tool.name) 
+                  ? tool.result 
+                  : tool.result.slice(0, 500)}
+                {!['edit_file', 'write_file', 'multi_edit'].includes(tool.name) && tool.result.length > 500 && '...'}
               </div>
             </div>
           )}

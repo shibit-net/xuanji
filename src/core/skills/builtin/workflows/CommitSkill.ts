@@ -22,6 +22,27 @@ export const commitSkill: Skill = {
   tags: ['git', 'commit', 'workflow'],
   slashCommand: '/commit',
   priority: 10,
+  moduleType: 'skill',
+  intentMeta: {
+    type: 'coding.git-commit',
+    domain: 'coding',
+    name: '智能 Git 提交',
+    description: '自动分析变更生成规范的 Git commit 信息',
+    trainingExamples: [
+      '帮我提交代码',
+      '生成 commit 信息',
+      '我想提交这些改动',
+      'git commit 一下',
+      '帮我写提交信息',
+      '提交当前更改',
+      'commit my changes',
+      'create a git commit',
+      'generate commit message',
+      'submit my code changes',
+    ],
+    priority: 80,
+  },
+  requiredTools: ['bash'],
 
   async execute(params?: Record<string, any>): Promise<WorkflowResult> {
     try {

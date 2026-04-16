@@ -4,7 +4,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { StorageBackend } from '@/memory/StorageBackend';
+import { SimpleStorage } from '@/core/SimpleStorage';
 import type { MemoryEntry } from '@/memory/types';
 import type {
   Reminder,
@@ -31,7 +31,7 @@ const log = logger.child({ module: 'reminder-engine' });
  * 存储：~/.xuanji/reminders.jsonl
  */
 export class ReminderEngine implements IReminderEngine {
-  private storage: StorageBackend;
+  private storage: SimpleStorage;
   private config: ReminderConfig;
   private filePath: string;
   private reminders: Reminder[] = [];
@@ -39,11 +39,11 @@ export class ReminderEngine implements IReminderEngine {
 
   /**
    * @param config 提醒配置
-   * @param storage 可选：注入 StorageBackend 实例（测试用）
+   * @param storage 可选：注入 SimpleStorage 实例（测试用）
    */
-  constructor(config?: Partial<ReminderConfig>, storage?: StorageBackend) {
+  constructor(config?: Partial<ReminderConfig>, storage?: SimpleStorage) {
     this.config = { ...DEFAULT_REMINDER_CONFIG, ...config };
-    this.storage = storage ?? new StorageBackend();
+    this.storage = storage ?? new SimpleStorage();
     this.filePath = join(homedir(), '.xuanji', this.config.storageFile);
   }
 

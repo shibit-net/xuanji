@@ -9,7 +9,7 @@
 // - 数据来源：runtimeStore.contextInfo
 // ============================================================
 
-import React from 'react';
+
 import { Folder, FileText, Clock, Package } from 'lucide-react';
 import { useRuntimeStore } from '../stores';
 

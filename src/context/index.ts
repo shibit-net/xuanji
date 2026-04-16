@@ -5,7 +5,6 @@
  */
 
 export { ProjectScanner } from './ProjectScanner';
-export { RulesLoader } from './RulesLoader';
 export { ContextBuilder } from './ContextBuilder';
 export { CodeParser } from './CodeParser';
 export { SymbolExtractor } from './SymbolExtractor';

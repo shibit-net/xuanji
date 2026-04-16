@@ -11,6 +11,8 @@ import {
   createIntelligentMockProvider,
   createMockToolRegistry,
   createMockAgentConfig,
+  createMockAgentRegistry,
+  createMockProviderManager,
   assertValidTeamResult,
   assertTeamSuccess,
   assertDurationInRange,
@@ -18,9 +20,10 @@ import {
 
 describe('Integration: TeamManager + SubAgent', () => {
   let mockMainProvider: any;
-  let mockLightProvider: any;
   let mockRegistry: any;
   let mockConfig: any;
+  let mockAgentRegistry: any;
+  let mockProviderManager: any;
   let teamManager: TeamManager;
 
   beforeEach(() => {
@@ -38,28 +41,20 @@ describe('Integration: TeamManager + SubAgent', () => {
       defaultResponse: 'Mock analysis completed',
     });
 
-    mockLightProvider = createIntelligentMockProvider({
-      delay: [5, 20],
-      responses: {
-        'architecture': 'Architecture analysis: SOLID principles should be applied',
-        'security': 'Security review: Input validation is missing',
-        'performance': 'Performance review: Algorithm complexity is O(n²)',
-        'clean': 'Cleaned data: item1, item2, item3',
-        'analyze': 'Analysis: 3 items found',
-        'report': 'Report: Summary of 3 items',
-        'extract': 'Extracted data: item1, item2, item3',
-      },
-      defaultResponse: 'Light mock response',
-    });
-    
     mockRegistry = createMockToolRegistry();
     mockConfig = createMockAgentConfig();
-    
+    mockAgentRegistry = createMockAgentRegistry();
+    mockProviderManager = createMockProviderManager();
+
     teamManager = new TeamManager(
       mockMainProvider,
-      mockLightProvider,
       mockRegistry,
       mockConfig,
+      null, // hookRegistry
+      null, // memoryStore
+      0,    // depth
+      mockAgentRegistry,
+      mockProviderManager,
     );
   });
 
@@ -123,9 +118,13 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       const failingManager = new TeamManager(
         failingProvider,
-        mockLightProvider,
         mockRegistry,
         mockConfig,
+        null,
+        null,
+        0,
+        mockAgentRegistry,
+        mockProviderManager,
       );
 
       const config: TeamConfig = {
@@ -137,7 +136,7 @@ describe('Integration: TeamManager + SubAgent', () => {
         ],
         strategy: 'sequential',
         goal: 'Test failure handling',
-        timeout: 5000,
+        memberTimeoutMs: 5000,
       };
 
       await failingManager.createTeam(config);
@@ -309,9 +308,13 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       const consensusManager = new TeamManager(
         consensusProvider,
-        mockLightProvider,
         mockRegistry,
         mockConfig,
+        null,
+        null,
+        0,
+        mockAgentRegistry,
+        mockProviderManager,
       );
 
       const config: TeamConfig = {
@@ -362,9 +365,13 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       const pipelineManager = new TeamManager(
         pipelineMockProvider,
-        pipelineMockProvider, // 同一个 provider，无论 role 如何都能正确响应
         mockRegistry,
         mockConfig,
+        null,
+        null,
+        0,
+        mockAgentRegistry,
+        mockProviderManager,
       );
 
       await pipelineManager.createTeam(config);
@@ -439,9 +446,13 @@ describe('Integration: TeamManager + SubAgent', () => {
 
         const manager = new TeamManager(
           mockMainProvider,
-          mockLightProvider,
           mockRegistry,
           mockConfig,
+          null,
+          null,
+          0,
+          mockAgentRegistry,
+          mockProviderManager,
         );
 
         await manager.createTeam(config);
@@ -477,7 +488,7 @@ describe('Integration: TeamManager + SubAgent', () => {
         ],
         strategy: 'sequential',
         goal: 'Test timeout',
-        timeout: shortTimeout,
+        memberTimeoutMs: shortTimeout,
       };
 
       await teamManager.createTeam(config);
@@ -509,9 +520,13 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       const errorManager = new TeamManager(
         errorProvider,
-        errorProvider, // lightProvider 也用 errorProvider，确保 explore role 也会报错
         mockRegistry,
         mockConfig,
+        null,
+        null,
+        0,
+        mockAgentRegistry,
+        mockProviderManager,
       );
 
       const config: TeamConfig = {

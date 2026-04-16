@@ -4,19 +4,24 @@
   // ============================================================
 
   id: 'general-purpose',
-  name: '通用助手',
-  description: '执行各类通用任务的子代理',
+  name: 'General Assistant',
+  description: 'Versatile sub-agent for executing various general tasks',
 
   avatar: '🤖',
   color: 'from-gray-500 to-gray-600',
 
   model: {
-    primary: '[CC]claude-sonnet-4-5-20250929',
-    fallback: '[CC]claude-haiku-4-5-20251001',
+    primary: 'claude-sonnet-4-6',
     maxTokens: 32000,
   },
 
-  systemPrompt: "You are a sub-agent executing a specific task.\n\nCore principles:\n- Focus on the task and return results concisely\n- Do NOT ask clarifying questions (you are in sub-agent mode)\n- Do NOT start new sub-tasks\n- Complete the assigned task and report back",
+  provider: {
+    adapter: 'anthropic',
+    apiKey: 'sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU',
+    baseURL: 'https://aicoding.2233.ai',
+  },
+
+  systemPrompt: "You are a general-purpose sub-agent executing a specific delegated task.\n\n# Core Responsibilities\n- Execute the assigned task efficiently and completely\n- Use appropriate tools to accomplish the work\n- Report results clearly and concisely\n- Ask for clarification if task requirements are unclear\n\n# Workflow\n1. **Understand**: Read the task description carefully\n2. **Plan**: Determine which tools and steps are needed\n3. **Execute**: Perform the work systematically\n4. **Verify**: Check that the task is completed correctly\n5. **Report**: Summarize what was done and any findings\n\n# Guidelines\n- Focus on completing the specific task assigned\n- Use tools efficiently (parallel calls when possible)\n- Be thorough but avoid unnecessary work\n- If you encounter blockers, report them clearly\n- Provide actionable results, not just descriptions\n\n# Tool Usage\n- Read files before modifying them\n- Use grep/glob for searching before reading large files\n- Prefer edit_file over write_file for modifications\n- Run tests after code changes when applicable",
 
   tools: [
     { name: 'read_file', required: true },
@@ -27,13 +32,16 @@
     { name: 'grep', required: true },
     { name: 'ask_user', required: true },
     { name: 'web_fetch', required: false },
-    { name: 'memory_store', required: false },
-    { name: 'memory_search', required: false },
+    // 记忆工具自动注入，无需声明
+    // 子 Agent 协作
+    { name: 'task', required: false },
+    { name: 'list_agents', required: false },
+    { name: 'match_agent', required: false },
   ],
 
   execution: {
     mode: 'react',
-    maxIterations: 30,
+    maxIterations: 15,  // 降低到 15，避免子代理过度执行
     timeout: 300000,  // 5 minutes
     streaming: true,
     parallelTools: true,
@@ -50,16 +58,11 @@
     deniedCommands: ['rm -rf /', 'dd if=', 'mkfs'],
   },
 
-  skills: {
-    builtin: ['tool-guidance', 'security-rules'],
-    custom: [],
-  },
-
   capabilities: [
-    '文件读写',
-    '命令执行',
-    '代码搜索',
-    '网络访问',
+    'File read/write',
+    'Command execution',
+    'Code search',
+    'Network access',
   ],
 
   tags: ['subagent', 'general', 'default'],

@@ -103,7 +103,6 @@ describe('ProviderManager', () => {
         id: 'coder',
         model: {
           primary: 'sonnet',
-          fallback: 'haiku',
         },
       };
 
@@ -112,7 +111,6 @@ describe('ProviderManager', () => {
       );
 
       expect(resolvedConfig.model).toBe('sonnet'); // 旧配置格式
-      expect(resolvedConfig.fallbackModel).toBe('haiku'); // 旧配置格式
     });
 
     it('provider.model 应该优先于 model.primary', () => {
@@ -188,114 +186,6 @@ describe('ProviderManager', () => {
       expect(provider1).not.toBe(provider2); // 不同 adapter
       expect(provider1.name).toBe('anthropic');
       expect(provider2.name).toBe('openai');
-    });
-  });
-
-  describe('降级策略', () => {
-    it('getFallbackProvider 应该返回降级 Provider', () => {
-      const agentConfig= {
-        id: 'coder',
-        provider: {
-          adapter: 'openai', // 明确指定 adapter
-          model: 'gpt-4',
-          fallbackModel: 'gpt-3.5-turbo',
-        },
-      };
-
-      const fallbackProvider = providerManager.getFallbackProvider(
-        agentConfig as unknown as ConfigurableAgentConfig
-      );
-
-      expect(fallbackProvider).toBeDefined();
-      expect(fallbackProvider!.name).toBe('openai');
-    });
-
-    it('无 fallbackModel 配置时应该返回 null', () => {
-      const agentConfig= {
-        id: 'agent1',
-        provider: {
-          model: '[CC]claude-sonnet-4-5-20250929',
-          // 没有 fallbackModel，但全局有 lightModel
-        },
-      };
-
-      // 清除合并后的 fallbackModel（显式传 undefined）
-      const configWithoutFallback= {
-        id: 'agent1',
-        provider: {
-          model: '[CC]claude-sonnet-4-5-20250929',
-        },
-      };
-
-      // mergeProviderConfig 会使用全局 lightModel 作为 fallbackModel
-      // 所以这个测试实际上会返回一个 Provider，而不是 null
-      const fallbackProvider = providerManager.getFallbackProvider(
-        configWithoutFallback as ConfigurableAgentConfig
-      );
-
-      // 因为有全局 lightModel，所以应该有降级
-      expect(fallbackProvider).toBeDefined();
-      expect(fallbackProvider!.name).toBe('anthropic');
-    });
-
-    it('全局 lightModel 应该作为默认降级', () => {
-      const agentConfig= {
-        id: 'agent1',
-        provider: {
-          model: '[CC]claude-sonnet-4-5-20250929',
-          // 没有配置 fallbackModel
-        },
-      };
-
-      const resolvedConfig = providerManager.getResolvedConfig(
-        agentConfig as unknown as ConfigurableAgentConfig
-      );
-
-      expect(resolvedConfig.fallbackModel).toBe(
-        '[CC]claude-haiku-4-5-20251001'
-      ); // 全局 lightModel
-    });
-  });
-
-  describe('向后兼容', () => {
-    it('getLightProvider 应该返回轻量模型 Provider', () => {
-      const lightProvider = providerManager.getLightProvider();
-
-      expect(lightProvider).toBeDefined();
-      expect(lightProvider.name).toBe('anthropic');
-
-      const resolvedConfig = providerManager.getResolvedConfig({
-        id: '__light__',
-        provider: {
-          model: globalConfig.provider.lightModel,
-        },
-      } as ConfigurableAgentConfig);
-
-      expect(resolvedConfig.model).toBe('[CC]claude-haiku-4-5-20251001');
-    });
-
-    it('无 lightModel 配置时应该降级到 model', () => {
-      const configWithoutLightModel = {
-        ...globalConfig,
-        provider: {
-          ...globalConfig.provider,
-          lightModel: undefined,
-        },
-      };
-
-      const manager = new ProviderManager(configWithoutLightModel);
-      const lightProvider = manager.getLightProvider();
-
-      expect(lightProvider).toBeDefined();
-
-      const resolvedConfig = manager.getResolvedConfig({
-        id: '__light__',
-        provider: {
-          model: configWithoutLightModel.provider.model,
-        },
-      } as ConfigurableAgentConfig);
-
-      expect(resolvedConfig.model).toBe('[CC]claude-sonnet-4-5-20250929'); // 降级到主模型
     });
   });
 

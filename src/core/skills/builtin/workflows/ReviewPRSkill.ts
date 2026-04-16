@@ -22,6 +22,27 @@ export const reviewPRSkill: Skill = {
   tags: ['git', 'github', 'pr', 'review', 'workflow'],
   slashCommand: '/review-pr',
   priority: 10,
+  moduleType: 'skill',
+  intentMeta: {
+    type: 'coding.pr-review',
+    domain: 'coding',
+    name: 'PR 代码审查',
+    description: '获取 GitHub PR diff 并生成代码审查报告',
+    trainingExamples: [
+      '帮我 review 这个 PR',
+      '审查一下这个 pull request',
+      '看看这个 PR 有没有问题',
+      'review PR #123',
+      '代码审查',
+      '帮我看看这次提交的代码质量',
+      'review my pull request',
+      'check this PR for issues',
+      'code review for PR',
+      'analyze pull request changes',
+    ],
+    priority: 80,
+  },
+  requiredTools: ['bash'],
 
   async execute(params?: Record<string, any>): Promise<WorkflowResult> {
     try {

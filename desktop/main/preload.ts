@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('electron', {
   // Agent 操作
   agentInit: () => ipcRenderer.invoke('agent:init'),
   agentSendMessage: (message: string) => ipcRenderer.invoke('agent:send-message', message),
-  agentInterrupt: () => ipcRenderer.invoke('agent:interrupt'),
+  agentInterrupt: (message?: string) => ipcRenderer.invoke('agent:interrupt', message),
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
 
@@ -133,6 +133,11 @@ contextBridge.exposeInMainWorld('electron', {
   // ============ 会话事件监听 ============
   onSessionMessagesRestored: (callback: (data: { messages: any[] }) => void) => {
     ipcRenderer.on('session:messages-restored', (_event, data) => callback(data));
+  },
+
+  // ============ Persona 事件 ============
+  onPersonaUpdated: (callback: (data: { persona: any; onboardingDone: boolean }) => void) => {
+    ipcRenderer.on('persona-updated', (_event, data) => callback(data));
   },
 
   // ============ 通用事件监听 ============

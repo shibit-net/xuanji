@@ -13,6 +13,7 @@ import type {
   ILLMProvider,
   IToolRegistry,
   AppConfig,
+  Message,
 } from '@/core/types';
 import { AgentLoop, type AgentCallbacks } from '@/core/agent/AgentLoop';
 import { ToolRegistry } from '@/core/tools/ToolRegistry';
@@ -25,14 +26,18 @@ import type { IMemoryStore } from '@/memory/types';
 import { MCPManager } from '@/mcp/MCPManager';
 import { logger } from '@/core/logger';
 import { SessionInitializer, type InitOptions } from './SessionInitializer';
-import { generateDiagnostics, type DiagnosticsContext } from './SessionDiagnostics';
 import { SessionManager } from '@/session/SessionManager';
 import { CheckpointManager } from '@/session/CheckpointManager';
 import type { SessionListItem, Checkpoint, Message as SessionMessage, SessionUsage, HistoryMessage, ResumedSessionContext } from '@/session/types';
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { PricingResolver } from '@/core/agent/PricingResolver';
 import { BackgroundTaskManager } from '@/core/tools/BackgroundTaskManager';
-import { MemoryFlushAgent } from '@/memory/MemoryFlushAgent';
+import { TaskRouterService } from '@/core/routing/TaskRouterService';
+import { MemoryService } from '@/memory/MemoryService';
+import { SystemDiagnostics } from './SystemDiagnostics';
+import { SkillRouter } from './SkillRouter';
+import { PromptOrchestrator } from './PromptOrchestrator';
+import { TurnLifecycleManager } from './TurnLifecycleManager';
 
 const log = logger.child({ module: 'ChatSession' });
 
@@ -63,6 +68,12 @@ export interface SessionCallbacks {
 
   /** 恢复消息历史到 GUI */
   onMessagesRestored?: (messages: import('@/session/types').HistoryMessage[]) => void;
+
+  /**
+   * Skill 路由确认（confidence 0.6-0.9 时触发）
+   * 返回 true 表示用户确认执行，false 表示跳过走 AgentLoop
+   */
+  onSkillConfirm?: (skill: { id: string; name: string; description: string; slashCommand?: string }, confidence: number) => Promise<boolean>;
 }
 
 /**
@@ -77,7 +88,7 @@ export interface ChatSessionOptions {
   registry?: IToolRegistry;
   /** 已有的配置 (跳过自动加载) */
   config?: AppConfig;
-  /** 会话回调 */
+  /** 回调函数 */
   callbacks?: SessionCallbacks;
 }
 
@@ -100,17 +111,13 @@ export class ChatSession {
   private proactiveButler: import('@/butler').IProactiveButler | null = null;
   private mcpManager: MCPManager | null = null;
   private templateRepo: import('@/core/template').TemplateRepo | null = null;
-  private taskRouter: import('@/core/routing').TaskRouter | null = null;
-  private planner: import('@/core/planner').Planner | null = null;
-  private executor: import('@/core/executor').Executor | null = null;
   private onPlanConfirm: PlanConfirmHandler | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
+  private subAgentFactory: import('@/core/agent/SubAgentFactory').SubAgentFactory | null = null;
   private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
   private intentRouter: import('@/core/intent').IntentRouter | null = null;
   private config: AppConfig | null = null;
   private provider: ILLMProvider | null = null;
-  /** 轻量 Provider（用于压缩、子代理等低复杂度任务） */
-  private lightProvider: ILLMProvider | null = null;
   /** 基础工具注册表（全量工具，用于注册） */
   private baseRegistry: ToolRegistry | null = null;
   /** 生效工具注册表（可能是 DynamicToolFilter 包装器，用于 AgentLoop） */
@@ -123,21 +130,23 @@ export class ChatSession {
   private pricingResolver: PricingResolver | null = null;
   private _taskTool: import('@/core/tools/TaskTool').TaskTool | null = null;
   private _teamTool: import('@/core/tools/TeamTool').TeamTool | null = null;
-  private _quickTeamTool: import('@/core/tools/QuickTeamTool').QuickTeamTool | null = null;
+  /** 任务路由服务 */
+  private taskRouterService: TaskRouterService | null = null;
+  /** 记忆服务 */
+  private memoryService: MemoryService;
+  /** 系统诊断服务 */
+  private systemDiagnostics: SystemDiagnostics;
+  private skillRouter: SkillRouter | null = null;
+  private promptOrchestrator: PromptOrchestrator | null = null;
+  private turnLifecycleManager: TurnLifecycleManager | null = null;
   private initialized = false;
   private options: ChatSessionOptions;
-  /** 是否已完成首条消息的意图路由 */
-  private intentRouted = false;
   /** 会话轮次计数（用于自动保存） */
   private turnCount = 0;
   /** ignore filter 初始化 Promise（用于在 init() 中 await） */
   private _ignoreFilterPromise: Promise<void> | null = null;
   /** 缓存 MemoryManager 类引用，避免重复 dynamic import */
   private _MemoryManagerClass: (typeof import('@/memory'))['MemoryManager'] | null = null;
-  /** 上次记忆刷新时间（用于 IntelligentMemoryFlush 触发条件） */
-  private lastFlushTime: number = Date.now();
-  /** 记忆刷新 Agent */
-  private memoryFlushAgent: MemoryFlushAgent | null = null;
   /** 会话回调 */
   private sessionCallbacks?: SessionCallbacks;
 
@@ -147,6 +156,8 @@ export class ChatSession {
     this.sessionManager = new SessionManager();
     this.checkpointManager = new CheckpointManager(this.sessionManager.getStorage());
     this.hookRegistry = new HookRegistry();
+    this.memoryService = new MemoryService();
+    this.systemDiagnostics = new SystemDiagnostics();
   }
 
   /**
@@ -169,7 +180,6 @@ export class ChatSession {
     // 设置初始化结果
     this.config = initResult.config;
     this.provider = initResult.provider;
-    this.lightProvider = initResult.lightProvider;
     this.baseRegistry = initResult.baseRegistry;
     this.registry = initResult.registry;
     this.permissionController = initResult.permissionController;
@@ -196,10 +206,7 @@ export class ChatSession {
     const { setRuntimeConfig } = await import('@/core/config/RuntimeConfig');
     setRuntimeConfig(this.config);
 
-    // 初始化 Task Tool
-    await this.initTaskTool();
-
-    // 初始化 Agent Registry（用于管理 Agent Profile）— 提前到 DynamicToolFilter 之前
+    // 初始化 Agent Registry（用于管理 Agent Profile）— 必须在 TaskTool 之前初始化
     try {
       const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
       this.agentRegistry = new AgentRegistry();
@@ -210,16 +217,30 @@ export class ChatSession {
       log.warn('Agent Registry init failed:', err);
     }
 
-    // 初始化 Multi-Agent 工具（条件：features.multiAgentTools）
-    await this.initMultiAgentTools();
+    // 初始化 Task Tool（依赖 agentRegistry）
+    await this.initTaskTool();
 
-    // 如果启用动态工具加载，包装为 DynamicToolFilter
-    if (this.config.features?.dynamicToolLoading) {
-      const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
-      const filter = new DynamicToolFilter(this.baseRegistry!);
-      this.registry = filter;
-      log.debug('DynamicToolFilter enabled');
+    // 初始化 SubAgentFactory（统一子代理创建入口）
+    if (this.agentRegistry && this.providerManager) {
+      try {
+        const { SubAgentFactory } = await import('@/core/agent/SubAgentFactory');
+        this.subAgentFactory = new SubAgentFactory(
+          this.agentRegistry,
+          this.providerManager,
+          this.baseRegistry!,
+          this.hookRegistry,
+          this.memoryManager,
+          this.provider,  // 传递主 agent 的 provider
+        );
+        log.info('🏭 SubAgentFactory initialized');
+      } catch (err) {
+        log.warn('SubAgentFactory init failed:', err);
+      }
     }
+
+    // 包装为 DynamicToolFilter（场景感知工具过滤）
+    const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
+    this.registry = new DynamicToolFilter(this.baseRegistry!);
 
     // 如果启用 Schema 优化，初始化 ToolSchemaOptimizer
     const schemaMode = this.config.tools?.schemaMode;
@@ -261,15 +282,30 @@ export class ChatSession {
     this.agentLoop.setPricingResolver(this.pricingResolver);
 
     // 注入 TaskTool 依赖
+    // ⚠️ 已废弃：TaskTool 依赖在 initTaskTool() 中已经设置，无需重复注入
+    // initTaskTool() 使用新架构（providerManager + agentRegistry），
+    // 而 injectTaskToolDeps() 使用旧架构（provider + lightProvider），会导致冲突
+    /*
+    if (!this.agentRegistry) {
+      throw new Error('AgentRegistry not initialized before injecting TaskTool dependencies');
+    }
+    if (!this.providerManager) {
+      throw new Error('ProviderManager not initialized before injecting TaskTool dependencies');
+    }
+
     initializer.injectTaskToolDeps(
       this._taskTool,
       this.provider!,
+      this.lightProvider!,
       this.registry!,
       this.config,
       systemPrompt,
       this.hookRegistry,
-      this.memoryManager
+      this.memoryManager,
+      this.providerManager,
+      this.agentRegistry
     );
+    */
 
     // 初始化 Hook 系统
     await initializer.initHookSystem(
@@ -287,6 +323,19 @@ export class ChatSession {
       try {
         const { IntentRouter } = await import('@/core/intent');
         this.intentRouter = new IntentRouter(this.agentRegistry, this.config.provider);
+
+        // 将 SkillRegistry 中有 intentMeta 的 skill 注册到 IntentRouter
+        if (this.skillRegistry) {
+          const skillsWithIntent = this.skillRegistry.list().filter(
+            (s): s is typeof s & { intentMeta: NonNullable<typeof s.intentMeta> } =>
+              s.intentMeta != null && s.moduleType === 'skill'
+          );
+          if (skillsWithIntent.length > 0) {
+            this.intentRouter.registerExternalModules(skillsWithIntent as any);
+            log.debug(`IntentRouter: 注册 ${skillsWithIntent.length} 个 skill 模块`);
+          }
+        }
+
         this.intentRouter.init().catch(err => {
           log.warn('IntentRouter init failed:', err);
           this.intentRouter = null;
@@ -297,115 +346,90 @@ export class ChatSession {
       }
     }
 
-    // 初始化 TaskRouter, Planner, Executor（任务分解系统）
+    // 初始化 TaskRouterService（任务分解系统）
     try {
-      const { TaskRouter, DEFAULT_ROUTING_CONFIG } = await import('@/core/routing/TaskRouter');
-      const { Planner } = await import('@/core/planner/Planner');
-      const { Executor } = await import('@/core/executor/Executor');
-
-      // 创建 TaskRouter（用于路由决策）
-      const routingConfig = this.config.routing || DEFAULT_ROUTING_CONFIG;
-      this.taskRouter = new TaskRouter(routingConfig, this.provider!);
-
-      // 创建 Planner（用于任务规划）
-      this.planner = new Planner(
-        this.provider!,
-        this.config.planner,
-      );
-
-      // 创建 Executor（用于任务执行）
-      // 构建 AgentConfig（用于 Worker Agent）
-      const agentConfig = {
-        model: this.config.provider.model,
-        apiKey: this.config.provider.apiKey,
-        baseURL: this.config.provider.baseURL,
-        maxTokens: this.config.provider.maxTokens,
-        temperature: this.config.provider.temperature,
-        // systemPrompt 由 SubAgentLoop 动态构建
-        maxIterations: this.config.agent?.maxIterations,
-      };
-
-      this.executor = new Executor(
-        this.provider!,
-        this.lightProvider!,
-        this.registry!,
-        agentConfig,
-        this.config.executor,
-      );
-
-      log.info('🎯 TaskRouter, Planner, Executor initialized');
+      this.taskRouterService = new TaskRouterService({
+        provider: this.provider!,
+        registry: this.registry!,
+        config: this.config,
+        subAgentFactory: this.subAgentFactory ?? undefined,
+      });
+      log.info('🎯 TaskRouterService initialized');
     } catch (err) {
-      log.warn('Task decomposition system init failed:', err);
+      log.warn('TaskRouterService init failed:', err);
+    }
+
+    // 初始化 MemoryService
+    if (this.memoryManager) {
+      this.memoryService.setMemoryManager(this.memoryManager as import('@/memory/MemoryManager').MemoryManager);
+    }
+    if (this.subAgentFactory && this.memoryManager && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+      this.memoryService.initMemoryFlushAgent({
+        subAgentFactory: this.subAgentFactory,
+      });
     }
 
     this.initialized = true;
 
-    // 🆕 初始化 MemoryFlushAgent
-    if (this.provider && this.lightProvider && this.registry && this.memoryManager && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
-      try {
-        this.memoryFlushAgent = new MemoryFlushAgent({
-          provider: this.provider,
-          lightProvider: this.lightProvider,
-          registry: this.registry,
-          parentConfig: {
-            model: this.config!.provider.model,
-            apiKey: this.config!.provider.apiKey,
-            baseURL: this.config!.provider.baseURL,
-            maxTokens: this.config!.provider.maxTokens,
-            temperature: this.config!.provider.temperature,
-          },
-          providerConfig: this.config!.provider,
-          memoryManager: this.memoryManager as InstanceType<typeof this._MemoryManagerClass>,
-          hookRegistry: this.hookRegistry,
-        });
-        log.info('🧠 MemoryFlushAgent initialized');
-      } catch (err) {
-        log.warn('MemoryFlushAgent init failed:', err);
+    // 初始化 SkillRouter（Skill 路由器）
+    if (this.intentRouter && this.skillRegistry && this.agentLoop) {
+      const mmInstance = (this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass)
+        ? this.memoryManager as import('@/memory/MemoryManager').MemoryManager
+        : undefined;
+      this.skillRouter = new SkillRouter(
+        this.agentLoop,
+        this.skillRegistry,
+        this.intentRouter,
+        this.sessionCallbacks,
+        () => { this.turnCount++; this.turnLifecycleManager?.afterTurn(this.turnCount).catch(err => log.warn('Auto-save failed:', err)); },
+        mmInstance,
+      );
+    }
+
+    // 初始化 PromptOrchestrator（Prompt 编排器）
+    if (this.agentLoop && this.registry) {
+      this.promptOrchestrator = new PromptOrchestrator(
+        this.config!,
+        this.agentLoop,
+        this.registry,
+        () => this.reminderContext,
+        this.sessionCallbacks?.onBootThinking,
+      );
+      // 注入 MemoryManager，启用 DecisionContext 注入
+      if (this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
+        this.promptOrchestrator.setMemoryManager(
+          this.memoryManager as import('@/memory/MemoryManager').MemoryManager,
+        );
+      }
+
+      // 注入 PromptBuilder 到 SubAgentFactory（用于子 Agent 统一 prompt 构建）
+      if (this.subAgentFactory) {
+        try {
+          const { LayeredPromptBuilder } = await import('@/core/prompt');
+          const builder = new LayeredPromptBuilder();
+          await builder.init();
+          this.subAgentFactory.setPromptBuilder(builder);
+          log.info('✓ PromptBuilder injected into SubAgentFactory');
+        } catch (err) {
+          log.warn('Failed to inject PromptBuilder into SubAgentFactory:', err);
+        }
       }
     }
 
-    // 🆕 启动时记忆引导（替代旧的会话恢复逻辑）
-    if (this.memoryFlushAgent) {
-      try {
-        log.debug('Generating boot guide from memory...');
-
-        // 通知 GUI 进入思考状态
-        if (this.sessionCallbacks?.onBootThinking) {
-          this.sessionCallbacks.onBootThinking();
-        }
-
-        const guide = await this.memoryFlushAgent.generateBootGuide();
-
-        if (guide.hasGuide) {
-          // 注入相关记忆到 system prompt（LLM 可参考的背景知识）
-          if (guide.memories.length > 0 && this.agentLoop && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
-            const memoryPrompt = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(guide.memories);
-            this.agentLoop.getMessageManager().setSystemPromptSuffix(memoryPrompt, 'resumed-memories');
-            log.debug(`Injected ${guide.memories.length} memories to system prompt`);
-          }
-
-          // 发送引导消息到对话框（作为 assistant 消息展示）
-          if (this.sessionCallbacks?.onBootGuide) {
-            this.sessionCallbacks.onBootGuide(guide.guideMessage);
-          }
-
-          log.info(`🧠 Boot guide generated with ${guide.memories.length} memories`);
-        } else {
-          log.debug('No boot guide available (no recent memories)');
-        }
-      } catch (err) {
-        log.warn('Boot guide generation failed:', err);
-      }
-    }
-
-    // MemoryFlushAgent 未初始化时的降级日志
-    if (!this.memoryFlushAgent) {
-      log.warn('MemoryFlushAgent not available, session will start without memory context');
+    // 初始化 TurnLifecycleManager（轮次生命周期管理器）
+    if (this.agentLoop) {
+      this.turnLifecycleManager = new TurnLifecycleManager(
+        this.agentLoop,
+        this.sessionManager,
+        this.config!,
+        () => this.sessionCallbacks,
+      );
     }
 
     // 恢复会话上下文
     // 规则：记忆始终加载，会话上下文仅在文件非空时加载（即上次未被记忆化）
-    if (this.sessionManager && this.config.session) {
+    // onboarding 未完成时跳过恢复：避免旧对话历史污染新用户引导流程
+    if (this.sessionManager && this.config.session && this.config.onboardingDone !== false) {
       try {
         const resumeResult = await this.sessionManager.initialize();
 
@@ -451,17 +475,12 @@ export class ChatSession {
   // ─── 保留的辅助初始化方法 ──────────────────────────────────
 
   /**
-   * 初始化 Task 相关工具 (TaskTool, TeamTool, QuickTeamTool)
+   * 初始化 Task 相关工具 (TaskTool, TeamTool)
    */
   private async initTaskTool(): Promise<void> {
     if (!this.baseRegistry) return;
 
-    const { TaskTool } = await import('@/core/tools/TaskTool');
-    const taskTool = new TaskTool();
-    this.baseRegistry.register(taskTool);
-    this._taskTool = taskTool;
-
-    // 为 TeamTool 和 QuickTeamTool 准备依赖
+    // 为 SubAgent 工具准备依赖
     if (this.providerManager && this.config) {
       const agentConfig = {
         model: this.config.provider.model,
@@ -472,12 +491,17 @@ export class ChatSession {
         maxIterations: this.config.agent?.maxIterations,
       };
 
-      const mainProvider = this.providerManager.getProvider(agentConfig);
-      const lightProvider = this.providerManager.getLightProvider();
+      let mainProvider: ILLMProvider;
+      try {
+        mainProvider = this.providerManager.getProvider();
+      } catch {
+        // 测试环境或 mock provider 场景：降级到已注入的 provider
+        mainProvider = this.provider!;
+      }
 
+      // 依赖对象（TaskTool 用新架构，其他工具保持旧依赖）
       const deps = {
         provider: mainProvider,
-        lightProvider: lightProvider,
         registry: this.baseRegistry as IToolRegistry,
         agentConfig,
         hookRegistry: this.hookRegistry,
@@ -485,98 +509,64 @@ export class ChatSession {
         depth: 0,
       };
 
+      // TaskTool - 使用新架构（需要 providerManager + agentRegistry）
+      const { TaskTool } = await import('@/core/tools/TaskTool');
+      const taskTool = new TaskTool();
+
+      // 确保 agentRegistry 已初始化
+      if (!this.agentRegistry) {
+        throw new Error('AgentRegistry not initialized. Cannot register TaskTool.');
+      }
+
+      taskTool.setDependencies({
+        providerManager: this.providerManager,
+        agentRegistry: this.agentRegistry,
+        registry: this.baseRegistry as IToolRegistry,
+        agentConfig,
+        parentProvider: mainProvider,
+        hookRegistry: this.hookRegistry,
+        memoryStore: this.memoryManager,
+        depth: 0,
+        agentId: 'main', // 🔧 主 Agent ID
+      });
+      this.baseRegistry.register(taskTool);
+      this._taskTool = taskTool;
+
+      // TeamTool
       const { TeamTool } = await import('@/core/tools/TeamTool');
       const teamTool = new TeamTool();
-      teamTool.setDependencies(deps);
+
+      // 确保 agentRegistry 已初始化
+      if (!this.agentRegistry) {
+        throw new Error('AgentRegistry not initialized. Cannot register TeamTool.');
+      }
+
+      teamTool.setDependencies({
+        providerManager: this.providerManager,
+        agentRegistry: this.agentRegistry,
+        provider: mainProvider,
+        registry: this.baseRegistry as IToolRegistry,
+        agentConfig,
+        hookRegistry: this.hookRegistry,
+        memoryStore: this.memoryManager,
+        depth: 0,
+      });
       this.baseRegistry.register(teamTool);
       this._teamTool = teamTool;
 
-      const { QuickTeamTool } = await import('@/core/tools/QuickTeamTool');
-      const quickTeamTool = new QuickTeamTool();
-      quickTeamTool.setDependencies(deps);
-      this.baseRegistry.register(quickTeamTool);
-      this._quickTeamTool = quickTeamTool;
-    }
-  }
+      // ListAgentsTool + MatchAgentTool — 与 task/agent_team 一起注册，无需 feature flag
+      // 主 Agent 需要用这两个工具查询预置 Agent，再决定调用 task/agent_team 时用哪个
+      if (this.agentRegistry) {
+        const { ListAgentsTool } = await import('@/core/tools/ListAgentsTool');
+        const listAgentsTool = new ListAgentsTool();
+        listAgentsTool.setAgentRegistry(this.agentRegistry);
+        this.baseRegistry.register(listAgentsTool);
 
-  /**
-   * 初始化 Multi-Agent 工具（条件：features.multiAgentTools）
-   */
-  private async initMultiAgentTools(): Promise<void> {
-    if (!this.config?.features?.multiAgentTools) return;
-    if (!this.agentRegistry || !this.providerManager || !this.baseRegistry) return;
-
-    const agentConfig = {
-      model: this.config.provider.model,
-      apiKey: this.config.provider.apiKey,
-      baseURL: this.config.provider.baseURL,
-      maxTokens: this.config.provider.maxTokens,
-      temperature: this.config.provider.temperature,
-      maxIterations: this.config.agent?.maxIterations,
-    };
-
-    const deps = {
-      providerManager: this.providerManager,
-      agentRegistry: this.agentRegistry,
-      registry: this.baseRegistry as IToolRegistry,
-      agentConfig,
-      hookRegistry: this.hookRegistry,
-      memoryStore: this.memoryManager,
-    };
-
-    try {
-      // DelegateTool
-      const { DelegateTool } = await import('@/core/tools/DelegateTool');
-      const delegateTool = new DelegateTool();
-      delegateTool.setDependencies(deps);
-      this.baseRegistry.register(delegateTool);
-
-      // ListAgentsTool
-      const { ListAgentsTool } = await import('@/core/tools/ListAgentsTool');
-      const listAgentsTool = new ListAgentsTool();
-      listAgentsTool.setAgentRegistry(this.agentRegistry);
-      this.baseRegistry.register(listAgentsTool);
-
-      // MatchAgentTool
-      const { MatchAgentTool } = await import('@/core/tools/MatchAgentTool');
-      const matchAgentTool = new MatchAgentTool();
-      matchAgentTool.setDependencies({ agentRegistry: this.agentRegistry });
-      this.baseRegistry.register(matchAgentTool);
-
-      // OrchestrateTool
-      const { OrchestrateTool } = await import('@/core/tools/OrchestrateTool');
-      const orchestrateTool = new OrchestrateTool();
-      orchestrateTool.setDependencies(deps);
-      this.baseRegistry.register(orchestrateTool);
-
-      // PipelineTool
-      const { PipelineTool } = await import('@/core/tools/PipelineTool');
-      const pipelineTool = new PipelineTool();
-      pipelineTool.setDependencies(deps);
-      this.baseRegistry.register(pipelineTool);
-
-      log.info('🤖 Multi-Agent tools registered (5 tools)');
-    } catch (err) {
-      log.warn('Multi-Agent tools init failed:', err);
-    }
-  }
-
-  /**
-   * 初始化 Hook 系统（内部方法）
-   */
-  private async initHookSystemInternal(): Promise<void> {
-    try {
-      await new SessionInitializer({}).initHookSystem(
-        this.hookRegistry,
-        this.agentLoop,
-        this.checkpointManager,
-        this.provider!,
-        this.config!,
-        this.memoryManager,
-        this._MemoryManagerClass,
-      );
-    } catch (err) {
-      log.warn('Hook system init failed:', err);
+        const { MatchAgentTool } = await import('@/core/tools/MatchAgentTool');
+        const matchAgentTool = new MatchAgentTool();
+        matchAgentTool.setDependencies({ agentRegistry: this.agentRegistry });
+        this.baseRegistry.register(matchAgentTool);
+      }
     }
   }
 
@@ -600,15 +590,30 @@ export class ChatSession {
   async run(userMessage: string): Promise<void> {
     this.ensureInitialized();
 
-    // ✅ 运行时检查 API Key（允许无 Key 启动，但调用时必须配置）
     if (!this.config?.provider.apiKey) {
       throw new Error('❌ 未配置 API Key，请使用 /settings 命令配置');
     }
 
-    // 🆕 任务路由决策（如果 TaskRouter 可用）
-    if (this.taskRouter && this.config.routing?.mode !== 'never') {
+    // __startup__ 是内部触发信号，直接走 AgentLoop，跳过所有路由层
+    // 同时把传给 LLM 的消息替换为空字符串，不让 LLM 看到这个内部标识
+    if (userMessage === '__startup__') {
+      await this.runSingleAgent('__startup__');
+      return;
+    }
+
+    // ── 第一步：向量路由（零 LLM，纯规则） ──────────────────────────
+    // IntentRouter 已就绪时，尝试直接路由到 Skill
+    if (this.intentRouter?.isInitialized() && this.skillRegistry && this.skillRouter) {
+      const skillExecuted = await this.skillRouter.tryRouteToSkill(userMessage);
+      if (skillExecuted) return;
+    }
+
+    // ── 第二步：触发词路由（/plan 等 → 任务分解） ────────────────────
+    if (this.taskRouterService && this.config.routing?.mode !== 'never') {
+      let decision: import('@/core/routing/types').RoutingDecision | null = null;
+
       try {
-        const decision = await this.taskRouter.route(userMessage, {
+        decision = await this.taskRouterService.route(userMessage, {
           sessionId: this.sessionManager.getActiveSessionId() ?? 'unknown',
           messageCount: this.agentLoop!.getMessageHistory().length,
           usedAgents: [],
@@ -616,207 +621,119 @@ export class ChatSession {
         });
 
         log.info(`🎯 Routing decision: ${decision.mode} (reason: ${decision.reason})`);
-
-        // decompose 模式：任务分解执行
-        if (decision.mode === 'decompose') {
-          await this.runWithPlanner(userMessage, decision);
-          return;
-        }
-
-        // direct 模式：继续执行 runSingleAgent
       } catch (routeErr) {
-        log.warn('Routing failed, fallback to direct mode:', routeErr);
+        // 路由决策失败，降级到 direct 模式
+        log.warn('Routing decision failed, fallback to direct mode:', routeErr);
+      }
+
+      // 如果决策成功且需要任务分解，执行 Planner（异常会向上抛出）
+      if (decision && decision.mode === 'decompose') {
+        await this.runWithPlanner(userMessage, decision);
+        return;
       }
     }
 
-    // 单 Agent 模式（统一执行路径）
+    // ── 第三步：AgentLoop（LLM 自行决策工具/执行路径） ──────────────
     await this.runSingleAgent(userMessage);
   }
 
   private async runSingleAgent(userMessage: string): Promise<void> {
-    // 首条消息：基于意图动态选择场景，重建 system prompt
-    if (!this.intentRouted && this.config) {
-      this.intentRouted = true;
+    // __startup__ 是内部触发信号，传给 LLM 时替换为自然的启动触发语
+    // PromptOrchestrator 用原始 __startup__ 识别场景并注入对应指令
+    const llmMessage = userMessage === '__startup__' ? '你好' : userMessage;
+    const isStartup = userMessage === '__startup__';
+
+    // 每次对话开始重建 system prompt（场景感知）
+    // 注意：onBootThinking 回调现在在 PromptOrchestrator.buildAndApply() 中触发
+    if (this.promptOrchestrator) {
       try {
-        await this.routeWithLayeredPrompt(userMessage);
+        await this.promptOrchestrator.buildAndApply(userMessage);
       } catch (routeErr) {
-        log.debug('Intent routing failed, using default prompt:', routeErr);
+        log.debug('Prompt build failed, using default prompt:', routeErr);
       }
     }
 
     // 检索相关记忆并动态注入到 system prompt
-    if (this.memoryManager) {
-      try {
-        const memories = await this.memoryManager.retrieve(userMessage, {
-          maxResults: 10,
-          minConfidence: 0.3,
-        });
-        if (memories.length > 0 && this._MemoryManagerClass && this.memoryManager instanceof this._MemoryManagerClass) {
-          const memorySummary = (this.memoryManager as InstanceType<typeof this._MemoryManagerClass>).formatForPrompt(memories);
-          this.agentLoop!.getMessageManager().setSystemPromptSuffix(memorySummary, 'memory');
-        } else {
-          this.agentLoop!.getMessageManager().setSystemPromptSuffix('', 'memory');
+    await this.memoryService.injectMemories(llmMessage, this.agentLoop!);
+
+    await this.agentLoop!.run(llmMessage);
+
+    // 如果是启动场景，触发 onBootGuide 回调（传递 LLM 生成的引导语）
+    if (isStartup && this.sessionCallbacks?.onBootGuide) {
+      const messages = this.agentLoop!.getMessageHistory();
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.role === 'assistant') {
+        // 提取文本内容
+        let guideText = '';
+        if (Array.isArray(lastMessage.content)) {
+          for (const block of lastMessage.content) {
+            if (block.type === 'text') {
+              guideText += block.text;
+            }
+          }
+        } else if (typeof lastMessage.content === 'string') {
+          guideText = lastMessage.content;
         }
-      } catch (memErr) {
-        log.debug('Memory retrieval failed:', memErr);
+
+        if (guideText) {
+          log.info('🎉 Startup guide generated, triggering onBootGuide callback');
+          this.sessionCallbacks.onBootGuide(guideText);
+        }
       }
     }
 
-    await this.agentLoop!.run(userMessage);
-
-    // 自动保存会话（用于中途退出恢复）
+    // 自动保存会话 + 消息淘汰 + 归档检查
     this.turnCount++;
-    this.autoSaveAfterTurn().catch((err) => {
-      log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
+    this.turnLifecycleManager?.afterTurn(this.turnCount).catch((err) => {
+      log.warn('Turn lifecycle failed:', err instanceof Error ? err.message : String(err));
     });
 
     // 智能记忆刷新（OpenClaw 启发）
-    await this.checkAndFlushMemory();
-
-    // 消息淘汰检查
-    await this.evictIfNeeded();
-
-    // 🆕 连续会话归档检查
-    await this.checkAndArchive();
+    await this.memoryService.checkAndFlushMemory(this.agentLoop!);
   }
 
   /**
-   * 新路由：使用 LayeredPromptBuilder + IntentAnalyzer
-   */
-  private async routeWithLayeredPrompt(userMessage: string): Promise<void> {
-    const { LayeredPromptBuilder } = await import('@/core/prompt');
-
-    // 创建 builder（内置 IntentAnalyzer）
-    const builder = new LayeredPromptBuilder();
-
-    // 尝试初始化 Embedding（不阻塞）
-    try {
-      const { EmbeddingService } = await import('@/embedding/EmbeddingService');
-      const embeddingService = EmbeddingService.getInstance();
-      if (embeddingService.isReady()) {
-        builder.getIntentAnalyzer().constructor.prototype.embeddingService = embeddingService;
-      }
-    } catch (err) {
-      log.debug('Embedding service not available, using keyword-only matching:', err);
-    }
-
-    await builder.init();
-
-    // 构建 prompt（自动分析意图）
-    const result = await builder.build({
-      userMessage,
-      language: this.config!.ui.language ?? 'zh',
-      toolList: this.registry!.getSchemas(),
-    });
-
-    log.info(
-      `Intent analysis: scene=${result.scene}, complexity=${result.complexity}, ` +
-      `components=${result.components.length}, tokens~${result.estimatedTokens}`,
-    );
-
-    // 更新工具过滤器（基于场景）
-    if (this.config!.features?.dynamicToolLoading && this.registry) {
-      const { DynamicToolFilter } = await import('@/core/tools/DynamicToolFilter');
-      if (this.registry instanceof DynamicToolFilter) {
-        if (result.scene) {
-          this.registry.setScene(result.scene, result.requiredTools);
-          log.info(`Scene routing: ${result.scene} → ${this.registry.getSchemas().length} tools`);
-        }
-      }
-    }
-
-    // 设置 thinking 配置
-    if (result.thinking) {
-      this.agentLoop!.setThinking(result.thinking);
-      log.info(
-        `Extended Thinking: ${result.thinking.type}` +
-        `${result.thinking.type === 'adaptive' ? `, effort=${result.thinking.effort}` : ''}`,
-      );
-    } else {
-      this.agentLoop!.setThinking(this.config!.provider.thinking);
-    }
-
-    // 更新 system prompt
-    let finalPrompt = result.prompt;
-    if (this.reminderContext) {
-      finalPrompt = finalPrompt + '\n\n' + this.reminderContext;
-    }
-    this.agentLoop!.getMessageManager().setSystemPrompt(finalPrompt);
-  }
-
-  /**
-   * 🆕 使用 Planner + Executor 执行任务分解
+   * 🆕 使用 TaskRouterService 执行任务分解
    */
   private async runWithPlanner(
     userMessage: string,
     decision: import('@/core/routing/types').RoutingDecision
   ): Promise<void> {
-    if (!this.planner || !this.executor) {
-      throw new Error('Planner or Executor not initialized');
-    }
-
     log.info('🎯 Starting task decomposition...');
 
-    // 1. 生成执行计划
-    const plan = await this.planner.plan({
-      userInput: userMessage,
-      complexity: decision.complexity!,
-      availableAgents: this.agentRegistry ? this.agentRegistry.getAllIds() : [],
-    });
+    try {
+      // 使用 TaskRouterService 执行任务
+      await this.taskRouterService!.executeWithPlanner(userMessage, decision);
 
-    log.info(`📋 Generated plan: ${plan.steps.length} steps`);
+      log.info(`🎉 Task executed successfully`);
 
-    // 2. 如果配置要求确认计划，调用 UI 回调
-    if (this.config?.planner?.requireConfirmation && this.onPlanConfirm) {
-      log.info('⏸️  Waiting for user confirmation...');
-      const confirmed = await this.onPlanConfirm(plan);
-      if (!confirmed) {
-        log.info('❌ Plan rejected by user');
-        // 将拒绝消息添加到历史
-        if (this.agentLoop) {
-          this.agentLoop.getMessageManager().addAssistantMessage([
-            { type: 'text', text: '已取消任务执行。' },
-          ]);
-        }
-        return;
+      // 将执行完成消息注入到 AgentLoop 的历史中
+      if (this.agentLoop) {
+        this.agentLoop.getMessageManager().addAssistantMessage([
+          { type: 'text', text: '任务分解执行完成' },
+        ]);
       }
-      log.info('✅ Plan confirmed by user');
+
+      // 5. 自动保存会话
+      this.turnCount++;
+      this.turnLifecycleManager?.afterTurn(this.turnCount).catch((err) => {
+        log.warn('Turn lifecycle failed:', err instanceof Error ? err.message : String(err));
+      });
+
+      // 6. 消息淘汰检查（由 afterTurn 统一处理，此处不重复）
+    } catch (err) {
+      log.error('Task execution failed:', err);
+
+      // 将错误消息添加到历史（用户可见）
+      if (this.agentLoop) {
+        this.agentLoop.getMessageManager().addAssistantMessage([
+          { type: 'text', text: `❌ 任务执行失败: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+
+      // 向上抛出异常，让调用者处理（显示错误通知）
+      throw err;
     }
-
-    // 3. 执行计划
-    const result = await this.executor.execute(plan, {
-      onSubTaskStart: (order, description) => {
-        log.debug(`📌 SubTask ${order} started: ${description}`);
-        // TODO: 通过回调更新 UI 进度
-      },
-      onSubTaskComplete: (taskResult) => {
-        const status = taskResult.status === 'success' ? '✅' : taskResult.status === 'failed' ? '❌' : '⏭️';
-        log.debug(`${status} SubTask ${taskResult.order} completed`);
-        // TODO: 通过回调更新 UI 进度
-      },
-      onProgress: (current, total) => {
-        log.debug(`📊 Progress: ${current}/${total}`);
-        // TODO: 通过回调更新 UI 进度
-      },
-    });
-
-    log.info(`🎉 Plan executed: ${result.status} (${result.subTaskResults.length} tasks)`);
-
-    // 4. 将执行结果注入到 AgentLoop 的历史中（作为 assistant 消息）
-    if (this.agentLoop) {
-      this.agentLoop.getMessageManager().addAssistantMessage([
-        { type: 'text', text: result.summary },
-      ]);
-    }
-
-    // 5. 自动保存会话
-    this.turnCount++;
-    this.autoSaveAfterTurn().catch((err) => {
-      log.warn('Auto-save failed:', err instanceof Error ? err.message : String(err));
-    });
-
-    // 6. 消息淘汰检查
-    await this.evictIfNeeded();
   }
 
   /**
@@ -824,360 +741,6 @@ export class ChatSession {
    */
   stop(): void {
     this.agentLoop?.stop();
-  }
-
-  /**
-   * 自动保存当前会话（每轮对话后调用，用于中途退出恢复）
-   */
-  private async autoSaveAfterTurn(): Promise<void> {
-    if (!this.agentLoop) return;
-
-    const messages = this.agentLoop.getMessageHistory();
-    if (messages.length === 0) return;
-
-    const state = this.agentLoop.getState();
-    const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
-    await this.sessionManager.save(messages as SessionMessage[], undefined, {
-      usage: {
-        input: state.tokenUsage.input,
-        output: state.tokenUsage.output,
-        cost: state.cost,
-        cacheRead: state.tokenUsage.cacheRead,
-        cacheWrite: state.tokenUsage.cacheWrite,
-      },
-      historyMessages,
-    });
-    log.debug(`Auto-saved session (turn ${this.turnCount})`);
-  }
-
-  /**
-   * 从 LLM 消息历史中提取 UI 可展示的历史消息
-   * 只保留 user 和 assistant 的文本内容
-   */
-  /**
-   * 从 LLM 消息历史中提取 UI 可展示的历史消息
-   * 只保留 user 和 assistant 的文本内容
-   */
-  private extractHistoryMessages(messages: SessionMessage[]): HistoryMessage[] {
-    try {
-      const result: HistoryMessage[] = [];
-
-      for (const msg of messages) {
-        if (msg.role !== 'user' && msg.role !== 'assistant') continue;
-
-        let text = '';
-        if (typeof msg.content === 'string') {
-          text = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          // ContentBlock[] — 提取文本块（过滤掉 thinking 等其他类型）
-          const textBlocks = msg.content.filter((block: any) => block.type === 'text' && block.text);
-          text = textBlocks.map((block: any) => block.text).join('\n');
-        }
-
-        if (!text.trim()) continue;
-
-        result.push({
-          role: msg.role as 'user' | 'assistant',
-          content: text,
-          timestamp: Date.now(),
-        });
-      }
-
-      return result;
-    } catch (error) {
-      log.error('Extract history messages failed:', error instanceof Error ? error.message : String(error));
-      return []; // 返回空数组而不是抛出异常
-    }
-  }
-
-  /**
-   * 智能记忆刷新（OpenClaw 启发 + LLM 价值评估）
-   *
-   * 触发条件：
-   * - 上下文超过 75%
-   * - 距上次刷新超过 30 分钟
-   *
-   * 执行流程：
-   * 1. 调用 IntelligentMemoryFlush.checkAndFlush()
-   * 2. LLM 评估对话价值
-   * 3. 分类归档（topic / timeline / discard）
-   * 4. 清理消息历史（保留最近 N 条）
-   * 5. 更新 lastFlushTime
-   */
-  private async checkAndFlushMemory(): Promise<void> {
-    if (!this.memoryManager || !this._MemoryManagerClass || !(this.memoryManager instanceof this._MemoryManagerClass)) {
-      return;
-    }
-
-    // 检查配置是否启用智能刷新
-    const flushConfig = this.config?.memory?.intelligentFlush;
-    if (flushConfig && flushConfig.enabled === false) {
-      return;
-    }
-
-    try {
-      const memoryManager = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
-      const intelligentFlush = memoryManager.getIntelligentFlush();
-
-      if (!intelligentFlush || !this.agentLoop) {
-        return;
-      }
-
-      const messages = this.agentLoop.getMessageHistory();
-      const currentTokens = this.estimateTokens(messages);
-      const maxTokens = this.config?.provider.maxTokens || 200000;
-      const timeSinceLastFlush = Date.now() - this.lastFlushTime;
-      const sessionId = this.sessionManager.getActiveSessionId() ?? undefined;
-
-      const context = {
-        messages: messages as import('@/core/types').Message[],
-        currentTokens,
-        maxTokens,
-        timeSinceLastFlush,
-        sessionId,
-      };
-
-      const flushed = await intelligentFlush.checkAndFlush(context);
-
-      if (flushed) {
-        this.lastFlushTime = Date.now();
-        log.info('Memory flushed successfully', {
-          currentTokens,
-          maxTokens,
-          timeSinceLastFlush: Math.round(timeSinceLastFlush / 60000) + ' min',
-        });
-      }
-    } catch (err) {
-      log.warn('Failed to check and flush memory:', err);
-    }
-  }
-
-  /**
-   * 估算当前消息的 token 数量
-   *
-   * 简单实现：字符数 / N（可配置）
-   * 更精确的实现可以使用 tiktoken 库
-   */
-  private estimateTokens(messages: any[]): number {
-    let totalChars = 0;
-
-    for (const msg of messages) {
-      if (typeof msg.content === 'string') {
-        totalChars += msg.content.length;
-      } else if (Array.isArray(msg.content)) {
-        for (const block of msg.content) {
-          if (block.text) {
-            totalChars += block.text.length;
-          }
-          if (block.thinking) {
-            totalChars += block.thinking.length;
-          }
-        }
-      }
-    }
-
-    // 从配置读取 charsPerToken 比例（默认 3）
-    const charsPerToken = this.config?.memory?.tokenEstimation?.charsPerToken ?? 3;
-    return Math.ceil(totalChars / charsPerToken);
-  }
-
-  /**
-   * 从 timeline 记忆中提取主题（OpenClaw 启发）
-   *
-   * 通常在会话结束、保存或淘汰时调用，
-   * 自动从今天的 timeline 记忆中提取可复用的 topic 记忆。
-   *
-   * @param dayKey 可选，指定要提取的日期（默认今天）
-   */
-  private async extractTopicsFromTimeline(dayKey?: string): Promise<void> {
-    if (!this.memoryManager || !this._MemoryManagerClass || !(this.memoryManager instanceof this._MemoryManagerClass)) {
-      return;
-    }
-
-    // 检查配置是否启用主题提取
-    const topicConfig = this.config?.memory?.topicExtraction;
-    if (topicConfig && topicConfig.enabled === false) {
-      return;
-    }
-
-    try {
-      const memoryManager = this.memoryManager as InstanceType<typeof this._MemoryManagerClass>;
-      const topics = await memoryManager.extractTopics(dayKey);
-
-      if (topics.length > 0) {
-        log.info(`Extracted ${topics.length} topics from timeline memories`);
-      }
-    } catch (err) {
-      log.warn('Failed to extract topics from timeline:', err);
-    }
-  }
-
-  /**
-   * 消息淘汰检查：达到上限时归档当前会话并创建新的空会话
-   *
-   * 流程:
-   * 1. 检查消息数是否达到 maxMessages 上限
-   * 2. 调用 agentLoop.compact() 生成当前会话的 LLM 压缩摘要
-   * 3. 保存当前完整会话到 SessionManager（归档）
-   * 4. 重置 AgentLoop（清空消息历史 + token/费用计数）
-   * 5. 将压缩摘要作为 system prompt 后缀注入新会话（上下文延续）
-   * 6. 重置轮次计数，断开旧会话 ID 关联
-   */
-  private async evictIfNeeded(): Promise<void> {
-    if (!this.agentLoop) return;
-
-    const maxMessages = this.config?.session?.maxMessages ?? 100;
-    if (maxMessages <= 0) return; // 0 = 不限制
-
-    const messages = this.agentLoop.getMessageHistory();
-    if (messages.length < maxMessages) return;
-
-    log.info(`Message eviction triggered: ${messages.length} messages >= limit ${maxMessages}`);
-
-    try {
-      // 1. 生成压缩摘要（复用已有的 LLM 语义压缩）
-      let summary = '';
-      try {
-        const compactResult = await this.agentLoop.compact();
-        if (compactResult && compactResult.summary) {
-          // compact() 会修改 MessageManager 内部状态，取压缩后的摘要
-          // 但我们需要的是完整摘要文本而非压缩后的消息，所以用原始消息重新生成
-          summary = compactResult.summary;
-        }
-      } catch (compactErr) {
-        log.debug('Compact failed during eviction, proceeding without summary:', compactErr);
-      }
-
-      // 如果 compact 未产出有效摘要，构造一个简单摘要
-      if (!summary) {
-        const userMessages = messages
-          .filter(m => m.role === 'user' && typeof m.content === 'string')
-          .slice(-3)
-          .map(m => (m.content as string).slice(0, 100));
-        summary = `[上一个会话包含 ${messages.length} 条消息]\n主要话题: ${userMessages.join('; ')}`;
-      }
-
-      // 2. 保存当前会话（确保归档完整）
-      const state = this.agentLoop.getState();
-      const fullMessages = this.agentLoop.getMessageHistory();
-      await this.sessionManager.save(fullMessages as SessionMessage[], undefined, {
-        usage: {
-          input: state.tokenUsage.input,
-          output: state.tokenUsage.output,
-          cost: state.cost,
-          cacheRead: state.tokenUsage.cacheRead,
-          cacheWrite: state.tokenUsage.cacheWrite,
-        },
-      });
-      log.debug('Eviction: archived current session');
-
-      // 2.5. 从 timeline 记忆中提取主题（OpenClaw 启发）
-      await this.extractTopicsFromTimeline().catch((extractErr) => {
-        log.debug('Topic extraction failed during eviction:', extractErr);
-      });
-
-      // 3. 重置 AgentLoop（清空消息、token 计数、费用）
-      this.agentLoop.reset();
-      this.agentLoop.getTokenManager().reset();
-      this.agentLoop.getCostTracker().restore(0);
-
-      // 4. 断开旧会话关联（下次保存时生成新 session ID）
-      this.sessionManager.setActiveSessionId(null);
-
-      // 5. 将压缩摘要注入新会话的 system prompt 后缀（保持上下文延续）
-      this.agentLoop.getMessageManager().setSystemPromptSuffix(
-        `### Previous Session Context\n\n${summary}`,
-        'previous-session',
-      );
-
-      // 6. 重置轮次计数
-      this.turnCount = 0;
-      this.intentRouted = true; // 新会话不需要重新意图路由
-
-      log.info('Message eviction complete: started new session with context summary');
-    } catch (err) {
-      log.warn('Message eviction failed:', err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /**
-   * 检查并执行归档（连续会话模式）
-   */
-  private async checkAndArchive(): Promise<void> {
-    if (!this.agentLoop || !this.sessionManager || !this.config?.session) {
-      return;
-    }
-
-    const messageCount = this.agentLoop.getMessageHistory().length;
-    const state = this.agentLoop.getState();
-    const tokenCount = state.tokenUsage.input + state.tokenUsage.output;
-
-    // 检查是否需要归档
-    if (!this.sessionManager.shouldArchive(messageCount, tokenCount)) {
-      return;
-    }
-
-    log.info('📦 Archive condition met, archiving in background...');
-
-    // 异步归档（不阻塞用户）
-    this.archiveInBackground(messageCount).catch((err) => {
-      log.warn('Background archive failed:', err instanceof Error ? err.message : String(err));
-    });
-  }
-
-  /**
-   * 后台归档流程
-   */
-  private async archiveInBackground(currentMessageIndex: number): Promise<void> {
-    if (!this.agentLoop || !this.sessionManager || !this.config?.session) {
-      return;
-    }
-
-    try {
-      const messages = this.agentLoop.getMessageHistory();
-
-      const result = await this.sessionManager.archive(
-        messages as SessionMessage[],
-        currentMessageIndex
-      );
-
-      log.info(
-        `✓ Archived ${result.archivedCount} messages, ` +
-        `extracted ${result.memoriesExtracted} memories`
-      );
-
-      // 截断 AgentLoop 中的旧消息（保留最近的）
-      // 与 SessionManager.save() 相同的边界保护：
-      // 确保窗口不以孤立的 tool_result 开头（Anthropic 要求 tool_result 必须与前一条 assistant 的 tool_use 配对）
-      const keepCount = this.config.session.archiveStrategy?.keepRecentMessages ?? 10;
-      let startIdx = Math.max(0, messages.length - keepCount);
-      while (startIdx < messages.length - 1) {
-        const firstMsg = messages[startIdx];
-        if (
-          firstMsg.role === 'user' &&
-          Array.isArray(firstMsg.content) &&
-          firstMsg.content.length > 0 &&
-          (firstMsg.content[0] as { type?: string }).type === 'tool_result'
-        ) {
-          startIdx++;
-        } else {
-          break;
-        }
-      }
-      const keptMessages = messages.slice(startIdx);
-
-      // 使用 replaceMessages 替换消息历史（sanitizeToolPairs 会修复剩余配对问题）
-      this.agentLoop.getMessageManager().replaceMessages(keptMessages);
-
-      log.debug(`Kept recent ${keepCount} messages after archive`);
-
-      // 通知用户归档完成
-      if (this.sessionCallbacks?.onArchiveNotification) {
-        this.sessionCallbacks.onArchiveNotification(result);
-      }
-    } catch (err) {
-      log.warn('Archive failed:', err instanceof Error ? err.message : String(err));
-    }
   }
 
   /**
@@ -1192,7 +755,6 @@ export class ChatSession {
    */
   reset(): void {
     this.agentLoop?.reset();
-    this.intentRouted = false;
   }
 
   /**
@@ -1227,11 +789,11 @@ export class ChatSession {
     this.memoryManager = null;
     this.reminderContext = null;
     this.pricingResolver = null;
-    this.intentRouted = false;
     this.config = null;
     this.provider = null;
     this.registry = null;
     this.agentRegistry = null;
+    this.subAgentFactory = null;
     this.providerManager = null;
     this.intentRouter = null;
     this.hookRegistry = new HookRegistry(); // 重建 HookRegistry，防止 handler 重复注册
@@ -1253,60 +815,71 @@ export class ChatSession {
    * PersistentShell bash 进程等资源。
    */
   async cleanup(): Promise<void> {
+    log.info('ChatSession cleanup started');
+
     if (this.agentLoop) {
       const messages = this.agentLoop.getMessageHistory();
       if (messages.length > 0) {
         const sessionId = this.sessionManager.getActiveSessionId() ?? undefined;
+        const state = this.agentLoop.getState();
+        const usageData = {
+          input: state.tokenUsage.input,
+          output: state.tokenUsage.output,
+          cost: state.cost,
+          cacheRead: state.tokenUsage.cacheRead,
+          cacheWrite: state.tokenUsage.cacheWrite,
+        };
 
-        // 1. 记忆化：通过 MemoryFlushAgent 提取记忆
-        let flushed = false;
-        if (this.memoryFlushAgent) {
-          try {
-            const result = await this.memoryFlushAgent.flushOnExit(
-              messages as import('@/core/types').Message[],
-              sessionId,
-            );
-            flushed = result.extractedMemories > 0;
-            log.info(`Exit memory flush: ${result.extractedMemories} memories, ${result.extractedLessons} lessons in ${result.duration}ms`);
-          } catch (err) {
-            log.warn('MemoryFlushAgent flush failed:', err instanceof Error ? err.message : String(err));
-          }
+        // ── 步骤 1：安全网 —— 快速保存完整上下文（跳过 summarizer LLM 调用） ──
+        // 确保进程被杀前磁盘上至少有一份完整会话数据
+        // 临时禁用 summarizer 以加快速度（cleanup 场景优先保证数据安全）
+        const saveStartTime = Date.now();
+        try {
+          const originalConfig = this.sessionManager.getMemoryDrivenConfig();
+          this.sessionManager.updateMemoryDrivenConfig({ generateSummaryOnSave: false });
+          await this.sessionManager.save(messages as SessionMessage[], undefined, {
+            usage: usageData,
+          });
+          this.sessionManager.updateMemoryDrivenConfig({ generateSummaryOnSave: originalConfig.generateSummaryOnSave });
+          log.info(`Step 1: Session context saved as safety net (${Date.now() - saveStartTime}ms)`);
+        } catch (err) {
+          log.warn(`Step 1 failed (${Date.now() - saveStartTime}ms):`, err instanceof Error ? err.message : String(err));
         }
 
-        // 2. 保存会话状态
+        // ── 步骤 2：记忆化 —— 通过 LLM 提取记忆（慢速） ──
+        // 若进程在此期间被杀，步骤 1 的完整上下文已在磁盘上，
+        // 下次启动时走「异常关闭 → 恢复上下文」路径
+        const flushStartTime = Date.now();
+        let flushed = false;
         try {
-          const state = this.agentLoop.getState();
-          const historyMessages = this.extractHistoryMessages(messages as SessionMessage[]);
-          if (flushed) {
-            // 记忆化成功：保存空消息（清空会话上下文文件）
+          log.info(`Step 2: Starting memory flush (${messages.length} messages)...`);
+          const result = await this.memoryService.flushOnExit(
+            messages as Message[],
+            sessionId,
+          );
+          flushed = result.extractedMemories > 0;
+          log.info(`Step 2: Memory flush completed (${Date.now() - flushStartTime}ms): ${result.extractedMemories} memories, ${result.extractedLessons} lessons`);
+        } catch (err) {
+          log.warn(`Step 2 failed (${Date.now() - flushStartTime}ms):`, err instanceof Error ? err.message : String(err));
+        }
+
+        // ── 步骤 3：记忆化成功 → 清空上下文（覆盖步骤 1 的安全网） ──
+        // 下次启动时走「正常关闭 → 触发回忆」路径
+        if (flushed) {
+          try {
             await this.sessionManager.save([] as SessionMessage[], undefined, {
-              usage: {
-                input: state.tokenUsage.input,
-                output: state.tokenUsage.output,
-                cost: state.cost,
-                cacheRead: state.tokenUsage.cacheRead,
-                cacheWrite: state.tokenUsage.cacheWrite,
-              },
+              usage: usageData,
               historyMessages: [],
             });
-            log.debug('Session context cleared after successful memory flush');
-          } else {
-            // 记忆化失败：保留完整会话上下文，下次启动恢复
-            await this.sessionManager.save(messages as SessionMessage[], undefined, {
-              usage: {
-                input: state.tokenUsage.input,
-                output: state.tokenUsage.output,
-                cost: state.cost,
-                cacheRead: state.tokenUsage.cacheRead,
-                cacheWrite: state.tokenUsage.cacheWrite,
-              },
-              historyMessages,
-            });
-            log.debug('Session context preserved (memory flush failed or unavailable)');
+            log.info('Step 3: Session context cleared after successful memory flush');
+          } catch (err) {
+            log.warn('Step 3 failed:', err instanceof Error ? err.message : String(err));
           }
-        } catch (err) {
-          log.warn('Final session save failed:', err instanceof Error ? err.message : String(err));
+        } else {
+          log.info('Step 3 skipped: memory flush did not extract memories, context preserved');
         }
+      } else {
+        log.info('No messages to save, skipping session save and memory flush');
       }
     }
 
@@ -1342,6 +915,7 @@ export class ChatSession {
 
     // 清理 IntentRouter
     this.intentRouter = null;
+    this.subAgentFactory = null;
     this.providerManager = null;
 
     // 关闭 PersistentShell（bash 子进程）
@@ -1352,16 +926,15 @@ export class ChatSession {
       // PersistentShell 未初始化时忽略
     }
 
-    // 清理 TaskTool、TeamTool 和 QuickTeamTool 引用
+    // 清理 TaskTool、TeamTool 引用
     this._taskTool = null;
     this._teamTool = null;
-    this._quickTeamTool = null;
 
     // 清理后台任务管理器
     BackgroundTaskManager.resetInstance();
 
-    // 清理 MemoryFlushAgent
-    this.memoryFlushAgent = null;
+    // 清理 MemoryService 资源
+    this.memoryService.dispose();
 
     log.info('ChatSession resources cleaned up');
   }
@@ -1463,7 +1036,6 @@ export class ChatSession {
       this.agentLoop!.getCostTracker().restore(context.usage.cost);
     }
     // 标记为已路由（恢复的会话不需要重新意图路由）
-    this.intentRouted = true;
     return context;
   }
 
@@ -1659,7 +1231,7 @@ export class ChatSession {
    * 获取系统诊断信息（供 /doctor 命令使用）
    */
   async getDiagnostics(): Promise<string> {
-    return generateDiagnostics({
+    return this.systemDiagnostics.getDiagnostics({
       config: this.config!,
       mcpManager: this.mcpManager,
       skillRegistry: this.skillRegistry,

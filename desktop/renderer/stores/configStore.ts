@@ -220,7 +220,7 @@ export const useConfigStore = create<ConfigState>()(
         try {
           const result = await window.electron.skillsList();
           if (result.success && result.skills) {
-            set({ skills: result.skills });
+            set({ skills: result.skills as any });
           } else if (result.error) {
             set({ error: result.error });
           }
@@ -238,7 +238,7 @@ export const useConfigStore = create<ConfigState>()(
         try {
           const result = await window.electron.toolsList();
           if (result.success && result.tools) {
-            set({ tools: result.tools });
+            set({ tools: result.tools as any });
           } else if (result.error) {
             set({ error: result.error });
           }

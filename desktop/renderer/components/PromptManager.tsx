@@ -2,7 +2,7 @@
 // PromptManager - Prompt 管理面板
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Save, RefreshCw, Info, AlertCircle } from 'lucide-react';
 
 interface PromptManagerProps {
@@ -103,7 +103,7 @@ export default function PromptManager({ onClose }: PromptManagerProps) {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const result = await window.electron.promptGetConfig();
+      const result = await (window.electron as any).promptGetConfig();
       if (result.success && result.config) {
         setSceneRules(result.config.sceneRules || sceneRules);
         setLoadMatrix(result.config.loadMatrix || loadMatrix);
@@ -131,7 +131,7 @@ export default function PromptManager({ onClose }: PromptManagerProps) {
   const handleSave = async () => {
     setSaveStatus('saving');
     try {
-      const result = await window.electron.promptSaveConfig({
+      const result = await (window.electron as any).promptSaveConfig({
         sceneRules,
         loadMatrix,
         l3Config,

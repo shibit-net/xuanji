@@ -13,6 +13,7 @@ import type { ILLMProvider } from '@/core/types';
 import type { ExecutionPlan, TaskComplexity } from '@/core/routing/types';
 import type { PlannerConfig, PlanningContext, SubTask } from './types';
 import { logger } from '@/core/logger';
+import { getRuntimeConfig } from '@/core/config/RuntimeConfig';
 
 const log = logger.child({ module: 'planner' });
 
@@ -47,12 +48,17 @@ export class Planner {
     const prompt = this.buildPlanningPrompt(context);
 
     try {
+      // 从 RuntimeConfig 获取完整的 provider 配置
+      const runtimeConfig = getRuntimeConfig();
+
       // 调用 LLM 生成计划
       const stream = this.provider.stream(
         [{ role: 'user', content: prompt }],
         [],
         {
           model: this.config.model,
+          apiKey: runtimeConfig.provider.apiKey,
+          baseURL: runtimeConfig.provider.baseURL,
           maxTokens: 2000,
           temperature: 0.3, // 更确定性的输出
         },

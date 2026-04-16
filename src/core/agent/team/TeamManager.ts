@@ -93,7 +93,7 @@ export class TeamManager implements ITeamManager {
       config: {
         ...config,
         maxRounds: config.maxRounds ?? DEFAULT_TEAM_CONFIG.maxRounds,
-        timeout: config.timeout ?? DEFAULT_TEAM_CONFIG.timeout,
+        defaultMemberTimeout: config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout,
         enableSharedKnowledge: config.enableSharedKnowledge ?? DEFAULT_TEAM_CONFIG.enableSharedKnowledge,
         recordHistory: config.recordHistory ?? DEFAULT_TEAM_CONFIG.recordHistory,
       },
@@ -117,7 +117,7 @@ export class TeamManager implements ITeamManager {
   /**
    * 执行团队任务
    */
-  async execute(goal: string): Promise<TeamExecutionResult> {
+  async execute(goal: string, externalSignal?: AbortSignal): Promise<TeamExecutionResult> {
     if (!this.context) {
       throw new Error('Team not created. Call createTeam() first.');
     }
@@ -131,15 +131,47 @@ export class TeamManager implements ITeamManager {
     const memberResults: TaskExecutionResult[] = [];
     let timedOut = false;
 
+    // 🆕 团队级超时控制 - 根据策略和轮次动态计算
+    const teamTimeout = this.calculateTeamTimeout();
+    const teamAbortController = new AbortController();
+    const teamTimer = setTimeout(() => {
+      teamAbortController.abort();
+      timedOut = true;
+      log.warn(`Team "${this.context!.config.name}" exceeded total timeout ${teamTimeout}ms`);
+    }, teamTimeout);
+
+    // 🔧 监听外部 signal（来自 AgentLoop.stop()）
+    const onExternalAbort = () => {
+      teamAbortController.abort();
+      log.warn(`Team "${this.context!.config.name}" aborted by external signal`);
+    };
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
     // 触发 TeamStart Hook
     if (this.hookRegistry) {
+      // 🔧 验证 members 必须是数组
+      if (!Array.isArray(this.context.config.members)) {
+        throw new Error(
+          `TeamManager: config.members must be an array, got ${typeof this.context.config.members}. ` +
+          `Please ensure the 'members' parameter in agent_team tool is an array of member objects.`
+        );
+      }
+
       this.hookRegistry.emit('TeamStart', {
-        teamId: this.teamId, // 使用实例属性中的 teamId
+        teamId: this.teamId,
         data: {
           name: this.context.config.name,
           goal,
           strategy: this.context.config.strategy,
           memberCount: this.context.config.members.length,
+          // 添加完整的成员列表（用于 UI 预先显示团队结构）
+          members: this.context.config.members.map((member, index) => ({
+            id: member.id,
+            name: member.name || member.id,
+            role: member.role,
+            capabilities: member.capabilities,
+            stepIndex: index,
+          })),
         },
       }).catch((err) => {
         log.debug('TeamStart hook emit failed:', err);
@@ -148,48 +180,35 @@ export class TeamManager implements ITeamManager {
 
     try {
       log.info(`Team "${this.context.config.name}" executing goal: ${goal}`);
-      
-      // 🆕 输出超时分配方案
+
+      // 输出超时分配方案
       this.logTimeoutAllocation();
 
-      // 整体超时保护 —— 防止团队执行无限期挂起
-      // sequential/pipeline/debate 每个成员都有单独超时，但多成员叠加可能超出总预算
-      const teamTimeout = this.context.config.timeout!;
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      // 检查是否已经超时
+      if (teamAbortController.signal.aborted) {
+        throw new Error('Team timeout before execution started');
+      }
 
+      // 执行策略
       const strategyPromise = (): Promise<TaskExecutionResult[]> => {
         switch (this.context!.config.strategy) {
           case 'sequential':
-            return this.executeSequential(goal);
+            return this.executeSequential(goal, teamAbortController.signal);
           case 'parallel':
-            return this.executeParallel(goal);
+            return this.executeParallel(goal, teamAbortController.signal);
           case 'hierarchical':
-            return this.executeHierarchical(goal);
+            return this.executeHierarchical(goal, teamAbortController.signal);
           case 'debate':
-            return this.executeDebate(goal);
+            return this.executeDebate(goal, teamAbortController.signal);
           case 'pipeline':
-            return this.executePipeline(goal);
+            return this.executePipeline(goal, teamAbortController.signal);
           default:
             return Promise.reject(new Error(`Unknown team strategy: ${this.context!.config.strategy}`));
         }
       };
 
-      const teamTimeoutPromise = new Promise<never>((_, reject) => {
-        timeoutHandle = setTimeout(() => {
-          // 停止后续成员执行（sequential / pipeline / debate 检查 this.running）
-          this.running = false;
-          reject(new Error(
-            `Team "${this.context!.config.name}" timed out after ${(teamTimeout / 1000).toFixed(0)}s`
-          ));
-        }, teamTimeout);
-      });
-
-      try {
-        const results = await Promise.race([strategyPromise(), teamTimeoutPromise]);
-        memberResults.push(...results);
-      } finally {
-        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-      }
+      const results = await strategyPromise();
+      memberResults.push(...results);
 
       // 聚合结果
       const output = this.aggregateResults(memberResults);
@@ -216,7 +235,7 @@ export class TeamManager implements ITeamManager {
       // 触发 TeamEnd Hook
       if (this.hookRegistry) {
         this.hookRegistry.emit('TeamEnd', {
-          teamId: `team-${startTime}`,
+          teamId: this.teamId,
           data: {
             name: this.context.config.name,
             goal,
@@ -234,8 +253,25 @@ export class TeamManager implements ITeamManager {
       const duration = Date.now() - startTime;
       const errMsg = error instanceof Error ? error.message : String(error);
 
-      if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
+      if (errMsg.includes('timeout') || errMsg.includes('timed out') || teamAbortController.signal.aborted) {
         timedOut = true;
+      }
+
+      // 触发 TeamEnd Hook（失败情况）
+      if (this.hookRegistry) {
+        this.hookRegistry.emit('TeamEnd', {
+          teamId: this.teamId,
+          data: {
+            name: this.context!.config.name,
+            goal,
+            duration,
+            success: false,
+            timedOut,
+            error: errMsg,
+          },
+        }).catch((err) => {
+          log.debug('TeamEnd hook emit failed:', err);
+        });
       }
 
       return {
@@ -244,11 +280,13 @@ export class TeamManager implements ITeamManager {
         memberResults,
         duration,
         totalTokens: { input: 0, output: 0 },
-        rounds: this.context.currentRound,
+        rounds: this.context!.currentRound,
         success: false,
         timedOut,
       };
     } finally {
+      clearTimeout(teamTimer);
+      externalSignal?.removeEventListener('abort', onExternalAbort);
       this.running = false;
     }
   }
@@ -309,6 +347,51 @@ export class TeamManager implements ITeamManager {
       ids.add(member.id);
     }
 
+    // 🔧 检查 system_prompt 唯一性（防止所有成员做相同任务）
+    if (config.members.length > 1) {
+      const systemPrompts = config.members
+        .map(m => m.systemPrompt?.trim().toLowerCase())
+        .filter(p => p && p.length > 0);
+
+      const uniquePrompts = new Set(systemPrompts);
+
+      // 如果有重复的 system_prompt，给出详细错误提示
+      if (uniquePrompts.size < systemPrompts.length) {
+        const duplicates: string[] = [];
+        const seen = new Set<string>();
+
+        for (const prompt of systemPrompts) {
+          if (seen.has(prompt)) {
+            duplicates.push(prompt.slice(0, 50) + '...');
+          }
+          seen.add(prompt);
+        }
+
+        throw new Error(
+          `❌ Task decomposition failed: Multiple members have identical system_prompt.\n\n` +
+          `Each team member MUST have a UNIQUE, SPECIFIC responsibility.\n\n` +
+          `Duplicate prompt detected: "${duplicates[0]}"\n\n` +
+          `Please follow these patterns:\n` +
+          `- Pattern 1 (Parallel): Each member analyzes SAME input from DIFFERENT perspective\n` +
+          `  Example: member1="Focus on code quality", member2="Focus on security", member3="Focus on performance"\n\n` +
+          `- Pattern 2 (Sequential): Each member processes output of PREVIOUS member\n` +
+          `  Example: member1="Extract logs", member2="Clean and group", member3="Analyze patterns"\n\n` +
+          `- Pattern 3 (Hierarchical): Leader decomposes, workers execute SUB-TASKS\n` +
+          `  Example: leader="Break down into 3 sub-tasks", worker1="Implement backend", worker2="Implement frontend"\n\n` +
+          `See l2-team-coordination prompt for detailed examples.`
+        );
+      }
+
+      // 如果所有成员的 system_prompt 都为空或过短，也给出警告
+      if (uniquePrompts.size === 0 || systemPrompts.every(p => p.length < 20)) {
+        log.warn(
+          `⚠️ Warning: Team members have no or very short system_prompt. ` +
+          `This may result in all members doing the same task. ` +
+          `Consider adding specific system_prompt for each member.`
+        );
+      }
+    }
+
     // 检查策略特定要求
     if (config.strategy === 'hierarchical') {
       const leaders = config.members.filter(m => m.priority && m.priority > 0);
@@ -321,15 +404,15 @@ export class TeamManager implements ITeamManager {
   /**
    * 串行执行策略
    */
-  private async executeSequential(goal: string): Promise<TaskExecutionResult[]> {
+  private async executeSequential(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.getSortedMembers();
 
     for (let i = 0; i < members.length; i++) {
-      if (!this.running) break;
+      if (!this.running || signal?.aborted) break;
       const member = members[i];
 
-      const result = await this.executeMemberTask(member, goal, results, undefined, i);
+      const result = await this.executeMemberTask(member, goal, results, undefined, i, signal);
       results.push(result);
 
       if (!result.success) {
@@ -344,22 +427,22 @@ export class TeamManager implements ITeamManager {
   /**
    * 并行执行策略（最多 3 个子代理并发）
    */
-  private async executeParallel(goal: string): Promise<TaskExecutionResult[]> {
+  private async executeParallel(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const members = this.context!.config.members;
     const MAX_CONCURRENT = 3;
 
     if (members.length <= MAX_CONCURRENT) {
       // 成员数不超过并发上限，直接全部并行
-      return Promise.all(members.map((member, index) => this.executeMemberTask(member, goal, [], undefined, index)));
+      return Promise.all(members.map((member, index) => this.executeMemberTask(member, goal, [], undefined, index, signal)));
     }
 
     // 分批并行，每批最多 MAX_CONCURRENT 个，避免资源耗尽
     const results: TaskExecutionResult[] = [];
     for (let i = 0; i < members.length; i += MAX_CONCURRENT) {
-      if (!this.running) break;
+      if (!this.running || signal?.aborted) break;
       const batch = members.slice(i, i + MAX_CONCURRENT);
       const batchResults = await Promise.all(
-        batch.map((member, batchIndex) => this.executeMemberTask(member, goal, [], undefined, i + batchIndex))
+        batch.map((member, batchIndex) => this.executeMemberTask(member, goal, [], undefined, i + batchIndex, signal))
       );
       results.push(...batchResults);
     }
@@ -369,16 +452,16 @@ export class TeamManager implements ITeamManager {
   /**
    * 层级执行策略
    */
-  private async executeHierarchical(goal: string): Promise<TaskExecutionResult[]> {
+  private async executeHierarchical(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.getSortedMembers();
 
     // 主 agent（优先级最高）
     const leader = members[0];
-    const leaderResult = await this.executeMemberTask(leader, goal, [], undefined, 0);
+    const leaderResult = await this.executeMemberTask(leader, goal, [], undefined, 0, signal);
     results.push(leaderResult);
 
-    if (!leaderResult.success) {
+    if (!leaderResult.success || signal?.aborted) {
       return results;
     }
 
@@ -391,6 +474,7 @@ export class TeamManager implements ITeamManager {
         results,
         undefined,
         workerIndex + 1, // Workers 从索引 1 开始
+        signal,
       )
     );
 
@@ -403,17 +487,21 @@ export class TeamManager implements ITeamManager {
   /**
    * 辩论执行策略
    */
-  private async executeDebate(goal: string): Promise<TaskExecutionResult[]> {
+  private async executeDebate(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.context!.config.members;
     const maxRounds = this.context!.config.maxRounds!;
 
     for (let round = 0; round < maxRounds && this.running; round++) {
+      if (signal?.aborted) break;
+
       this.context!.currentRound = round + 1;
       log.info(`Debate round ${round + 1}/${maxRounds}`);
 
       // 每轮所有成员发言
       for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
+        if (signal?.aborted) break;
+
         const member = members[memberIndex];
         const previousResults = results.filter(r => r.taskId.startsWith(`debate-round-${round}`));
         const context = previousResults.length > 0
@@ -430,6 +518,7 @@ export class TeamManager implements ITeamManager {
           results,
           `debate-round-${round + 1}-${member.id}`,
           memberIndex, // 传入成员索引
+          signal,
         );
         results.push(result);
       }
@@ -456,17 +545,17 @@ export class TeamManager implements ITeamManager {
    * 因为流水线的语义是「前一个成员的输出 → 下一个成员的输入」，
    * 用户定义数组的顺序即为流水线阶段顺序。
    */
-  private async executePipeline(goal: string): Promise<TaskExecutionResult[]> {
+  private async executePipeline(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.context!.config.members;
 
     let currentInput = goal;
 
     for (let i = 0; i < members.length; i++) {
-      if (!this.running) break;
+      if (!this.running || signal?.aborted) break;
       const member = members[i];
 
-      const result = await this.executeMemberTask(member, currentInput, results, undefined, i);
+      const result = await this.executeMemberTask(member, currentInput, results, undefined, i, signal);
       results.push(result);
 
       if (!result.success) {
@@ -489,19 +578,49 @@ export class TeamManager implements ITeamManager {
     task: string,
     previousResults: TaskExecutionResult[],
     taskId?: string,
-    memberIndex?: number, // 🆕 成员索引（用于超时计算）
+    memberIndex?: number, // 成员索引（用于超时计算）
+    signal?: AbortSignal, // 🆕 团队级超时信号
   ): Promise<TaskExecutionResult> {
     const tid = taskId ?? `task-${member.id}-${Date.now()}`;
     const startTime = Date.now();
 
+    // 🆕 检查团队级超时
+    if (signal?.aborted) {
+      return {
+        taskId: tid,
+        memberId: member.id,
+        result: '',
+        success: false,
+        duration: 0,
+        tokensUsed: { input: 0, output: 0 },
+        error: 'Team timeout before member execution started',
+      };
+    }
+
     // 触发 TeamMemberStart Hook
     if (this.hookRegistry) {
+      // 从 AgentRegistry 获取 Agent 配置，判断是否为内置 Agent
+      const agentConfig = this.subAgentFactory.agentRegistry.get(member.role);
+      const isBuiltin = agentConfig?.metadata?.builtin === true;
+
       this.hookRegistry.emit('TeamMemberStart', {
-        teamId: this.teamId, // 使用统一的 teamId
+        teamId: this.teamId,
         data: {
           memberId: member.id,
+          name: member.name,
           role: member.role,
           task: task.substring(0, 200),
+          builtin: isBuiltin,
+          // 策略和团队信息
+          strategy: this.context!.config.strategy,
+          teamName: this.context!.config.name,
+          stepIndex: memberIndex,
+          totalSteps: this.context!.config.members.length,
+          // 辩论轮次信息（Debate 策略专用）
+          currentRound: this.context!.currentRound,
+          maxRounds: this.context!.config.maxRounds,
+          // systemPrompt 前 100 字符（用于 GUI 解析 debate_role 标签）
+          systemPromptHint: member.systemPrompt?.substring(0, 100),
         },
       }).catch((err) => {
         log.debug('TeamMemberStart hook emit failed:', err);
@@ -514,18 +633,9 @@ export class TeamManager implements ITeamManager {
 
       let result: SubAgentResult;
 
-      // 执行子代理（传入成员索引用于超时计算）
-      const calculatedTimeout = this.calculateMemberTimeout(member, memberIndex);
-      const memberTimeout = member.timeout ?? calculatedTimeout;
-      
-      // ⚠️ 检测超时冲突：用户显式设置的值小于自动计算的值
-      if (member.timeout && member.timeout < calculatedTimeout) {
-        log.warn(
-          `[${member.id}] explicit timeout (${member.timeout}ms) is shorter than calculated (${calculatedTimeout}ms). ` +
-          `This may cause premature termination. Consider removing member.timeout to use auto-allocation.`
-        );
-      }
-      
+      // 执行子代理（使用 calculateMemberTimeout 计算超时）
+      const memberTimeout = this.calculateMemberTimeout(member, memberIndex);
+
       const factoryResult = await this.subAgentFactory.createAndRun(member.role, {
         task: enrichedTask,
         depth: this.depth + 1,
@@ -533,6 +643,7 @@ export class TeamManager implements ITeamManager {
         parentConfig: this.agentConfig,
         systemPrompt: member.systemPrompt,
         tools: member.tools,
+        skipSubAgentStartHook: true, // 禁用 SubAgentStart Hook，因为已经通过 TeamMemberStart 添加了
       });
 
       result = {
@@ -555,11 +666,12 @@ export class TeamManager implements ITeamManager {
       // 触发 TeamMemberEnd Hook
       if (this.hookRegistry) {
         this.hookRegistry.emit('TeamMemberEnd', {
-          teamId: this.teamId, // 使用统一的 teamId
+          teamId: this.teamId,
           data: {
             memberId: member.id,
             success: executionResult.success,
             duration: executionResult.duration,
+            resultSummary: executionResult.result.substring(0, 200),
           },
         }).catch((err) => {
           log.debug('TeamMemberEnd hook emit failed:', err);
@@ -657,102 +769,229 @@ export class TeamManager implements ITeamManager {
   }
 
   /**
+   * 为团队计算合适的总超时时间
+   * 🔧 根据策略和轮次动态调整
+   */
+  private calculateTeamTimeout(): number {
+    const config = this.context!.config;
+
+    // 优先级 1: 显式设置的团队超时
+    if (config.teamTotalTimeout) {
+      return config.teamTotalTimeout;
+    }
+
+    // 优先级 2: 根据策略动态计算
+    const baseTimeout = DEFAULT_TEAM_CONFIG.teamTotalTimeout;
+    const strategy = config.strategy;
+    const memberCount = config.members.length;
+
+    let teamTimeout: number;
+
+    switch (strategy) {
+      case 'parallel':
+        // 并行：团队总时长 = 单个成员时长（因为是并发）
+        teamTimeout = baseTimeout;
+        break;
+
+      case 'sequential':
+      case 'pipeline':
+        // 串行/流水线：团队总时长 = 成员数量 × 基准时长
+        teamTimeout = baseTimeout * memberCount;
+        break;
+
+      case 'hierarchical':
+        // 层级：Leader + Workers 并行，总时长 = Leader时长 + Worker时长
+        // Leader 1.5x，Workers 并行执行
+        teamTimeout = baseTimeout * 2.5;
+        break;
+
+      case 'debate': {
+        // 🔧 辩论：根据总轮次和成员数量动态计算总超时时间
+        const maxRounds = config.maxRounds || 3;
+        const memberCount = config.members.length;
+        const firstRoundRatio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
+        const laterRoundRatio = config.debateLaterRoundRatio ?? DEFAULT_TEAM_CONFIG.debateLaterRoundRatio;
+        const defaultMemberTimeout = config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout;
+
+        // 计算所有轮次的总超时时间
+        let totalTimeout = 0;
+
+        for (let round = 1; round <= maxRounds; round++) {
+          let roundRatio: number;
+
+          if (round === 1) {
+            // 第1轮：开场陈述，需要更多时间
+            roundRatio = firstRoundRatio; // 默认 1.5x
+          } else if (round === maxRounds) {
+            // 最后一轮：总结陈词 + 裁判判决，需要最多时间
+            roundRatio = firstRoundRatio * 1.2; // 1.8x
+          } else {
+            // 中间轮次：辩论交锋，正常时间
+            roundRatio = laterRoundRatio; // 默认 1.0x
+          }
+
+          // 🔧 每轮的超时 = 单个成员基准超时 × 轮次倍率 × 成员数量（串行发言）
+          // 例如：3个成员，首轮 1.5x，每人 10 分钟 → 10min × 1.5 × 3 = 45min
+          const roundTimeout = defaultMemberTimeout * roundRatio * memberCount;
+          totalTimeout += roundTimeout;
+        }
+
+        // 添加 20% 的缓冲时间，避免边界超时
+        teamTimeout = Math.floor(totalTimeout * 1.2);
+        break;
+      }
+
+      default:
+        teamTimeout = baseTimeout;
+    }
+
+    return teamTimeout;
+  }
+
+  /**
    * 为成员计算合适的子代理超时
    *
+   * 🆕 优先级（已修复）：
+   * 1. member.timeout（成员显式设置）
+   * 2. 基于 defaultMemberTimeout 和策略权重的自动计算 ← 提升优先级
+   * 3. config.memberTimeoutMs（团队级统一超时，作为兜底） ← 降低优先级
+   *
    * 策略说明：
-   * - 成员已设置 timeout → 直接使用（由调用方判断，此处作为兜底）
-   * - parallel: 与团队总超时相同（并行不叠加）
-   * - sequential: 动态分配，前松后紧（保障后续成员有充足时间）
-   * - hierarchical: Leader 占 50%，Workers 均摊剩余（Leader 主导规划）
-   * - debate: 首轮占 40%，后续均摊（首轮需更多时间理解问题）
-   * - pipeline: 根据阶段特点调整权重（I/O 阶段预留更多时间）
+   * - parallel: 每人 defaultMemberTimeout（并行不叠加）
+   * - sequential: 基于 defaultMemberTimeout，前面成员适当放宽（1.2x → 0.8x）
+   * - hierarchical: Leader = defaultMemberTimeout × leaderRatio，Worker = defaultMemberTimeout
+   * - debate: 首轮 = defaultMemberTimeout × firstRoundRatio，后续 = defaultMemberTimeout × laterRoundRatio
+   * - pipeline: 输入阶段 1.3x，中间 1.0x，输出 0.7x
    */
   private calculateMemberTimeout(member: TeamMember, memberIndex?: number): number {
     const config = this.context!.config;
-    const teamTimeout = config.timeout!;
+
+    // 优先级 1: 成员显式设置的超时
+    if (member.timeout) {
+      return member.timeout;
+    }
+
+    // 🆕 优先级 2: 基于策略和权重的自动计算
+    const baseTimeout = config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout;
     const strategy = config.strategy;
     const memberCount = config.members.length;
-    const maxRounds = config.maxRounds ?? DEFAULT_TEAM_CONFIG.maxRounds;
-    
+
     // 获取配置或使用默认值
     const MIN_TIMEOUT = config.minMemberTimeout ?? DEFAULT_TEAM_CONFIG.minMemberTimeout;
     const MIN_DEBATE_TIMEOUT = 60_000; // Debate 每轮至少 60s
 
     let perMemberTimeout: number;
-    
+
     switch (strategy) {
       case 'parallel':
-        // 并行：每个成员独享全部时间预算（并行不叠加）
-        perMemberTimeout = teamTimeout;
+        // 并行：每个成员独享完整的基准超时
+        perMemberTimeout = baseTimeout;
         break;
-        
+
       case 'sequential': {
-        // 顺序执行：前松后紧策略
-        const avgTime = teamTimeout / memberCount;
+        // 顺序执行：前松后紧，前面成员稍宽裕，后面成员稍紧凑
         if (memberIndex !== undefined) {
-          // 渐进式压缩：第 1 个成员 1.5x，最后 1.0x
-          const bufferFactor = 1.5 - (memberIndex / memberCount) * 0.5;
-          perMemberTimeout = Math.floor(avgTime * bufferFactor);
+          // 渐进式调整：第 1 个成员 1.2x，最后 0.8x
+          const weight = 1.2 - (memberIndex / Math.max(memberCount - 1, 1)) * 0.4;
+          perMemberTimeout = Math.floor(baseTimeout * weight);
         } else {
-          // 兜底：给 60% 的团队超时
-          perMemberTimeout = Math.floor(teamTimeout * 0.6);
+          perMemberTimeout = baseTimeout;
         }
         break;
       }
-        
+
       case 'hierarchical': {
-        // 层级执行：Leader 占更多时间，Workers 均摊剩余
+        // 🔧 层级执行：根据角色和任务复杂度动态分配时长
         const isLeader = member.priority && member.priority >= 8;
         const leaderRatio = config.hierarchicalLeaderRatio ?? DEFAULT_TEAM_CONFIG.hierarchicalLeaderRatio;
-        
+
         if (isLeader) {
-          // Leader 占配置比例（默认 50%）
-          perMemberTimeout = Math.floor(teamTimeout * leaderRatio);
+          // Leader 获得 leaderRatio 倍的基准超时（默认 1.5x）
+          // Leader 需要规划和协调，需要更多时间
+          perMemberTimeout = Math.floor(baseTimeout * leaderRatio);
         } else {
-          // Workers 均摊剩余时间
-          const workerCount = config.members.filter(m => !m.priority || m.priority < 8).length;
-          if (workerCount > 0) {
-            perMemberTimeout = Math.floor((teamTimeout * (1 - leaderRatio)) / workerCount);
-          } else {
-            // 兜底：没有 workers（理论上不应该发生）
-            perMemberTimeout = Math.floor(teamTimeout / memberCount);
+          // 🔧 Workers 根据 capabilities 和 role 动态调整超时
+          let workerRatio = 1.0;
+
+          // 根据 role 类型调整
+          if (member.role) {
+            const role = member.role.toLowerCase();
+
+            // 代码相关任务：需要更多时间
+            if (role.includes('coder') || role.includes('developer') || role.includes('implement')) {
+              workerRatio = 1.3;
+            }
+            // 测试相关任务：中等时间
+            else if (role.includes('test') || role.includes('qa')) {
+              workerRatio = 1.1;
+            }
+            // 探索/研究任务：较多时间
+            else if (role.includes('explore') || role.includes('research') || role.includes('analyze')) {
+              workerRatio = 1.2;
+            }
+            // 规划任务：较多时间
+            else if (role.includes('plan') || role.includes('architect')) {
+              workerRatio = 1.25;
+            }
+            // 其他任务：基准时间
           }
+
+          // 🔧 根据 capabilities 数量调整（能力越多，任务可能越复杂）
+          if (member.capabilities && member.capabilities.length > 0) {
+            const capabilityBonus = Math.min(member.capabilities.length * 0.05, 0.2); // 最多增加20%
+            workerRatio += capabilityBonus;
+          }
+
+          perMemberTimeout = Math.floor(baseTimeout * workerRatio);
         }
         break;
       }
-        
+
       case 'debate': {
-        // 辩论模式：首轮占更多时间，后续均摊
+        // 🔧 辩论模式：根据轮次和角色动态分配时长
+        const currentRound = this.context!.currentRound || 1;
+        const maxRounds = config.maxRounds || 3;
         const firstRoundRatio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
-        
-        // 首轮分配
-        const firstRoundTotal = teamTimeout * firstRoundRatio;
-        const firstRoundPerMember = Math.floor(firstRoundTotal / memberCount);
-        
-        // 后续轮次分配
-        const remainingRounds = maxRounds - 1;
-        const remainingTime = teamTimeout * (1 - firstRoundRatio);
-        const laterRoundPerMember = remainingRounds > 0 
-          ? Math.floor(remainingTime / (remainingRounds * memberCount))
-          : 0;
-        
-        // 取首轮和后续轮次的较大值，并保证最小值
-        perMemberTimeout = Math.max(
-          firstRoundPerMember,
-          laterRoundPerMember,
-          MIN_DEBATE_TIMEOUT
-        );
+        const laterRoundRatio = config.debateLaterRoundRatio ?? DEFAULT_TEAM_CONFIG.debateLaterRoundRatio;
+
+        // 🔧 根据轮次调整时长
+        let roundRatio: number;
+        if (currentRound === 1) {
+          // 第1轮：开场陈述，需要更多时间
+          roundRatio = firstRoundRatio; // 默认 1.5x
+        } else if (currentRound === maxRounds) {
+          // 最后一轮：总结陈词，需要充足时间
+          roundRatio = firstRoundRatio * 1.2; // 1.8x
+        } else {
+          // 中间轮次：辩论交锋，正常时间
+          roundRatio = laterRoundRatio; // 默认 1.0x
+        }
+
+        // 🔧 根据角色调整时长（从 systemPrompt 中解析）
+        let roleRatio = 1.0;
+        if (member.systemPrompt) {
+          const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+          if (roleMatch) {
+            const role = roleMatch[1].toLowerCase();
+            if (role === 'judge') {
+              // 裁判需要更多时间评估和判决
+              roleRatio = 1.3;
+            }
+          }
+        }
+
+        perMemberTimeout = Math.floor(baseTimeout * roundRatio * roleRatio);
+
+        // 保证最小值
+        perMemberTimeout = Math.max(perMemberTimeout, MIN_DEBATE_TIMEOUT);
         break;
       }
-        
+
       case 'pipeline': {
-        // 流水线：根据阶段特点调整
-        // 假设：输入阶段慢 30%，处理阶段正常，输出阶段快 30%
-        const avgTime = teamTimeout / memberCount;
-        
+        // 流水线：根据阶段特点调整权重
         if (memberIndex !== undefined) {
           let weight = 1.0;
-          
+
           // 第一个阶段（输入）：1.3x
           if (memberIndex === 0) {
             weight = 1.3;
@@ -762,23 +1001,28 @@ export class TeamManager implements ITeamManager {
             weight = 0.7;
           }
           // 中间阶段（处理）：1.0x
-          
-          perMemberTimeout = Math.floor(avgTime * weight);
+
+          perMemberTimeout = Math.floor(baseTimeout * weight);
         } else {
-          // 兜底：均摊
-          perMemberTimeout = Math.floor(avgTime);
+          perMemberTimeout = baseTimeout;
         }
         break;
       }
-        
+
       default:
-        perMemberTimeout = teamTimeout;
+        perMemberTimeout = baseTimeout;
+    }
+
+    // 🆕 优先级 3: 团队级统一超时（作为兜底或上限）
+    if (config.memberTimeoutMs) {
+      // 如果设置了统一超时，取两者较小值（避免超出预算）
+      perMemberTimeout = Math.min(perMemberTimeout, config.memberTimeoutMs);
     }
 
     const result = Math.max(perMemberTimeout, MIN_TIMEOUT);
     log.debug(
       `[${member.id}] calculated timeout: ${result}ms ` +
-      `(strategy=${strategy}, teamTimeout=${teamTimeout}ms, members=${memberCount}, index=${memberIndex ?? 'N/A'})`
+      `(strategy=${strategy}, baseTimeout=${baseTimeout}ms, members=${memberCount}, index=${memberIndex ?? 'N/A'})`
     );
     return result;
   }
@@ -797,28 +1041,39 @@ export class TeamManager implements ITeamManager {
    */
   private logTimeoutAllocation(): void {
     const config = this.context!.config;
-    const teamTimeout = config.timeout!;
     const strategy = config.strategy;
     const members = config.members;
 
     log.info(`[Team Timeout Allocation]`);
-    log.info(`  Total: ${teamTimeout}ms (${(teamTimeout / 1000).toFixed(0)}s)`);
     log.info(`  Strategy: ${strategy}`);
     log.info(`  Members: ${members.length}`);
+    log.info(`  🆕 Team Total Timeout: ${config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout}ms (${((config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout) / 1000).toFixed(0)}s)`);
+    log.info(`  Default Member Timeout: ${config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout}ms`);
 
     // 计算并显示每个成员的超时
+    let estimatedTotal = 0;
     members.forEach((member, index) => {
       const calculatedTimeout = this.calculateMemberTimeout(member, index);
       const timeout = member.timeout ?? calculatedTimeout;
       const label = member.name || member.id;
       const priorityInfo = member.priority !== undefined ? ` (priority=${member.priority})` : '';
-      
+
       // 标记显式设置的超时
       const timeoutSource = member.timeout ? ' [explicit]' : ' [auto]';
       const warningMark = member.timeout && member.timeout < calculatedTimeout ? ' ⚠️' : '';
-      
+
       log.info(`    - ${label}${priorityInfo}: ${timeout}ms (${(timeout / 1000).toFixed(0)}s)${timeoutSource}${warningMark}`);
+
+      // 累计预估总超时（根据策略）
+      if (strategy === 'parallel') {
+        estimatedTotal = Math.max(estimatedTotal, timeout);
+      } else {
+        estimatedTotal += timeout;
+      }
     });
+
+    // 显示预估总超时
+    log.info(`  Estimated Total: ${estimatedTotal}ms (${(estimatedTotal / 1000).toFixed(0)}s)`);
 
     // 策略特定的额外信息
     if (strategy === 'hierarchical') {

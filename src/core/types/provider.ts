@@ -58,10 +58,8 @@ export interface ThinkingConfig {
  * Provider 配置
  */
 export interface ProviderConfig {
-  /** 模型标识（主模型，用于核心推理） */
+  /** 模型标识 */
   model: string;
-  /** 轻量模型（用于子代理/上下文压缩/摘要等低复杂度任务） */
-  lightModel?: string;
   /** Extended Thinking 配置（Anthropic Claude 4.5+，可选） */
   thinking?: ThinkingConfig;
   /** 最大输出 token（不设置则由 API 端决定） */
@@ -76,6 +74,8 @@ export interface ProviderConfig {
   baseURL?: string;
   /** 指定 Provider 适配器（anthropic / openai / openai-responses），不指定则按模型名自动匹配 */
   adapter?: string;
+  /** 🔧 AbortSignal：用于取消正在进行的请求 */
+  signal?: AbortSignal;
 }
 
 /**

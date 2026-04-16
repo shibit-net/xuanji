@@ -2,7 +2,7 @@
 // PlanReviewDialog - 计划审查对话框
 // ============================================================
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { FileText, X, Check, XCircle, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { PlanReviewRequestData } from '../global';

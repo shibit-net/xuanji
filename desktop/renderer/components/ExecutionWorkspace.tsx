@@ -8,7 +8,7 @@
 // - 工具像"漂浮的气泡"围绕在 Agent 周围
 // ============================================================
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, Loader2, ChevronDown, GitBranch, Sparkles } from 'lucide-react';
 import { useExecutionStore } from '../stores/executionStore';
 import { useChatStore } from '../stores/chatStore';
@@ -282,7 +282,7 @@ export default function ExecutionWorkspace() {
             {card.children[0]?.isParallel ? (
               // 并行布局（水平排列）
               <div className="grid grid-cols-2 gap-6 ml-10">
-                {card.children.map((child, index) => (
+                {card.children.map((child, _index) => (
                   <div key={child.id} className="relative">
                     {/* 分支线 */}
                     <div className="absolute -left-6 top-10 w-6 h-0.5 bg-gradient-to-r from-gray-600 to-transparent" />

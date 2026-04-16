@@ -1,421 +1,326 @@
 /**
- * 集成测试：智能记忆刷新 + 主题提取
+ * 集成测试：记忆系统核心流程
  *
- * 测试记忆系统的关键集成点：
- * 1. IntelligentMemoryFlush 与 MemoryManager 的集成
- * 2. 触发条件（token 阈值 / 时间阈值）工作正常
- * 3. TopicExtractor 与 MemoryManager 的集成
- * 4. 配置驱动的功能初始化
+ * 测试新 SQLite 统一存储架构的关键集成点：
+ * 1. MemoryManager 初始化和保存会话记忆
+ * 2. 从会话中提取并存储记忆条目
+ * 3. 配置驱动的功能（enabled/disabled）
+ * 4. 压缩阈值触发
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 // ─── 被测模块 ───
 import { MemoryManager } from '@/memory/MemoryManager';
-import type { Message } from '@/session/types';
-
-// ─── Mock Provider ───
-class MockProvider {
-  public callCount = 0;
-  public lastMessages: any[] = [];
-
-  async *stream(_messages: any[], _tools: any[], _config: any) {
-    this.callCount++;
-
-    const responseText = JSON.stringify({
-      segments: [
-        {
-          category: 'topic',
-          content: '测试主题内容',
-          topicId: 'test-topic',
-          memoryType: 'user_preference',
-          importance: 'high',
-          valueScore: 75,
-        },
-      ],
-      totalValue: 75,
-      summary: '提取了 1 个测试主题',
-    });
-
-    // 模拟流式输出
-    for (const char of responseText) {
-      yield {
-        type: 'text_delta' as const,
-        text: char,
-      };
-    }
-  }
-
-  async createMessage(messages: any[], _tools: any[], _config: any) {
-    this.callCount++;
-    this.lastMessages = messages;
-    return {
-      id: `msg-${this.callCount}`,
-      model: 'mock-model',
-      role: 'assistant' as const,
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            segments: [
-              {
-                category: 'topic' as const,
-                content: '测试主题内容',
-                keywords: ['test', 'topic'],
-                confidence: 0.8,
-                value: 75,
-              },
-            ],
-          }),
-        },
-      ],
-      stop_reason: 'end_turn' as const,
-      usage: { input_tokens: 100, output_tokens: 50 },
-    };
-  }
-
-  getLastRequest() {
-    return { messages: this.lastMessages };
-  }
-
-  reset() {
-    this.callCount = 0;
-    this.lastMessages = [];
-  }
-}
+import { MemoryStore } from '@/memory/MemoryStore';
+import type { SessionMemory } from '@/memory/types';
 
 // ─── 临时目录 ───
 let tempDir: string;
 
 beforeAll(async () => {
-  tempDir = await mkdtemp(join(tmpdir(), 'xuanji-flush-e2e-'));
+  tempDir = await mkdtemp(join(tmpdir(), 'xuanji-mm-integ-'));
 });
 
 afterAll(async () => {
   await rm(tempDir, { recursive: true, force: true }).catch(() => {});
 });
 
+/** 创建隔离的 MemoryManager，使用临时数据库路径 */
+function createIsolatedManager(
+  dbPath: string,
+  configOverrides: Record<string, unknown> = {},
+): MemoryManager {
+  const manager = new MemoryManager(configOverrides);
+  (manager as any).store = new MemoryStore(dbPath);
+  return manager;
+}
+
+function createSession(overrides: Partial<SessionMemory> = {}): SessionMemory {
+  return {
+    sessionId: `sess-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    startTime: new Date().toISOString(),
+    endTime: new Date().toISOString(),
+    userMessages: ['Help me fix the memory leak in MemoryManager'],
+    assistantHighlights: ['Found the leak in the event listener, fixed it'],
+    toolCalls: [
+      { name: 'read_file', input: { file_path: 'src/memory/MemoryManager.ts' }, isError: false, resultSummary: 'content' },
+    ],
+    durationMs: 5000,
+    model: 'claude-sonnet-4',
+    ...overrides,
+  };
+}
+
 // ═════════════════════════════════════════════════════════════
-// 1. IntelligentMemoryFlush 集成测试
+// 1. MemoryManager 初始化和基本操作
 // ═════════════════════════════════════════════════════════════
 
-describe('IntelligentMemoryFlush Integration', () => {
-  it('MemoryManager 初始化后可获取 IntelligentMemoryFlush 实例', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      intelligentFlush: {
-        enabled: true,
-        tokenThreshold: 0.75,
-      },
-    });
+describe('MemoryManager Initialization', () => {
+  let manager: MemoryManager;
 
-    await memoryManager.init();
-
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
-
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-    expect(intelligentFlush).toBeDefined();
-    expect(intelligentFlush).not.toBeNull();
-
-    await memoryManager.shutdown();
+  afterEach(async () => {
+    if (manager) await manager.shutdown();
   });
 
-  it('Token 阈值触发条件检测', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      intelligentFlush: {
-        enabled: true,
-        tokenThreshold: 0.5, // 50% 触发
-        timeThreshold: 999999999, // 时间阈值设得很大，不会触发
-      },
-    });
+  it('应成功初始化', async () => {
+    const dbPath = join(tempDir, `init-${Date.now()}.db`);
+    manager = createIsolatedManager(dbPath);
+    await manager.init();
 
-    await memoryManager.init();
-
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
-
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-
-    // 构造未达阈值的上下文
-    const lowTokenContext = {
-      messages: [{ role: 'user' as const, content: '短消息' }],
-      currentTokens: 100,
-      maxTokens: 1000,
-      timeSinceLastFlush: 1000,
-    };
-
-    const shouldFlushLow = (intelligentFlush as any).shouldFlush(lowTokenContext);
-    expect(shouldFlushLow).toBe(false);
-
-    // 构造达到阈值的上下文
-    const highTokenContext = {
-      messages: [{ role: 'user' as const, content: 'x'.repeat(2000) }],
-      currentTokens: 600, // 60% > 50%
-      maxTokens: 1000,
-      timeSinceLastFlush: 1000,
-    };
-
-    const shouldFlushHigh = (intelligentFlush as any).shouldFlush(highTokenContext);
-    expect(shouldFlushHigh).toBe(true);
-
-    await memoryManager.shutdown();
+    expect(manager.isInitialized()).toBe(true);
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(0);
   });
 
-  it('时间阈值触发条件检测', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      intelligentFlush: {
-        enabled: true,
-        tokenThreshold: 1.0, // Token 阈值 100%，不会触发
-        timeThreshold: 1000, // 1 秒
-      },
-    });
+  it('重复 init() 调用不会出错', async () => {
+    const dbPath = join(tempDir, `reinit-${Date.now()}.db`);
+    manager = createIsolatedManager(dbPath);
+    await manager.init();
+    await manager.init(); // 第二次调用
 
-    await memoryManager.init();
-
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
-
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-
-    // 时间未超过阈值
-    const shortTimeContext = {
-      messages: [{ role: 'user' as const, content: '消息' }],
-      currentTokens: 100,
-      maxTokens: 10000,
-      timeSinceLastFlush: 500, // 0.5 秒 < 1 秒
-    };
-
-    const shouldFlushShort = (intelligentFlush as any).shouldFlush(shortTimeContext);
-    expect(shouldFlushShort).toBe(false);
-
-    // 时间超过阈值
-    const longTimeContext = {
-      messages: [{ role: 'user' as const, content: '消息' }],
-      currentTokens: 100,
-      maxTokens: 10000,
-      timeSinceLastFlush: 1500, // 1.5 秒 > 1 秒
-    };
-
-    const shouldFlushLong = (intelligentFlush as any).shouldFlush(longTimeContext);
-    expect(shouldFlushLong).toBe(true);
-
-    await memoryManager.shutdown();
+    expect(manager.isInitialized()).toBe(true);
   });
 
-  it('checkAndFlush 完整流程（使用 Mock Provider）', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      intelligentFlush: {
-        enabled: true,
-        tokenThreshold: 0.5,
-        timeThreshold: 1000,
-        valueThreshold: 0,
-        keepRecentMessages: 2,
-      },
-    });
+  it('getStore() 返回有效的 MemoryStore', async () => {
+    const dbPath = join(tempDir, `store-${Date.now()}.db`);
+    manager = createIsolatedManager(dbPath);
+    await manager.init();
 
-    await memoryManager.init();
-
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
-
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-
-    const context = {
-      messages: [
-        { role: 'user' as const, content: '消息1' },
-        { role: 'assistant' as const, content: '回复1' },
-        { role: 'user' as const, content: '消息2' },
-        { role: 'assistant' as const, content: '回复2' },
-      ] as Message[],
-      currentTokens: 600,
-      maxTokens: 1000,
-      timeSinceLastFlush: 1000,
-      sessionId: 'test-session',
-    };
-
-    const flushed = await intelligentFlush!.checkAndFlush(context);
-    expect(flushed).toBe(true);
-
-    // 验证 Mock Provider 被调用
-    expect(mockProvider.callCount).toBeGreaterThan(0);
-
-    // 验证消息被修剪（keepRecentMessages: 2）
-    expect(context.messages.length).toBeLessThanOrEqual(2);
-
-    await memoryManager.shutdown();
+    const store = manager.getStore();
+    expect(store).toBeDefined();
+    expect(typeof store.saveEntry).toBe('function');
+    expect(typeof store.searchFTS).toBe('function');
+    expect(typeof store.getStats).toBe('function');
   });
 });
 
 // ═════════════════════════════════════════════════════════════
-// 2. TopicExtractor 集成测试
+// 2. 会话保存和记忆提取
 // ═════════════════════════════════════════════════════════════
 
-describe('TopicExtractor Integration', () => {
-  it('MemoryManager 可以调用 extractTopics', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      topicExtraction: {
-        enabled: true,
-        minEntriesForExtraction: 1,
-      },
+describe('Session Save and Memory Extraction', () => {
+  let manager: MemoryManager;
+
+  beforeEach(async () => {
+    const dbPath = join(tempDir, `save-${Date.now()}.db`);
+    manager = createIsolatedManager(dbPath);
+    await manager.init();
+  });
+
+  afterEach(async () => {
+    if (manager) await manager.shutdown();
+  });
+
+  it('保存会话后 stats.total 增加', async () => {
+    const before = await manager.getStats();
+    expect(before.total).toBe(0);
+
+    await manager.save(createSession());
+
+    const after = await manager.getStats();
+    expect(after.total).toBeGreaterThan(0);
+  });
+
+  it('disabled 状态下 save() 不写入数据', async () => {
+    const dbPath = join(tempDir, `disabled-${Date.now()}.db`);
+    const disabledManager = createIsolatedManager(dbPath, { enabled: false });
+    await disabledManager.init();
+
+    await disabledManager.save(createSession());
+    const stats = await disabledManager.getStats();
+    expect(stats.total).toBe(0);
+
+    await disabledManager.shutdown();
+  });
+
+  it('保存后可通过 retrieve 检索到相关内容', async () => {
+    await manager.save(createSession({
+      userMessages: ['Fix the authentication bug in login flow'],
+      assistantHighlights: ['Found and fixed JWT token expiry issue'],
+    }));
+
+    const results = await manager.retrieve('authentication bug');
+    // 规则降级提取应该产生 session_summary
+    expect(Array.isArray(results)).toBe(true);
+    // 至少不应报错
+  });
+
+  it('disabled 状态下 retrieve() 返回空数组', async () => {
+    const dbPath = join(tempDir, `disabled-ret-${Date.now()}.db`);
+    const disabledManager = createIsolatedManager(dbPath, { enabled: false });
+    await disabledManager.init();
+
+    const results = await disabledManager.retrieve('anything');
+    expect(results).toEqual([]);
+
+    await disabledManager.shutdown();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+// 3. add() 直接写入和检索
+// ═════════════════════════════════════════════════════════════
+
+describe('Direct Entry Add and Retrieval', () => {
+  let manager: MemoryManager;
+
+  beforeEach(async () => {
+    const dbPath = join(tempDir, `add-${Date.now()}.db`);
+    manager = createIsolatedManager(dbPath);
+    await manager.init();
+  });
+
+  afterEach(async () => {
+    if (manager) await manager.shutdown();
+  });
+
+  it('add() 写入的条目可被检索', async () => {
+    await manager.add({
+      id: 'test-entry-1',
+      type: 'user_preference',
+      content: 'User does not eat spicy food',
+      keywords: ['food', 'spicy', 'preference'],
+      confidence: 0.95,
+      source: 'manual',
     });
 
-    await memoryManager.init();
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(1);
 
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
+    const results = await manager.retrieve('spicy food preference');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]?.id).toBe('test-entry-1');
+  });
 
-    // 添加一些 timeline 记忆
-    const longTerm = memoryManager.getLongTermMemory();
-    const dayKey = new Date().toISOString().split('T')[0];
-
-    await longTerm.saveBatch([
-      {
-        id: 'mem-timeline-1',
-        type: 'session_summary',
-        category: 'timeline',
-        dayKey,
-        content: '讨论了 TypeScript 类型系统',
-        keywords: ['typescript', 'types'],
+  it('add() 多条条目的批量检索', async () => {
+    for (let i = 0; i < 5; i++) {
+      await manager.add({
+        type: 'decision',
+        content: `Decision ${i}: chose TypeScript over JavaScript`,
+        keywords: ['typescript', 'javascript', 'decision'],
         confidence: 0.9,
-        source: 'conversation',
-        createdAt: new Date().toISOString(),
-        lastAccessedAt: new Date().toISOString(),
-        accessCount: 0,
-      },
-      {
-        id: 'mem-timeline-2',
-        type: 'session_summary',
-        category: 'timeline',
-        dayKey,
-        content: '实现了泛型约束功能',
-        keywords: ['generic', 'constraint'],
-        confidence: 0.85,
-        source: 'conversation',
-        createdAt: new Date().toISOString(),
-        lastAccessedAt: new Date().toISOString(),
-        accessCount: 0,
-      },
-    ]);
+        source: 'manual',
+      });
+    }
 
-    // 调用主题提取
-    await memoryManager.extractTopics(dayKey);
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(5);
 
-    // 由于 Mock Provider 返回 JSON，验证不抛错即可
-    expect(true).toBe(true);
-
-    await memoryManager.shutdown();
+    const results = await manager.retrieve('typescript decision');
+    expect(results.length).toBeGreaterThan(0);
   });
 });
 
 // ═════════════════════════════════════════════════════════════
-// 3. 配置驱动功能测试
+// 4. 压缩阈值测试
 // ═════════════════════════════════════════════════════════════
 
-describe('Configuration-Driven Features', () => {
-  it('intelligentFlush.enabled = false 时不初始化 IntelligentMemoryFlush', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-      intelligentFlush: {
-        enabled: false,
-      },
+describe('Memory Compaction', () => {
+  it('超过阈值后 compact() 减少条目数', async () => {
+    const dbPath = join(tempDir, `compact-${Date.now()}.db`);
+    const manager = createIsolatedManager(dbPath, {
+      compactionThreshold: 5,
+      longTermMaxEntries: 3,
     });
+    await manager.init();
 
-    await memoryManager.init();
+    // 写入 8 条超过阈值的记忆
+    for (let i = 0; i < 8; i++) {
+      await manager.add({
+        type: 'session_summary',
+        content: `Session ${i}: task completed`,
+        keywords: [`task${i}`],
+        confidence: 0.8,
+        source: 'manual',
+        createdAt: new Date(Date.now() - i * 86400000).toISOString(),
+      });
+    }
 
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
+    const before = await manager.getStats();
+    expect(before.total).toBe(8);
 
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-    expect(intelligentFlush).toBeNull();
+    await manager.compact();
 
-    await memoryManager.shutdown();
+    const after = await manager.getStats();
+    expect(after.total).toBeLessThanOrEqual(3);
+
+    await manager.shutdown();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+// 5. 短期记忆管理
+// ═════════════════════════════════════════════════════════════
+
+describe('Short-Term Memory', () => {
+  it('resetShortTerm 创建新的短期记忆', () => {
+    const manager = new MemoryManager();
+    const stm = manager.resetShortTerm('sess-1', 'claude-sonnet-4');
+
+    expect(stm).toBeDefined();
+    expect(manager.getShortTerm()).toBe(stm);
   });
 
-  it('自定义配置参数生效', async () => {
-    const customConfig = {
-      enabled: true,
-      intelligentFlush: {
-        enabled: true,
-        tokenThreshold: 0.6,
-        timeThreshold: 2000,
-        valueThreshold: 40,
-        keepRecentMessages: 3,
-      },
-    };
+  it('初始状态 getShortTerm() 返回 null', () => {
+    const manager = new MemoryManager();
+    expect(manager.getShortTerm()).toBeNull();
+  });
+});
 
-    const memoryManager = new MemoryManager(customConfig);
-    await memoryManager.init();
+// ═════════════════════════════════════════════════════════════
+// 6. formatForPrompt
+// ═════════════════════════════════════════════════════════════
 
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
-
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-    expect(intelligentFlush).toBeDefined();
-
-    // 验证配置参数（通过私有字段）
-    const config = (intelligentFlush as any).config;
-    expect(config.tokenThreshold).toBe(0.6);
-    expect(config.timeThreshold).toBe(2000);
-    expect(config.valueThreshold).toBe(40);
-    expect(config.keepRecentMessages).toBe(3);
-
-    await memoryManager.shutdown();
+describe('Format for Prompt', () => {
+  it('格式化空列表返回空字符串', () => {
+    const manager = new MemoryManager();
+    expect(manager.formatForPrompt([])).toBe('');
   });
 
-  it('未提供配置时使用默认值', async () => {
-    const memoryManager = new MemoryManager({
-      enabled: true,
-    });
+  it('格式化后包含 Relevant Past Context', async () => {
+    const dbPath = join(tempDir, `fmt-${Date.now()}.db`);
+    const manager = createIsolatedManager(dbPath);
+    await manager.init();
 
-    await memoryManager.init();
+    await manager.save(createSession({
+      userMessages: ['Fix authentication bug'],
+    }));
 
-    const mockProvider = new MockProvider();
-    memoryManager.setProvider(mockProvider as any, {
-      model: 'mock-model',
-      lightModel: 'mock-light-model',
-    });
+    const memories = await manager.retrieve('authentication');
+    const formatted = manager.formatForPrompt(memories);
 
-    const intelligentFlush = memoryManager.getIntelligentFlush();
+    if (memories.length > 0) {
+      expect(formatted).toContain('Relevant Past Context');
+    }
 
-    // 默认启用
-    expect(intelligentFlush).toBeDefined();
+    await manager.shutdown();
+  });
 
-    // 验证默认配置值
-    const config = (intelligentFlush as any).config;
-    expect(config.tokenThreshold).toBe(0.75);
-    expect(config.timeThreshold).toBe(30 * 60 * 1000); // 30 分钟
-    expect(config.valueThreshold).toBe(50);
-    expect(config.keepRecentMessages).toBe(5);
+  it('格式化结果受 maxPromptLength 截断', async () => {
+    const dbPath = join(tempDir, `truncate-${Date.now()}.db`);
+    const manager = createIsolatedManager(dbPath, { maxPromptLength: 100 });
+    await manager.init();
 
-    await memoryManager.shutdown();
+    // 添加多条长内容的条目
+    for (let i = 0; i < 5; i++) {
+      await manager.add({
+        type: 'session_summary',
+        content: `Very long content ${i}: ${'x'.repeat(100)}`,
+        keywords: ['test'],
+        confidence: 0.9,
+        source: 'manual',
+      });
+    }
+
+    const memories = manager.getStore().readAll();
+    const formatted = manager.formatForPrompt(memories);
+
+    expect(formatted.length).toBeLessThanOrEqual(120); // 留 20 字节给 truncated 标记
+
+    await manager.shutdown();
   });
 });

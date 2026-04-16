@@ -11,11 +11,9 @@ import { ProjectScanner } from '@/context/ProjectScanner';
 import { ContextBuilder } from '@/context/ContextBuilder';
 import { FileIndexer } from '@/context/FileIndexer';
 import { DependencyAnalyzer } from '@/context/DependencyAnalyzer';
-import type { FileIndex, RulesContent } from '@/context/types';
+import { RulesLoader } from '@/core/config/RulesLoader';
+import type { FileIndex } from '@/context/types';
 import { logger } from '@/core/logger';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 
 const log = logger.child({ module: 'l3-project' });
 
@@ -42,7 +40,8 @@ async function buildProjectContext(): Promise<string> {
   const scanner = new ProjectScanner();
   const metadata = scanner.scan();
 
-  const rules = loadRulesSync(metadata.rootPath);
+  const loader = new RulesLoader();
+  const rules = loader.loadRulesSync(metadata.rootPath);
 
   let indexSummary = '';
   try {
@@ -94,33 +93,4 @@ function formatIndexSummary(index: FileIndex, topN: number): string {
   }
 
   return lines.join('\n');
-}
-
-function loadRulesSync(rootPath: string): RulesContent {
-  const MAX_FILE_SIZE = 500 * 1024;
-  const result: RulesContent = {};
-
-  const loadFile = (filePath: string, label: string): string | undefined => {
-    try {
-      if (!fs.existsSync(filePath)) return undefined;
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile()) return undefined;
-
-      let content = fs.readFileSync(filePath, 'utf-8');
-      if (Buffer.byteLength(content, 'utf-8') > MAX_FILE_SIZE) {
-        log.warn(`${label} exceeds 500KB, truncating`);
-        content = content.slice(0, MAX_FILE_SIZE);
-      }
-      return content;
-    } catch (error) {
-      log.error(`Failed to load ${label}:`, error);
-      return undefined;
-    }
-  };
-
-  result.xuanjiMd = loadFile(path.join(rootPath, 'XUANJI.md'), 'XUANJI.md');
-  result.projectRules = loadFile(path.join(rootPath, '.xuanji', 'rules.md'), '.xuanji/rules.md');
-  result.globalRules = loadFile(path.join(os.homedir(), '.xuanji', 'rules.md'), '~/.xuanji/rules.md');
-
-  return result;
 }

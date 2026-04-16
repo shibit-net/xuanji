@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { ReminderEngine } from '@/reminder/ReminderEngine';
-import { StorageBackend } from '@/memory/StorageBackend';
+import { SimpleStorage } from '@/core/SimpleStorage';
 import type { Reminder, ReminderInput } from '@/reminder/types';
 import type { MemoryEntry } from '@/memory/types';
 
@@ -45,11 +45,11 @@ function createMemoryEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
 
 describe('ReminderEngine', () => {
   let tempDir: string;
-  let storage: StorageBackend;
+  let storage: SimpleStorage;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-reminder-'));
-    storage = new StorageBackend();
+    storage = new SimpleStorage();
   });
 
   afterEach(async () => {

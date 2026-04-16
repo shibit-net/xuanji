@@ -12,20 +12,30 @@ import type { LogLevel } from '../types';
  * 所有 Logger 实现共享此组件，实现日志持久化。
  * - 异步追加写入，不阻塞主流程
  * - 自动创建目录
+ * - 按日志级别分文件输出
  * - 写入失败静默处理
  */
 export class FileWriter {
-  private fileHandle: fs.FileHandle | null = null;
+  private fileHandles: Map<LogLevel, fs.FileHandle> = new Map();
   private ready: Promise<void>;
+  private baseDir: string;
 
-  constructor(filePath: string) {
-    this.ready = this.init(filePath);
+  constructor(baseDir: string) {
+    this.baseDir = baseDir;
+    this.ready = this.init();
   }
 
-  private async init(filePath: string): Promise<void> {
+  private async init(): Promise<void> {
     try {
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      this.fileHandle = await fs.open(filePath, 'a');
+      await fs.mkdir(this.baseDir, { recursive: true });
+
+      // 为每个日志级别打开对应的文件句柄
+      const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+      for (const level of levels) {
+        const filePath = path.join(this.baseDir, `${level}.log`);
+        const handle = await fs.open(filePath, 'a');
+        this.fileHandles.set(level, handle);
+      }
     } catch {
       // 文件初始化失败不影响控制台日志
     }
@@ -35,8 +45,6 @@ export class FileWriter {
    * 写入一行日志（异步，不阻塞）
    */
   write(level: LogLevel, namespace: string, message: string, args: unknown[]): void {
-    if (!this.fileHandle && !this.ready) return;
-
     const argsStr = args.length > 0
       ? ' ' + args.map(a => {
           try { return typeof a === 'string' ? a : JSON.stringify(a); }
@@ -48,20 +56,23 @@ export class FileWriter {
 
     const doWrite = async () => {
       await this.ready;
-      await this.fileHandle?.write(logLine);
+      const handle = this.fileHandles.get(level);
+      if (handle) {
+        await handle.write(logLine);
+      }
     };
     doWrite().catch(() => {});
   }
 
   /**
-   * 关闭文件句柄
+   * 关闭所有文件句柄
    */
   async close(): Promise<void> {
     await this.ready;
-    if (this.fileHandle) {
-      await this.fileHandle.close();
-      this.fileHandle = null;
+    for (const handle of this.fileHandles.values()) {
+      await handle.close();
     }
+    this.fileHandles.clear();
   }
 }
 
@@ -72,12 +83,12 @@ let globalWriter: FileWriter | null = null;
 /**
  * 获取全局共享 FileWriter
  *
- * 所有 Logger 实例（包括 child）共用同一个文件句柄，
+ * 所有 Logger 实例（包括 child）共用同一组文件句柄，
  * 避免重复打开文件。
  */
-export function getFileWriter(filePath: string): FileWriter {
+export function getFileWriter(baseDir: string): FileWriter {
   if (!globalWriter) {
-    globalWriter = new FileWriter(filePath);
+    globalWriter = new FileWriter(baseDir);
   }
   return globalWriter;
 }

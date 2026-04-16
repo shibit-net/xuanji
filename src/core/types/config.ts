@@ -34,7 +34,7 @@ export interface SkillsConfig {
  * Agent 调优配置
  */
 export interface AgentTuningConfig {
-  /** 最大迭代次数（默认 50） */
+  /** 最大迭代次数（默认 Infinity，不限制） */
   maxIterations?: number;
 
   /** 上下文压缩配置 */
@@ -43,7 +43,7 @@ export interface AgentTuningConfig {
     enabled?: boolean;
     /** 压缩阈值（token 数，默认 80000） */
     threshold?: number;
-    /** 压缩使用的模型（默认使用 lightModel） */
+    /** 压缩使用的模型（默认使用主模型） */
     model?: string;
   };
 
@@ -61,17 +61,36 @@ export interface AgentTuningConfig {
 }
 
 /**
+ * 性格标签
+ */
+export type PersonalityTrait =
+  | 'warm'       // 温暖体贴
+  | 'humorous'   // 幽默风趣
+  | 'serious'    // 严肃专业
+  | 'gentle'     // 温柔细腻
+  | 'energetic'  // 活力充沛
+  | 'calm';      // 沉稳冷静
+
+/**
+ * 机器人拟人化配置
+ */
+export interface PersonaConfig {
+  /** 机器人名字（默认 "璇玑"） */
+  name?: string;
+  /** 对用户的称呼（默认 "用户"） */
+  userNickname?: string;
+  /** 性格标签，多选 */
+  personality?: PersonalityTrait[];
+  /** 说话风格（默认 "balanced"） */
+  talkStyle?: 'formal' | 'casual' | 'cute' | 'cool' | 'balanced';
+  /** 自定义人设补充描述（自由文本） */
+  customDescription?: string;
+}
+
+/**
  * 功能特性配置
  */
 export interface FeaturesConfig {
-  /**
-   * 是否启用工具按需加载（默认 true）
-   *
-   * 启用时：根据激活的 Skill 动态过滤传递给 LLM 的工具集，节省 token
-   * 禁用时：全量传递所有已注册工具（向后兼容）
-   */
-  dynamicToolLoading?: boolean;
-
   /**
    * 是否启用智能管家服务（默认 false）
    *
@@ -88,16 +107,8 @@ export interface FeaturesConfig {
    */
   smartMemoryV2?: boolean;
 
-  /** 是否启用 Multi-Agent 工具（默认 false） */
-  multiAgentTools?: boolean;
-
-  /** 是否启用意图路由系统（默认 false） */
+  /** 是否启用意图路由系统（默认 true） */
   intentRouter?: boolean;
-
-  /**
-   * 是否使用分层 Prompt 构建器（默认 true）
-   */
-  useLayeredPromptBuilder?: boolean;
 }
 
 /**
@@ -144,6 +155,10 @@ export interface AppConfig {
   planner?: PlannerConfig;
   /** 任务执行器配置 */
   executor?: ExecutorConfig;
+  /** 机器人拟人化配置 */
+  persona?: PersonaConfig;
+  /** 是否已完成首次引导（onboarding） */
+  onboardingDone?: boolean;
 }
 
 /**

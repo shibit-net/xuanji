@@ -18,12 +18,12 @@
 //   DEBUG=xuanji:*             → 开发环境全部日志
 //   DEBUG=xuanji:AgentLoop:*   → 仅 AgentLoop 模块
 //   XUANJI_LOG_LEVEL=info      → 生产环境日志级别
-//   XUANJI_LOG_FILE=/path      → 自定义日志文件路径
+//   XUANJI_LOG_DIR=/path       → 自定义日志目录
 //   XUANJI_LOGGER_TYPE=consola → 强制使用 consola
 //
 // 日志文件:
 //
-//   默认写入 ~/.xuanji/logs/core.log（所有环境均启用）
+//   默认写入 ~/.xuanji/logs/{debug,info,warn,error}.log（按级别分文件）
 //
 
 export type { ILogger, LogLevel, LogMetadata, LoggerConfig } from './types';

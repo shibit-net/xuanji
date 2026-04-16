@@ -1,0 +1,47 @@
+{
+  "testName": "Variable Substitution - {{previous_output}}",
+  "status": "documented",
+  "duration": 0,
+  "testPlan": {
+    "name": "Variable Substitution - {{previous_output}}",
+    "objective": "Verify {{previous_output}} is correctly substituted",
+    "steps": [
+      {
+        "step": 1,
+        "agent": "coder",
+        "task": "Return marker: STEP_1_OUTPUT",
+        "expectedOutput": "String containing \"STEP_1_OUTPUT\""
+      },
+      {
+        "step": 2,
+        "agent": "coder",
+        "task": "Echo: {{previous_output}} and add STEP_2_OUTPUT",
+        "expectedOutput": "Contains both STEP_1_OUTPUT and STEP_2_OUTPUT",
+        "substitutionTests": [
+          "{{previous_output}} is replaced with actual output from step 1",
+          "No literal \"{{previous_output}}\" string in agent task",
+          "Step 1 output is completely preserved"
+        ]
+      },
+      {
+        "step": 3,
+        "agent": "coder",
+        "task": "Verify {{previous_output}} contains both markers",
+        "expectedOutput": "Confirmation that both markers are present",
+        "validationTests": [
+          "Contains STEP_1_OUTPUT",
+          "Contains STEP_2_OUTPUT",
+          "Contains STEP_3_OUTPUT",
+          "Data flow is complete"
+        ]
+      }
+    ],
+    "criticalTests": [
+      "No premature substitution (step 1 should not see {{previous_output}})",
+      "Correct sequential substitution (step N gets output from step N-1)",
+      "Large data handling (substitution works with large outputs)",
+      "Special character handling (output with quotes, newlines, etc.)"
+    ]
+  },
+  "note": "Cannot execute due to import issues - test plan documented"
+}

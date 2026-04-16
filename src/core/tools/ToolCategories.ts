@@ -39,15 +39,15 @@ export const TOOL_CATEGORIES = {
    * - enter_plan_mode / exit_plan_mode: Plan Mode 控制
    *
    * Multi-Agent:
-   * - task: SubAgent 调度（旧）
-   * - delegate: 委托子 Agent 执行任务
-   * - orchestrate: 编排多个并行/串行子任务
-   * - pipeline: 管道式多步骤执行
+   * - task: SubAgent 调度
+   * - agent_team: 多 Agent 协作
    * - list_agents: 列出可用 Agent
    * - match_agent: 匹配最佳 Agent
    *
    * 记忆系统:
-   * - retrieve_memory: 检索历史记忆（所有 Agent 可用）
+   * - retrieve_memory: 检索历史记忆
+   * - memory_store: 存储记忆（所有场景均需要，主 Agent 委托记忆 Agent 时使用）
+   * - memory_search: 搜索记忆
    *
    * 系统管理:
    * - butler_daemon: 智能管家守护进程
@@ -67,13 +67,13 @@ export const TOOL_CATEGORIES = {
     'exit_plan_mode',
     // Multi-Agent
     'task',
-    'delegate',
-    'orchestrate',
-    'pipeline',
+    'agent_team',
     'list_agents',
     'match_agent',
-    // 记忆系统
+    // 记忆系统（基础能力，所有场景均可用）
     'retrieve_memory',
+    'memory_store',
+    'memory_search',
     // 系统管理
     'butler_daemon',
     'enter_worktree',
@@ -100,19 +100,17 @@ export const TOOL_CATEGORIES = {
       'write_file',
       'edit_file',
       'multi_edit',
-      'list_directory',  // 实际工具名
+      'list_directory',
       'notebook_edit',
     ],
 
     /**
      * 生活场景
-     * - memory_store / memory_search: 记忆管理
      * - reminder_set / reminder_check: 提醒管理
      * - web_search / web_fetch: Web 信息获取
+     * （memory_store / memory_search 已移至 META 层，所有场景均可用）
      */
     'life': [
-      'memory_store',
-      'memory_search',
       'reminder_set',
       'reminder_check',
       'web_search',

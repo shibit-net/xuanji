@@ -13,6 +13,9 @@ import type { Intent, IntentDomain } from './types.js';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry.js';
 import type { ProviderConfig } from '@/core/types';
 import { AgentExecutor } from '@/core/agent/AgentExecutor.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'LLMIntentClassifier' });
 
 /**
  * 可用模块信息
@@ -63,7 +66,7 @@ export class LLMIntentClassifier {
   ): Promise<Intent[]> {
     // 如果没有 AgentRegistry，返回空数组（降级处理）
     if (!this.agentRegistry) {
-      console.warn('⚠️  AgentRegistry 未初始化，意图分类已禁用');
+      log.warn('AgentRegistry 未初始化，意图分类已禁用');
       return [];
     }
 
@@ -71,11 +74,11 @@ export class LLMIntentClassifier {
     const agentConfig = this.agentRegistry.get(LLMIntentClassifier.AGENT_ID);
 
     if (!agentConfig || !agentConfig.enabled) {
-      console.warn(`⚠️  IntentAnalyzer Agent (${LLMIntentClassifier.AGENT_ID}) 未启用`);
+      log.warn(`IntentAnalyzer Agent (${LLMIntentClassifier.AGENT_ID}) 未启用`);
       return [];
     }
 
-    console.log('⏳ LLM 意图分析中（使用 IntentAnalyzer Agent）...');
+    log.debug('LLM 意图分析中（使用 IntentAnalyzer Agent）...');
 
     try {
       // 构建 Prompt
@@ -90,7 +93,7 @@ export class LLMIntentClassifier {
       });
 
       if (!result.success) {
-        console.error('IntentAnalyzer Agent 执行失败:', result.error);
+        log.warn('IntentAnalyzer Agent 执行失败:', result.error);
         return [];
       }
 
@@ -98,14 +101,12 @@ export class LLMIntentClassifier {
       const intents = this.parseClassificationResult(result.content, availableModules);
 
       if (intents.length > 0) {
-        console.log(
-          `✓ IntentAnalyzer 识别: ${intents[0].params?.moduleId} (置信度: ${intents[0].confidence.toFixed(2)})`
-        );
+        log.debug(`IntentAnalyzer 识别: ${intents[0].params?.moduleId} (置信度: ${intents[0].confidence.toFixed(2)})`);
       }
 
       return intents;
     } catch (err) {
-      console.error('IntentAnalyzer Agent 执行失败:', err);
+      log.warn('IntentAnalyzer Agent 执行失败:', err);
       return [];
     }
   }
@@ -191,7 +192,7 @@ ${modules
 
         const module = modules.find((m) => m.id === r.moduleId);
         if (!module) {
-          console.warn(`⚠️  模块 ${r.moduleId} 不存在`);
+          log.warn(`模块 ${r.moduleId} 不存在`);
           continue;
         }
 
@@ -211,8 +212,8 @@ ${modules
 
       return intents;
     } catch (err) {
-      console.error('解析 LLM 分类结果失败:', err);
-      console.error('原始内容:', content);
+      log.warn('解析 LLM 分类结果失败:', err);
+      log.debug('原始内容:', content);
       return [];
     }
   }

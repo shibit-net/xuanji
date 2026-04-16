@@ -7,11 +7,10 @@
 // - SubAgent 用嵌套卡片显示，体现协作关系
 // ============================================================
 
-import React from 'react';
 import { useActiveAgentStore } from '../stores';
 import { AgentWorkCard } from './AgentWorkCard';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 export default function ActiveAgentView() {
   const mainAgent = useActiveAgentStore((state) => state.mainAgent);

@@ -221,8 +221,10 @@ export class OpenAIProvider extends BaseLLMProvider {
         this.log.debug(`Tools: ${JSON.stringify(openaiTools.map(t => 'function' in t ? (t as { function: { name: string } }).function.name : 'unknown'))}`);
       }
 
-      // 调用 OpenAI Streaming API
-      const stream = await client.chat.completions.create(requestParams);
+      // 🔧 调用 OpenAI Streaming API，支持 AbortSignal
+      const stream = await client.chat.completions.create(requestParams, {
+        signal: config.signal,
+      });
 
       // 工具调用累积状态
       const toolCallAccumulator: Map<number, {

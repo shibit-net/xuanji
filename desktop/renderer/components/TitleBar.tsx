@@ -2,8 +2,8 @@
 // TitleBar - 标题栏组件
 // ============================================================
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Minus, Square, X, ChevronDown, Shrink, Activity, Stethoscope, PanelRight } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Minus, Square, X } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 
 interface TitleBarProps {
@@ -15,21 +15,6 @@ interface TitleBarProps {
 
 export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, onToggleRightPanel }: TitleBarProps) {
   const stats = useChatStore((state) => state.stats);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // 点击外部关闭菜单
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    if (menuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [menuOpen]);
 
   const handleMinimize = () => {
     window.electron?.minimize();
@@ -43,78 +28,38 @@ export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, on
     window.electron?.close();
   };
 
-  const menuItems = [
-    { icon: <Shrink size={14} />, label: '压缩上下文', action: onCompact },
-    { icon: <Activity size={14} />, label: '使用统计', action: onShowStats },
-    { icon: <Stethoscope size={14} />, label: '系统诊断', action: onShowDiagnostics },
-    { icon: <PanelRight size={14} />, label: '右侧面板', action: onToggleRightPanel },
-  ];
-
   return (
-    <div className="h-10 bg-bg-secondary flex items-center justify-between px-4 select-none drag">
-      {/* 左侧：应用标题 + 功能菜单 */}
+    <div className="flex-shrink-0 h-10 bg-bg-secondary flex items-center justify-between px-4 select-none drag">
+      {/* 左侧：占位 */}
+      <div className="w-20"></div>
+
+      {/* 中间：应用名称 */}
       <div className="flex items-center gap-2">
-        <div className="text-primary font-bold">⭐ Xuanji</div>
-        <div className="text-text-secondary text-sm">·</div>
-
-        {/* 功能菜单 */}
-        <div className="relative no-drag" ref={menuRef}>
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-1 px-2 py-0.5 text-sm text-text-secondary hover:bg-bg-tertiary rounded transition-colors"
-          >
-            <span>功能</span>
-            <ChevronDown size={12} />
-          </button>
-          {menuOpen && (
-            <div className="absolute top-full left-0 mt-1 w-40 bg-bg-secondary border border-bg-tertiary rounded-lg shadow-lg z-50 py-1">
-              {menuItems.map((item) => (
-                <button
-                  key={item.label}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    item.action?.();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors"
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 中间：模型信息（从 store 读取） */}
-      <div className="flex items-center gap-4 text-sm text-text-secondary">
-        <div>{stats.model}</div>
-        <div>↑{stats.tokenUsage.input.toLocaleString()} ↓{stats.tokenUsage.output.toLocaleString()}</div>
-        <div>${stats.cost.toFixed(4)}</div>
+        <div className="text-primary font-bold text-lg">璇玑</div>
       </div>
 
       {/* 右侧：窗口控制按钮 */}
-      <div className="flex items-center gap-2 no-drag">
+      <div className="flex items-center gap-1 no-drag">
         <button
           onClick={handleMinimize}
-          className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+          className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
           title="最小化"
         >
-          <Minus size={16} />
+          <Minus size={14} />
         </button>
         <button
           onClick={handleMaximize}
-          className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+          className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
           title="最大化"
         >
-          <Square size={16} />
+          <Square size={14} />
         </button>
         <button
           onClick={handleClose}
-          className="p-1 hover:bg-error/80 rounded transition-colors"
+          className="p-1.5 hover:bg-red-500/80 hover:text-white rounded transition-colors"
           title="关闭"
         >
-          <X size={16} />
+          <X size={14} />
         </button>
       </div>
     </div>

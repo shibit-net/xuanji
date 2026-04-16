@@ -5,7 +5,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
-import { StorageBackend } from '@/memory/StorageBackend';
+import { SimpleStorage } from '@/core/SimpleStorage';
 import { logger } from '@/core/logger';
 import type { ILLMProvider } from '@/core/types';
 import type { IReminderEngine } from '@/reminder/types';
@@ -34,7 +34,7 @@ const log = logger.child({ module: 'proactive-butler' });
  */
 export class ProactiveButler extends EventEmitter implements IProactiveButler {
   private config: ButlerConfig;
-  private storage: StorageBackend;
+  private storage: SimpleStorage;
   private filePath: string;
   private pushHistory: PushRecord[] = [];
   private initialized = false;
@@ -53,7 +53,7 @@ export class ProactiveButler extends EventEmitter implements IProactiveButler {
   constructor(config?: Partial<ButlerConfig>) {
     super();
     this.config = { ...DEFAULT_BUTLER_CONFIG, ...config };
-    this.storage = new StorageBackend();
+    this.storage = new SimpleStorage();
     this.filePath = join(homedir(), '.xuanji', this.config.storageFile);
   }
 

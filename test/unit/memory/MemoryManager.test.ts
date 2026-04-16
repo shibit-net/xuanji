@@ -8,6 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { MemoryManager } from '@/memory/MemoryManager';
+import { MemoryStore } from '@/memory/MemoryStore';
 import type { SessionMemory } from '@/memory/types';
 
 function createSession(overrides: Partial<SessionMemory> = {}): SessionMemory {
@@ -27,30 +28,30 @@ function createSession(overrides: Partial<SessionMemory> = {}): SessionMemory {
 }
 
 /**
- * 创建隔离的 MemoryManager，使用临时全局目录
+ * 创建隔离的 MemoryManager，使用临时数据库路径
  */
 function createIsolatedManager(
-  globalDir: string,
+  dbPath: string,
   projectDir: string,
   configOverrides: Record<string, unknown> = {},
 ): MemoryManager {
   const manager = new MemoryManager(configOverrides, projectDir);
-  // 覆盖全局目录实现测试隔离
-  manager['longTerm']['globalDir'] = globalDir;
+  // 覆盖 store 的数据库路径实现测试隔离
+  (manager as any).store = new MemoryStore(dbPath);
   return manager;
 }
 
 describe('MemoryManager', () => {
-  let tempGlobalDir: string;
+  let tempDir: string;
   let tempProjectDir: string;
 
   beforeEach(async () => {
-    tempGlobalDir = await mkdtemp(join(tmpdir(), 'xuanji-mm-global-'));
+    tempDir = await mkdtemp(join(tmpdir(), 'xuanji-mm-'));
     tempProjectDir = await mkdtemp(join(tmpdir(), 'xuanji-mm-project-'));
   });
 
   afterEach(async () => {
-    for (const dir of [tempGlobalDir, tempProjectDir]) {
+    for (const dir of [tempDir, tempProjectDir]) {
       if (existsSync(dir)) {
         await rm(dir, { recursive: true, force: true });
       }
@@ -58,21 +59,25 @@ describe('MemoryManager', () => {
   });
 
   it('should initialize successfully', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir);
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
     await manager.init();
 
     expect(manager.isInitialized()).toBe(true);
-    expect(manager.getCachedEntryCount()).toBe(0);
+    const stats = await manager.getStats();
+    expect(stats.total).toBe(0);
   });
 
   it('should save and retrieve session memory', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir);
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
     await manager.init();
 
     const session = createSession();
     await manager.save(session);
 
-    expect(manager.getCachedEntryCount()).toBeGreaterThan(0);
+    const stats = await manager.getStats();
+    expect(stats.total).toBeGreaterThan(0);
 
     // 检索相关记忆
     const results = await manager.retrieve('memory leak');
@@ -80,7 +85,8 @@ describe('MemoryManager', () => {
   });
 
   it('should format memories for prompt', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir);
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
     await manager.init();
 
     const session = createSession();
@@ -93,7 +99,8 @@ describe('MemoryManager', () => {
   });
 
   it('should return empty for disabled memory', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir, { enabled: false });
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir, { enabled: false });
     await manager.init();
 
     const session = createSession();
@@ -104,13 +111,15 @@ describe('MemoryManager', () => {
   });
 
   it('should handle empty format', () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir);
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
     const formatted = manager.formatForPrompt([]);
     expect(formatted).toBe('');
   });
 
   it('should truncate formatted prompt to max length', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir, { maxPromptLength: 100 });
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir, { maxPromptLength: 100 });
     await manager.init();
 
     // 保存多个会话
@@ -128,7 +137,8 @@ describe('MemoryManager', () => {
   });
 
   it('should reset short term memory', () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir);
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
 
     expect(manager.getShortTerm()).toBeNull();
 
@@ -138,7 +148,8 @@ describe('MemoryManager', () => {
   });
 
   it('should compact when threshold exceeded', async () => {
-    const manager = createIsolatedManager(tempGlobalDir, tempProjectDir, {
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir, {
       compactionThreshold: 5,
       longTermMaxEntries: 10,
     });
@@ -160,6 +171,18 @@ describe('MemoryManager', () => {
     }
 
     // 压缩后条目数应受限
-    expect(manager.getCachedEntryCount()).toBeLessThanOrEqual(20);
+    const stats = await manager.getStats();
+    expect(stats.total).toBeLessThanOrEqual(20);
+  });
+
+  it('should expose getStore()', async () => {
+    const dbPath = join(tempDir, 'memory.db');
+    const manager = createIsolatedManager(dbPath, tempProjectDir);
+    await manager.init();
+
+    const store = manager.getStore();
+    expect(store).toBeDefined();
+    expect(typeof store.saveEntry).toBe('function');
+    expect(typeof store.searchFTS).toBe('function');
   });
 });

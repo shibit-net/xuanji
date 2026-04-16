@@ -1,0 +1,34 @@
+{
+  "testName": "Simple 2-Step Pipeline",
+  "status": "documented",
+  "duration": 0,
+  "testPlan": {
+    "name": "Simple 2-Step Pipeline",
+    "objective": "Test basic 2-step data flow",
+    "steps": [
+      {
+        "step": 1,
+        "agent": "coder",
+        "task": "Generate a JSON list of 3 colors",
+        "expectedOutput": "JSON array with color names"
+      },
+      {
+        "step": 2,
+        "agent": "coder",
+        "task": "Take {{previous_output}} and add hex codes for each color",
+        "expectedOutput": "JSON array with color names and hex codes",
+        "tests": [
+          "Verify {{previous_output}} was substituted",
+          "Verify all original colors are preserved",
+          "Verify hex codes are added"
+        ]
+      }
+    ],
+    "expectedBehavior": [
+      "Step 1 output is passed to Step 2",
+      "Step 2 receives and processes previous output",
+      "Final output contains data from both steps"
+    ]
+  },
+  "note": "Cannot execute due to import issues - test plan documented"
+}

@@ -3,37 +3,39 @@ import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
 import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
 import type { ProviderConfig, Message, ToolSchema } from '@/core/types';
 
+/** 消费 AsyncIterable 直到抛出异常或结束 */
+async function consumeStream(stream: AsyncIterable<unknown>): Promise<void> {
+  for await (const _ of stream) { /* consume */ }
+}
+
 describe('Provider API Key Validation', () => {
   describe('AnthropicProvider', () => {
     it('应在 API Key 为空时抛出异常', async () => {
       const provider = new AnthropicProvider();
       const config: ProviderConfig = {
         model: 'claude-sonnet-4',
-        apiKey: '', // 空字符串
+        apiKey: '',
       };
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const tools: ToolSchema[] = [];
 
-      // stream 方法返回 AsyncIterator，需要调用 next() 才会执行
       const stream = provider.stream(messages, tools, config);
-      
-      await expect(stream.next()).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
     });
 
     it('应在 API Key 为 undefined 时抛出异常', async () => {
       const provider = new AnthropicProvider();
       const config: ProviderConfig = {
         model: 'claude-sonnet-4',
-        apiKey: undefined, // undefined
+        apiKey: undefined,
       };
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const tools: ToolSchema[] = [];
 
       const stream = provider.stream(messages, tools, config);
-      
-      await expect(stream.next()).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
     });
 
     it('错误信息应包含配置方式说明', async () => {
@@ -46,7 +48,7 @@ describe('Provider API Key Validation', () => {
       const stream = provider.stream(messages, [], config);
 
       try {
-        await stream.next();
+        await consumeStream(stream);
         expect.fail('应该抛出异常');
       } catch (error) {
         const message = (error as Error).message;
@@ -68,8 +70,7 @@ describe('Provider API Key Validation', () => {
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const stream = provider.stream(messages, [], config);
-      
-      await expect(stream.next()).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
     });
 
     it('应在 API Key 为 undefined 时抛出异常', async () => {
@@ -81,8 +82,7 @@ describe('Provider API Key Validation', () => {
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const stream = provider.stream(messages, [], config);
-      
-      await expect(stream.next()).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
     });
 
     it('错误信息应包含配置方式说明', async () => {
@@ -95,7 +95,7 @@ describe('Provider API Key Validation', () => {
       const stream = provider.stream(messages, [], config);
 
       try {
-        await stream.next();
+        await consumeStream(stream);
         expect.fail('应该抛出异常');
       } catch (error) {
         const message = (error as Error).message;

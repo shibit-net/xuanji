@@ -63,7 +63,7 @@ export default function TodoPanel() {
   const hiddenCount = sortedTodos.length - visibleTodos.length;
 
   return (
-    <div className="border-t border-bg-tertiary bg-bg-secondary">
+    <div className="flex-shrink-0 border-t border-bg-tertiary bg-bg-secondary">
       {/* 头部 */}
       <div
         className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-bg-tertiary transition-colors"
@@ -120,7 +120,7 @@ export default function TodoPanel() {
 
       {/* 展开时显示所有任务列表 */}
       {!collapsed && (
-        <div className="px-4 pb-3 space-y-1.5 max-h-64 overflow-y-auto">
+        <div className="px-4 pb-3 space-y-1.5 max-h-48 overflow-y-auto">
           {visibleTodos.map((todo) => {
             const statusIcon =
               todo.status === 'completed' ? (

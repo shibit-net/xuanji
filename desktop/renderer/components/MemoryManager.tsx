@@ -25,8 +25,10 @@ import {
   Filter,
   Search,
   Loader2,
+  Shield,
 } from 'lucide-react';
 import { useToast } from './Toast';
+import PermissionRulesPanel from './PermissionRulesPanel';
 
 interface MemoryManagerProps {
   onClose: () => void;
@@ -60,7 +62,7 @@ interface MemoryConfig {
   };
 }
 
-type Tab = 'stats' | 'config' | 'list';
+type Tab = 'stats' | 'config' | 'list' | 'permissions';
 
 export default function MemoryManager({ onClose }: MemoryManagerProps) {
   const toast = useToast();
@@ -111,7 +113,21 @@ export default function MemoryManager({ onClose }: MemoryManagerProps) {
     try {
       const result = await window.electron.getMemoryConfig();
       if (result.success && result.config) {
-        setConfig(result.config);
+        // 深度合并：只更新后端有对应字段的部分，保留 GUI 默认值
+        setConfig((prev) => ({
+          intelligentFlush: {
+            ...prev.intelligentFlush!,
+            ...(result.config.intelligentFlush ?? {}),
+          },
+          topicExtraction: {
+            ...prev.topicExtraction!,
+            ...(result.config.topicExtraction ?? {}),
+          },
+          tokenEstimation: {
+            ...prev.tokenEstimation!,
+            ...(result.config.tokenEstimation ?? {}),
+          },
+        }));
       }
     } catch (err) {
       console.error('Failed to load memory config:', err);
@@ -227,6 +243,17 @@ export default function MemoryManager({ onClose }: MemoryManagerProps) {
           <Database className="w-4 h-4" />
           <span className="text-sm font-medium">记忆列表</span>
         </button>
+        <button
+          onClick={() => setActiveTab('permissions')}
+          className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+            activeTab === 'permissions'
+              ? 'bg-primary text-white'
+              : 'bg-bg-secondary hover:bg-bg-tertiary'
+          }`}
+        >
+          <Shield className="w-4 h-4" />
+          <span className="text-sm font-medium">权限规则</span>
+        </button>
       </div>
 
       {/* 内容区 */}
@@ -246,6 +273,9 @@ export default function MemoryManager({ onClose }: MemoryManagerProps) {
         )}
         {activeTab === 'list' && (
           <ListView searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+        )}
+        {activeTab === 'permissions' && (
+          <PermissionRulesPanel />
         )}
       </div>
     </div>

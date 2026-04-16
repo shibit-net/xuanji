@@ -327,3 +327,12 @@ export class TodoManager {
     return `\n<!--TODO_PROGRESS:${progressData}-->`;
   }
 }
+
+let _todoManagerInstance: TodoManager | null = null;
+
+export function getTodoManager(): TodoManager {
+  if (!_todoManagerInstance) {
+    _todoManagerInstance = new TodoManager();
+  }
+  return _todoManagerInstance;
+}

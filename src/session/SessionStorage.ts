@@ -70,9 +70,13 @@ export class SessionStorage {
     // 1. 备份现有文件（如果存在）
     if (this.autoBackup) {
       try {
+        await fs.access(paths.messages);
         await fs.copyFile(paths.messages, paths.messagesBackup);
       } catch (error) {
-        log.debug('Backup failed:', error);
+        // 文件不存在时跳过备份（新会话场景）
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          log.debug('Backup failed:', error);
+        }
       }
     }
 

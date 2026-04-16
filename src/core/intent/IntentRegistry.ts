@@ -14,6 +14,9 @@ import type {
   IntentDomain,
 } from './types.js';
 import type { ScanResult } from './UniversalIntentScanner.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'IntentRegistry' });
 
 /**
  * 注册项
@@ -80,7 +83,7 @@ export class IntentRegistry {
       this.register(result.intentMeta, result.module);
     }
 
-    console.log(`✓ 注册 ${this.byIntentType.size} 个意图类型，${this.byModuleId.size} 个模块`);
+    log.debug(`注册 ${this.byIntentType.size} 个意图类型，${this.byModuleId.size} 个模块`);
   }
 
   /**
@@ -238,7 +241,7 @@ export class IntentRegistry {
         try {
           await entry.callback(context);
         } catch (err) {
-          console.error(`意图回调执行失败 (${intentType}):`, err);
+          log.warn(`意图回调执行失败 (${intentType}):`, err);
         }
       }
     }
@@ -319,41 +322,4 @@ export class IntentRegistry {
     this.byDomain.clear();
   }
 
-  /**
-   * 输出注册表详情（调试用）
-   */
-  dump(): void {
-    console.log('\n=== 意图注册表详情 ===\n');
-
-    const stats = this.getStats();
-    console.log(`总意图类型: ${stats.totalIntentTypes}`);
-    console.log(`总注册模块: ${stats.totalModules}\n`);
-
-    console.log('按模块类型:');
-    for (const [type, count] of Object.entries(stats.byModuleType)) {
-      console.log(`  ${type}: ${count}`);
-    }
-
-    console.log('\n按领域:');
-    for (const [domain, count] of Object.entries(stats.byDomain)) {
-      console.log(`  ${domain}: ${count}`);
-    }
-
-    console.log('\n按优先级:');
-    console.log(`  高 (>=80): ${stats.byPriority.high}`);
-    console.log(`  中 (50-79): ${stats.byPriority.medium}`);
-    console.log(`  低 (<50): ${stats.byPriority.low}`);
-
-    console.log('\n意图列表:');
-    for (const [intentType, entries] of this.byIntentType.entries()) {
-      console.log(`\n  ${intentType}:`);
-      for (const entry of entries) {
-        console.log(
-          `    - [${entry.module.moduleType}] ${entry.module.id} (优先级: ${entry.intentMeta.priority || 50})`
-        );
-      }
-    }
-
-    console.log('\n======================\n');
-  }
 }

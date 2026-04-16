@@ -3,8 +3,7 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import React from 'react';
-import { Settings, HelpCircle, Bot, Wrench, FileText, Package, Server, Brain } from 'lucide-react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Package, Server, Brain, MessageSquare } from 'lucide-react';
 
 interface SidebarProps {
   onToggle: () => void;
@@ -20,23 +19,12 @@ interface SidebarProps {
 export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenSkills, onOpenTools, onOpenMCP, onOpenSystemPrompt, onOpenMemory }: SidebarProps) {
   return (
     <div className="w-56 bg-bg-secondary flex flex-col border-r border-bg-tertiary">
-      {/* 顶部标题 */}
+      {/* 顶部：当前对话 */}
       <div className="p-4 border-b border-bg-tertiary">
-        <div className="text-lg font-bold text-primary flex items-center gap-2">
-          <span className="text-2xl">⭐</span>
-          <span>Shibit Xuanji</span>
-        </div>
-        <div className="text-xs text-text-secondary mt-1">智能编程助手</div>
-      </div>
-
-      {/* 连续会话提示 */}
-      <div className="p-4 text-sm text-text-secondary">
-        <div className="bg-bg-tertiary rounded p-3">
-          <div className="font-medium text-primary mb-1">💬 连续会话模式</div>
-          <div className="text-xs leading-relaxed">
-            对话自动保存，启动时自动恢复。达到阈值时自动归档旧消息，保持上下文简洁高效。
-          </div>
-        </div>
+        <button className="w-full flex items-center gap-3 px-3 py-2 rounded bg-primary/10 border border-primary/30 hover:bg-primary/20 transition-colors">
+          <MessageSquare size={18} className="text-primary" />
+          <span className="text-sm font-medium text-primary">Xuanji</span>
+        </button>
       </div>
 
       {/* 间隔 */}

@@ -74,7 +74,7 @@ export class AgentExecutor {
         baseURL: options.baseURL,
         maxTokens: 1000,  // IntentAnalyzer 固定值
         temperature: 0.1, // IntentAnalyzer 固定值（低温度，确定性）
-        systemPrompt: agentConfig.systemPrompt,
+        systemPrompt: agentConfig.systemPrompt ?? undefined,
       };
 
       // 4. 创建 AgentLoop

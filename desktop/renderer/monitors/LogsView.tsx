@@ -10,10 +10,9 @@
 // - 数据来源：runtimeStore.logs
 // ============================================================
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter } from 'lucide-react';
 import { useRuntimeStore } from '../stores';
-import type { LogEntry } from '../types/models';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'all';
 type LogCategory = 'system' | 'agent' | 'tool' | 'ipc' | 'all';

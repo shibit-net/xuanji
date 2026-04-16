@@ -27,11 +27,8 @@ export interface TeamMember {
   systemPrompt?: string;
   /**
    * 成员独立超时（毫秒）。
-   * 若未设置，由 TeamManager 根据策略自动推算：
-   * - parallel: 等于团队总超时（并行不叠加）
-   * - sequential / pipeline: 团队总超时 / 成员数
-   * - hierarchical: 团队总超时 / (workers + 1)
-   * - debate: 团队总超时 / (成员数 × maxRounds)
+   * 若未设置，由 TeamManager 根据策略自动推算，
+   * 基于 TeamConfig.defaultMemberTimeout 和策略权重。
    */
   timeout?: number;
 }
@@ -91,18 +88,40 @@ export interface TeamConfig {
   goal: string;
   /** 最大轮次（防止无限循环） */
   maxRounds?: number;
-  /** 超时时间（毫秒） */
-  timeout?: number;
+
+  // 🆕 团队级超时控制
+  /**
+   * 团队总超时（毫秒）- 硬性时间上限。
+   * 无论策略如何，团队执行时间不会超过此值。
+   * 默认 600000 (10 分钟)。
+   */
+  teamTotalTimeout?: number;
+
+  /**
+   * 每个成员的默认超时基准（毫秒），各策略在此基础上按权重调整。
+   * 如果未设置，将根据 teamTotalTimeout 和成员数量自动计算。
+   */
+  defaultMemberTimeout?: number;
+
+  /**
+   * 单个成员的统一超时时间（毫秒）。
+   * ⚠️ 仅作为兜底值使用，优先级低于策略权重计算。
+   * 不推荐设置此值，应该让策略自动分配超时。
+   */
+  memberTimeoutMs?: number;
+
   /** 是否启用共享知识库 */
   enableSharedKnowledge?: boolean;
   /** 是否记录完整消息历史 */
   recordHistory?: boolean;
-  
-  // 🆕 超时分配策略配置
-  /** Hierarchical 模式下 Leader 占用的时间比例（默认 0.5，即 50%） */
+
+  // 超时分配策略配置
+  /** Hierarchical 模式下 Leader 超时倍率（基于 defaultMemberTimeout，默认 1.5） */
   hierarchicalLeaderRatio?: number;
-  /** Debate 模式下首轮占用的时间比例（默认 0.4，即 40%） */
+  /** Debate 模式下首轮超时倍率（基于 defaultMemberTimeout，默认 1.0） */
   debateFirstRoundRatio?: number;
+  /** Debate 模式下后续轮超时倍率（基于 defaultMemberTimeout，默认 0.6） */
+  debateLaterRoundRatio?: number;
   /** 是否启用动态超时调整（默认 true） */
   enableDynamicTimeout?: boolean;
   /** 单个成员的最小超时时间（毫秒，默认 30000 即 30s） */
@@ -221,14 +240,16 @@ export interface ITeamManager {
  * 默认团队配置
  */
 export const DEFAULT_TEAM_CONFIG = {
-  maxRounds: 10,
-  timeout: 1_800_000, // 30 分钟（多 agent 协作需要充足时间，从 20min 提升到 30min）
+  maxRounds: 5,                    // 🔧 默认 5 轮（辩论模式推荐：开场 → 2-3轮交锋 → 总结）
+  teamTotalTimeout: 600_000,       // 🆕 基准超时 10 分钟（辩论模式会根据轮次自动计算总超时）
+  defaultMemberTimeout: 600_000,   // 🆕 成员基准超时 10 分钟（会被策略调整）
   enableSharedKnowledge: true,
   recordHistory: true,
-  
+
   // 超时分配策略默认值
-  hierarchicalLeaderRatio: 0.5,   // Leader 占 50%
-  debateFirstRoundRatio: 0.4,     // 首轮占 40%
-  enableDynamicTimeout: true,      // 启用动态调整
-  minMemberTimeout: 30_000,        // 最小 30s
+  hierarchicalLeaderRatio: 1.5,    // Leader 超时倍率（1.5x）
+  debateFirstRoundRatio: 1.5,      // 首轮超时倍率（1.5x，开场陈述需要更多时间）
+  debateLaterRoundRatio: 1.0,      // 后续轮超时倍率（1.0x，正常辩论时间）
+  enableDynamicTimeout: true,       // 启用动态调整
+  minMemberTimeout: 30_000,         // 最小 30s
 } as const;

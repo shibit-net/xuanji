@@ -4,9 +4,9 @@
 //
 // 特点:
 // - UnJS 生态（Nuxt 团队维护）
-// - CLI 友好的美化输出
+// - CLI 友好的美化输出，带颜色区分
 // - 支持日志级别过滤
-// - 通过共享 FileWriter 支持文件持久化
+// - 通过共享 FileWriter 支持按级别分文件持久化
 //
 
 import { createConsola, LogLevels, type ConsolaInstance } from 'consola';
@@ -26,8 +26,12 @@ const LEVEL_MAP: Record<LogLevel, number> = {
  *
  * 适用于生产环境：
  * - 支持日志级别过滤（XUANJI_LOG_LEVEL）
- * - 通过 FileWriter 文件持久化（异步追加写入）
- * - CLI 友好的格式化输出
+ * - 通过 FileWriter 按级别分文件持久化（异步追加写入）
+ * - CLI 友好的格式化输出，自动颜色区分：
+ *   - debug: 灰色
+ *   - info: 蓝色
+ *   - warn: 黄色
+ *   - error: 红色
  */
 export class ConsolaLogger implements ILogger {
   private consola: ConsolaInstance;
@@ -45,7 +49,7 @@ export class ConsolaLogger implements ILogger {
       ?? (process.env.XUANJI_LOG_LEVEL as LogLevel | undefined)
       ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 
-    // 创建 consola 实例
+    // 创建 consola 实例（consola 自带颜色支持）
     this.consola = createConsola({
       level: LEVEL_MAP[level] ?? LogLevels.info,
       defaults: {

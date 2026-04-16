@@ -1,332 +1,227 @@
 // ============================================================
-// M4 记忆系统 — Markdown 格式化器（OpenClaw 风格）
+// MemoryFormatter — M5 分层记忆格式化器
+// ============================================================
+// 输出结构（优先级从高到低）：
+//   🚫 核心规则（始终在最前，由 CoreRuleStore 提供）
+//   👤 用户画像（profile 层，按 categoryLabel 分组）
+//   💡 相关知识（knowledge 层：经验教训 / 历史决策）
+//   📅 近期上下文（episode 层：最近 3 天）
+//   ⏰ 待处理事项（unfinished_task）
 // ============================================================
 
-import type { MemoryEntry, MemoryCategory } from './types';
+import type { MemoryEntry, MemoryEntryType, DecisionContext } from './types';
+import type { CoreRule } from './types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'memory-formatter' });
 
-/**
- * 记忆格式化器
- *
- * 将 JSONL 存储的记忆格式化为 OpenClaw 风格的 Markdown，
- * 用于传递给 LLM 作为上下文。
- *
- * 借鉴 OpenClaw 的组织方式：
- * - 分类清晰（Facts / Topics / Timeline）
- * - 层级结构（Markdown 标题）
- * - 重要性标记（⭐ emoji）
- * - 访问频次展示（透明化）
- */
+/** 记忆类型中文标签（向后兼容） */
+const TYPE_LABELS: Partial<Record<MemoryEntryType, string>> = {
+  user_preference:  '用户偏好',
+  user_fact:        '用户事实',
+  relationship:     '人际关系',
+  important_date:   '重要日期',
+  decision:         '决策',
+  tool_pattern:     '工具模式',
+  error_resolution: '错误解决',
+  project_fact:     '项目事实',
+  session_summary:  '会话摘要',
+  agent_knowledge:  'Agent 知识',
+  lesson_learned:   '经验教训',
+  reusable_pattern: '可复用方案',
+  domain_knowledge: '领域知识',
+  unfinished_task:  '未完成任务',
+};
+
 export class MemoryFormatter {
   /**
-   * 格式化记忆为 Markdown（主入口）
-   *
-   * 输出格式（OpenClaw 风格）：
-   * ```markdown
-   * ## 📝 Relevant Past Context
-   *
-   * ### 👤 User Facts
-   * - ⭐ **用户事实1**
-   * - **用户事实2**
-   *
-   * ### 📚 Knowledge & Preferences
-   * **主题1**:
-   *   - 知识点1 (used 15 times)
-   *   - 知识点2
-   *
-   * ### 📅 Recent Context
-   * **Today (2026-03-16)**:
-   *   - 对话1
-   *   - 对话2
-   * ```
+   * 格式化完整记忆上下文（主入口）
+   * 直接接收 DecisionContext，输出完整的注入文本
    */
-  formatForPrompt(memories: MemoryEntry[]): string {
-    if (memories.length === 0) {
-      return '';
+  formatDecisionContext(ctx: DecisionContext): string {
+    const sections: string[] = [];
+
+    // 1. 核心规则（始终在最前）
+    if (ctx.activeRules.length > 0) {
+      sections.push(this.formatCoreRules(ctx.activeRules));
     }
 
-    // 1. 按分类分组
-    const byCategory = this.groupByCategory(memories);
+    // 2. 用户画像摘要
+    if (ctx.profileSummary) {
+      sections.push(`### 👤 关于你\n\n${ctx.profileSummary}`);
+    }
+
+    // 3. 相关经验教训
+    if (ctx.relevantLessons.length > 0) {
+      sections.push(this.formatLessons(ctx.relevantLessons));
+    }
+
+    // 4. 相关历史决策
+    if (ctx.relevantDecisions.length > 0) {
+      sections.push(this.formatDecisions(ctx.relevantDecisions));
+    }
+
+    // 5. 待处理事项
+    if (ctx.pendingTasks.length > 0) {
+      sections.push(this.formatPendingTasks(ctx.pendingTasks));
+    }
+
+    if (sections.length === 0) return '';
+
+    return sections.join('\n\n---\n\n');
+  }
+
+  /**
+   * 格式化普通记忆列表（向后兼容，供 MemoryManager.formatForPrompt 使用）
+   */
+  formatForPrompt(memories: MemoryEntry[]): string {
+    if (memories.length === 0) return '';
+
+    // 按 scope 分层
+    const profile   = memories.filter((m) => m.scope === 'profile' || this.isProfileType(m.type));
+    const knowledge = memories.filter((m) => m.scope === 'knowledge' || this.isKnowledgeType(m.type));
+    const episode   = memories.filter((m) =>
+      !profile.includes(m) && !knowledge.includes(m) && m.type !== 'unfinished_task',
+    );
+    const tasks     = memories.filter((m) => m.type === 'unfinished_task');
 
     const sections: string[] = [];
 
-    // 2. 用户事实（最重要，优先展示）
-    if (byCategory.fact && byCategory.fact.length > 0) {
-      sections.push(this.formatFacts(byCategory.fact));
-    }
+    if (profile.length > 0)   sections.push(this.formatProfileEntries(profile));
+    if (knowledge.length > 0) sections.push(this.formatKnowledgeEntries(knowledge));
+    if (episode.length > 0)   sections.push(this.formatTimeline(episode));
+    if (tasks.length > 0)     sections.push(this.formatPendingTasks(tasks));
 
-    // 3. 主题知识
-    if (byCategory.topic && byCategory.topic.length > 0) {
-      sections.push(this.formatTopics(byCategory.topic));
-    }
+    if (sections.length === 0) return '';
 
-    // 4. 最近对话（如果需要上下文）
-    if (byCategory.timeline && byCategory.timeline.length > 0) {
-      sections.push(this.formatTimeline(byCategory.timeline));
-    }
-
-    if (sections.length === 0) {
-      return '';
-    }
-
-    return `
-## 📝 Relevant Past Context
-
-${sections.join('\n\n---\n\n')}
-
-**Note**: This context is retrieved from your long-term memory based on relevance to the current query.
-    `.trim();
+    return `### Relevant Past Context\n\n${sections.join('\n\n---\n\n')}`;
   }
 
-  /**
-   * 格式化用户事实（OpenClaw 风格）
-   */
-  private formatFacts(facts: MemoryEntry[]): string {
-    // 按重要性排序
-    const sorted = [...facts].sort((a, b) => {
-      const aImp = a.metadata?.importance === 'high' ? 2 :
-                   a.metadata?.importance === 'low' ? 0 : 1;
-      const bImp = b.metadata?.importance === 'high' ? 2 :
-                   b.metadata?.importance === 'low' ? 0 : 1;
-      return bImp - aImp;
-    });
+  // ────────── 分区格式化 ──────────
 
-    const items = sorted.map(fact => {
-      const importance = fact.metadata?.importance === 'high' ? '⭐ ' : '';
-      return `- ${importance}**${fact.content}**`;
-    });
-
-    return `
-### 👤 User Facts
-
-${items.join('\n')}
-    `.trim();
+  private formatCoreRules(rules: CoreRule[]): string {
+    const lines = rules.map((r, i) => `${i + 1}. ${r.rule}`);
+    return `### 🚫 核心规则（必须严格遵守）\n\n${lines.join('\n')}`;
   }
 
-  /**
-   * 格式化主题知识（OpenClaw 风格）
-   */
-  private formatTopics(topics: MemoryEntry[]): string {
-    // 按主题 ID 分组
-    const byTopic = this.groupByTopicId(topics);
+  private formatLessons(lessons: MemoryEntry[]): string {
+    const items = lessons.slice(0, 5).map((m) => {
+      const label = m.categoryLabel ?? TYPE_LABELS[m.type] ?? m.type;
+      const accessed = m.accessCount > 3 ? ` (已应用 ${m.accessCount} 次)` : '';
+      return `- **[${label}]** ${m.content}${accessed}`;
+    });
+    return `### 💡 相关经验\n\n${items.join('\n')}`;
+  }
 
-    const sections = Array.from(byTopic.entries()).map(([topicId, memories]) => {
-      // 主题名称（格式化）
-      const topicName = this.getTopicName(topicId);
+  private formatDecisions(decisions: MemoryEntry[]): string {
+    const items = decisions.slice(0, 5).map((m) => {
+      const label = m.categoryLabel ?? TYPE_LABELS[m.type] ?? m.type;
+      return `- **[${label}]** ${m.content}`;
+    });
+    return `### 📋 相关历史决策\n\n${items.join('\n')}`;
+  }
 
-      // 按访问次数排序
-      const sorted = [...memories].sort((a, b) => b.accessCount - a.accessCount);
+  private formatPendingTasks(tasks: MemoryEntry[]): string {
+    const items = tasks.slice(0, 5).map((m) => {
+      const age = this.relativeTime(m.createdAt);
+      return `- ${m.content}（${age}）`;
+    });
+    return `### ⏰ 待处理事项\n\n${items.join('\n')}`;
+  }
 
-      const items = sorted.map(m => {
-        // 访问次数（如果 > 10 次）
-        const accessCount = m.accessCount > 10 ? ` (used ${m.accessCount} times)` : '';
+  private formatProfileEntries(entries: MemoryEntry[]): string {
+    // 按 categoryLabel 分组
+    const groups = new Map<string, MemoryEntry[]>();
+    for (const e of entries) {
+      const key = e.categoryLabel ?? TYPE_LABELS[e.type] ?? '其他';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    }
 
-        // 关联记忆（如果有）
-        let related = '';
-        if (m.relatedMemories && m.relatedMemories.length > 0) {
-          const count = m.relatedMemories.length;
-          related = ` [+${count} related]`;
-        }
-
-        return `  - ${m.content}${accessCount}${related}`;
+    const sections = Array.from(groups.entries()).map(([label, items]) => {
+      const lines = items.map((m) => {
+        const star = (m.significance ?? 0) >= 0.8 ? '⭐ ' : '';
+        return `  - ${star}${m.content}`;
       });
-
-      return `**${topicName}**:\n${items.join('\n')}`;
+      return `**${label}**:\n${lines.join('\n')}`;
     });
 
-    return `
-### 📚 Knowledge & Preferences
-
-${sections.join('\n\n')}
-    `.trim();
+    return `### 👤 User Facts\n\n${sections.join('\n\n')}`;
   }
 
-  /**
-   * 格式化时间线（OpenClaw 风格，简化版）
-   */
-  private formatTimeline(timeline: MemoryEntry[]): string {
-    // 按日期分组
-    const byDay = this.groupByDay(timeline);
+  private formatKnowledgeEntries(entries: MemoryEntry[]): string {
+    const groups = new Map<string, MemoryEntry[]>();
+    for (const e of entries) {
+      const key = e.categoryLabel ?? TYPE_LABELS[e.type] ?? '知识';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    }
 
-    // 只显示最近 3 天
+    const sections = Array.from(groups.entries()).map(([label, items]) => {
+      const sorted = [...items].sort((a, b) => b.accessCount - a.accessCount);
+      const lines = sorted.map((m) => {
+        const accessed = m.accessCount > 10 ? ` (used ${m.accessCount} times)` : '';
+        return `  - ${m.content}${accessed}`;
+      });
+      return `**${label}**:\n${lines.join('\n')}`;
+    });
+
+    return `### 📚 Knowledge & Preferences\n\n${sections.join('\n\n')}`;
+  }
+
+  private formatTimeline(entries: MemoryEntry[]): string {
+    const byDay = new Map<string, MemoryEntry[]>();
+    for (const e of entries) {
+      const day = e.dayKey ?? e.createdAt.split('T')[0] ?? 'unknown';
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day)!.push(e);
+    }
+
     const recentDays = Array.from(byDay.entries())
-      .sort((a, b) => b[0].localeCompare(a[0])) // 降序排列
+      .sort((a, b) => b[0].localeCompare(a[0]))
       .slice(0, 3);
 
-    if (recentDays.length === 0) {
-      return '';
-    }
-
-    const items = recentDays.map(([day, memories]) => {
-      const date = this.formatDate(day);
-
-      // 最多显示 5 条
-      const limited = memories.slice(0, 5);
-
-      const content = limited.map(m => {
-        // 简化内容（最多 80 字符）
-        const text = m.content.length > 80
-          ? m.content.slice(0, 77) + '...'
-          : m.content;
+    const items = recentDays.map(([day, mems]) => {
+      const label = this.formatDayLabel(day);
+      const lines = mems.slice(0, 5).map((m) => {
+        const text = m.content.length > 80 ? m.content.slice(0, 77) + '...' : m.content;
         return `  - ${text}`;
-      }).join('\n');
-
-      // 如果有更多记忆
-      const more = memories.length > 5
-        ? `  - ... and ${memories.length - 5} more`
-        : '';
-
-      return `**${date}**:\n${content}${more ? '\n' + more : ''}`;
+      });
+      if (mems.length > 5) lines.push(`  - ... and ${mems.length - 5} more`);
+      return `**${label}**:\n${lines.join('\n')}`;
     });
 
-    return `
-### 📅 Recent Context
-
-${items.join('\n\n')}
-    `.trim();
+    return `### 📅 Recent Context\n\n${items.join('\n\n')}`;
   }
 
-  /**
-   * 按分类分组
-   */
-  private groupByCategory(memories: MemoryEntry[]): Record<MemoryCategory, MemoryEntry[]> {
-    const groups: Partial<Record<MemoryCategory, MemoryEntry[]>> = {};
+  // ────────── 辅助 ──────────
 
-    for (const memory of memories) {
-      const category = memory.category || this.inferCategory(memory);
-
-      if (!groups[category]) {
-        groups[category] = [];
-      }
-      groups[category]!.push(memory);
-    }
-
-    return groups as Record<MemoryCategory, MemoryEntry[]>;
+  private isProfileType(type: MemoryEntryType): boolean {
+    return ['user_fact', 'user_preference', 'relationship', 'important_date'].includes(type);
   }
 
-  /**
-   * 推断分类（向后兼容旧记忆）
-   */
-  private inferCategory(memory: MemoryEntry): MemoryCategory {
-    // 根据 type 推断
-    if (memory.type === 'user_fact' || memory.type === 'user_preference') {
-      return 'fact';
-    }
-
-    if (memory.type === 'session_summary') {
-      return 'timeline';
-    }
-
-    // 默认为 topic
-    return 'topic';
+  private isKnowledgeType(type: MemoryEntryType): boolean {
+    return ['lesson_learned', 'reusable_pattern', 'domain_knowledge', 'agent_knowledge', 'decision', 'error_resolution'].includes(type);
   }
 
-  /**
-   * 按主题 ID 分组
-   */
-  private groupByTopicId(topics: MemoryEntry[]): Map<string, MemoryEntry[]> {
-    const groups = new Map<string, MemoryEntry[]>();
-
-    for (const topic of topics) {
-      const topicId = topic.topicId || 'general';
-
-      if (!groups.has(topicId)) {
-        groups.set(topicId, []);
-      }
-      groups.get(topicId)!.push(topic);
-    }
-
-    return groups;
+  private relativeTime(isoDate: string): string {
+    const ageDays = (Date.now() - new Date(isoDate).getTime()) / 86_400_000;
+    if (ageDays < 1)  return '今天';
+    if (ageDays < 2)  return '昨天';
+    if (ageDays < 7)  return `${Math.floor(ageDays)} 天前`;
+    if (ageDays < 30) return `${Math.floor(ageDays / 7)} 周前`;
+    return `${Math.floor(ageDays / 30)} 个月前`;
   }
 
-  /**
-   * 按日期分组
-   */
-  private groupByDay(timeline: MemoryEntry[]): Map<string, MemoryEntry[]> {
-    const groups = new Map<string, MemoryEntry[]>();
-
-    for (const memory of timeline) {
-      const day = memory.dayKey || this.extractDayKey(memory.createdAt);
-
-      if (!groups.has(day)) {
-        groups.set(day, []);
-      }
-      groups.get(day)!.push(memory);
-    }
-
-    return groups;
-  }
-
-  /**
-   * 从 ISO 时间戳提取日期键
-   */
-  private extractDayKey(isoDate: string): string {
+  private formatDayLabel(dayKey: string): string {
     try {
-      return isoDate.split('T')[0]; // "2026-03-16T09:30:00Z" → "2026-03-16"
-    } catch {
-      return new Date().toISOString().split('T')[0];
-    }
-  }
-
-  /**
-   * 格式化日期显示
-   */
-  private formatDate(dayKey: string): string {
-    try {
-      const date = new Date(dayKey);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const targetDate = new Date(date);
-      targetDate.setHours(0, 0, 0, 0);
-
-      const diffDays = Math.floor((today.getTime() - targetDate.getTime()) / (24 * 60 * 60 * 1000));
-
-      if (diffDays === 0) {
-        return 'Today';
-      } else if (diffDays === 1) {
-        return 'Yesterday';
-      } else if (diffDays < 7) {
-        return `${diffDays} days ago`;
-      } else {
-        // "2026-03-16" → "Mar 16, 2026"
-        return date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        });
-      }
+      const ageDays = (Date.now() - new Date(dayKey).getTime()) / 86_400_000;
+      if (ageDays < 1) return 'Today';
+      if (ageDays < 2) return 'Yesterday';
+      if (ageDays < 7) return `${Math.floor(ageDays)} days ago`;
+      return new Date(dayKey).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     } catch {
       return dayKey;
     }
-  }
-
-  /**
-   * 获取主题显示名称
-   */
-  private getTopicName(topicId: string): string {
-    // 主题 ID 映射（可配置化）
-    const nameMap: Record<string, string> = {
-      'user-preferences': 'User Preferences',
-      'project-xuanji': 'Project Xuanji',
-      'project-knowledge': 'Project Knowledge',
-      'coding-patterns': 'Coding Patterns',
-      'tool-usage': 'Tool Usage',
-      'debugging': 'Debugging',
-      'general': 'General',
-    };
-
-    // 如果有映射，使用映射名称
-    if (nameMap[topicId]) {
-      return nameMap[topicId];
-    }
-
-    // 否则格式化 ID（kebab-case → Title Case）
-    return topicId
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
   }
 }

@@ -1,0 +1,49 @@
+{
+  "testName": "Data Transform Pipeline",
+  "status": "documented",
+  "duration": 0,
+  "testPlan": {
+    "name": "Data Transform Pipeline",
+    "objective": "Test multi-step data transformation",
+    "steps": [
+      {
+        "step": 1,
+        "agent": "explore",
+        "task": "Analyze data file and identify issues",
+        "input": "Sample data file with quality issues",
+        "expectedOutput": "List of identified issues"
+      },
+      {
+        "step": 2,
+        "agent": "coder",
+        "task": "Clean data based on issues: {{previous_output}}",
+        "expectedOutput": "Cleaned data with issues resolved"
+      },
+      {
+        "step": 3,
+        "agent": "coder",
+        "task": "Analyze cleaned data: {{previous_output}}",
+        "expectedOutput": "Statistical analysis results"
+      },
+      {
+        "step": 4,
+        "agent": "coder",
+        "task": "Generate report from: {{previous_output}}",
+        "expectedOutput": "Markdown formatted report"
+      }
+    ],
+    "dataFlowTests": [
+      "Step 1 → Step 2: Issues passed correctly",
+      "Step 2 → Step 3: Cleaned data passed correctly",
+      "Step 3 → Step 4: Analysis passed correctly",
+      "Final output contains insights from all steps"
+    ],
+    "performanceMetrics": [
+      "Total pipeline duration",
+      "Individual step durations",
+      "Memory usage per step",
+      "Data size growth/reduction"
+    ]
+  },
+  "note": "Cannot execute due to import issues - test plan documented"
+}

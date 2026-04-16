@@ -6,7 +6,6 @@
  * 2. 支持每个 Agent 独立的 apiKey、baseURL、adapter
  * 3. 字段级配置合并（Agent 配置 > 全局配置）
  * 4. Provider 缓存（按配置哈希）
- * 5. 自动降级策略（primary → fallback → global）
  *
  * @example
  * // Agent 独立配置
@@ -17,7 +16,6 @@
  *     baseURL: 'https://api.openai.com/v1',
  *     adapter: 'openai',
  *     model: 'gpt-4',
- *     fallbackModel: 'gpt-3.5-turbo',
  *   }
  * };
  *
@@ -46,8 +44,6 @@ export interface AgentProviderConfig {
   adapter?: string;
   /** 主模型 */
   model?: string;
-  /** 降级模型 */
-  fallbackModel?: string;
   /** 最大 token 数 */
   maxTokens?: number;
   /** 请求超时（ms） */
@@ -61,10 +57,7 @@ export interface AgentProviderConfig {
 /**
  * 合并后的完整 Provider 配置
  */
-export interface MergedProviderConfig extends ProviderConfig {
-  /** 降级模型 */
-  fallbackModel?: string;
-}
+export interface MergedProviderConfig extends ProviderConfig {}
 
 /**
  * Provider Manager
@@ -84,7 +77,6 @@ export class ProviderManager {
 
     log.debug('ProviderManager initialized', {
       globalModel: globalConfig.provider.model,
-      globalLightModel: globalConfig.provider.lightModel,
     });
   }
 
@@ -115,23 +107,6 @@ export class ProviderManager {
     return provider;
   }
 
-  /**
-   * 获取轻量模型 Provider（向后兼容）
-   *
-   * 用于迁移期间，逐步替换 lightProvider
-   */
-  getLightProvider(): ILLMProvider {
-    const lightModel =
-      this.globalConfig.provider.lightModel || this.globalConfig.provider.model;
-
-    return this.getProvider({
-      id: '__light__',
-      provider: {
-        model: lightModel,
-      },
-    } as unknown as ConfigurableAgentConfig);
-  }
-
   // ─── 私有方法 ─────────────────────────────────────────
 
   /**
@@ -148,7 +123,6 @@ export class ProviderManager {
 
     // 向后兼容：支持旧的 agentConfig.model 字段
     const legacyModel = (agentConfig as any)?.model?.primary;
-    const legacyFallback = (agentConfig as any)?.model?.fallback;
     const legacyMaxTokens = (agentConfig as any)?.model?.maxTokens;
 
     // 🔍 调试日志：检查 API Key 来源
@@ -168,8 +142,6 @@ export class ProviderManager {
 
       // 模型配置（优先级：agent.provider.model > agent.model.primary > global.model）
       model: agentProvider?.model ?? legacyModel ?? globalProvider.model,
-      fallbackModel:
-        agentProvider?.fallbackModel ?? legacyFallback ?? globalProvider.lightModel,
 
       // 调用参数
       maxTokens:
@@ -188,7 +160,6 @@ export class ProviderManager {
         'baseURL',
         'adapter',
         'model',
-        'fallbackModel',
         'maxTokens',
         'timeout',
         'temperature',
@@ -243,36 +214,6 @@ export class ProviderManager {
     });
 
     return provider;
-  }
-
-  /**
-   * 尝试降级到备用模型
-   *
-   * 当主模型调用失败时，自动降级到 fallbackModel
-   *
-   * @param agentConfig Agent 配置
-   * @returns 降级后的 Provider，如果没有配置降级模型则返回 null
-   */
-  getFallbackProvider(agentConfig?: ConfigurableAgentConfig): ILLMProvider | null {
-    const mergedConfig = this.mergeProviderConfig(agentConfig);
-
-    if (!mergedConfig.fallbackModel) {
-      log.debug('No fallback model configured');
-      return null;
-    }
-
-    // 创建降级配置
-    const fallbackConfig: MergedProviderConfig = {
-      ...mergedConfig,
-      model: mergedConfig.fallbackModel,
-    };
-
-    log.info('Getting fallback provider', {
-      primaryModel: mergedConfig.model,
-      fallbackModel: mergedConfig.fallbackModel,
-    });
-
-    return this.createProvider(fallbackConfig);
   }
 
   /**

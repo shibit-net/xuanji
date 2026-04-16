@@ -270,15 +270,6 @@ export interface ConfigurableAgentConfig {
   /** 示例（Few-shot learning） */
   examples?: Array<{ input: string; output: string }>;
 
-  // ========== 专属 Skills ==========
-  /** Skills 配置 */
-  skills?: {
-    /** 引用内置 Skill ID */
-    builtin?: string[];
-    /** 自定义 Skill */
-    custom?: CustomSkill[];
-  };
-
   // ========== 专属知识库 ==========
   /** 知识库配置 */
   knowledgeBase?: {
@@ -305,8 +296,6 @@ export interface ConfigurableAgentConfig {
   model: {
     /** 主模型 */
     primary: string;
-    /** 降级模型 */
-    fallback?: string;
     /** 最大 Token */
     maxTokens?: number;
     /** 温度 */
@@ -316,6 +305,19 @@ export interface ConfigurableAgentConfig {
       type?: 'enabled' | 'disabled' | 'adaptive';
       effort?: 'low' | 'medium' | 'high';
     };
+  };
+
+  // ========== Provider 配置 ==========
+  /** Provider 配置（可选，用于独立 API Key/BaseURL） */
+  provider?: {
+    /** Adapter 类型 */
+    adapter?: string;
+    /** API Key */
+    apiKey?: string;
+    /** Base URL */
+    baseURL?: string;
+    /** 模型名称（覆盖 model.primary） */
+    model?: string;
   };
 
   // ========== 执行配置 ==========
@@ -388,22 +390,14 @@ export interface ConfigurableAgentConfig {
   enabled: boolean;
 
   // ========== 元数据 ==========
-  /** 元数据 */
+  /** 元数据（运行时添加，不保存到配置文件） */
   metadata?: {
-    /** 配置来源 */
-    source: 'builtin' | 'global' | 'project';
     /** 文件路径 */
-    filePath: string;
-    /** 创建时间 */
-    createdAt: string;
-    /** 更新时间 */
-    updatedAt: string;
+    filePath?: string;
+    /** 加载时间 */
+    loadedAt?: string;
     /** 是否为内置 Agent */
-    builtin?: boolean;
-    /** 是否为 SubAgent */
-    isSubAgent?: boolean;
-    /** 是否为主 Agent */
-    isMainAgent?: boolean;
+    internal?: boolean;
     /** 额外元数据 */
     [key: string]: any;
   };

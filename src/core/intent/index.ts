@@ -14,4 +14,3 @@ export * from './VectorIntentMatcher.js';
 export * from './LLMIntentClassifier.js';
 export * from './IntentLearner.js';
 export * from './UniversalIntentScanner.js';
-export * from './CapabilityAssembler.js';

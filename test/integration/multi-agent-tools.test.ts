@@ -49,9 +49,6 @@ describe('Multi-Agent Tools Integration', () => {
           backoffMultiplier: 2,
           retryableStatusCodes: [429, 500, 502, 503, 504],
         },
-        features: {
-          multiAgentTools: true,
-        },
         routing: {
           mode: 'never',
         } as any,

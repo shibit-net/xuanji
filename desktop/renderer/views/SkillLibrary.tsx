@@ -9,7 +9,7 @@
 // - 只读展示（Skills 配置由代码定义）
 // ============================================================
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, X, Sparkles, Eye, EyeOff, RefreshCw, Filter } from 'lucide-react';
 import { useConfigStore } from '../stores';
 import type { SkillDefinition } from '../types/models';

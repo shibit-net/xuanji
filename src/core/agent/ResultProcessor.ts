@@ -7,6 +7,8 @@
 import type { Message } from '@/core/types';
 import type { ProcessResult } from './StreamProcessor';
 import type { MessageManager } from './MessageManager';
+import type { ContextCompressor } from './ContextCompressor';
+import type { TokenManager } from './TokenManager';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ResultProcessor' });
@@ -35,13 +37,19 @@ export interface ResultProcessResult {
   messages?: Message[];
   /** 结果处理类型 */
   type: 'end_turn' | 'max_tokens' | 'interrupted' | 'continue';
+  /** 是否需要压缩上下文 */
+  needsCompression?: boolean;
 }
 
 /**
  * ResultProcessor — 结果处理器
  */
 export class ResultProcessor {
-  constructor(private messageManager: MessageManager) {}
+  constructor(
+    private messageManager: MessageManager,
+    private contextCompressor?: ContextCompressor,
+    private tokenManager?: TokenManager,
+  ) {}
 
   /**
    * 处理 Stream 结果
@@ -114,6 +122,21 @@ export class ResultProcessor {
       : '📝 输出内容过多，正在自动分段写入...';
     callbacks?.onInfo?.(infoMessage);
 
+    // 🆕 检查是否需要上下文压缩
+    let needsCompression = false;
+    if (result.stopReason === 'max_tokens' && this.contextCompressor && this.tokenManager) {
+      const messages = this.messageManager.getMessages();
+      const currentTokens = this.tokenManager.estimateTokens(messages);
+      const maxTokens = this.tokenManager.getMaxInputTokens();
+
+      // 如果当前 token 数超过阈值（80%），触发压缩
+      if (currentTokens > maxTokens * 0.8) {
+        log.info(`Context size (${currentTokens} tokens) exceeds threshold, will trigger compression`);
+        needsCompression = true;
+        callbacks?.onInfo?.('🗜️ 上下文过长，正在压缩历史消息...');
+      }
+    }
+
     if (result.toolCalls.length > 0) {
       // 有工具调用：为所有工具生成错误 tool_result，让 LLM 看到并重试
       log.debug(`${result.stopReason}: ${result.toolCalls.length} tool calls present, generating error results`);
@@ -126,7 +149,7 @@ export class ResultProcessor {
           : result.stopReason === 'max_tokens'
             ? `[System] Tool call "${tc.name}" was interrupted by max_tokens limit. Please SPLIT into SMALLER operations (write_file max 200 lines, edit_file max 50 lines).`
             : `[ERROR] Tool call "${tc.name}" was not executed: stream was interrupted before completion.`;
-        
+
         const content = isTruncated ? [
           errorMsg,
           ``,
@@ -154,6 +177,7 @@ export class ResultProcessor {
       shouldBreak: false,
       messages: this.messageManager.getMessages(),
       type: result.stopReason === 'max_tokens' ? 'max_tokens' : 'interrupted',
+      needsCompression,
     };
   }
 }

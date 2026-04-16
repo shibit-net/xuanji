@@ -8,7 +8,7 @@
 // - 使用 configStore 管理数据
 // ============================================================
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Plus,
@@ -16,12 +16,8 @@ import {
   Bot,
   Eye,
   EyeOff,
-  Edit2,
-  Trash2,
-  Copy,
   RefreshCw,
   Filter,
-  ChevronDown,
 } from 'lucide-react';
 import { useConfigStore } from '../stores';
 import type { AgentProfile } from '../types/models';
@@ -172,9 +168,10 @@ export default function AgentLibrary({ onClose }: AgentLibraryProps) {
     return (
       <AgentDetail
         agent={selectedAgent}
-        onClose={handleBack}
         onEdit={handleEditAgent}
         onDelete={handleDeleteAgent}
+        onCopy={() => { setSelectedAgent(null); setViewMode('list'); }}
+        onTest={() => {}}
       />
     );
   }
@@ -183,6 +180,7 @@ export default function AgentLibrary({ onClose }: AgentLibraryProps) {
     return (
       <AgentEditor
         agent={selectedAgent || undefined}
+        builtinAgents={agents.filter((a) => a.metadata?.source === 'builtin')}
         onSave={handleSaveAgent}
         onCancel={handleBack}
       />

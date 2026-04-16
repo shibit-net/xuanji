@@ -91,7 +91,7 @@ export class ListAgentsTool extends BaseTool {
 
     // 过滤子代理（可选）
     if (!includeSubagents) {
-      agents = agents.filter(a => !a.metadata?.isSubAgent);
+      agents = agents.filter(a => !a.metadata?.internal);
     }
 
     // 标签过滤
@@ -131,9 +131,17 @@ export class ListAgentsTool extends BaseTool {
       '',
     ];
 
-    // 按来源分组
-    const builtin = agents.filter(a => a.metadata?.source === 'builtin' || a.metadata?.builtin);
-    const custom = agents.filter(a => a.metadata?.source !== 'builtin' && !a.metadata?.builtin);
+    // 按是否内置分组
+    const builtin = agents.filter(a =>
+      a.metadata?.internal ||
+      a.metadata?.filePath?.includes('/builtin/') ||
+      a.metadata?.filePath?.includes('\\builtin\\')
+    );
+    const custom = agents.filter(a =>
+      !a.metadata?.internal &&
+      !a.metadata?.filePath?.includes('/builtin/') &&
+      !a.metadata?.filePath?.includes('\\builtin\\')
+    );
 
     if (builtin.length > 0) {
       lines.push('## Built-in Agents');
@@ -162,7 +170,7 @@ export class ListAgentsTool extends BaseTool {
     const lines: string[] = [];
 
     // 标题行
-    const badge = agent.metadata?.isSubAgent ? '🤖 Sub-Agent' : '⭐ Agent';
+    const badge = agent.metadata?.internal ? '🤖 Internal Agent' : '⭐ Agent';
     lines.push(`### ${badge} ${agent.name} (${agent.id})`);
     lines.push('');
 

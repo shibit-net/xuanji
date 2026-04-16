@@ -6,7 +6,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SubAgentContext, MAX_NESTING_DEPTH, ALWAYS_RESTRICTED_TOOLS } from '@/core/agent/SubAgentContext';
 import { TaskTool } from '@/core/tools/TaskTool';
 import { ToolRegistry } from '@/core/tools/ToolRegistry';
-import type { AgentConfig, Tool, ToolResult, ToolSchema, IToolRegistry, ILLMProvider } from '@/core/types';
+import type { AgentConfig, Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
+import type { ProviderManager } from '@/core/providers/ProviderManager';
+import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 
 describe('SubAgentContext', () => {
   it('应该使用默认配置创建上下文', () => {
@@ -16,7 +18,6 @@ describe('SubAgentContext', () => {
     expect(ctx.timeout).toBe(300_000);
     expect(ctx.maxIterations).toBe(30);
     expect(ctx.depth).toBe(0);
-    expect(ctx.parentContext).toBeUndefined();
   });
 
   it('应该合并受限工具列表', () => {
@@ -46,7 +47,6 @@ describe('SubAgentContext', () => {
   it('buildAgentConfig 应该追加子代理说明', () => {
     const ctx = new SubAgentContext({
       task: 'test',
-      parentContext: 'Working on a refactoring task',
       depth: 1,
     });
 
@@ -60,8 +60,6 @@ describe('SubAgentContext', () => {
 
     expect(config.systemPrompt).toContain('[SubAgent Mode');
     expect(config.systemPrompt).toContain('Depth: 1');
-    expect(config.systemPrompt).toContain('[Parent Context]');
-    expect(config.systemPrompt).toContain('Working on a refactoring task');
     expect(config.maxIterations).toBe(30);
   });
 });
@@ -132,16 +130,22 @@ describe('TaskTool', () => {
   });
 
   it('深度超限时应该返回错误', async () => {
-    // 创建一个 mock provider
-    const mockProvider = {
-      stream: vi.fn(),
-    } as unknown as ILLMProvider;
+    const mockProviderManager = {
+      getProvider: vi.fn(),
+      getLightProvider: vi.fn(),
+      getResolvedConfig: vi.fn(() => ({ model: 'test', apiKey: 'key' })),
+    } as unknown as ProviderManager;
+
+    const mockAgentRegistry = {
+      get: vi.fn(),
+      getAll: vi.fn(() => []),
+    } as unknown as AgentRegistry;
 
     const mockRegistry = new ToolRegistry();
 
     taskTool.setDependencies({
-      provider: mockProvider,
-      lightProvider: mockProvider,  // ← 新增 lightProvider
+      providerManager: mockProviderManager,
+      agentRegistry: mockAgentRegistry,
       registry: mockRegistry,
       agentConfig: { model: 'test', apiKey: 'key' },
       depth: MAX_NESTING_DEPTH, // 已达最大深度

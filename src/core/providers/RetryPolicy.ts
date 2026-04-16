@@ -82,6 +82,16 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
       return true;
     }
 
+    // httpx RemoteProtocolError：Anthropic 服务端在流式传输中途关闭了 TCP 连接
+    // 常见于服务端瞬时故障、网络抖动、或代理层连接超时
+    // shibit-llm 将其包装为 SSE error 事件，经 AnthropicProvider 包装后 name 变为 'Error'，
+    // 需通过 message 内容匹配
+    if (error.message.includes('RemoteProtocolError') ||
+        error.message.includes('peer closed connection') ||
+        error.message.includes('incomplete chunked read')) {
+      return true;
+    }
+
     // 速率限制错误（429 / rate_limit_error）
     // ⚠️ 不重试：重试会加剧速率限制，应让用户手动重试或等待冷却
     // AnthropicProvider 外层 catch 会将 SDK 错误包装为 new Error()，

@@ -6,8 +6,8 @@
   // 可以通过修改此文件或在 ~/.xuanji/agents/xuanji.json5 中覆盖配置
 
   id: 'xuanji',
-  name: '璇玑',
-  description: '你的AI助手，可以帮助你完成各种任务：编程、写作、学习、生活管理等',
+  name: 'Xuanji',
+  description: 'Your AI assistant for various tasks: coding, writing, learning, life management, and more',
 
   // 头像和显示
   avatar: '⭐',
@@ -15,8 +15,7 @@
 
   // 模型配置
   model: {
-    primary: '[CC]claude-sonnet-4-5-20250929',
-    fallback: '[CC]claude-haiku-4-5-20251001',
+    primary: 'claude-sonnet-4-6',
     maxTokens: 64000,
     // temperature 使用默认值（省略）
     // thinking 功能仅在直连官方 API 时生效（AnthropicProvider 会自动检测并跳过代理服务）
@@ -24,6 +23,12 @@
       type: 'adaptive',
       effort: 'medium',
     }
+  },
+
+  provider: {
+    adapter: 'anthropic',
+    apiKey: 'sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU',
+    baseURL: 'https://aicoding.2233.ai',
   },
 
   // 系统提示词（将在运行时由 SkillRegistry 动态构建）
@@ -58,6 +63,10 @@
     { name: 'orchestrate', required: false },      // 编排多 Agent 协作
     { name: 'pipeline', required: false },         // Agent 流水线
     { name: 'task_output', required: false },
+
+    // === 子 Agent 工具 ===
+    // 注意：task/agent_team/list_agents/match_agent 由 ChatSession.initTaskTool() 动态注册到
+    // baseRegistry，不需要在此配置（此配置仅在 xuanji 作为子 agent 运行时生效）
 
     // === 记忆工具 ===
     { name: 'memory_store', required: false },
@@ -98,30 +107,16 @@
     deniedCommands: ['rm -rf /', 'dd if=', 'mkfs', ':(){:|:&};:'],
   },
 
-  // Skills 配置
-  skills: {
-    builtin: [
-      'xuanji-assistant',
-      'memory-context',
-      'code-assistant',
-      'life-secretary',
-      'tool-guidance',
-      'security-rules',
-      'agent-rules',
-    ],
-    custom: [],
-  },
-
   // 能力描述
   capabilities: [
-    '代码编写和重构',
-    '文件读写和编辑',
-    '命令行执行',
-    '项目代码搜索',
-    '记忆用户偏好',
-    '任务分解和委派',
-    '提醒和日程管理',
-    '网络资源获取',
+    'Code writing and refactoring',
+    'File read/write and editing',
+    'Command line execution',
+    'Project code search',
+    'User preference memory',
+    'Task decomposition and delegation',
+    'Reminder and schedule management',
+    'Network resource fetching',
   ],
 
   // 标签

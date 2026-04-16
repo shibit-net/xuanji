@@ -14,7 +14,6 @@
   // 模型配置（可以使用不同的模型）
   model: {
     primary: '[CC]claude-sonnet-4-5-20250929',  // 中等复杂度
-    fallback: '[CC]claude-haiku-4-5-20251001',
     maxTokens: 32000,
   },
 

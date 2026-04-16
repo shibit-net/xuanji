@@ -7,7 +7,7 @@
 // - 显示 Checkpoint 数量
 // ============================================================
 
-import React from 'react';
+
 import { useChatStore } from '../stores';
 import { useHistoryStore } from '../stores';
 

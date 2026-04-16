@@ -16,6 +16,9 @@ import type {
   Intent,
   IntentMatchOptions,
 } from './types.js';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'VectorIntentMatcher' });
 
 /**
  * 向量意图匹配器
@@ -35,43 +38,29 @@ export class VectorIntentMatcher {
    * 初始化（加载模型和向量）
    */
   async init(intentDefinitions: IntentDefinition[]): Promise<void> {
-    if (this.initialized) {
-      console.log('⚠️  VectorIntentMatcher 已经初始化');
-      return;
-    }
+    if (this.initialized) return;
 
-    console.log('⏳ 初始化向量意图匹配器...');
-
-    // 1. 检查是否有缓存的向量
     const cached = await this.loadCachedVectors();
     const needsRebuild = cached ? this.needsRebuild(intentDefinitions, cached) : true;
 
     if (cached && !needsRebuild) {
-      // 使用缓存，快速启动
       this.intentVectors = this.deserializeVectors(cached.vectors);
-      console.log(`✓ 从缓存加载 ${this.intentVectors.size} 个意图向量`);
+      log.debug(`从缓存加载 ${this.intentVectors.size} 个意图向量`);
       this.initialized = true;
       return;
     }
 
-    // 2. 没有缓存或需要重建，加载模型
-    console.log(needsRebuild ? '⏳ 检测到意图定义变更，重建向量库...' : '⏳ 首次启动，构建意图向量库...');
+    log.debug(needsRebuild ? '检测到意图定义变更，重建向量库...' : '首次启动，构建意图向量库...');
 
-    this.embedModel = await pipeline('feature-extraction', this.modelName, {
-      quantized: true,
-    });
+    this.embedModel = await pipeline('feature-extraction', this.modelName, { quantized: true });
+    log.debug('Embedding 模型加载完成');
 
-    console.log('✓ Embedding 模型加载完成');
-
-    // 3. 为每个意图生成向量
     for (const intentDef of intentDefinitions) {
       await this.buildIntentVector(intentDef);
     }
 
-    // 4. 保存到缓存
     await this.saveCachedVectors();
-
-    console.log(`✓ 意图向量库构建完成（${this.intentVectors.size} 个意图）`);
+    log.debug(`意图向量库构建完成（${this.intentVectors.size} 个意图）`);
     this.initialized = true;
   }
 
@@ -83,7 +72,7 @@ export class VectorIntentMatcher {
       throw new Error('Embedding 模型未初始化');
     }
 
-    console.log(`  构建向量: ${intentDef.name} (${intentDef.examples.length} 个样本)`);
+    log.debug(`构建向量: ${intentDef.name} (${intentDef.examples.length} 个样本)`);
 
     // 1. 为每个样本生成向量
     const exampleVectors: number[][] = [];

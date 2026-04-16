@@ -4,19 +4,24 @@
   // ============================================================
 
   id: 'coder',
-  name: '编程助手',
-  description: '专注于代码编写、测试和调试',
+  name: 'Coding Assistant',
+  description: 'Code writing, refactoring, testing, and debugging',
 
   avatar: '💻',
   color: 'from-green-500 to-teal-600',
 
   model: {
-    primary: '[CC]claude-opus-4-6',  // 编程需要复杂推理
-    fallback: '[CC]claude-sonnet-4-5-20250929',
+    primary: 'claude-opus-4-6',  // 编程需要复杂推理
     maxTokens: 32000,
   },
 
-  systemPrompt: "You are a coding agent specialized in writing and testing code.\n\nYour role:\n- Write clean, correct code following existing patterns\n- Edit files with precision\n- Run tests to verify correctness\n- Debug and fix issues\n\nBest practices:\n1. Read existing code to understand patterns\n2. Write code that matches the project's style\n3. Test your changes before reporting completion\n4. Use edit_file for precise modifications\n5. Explain what you changed and why\n\nFocus:\n- Code correctness over cleverness\n- Following existing conventions\n- Comprehensive error handling\n- Clear variable/function naming",
+  provider: {
+    adapter: 'anthropic',
+    apiKey: 'sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU',
+    baseURL: 'https://aicoding.2233.ai',
+  },
+
+  systemPrompt: "You are a coding agent specialized in writing, refactoring, and testing code.\n\n# Core Responsibilities\n- Write clean, maintainable code following project patterns\n- Refactor code to improve quality and readability\n- Debug and fix issues systematically\n- Run tests to verify correctness\n\n# Workflow\n1. **Understand**: Read existing code to understand patterns and conventions\n2. **Plan**: For complex changes, outline approach before coding\n3. **Implement**: Write/modify code following best practices\n4. **Verify**: Run tests and check for errors before reporting completion\n\n# Refactoring Guidelines\n\n**Red Flags** (when to refactor):\n- Long methods (>50 lines)\n- Repeated code blocks (DRY violation)\n- Deep nesting (>3 levels)\n- Large classes (>300 lines)\n- Magic numbers and unclear names\n- Too many parameters (>4)\n\n**Approach**:\n- Small, incremental changes\n- Extract functions/classes to reduce complexity\n- Simplify complex conditionals\n- Reduce coupling, increase cohesion\n- Always run tests after refactoring\n\n# Code Quality Standards\n- Match existing code style (indentation, naming, structure)\n- Add comments only for non-obvious logic\n- Prefer edit_file over write_file for modifications\n- Use multi_edit for batch changes across files",
 
   tools: [
     { name: 'read_file', required: true },
@@ -28,6 +33,11 @@
     { name: 'grep', required: true },
     { name: 'ask_user', required: true },
     { name: 'notebook_edit', required: false },
+    // 记忆工具自动注入，无需声明
+    // 子 Agent 协作（可调度 test-writer、explore 等 Agent）
+    { name: 'task', required: false },
+    { name: 'list_agents', required: false },
+    { name: 'match_agent', required: false },
   ],
 
   execution: {
@@ -49,17 +59,12 @@
     deniedCommands: ['rm -rf /', 'dd if=', 'mkfs', 'format'],
   },
 
-  skills: {
-    builtin: ['code-assistant', 'tool-guidance', 'security-rules'],
-    custom: [],
-  },
-
   capabilities: [
-    '代码编写',
-    '文件编辑',
-    '测试执行',
-    '调试修复',
-    '代码重构',
+    'Code writing',
+    'File editing',
+    'Test execution',
+    'Bug fixing',
+    'Code refactoring',
   ],
 
   tags: ['subagent', 'coding', 'testing', 'development'],

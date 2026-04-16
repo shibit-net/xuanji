@@ -7,7 +7,7 @@
 // - 提供用户设置界面
 // ============================================================
 
-import React from 'react';
+
 import SettingsPanel from '../components/SettingsPanel';
 
 interface SettingsViewProps {

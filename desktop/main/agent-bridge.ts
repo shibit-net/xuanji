@@ -9,10 +9,9 @@
 //
 
 import { ChatSession } from '../../src/core/chat/ChatSession.js';
-import { getTodoManager } from '../../src/core/tools/TodoStorageTool.js';
+import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 
 let session: ChatSession | null = null;
-let agentLoop: any = null;
 
 /**
  * 安全地发送消息到主进程
@@ -42,7 +41,7 @@ process.on('message', async (msg: any) => {
       await handleSendMessage(msg.data);
       break;
     case 'interrupt':
-      handleInterrupt();
+      handleInterrupt(msg.data?.message || '');
       break;
     case 'reset':
       handleReset();
@@ -139,14 +138,6 @@ process.on('message', async (msg: any) => {
       handleMcpList(msg.requestId);
       break;
 
-    // ============ Prompt 配置管理 ============
-    case 'prompt-get-config':
-      handlePromptGetConfig(msg.requestId);
-      break;
-    case 'prompt-save-config':
-      handlePromptSaveConfig(msg.requestId, msg.data);
-      break;
-
     // ============ 高级功能 ============
     case 'compact':
       handleCompact(msg.requestId, msg.data);
@@ -216,47 +207,298 @@ async function handleInit() {
       },
     });
     await session.init();
-    agentLoop = session.getAgentLoop();
 
     // 注册流式事件回调，转发到主进程
-    session.on({
-      onText: (text: string) => {
-        safeSend({ type: 'agent:text', data: text });
-      },
-      onThinking: (thinking: string) => {
-        safeSend({ type: 'agent:thinking', data: thinking });
-      },
-      onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-        safeSend({ type: 'agent:tool-start', data: { id, name, input } });
-      },
-      onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-        safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
-      },
-      onUsage: (usage: any) => {
-        safeSend({ type: 'agent:usage', data: usage });
-      },
-      onError: (err: Error) => {
-        safeSend({ type: 'agent:error', data: err.message });
-      },
-      onEnd: (state: any) => {
-        safeSend({
-          type: 'agent:end',
-          data: {
-            tokenUsage: state.tokenUsage,
-            cost: state.cost,
-            currentIteration: state.currentIteration,
-          },
-        });
-      },
-    });
+    registerSessionCallbacks(session);
 
     // 注入权限交互 Handler
     injectInteractionHandlers();
+
+    // 注册 SubAgent/Team Hook 事件监听，将成员状态变更转发到 renderer
+    // （session.on 只能监听 AgentLoop 流式事件，Hook 事件需单独注册）
+    const hookRegistry = session.getHookRegistry();
+
+    hookRegistry.addListener('TeamStart', async (ctx: any) => {
+      safeSend({
+        type: 'agent:team-start',
+        data: {
+          teamId: ctx.teamId,
+          name: ctx.data?.name,
+          strategy: ctx.data?.strategy,
+          memberCount: ctx.data?.memberCount,
+          members: ctx.data?.members, // 传递完整成员列表
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('TeamMemberStart', async (ctx: any) => {
+      safeSend({
+        type: 'agent:team-member-start',
+        data: {
+          teamId: ctx.teamId,
+          memberId: ctx.data?.memberId,
+          name: ctx.data?.name,
+          role: ctx.data?.role,
+          task: ctx.data?.task,
+          builtin: ctx.data?.builtin,
+          // 策略信息
+          strategy: ctx.data?.strategy,
+          teamName: ctx.data?.teamName,
+          stepIndex: ctx.data?.stepIndex,
+          totalSteps: ctx.data?.totalSteps,
+          // 辩论轮次信息
+          currentRound: ctx.data?.currentRound,
+          maxRounds: ctx.data?.maxRounds,
+          // systemPrompt 提示（用于解析 debate_role）
+          systemPromptHint: ctx.data?.systemPromptHint,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('TeamMemberEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:team-member-end',
+        data: {
+          teamId: ctx.teamId,
+          memberId: ctx.data?.memberId,
+          success: ctx.data?.success,
+          duration: ctx.data?.duration,
+          resultSummary: ctx.data?.resultSummary,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('TeamEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:team-end',
+        data: {
+          teamId: ctx.teamId,
+          name: ctx.data?.name,
+          success: ctx.data?.success,
+          duration: ctx.data?.duration,
+          error: ctx.data?.error,
+        },
+      });
+      return { success: true };
+    });
+
+    // SubAgent（DelegateTool preset 路径）生命周期事件
+    // 统一映射为 TeamMemberStart，与 agent_team 保持一致
+    hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
+      // 🔧 所有 SubAgent 都作为独立 agent 显示
+      // SubAgent 包括：
+      // 1. task 工具创建的 SubAgent（用户显式调用）
+      // 2. 内置系统 SubAgent（如 memory-extractor、intent-analyzer 等）
+      const role = ctx.data?.role || 'unknown';
+      const isBuiltin = ctx.data?.builtin === true;
+      const parentAgentId = ctx.data?.parentAgentId || 'main'; // 从 Hook 数据中获取父 Agent ID
+
+      safeSend({
+        type: 'agent:subagent-start',
+        data: {
+          subAgentId: ctx.subAgentId,
+          name: ctx.data?.name || role,
+          role: role,
+          task: ctx.data?.task,
+          builtin: isBuiltin,
+          parentId: parentAgentId, // 使用传递过来的父 Agent ID
+        },
+      });
+
+      return { success: true };
+    });
+
+    hookRegistry.addListener('SubAgentEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:subagent-end',
+        data: {
+          subAgentId: ctx.subAgentId,
+          success: !ctx.data?.timedOut,
+          duration: ctx.data?.duration,
+        },
+      });
+
+      return { success: true };
+    });
+
+    // ─── 新增：可视化监控 Hook 事件 ─────────────────────────────
+
+    hookRegistry.addListener('AgentThinking', async (ctx: any) => {
+      safeSend({
+        type: 'agent:thinking-start',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          content: ctx.thinkingContent || '',
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('SkillStart', async (ctx: any) => {
+      safeSend({
+        type: 'agent:skill-start',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          skillName: ctx.skillName,
+          input: ctx.skillInput,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('SkillEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:skill-end',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          skillName: ctx.skillName,
+          duration: ctx.skillDuration,
+          success: ctx.skillSuccess,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('McpToolStart', async (ctx: any) => {
+      safeSend({
+        type: 'agent:mcp-start',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          serverName: ctx.mcpServerName,
+          toolName: ctx.mcpToolName,
+          input: ctx.mcpInput,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('McpToolEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:mcp-end',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          serverName: ctx.mcpServerName,
+          toolName: ctx.mcpToolName,
+          duration: ctx.mcpDuration,
+          isError: ctx.mcpIsError,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('ToolStart', async (ctx: any) => {
+      safeSend({
+        type: 'agent:tool-start',
+        data: {
+          id: ctx.toolId,
+          name: ctx.toolName,
+          input: ctx.toolInput,
+          agentId: ctx.subAgentId || 'main',
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('ToolEnd', async (ctx: any) => {
+      safeSend({
+        type: 'agent:tool-end',
+        data: {
+          id: ctx.toolId,
+          name: ctx.toolName,
+          result: ctx.toolResult,
+          isError: ctx.toolIsError,
+          agentId: ctx.subAgentId || 'main',
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('MemoryRead', async (ctx: any) => {
+      safeSend({
+        type: 'agent:memory-read',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          hitCount: ctx.memoryHitCount,
+          layersSearched: ctx.memoryLayersSearched,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('MemoryWrite', async (ctx: any) => {
+      safeSend({
+        type: 'agent:memory-write',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          scope: ctx.memoryScope,
+          summary: ctx.memorySummary,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('PreCompact', async (ctx: any) => {
+      safeSend({
+        type: 'agent:compress-start',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          originalTokens: ctx.originalTokens,
+        },
+      });
+      return { success: true };
+    });
+
+    hookRegistry.addListener('PostCompact', async (ctx: any) => {
+      safeSend({
+        type: 'agent:compress-end',
+        data: {
+          agentId: ctx.subAgentId || 'main',
+          originalTokens: ctx.originalTokens,
+          compressedTokens: ctx.compressedTokens,
+          compressionRatio: ctx.compressionRatio,
+          duration: ctx.duration,
+        },
+      });
+      return { success: true };
+    });
 
     safeSend({
       type: 'init-result',
       data: { success: true },
     });
+
+    // 判断是否需要触发启动消息（新用户引导 or 老用户有记忆回忆）
+    // init-result 先发，renderer 端先进入就绪状态，然后再触发 __startup__
+    void (async () => {
+      try {
+        const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
+        const globalConfig = await GlobalConfig.readGlobalConfig();
+        const isNewUser = !globalConfig.onboardingDone;
+
+        let hasMemories = false;
+        if (!isNewUser && session) {
+          const memoryManager = session.getMemoryManager();
+          if (memoryManager) {
+            const stats = await (memoryManager as any).getStats?.();
+            hasMemories = stats ? stats.total > 0 : false;
+          }
+        }
+
+        if (isNewUser || hasMemories) {
+          // 延迟触发，确保 renderer 已处理完 init-result
+          setTimeout(() => {
+            handleSendMessage('__startup__').catch((err) => {
+              console.warn('[agent-bridge] Failed to send startup message:', err);
+            });
+          }, 300);
+        }
+      } catch (err) {
+        console.warn('[agent-bridge] Failed to check startup conditions:', err);
+      }
+    })();
   } catch (err) {
     safeSend({
       type: 'init-result',
@@ -269,10 +511,48 @@ async function handleInit() {
 }
 
 /**
+ * 注册流式事件回调，转发到主进程
+ */
+function registerSessionCallbacks(s: ChatSession) {
+  s.on({
+    onText: (text: string) => {
+      safeSend({ type: 'agent:text', data: text });
+    },
+    onThinking: (thinking: string) => {
+      console.log('[agent-bridge] onThinking 触发，内容长度:', thinking.length, '前50字符:', thinking.slice(0, 50));
+      safeSend({ type: 'agent:thinking', data: thinking });
+    },
+    onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+      console.log('[agent-bridge] onToolStart 触发:', { id, name, input });
+      safeSend({ type: 'agent:tool-start', data: { id, name, input } });
+    },
+    onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+      safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
+    },
+    onUsage: (usage: any) => {
+      safeSend({ type: 'agent:usage', data: usage });
+    },
+    onError: (err: Error) => {
+      safeSend({ type: 'agent:error', data: err.message });
+    },
+    onEnd: (state: any) => {
+      safeSend({
+        type: 'agent:end',
+        data: {
+          tokenUsage: state.tokenUsage,
+          cost: state.cost,
+          currentIteration: state.currentIteration,
+        },
+      });
+    },
+  });
+}
+
+/**
  * 发送消息
  */
 async function handleSendMessage(message: string) {
-  if (!session || !agentLoop) {
+  if (!session) {
     safeSend({
       type: 'send-result',
       data: { success: false, error: '会话未初始化' },
@@ -287,7 +567,7 @@ async function handleSendMessage(message: string) {
       await todoManager.startTurn();
     }
 
-    await agentLoop.run(message);
+    await session.run(message);
     safeSend({
       type: 'send-result',
       data: { success: true },
@@ -305,10 +585,16 @@ async function handleSendMessage(message: string) {
 
 /**
  * 中断执行
+ * - message 为空：停止按钮，调用 stop() 终止 Agent 循环
+ * - message 非空：补充输入，调用 interrupt(message) 中断并注入新消息
  */
-function handleInterrupt() {
-  if (agentLoop) {
-    agentLoop.interrupt();
+function handleInterrupt(message: string) {
+  if (session) {
+    if (message) {
+      session.getAgentLoop().interrupt(message);
+    } else {
+      session.stop();
+    }
     safeSend({
       type: 'interrupt-result',
       data: { success: true },
@@ -401,13 +687,18 @@ function handleGetConfig(requestId: string) {
 /**
  * 获取完整配置（供设置页面使用）
  */
-function handleGetFullConfig(requestId: string) {
+async function handleGetFullConfig(requestId: string) {
   if (!session) {
     safeSend({ type: 'full-config-result', requestId, data: null });
     return;
   }
 
   const config = session.getConfig();
+
+  // onboardingDone 和 persona 直接从全局配置文件读取，确保最新值
+  const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
+  const globalConfig = await GlobalConfig.readGlobalConfig();
+
   safeSend({
     type: 'full-config-result',
     requestId,
@@ -428,6 +719,8 @@ function handleGetFullConfig(requestId: string) {
       features: {
         dynamicToolLoading: config.features?.dynamicToolLoading ?? true,
       },
+      persona: globalConfig.persona ?? {},
+      onboardingDone: globalConfig.onboardingDone,
     },
   });
 }
@@ -475,49 +768,30 @@ async function handleUpdateConfig(requestId: string, data: any) {
       globalConfig.provider.baseURL = data.baseURL;
       needPersist = true;
     }
+    if (data.persona !== undefined) {
+      globalConfig.persona = data.persona;
+      needPersist = true;
+    }
+    if (data.onboardingDone !== undefined) {
+      globalConfig.onboardingDone = data.onboardingDone;
+      needPersist = true;
+    }
 
     // 4. 持久化到全局配置文件
     if (needPersist) {
       await GlobalConfig.writeGlobalConfig(globalConfig);
+      console.log('[agent-bridge] 配置已保存到文件，apiKey:', globalConfig.provider.apiKey ? `***${globalConfig.provider.apiKey.slice(-4)}` : '(空)');
     }
 
     // 5. 重新加载完整配置（包含环境变量）并重新初始化
     const configLoader = new ConfigLoader();
     const fullConfig = await configLoader.load();
+    console.log('[agent-bridge] 重新加载配置完成，apiKey:', fullConfig.provider.apiKey ? `***${fullConfig.provider.apiKey.slice(-4)}` : '(空)');
+    console.log('[agent-bridge] 环境变量 XUANJI_API_KEY:', process.env.XUANJI_API_KEY ? `***${process.env.XUANJI_API_KEY.slice(-4)}` : '(未设置)');
     await session.reinitialize(fullConfig);
-    agentLoop = session.getAgentLoop();
 
     // 重新注册事件回调
-    session.on({
-      onText: (text: string) => {
-        safeSend({ type: 'agent:text', data: text });
-      },
-      onThinking: (thinking: string) => {
-        safeSend({ type: 'agent:thinking', data: thinking });
-      },
-      onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-        safeSend({ type: 'agent:tool-start', data: { id, name, input } });
-      },
-      onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-        safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
-      },
-      onUsage: (usage: any) => {
-        safeSend({ type: 'agent:usage', data: usage });
-      },
-      onError: (err: Error) => {
-        safeSend({ type: 'agent:error', data: err.message });
-      },
-      onEnd: (state: any) => {
-        safeSend({
-          type: 'agent:end',
-          data: {
-            tokenUsage: state.tokenUsage,
-            cost: state.cost,
-            currentIteration: state.currentIteration,
-          },
-        });
-      },
-    });
+    registerSessionCallbacks(session);
 
     safeSend({
       type: 'update-config-result',
@@ -756,8 +1030,8 @@ async function handleSaveMemoryConfig(requestId: string, data: any) {
 
 // 手动触发记忆刷新
 async function handleManualMemoryFlush(requestId: string) {
-  if (!session || !agentLoop) {
-    safeSend({ requestId, data: { success: false, error: 'Session or AgentLoop not initialized' } });
+  if (!session) {
+    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
     return;
   }
   try {
@@ -773,7 +1047,7 @@ async function handleManualMemoryFlush(requestId: string) {
     }
 
     // 获取当前消息历史
-    const messageManager = agentLoop.getMessageManager();
+    const messageManager = session.getAgentLoop().getMessageManager();
     const messages = messageManager?.getMessages() || [];
 
     // 获取配置和会话ID
@@ -831,8 +1105,8 @@ async function handleGetMemoryList(requestId: string, data: any) {
       return;
     }
 
-    // 从 MemoryManager 获取缓存的记忆条目
-    const allMemories = (memoryManager as any).cachedEntries || [];
+    // 从 MemoryManager 获取所有记忆条目
+    const allMemories = memoryManager.getAllEntries ? memoryManager.getAllEntries(2000) : [];
 
     // 为没有 category 字段的记忆自动推断 category（兼容旧版本数据）
     const enrichedMemories = allMemories.map((m: any) => {
@@ -930,12 +1204,12 @@ async function handleGetUsageStats(requestId: string) {
 // ============================================================
 
 async function handleCompact(requestId: string, data: any) {
-  if (!agentLoop) {
+  if (!session) {
     safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
     return;
   }
   try {
-    const result = await agentLoop.compact(data?.instruction);
+    const result = await session.getAgentLoop().compact(data?.instruction);
     safeSend({
       requestId,
       data: {
@@ -1195,284 +1469,6 @@ async function handleMcpList(requestId: string) {
   }
 }
 
-// ============================================================
-// Prompt 配置管理
-// ============================================================
-
-/** 默认 prompt 组件内容（与 src/core/prompt/components/ 保持一致） */
-const DEFAULT_PROMPT_COMPONENTS: Record<string, { content: string; requiredTools?: string[] }> = {
-  'l0-identity': {
-    content: `You are Xuanji (璇玑), an AI butler who truly knows the user. You have access to the user's memories and can proactively assist with both work and life tasks.
-
-# Core Principles
-
-- **Tools First**: Invoke tools immediately rather than asking the user for retrievable information.
-- **Autonomous Action**: Proactively use tools to complete tasks. Don't wait for permission unless destructive.
-- **Error Recovery**: If a tool fails, analyze and try an alternative. Don't retry the same failing call.
-- **Plan Before Execute**: For multi-step tasks (3+ steps), create a todo checklist first, then execute step by step.
-- **Follow-up Refinement**: When user provides follow-up input shortly after your response, treat it as a refinement of the PREVIOUS task and re-execute with the new requirement.
-
-# Response Style
-
-- **Language Matching**: Mirror the user's language (Chinese → Chinese, English → English).
-- **Conciseness**: Present results directly. Minimize process narration.
-- **Clarity**: Explain what was done and why it matters.
-
-# Memory & Reminder Principles
-
-- **Memory-Driven**: Before recommendations, search user memories with \`memory_search\`.
-- **Proactive Storage**: When user shares personal info, call \`memory_store\` to remember.
-- **Smart Reminders**: For important dates, set reminders with \`reminder_set\` (birthdays: 2 days before, deadlines: 1 day before).
-- **Natural Presentation**: Present reminders conversationally with actionable suggestions.
-
-# Skill Composition
-
-Your capabilities are extended by domain-specific skills loaded dynamically based on user needs.`,
-  },
-  'l0-safety': {
-    content: `# Security Baseline
-
-## BLOCKED — Never execute, no exceptions
-- \`sudo rm -rf /\` or system-wide deletion
-- Modifying \`.git/\` internal files
-- \`git push --force\` to main/master
-- \`DROP DATABASE\`, \`DROP TABLE\` without WHERE
-- Writing secrets/credentials to stdout or logs
-
-## Sensitive File Patterns
-
-Never include in tool output or logs:
-\`\`\`
-.env, .env.*, .env.local
-**/secrets/*, **/credentials/*
-**/*.pem, **/*.key, **/*.p12
-config.json with "password" or "secret" keys
-\`\`\``,
-  },
-  'l1-coding': {
-    content: `# Code Assistant — Programming Domain Expert
-
-## Tool Decision Tree
-
-\`\`\`
-View file content?       → read_file (NOT bash cat)
-Modify part of a file?   → edit_file (NOT write_file, NOT bash sed)
-Create new file (< 5KB)? → write_file
-Create large file?       → bash heredoc
-Find files by name?      → glob (NOT bash find)
-Search code content?     → grep (NOT bash grep/rg)
-Run commands?            → bash (with description)
-\`\`\`
-
-## Pre/Post Execution Checklist
-
-**Before**: Read file → Verify path → Check context → Preserve formatting
-**After**: Confirm success → Validate result → Run tests if possible
-
-## Error Recovery
-
-\`\`\`
-Permission denied → Report to user, suggest fix
-File not found    → Use glob to find correct path
-Content too large → Switch to bash heredoc
-Edit conflict     → Read file again, use longer match string
-Unknown error     → Analyze, try alternative approach
-\`\`\`
-
-## Large File Strategy
-
-For files > 5KB or > 200 lines, use bash heredoc.
-
-## Multi-Agent Collaboration
-
-**SubAgent** (task tool): Single focused tasks — exploration, planning, coding
-**Agent Team** (quick_team/agent_team): 3+ expert roles, multi-stage pipeline, debate needed
-
-## Web Search for Coding
-
-Use \`web_search\` for: latest docs, recent bug fixes, library updates
-Don't search for: general concepts, code in current project, stable pre-2025 APIs`,
-    requiredTools: ['read_file', 'write_file', 'edit_file', 'bash', 'grep', 'glob'],
-  },
-  'l1-life': {
-    content: `# Life Secretary — Memory-Driven Personal Assistant
-
-## Capabilities
-
-- **Date Planning**: Arrange dates/activities based on the other person's preferences
-- **Restaurant Recommendations**: Consider taste, allergies, budget, location
-- **Schedule Management**: Remind about important dates, suggest relationship maintenance
-- **Gift Ideas**: Recommend based on recipient's interests and relationship context
-
-## Memory-Driven Workflow
-
-1. **Search memories first**: \`memory_search({query: "Alice", type: "relationship"})\`
-2. **Fill information gaps**: Use \`ask_user\` for budget, location, time constraints
-3. **Web search for up-to-date info**: Restaurants, events, products
-4. **Learn and remember**: Store new preferences, relationships, important dates
-5. **Set smart reminders**: Birthdays 2 days before, deadlines 1 day before
-
-## Tips
-
-- Always explain **why** you're recommending (based on memory/preferences)
-- Be conversational and warm, offer follow-up actions`,
-    requiredTools: ['ask_user', 'memory_store', 'memory_search', 'reminder_set', 'web_search'],
-  },
-  'l2-planning': {
-    content: `# Planning & Confirmation
-
-## When to Plan
-
-\`\`\`
-Simple (1-2 tool calls)?     → Execute directly
-Medium (3-8 steps)?          → Create todo checklist, then execute
-Complex/risky (many files)?  → Create todos + plan_review for approval
-\`\`\`
-
-## Planning Workflow
-
-1. **Analyze**: Understand scope, break into actionable steps
-2. **Create todos**: \`todo_create\` for each step
-3. **Review** (if complex): \`plan_review\` for approval
-4. **Execute**: Mark in_progress → do work → mark completed
-5. **Report**: Summarize accomplishments
-
-## Execute Directly (No Confirmation)
-
-- Read-only operations (file reading, analysis, search)
-- Minor fixes (typos, formatting, < 20 lines in one file)
-- Explicitly requested or clearly defined tasks`,
-  },
-  'l2-agent-rules': {
-    content: `# Agent Behavior Rules
-
-## Loop Control
-
-**Iteration Budget**: Target 5-10 tool calls for simple tasks, max 50 iterations
-**Stuck Detection**:
-\`\`\`
-Same tool failed 2+ times?       → STOP retrying, try alternative
-Reading same files repeatedly?   → STOP, summarize and ask user
-Approaching limit (40+)?         → Report progress and blockers
-\`\`\`
-
-## Decision Making
-
-- DO: Use tools to gather facts before decisions
-- DO: Read relevant code/config before suggesting changes
-- DON'T: Assume file contents, directory structure, or configuration
-
-## Efficiency Rules
-
-1. **Minimize round-trips**: Batch independent tool calls
-2. **Cache knowledge**: Don't re-read files seen in this conversation
-3. **Use specific tools**: grep > bash grep, read_file > bash cat
-4. **Progressive approach**: Start simple, add complexity only if needed`,
-  },
-  'l2-safety': {
-    content: `# Extended Security Rules
-
-## CONFIRM — Ask user before executing
-- Deleting files or directories
-- Force operations (git reset --hard, --force flags)
-- Modifying sensitive files (.env, config.json, secrets.*)
-- Installing global packages
-- Accessing network resources outside the project
-
-## SAFE — Execute without confirmation
-- Reading any file
-- Searching (grep, glob, find)
-- Git read operations (log, status, diff, branch)
-- Running tests and linters
-- Building projects, local package installs
-
-## Data Protection
-
-1. Before destructive operations: suggest git stash or backup
-2. Before bulk changes: show what will be affected
-3. After modifications: verify no data was lost
-4. When uncertain: ask the user, don't guess`,
-  },
-};
-
-async function handlePromptGetConfig(requestId: string) {
-  try {
-    // 从配置文件读取 prompt 配置
-    const { join } = await import('node:path');
-    const { homedir } = await import('node:os');
-    const fs = await import('node:fs/promises');
-
-    const configPath = join(homedir(), '.xuanji', 'prompt-config.json');
-
-    let config: any = null;
-    try {
-      const content = await fs.readFile(configPath, 'utf-8');
-      config = JSON.parse(content);
-    } catch {
-      // 文件不存在，返回默认配置
-      config = {
-        sceneRules: [
-          {
-            scene: 'coding',
-            keywords: '代码|编程|函数|类|接口|模块|组件|重构|bug|修复|测试|部署|构建|编译|调试|code|program|function|class|interface|module|component|refactor|fix|test|deploy|build|compile|debug|npm|git|api|typescript|python|java',
-            description: '编程领域专家 — 文件操作、代码搜索、大文件处理、多代理协作',
-          },
-          {
-            scene: 'life',
-            keywords: '约会|餐厅|推荐|生日|礼物|提醒|日程|天气|旅行|电影|音乐|购物|健康|运动|食谱|date|restaurant|birthday|gift|remind|schedule|weather|travel|movie|music|shopping|health|recipe',
-            description: '生活秘书 — 记忆驱动的约会规划、餐厅推荐、日程管理、礼物建议',
-          },
-        ],
-        loadMatrix: {
-          simple: ['L0'],
-          standard: ['L0', 'L1'],
-          complex: ['L0', 'L1', 'L2'],
-        },
-        l3Config: {
-          enabled: true,
-          maxFiles: 100,
-          maxSymbols: 20,
-          directories: ['src'],
-        },
-      };
-    }
-
-    // 确保 components 字段存在（合并默认值）
-    if (!config.components) {
-      config.components = {};
-    }
-    for (const [id, defaults] of Object.entries(DEFAULT_PROMPT_COMPONENTS)) {
-      if (!config.components[id]) {
-        config.components[id] = defaults;
-      }
-    }
-
-    safeSend({ requestId, data: { success: true, config } });
-  } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
-  }
-}
-
-async function handlePromptSaveConfig(requestId: string, data: any) {
-  try {
-    const { join } = await import('node:path');
-    const { homedir } = await import('node:os');
-    const fs = await import('node:fs/promises');
-
-    const configDir = join(homedir(), '.xuanji');
-    const configPath = join(configDir, 'prompt-config.json');
-
-    // 确保目录存在
-    await fs.mkdir(configDir, { recursive: true });
-
-    // 写入配置
-    await fs.writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
-
-    safeSend({ requestId, data: { success: true } });
-  } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
-  }
-}
 
 // ============================================================
 // 权限交互 (双向 IPC)
@@ -1534,6 +1530,8 @@ function injectInteractionHandlers() {
         id,
         question: typeof question === 'string' ? question : question?.question || '',
         options: question?.options || [],
+        multiSelect: question?.multiSelect || false,
+        default: question?.default,
       },
     });
     return new Promise((resolve) => {
@@ -1586,7 +1584,13 @@ function handleAskUserResponse(data: any) {
   const resolve = pendingAskUsers.get(data.id);
   if (resolve) {
     pendingAskUsers.delete(data.id);
-    resolve(data.result);
+    // AskUserDialog 发送 { answer: string } 对象，需提取字符串
+    // 兼容直接返回字符串的情况（非 GUI 环境）
+    const result = data.result;
+    const answer: string = typeof result === 'string'
+      ? result
+      : (result?.answer ?? '');
+    resolve(answer);
   }
 }
 
@@ -1642,15 +1646,23 @@ async function handlePermissionClear(requestId: string) {
 
 // 优雅退出
 process.on('SIGTERM', async () => {
+  console.log('[agent-bridge] SIGTERM received, starting cleanup...');
   if (session) {
-    await session.cleanup().catch(() => {});
+    await session.cleanup().catch((err) => {
+      console.warn('[agent-bridge] Cleanup error:', err instanceof Error ? err.message : String(err));
+    });
   }
+  console.log('[agent-bridge] Cleanup completed, exiting');
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
+  console.log('[agent-bridge] SIGINT received, starting cleanup...');
   if (session) {
-    await session.cleanup().catch(() => {});
+    await session.cleanup().catch((err) => {
+      console.warn('[agent-bridge] Cleanup error:', err instanceof Error ? err.message : String(err));
+    });
   }
+  console.log('[agent-bridge] Cleanup completed, exiting');
   process.exit(0);
 });

@@ -5,11 +5,12 @@ import type { ILLMProvider, AgentConfig, IToolRegistry } from '@/core/types';
 // Mock dependencies
 const createMockProvider = (): ILLMProvider => ({
   name: 'mock-provider',
-  chat: vi.fn(async function* () {
+  models: [],
+  stream: vi.fn(async function* () {
     yield { type: 'text', text: 'Mock response' };
   }),
-  chatSync: vi.fn(async () => ({ content: 'Mock response', stopReason: 'end_turn' })),
-});
+  isSupported: vi.fn(() => true),
+} as unknown as ILLMProvider);
 
 const createMockToolRegistry = (): IToolRegistry => ({
   register: vi.fn(),
@@ -22,7 +23,6 @@ const createMockToolRegistry = (): IToolRegistry => ({
 } as any);
 
 const createMockAgentConfig = (): AgentConfig => ({
-  provider: 'anthropic',
   model: 'claude-sonnet-4',
   temperature: 0.7,
   maxTokens: 4096,
@@ -31,20 +31,17 @@ const createMockAgentConfig = (): AgentConfig => ({
 describe('TeamTool', () => {
   let tool: TeamTool;
   let mockMainProvider: ILLMProvider;
-  let mockLightProvider: ILLMProvider;
   let mockToolRegistry: IToolRegistry;
   let mockAgentConfig: AgentConfig;
 
   beforeEach(() => {
     tool = new TeamTool();
     mockMainProvider = createMockProvider();
-    mockLightProvider = createMockProvider();
     mockToolRegistry = createMockToolRegistry();
     mockAgentConfig = createMockAgentConfig();
 
     tool.setDependencies({
       provider: mockMainProvider,
-      lightProvider: mockLightProvider,
       registry: mockToolRegistry,
       agentConfig: mockAgentConfig,
       depth: 0,

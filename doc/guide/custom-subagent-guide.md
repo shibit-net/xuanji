@@ -178,14 +178,12 @@ permissions: {
 // 快速探索（Haiku）
 model: {
   primary: '[CC]claude-haiku-4-5-20251001',
-  fallback: '[CC]claude-haiku-4-5-20251001',
   maxTokens: 16000,
 }
 
 // 代码编写（Sonnet/Opus）
 model: {
   primary: '[CC]claude-opus-4-6',
-  fallback: '[CC]claude-sonnet-4-5-20250929',
   maxTokens: 32000,
 }
 ```
@@ -478,7 +476,6 @@ export type AgentRoleType = string;  // 改为 string，支持任意 ID
 ```json5
 model: {
   primary: '[CC]claude-sonnet-4-5-20250929',
-  fallback: '[CC]claude-haiku-4-5-20251001',  // 降级到快速模型
 }
 ```
 

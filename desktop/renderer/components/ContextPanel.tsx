@@ -80,7 +80,7 @@ function FilesTab() {
       if (msg.toolCalls) {
         for (const tc of msg.toolCalls) {
           if (['read_file', 'write_file', 'edit_file', 'multi_edit'].includes(tc.name)) {
-            const path = tc.input?.file_path || tc.input?.path;
+            const path = (tc.input?.file_path || tc.input?.path) as string | undefined;
             if (path) {
               const existing = fileMap.get(path) || { count: 0, lastOp: tc.name, timestamp: 0 };
               fileMap.set(path, {
@@ -315,7 +315,7 @@ function ActivityTab() {
         if (typeof msg.content === 'string') {
           textContent = msg.content;
         } else if (Array.isArray(msg.content)) {
-          const textBlock = msg.content.find((block: any) => block.type === 'text');
+          const textBlock = (msg.content as any[]).find((block: any) => block.type === 'text');
           textContent = textBlock?.text || '';
         }
 

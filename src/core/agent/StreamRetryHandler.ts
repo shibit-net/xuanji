@@ -56,6 +56,7 @@ export class StreamRetryHandler {
       setCurrentStream: (stream: AsyncIterable<import('@/core/types').StreamEvent> | null) => void;
     },
     rateLimitRetryCount: number = 0,  // ★ 新增：429 错误重试计数（限制递归深度） ★
+    signal?: AbortSignal,  // 🔧 新增：AbortSignal 支持
   ): Promise<StreamCallResult> {
     const perfTimer = this.perfCollector.createTimer(this.config.model, iteration);
     const retryConfig = this.config.retry ?? DEFAULT_RETRY_CONFIG;
@@ -86,6 +87,7 @@ export class StreamRetryHandler {
             maxTokens: this.config.maxTokens,
             temperature: this.config.temperature,
             thinking: this.thinkingConfig,
+            signal,  // 🔧 传递 AbortSignal
           },
         );
         

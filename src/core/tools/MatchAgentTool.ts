@@ -29,7 +29,11 @@ interface AgentMatch {
 export class MatchAgentTool extends BaseTool {
   readonly name = 'match_agent';
   readonly description = [
-    'Find the best agent for a specific task based on intelligent matching.',
+    '🎯 Find the best preset agent for a specific task.',
+    '',
+    '⚡ WHEN TO USE:',
+    'ALWAYS call this BEFORE using task or agent_team tools to find the most suitable preset agent.',
+    'This ensures you leverage specialized agents (coder, explore, test-writer, etc.) instead of generic ones.',
     '',
     'The system analyzes the task description and recommends the most suitable agent using:',
     '✓ Semantic similarity (vector matching)',
@@ -37,12 +41,16 @@ export class MatchAgentTool extends BaseTool {
     '✓ Capability matching',
     '✓ Domain/tag matching',
     '',
-    'Use this when you\'re unsure which agent to use for a task.',
+    'Workflow:',
+    '1. Call match_agent with task description',
+    '2. Review top recommendations and scores',
+    '3. If score >= 0.5 (50%), use that agent ID in task/agent_team',
+    '4. If score < 0.5, use general-purpose or create custom agent',
     '',
     'Returns:',
     '- Top 3 agent recommendations',
-    '- Match scores and reasoning',
-    '- Agent capabilities',
+    '- Match scores (0-1) and reasoning',
+    '- Agent capabilities and descriptions',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

@@ -36,16 +36,16 @@ export type AskUserHandler = (request: AskUserRequest) => Promise<string>;
 export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
   readonly description = [
-    '向用户提出问题并等待回复。',
-    '当你需要以下信息时使用此工具:',
-    '- 澄清模糊的需求',
-    '- 在多个方案之间让用户做出选择',
-    '- 确认关键操作前的参数',
-    '不要用于闲聊或不必要的确认。',
+    'Ask the user a question and wait for their response.',
+    'Use this tool when you need to:',
+    '- Clarify ambiguous requirements',
+    '- Let user choose between multiple options',
+    '- Confirm parameters before critical operations',
+    'Do NOT use for small talk or unnecessary confirmations.',
     '',
-    '支持结构化选项：',
-    '- 提供 options 数组时，用户可从预定义选项中选择',
-    '- 设置 multiSelect: true 允许多选',
+    'Supports structured options:',
+    '- Provide options array for predefined choices',
+    '- Set multiSelect: true to allow multiple selections',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -53,20 +53,20 @@ export class AskUserTool extends BaseTool {
     properties: {
       question: {
         type: 'string',
-        description: '向用户提出的问题（清晰、具体、简洁）',
+        description: 'Question to ask the user (clear, specific, concise)',
       },
       options: {
         type: 'array',
         items: { type: 'string' },
-        description: '选项列表（可选，提供则显示为选择题）',
+        description: 'Option list (optional, displays as multiple choice if provided)',
       },
       multiSelect: {
         type: 'boolean',
-        description: '是否允许多选（默认 false，仅在提供 options 时有效）',
+        description: 'Whether to allow multiple selections (default false, only effective when options provided)',
       },
       default: {
         type: 'string',
-        description: '默认值（可选）',
+        description: 'Default value (optional)',
       },
     },
     required: ['question'],
@@ -103,10 +103,16 @@ export class AskUserTool extends BaseTool {
       };
 
       const answer = await this.handler(request);
-      if (!answer?.trim()) {
+      // 防御性处理：handler 可能因适配层问题返回非字符串（如 { answer: string }）
+      const answerStr = typeof answer === 'string'
+        ? answer
+        : (answer && typeof (answer as any).answer === 'string'
+            ? (answer as any).answer
+            : String(answer ?? ''));
+      if (!answerStr.trim()) {
         return this.success('（用户未回复）');
       }
-      return this.success(answer);
+      return this.success(answerStr);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`等待用户回复失败: ${message}`);

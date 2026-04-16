@@ -115,7 +115,7 @@ describe('GlobalConfig', () => {
     // 清空环境变量
     process.env = { ...originalEnv };
     delete process.env.XUANJI_MODEL;
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.XUANJI_API_KEY;
     delete process.env.XUANJI_THEME;
   });
 
@@ -204,7 +204,7 @@ describe('GlobalConfig', () => {
 
   it('resolveEnvConfig() 应映射环境变量', () => {
     process.env.XUANJI_MODEL = 'env-model';
-    process.env.ANTHROPIC_API_KEY = 'env-api-key';
+    process.env.XUANJI_API_KEY = 'env-api-key';
     process.env.XUANJI_MAX_TOKENS = '32000';
     process.env.XUANJI_THEME = 'dark';
 
@@ -370,7 +370,7 @@ describe('GlobalConfig', () => {
 
   it('getEnvMappings() 应返回环境变量映射表', () => {
     const mappings = GlobalConfig.getEnvMappings();
-    expect(mappings).toHaveProperty('ANTHROPIC_API_KEY');
+    expect(mappings).toHaveProperty('XUANJI_API_KEY');
     expect(mappings).toHaveProperty('XUANJI_MODEL');
     expect(mappings.XUANJI_MODEL.path).toBe('provider.model');
   });

@@ -11,7 +11,6 @@ import { DEFAULT_ROUTING_CONFIG } from '@/core/routing/TaskRouter';
 export const DEFAULT_CONFIG: AppConfig = {
   provider: {
     model: '[CC]claude-sonnet-4-5-20250929',
-    lightModel: '[CC]claude-haiku-4-5-20251001',
     adapter: 'anthropic',
     maxTokens: 64000,  // claude-sonnet-4-5 上限（代理服务直连时有效）
     temperature: undefined,
@@ -79,35 +78,15 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxPromptLength: 5000,
     compactionThreshold: 500,
     decayHalfLifeDays: 30,
-    // Phase 4: 智能记忆刷新配置（OpenClaw 启发）
-    intelligentFlush: {
-      enabled: true,
-      tokenThreshold: 0.75,
-      timeThreshold: 30 * 60 * 1000, // 30 分钟
-      valueThreshold: 50,
-      keepRecentMessages: 5,
-    },
-    // Phase 3: 主题提取配置（OpenClaw 启发）
-    topicExtraction: {
-      enabled: true,
-      autoTrigger: 'session-end',
-      mergeThreshold: 0.85,
-      minEntriesForExtraction: 2,
-    },
-    // Phase 2: 记忆格式化配置（OpenClaw 风格）
     formatting: {
       style: 'openclaw',
       showAccessCount: true,
       showRelatedMemories: true,
       maxTimelineItems: 10,
     },
-    // Phase 5: Token 估算配置
-    tokenEstimation: {
-      method: 'simple',
-      charsPerToken: 3,
-    },
   },
   agent: {
+    maxIterations: Infinity,  // 主 Agent 不限迭代次数
     subAgent: {
       maxNestingDepth: 3,
       maxConcurrent: 3,
@@ -132,10 +111,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxSessions: 50,
   },
   features: {
-    dynamicToolLoading: true, // 默认启用工具按需加载
-    useLayeredPromptBuilder: true, // 默认使用分层 Prompt 构建器
-    multiAgentTools: true, // 🆕 默认启用 Multi-Agent 工具（委托、编排、管道）
-    intentRouter: true, // 🆕 默认启用意图路由系统
+    intentRouter: true, // 默认启用意图路由系统
   },
   butler: {
     enabled: true, // ✅ 启用智能管家

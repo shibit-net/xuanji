@@ -2,7 +2,7 @@
 // DiagnosticsDialog - 系统诊断对话框
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Loader2, RefreshCw, Copy, Check } from 'lucide-react';
 
 interface DiagnosticsDialogProps {

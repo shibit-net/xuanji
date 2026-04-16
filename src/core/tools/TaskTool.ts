@@ -16,14 +16,32 @@ import type { IMemoryStore } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
-import { runSubAgent, type SubAgentResult } from '@/core/agent/SubAgentLoop';
+import type { SubAgentResult } from '@/core/agent/SubAgentLoop';
+import { SubAgentFactory } from '@/core/agent/SubAgentFactory';
 
 export class TaskTool extends BaseTool {
   readonly name = 'task';
   readonly description = [
     'Launch a sub-agent to handle a specific task independently.',
     'Use this tool to delegate complex sub-tasks, parallel research, or isolated operations.',
-    'Each sub-agent has its own context and does not share conversation history with the parent.',
+    'Each sub-agent has its own isolated context — it does NOT share conversation history with the parent.',
+    '',
+    '⚡ BEST PRACTICE - Choose the Right Agent:',
+    '1. BEFORE calling task, call match_agent to find the best preset agent for this task',
+    '2. Use the matched agent ID as subagent_type parameter',
+    '3. This ensures you use specialized agents (coder, explore, etc.) instead of generic ones',
+    '',
+    'Example workflow:',
+    '  match_agent({ task_description: "analyze code quality" })',
+    '  → Found: coder (85% match)',
+    '  task({ description: "...", subagent_type: "coder" })',
+    '',
+    'IMPORTANT: The sub-agent only knows what you put in "description".',
+    'You must distill all necessary context into the description yourself:',
+    '- Relevant findings from the current conversation',
+    '- Constraints, file paths, or decisions already made',
+    '- Expected output format',
+    'Do NOT assume the sub-agent has any background knowledge from the parent session.',
     '',
     'When to use:',
     '- Breaking down complex tasks into independent subtasks',
@@ -41,22 +59,22 @@ export class TaskTool extends BaseTool {
     properties: {
       description: {
         type: 'string',
-        description: 'A clear, specific task description for the sub-agent to execute.',
+        description: [
+          'The complete task description for the sub-agent.',
+          'The sub-agent has NO access to the parent conversation history.',
+          'You MUST include all necessary context inline: relevant findings, constraints, file paths, decisions, and expected output format.',
+          'Think of this as writing a self-contained brief — everything the sub-agent needs to succeed must be here.',
+        ].join('\n'),
       },
       subagent_type: {
         type: 'string',
-        enum: ['general-purpose', 'explore', 'plan', 'coder'],
         description: [
-          'Type of sub-agent to use:',
-          '- general-purpose: General tasks (default)',
-          '- explore: Fast codebase exploration (read-only tools)',
-          '- plan: Architecture design (read-only tools)',
-          '- coder: Code writing and editing',
+          'Agent ID to use for this task.',
+          'RECOMMENDED WORKFLOW: Before setting this, call match_agent or list_agents to find the best preset agent.',
+          '- If match_agent returns a good match (score >= 0.5): set subagent_type to that agent\'s ID',
+          '- If no good match: omit subagent_type and use system_prompt + tools instead',
+          'Common preset agents: general-purpose, explore, plan, coder, test-writer, doc-writer',
         ].join('\n'),
-      },
-      include_parent_context: {
-        type: 'boolean',
-        description: 'Whether to pass a summary of the current conversation to the sub-agent. Default: false.',
       },
       isolation: {
         type: 'string',
@@ -67,6 +85,24 @@ export class TaskTool extends BaseTool {
         type: 'number',
         description: 'Timeout in milliseconds. Default: 300000 (5 minutes).',
       },
+      system_prompt: {
+        type: 'string',
+        description: [
+          'Custom system prompt for the sub-agent.',
+          'Overrides the preset agent config systemPrompt when provided.',
+          'Use this when no preset config matches and you want to define the agent\'s behavior dynamically.',
+        ].join('\n'),
+      },
+      tools: {
+        type: 'array',
+        items: { type: 'string' },
+        description: [
+          'List of tool names the sub-agent is allowed to use.',
+          'Overrides the preset agent config tools when provided.',
+          'Available tools: read_file, write_file, edit_file, bash, grep, glob, task (sub-agents cannot use task).',
+          'Use this when no preset config matches and you want to restrict or expand the agent\'s tool access.',
+        ].join('\n'),
+      },
     },
     required: ['description'],
   };
@@ -74,13 +110,18 @@ export class TaskTool extends BaseTool {
   readonly readonly = true; // 可并行执行
 
   // 依赖注入
-  private provider: ILLMProvider | null = null;
-  private lightProvider: ILLMProvider | null = null;
+  private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
+  private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
   private memoryStore: IMemoryStore | null = null;
   private currentDepth = 0;
+  private parentProvider: ILLMProvider | null = null; // 父 Provider
+  private currentAgentId: string = 'main'; // 🔧 当前 Agent ID
+
+  /** SubAgentFactory 实例 */
+  private subAgentFactory: SubAgentFactory | null = null;
 
   /** 当前活跃的子代理数 */
   private activeCount = 0;
@@ -89,34 +130,80 @@ export class TaskTool extends BaseTool {
    * 注入运行时依赖（由 ChatSession 调用）
    */
   setDependencies(deps: {
-    provider: ILLMProvider;
-    lightProvider: ILLMProvider;
+    providerManager: import('@/core/providers/ProviderManager').ProviderManager;
+    agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry;
     registry: IToolRegistry;
     agentConfig: AgentConfig;
+    parentProvider?: ILLMProvider; // 可选：父 Provider（用于继承）
     hookRegistry?: HookRegistry | null;
     memoryStore?: IMemoryStore | null;
     depth?: number;
+    agentId?: string; // 🔧 当前 Agent ID
   }): void {
-    this.provider = deps.provider;
-    this.lightProvider = deps.lightProvider;
+    this.providerManager = deps.providerManager;
+    this.agentRegistry = deps.agentRegistry;
     this.registry = deps.registry;
     this.agentConfig = deps.agentConfig;
+    this.parentProvider = deps.parentProvider ?? null; // 保存父 Provider
     this.hookRegistry = deps.hookRegistry ?? null;
     this.memoryStore = deps.memoryStore ?? null;
     this.currentDepth = deps.depth ?? 0;
+    this.currentAgentId = deps.agentId ?? 'main'; // 🔧 保存当前 Agent ID
+
+    // 创建 SubAgentFactory 实例
+    this.subAgentFactory = new SubAgentFactory(
+      this.agentRegistry,
+      this.providerManager,
+      this.registry,
+      this.hookRegistry,
+      this.memoryStore,
+      this.parentProvider,  // 传递父 provider
+    );
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const description = input.description as string;
-    const includeParentContext = (input.include_parent_context as boolean) ?? false;
     const timeout = input.timeout as number | undefined;
-    const role = (input.subagent_type as AgentRoleType) ?? 'general-purpose';
+    let role = (input.subagent_type as AgentRoleType) ?? null;
     const isolation = (input.isolation as IsolationMode) ?? 'none';
+    const systemPrompt = input.system_prompt as string | undefined;
+    const tools = input.tools as string[] | undefined;
 
     // 验证依赖已注入
-    if (!this.provider || !this.lightProvider || !this.registry || !this.agentConfig) {
+    if (!this.subAgentFactory) {
+      console.error('[TaskTool] subAgentFactory is null/undefined');
       return this.error(
-        'TaskTool not initialized. Internal error: dependencies not injected.',
+        'TaskTool not initialized. Internal error: subAgentFactory not injected.',
+      );
+    }
+
+    if (!this.agentConfig) {
+      console.error('[TaskTool] agentConfig is null/undefined');
+      return this.error(
+        'TaskTool not initialized. Internal error: agentConfig not injected.',
+      );
+    }
+
+    console.log('[TaskTool] execute() called, subAgentFactory:', !!this.subAgentFactory, 'agentConfig:', !!this.agentConfig);
+
+    // ✅ 智能匹配：如果没有指定 subagent_type，尝试自动匹配最佳内置 Agent
+    if (!role && this.agentRegistry) {
+      role = await this.autoMatchAgent(description);
+      if (role && role !== 'general-purpose') {
+        console.log(`[TaskTool] Auto-matched agent: ${role} for task: ${description.substring(0, 100)}`);
+      }
+    }
+
+    // 如果仍然没有匹配到，使用默认的 general-purpose
+    if (!role) {
+      role = 'general-purpose';
+    }
+
+    // 深度检查（在调用 SubAgentFactory 之前，避免 agentRegistry 查找失败掩盖深度错误）
+    const depthCtx = new SubAgentContext({ task: description, depth: this.currentDepth + 1 });
+    if (depthCtx.isDepthExceeded()) {
+      return this.error(
+        `Maximum nesting depth exceeded (depth=${this.currentDepth + 1}). Sub-agents cannot create further sub-agents beyond the limit.`,
       );
     }
 
@@ -127,35 +214,19 @@ export class TaskTool extends BaseTool {
       );
     }
 
-    // 创建子代理上下文
-    const context = new SubAgentContext({
-      task: description,
-      parentContext: includeParentContext ? this.getParentContextSummary() : undefined,
-      timeout,
-      depth: this.currentDepth + 1,
-      role,
-      isolation,
-    });
-
-    // 深度检查
-    if (context.isDepthExceeded()) {
-      return this.error(
-        `Maximum nesting depth exceeded. Sub-agents cannot create further sub-agents.`,
-      );
-    }
-
-    // 执行子代理
+    // 执行子代理（使用统一架构）
     this.activeCount++;
     try {
-      const result = await runSubAgent(
-        this.provider,
-        this.lightProvider,
-        this.registry,
-        this.agentConfig,
-        context,
-        this.hookRegistry,
-        this.memoryStore,
-      );
+      const result = await this.subAgentFactory.createAndRun(role, {
+        task: description,
+        timeout,
+        depth: this.currentDepth + 1,
+        isolation,
+        parentConfig: this.agentConfig,
+        systemPrompt,
+        tools,
+        parentAgentId: this.currentAgentId, // 🔧 传递父 Agent ID
+      }, signal); // 🔧 传递 AbortSignal
 
       return this.formatResult(result);
     } finally {
@@ -173,11 +244,87 @@ export class TaskTool extends BaseTool {
   // ─── 私有方法 ─────────────────────────────────────────
 
   /**
-   * 生成父代理上下文摘要（简化版，避免 token 膨胀）
+   * 自动匹配最佳 Agent
+   * 根据任务描述，使用简单的关键词匹配来选择最合适的内置 Agent
    */
-  private getParentContextSummary(): string {
-    // 目前返回简单说明，后续可扩展为从 MessageManager 提取摘要
-    return 'The parent agent is working on a complex task and has delegated this sub-task to you.';
+  private async autoMatchAgent(taskDescription: string): Promise<AgentRoleType> {
+    if (!this.agentRegistry) {
+      return 'general-purpose';
+    }
+
+    const lowerTask = taskDescription.toLowerCase();
+    console.log('[TaskTool] autoMatchAgent - 任务描述:', taskDescription);
+    console.log('[TaskTool] autoMatchAgent - 小写任务描述:', lowerTask);
+
+    // 定义关键词映射（优先级从高到低）
+    const agentKeywords: Array<{ agent: AgentRoleType; keywords: string[]; priority: number }> = [
+      {
+        agent: 'coder',
+        keywords: ['代码', 'code', '编程', 'program', '实现', 'implement', '修复', 'fix', '重构', 'refactor', '函数', 'function', '类', 'class', '方法', 'method', 'bug', '优化', 'optimize'],
+        priority: 10,
+      },
+      {
+        agent: 'test-writer',
+        keywords: ['测试', 'test', '单元测试', 'unit test', '集成测试', 'integration test', 'jest', 'vitest', 'pytest'],
+        priority: 9,
+      },
+      {
+        agent: 'explore',
+        keywords: ['探索', 'explore', '查找', 'find', '搜索', 'search', '分析', 'analyze', '理解', 'understand', '调研', 'research'],
+        priority: 8,
+      },
+      {
+        agent: 'doc-writer',
+        keywords: ['文档', 'document', 'doc', '注释', 'comment', '说明', 'readme', 'api文档', 'api doc'],
+        priority: 7,
+      },
+      {
+        agent: 'plan',
+        keywords: ['计划', 'plan', '设计', 'design', '架构', 'architecture', '方案', 'solution', '策略', 'strategy'],
+        priority: 6,
+      },
+    ];
+
+    // 计算每个 Agent 的匹配分数
+    let bestMatch: { agent: AgentRoleType; score: number } | null = null;
+
+    for (const { agent, keywords, priority } of agentKeywords) {
+      // 检查 Agent 是否存在且启用
+      const agentConfig = this.agentRegistry.get(agent);
+      if (!agentConfig || agentConfig.enabled === false) {
+        console.log(`[TaskTool] autoMatchAgent - Agent ${agent} 不存在或未启用`);
+        continue;
+      }
+
+      // 计算关键词匹配数
+      let matchCount = 0;
+      const matchedKeywords: string[] = [];
+      for (const keyword of keywords) {
+        if (lowerTask.includes(keyword)) {
+          matchCount++;
+          matchedKeywords.push(keyword);
+        }
+      }
+
+      if (matchCount > 0) {
+        // 分数 = 匹配数 * 优先级
+        const score = matchCount * priority;
+        console.log(`[TaskTool] autoMatchAgent - Agent ${agent}: 匹配 ${matchCount} 个关键词 [${matchedKeywords.join(', ')}], 分数 ${score}`);
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { agent, score };
+        }
+      }
+    }
+
+    // 如果找到匹配且分数足够高（至少匹配1个关键词），返回该 Agent
+    if (bestMatch && bestMatch.score >= 5) {
+      console.log(`[TaskTool] autoMatchAgent - 最佳匹配: ${bestMatch.agent} (分数: ${bestMatch.score})`);
+      return bestMatch.agent;
+    }
+
+    // 否则返回 general-purpose
+    console.log('[TaskTool] autoMatchAgent - 没有找到合适的匹配，使用 general-purpose');
+    return 'general-purpose';
   }
 
   /**

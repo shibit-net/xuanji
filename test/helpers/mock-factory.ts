@@ -195,6 +195,56 @@ export function createMockAgentConfig(): AgentConfig {
   } as any;
 }
 
+/**
+ * 创建 Mock Agent Registry
+ */
+export function createMockAgentRegistry(): any {
+  // 创建一个通用的 agent 配置，用于所有角色
+  const mockAgentConfig = {
+    id: 'mock-agent',
+    name: 'Mock Agent',
+    systemPrompt: 'You are a helpful assistant.',
+    model: {
+      primary: 'claude-sonnet-4',
+      temperature: 0.7,
+      maxTokens: 4096,
+    },
+    execution: {
+      timeout: 60000,
+      maxIterations: 10,
+    },
+    tools: [],
+    metadata: {
+      builtin: true,
+      source: 'mock',
+    },
+  };
+
+  return {
+    register: vi.fn(),
+    get: vi.fn((id: string) => ({
+      ...mockAgentConfig,
+      id,
+      name: `Mock Agent (${id})`,
+    })),
+    has: vi.fn(() => true),
+    getAll: vi.fn(() => [mockAgentConfig]),
+  };
+}
+
+/**
+ * 创建 Mock Provider Manager
+ */
+export function createMockProviderManager(mockProvider?: ILLMProvider): any {
+  const defaultProvider = mockProvider || createSimpleMockProvider();
+  
+  return {
+    getProvider: vi.fn(() => defaultProvider),
+    hasProvider: vi.fn(() => true),
+    registerProvider: vi.fn(),
+  };
+}
+
 // ==================== 性能测试辅助 ====================
 
 export interface BenchmarkResult {

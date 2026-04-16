@@ -2,9 +2,8 @@
 // SettingsPanel - 设置面板组件
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
-import { X, Save, Eye, EyeOff, Loader2, Check, Shield, Settings } from 'lucide-react';
-import PermissionRulesPanel from './PermissionRulesPanel';
+import { useState, useEffect } from 'react';
+import { X, Save, Eye, EyeOff, Loader2, Check, Settings } from 'lucide-react';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -21,7 +20,7 @@ interface ProviderConfig {
   lightModel: string;
 }
 
-type TabId = 'general' | 'permissions';
+type TabId = 'general';
 
 const ADAPTERS = [
   { value: 'anthropic', label: 'Anthropic' },
@@ -127,17 +126,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         >
           <Settings size={14} />
           通用
-        </button>
-        <button
-          onClick={() => setActiveTab('permissions')}
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 transition-colors ${
-            activeTab === 'permissions'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          <Shield size={14} />
-          权限规则
         </button>
       </div>
 
@@ -263,11 +251,6 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             </button>
           </div>
         )
-        )}
-
-        {/* 权限规则管理 */}
-        {activeTab === 'permissions' && (
-          <PermissionRulesPanel />
         )}
       </div>
     </div>

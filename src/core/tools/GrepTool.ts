@@ -71,7 +71,7 @@ function isRipgrepAvailable(): boolean {
  */
 export class GrepTool extends BaseTool {
   readonly name = 'grep';
-  readonly description = '在文件中搜索文本模式（支持正则表达式）。返回匹配行及其上下文。优先使用 ripgrep 高性能搜索。';
+  readonly description = 'Search text patterns in files (supports regex). Returns matching lines with context. Uses high-performance ripgrep when available.';
   readonly readonly = true;
 
   readonly input_schema: JSONSchema = {
@@ -79,28 +79,28 @@ export class GrepTool extends BaseTool {
     properties: {
       pattern: {
         type: 'string',
-        description: '搜索模式（正则表达式），如 "function\\s+\\w+" 查找函数定义',
+        description: 'Search pattern (regex), e.g. "function\\s+\\w+" to find function definitions',
       },
       path: {
         type: 'string',
-        description: '搜索路径（文件或目录）',
+        description: 'Search path (file or directory)',
       },
       glob: {
         type: 'string',
-        description: '文件过滤 glob 模式，如 "*.ts" 只搜索 TS 文件（仅在 path 是目录时生效）',
+        description: 'File filter glob pattern, e.g. "*.ts" to search only TS files (only effective when path is directory)',
       },
       case_insensitive: {
         type: 'boolean',
-        description: '是否忽略大小写（默认 false）',
+        description: 'Whether to ignore case (default false)',
       },
       output_mode: {
         type: 'string',
         enum: ['content', 'files_with_matches', 'count'],
-        description: 'content=显示匹配内容, files_with_matches=仅显示文件名（默认）, count=显示匹配计数',
+        description: 'content=show match content, files_with_matches=show filenames only (default), count=show match counts',
       },
       context: {
         type: 'number',
-        description: '显示匹配行的上下文行数（0-5，默认 0）',
+        description: 'Number of context lines around matches (0-5, default 0)',
       },
     },
     required: ['pattern', 'path'],

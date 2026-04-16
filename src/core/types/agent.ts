@@ -2,7 +2,7 @@
 // Agent 核心类型定义
 // ============================================================
 
-import type { RetryConfig } from './provider';
+import type { RetryConfig, ThinkingConfig } from './provider';
 
 /**
  * 消息角色
@@ -106,6 +106,8 @@ export interface AgentConfig {
   compressor?: Partial<CompressorConfig>;
   /** API 调用重试配置 */
   retry?: RetryConfig;
+  /** Extended Thinking 配置（Anthropic Claude 4.5+） */
+  thinking?: ThinkingConfig;
 }
 
 /**

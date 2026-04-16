@@ -62,6 +62,9 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
   // System Prompt 构建方式
   const getSystemPromptMode = () => {
     const { systemPrompt } = agent;
+    const isMainAgent = agent.metadata?.isMainAgent;
+    const isSubAgent = agent.metadata?.isSubAgent;
+    const isSystemAgent = agent.metadata?.isSystemAgent;
 
     if (systemPrompt === null || systemPrompt === undefined) {
       return {
@@ -70,6 +73,37 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
         color: 'text-green-500',
         bgColor: 'bg-green-500/20',
         description: '使用 LayeredPromptBuilder 根据场景和复杂度动态生成（L0-L3 分层组件）',
+        layers: isMainAgent
+          ? ['L0 基础层 (base-identity + base-memory-guide + base-task-execution)', 'L1 场景层 (coding/life)', 'L2 复杂任务层 (agent-rules/planning)', 'L3 项目层 (project context)']
+          : null,
+      };
+    }
+
+    // 子 Agent 使用统一基础层 + 角色专用 prompt
+    if (isSubAgent && !isSystemAgent) {
+      return {
+        mode: '统一基础层 + 角色专用',
+        icon: '🧩',
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-500/20',
+        description: '加载 L0 基础层（记忆/任务执行指导）+ 角色专用 prompt',
+        layers: [
+          'L0 基础层 (base-identity + base-memory-guide + base-task-execution)',
+          '角色专用 prompt (配置文件中定义)',
+          'L3 项目层 (可选)',
+        ],
+      };
+    }
+
+    // 系统内部 Agent 使用固定 prompt
+    if (isSystemAgent) {
+      return {
+        mode: '固定字符串',
+        icon: '📌',
+        color: 'text-orange-500',
+        bgColor: 'bg-orange-500/20',
+        description: '系统内部 Agent，使用配置中定义的固定 system prompt',
+        layers: null,
       };
     }
 
@@ -79,6 +113,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
       color: 'text-orange-500',
       bgColor: 'bg-orange-500/20',
       description: '使用配置中定义的固定 system prompt',
+      layers: null,
     };
   };
 
@@ -179,30 +214,57 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
           </div>
 
           {/* System Prompt 构建方式 */}
-          <div className={`p-3 rounded-lg ${promptMode.bgColor}`}>
+          <div className={`p-3 rounded-lg ${promptMode.bgColor} ${promptMode.layers ? 'col-span-2' : ''}`}>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">{promptMode.icon}</span>
               <span className={`font-medium ${promptMode.color}`}>{promptMode.mode}</span>
             </div>
-            <p className="text-xs text-text-secondary">{promptMode.description}</p>
+            <p className="text-xs text-text-secondary mb-2">{promptMode.description}</p>
+            {promptMode.layers && (
+              <div className="mt-3 space-y-1.5">
+                <p className="text-xs font-medium text-text-primary">Prompt 组成层级：</p>
+                {promptMode.layers.map((layer: string, idx: number) => (
+                  <div key={idx} className="flex items-start gap-2 text-xs text-text-secondary">
+                    <span className="text-primary mt-0.5">▸</span>
+                    <span>{layer}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 工具配置 */}
           {agent.tools && (
-            <div className="p-3 rounded-lg bg-bg-primary">
+            <div className="p-3 rounded-lg bg-bg-primary col-span-2">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔧</span>
                 <span className="font-medium">工具配置</span>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <p className="text-xs text-text-secondary">
                   共 {agent.tools.length} 个工具
+                  {agent.tools.filter((t: any) => t.required).length > 0 && (
+                    <span className="ml-2">
+                      (必备: {agent.tools.filter((t: any) => t.required).length} 个)
+                    </span>
+                  )}
                 </p>
-                {agent.tools.filter((t: any) => t.required).length > 0 && (
-                  <p className="text-xs text-text-secondary">
-                    必备: {agent.tools.filter((t: any) => t.required).length} 个
-                  </p>
-                )}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {agent.tools.map((tool: any) => (
+                    <span
+                      key={tool.name}
+                      className={`text-xs px-2 py-1 rounded ${
+                        tool.required
+                          ? 'bg-primary/20 text-primary'
+                          : 'bg-bg-tertiary text-text-secondary'
+                      }`}
+                      title={tool.required ? '必备工具' : '可选工具'}
+                    >
+                      {tool.name}
+                      {tool.required && ' *'}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -274,9 +336,46 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
                     主模型: {agent.model.primary.replace('[CC]', '')}
                   </p>
                 )}
-                {agent.model.fallback && (
-                  <p className="text-xs text-text-secondary truncate" title={agent.model.fallback}>
-                    备用: {agent.model.fallback.replace('[CC]', '')}
+                {agent.model.maxTokens !== undefined && (
+                  <p className="text-xs text-text-secondary">
+                    最大 Token: {agent.model.maxTokens.toLocaleString()}
+                  </p>
+                )}
+                {agent.model.temperature !== undefined && (
+                  <p className="text-xs text-text-secondary">
+                    温度: {agent.model.temperature}
+                  </p>
+                )}
+                {agent.model.thinking && (
+                  <p className="text-xs text-text-secondary">
+                    思考模式: {agent.model.thinking.type} ({agent.model.thinking.effort})
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Provider 配置 */}
+          {agent.provider && (
+            <div className="p-3 rounded-lg bg-bg-primary">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xl">🔌</span>
+                <span className="font-medium">Provider 配置</span>
+              </div>
+              <div className="space-y-1">
+                {agent.provider.adapter && (
+                  <p className="text-xs text-text-secondary">
+                    适配器: {agent.provider.adapter}
+                  </p>
+                )}
+                {agent.provider.baseURL && (
+                  <p className="text-xs text-text-secondary truncate" title={agent.provider.baseURL}>
+                    Base URL: {agent.provider.baseURL}
+                  </p>
+                )}
+                {agent.provider.apiKey && (
+                  <p className="text-xs text-text-secondary">
+                    API Key: {agent.provider.apiKey.substring(0, 8)}...
                   </p>
                 )}
               </div>

@@ -13,6 +13,9 @@
  * 记忆通过 ChatSession 的 suffix 机制独立管理，不在此处处理。
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   PromptComponent,
   PromptBuildContext,
@@ -22,16 +25,6 @@ import type {
   IntentComplexity,
 } from './types';
 import { IntentAnalyzer } from './IntentAnalyzer';
-import {
-  l0Identity,
-  l0Safety,
-  l1Coding,
-  l1Life,
-  l2Planning,
-  l2AgentRules,
-  l2Safety,
-  l3Project,
-} from './components';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'LayeredPromptBuilder' });
@@ -41,12 +34,10 @@ export class LayeredPromptBuilder {
   private intentAnalyzer: IntentAnalyzer;
   private currentScene: SceneType | null = null;
   private currentComplexity: IntentComplexity = 'standard';
+  private componentsLoaded = false;
 
   constructor(intentAnalyzer?: IntentAnalyzer) {
     this.intentAnalyzer = intentAnalyzer ?? new IntentAnalyzer();
-
-    // 注册默认组件
-    this.registerDefaults();
   }
 
   /**
@@ -66,9 +57,13 @@ export class LayeredPromptBuilder {
   }
 
   /**
-   * 初始化（预计算 embeddings 等）
+   * 初始化：扫描 components/ 目录自动注册所有组件，预计算 embeddings
    */
   async init(): Promise<void> {
+    if (!this.componentsLoaded) {
+      await this.loadComponents();
+      this.componentsLoaded = true;
+    }
     await this.intentAnalyzer.init();
   }
 
@@ -207,21 +202,64 @@ export class LayeredPromptBuilder {
   }
 
   /**
-   * 注册默认组件
+   * 扫描 components/ 目录，自动注册所有 PromptComponent。
+   *
+   * 约定：components/ 下每个 .ts/.js 文件可导出任意数量的 PromptComponent，
+   * 只要导出值满足 { id, layer, render } 即可被自动识别并注册。
+   * 新增场景只需新建 l1-xxx.ts，无需修改本文件。
    */
-  private registerDefaults(): void {
-    // L0
-    this.register(l0Identity);
-    this.register(l0Safety);
-    // L1
-    this.register(l1Coding);
-    this.register(l1Life);
-    // L2
-    this.register(l2Planning);
-    this.register(l2AgentRules);
-    this.register(l2Safety);
-    // L3
-    this.register(l3Project);
+  private async loadComponents(): Promise<void> {
+    // 兼容 ESM（import.meta.url）和 CommonJS（__dirname）
+    const selfUrl = typeof __filename !== 'undefined'
+      ? __filename
+      : fileURLToPath(import.meta.url);
+    const componentsDir = path.join(path.dirname(selfUrl), 'components');
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(componentsDir, { withFileTypes: true });
+    } catch {
+      log.warn('components/ directory not found, no components loaded');
+      return;
+    }
+
+    const fileExts = new Set(['.ts', '.js', '.mjs']);
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name);
+      if (!fileExts.has(ext)) continue;
+      // 跳过 index 文件（只是聚合导出，组件本体在各自文件中）
+      if (entry.name === 'index.ts' || entry.name === 'index.js') continue;
+
+      const filePath = path.join(componentsDir, entry.name);
+      try {
+        const mod = await import(filePath);
+        for (const value of Object.values(mod)) {
+          if (this.isPromptComponent(value)) {
+            this.register(value);
+          }
+        }
+      } catch (err) {
+        log.warn(`Failed to load component file ${entry.name}:`, err);
+      }
+    }
+
+    log.info(`Loaded ${this.components.size} prompt components from ${componentsDir}`);
+  }
+
+  /**
+   * 判断一个值是否符合 PromptComponent 接口
+   */
+  private isPromptComponent(value: unknown): value is PromptComponent {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      typeof (value as any).id === 'string' &&
+      typeof (value as any).layer === 'string' &&
+      typeof (value as any).render === 'function' &&
+      typeof (value as any).priority === 'number'
+    );
   }
 
   // ─── Getters ────────────────────────────────────────
@@ -266,5 +304,108 @@ export class LayeredPromptBuilder {
     this.currentScene = null;
     this.currentComplexity = 'standard';
     this.intentAnalyzer.reset();
+  }
+
+  /**
+   * 为子 Agent 构建 Prompt
+   *
+   * 构建逻辑：
+   * 1. 加载 L0 基础层（base-identity + base-memory-guide + base-task-execution）
+   * 2. 加载角色专用 prompt（agentConfig.systemPrompt）
+   * 3. 可选加载 L3 项目层（如果 includeProjectContext = true）
+   *
+   * @param options 构建选项
+   * @returns 构建结果
+   */
+  async buildForSubAgent(options: {
+    agentId: string;
+    agentConfig: any; // ConfigurableAgentConfig
+    includeProjectContext?: boolean;
+    parentContext?: PromptBuildContext;
+  }): Promise<PromptBuildResult> {
+    const { agentId, agentConfig, includeProjectContext = false, parentContext } = options;
+
+    if (!this.componentsLoaded) {
+      await this.init();
+    }
+
+    const context: PromptBuildContext = {
+      language: parentContext?.language || 'zh',
+      toolList: parentContext?.toolList || [],
+      config: parentContext?.config,
+    };
+
+    const selectedComponents: PromptComponent[] = [];
+    const requiredTools = new Set<string>();
+    let thinking: any = undefined;
+    let estimatedTokens = 0;
+
+    // 1. 加载 L0 基础层（base-identity, base-memory-guide, base-task-execution）
+    const baseComponents = ['base-identity', 'base-memory-guide', 'base-task-execution'];
+    for (const componentId of baseComponents) {
+      const component = this.components.get(componentId);
+      if (component) {
+        selectedComponents.push(component);
+        estimatedTokens += component.estimatedTokens;
+        if (component.requiredTools) {
+          component.requiredTools.forEach((tool) => requiredTools.add(tool));
+        }
+        if (component.thinking && !thinking) {
+          thinking = component.thinking;
+        }
+      }
+    }
+
+    // 2. 加载 L3 项目层（可选）
+    if (includeProjectContext) {
+      const l3Component = this.components.get('l3-project');
+      if (l3Component) {
+        selectedComponents.push(l3Component);
+        estimatedTokens += l3Component.estimatedTokens;
+        if (l3Component.requiredTools) {
+          l3Component.requiredTools.forEach((tool) => requiredTools.add(tool));
+        }
+      }
+    }
+
+    // 3. 按优先级排序
+    selectedComponents.sort((a, b) => b.priority - a.priority);
+
+    // 4. 渲染所有组件
+    const renderedParts: string[] = [];
+    for (const component of selectedComponents) {
+      try {
+        const rendered = await component.render(context);
+        if (rendered?.trim()) {
+          renderedParts.push(rendered.trim());
+        }
+      } catch (err) {
+        log.error(`Failed to render component ${component.id}:`, err);
+      }
+    }
+
+    // 5. 添加角色专用 prompt（如果存在）
+    if (agentConfig.systemPrompt && agentConfig.systemPrompt.trim()) {
+      renderedParts.push(agentConfig.systemPrompt.trim());
+      // 角色专用 prompt 预估 token 数（粗略估计）
+      estimatedTokens += Math.ceil(agentConfig.systemPrompt.length / 4);
+    }
+
+    // 6. 合并为最终 prompt
+    const finalPrompt = renderedParts.join('\n\n');
+
+    log.debug(
+      `Built prompt for sub-agent "${agentId}": ${selectedComponents.length} components, ~${estimatedTokens} tokens`,
+    );
+
+    return {
+      prompt: finalPrompt,
+      components: selectedComponents.map((c) => c.id),
+      scene: null, // 子 Agent 不使用场景
+      complexity: 'standard', // 子 Agent 默认 standard
+      requiredTools: Array.from(requiredTools),
+      thinking,
+      estimatedTokens,
+    };
   }
 }

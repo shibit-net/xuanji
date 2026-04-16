@@ -2,7 +2,6 @@
 // StatusBar - 状态栏组件
 // ============================================================
 
-import React from 'react';
 import { useChatStore } from '../stores/chatStore';
 
 export default function StatusBar() {
@@ -11,7 +10,7 @@ export default function StatusBar() {
   const isPlanMode = useChatStore((state) => state.isPlanMode);
 
   return (
-    <div className="h-7 bg-bg-secondary border-t border-bg-tertiary flex items-center justify-between px-4 text-xs text-text-secondary">
+    <div className="flex-shrink-0 h-7 bg-bg-secondary border-t border-bg-tertiary flex items-center justify-between px-4 text-xs text-text-secondary">
       {/* 左侧：Plan Mode 徽标 + 当前 Skill + 模型 */}
       <div className="flex items-center gap-4">
         {isPlanMode && (

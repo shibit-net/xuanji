@@ -14,25 +14,39 @@ import { DiffRenderer } from '../utils/DiffRenderer';
 export class WriteTool extends BaseTool {
   readonly name = 'write_file';
   readonly description = [
-    '写入内容到指定文件。如果文件已存在则覆盖，如果目录不存在则自动创建。',
+    'Write content to specified file. Overwrites if file exists, creates directory if not exists.',
     '',
-    '# 使用指南',
-    '- 修改已有文件时优先使用 edit_file (仅发送差异), 仅在创建新文件或完全重写时使用 write_file',
-    '- 写入已有文件前必须先用 read_file 读取, 确认了解当前内容',
-    '- 不要主动创建 README.md 或其他文档文件, 除非用户明确要求',
-    '- 不要写入含有密码、API Key 等敏感信息的文件',
-    '- 创建新文件前, 先确认目标目录是否正确',
+    '# Use Cases',
+    '✓ Create new files (config, code, documentation)',
+    '✓ Complete rewrite of existing files (use with caution)',
+    '✓ Small file creation (<5KB)',
+    '',
+    '# Guidelines',
+    '1. Prefer edit_file for modifying existing files (only sends diff, safer)',
+    '2. Must read_file first before overwriting existing files to confirm current content',
+    '3. Verify target directory is correct before creating new files',
+    '4. Do NOT proactively create README.md or docs unless explicitly requested',
+    '5. For large files (>5KB), use bash heredoc instead',
+    '',
+    '# Parameter Examples',
+    '- Create new file: write_file({ path: "src/utils/helper.ts", content: "export function..." })',
+    '- Create config: write_file({ path: ".eslintrc.json", content: "{\\"rules\\": {...}}" })',
+    '',
+    '# Important Notes',
+    '✗ Do NOT write files containing passwords, API keys, or sensitive info',
+    '✗ Do NOT overwrite existing files (unless confirmed complete rewrite is needed)',
+    '✗ Do NOT use for modifying existing files (should use edit_file)',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: '文件的绝对路径或相对于项目根目录的路径',
+        description: 'Absolute path or path relative to project root',
       },
       content: {
         type: 'string',
-        description: '要写入的文件内容',
+        description: 'Content to write to file',
       },
     },
     required: ['path', 'content'],

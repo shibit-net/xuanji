@@ -10,8 +10,8 @@
 // - 只读展示
 // ============================================================
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, X, Wrench, Lock, Unlock, Shield, RefreshCw, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, X, Wrench, Lock, Unlock, Shield, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { useConfigStore } from '../stores';
 import type { ToolDefinition } from '../types/models';
 

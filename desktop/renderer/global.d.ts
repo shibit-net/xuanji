@@ -42,7 +42,7 @@ export interface ElectronAPI {
   // Agent 操作
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
   agentSendMessage: (message: string) => Promise<{ success: boolean; error?: string }>;
-  agentInterrupt: () => Promise<{ success: boolean; error?: string }>;
+  agentInterrupt: (message?: string) => Promise<{ success: boolean; error?: string }>;
   agentReset: () => Promise<{ success: boolean; error?: string }>;
   agentGetState: () => Promise<{
     status: string;
@@ -77,6 +77,10 @@ export interface ElectronAPI {
   checkpointList: () => Promise<{ success: boolean; checkpoints?: CheckpointItem[]; error?: string }>;
   checkpointRewind: (data: any) => Promise<{ success: boolean; messageCount?: number; error?: string }>;
 
+  // 手动操作
+  manualMemoryFlush: () => Promise<{ success: boolean; error?: string }>;
+  compact: (data: any) => Promise<{ success: boolean; error?: string }>;
+
   // 记忆管理
   memoryRetrieve: (data: any) => Promise<{ success: boolean; entries?: MemoryEntry[]; error?: string }>;
   memoryStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
@@ -101,9 +105,17 @@ export interface ElectronAPI {
   toolsList: () => Promise<{ success: boolean; tools?: ToolInfo[]; error?: string }>;
   mcpList: () => Promise<{ success: boolean; servers?: MCPServerInfo[]; error?: string }>;
 
-  // Prompt 配置管理
-  promptGetConfig: () => Promise<{ success: boolean; config?: PromptConfig; error?: string }>;
-  promptSaveConfig: (data: PromptConfig) => Promise<{ success: boolean; error?: string }>;
+  // Agent 配置管理
+  agentList: () => Promise<{ success: boolean; agents?: any[]; error?: string }>;
+  agentCreate: (data: any) => Promise<{ success: boolean; agent?: any; error?: string }>;
+  agentUpdate: (data: any) => Promise<{ success: boolean; error?: string }>;
+  agentDelete: (data: any) => Promise<{ success: boolean; error?: string }>;
+
+  // 会话事件
+  onSessionMessagesRestored: (callback: (data: any) => void) => void;
+
+  // Persona 事件
+  onPersonaUpdated: (callback: (data: { persona: any; onboardingDone: boolean }) => void) => void;
 
   // 权限交互
   onPermissionRequest: (callback: (data: PermissionRequestData) => void) => void;
@@ -186,6 +198,8 @@ export interface AskUserRequestData {
   id: string;
   question: string;
   options?: string[];
+  multiSelect?: boolean;
+  default?: string;
 }
 
 export interface CompactResult {

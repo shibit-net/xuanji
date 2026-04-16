@@ -245,6 +245,37 @@ export class VectorStore {
     return this.ready;
   }
 
+  // ────────── UnifiedMemoryStore 简化 API ──────────
+
+  /** 添加向量（仅存储 id + embedding，不依赖 memories 表） */
+  async add(id: string, embedding: Float32Array): Promise<void> {
+    this.ensureReady();
+    const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    const now = new Date().toISOString();
+    this.db!.prepare(`
+      INSERT OR REPLACE INTO memory_vectors (memory_id, embedding, updated_at)
+      VALUES (?, ?, ?)
+    `).run(id, embeddingBuf, now);
+  }
+
+  /** 更新向量 */
+  async update(id: string, embedding: Float32Array): Promise<void> {
+    await this.add(id, embedding);
+  }
+
+  /** 删除向量 */
+  async delete(id: string): Promise<void> {
+    this.ensureReady();
+    this.db!.prepare('DELETE FROM memory_vectors WHERE memory_id = ?').run(id);
+  }
+
+  /** 搜索相似向量，返回 id 列表 */
+  async search(queryEmbedding: Float32Array, limit: number = 50): Promise<Array<{ id: string; similarity: number }>> {
+    this.ensureReady();
+    const results = this.searchSimilar(queryEmbedding, limit);
+    return results.map(r => ({ id: r.memory.id, similarity: r.similarity }));
+  }
+
   /** 关闭数据库连接 */
   close(): void {
     if (this.db) {

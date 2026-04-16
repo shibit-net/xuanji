@@ -4,6 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { IMemoryStore, MemoryEntry, MemoryEntryType } from '@/memory/types';
+import { inferMemoryAttributes } from '@/memory/MemoryAttributeInferrer';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
 
@@ -53,12 +54,14 @@ export class MemoryStoreTool extends BaseTool {
         ],
         description: [
           'Type of memory to store:',
-          '- user_preference: Personal preferences (food, entertainment, work habits)',
-          '- user_fact: Factual info about user (job, location, family)',
+          '- user_fact: Objective facts about user or assistant (names, nicknames, job, location, family)',
+          '  * Examples: "Assistant\'s name is Jarvis", "User\'s name is Kevin", "User works as a software engineer"',
+          '- user_preference: Subjective preferences and habits (food, entertainment, work style)',
+          '  * Examples: "Prefers dark mode", "Does not eat spicy food", "Likes to work in the morning"',
           '- relationship: Info about people user knows (name, relationship, preferences)',
           '- important_date: Dates that matter (birthdays, anniversaries, deadlines)',
-          '- decision: Significant decisions',
-          '- tool_pattern: Useful tool usage patterns',
+          '- decision: Significant decisions made during work',
+          '- tool_pattern: Useful tool usage patterns discovered',
           '- error_resolution: How errors were fixed',
         ].join('\n'),
       },
@@ -67,10 +70,11 @@ export class MemoryStoreTool extends BaseTool {
         description: [
           'The information to remember (concise, factual statement).',
           'Examples:',
-          '- "Does not eat spicy food, prefers mild Sichuan cuisine"',
-          '- "Alice is a colleague who likes Japanese cuisine"',
-          '- "Alice\'s birthday is March 8th"',
-          '- "Decided to use TypeScript for new project"',
+          '- user_fact: "Assistant\'s name is Jarvis", "User\'s name is Kevin", "User is a software engineer"',
+          '- user_preference: "Prefers mild Sichuan cuisine", "Likes to work in the morning"',
+          '- relationship: "Alice is a colleague who likes Japanese cuisine"',
+          '- important_date: "Alice\'s birthday is March 8th"',
+          '- decision: "Decided to use TypeScript for new project"',
         ].join('\n'),
       },
       keywords: {
@@ -131,6 +135,8 @@ export class MemoryStoreTool extends BaseTool {
     }
 
     // 构造 MemoryEntry
+    const attrs = inferMemoryAttributes(type);
+
     const entry: MemoryEntry = {
       id: this.generateId(),
       type,
@@ -145,18 +151,16 @@ export class MemoryStoreTool extends BaseTool {
       projectPath: type === 'project_fact' ? process.cwd() : undefined,
       // 自动解析元数据（特别是 important_date 类型）
       metadata: this.parseMetadata(type, content),
+      // M5 分层记忆字段
+      scope: attrs.scope,
+      volatility: attrs.volatility,
+      significance: attrs.significance,
+      categoryLabel: attrs.categoryLabel,
     };
 
     // 保存
     try {
-      // 直接调用 LongTermMemory.save（绕过会话保存逻辑）
-      const { MemoryManager } = await import('@/memory');
-      if (this.memoryManager instanceof MemoryManager) {
-        const longTerm = this.memoryManager.getLongTermMemory();
-        await longTerm.save(entry);
-      } else {
-        return this.error('Memory manager type mismatch');
-      }
+      await this.memoryManager.add(entry);
 
       log.info(`Memory stored: [${type}] ${content.slice(0, 50)}...`);
 
@@ -227,4 +231,5 @@ export class MemoryStoreTool extends BaseTool {
 
     return metadata;
   }
+
 }
