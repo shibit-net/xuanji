@@ -300,4 +300,86 @@ export class CommandGuard {
       return false;
     });
   }
+
+  /**
+   * 检测命令的语义操作类型
+   */
+  detectOperationType(command: string): {
+    type: 'delete' | 'write' | 'read' | 'execute' | 'unknown';
+    targets: string[];
+  } {
+    const trimmed = command.trim();
+
+    // 检测删除操作
+    if (/\b(rm|rimraf|del|rmdir)\b/.test(trimmed)) {
+      return {
+        type: 'delete',
+        targets: this.extractTargets(trimmed, ['rm', 'rimraf', 'del', 'rmdir']),
+      };
+    }
+
+    // 检测写入操作
+    if (/\b(echo|cat|tee|sed\s+-i)\b.*>|>>/.test(trimmed) || />\s*[^&|]/.test(trimmed)) {
+      return {
+        type: 'write',
+        targets: this.extractTargets(trimmed, ['>', '>>']),
+      };
+    }
+
+    // 检测读取操作
+    if (/\b(cat|less|head|tail|grep|more)\b/.test(trimmed)) {
+      return {
+        type: 'read',
+        targets: this.extractTargets(trimmed, ['cat', 'less', 'head', 'tail', 'grep', 'more']),
+      };
+    }
+
+    // 检测执行操作
+    if (/\b(node|python|python3|bash|sh|zsh|npm|yarn|pnpm)\b/.test(trimmed)) {
+      return {
+        type: 'execute',
+        targets: this.extractTargets(trimmed, ['node', 'python', 'python3', 'bash', 'sh', 'zsh']),
+      };
+    }
+
+    return {
+      type: 'unknown',
+      targets: [],
+    };
+  }
+
+  /**
+   * 从命令中提取目标路径
+   */
+  private extractTargets(command: string, keywords: string[]): string[] {
+    const targets: string[] = [];
+    
+    // 简单的路径提取：查找命令关键字后的参数
+    for (const keyword of keywords) {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp('\\b' + escapedKeyword + '\\b\\s+([^\\s|&;]+)', 'g');
+      let match;
+      while ((match = regex.exec(command)) !== null) {
+        const target = match[1];
+        // 过滤掉选项参数（以 - 开头）
+        if (target && !target.startsWith('-')) {
+          targets.push(target);
+        }
+      }
+    }
+
+    // 对于重定向操作，提取 > 或 >> 后的文件名
+    if (keywords.includes('>') || keywords.includes('>>')) {
+      const redirectRegex = />>?\s*([^\s|&;]+)/g;
+      let match;
+      while ((match = redirectRegex.exec(command)) !== null) {
+        const target = match[1];
+        if (target && !target.startsWith('-')) {
+          targets.push(target);
+        }
+      }
+    }
+
+    return targets;
+  }
 }

@@ -48,6 +48,10 @@ export interface GuardCheckResult {
     isSensitiveFile?: boolean;
     /** 受影响的文件列表（批量操作时） */
     affectedFiles?: string[];
+    /** 操作类型（语义级） */
+    operationType?: 'delete' | 'write' | 'read' | 'execute' | 'unknown';
+    /** 操作目标（受影响的文件/目录） */
+    operationTargets?: string[];
   };
 }
 
@@ -82,6 +86,28 @@ export interface PersistedDecisionInfo {
   expiresAt?: string;
 }
 
+/**
+ * 拒绝操作记录
+ */
+export interface DeniedOperation {
+  pattern: string;
+  reason: string;
+  timestamp: number;
+  sessionOnly: boolean;
+}
+
+/**
+ * 拒绝操作信息（供管理 UI 展示）
+ */
+export interface DeniedOperationInfo {
+  key: string;
+  category: string;
+  pattern: string;
+  reason: string;
+  timestamp: string;
+  sessionOnly: boolean;
+}
+
 export interface IPermissionController {
   /** 检查权限（可能触发 UI 确认，是异步的） */
   check(request: PermissionRequest): Promise<PermissionResult>;
@@ -105,6 +131,18 @@ export interface IPermissionController {
   deleteDecision(cacheKey: string): Promise<void>;
   /** 清空所有决策（同时清除会话缓存） */
   clearDecisions(): Promise<void>;
+  
+  // ============ 拒绝操作管理 ============
+  /** 记录用户拒绝的操作 */
+  recordDeniedOperation(category: string, pattern: string, reason: string, sessionOnly?: boolean): void;
+  /** 检查操作是否被用户拒绝 */
+  isDeniedOperation(category: string, target: string): boolean;
+  /** 列出所有拒绝的操作 */
+  listDeniedOperations(): DeniedOperationInfo[];
+  /** 删除指定拒绝记录 */
+  deleteDeniedOperation(key: string): Promise<void>;
+  /** 清空所有拒绝记录 */
+  clearDeniedOperations(): Promise<void>;
 }
 
 // ============================================================
