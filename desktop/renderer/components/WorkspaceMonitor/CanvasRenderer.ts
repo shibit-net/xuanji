@@ -1753,14 +1753,14 @@ export class CanvasRenderer {
   /**
    * 绘制 Agent 类型标签
    */
-  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'temporary' | 'custom') {
+  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom') {
     const labelConfig = {
-      builtin: { text: '内置', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue
-      temporary: { text: '临时', color: 'rgba(156, 163, 175, 0.9)', icon: '⏱️' }, // gray
-      custom: { text: '自定义', color: 'rgba(168, 85, 247, 0.9)', icon: '✨' }, // purple
+      preset: { text: '预置', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 预置 agent
+      builtin: { text: '内置', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
+      custom: { text: '自定义', color: 'rgba(168, 85, 247, 0.9)', icon: '✨' }, // purple - 用户自定义
     };
 
-    const config = labelConfig[agentType];
+    const config = labelConfig[agentType] || labelConfig.builtin; // 默认使用 builtin
     const labelWidth = 60;
     const labelHeight = 20;
     const labelX = agentPos.x - labelWidth / 2;

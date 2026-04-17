@@ -73,6 +73,11 @@ export interface SubAgentFactoryOptions {
    * 父 Agent ID（用于 WorkspaceMonitor 显示层级关系）
    */
   parentAgentId?: string;
+  /**
+   * 工作目录（用于解析相对路径）
+   * 如果不指定，子 agent 将继承父 agent 的工作目录
+   */
+  workingDir?: string;
 }
 
 /**
@@ -155,6 +160,7 @@ class FilteredToolRegistry implements IToolRegistry {
 export class SubAgentFactory {
   private promptBuilder: LayeredPromptBuilder | null = null;
   private parentProvider: ILLMProvider | null = null;
+  private parentProviderConfig: ProviderConfig | null = null;
 
   constructor(
     public agentRegistry: AgentRegistry, // 改为 public，允许 TeamManager 访问
@@ -163,6 +169,7 @@ export class SubAgentFactory {
     private hookRegistry?: HookRegistry | null,
     private memoryStore?: IMemoryStore | null,
     parentProvider?: ILLMProvider | null,
+    parentProviderConfig?: ProviderConfig | null,
   ) {
     // 防御性检查：确保 agentRegistry 不是 undefined
     if (!agentRegistry) {
@@ -171,6 +178,7 @@ export class SubAgentFactory {
       throw error;
     }
     this.parentProvider = parentProvider ?? null;
+    this.parentProviderConfig = parentProviderConfig ?? null;
   }
 
   /**
@@ -320,6 +328,25 @@ export class SubAgentFactory {
     // 从 agent 配置中提取 provider 信息（apiKey/baseURL）
     const agentProvider = (agentConfig as any).provider;
 
+    // 🔧 修复：如果使用 parentProvider，必须从 parentProviderConfig 中提取认证信息
+    let apiKey = agentProvider?.apiKey;
+    let baseURL = agentProvider?.baseURL;
+
+    if (!hasIndependentProvider) {
+      // 使用 parentProvider 时，parentProviderConfig 必须存在
+      if (!this.parentProviderConfig) {
+        throw new Error(
+          `Cannot create sub-agent "${agentConfig.id}" without parentProviderConfig. ` +
+          `SubAgentFactory must be initialized with parent provider config.`
+        );
+      }
+
+      // 直接使用父 Agent 的配置
+      apiKey = apiKey ?? this.parentProviderConfig.apiKey;
+      baseURL = baseURL ?? this.parentProviderConfig.baseURL;
+      log.debug(`  Using parent provider config: apiKey=${!!apiKey}, baseURL=${baseURL}`);
+    }
+
     const runtimeConfig: AgentConfig = {
       model: agentConfig.model.primary,
       systemPrompt,
@@ -328,8 +355,10 @@ export class SubAgentFactory {
       maxTokens: agentConfig.model.maxTokens,
       thinking,
       // 添加 provider 配置（如果存在）
-      apiKey: agentProvider?.apiKey,
-      baseURL: agentProvider?.baseURL,
+      apiKey,
+      baseURL,
+      // 🔧 添加工作目录配置（如果指定）
+      workingDir: options.workingDir,
     };
 
     // 7. 创建 AgentLoop

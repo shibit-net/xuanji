@@ -27,8 +27,16 @@ export class TodoCreateTool extends BaseTool {
   readonly description = [
     'Create a new todo task to track progress on multi-step work.',
     '',
+    '⚠️ BEFORE creating tasks: Check if there are old completed tasks from previous work.',
+    'If yes, call todo_list first to check, then call todo_clear to clean up before creating new tasks.',
+    '',
     'Use this to organize complex tasks into smaller, trackable items.',
     'Each task gets a unique ID for later updates.',
+    '',
+    'Best practice:',
+    '1. Call todo_list to check existing tasks',
+    '2. If old tasks exist and are completed, call todo_clear',
+    '3. Then create new tasks for current work',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -220,6 +228,49 @@ export class TodoUpdateTool extends BaseTool {
       return this.success(`${action}: ${todo.title} (${todo.id})${manager.formatProgress()}`);
     } catch (err) {
       return this.error(`更新任务失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
+// ─── todo_clear ─────────────────────────────────────────────
+
+export class TodoClearTool extends BaseTool {
+  readonly name = 'todo_clear';
+  readonly description = [
+    'Clear all todo tasks and start fresh.',
+    '',
+    '⚠️ IMPORTANT: You MUST call this tool BEFORE creating new todos if:',
+    '1. User starts a completely new, unrelated task',
+    '2. All previous tasks are completed and user asks for something new',
+    '3. User explicitly asks to clear/reset the task list',
+    '',
+    'Example workflow:',
+    '- User: "Help me refactor the auth module" → creates Task 1-4',
+    '- Tasks 1-4 completed',
+    '- User: "Now help me write tests" → CALL todo_clear FIRST, then create new tasks',
+    '',
+    'Why: Without clearing, old completed tasks will clutter the UI and confuse the user.',
+    '',
+    'When NOT to clear:',
+    '- User is continuing work on existing tasks',
+    '- User asks to add more tasks to current work',
+  ].join('\n');
+
+  readonly input_schema: JSONSchema = {
+    type: 'object',
+    properties: {},
+  };
+
+  readonly readonly = true;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    try {
+      const manager = getTodoManager();
+      const oldCount = Array.from(manager['todos'].values()).length;
+      await manager.startTurn();
+      return this.success(`✅ 已清空 ${oldCount} 个旧任务，可以创建新任务了`);
+    } catch (err) {
+      return this.error(`清空任务失败: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld('electron', {
   onAgentToolEnd: (callback: (data: { id: string; name: string; result: string; isError: boolean }) => void) => {
     ipcRenderer.on('agent:tool-end', (_event, data) => callback(data));
   },
+  onAgentFileChanges: (callback: (data: { changes: any[] }) => void) => {
+    ipcRenderer.on('agent:file-changes', (_event, data) => callback(data));
+  },
   onAgentUsage: (callback: (usage: any) => void) => {
     ipcRenderer.on('agent:usage', (_event, usage) => callback(usage));
   },
@@ -94,6 +97,10 @@ contextBridge.exposeInMainWorld('electron', {
   toolsList: () => ipcRenderer.invoke('tools:list'),
   mcpList: () => ipcRenderer.invoke('mcp:list'),
 
+  // ============ Todo 管理 ============
+  todoArchiveCompleted: () => ipcRenderer.invoke('todo:archive-completed'),
+  todoGetArchivedCount: () => ipcRenderer.invoke('todo:get-archived-count'),
+
   // ============ Prompt 配置管理 ============
   promptGetConfig: () => ipcRenderer.invoke('prompt:get-config'),
   promptSaveConfig: (data: any) => ipcRenderer.invoke('prompt:save-config', data),
@@ -129,6 +136,17 @@ contextBridge.exposeInMainWorld('electron', {
   permissionListRules: () => ipcRenderer.invoke('permission:list'),
   permissionDeleteRule: (data: { cacheKey: string }) => ipcRenderer.invoke('permission:delete', data),
   permissionClearRules: () => ipcRenderer.invoke('permission:clear'),
+
+  // ============ 日志管理 ============
+  logsRead: (query?: any) => ipcRenderer.invoke('logs:read', query),
+  logsReadLatest: (count?: number, levels?: string[]) => ipcRenderer.invoke('logs:read-latest', count, levels),
+  logsClear: () => ipcRenderer.invoke('logs:clear'),
+  logsStats: () => ipcRenderer.invoke('logs:stats'),
+  logsStartWatch: (levels: string[]) => ipcRenderer.invoke('logs:start-watch', levels),
+  logsStopWatch: () => ipcRenderer.invoke('logs:stop-watch'),
+  onLogsNewRecord: (callback: (record: any) => void) => {
+    ipcRenderer.on('logs:new-record', (_event, record) => callback(record));
+  },
 
   // ============ 会话事件监听 ============
   onSessionMessagesRestored: (callback: (data: { messages: any[] }) => void) => {

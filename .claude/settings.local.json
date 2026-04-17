@@ -147,7 +147,8 @@
       "Bash(ssh:*)",
       "Read(//Users/kevinshi/.xuanji/memory/**)",
       "Read(//Users/kevinshi/Documents/workspace/codebase/shibit/**)",
-      "Bash(scripts/deploy.sh --env test shibit-starship)"
+      "Bash(scripts/deploy.sh --env test shibit-starship)",
+      "Bash(sqlite3 *)"
     ]
   }
 }

@@ -28,8 +28,15 @@ import { CoreRuleStore } from './CoreRuleStore.js';
 import { ShortTermMemory } from './ShortTermMemory.js';
 import { MemoryFormatter } from './MemoryFormatter.js';
 import { VectorManager } from './VectorManager.js';
+import { MemoryMaintenanceScheduler } from './MemoryMaintenanceScheduler.js';
+import { DecisionPointDetector } from './DecisionPointDetector.js';
+import { DecisionPointMemoryRetriever } from './DecisionPointMemoryRetriever.js';
+import { IdentityManager } from './IdentityManager.js';
+import { DreamAgent } from './DreamAgent.js';
+import { DreamScheduler } from './DreamScheduler.js';
 import { logger } from '@/core/logger';
 import type { HookRegistry } from '@/hooks/HookRegistry';
+import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
 
 const log = logger.child({ module: 'MemoryManager' });
 
@@ -51,8 +58,18 @@ export class MemoryManager implements IMemoryStore {
   private formatter: MemoryFormatter = new MemoryFormatter();
   private coreRuleStore: CoreRuleStore;
   private vectorManager: VectorManager;
+  private maintenanceScheduler: MemoryMaintenanceScheduler | null = null;
   private shortTerm: ShortTermMemory | null = null;
   private hookRegistry: HookRegistry | null = null;
+
+  // 3.0 新增组件
+  private decisionPointDetector: DecisionPointDetector;
+  private decisionPointRetriever: DecisionPointMemoryRetriever | null = null;
+  private identityManager: IdentityManager;
+  private dreamAgent: DreamAgent | null = null;
+  private dreamScheduler: DreamScheduler | null = null;
+  private subAgentFactory: SubAgentFactory | null = null;
+
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private _compacting = false;
@@ -75,6 +92,10 @@ export class MemoryManager implements IMemoryStore {
     this.retriever = new MemoryRetriever(this._store, this.config.decayHalfLifeDays);
     this.coreRuleStore = new CoreRuleStore();
     this.vectorManager = new VectorManager(this._store);
+
+    // 3.0 新增组件初始化
+    this.decisionPointDetector = new DecisionPointDetector();
+    this.identityManager = new IdentityManager(this._store);
   }
 
   /** 初始化（建表、自动迁移、异步初始化向量系统） */
@@ -96,6 +117,27 @@ export class MemoryManager implements IMemoryStore {
       this.vectorManager.init().catch((err) => {
         log.debug('VectorManager init failed:', err);
       });
+
+      // 3.0 新增：初始化需要 SubAgentFactory 的组件
+      if (this.subAgentFactory) {
+        this.decisionPointRetriever = new DecisionPointMemoryRetriever(
+          this.store,
+          this.subAgentFactory
+        );
+        this.dreamAgent = new DreamAgent(this.store, this.subAgentFactory);
+        this.dreamScheduler = new DreamScheduler(this.dreamAgent, this.store);
+
+        // 启动做梦调度器
+        this.dreamScheduler.startSchedule();
+        log.info('Dream scheduler started');
+      } else {
+        log.warn('SubAgentFactory not set, 3.0 features disabled');
+      }
+
+      // 启动记忆维护调度器（如果配置启用）
+      if (this.config.maintenance?.enabled !== false) {
+        this.startMaintenanceScheduler();
+      }
     } catch (err) {
       log.warn('MemoryManager init failed:', err);
       this.initialized = true; // 避免阻塞
@@ -163,10 +205,13 @@ export class MemoryManager implements IMemoryStore {
         }).catch(() => {});
       }
 
-      // 检查是否需要压缩
-      const stats = this.store.getStats();
-      if (stats.total > this.config.compactionThreshold) {
-        this.compact().catch((err) => log.debug('Compact failed:', err));
+      // 检查是否需要压缩（已废弃，由 MemoryMaintenanceScheduler 自动处理）
+      // 保留此逻辑仅用于未启用自动维护的场景
+      if (!this.maintenanceScheduler?.getStats()) {
+        const stats = this.store.getStats();
+        if (stats.total > this.config.compactionThreshold) {
+          log.debug(`Memory threshold reached (${stats.total}), but auto-maintenance is disabled`);
+        }
       }
     } catch (err) {
       log.warn('Failed to save session memory:', err);
@@ -192,27 +237,30 @@ export class MemoryManager implements IMemoryStore {
     }
   }
 
-  /** 长期压缩（带互斥保护，使用 MemoryWeightEngine） */
+  /**
+   * 长期压缩（已废弃，委托给 MemoryMaintenanceScheduler）
+   * @deprecated 使用 MemoryMaintenanceScheduler 的智能压缩和提炼机制
+   */
   async compact(): Promise<void> {
     if (this._compacting) return;
     this._compacting = true;
 
     try {
-      const all = this.store.readAll();
+      // 委托给智能维护系统
+      if (this.maintenanceScheduler) {
+        log.info('Delegating compaction to MemoryMaintenanceScheduler');
+        await this.maintenanceScheduler.runCompaction(false);
+        return;
+      }
 
-      // 批量更新权重字段（写回 entry.weight）
+      // 降级方案：仅更新权重，不再硬截断
+      const all = this.store.readAll();
       MemoryWeightEngine.updateWeights(all);
 
-      // 过滤低权重条目（profile / permanent / unfinished_task 不参与压缩）
-      const kept = all.filter((entry) => !MemoryWeightEngine.shouldCompact(entry));
+      // 只标记过时记忆，不删除
+      const obsoleteCount = all.filter((entry) => MemoryWeightEngine.shouldCompact(entry)).length;
 
-      // 截断到上限，按权重降序
-      const sorted = kept
-        .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
-        .slice(0, this.config.longTermMaxEntries);
-
-      this.store.replaceAll(sorted);
-      log.info(`Memory compacted: ${all.length} → ${sorted.length} entries`);
+      log.info(`Memory weight updated: ${all.length} entries, ${obsoleteCount} marked as low priority`);
     } catch (err) {
       log.warn('Compact failed:', err);
     } finally {
@@ -331,6 +379,11 @@ export class MemoryManager implements IMemoryStore {
     this.hookRegistry = hookRegistry;
   }
 
+  /** 注入 SubAgentFactory（3.0 新增） */
+  setSubAgentFactory(factory: SubAgentFactory): void {
+    this.subAgentFactory = factory;
+  }
+
   // ────────── 会话管理 ──────────
 
   /** 重置短期记忆（新会话开始时） */
@@ -356,6 +409,28 @@ export class MemoryManager implements IMemoryStore {
     return this.coreRuleStore;
   }
 
+  // ────────── 3.0 新增组件访问 ──────────
+
+  /** 获取决策点检测器 */
+  getDecisionPointDetector(): DecisionPointDetector {
+    return this.decisionPointDetector;
+  }
+
+  /** 获取决策点记忆检索器 */
+  getDecisionPointRetriever(): DecisionPointMemoryRetriever | null {
+    return this.decisionPointRetriever;
+  }
+
+  /** 获取身份管理器 */
+  getIdentityManager(): IdentityManager {
+    return this.identityManager;
+  }
+
+  /** 获取做梦调度器 */
+  getDreamScheduler(): DreamScheduler | null {
+    return this.dreamScheduler;
+  }
+
   /** 获取所有记忆条目（供 BootGuide 等场景使用） */
   getAllEntries(limit = 2000): MemoryEntry[] {
     return this.store.readAll({ limit });
@@ -374,11 +449,67 @@ export class MemoryManager implements IMemoryStore {
   /** 关闭资源 */
   async shutdown(): Promise<void> {
     await this._saveQueue;
+
+    // 停止维护调度器
+    if (this.maintenanceScheduler) {
+      this.maintenanceScheduler.stop();
+    }
+
     await this.vectorManager.shutdown();
     this.store.close();
     this.initialized = false;
     this.initPromise = null;
     log.debug('MemoryManager shutdown complete');
+  }
+
+  // ────────── 维护调度器 ──────────
+
+  /**
+   * 启动记忆维护调度器
+   * 需要 SubAgentFactory 支持（用于 LLM 提取）
+   */
+  startMaintenanceScheduler(subAgentFactory?: SubAgentFactory): void {
+    if (this.maintenanceScheduler) {
+      log.warn('Maintenance scheduler already started');
+      return;
+    }
+
+    this.maintenanceScheduler = new MemoryMaintenanceScheduler(
+      this.store,
+      subAgentFactory,
+      this.config.maintenance
+    );
+    this.maintenanceScheduler.start();
+    log.info('Memory maintenance scheduler started');
+  }
+
+  /**
+   * 手动触发记忆压缩
+   */
+  async compactMemories(dryRun = false): Promise<void> {
+    if (!this.maintenanceScheduler) {
+      log.warn('Maintenance scheduler not initialized');
+      return;
+    }
+    await this.maintenanceScheduler.runCompaction(dryRun);
+  }
+
+  /**
+   * 手动触发记忆提炼
+   */
+  async refineMemories(dryRun = false): Promise<void> {
+    if (!this.maintenanceScheduler) {
+      log.warn('Maintenance scheduler not initialized');
+      return;
+    }
+    await this.maintenanceScheduler.runRefinement(dryRun);
+  }
+
+  /**
+   * 获取维护统计
+   */
+  getMaintenanceStats() {
+    return this.maintenanceScheduler?.getStats();
   }
 
   // ────────── 私有方法 ──────────

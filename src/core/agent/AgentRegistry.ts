@@ -156,6 +156,13 @@ export class AgentRegistry {
   }
 
   /**
+   * 获取所有启用的 Agent ID
+   */
+  getEnabledIds(): string[] {
+    return this.getEnabled().map(agent => agent.id);
+  }
+
+  /**
    * 生成给 Orchestrator 的 Agent 列表（Markdown 格式）
    */
   getAgentListForPrompt(): string {

@@ -7,6 +7,9 @@ import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { DiffRenderer } from '../utils/DiffRenderer';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'WriteTool' });
 
 /**
  * 写入文件工具
@@ -57,8 +60,11 @@ export class WriteTool extends BaseTool {
     const content = input.content as string;
     const path = resolve(rawPath);
 
+    log.debug(`Writing file: ${path}`, { size: content.length });
+
     // 路径穿越保护：禁止写入敏感系统目录
     if (this.isSensitivePath(path)) {
+      log.warn(`Sensitive path blocked: ${path}`);
       return this.error(`安全限制: 不允许写入路径 "${path}"。该路径位于受保护的系统或用户目录。`);
     }
 
@@ -69,9 +75,11 @@ export class WriteTool extends BaseTool {
 
       // 检查文件是否已存在（用于生成 diff）
       let existingContent: string | null = null;
+      let isOverwrite = false;
       try {
         await access(path);
         existingContent = await readFile(path, 'utf-8');
+        isOverwrite = true;
       } catch {
         // 文件不存在，创建新文件
       }
@@ -85,15 +93,46 @@ export class WriteTool extends BaseTool {
       if (existingContent !== null) {
         const diffPreview = DiffRenderer.renderPreview(existingContent, content, path);
         const stats = DiffRenderer.getStats(existingContent, content);
-        return this.success(
+        log.info(`File overwritten: ${path}`, {
+          lines,
+          chars: content.length,
+          added: stats.added,
+          removed: stats.removed
+        });
+
+        const result = this.success(
           `已写入 ${path} (${lines} 行, ${content.length} 字符)\n\n${diffPreview}`,
           { ...stats, lines, chars: content.length, filePath: path }
         );
+
+        // 添加文件变更信息
+        result.fileChanges = [{
+          filePath: path,
+          operation: 'overwrite',
+          stats: { added: stats.added, removed: stats.removed, unchanged: stats.unchanged },
+          diffContent: DiffRenderer.renderLines(existingContent, content, true, true),
+          size: { lines, chars: content.length }
+        }];
+
+        return result;
       }
 
-      return this.success(`已写入 ${path} (${lines} 行, ${content.length} 字符)`);
+      log.info(`File created: ${path}`, { lines, chars: content.length });
+
+      const result = this.success(`已写入 ${path} (${lines} 行, ${content.length} 字符)`);
+
+      // 添加文件变更信息（新建文件）
+      result.fileChanges = [{
+        filePath: path,
+        operation: 'create',
+        stats: { added: lines, removed: 0 },
+        size: { lines, chars: content.length }
+      }];
+
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to write file: ${path}`, { error: message });
       return this.error(`写入文件失败: ${message}`);
     }
   }

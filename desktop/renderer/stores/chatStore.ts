@@ -126,6 +126,7 @@ interface ChatStore {
     role?: string;
     task?: string;
     builtin?: boolean;
+    agentType?: 'preset' | 'builtin' | 'custom'; // 新增：详细的 agent 类型
     strategy?: string;
     teamName?: string;
     stepIndex?: number;
@@ -147,6 +148,32 @@ interface ChatStore {
 // ============================================================
 // 工具摘要生成函数
 // ============================================================
+
+/**
+ * 生成文件变更的对话式摘要
+ */
+function generateFileChangeSummary(change: import('../global').FileChange): string {
+  const { filePath, operation, stats, diffContent } = change;
+
+  // 去除 ANSI 颜色码
+  const cleanDiff = diffContent?.replace(/\x1b\[[0-9;]*m/g, '') || '';
+
+  switch (operation) {
+    case 'create':
+      return `✅ **已创建文件** \`${filePath}\`\n\n` +
+             `📊 共 ${stats.added} 行`;
+
+    case 'edit':
+    case 'overwrite':
+      const operationText = operation === 'edit' ? '已编辑文件' : '已更新文件';
+      return `✅ **${operationText}** \`${filePath}\`\n\n` +
+             `📊 变更：+${stats.added} 行，-${stats.removed} 行\n\n` +
+             (cleanDiff ? `\`\`\`diff\n${cleanDiff}\n\`\`\`` : '');
+
+    default:
+      return '';
+  }
+}
 
 /**
  * 从工具结果中提取 diff 统计信息
@@ -349,6 +376,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const result = await window.electron.agentSendMessage(content);
 
+      // 注意：无论成功还是失败，agent:end 事件都会触发并设置状态
+      // 这里只处理明确的错误情况（如会话未初始化等）
       if (!result.success) {
         // 发送失败，添加错误消息
         const errorMessage: Message = {
@@ -358,7 +387,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           timestamp: Date.now(),
         };
 
-        // 同步更新 runtimeStore
+        // 同步更新 runtimeStore（确保状态被重置）
         useRuntimeStore.getState().setProcessing(false);
 
         set((state) => ({
@@ -366,6 +395,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           status: 'idle',
         }));
       }
+      // 成功情况：状态由 agent:end 事件处理，这里不需要额外操作
     } catch (err) {
       // 调用失败
       const errorMessage: Message = {
@@ -403,6 +433,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   reset: async () => {
     await window.electron.agentReset();
+
+    // 清空前端 todos 显示状态（不清空后端持久化任务）
+    // xuanji 是记忆驱动的 agent，任务是工作状态，不应随会话重置而清空
+    useExecutionStore.setState({ todos: [] });
+
     set({
       messages: [],
       status: 'idle',
@@ -828,38 +863,50 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const startIndex = data.result.indexOf(startMarker);
         if (startIndex !== -1) {
           const jsonStart = startIndex + startMarker.length;
-          const jsonEnd = data.result.indexOf(endMarker, jsonStart);
+          // 🔧 从 jsonStart 开始查找完整的 JSON 对象（匹配大括号）
+          let braceCount = 0;
+          let jsonEnd = -1;
+          for (let i = jsonStart; i < data.result.length; i++) {
+            const char = data.result[i];
+            if (char === '{') braceCount++;
+            else if (char === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                jsonEnd = i + 1;
+                break;
+              }
+            }
+          }
           if (jsonEnd !== -1) {
             const jsonStr = data.result.substring(jsonStart, jsonEnd).trim();
             try {
               const progressData = JSON.parse(jsonStr);
               // progressData = { completed: 1, total: 3, items: [{ id, title, description, status, activeForm }] }
 
-              const executionStore = useExecutionStore.getState();
+              console.log('[chatStore] 收到 TODO_PROGRESS，原始数据:', JSON.stringify(progressData, null, 2));
 
-              // 清空现有任务（TodoManager 返回的是完整列表）
-              useExecutionStore.setState({ todos: [] });
-
-              // 添加新任务
+              // 🆕 原子性地更新所有任务，避免中间状态导致的 UI 闪烁
               if (progressData.items && Array.isArray(progressData.items)) {
-                progressData.items.forEach((item: any) => {
-                  // 先添加任务（状态默认为 pending）
-                  executionStore.addTodo({
+                const newTodos = progressData.items.map((item: any) => {
+                  console.log(`[chatStore] 处理任务: id=${item.id}, title=${item.title}, status=${item.status}`);
+                  return {
                     id: item.id,
                     subject: item.title,
                     description: item.description || '',
+                    status: item.status || 'pending',
                     activeForm: item.activeForm,
-                  });
-
-                  // 如果状态不是 pending，更新状态
-                  if (item.status !== 'pending') {
-                    executionStore.updateTodo({
-                      id: item.id,
-                      status: item.status,
-                      activeForm: item.activeForm,
-                    });
-                  }
+                    createdAt: Date.now(),
+                    startedAt: item.status === 'in_progress' ? Date.now() : undefined,
+                    completedAt: (item.status === 'completed' || item.status === 'failed') ? Date.now() : undefined,
+                  };
                 });
+
+                console.log('[chatStore] 即将更新 todos，新任务列表:', newTodos.map(t => ({ id: t.id, status: t.status, subject: t.subject })));
+
+                // 一次性替换所有任务，避免多次 setState 导致的竞态条件
+                useExecutionStore.setState({ todos: newTodos });
+
+                console.log('[chatStore] todos 更新完成');
               }
             } catch (err) {
               console.error('[chatStore] 解析 TODO_PROGRESS 失败:', err);
@@ -1336,7 +1383,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             status: 'thinking',
             currentTools: [],
             subAgents: [],
-            agentType: data.builtin ? 'builtin' : 'temporary',
+            agentType: data.agentType || (data.builtin ? 'builtin' : 'custom'), // 优先使用新字段，兼容旧逻辑
             stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
             // 添加 multiAgent 信息
             multiAgent: {
@@ -1424,7 +1471,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           status: 'thinking',
           currentTools: [],
           subAgents: [],
-          agentType: data.builtin ? 'builtin' : 'temporary', // 根据 builtin 标识设置类型
+          agentType: data.agentType || (data.builtin ? 'builtin' : 'custom'), // 优先使用新字段，兼容旧逻辑
           stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
         });
         // 切换到子 agent
@@ -1636,7 +1683,7 @@ if (typeof window !== 'undefined' && window.electron) {
   // 先清除所有旧监听器，防止 HMR 热更新时重复注册导致事件触发多次
   const agentChannels = [
     'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
-    'agent:usage', 'agent:error', 'agent:end',
+    'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
     'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
     'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
     'ask-user:request', 'session:messages-restored', 'session:resume-notification',
@@ -1659,6 +1706,24 @@ if (typeof window !== 'undefined' && window.electron) {
 
   window.electron.onAgentToolEnd((data) => {
     useChatStore.getState()._handleAgentToolEnd(data);
+  });
+
+  window.electron.onAgentFileChanges((data) => {
+    console.log('[chatStore] 收到文件变更事件，变更数量:', data.changes.length);
+    // 为每个文件变更生成一条对话式摘要消息
+    data.changes.forEach((change) => {
+      const summary = generateFileChangeSummary(change);
+      if (summary) {
+        const summaryMessage: Message = {
+          id: generateMessageId('file-change'),
+          role: 'assistant',
+          content: summary,
+          timestamp: Date.now(),
+          toolSummary: true,
+        };
+        useChatStore.getState().addMessage(summaryMessage);
+      }
+    });
   });
 
   window.electron.onAgentUsage((usage) => {

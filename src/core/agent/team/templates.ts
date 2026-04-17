@@ -38,7 +38,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
     members: () => [
       {
         id: 'architect',
-        role: 'plan' as AgentRoleType,
+        agentId: 'plan',
         name: 'Architecture Reviewer',
         capabilities: ['architecture analysis', 'design patterns', 'SOLID principles', 'code structure'],
         priority: 3,
@@ -46,7 +46,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'security',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Security Reviewer',
         capabilities: ['security analysis', 'vulnerability detection', 'input validation', 'authentication'],
         priority: 2,
@@ -54,7 +54,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'performance',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Performance Reviewer',
         capabilities: ['performance analysis', 'memory optimization', 'algorithm efficiency', 'profiling'],
         priority: 1,
@@ -79,21 +79,21 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
     members: () => [
       {
         id: 'docs-researcher',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Documentation Researcher',
         capabilities: ['official docs', 'API references', 'technical specs', 'best practices'],
         systemPrompt: 'Search official documentation, API references, and technical specifications. Focus on authoritative sources and best practices.',
       },
       {
         id: 'code-researcher',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Code Example Researcher',
         capabilities: ['code search', 'GitHub exploration', 'open source projects', 'implementation patterns'],
         systemPrompt: 'Find real-world code examples, open source implementations, and usage patterns. Look for production-ready solutions.',
       },
       {
         id: 'community-researcher',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Community Researcher',
         capabilities: ['blog posts', 'Stack Overflow', 'community discussions', 'case studies'],
         systemPrompt: 'Search blog posts, community discussions, Stack Overflow, and case studies. Focus on practical experiences and lessons learned.',
@@ -117,21 +117,21 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
     members: () => [
       {
         id: 'simplicity-advocate',
-        role: 'plan' as AgentRoleType,
+        agentId: 'plan',
         name: 'Simplicity Advocate',
         capabilities: ['simple solutions', 'maintainability', 'YAGNI', 'readability'],
         systemPrompt: 'Advocate for the simplest solution that works. Challenge over-engineering. Prioritize maintainability, readability, and the YAGNI principle.',
       },
       {
         id: 'scalability-expert',
-        role: 'plan' as AgentRoleType,
+        agentId: 'plan',
         name: 'Scalability Expert',
         capabilities: ['scalability', 'distributed systems', 'high availability', 'performance at scale'],
         systemPrompt: 'Ensure the design can scale to high load. Consider distributed scenarios, fault tolerance, horizontal scaling, and performance under stress.',
       },
       {
         id: 'pragmatist',
-        role: 'plan' as AgentRoleType,
+        agentId: 'plan',
         name: 'Pragmatic Engineer',
         capabilities: ['practical solutions', 'trade-off analysis', 'deadline awareness', 'MVP thinking'],
         systemPrompt: 'Balance idealism with reality. Consider time constraints, team skill level, and business priorities. Identify practical trade-offs and recommend the best compromise.',
@@ -155,7 +155,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
     members: () => [
       {
         id: 'extractor',
-        role: 'explore' as AgentRoleType,
+        agentId: 'explore',
         name: 'Data Extractor',
         capabilities: ['data extraction', 'API calls', 'file parsing', 'web scraping'],
         priority: 4,
@@ -163,7 +163,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'cleaner',
-        role: 'general-purpose' as AgentRoleType,
+        agentId: 'general-purpose',
         name: 'Data Cleaner',
         capabilities: ['data cleaning', 'deduplication', 'validation', 'normalization'],
         priority: 3,
@@ -171,7 +171,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'analyzer',
-        role: 'general-purpose' as AgentRoleType,
+        agentId: 'general-purpose',
         name: 'Data Analyzer',
         capabilities: ['data analysis', 'pattern recognition', 'categorization', 'statistical analysis'],
         priority: 2,
@@ -179,7 +179,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'reporter',
-        role: 'general-purpose' as AgentRoleType,
+        agentId: 'general-purpose',
         name: 'Report Generator',
         capabilities: ['report generation', 'visualization', 'summarization', 'documentation'],
         priority: 1,
@@ -204,7 +204,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
     members: () => [
       {
         id: 'tech-lead',
-        role: 'plan' as AgentRoleType,
+        agentId: 'plan',
         name: 'Tech Lead',
         capabilities: ['system design', 'technical leadership', 'architecture decisions', 'task breakdown'],
         priority: 10,
@@ -212,7 +212,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'backend-dev',
-        role: 'coder' as AgentRoleType,
+        agentId: 'coder',
         name: 'Backend Developer',
         capabilities: ['backend development', 'API design', 'database design', 'business logic'],
         priority: 5,
@@ -220,7 +220,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'frontend-dev',
-        role: 'coder' as AgentRoleType,
+        agentId: 'coder',
         name: 'Frontend Developer',
         capabilities: ['frontend development', 'UI implementation', 'state management', 'user interaction'],
         priority: 5,
@@ -228,7 +228,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       },
       {
         id: 'qa',
-        role: 'coder' as AgentRoleType,
+        agentId: 'coder',
         name: 'QA Engineer',
         capabilities: ['testing', 'test automation', 'quality assurance', 'edge cases'],
         priority: 3,

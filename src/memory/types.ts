@@ -43,6 +43,26 @@ export type MemoryScope = 'core_rule' | 'profile' | 'knowledge' | 'episode';
  */
 export type MemoryVolatility = 'permanent' | 'stable' | 'normal' | 'transient';
 
+/**
+ * 约束强度（3.0 新增）
+ */
+export type MemoryConstraint = 'must' | 'should' | 'may';
+
+/**
+ * 记忆来源（3.0 新增）
+ */
+export type MemoryOrigin = 'user_explicit' | 'auto_extracted' | 'dream_generated';
+
+/**
+ * 记忆主体（3.0 新增）
+ */
+export type MemorySubject = 'user' | 'project' | 'task' | 'system';
+
+/**
+ * 记忆性质（3.0 新增）
+ */
+export type MemoryNature = 'fact' | 'preference' | 'pattern' | 'lesson' | 'rule';
+
 // ═══════════════════════════════════════════════════════════
 // 记忆条目（半结构化，category 为 LLM 自由文本）
 // ═══════════════════════════════════════════════════════════
@@ -149,6 +169,38 @@ export interface MemoryEntry {
    */
   weight?: number;
 
+  // ═══ 增强分类字段 ═══
+
+  /**
+   * 约束强度（must=必须遵守, should=强烈建议, may=可参考）
+   */
+  constraint?: MemoryConstraint;
+
+  /**
+   * 记忆来源（user_explicit=用户明确要求, auto_extracted=自动提取）
+   */
+  memoryOrigin?: MemoryOrigin;
+
+  /**
+   * 记忆主体（user=用户相关, project=项目相关, task=任务相关）
+   */
+  memorySubject?: MemorySubject;
+
+  /**
+   * 记忆性质（fact=事实, preference=偏好, rule=规则, suggestion=建议）
+   */
+  memoryNature?: MemoryNature;
+
+  /**
+   * 是否用户明确要求记住
+   */
+  isUserExplicit?: boolean;
+
+  /**
+   * 是否核心规则（必须严格遵守）
+   */
+  isCoreRule?: boolean;
+
   // ═══ OpenClaw 兼容字段（保留用于格式化分组） ═══
 
   /** 记忆分类（timeline/topic/fact/lesson，用于格式化输出分组） */
@@ -191,6 +243,48 @@ export interface MemoryEntry {
   problemDescription?: string;
   solution?: string;
   applicableScenarios?: string[];
+
+  // ═══ 决策点记忆系统字段（3.0 新增） ═══
+
+  /** 使用场景标签（LLM动态发现，例如 "package-management", "code-style"） */
+  usageScenarios?: string[];
+
+  /** 使用次数（被检索并注入决策上下文的次数） */
+  usageCount?: number;
+
+  /** 最后使用时间戳 */
+  lastUsed?: number;
+
+  /** 有效次数（被采纳的次数，用于计算有效率） */
+  effectiveCount?: number;
+
+  /** 记忆来源（user=用户明确, agent=自动提取, dream=做梦生成） */
+  memoryOriginV2?: 'user' | 'agent' | 'dream';
+
+  // ═══ 做梦机制字段（3.0 新增） ═══
+
+  /** 做梦代数（0=原始记忆，1+=做梦提炼的衍生记忆） */
+  dreamGeneration?: number;
+
+  /** 支持证据数量（多条原始记忆合并时的来源数量） */
+  evidenceCount?: number;
+
+  /** 最后复审时间戳 */
+  lastReviewed?: number;
+
+  /** 最后做梦处理时间（用于增量处理，避免重复处理） */
+  lastDreamed?: number;
+
+  /** 被做梦处理次数 */
+  dreamCount?: number;
+
+  // ═══ 软删除字段（3.0 新增） ═══
+
+  /** 删除时间戳（软删除，保留记录） */
+  deletedAt?: number;
+
+  /** 删除原因（duplicate/prune/obsolete/merged） */
+  deleteReason?: string;
 }
 
 /** 工具调用记录 */
@@ -284,6 +378,15 @@ export interface MemoryConfig {
   significanceThreshold?: number;
   /** 触发巩固的同类情节数量（默认 5） */
   consolidationTriggerCount?: number;
+  /** 记忆维护配置 */
+  maintenance?: {
+    enabled?: boolean;
+    compactionInterval?: number;
+    refinementInterval?: number;
+    compactionAggressiveness?: number;
+    maxUpgradesPerRun?: number;
+    useLLM?: boolean;
+  };
   /** 记忆格式化配置 */
   formatting?: {
     style?: 'openclaw' | 'simple';
@@ -297,11 +400,11 @@ export interface MemoryConfig {
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   enabled: true,
   shortTermMaxEntries: 100,
-  longTermMaxEntries: 1000,
+  longTermMaxEntries: 100000, // 移除硬限制，依赖智能压缩维护
   retrieveMaxResults: 10,
   maxEntryLength: 500,
   maxPromptLength: 5000,
-  compactionThreshold: 500,
+  compactionThreshold: 10000, // 提高阈值，减少频繁触发
   decayHalfLifeDays: 30,
   extractorModel: null,
   extractorTemperature: 0.3,
@@ -375,6 +478,11 @@ export interface MemoryRow {
   dismissed: number; // SQLite boolean (0/1)
   obsolete: number; // SQLite boolean (0/1)
   metadata: string; // JSON object
+  // M5 分层记忆字段
+  scope: string | null;
+  volatility: string | null;
+  significance: number | null;
+  category_label: string | null;
 }
 
 /**
@@ -406,4 +514,74 @@ export interface StatsRow {
  */
 export interface CountRow {
   count: number;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 决策点记忆系统（3.0 新增）
+// ═══════════════════════════════════════════════════════════
+
+/** 决策点定义 */
+export interface DecisionPoint {
+  /** 决策类型（tool-choice/option-choice/consideration/decision等） */
+  type: string;
+  /** 相关工具名（如果是工具调用决策点） */
+  tool?: string;
+  /** 工具输入（如果是工具调用决策点） */
+  input?: any;
+  /** 思考内容（如果从thinking检测到） */
+  thinking?: string;
+  /** 关键词列表 */
+  keywords: string[];
+  /** 时间戳 */
+  timestamp: number;
+}
+
+/** 检索到的记忆（带评分） */
+export interface RetrievedMemory extends MemoryEntry {
+  /** 适用性评分（0-1） */
+  applicability: number;
+  /** 检索原因 */
+  reason: string;
+}
+
+/** 身份记忆 */
+export interface IdentityMemory {
+  /** 用户称呼（"先生"、"女士"等） */
+  userTitle?: string;
+  /** 助手名字（"贾维斯"等） */
+  assistantName?: string;
+  /** 人格设定 */
+  persona?: string;
+  /** 语气风格 */
+  tone?: string;
+}
+
+/** 做梦进度 */
+export interface DreamProgress {
+  /** 当前批次 */
+  currentBatch: number;
+  /** 总批次数 */
+  totalBatches: number;
+  /** 已处理数量 */
+  processedCount: number;
+  /** 总数量 */
+  totalCount: number;
+  /** 当前结果 */
+  result: DreamResult;
+}
+
+/** 做梦结果 */
+export interface DreamResult {
+  /** 提炼数量 */
+  distilled: number;
+  /** 压缩数量 */
+  compressed: number;
+  /** 去重数量 */
+  deduplicated: number;
+  /** 淘汰数量 */
+  pruned: number;
+  /** 评分更新数量 */
+  scored: number;
+  /** 耗时（ms） */
+  duration: number;
 }

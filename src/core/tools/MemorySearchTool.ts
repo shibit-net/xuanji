@@ -165,8 +165,11 @@ export class MemorySearchTool extends BaseTool {
 
       log.debug(`Found ${results.length} memories for query: "${query}"`);
 
+      // 🆕 添加重要提示：这是长期记忆，还需要检查当前会话
+      const reminder = '\n\n⚠️ **Important**: These are long-term memories from past conversations. If the user is asking about recent events, also check the **current conversation history** above for the most up-to-date information.';
+
       return this.success(
-        `Found ${results.length} relevant memories:\n\n${formatted}`,
+        `Found ${results.length} relevant memories:\n\n${formatted}${reminder}`,
         {
           query,
           count: results.length,

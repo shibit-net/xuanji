@@ -392,6 +392,16 @@ export class SessionInitializer {
       baseRegistry.register(memorySearchTool);
       baseRegistry.register(retrieveMemoryTool);
 
+      // 3.0 新增：注入 MemoryStore 到新工具
+      const memoryUpdateTool = baseRegistry.get('memory_update');
+      const memoryDeleteTool = baseRegistry.get('memory_delete');
+      if (memoryUpdateTool && 'setMemoryStore' in memoryUpdateTool) {
+        (memoryUpdateTool as any).setMemoryStore(memoryManager.getStore());
+      }
+      if (memoryDeleteTool && 'setMemoryStore' in memoryDeleteTool) {
+        (memoryDeleteTool as any).setMemoryStore(memoryManager.getStore());
+      }
+
       return { memoryManager, _MemoryManagerClass: MemoryManager };
     } catch (err) {
       log.warn('Failed to init memory system:', err);

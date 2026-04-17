@@ -100,6 +100,23 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
       return false;
     }
 
+    // 配额不足错误（quota failed / insufficient_quota）
+    // ⚠️ 不重试：余额不足无法通过重试解决，需要用户充值或更换 API Key
+    if (error.message.includes('quota') &&
+        (error.message.includes('failed') ||
+         error.message.includes('insufficient') ||
+         error.message.includes('exceeded'))) {
+      return false;
+    }
+
+    // 权限错误（403 / permission_denied / PermissionDeniedError）
+    // ⚠️ 不重试：权限问题无法通过重试解决
+    if (error.message.includes('PermissionDeniedError') ||
+        error.message.includes('permission_denied') ||
+        (error.message.includes('403') && !error.message.includes('overloaded'))) {
+      return false;
+    }
+
     // Anthropic SSE 流内错误事件（api_error / overloaded_error）
     // 场景：SSE 连接 HTTP 200 成功，但流内容包含 error 事件。
     // SDK 创建的错误对象 status 为 undefined（非 HTTP 级别错误），

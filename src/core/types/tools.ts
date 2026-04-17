@@ -46,6 +46,29 @@ export interface Tool {
 }
 
 /**
+ * 文件变更信息
+ */
+export interface FileChange {
+  /** 文件路径 */
+  filePath: string;
+  /** 操作类型 */
+  operation: 'create' | 'edit' | 'overwrite';
+  /** 变更统计 */
+  stats: {
+    added: number;
+    removed: number;
+    unchanged?: number;
+  };
+  /** Diff 内容（带 ANSI 颜色码） */
+  diffContent?: string;
+  /** 文件大小信息 */
+  size?: {
+    lines: number;
+    chars: number;
+  };
+}
+
+/**
  * 工具执行结果
  */
 export interface ToolResult {
@@ -55,6 +78,8 @@ export interface ToolResult {
   isError: boolean;
   /** 元数据 */
   metadata?: Record<string, unknown>;
+  /** 文件变更信息（用于 UI 展示 diff） */
+  fileChanges?: FileChange[];
   /** 多模态内容块（如图片），用于 Vision API */
   contentBlocks?: Array<{
     type: 'image';

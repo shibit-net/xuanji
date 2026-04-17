@@ -11,8 +11,8 @@
   color: 'from-blue-500 to-cyan-600',
 
   model: {
-    primary: '[CC]claude-haiku-4-5-20251001',  // 使用轻量模型
-    fallback: '[CC]claude-haiku-4-5-20251001',
+    primary: 'claude-haiku-4-5',  // 使用轻量模型
+    fallback: 'claude-haiku-4-5',
     maxTokens: 16000,
   },
 

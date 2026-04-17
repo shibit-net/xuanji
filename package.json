@@ -54,6 +54,7 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-code": "^2.1.113",
     "@types/better-sqlite3": "^7.6.13",
     "@types/debug": "^4.1.12",
     "@types/diff": "^7.0.2",
@@ -115,5 +116,8 @@
   "bugs": {
     "url": "https://github.com/shibit/xuanji/issues"
   },
-  "homepage": "https://github.com/shibit/xuanji#readme"
+  "homepage": "https://github.com/shibit/xuanji#readme",
+  "optionalDependencies": {
+    "@anthropic-ai/claude-code-darwin-x64": "2.1.113"
+  }
 }

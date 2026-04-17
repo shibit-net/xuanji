@@ -35,6 +35,8 @@ export interface AgentCallbacks {
   onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
   /** 工具执行分组通知（在执行前触发，通知 UI 哪些工具将并行执行） */
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
+  /** 文件变更通知（在工具执行后触发，批量通知所有文件变更） */
+  onFileChanges?: (changes: import('@/core/types').FileChange[]) => void;
   onUsage?: (usage: TokenUsage) => void;
   /** 非致命提示信息（如 max_tokens 自动重试） */
   onInfo?: (message: string) => void;
@@ -203,6 +205,9 @@ export class AgentLoop {
     this.agentLoopLogger = new AgentLoopLogger(sessionId, this.config.model);
 
     try {
+      // 🆕 注入任务状态提示到 system prompt
+      await this.injectTodoContextHint(userMessage);
+
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 
@@ -337,7 +342,7 @@ export class AgentLoop {
           this.currentIteration,
           result.stopReason,
           result.contentBlocks.length,
-          result.toolCalls.length,
+          result.toolCalls?.length ?? 0,
           result.usage,
           llmDurationMs
         );
@@ -352,13 +357,13 @@ export class AgentLoop {
         });
 
         if (processResult.shouldBreak) {
-          this.log.debug(`Loop ended: stopReason=${result.stopReason}, toolCalls=${result.toolCalls.length}`);
+          this.log.debug(`Loop ended: stopReason=${result.stopReason}, toolCalls=${result.toolCalls?.length ?? 0}`);
 
           // 🆕 记录迭代结束
           await this.agentLoopLogger?.logIterationEnd(
             this.currentIteration,
             result.stopReason,
-            result.toolCalls.length,
+            result.toolCalls?.length ?? 0,
             Date.now() - iterationStartTime
           );
 
@@ -465,6 +470,11 @@ export class AgentLoop {
         );
         const toolExecDurationMs = Date.now() - toolExecStartTime;
         const resultsMap = execResult.resultsMap;
+
+        // 🆕 通知 UI 文件变更
+        if (execResult.fileChanges.length > 0) {
+          this.callbacks.onFileChanges?.(execResult.fileChanges);
+        }
 
         // 触发 PostToolUse Hook
         await this.toolExecutionCoordinator.triggerPostToolUseHooks(
@@ -793,6 +803,17 @@ export class AgentLoop {
   }
 
   /**
+   * 🆕 获取并清空待处理的追加消息
+   * 用于在 run() 结束后，由 ChatSession 触发新一轮对话
+   */
+  consumePendingAppend(): string | null {
+    const message = this._pendingAppendMessage;
+    this._pendingAppendMessage = null;
+    this._interrupted = false;
+    return message;
+  }
+
+  /**
    * 温和追加用户消息（不中断当前执行）
    *
    * Claude Code 风格 Boundary-Aware Queuing：
@@ -945,6 +966,45 @@ export class AgentLoop {
    */
   getMessageHistory(): Message[] {
     return this.messageManager.getHistory();
+  }
+
+  /**
+   * 注入任务状态提示到 system prompt
+   * 让 LLM 自动感知何时该清理任务列表
+   */
+  private async injectTodoContextHint(userMessage: string): Promise<void> {
+    try {
+      const { generateTodoContextHint, detectNewWorkContext } = await import('@/core/tools/TodoContextInjector');
+      const { getTodoManager } = await import('@/core/tools/TodoManager');
+
+      const todoManager = getTodoManager();
+      const todos = await todoManager.list();
+
+      let hint = '';
+
+      // 1. 生成任务状态提示（如果有大量已完成任务、孤儿任务等）
+      const contextHint = await generateTodoContextHint();
+      if (contextHint) {
+        hint += contextHint;
+      }
+
+      // 2. 检测是否开始新工作（如果是，提示清理旧任务）
+      const newWorkHint = detectNewWorkContext(userMessage, todos.length > 0);
+      if (newWorkHint) {
+        hint += '\n' + newWorkHint;
+      }
+
+      // 3. 注入到 system prompt（使用 'todo-context' 作为 key，避免覆盖其他后缀）
+      if (hint) {
+        this.messageManager.setSystemPromptSuffix(hint, 'todo-context');
+      } else {
+        // 清空之前的提示
+        this.messageManager.setSystemPromptSuffix('', 'todo-context');
+      }
+    } catch (err) {
+      // 静默失败，不影响主流程
+      log.warn('Failed to inject todo context hint:', err instanceof Error ? err.message : String(err));
+    }
   }
 
   /**

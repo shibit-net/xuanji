@@ -2,6 +2,21 @@
 // 全局类型定义
 // ============================================================
 
+export interface FileChange {
+  filePath: string;
+  operation: 'create' | 'edit' | 'overwrite';
+  stats: {
+    added: number;
+    removed: number;
+    unchanged?: number;
+  };
+  diffContent?: string;
+  size?: {
+    lines: number;
+    chars: number;
+  };
+}
+
 export interface SkillInfo {
   id: string;
   name: string;
@@ -56,6 +71,7 @@ export interface ElectronAPI {
   onAgentThinking: (callback: (thinking: string) => void) => void;
   onAgentToolStart: (callback: (data: { id: string; name: string; input: Record<string, unknown> }) => void) => void;
   onAgentToolEnd: (callback: (data: { id: string; name: string; result: string; isError: boolean }) => void) => void;
+  onAgentFileChanges: (callback: (data: { changes: FileChange[] }) => void) => void;
   onAgentUsage: (callback: (usage: any) => void) => void;
   onAgentError: (callback: (error: string) => void) => void;
   onAgentEnd: (callback: (state: { tokenUsage: any; cost: number; currentIteration: number }) => void) => void;
@@ -105,6 +121,10 @@ export interface ElectronAPI {
   toolsList: () => Promise<{ success: boolean; tools?: ToolInfo[]; error?: string }>;
   mcpList: () => Promise<{ success: boolean; servers?: MCPServerInfo[]; error?: string }>;
 
+  // Todo 管理
+  todoArchiveCompleted: () => Promise<{ success: boolean; count?: number; error?: string }>;
+  todoGetArchivedCount: () => Promise<{ success: boolean; count?: number; error?: string }>;
+
   // Agent 配置管理
   agentList: () => Promise<{ success: boolean; agents?: any[]; error?: string }>;
   agentCreate: (data: any) => Promise<{ success: boolean; agent?: any; error?: string }>;
@@ -134,6 +154,15 @@ export interface ElectronAPI {
   permissionListRules: () => Promise<{ success: boolean; rules?: PermissionRule[]; error?: string }>;
   permissionDeleteRule: (data: { cacheKey: string }) => Promise<{ success: boolean; error?: string }>;
   permissionClearRules: () => Promise<{ success: boolean; error?: string }>;
+
+  // 日志管理
+  logsRead: (query?: any) => Promise<{ success: boolean; logs?: LogRecord[]; error?: string }>;
+  logsReadLatest: (count?: number, levels?: string[]) => Promise<{ success: boolean; logs?: LogRecord[]; error?: string }>;
+  logsClear: () => Promise<{ success: boolean; error?: string }>;
+  logsStats: () => Promise<{ success: boolean; stats?: Record<string, { size: number; lines: number }>; error?: string }>;
+  logsStartWatch: (levels: string[]) => Promise<{ success: boolean; error?: string }>;
+  logsStopWatch: () => Promise<{ success: boolean; error?: string }>;
+  onLogsNewRecord: (callback: (record: LogRecord) => void) => void;
 
   // 通用事件监听
   on: (channel: string, callback: (...args: any[]) => void) => void;
@@ -207,6 +236,14 @@ export interface CompactResult {
   compressedTokens: number;
   compressionRatio: number;
   summary: string;
+}
+
+export interface LogRecord {
+  timestamp: string;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  namespace: string;
+  message: string;
+  raw: string;
 }
 
 export interface PromptComponentConfig {

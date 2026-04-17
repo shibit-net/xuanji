@@ -11,6 +11,8 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { ChildProcess } from 'child_process';
+import os from 'os';
+import { LogReader } from '../../src/core/logger/LogReader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +27,11 @@ let initializationInProgress: Promise<boolean> | null = null;
 // 用于 agent:get-state / agent:init 等请求-响应式 IPC
 let pendingRequests = new Map<string, { resolve: (val: any) => void; timer: ReturnType<typeof setTimeout> }>();
 let requestIdCounter = 0;
+
+// 日志读取器
+const logDir = path.join(os.homedir(), '.xuanji', 'logs');
+const logReader = new LogReader(logDir);
+let logWatcherCleanup: (() => void) | null = null;
 
 /**
  * 创建主窗口
@@ -221,6 +228,9 @@ function setupAgentProcessListeners() {
         break;
       case 'agent:tool-end':
         mainWindow.webContents.send('agent:tool-end', msg.data);
+        break;
+      case 'agent:file-changes':
+        mainWindow.webContents.send('agent:file-changes', msg.data);
         break;
       case 'agent:usage':
         mainWindow.webContents.send('agent:usage', msg.data);
@@ -715,6 +725,28 @@ ipcMain.handle('agent:delete', async (_event, data: { agentId: string }) => {
 });
 
 // ============================================================
+// IPC 通信 - Todo 管理
+// ============================================================
+
+ipcMain.handle('todo:archive-completed', async () => {
+  if (!sessionReady) return { success: false, error: '会话未初始化' };
+  try {
+    return await sendRequest('todo-archive-completed');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('todo:get-archived-count', async () => {
+  if (!sessionReady) return { success: true, count: 0 };
+  try {
+    return await sendRequest('todo-get-archived-count');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
 // IPC 通信 - Skills / Tools / MCP 查询
 // ============================================================
 
@@ -837,4 +869,73 @@ ipcMain.handle('permission:clear', async () => {
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
+});
+
+// ============================================================
+// IPC 通信 - 日志管理
+// ============================================================
+
+ipcMain.handle('logs:read', async (_event, query?: any) => {
+  try {
+    const records = await logReader.readAll(query);
+    return { success: true, logs: records };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('logs:read-latest', async (_event, count: number = 100, levels?: string[]) => {
+  try {
+    const records = await logReader.readLatest(count, levels as any);
+    return { success: true, logs: records };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('logs:clear', async () => {
+  try {
+    await logReader.clearAll();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('logs:stats', async () => {
+  try {
+    const stats = await logReader.getStats();
+    return { success: true, stats };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('logs:start-watch', async (_event, levels: string[]) => {
+  try {
+    // 停止之前的监听
+    if (logWatcherCleanup) {
+      logWatcherCleanup();
+      logWatcherCleanup = null;
+    }
+
+    // 启动新的监听
+    logWatcherCleanup = logReader.watchLogs(levels as any, (record) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('logs:new-record', record);
+      }
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('logs:stop-watch', async () => {
+  if (logWatcherCleanup) {
+    logWatcherCleanup();
+    logWatcherCleanup = null;
+  }
+  return { success: true };
 });

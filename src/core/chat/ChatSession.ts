@@ -231,10 +231,23 @@ export class ChatSession {
           this.hookRegistry,
           this.memoryManager,
           this.provider,  // 传递主 agent 的 provider
+          this.config.provider,  // 🔧 传递主 agent 的 provider 配置
         );
         log.info('🏭 SubAgentFactory initialized');
       } catch (err) {
         log.warn('SubAgentFactory init failed:', err);
+      }
+    }
+
+    // 3.0 新增：注入 SubAgentFactory 到 MemoryManager
+    if (this.subAgentFactory && this.memoryManager) {
+      this.memoryManager.setSubAgentFactory(this.subAgentFactory);
+      log.info('🧠 Memory 3.0 features enabled');
+
+      // 记录用户活动（用于做梦调度）
+      const dreamScheduler = this.memoryManager.getDreamScheduler();
+      if (dreamScheduler) {
+        dreamScheduler.recordActivity();
       }
     }
 
@@ -657,6 +670,16 @@ export class ChatSession {
     await this.memoryService.injectMemories(llmMessage, this.agentLoop!);
 
     await this.agentLoop!.run(llmMessage);
+
+    // 🆕 检查是否有待处理的追加消息（用户在 agent 总结时输入的新内容）
+    // 如果有，立即触发新一轮对话，避免用户输入被忽略
+    const pendingMessage = this.agentLoop!.consumePendingAppend();
+    if (pendingMessage) {
+      log.info(`⚡ Detected pending append message after run(), triggering new run() with: "${pendingMessage.slice(0, 50)}"`);
+      // 递归调用 runSingleAgent，处理待处理的消息
+      await this.runSingleAgent(pendingMessage);
+      return; // 递归调用会处理后续逻辑，这里直接返回
+    }
 
     // 如果是启动场景，触发 onBootGuide 回调（传递 LLM 生成的引导语）
     if (isStartup && this.sessionCallbacks?.onBootGuide) {

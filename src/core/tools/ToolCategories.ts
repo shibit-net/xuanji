@@ -61,6 +61,8 @@ export const TOOL_CATEGORIES = {
     'todo_create',
     'todo_update',
     'todo_list',
+    'todo_archive',
+    'todo_clear',
     'task_output',
     'plan_review',
     'enter_plan_mode',

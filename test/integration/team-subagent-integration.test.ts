@@ -67,9 +67,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Code Review Team',
         members: [
-          { id: 'architect', role: 'plan', capabilities: ['architecture analysis'] },
-          { id: 'security', role: 'explore', capabilities: ['security review'] },
-          { id: 'performance', role: 'explore', capabilities: ['performance review'] },
+          { id: 'architect', agentId: 'plan', capabilities: ['architecture analysis'] },
+          { id: 'security', agentId: 'explore', capabilities: ['security review'] },
+          { id: 'performance', agentId: 'explore', capabilities: ['performance review'] },
         ],
         strategy: 'sequential',
         goal: 'Review code for quality issues',
@@ -130,9 +130,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Failing Team',
         members: [
-          { id: 'first', role: 'explore', capabilities: ['first task'] },
-          { id: 'second', role: 'explore', capabilities: ['second task'] },
-          { id: 'third', role: 'explore', capabilities: ['third task'] },
+          { id: 'first', agentId: 'explore', capabilities: ['first task'] },
+          { id: 'second', agentId: 'explore', capabilities: ['second task'] },
+          { id: 'third', agentId: 'explore', capabilities: ['third task'] },
         ],
         strategy: 'sequential',
         goal: 'Test failure handling',
@@ -156,9 +156,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Research Team',
         members: [
-          { id: 'docs', role: 'explore', capabilities: ['documentation research'] },
-          { id: 'code', role: 'explore', capabilities: ['code examples research'] },
-          { id: 'community', role: 'explore', capabilities: ['community research'] },
+          { id: 'docs', agentId: 'explore', capabilities: ['documentation research'] },
+          { id: 'code', agentId: 'explore', capabilities: ['code examples research'] },
+          { id: 'community', agentId: 'explore', capabilities: ['community research'] },
         ],
         strategy: 'parallel',
         goal: 'Research TypeScript best practices',
@@ -190,7 +190,7 @@ describe('Integration: TeamManager + SubAgent', () => {
         name: 'Large Parallel Team',
         members: Array.from({ length: 7 }, (_, i) => ({
           id: `member-${i + 1}`,
-          role: 'explore' as const,
+          agentId: 'explore' as const,
           capabilities: [`task-${i + 1}`],
         })),
         strategy: 'parallel',
@@ -216,9 +216,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Feature Dev Team',
         members: [
-          { id: 'tech-lead', role: 'plan', capabilities: ['planning'], priority: 10 },
-          { id: 'backend', role: 'coder', capabilities: ['backend'], priority: 5 },
-          { id: 'frontend', role: 'coder', capabilities: ['frontend'], priority: 5 },
+          { id: 'tech-lead', agentId: 'plan', capabilities: ['planning'], priority: 10 },
+          { id: 'backend', agentId: 'coder', capabilities: ['backend'], priority: 5 },
+          { id: 'frontend', agentId: 'coder', capabilities: ['frontend'], priority: 5 },
         ],
         strategy: 'hierarchical',
         goal: 'Implement user authentication',
@@ -251,8 +251,8 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Hierarchical Team',
         members: [
-          { id: 'leader', role: 'plan', capabilities: ['lead'], priority: 10 },
-          { id: 'worker', role: 'coder', capabilities: ['work'], priority: 1 },
+          { id: 'leader', agentId: 'plan', capabilities: ['lead'], priority: 10 },
+          { id: 'worker', agentId: 'coder', capabilities: ['work'], priority: 1 },
         ],
         strategy: 'hierarchical',
         goal: 'Test',
@@ -273,9 +273,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Architecture Debate',
         members: [
-          { id: 'simplicity', role: 'plan', capabilities: ['simple solutions'] },
-          { id: 'scalability', role: 'plan', capabilities: ['scalability'] },
-          { id: 'pragmatist', role: 'plan', capabilities: ['practical solutions'] },
+          { id: 'simplicity', agentId: 'plan', capabilities: ['simple solutions'] },
+          { id: 'scalability', agentId: 'plan', capabilities: ['scalability'] },
+          { id: 'pragmatist', agentId: 'plan', capabilities: ['practical solutions'] },
         ],
         strategy: 'debate',
         goal: 'Debate: Microservices vs Monolith',
@@ -320,8 +320,8 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Quick Consensus',
         members: [
-          { id: 'member1', role: 'plan', capabilities: ['view1'] },
-          { id: 'member2', role: 'plan', capabilities: ['view2'] },
+          { id: 'member1', agentId: 'plan', capabilities: ['view1'] },
+          { id: 'member2', agentId: 'plan', capabilities: ['view2'] },
         ],
         strategy: 'debate',
         goal: 'Quick debate',
@@ -343,10 +343,10 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Data Pipeline',
         members: [
-          { id: 'extractor', role: 'explore', capabilities: ['extraction-phase'], priority: 4 },
-          { id: 'cleaner', role: 'coder', capabilities: ['cleaning-phase'], priority: 3 },
-          { id: 'analyzer', role: 'coder', capabilities: ['analysis-phase'], priority: 2 },
-          { id: 'reporter', role: 'coder', capabilities: ['reporting-phase'], priority: 1 },
+          { id: 'extractor', agentId: 'explore', capabilities: ['extraction-phase'], priority: 4 },
+          { id: 'cleaner', agentId: 'coder', capabilities: ['cleaning-phase'], priority: 3 },
+          { id: 'analyzer', agentId: 'coder', capabilities: ['analysis-phase'], priority: 2 },
+          { id: 'reporter', agentId: 'coder', capabilities: ['reporting-phase'], priority: 1 },
         ],
         strategy: 'pipeline',
         goal: 'Process TODO comments',
@@ -404,9 +404,9 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Pipeline',
         members: [
-          { id: 'step1', role: 'explore', capabilities: ['step1'], priority: 3 },
-          { id: 'step2', role: 'coder', capabilities: ['step2'], priority: 2 },
-          { id: 'step3', role: 'coder', capabilities: ['step3'], priority: 1 },
+          { id: 'step1', agentId: 'explore', capabilities: ['step1'], priority: 3 },
+          { id: 'step2', agentId: 'coder', capabilities: ['step2'], priority: 2 },
+          { id: 'step3', agentId: 'coder', capabilities: ['step3'], priority: 1 },
         ],
         strategy: 'pipeline',
         goal: 'Test pipeline',
@@ -432,8 +432,8 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       for (const strategy of strategies) {
         const members = [
-          { id: 'member1', role: 'explore' as const, capabilities: ['task1'], priority: 2 },
-          { id: 'member2', role: 'coder' as const, capabilities: ['task2'], priority: 1 },
+          { id: 'member1', agentId: 'explore' as const, capabilities: ['task1'], priority: 2 },
+          { id: 'member2', agentId: 'coder' as const, capabilities: ['task2'], priority: 1 },
         ];
 
         const config: TeamConfig = {
@@ -483,8 +483,8 @@ describe('Integration: TeamManager + SubAgent', () => {
       const config: TeamConfig = {
         name: 'Timeout Test',
         members: [
-          { id: 'member1', role: 'explore', capabilities: ['task1'] },
-          { id: 'member2', role: 'explore', capabilities: ['task2'] },
+          { id: 'member1', agentId: 'explore', capabilities: ['task1'] },
+          { id: 'member2', agentId: 'explore', capabilities: ['task2'] },
         ],
         strategy: 'sequential',
         goal: 'Test timeout',
@@ -531,7 +531,7 @@ describe('Integration: TeamManager + SubAgent', () => {
 
       const config: TeamConfig = {
         name: 'Error Test',
-        members: [{ id: 'member1', role: 'explore', capabilities: ['task'] }],
+        members: [{ id: 'member1', agentId: 'explore', capabilities: ['task'] }],
         strategy: 'sequential',
         goal: 'Test error handling',
       };
@@ -558,7 +558,7 @@ describe('Integration: TeamManager + SubAgent', () => {
     it('应该拒绝并发执行', async () => {
       const config: TeamConfig = {
         name: 'Test',
-        members: [{ id: 'member', role: 'explore', capabilities: ['task'] }],
+        members: [{ id: 'member', agentId: 'explore', capabilities: ['task'] }],
         strategy: 'sequential',
         goal: 'Test',
       };

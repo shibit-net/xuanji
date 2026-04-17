@@ -1,45 +1,129 @@
 // ============================================================
-// Xuanji Desktop - 日志视图组件
+// Xuanji Desktop - 日志视图组件（持久化版本）
 // ============================================================
 // 职责：
-// - 展示系统日志流
+// - 从持久化日志文件读取日志（~/.xuanji/logs/）
 // - 按级别过滤（debug / info / warn / error）
-// - 按分类过滤（system / agent / tool / ipc）
-// - 显示日志时间、级别、分类、消息
+// - 按关键词搜索
+// - 实时监听日志文件变化（tail -f 效果）
+// - 显示日志时间、级别、命名空间、消息
 // - 支持清空日志
-// - 数据来源：runtimeStore.logs
+// - 保持格式化和高可读性展示
 // ============================================================
 
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter } from 'lucide-react';
-import { useRuntimeStore } from '../stores';
+import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter, Search, RefreshCw } from 'lucide-react';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'all';
-type LogCategory = 'system' | 'agent' | 'tool' | 'ipc' | 'all';
+
+interface LogRecord {
+  timestamp: string;
+  level: LogLevel;
+  namespace: string;
+  message: string;
+  raw: string;
+}
 
 export default function LogsView() {
-  const logs = useRuntimeStore((state) => state.logs);
-  const clearLogs = useRuntimeStore((state) => state.clearLogs);
+  const [logs, setLogs] = useState<LogRecord[]>([]);
   const [filterLevel, setFilterLevel] = useState<LogLevel>('all');
-  const [filterCategory, setFilterCategory] = useState<LogCategory>('all');
+  const [keyword, setKeyword] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [isWatching, setIsWatching] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
-  // 过滤日志
+  // 加载日志
+  const loadLogs = async () => {
+    setIsLoading(true);
+    try {
+      const levels = filterLevel === 'all' ? ['debug', 'info', 'warn', 'error'] : [filterLevel];
+      const result = await window.electron.logsReadLatest(1000, levels);
+      if (result.success) {
+        setLogs(result.logs || []);
+      }
+    } catch (error) {
+      console.error('加载日志失败:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 启动实时监听
+  const startWatch = async () => {
+    const levels = filterLevel === 'all' ? ['debug', 'info', 'warn', 'error'] : [filterLevel];
+    const result = await window.electron.logsStartWatch(levels);
+    if (result.success) {
+      setIsWatching(true);
+    }
+  };
+
+  // 停止实时监听
+  const stopWatch = async () => {
+    await window.electron.logsStopWatch();
+    setIsWatching(false);
+  };
+
+  // 清空日志
+  const handleClearLogs = async () => {
+    if (!confirm('确定要清空所有日志文件吗？')) return;
+
+    const result = await window.electron.logsClear();
+    if (result.success) {
+      setLogs([]);
+    }
+  };
+
+  // 初始加载
+  useEffect(() => {
+    loadLogs();
+  }, []);
+
+  // 监听级别变化，重新加载和监听
+  useEffect(() => {
+    loadLogs();
+    if (isWatching) {
+      stopWatch().then(() => startWatch());
+    }
+  }, [filterLevel]);
+
+  // 监听新日志记录
+  useEffect(() => {
+    const handleNewRecord = (record: LogRecord) => {
+      // 应用级别过滤
+      if (filterLevel !== 'all' && record.level !== filterLevel) {
+        return;
+      }
+
+      setLogs(prev => [...prev, record].slice(-1000));
+    };
+
+    window.electron.onLogsNewRecord(handleNewRecord);
+
+    return () => {
+      window.electron.removeAllListeners('logs:new-record');
+    };
+  }, [filterLevel]);
+
+  // 组件挂载时启动监听
+  useEffect(() => {
+    startWatch();
+    return () => {
+      stopWatch();
+    };
+  }, []);
+
+  // 过滤日志（关键词）
   const filteredLogs = useMemo(() => {
-    let result = logs;
+    if (!keyword.trim()) return logs;
 
-    if (filterLevel !== 'all') {
-      result = result.filter((log) => log.level === filterLevel);
-    }
-
-    if (filterCategory !== 'all') {
-      result = result.filter((log) => log.category === filterCategory);
-    }
-
-    return result;
-  }, [logs, filterLevel, filterCategory]);
+    const kw = keyword.toLowerCase();
+    return logs.filter(log =>
+      log.message.toLowerCase().includes(kw) ||
+      log.namespace.toLowerCase().includes(kw)
+    );
+  }, [logs, keyword]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -93,18 +177,12 @@ export default function LogsView() {
     }
   };
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'system':
-        return 'bg-purple-500/20 text-purple-500';
-      case 'agent':
-        return 'bg-green-500/20 text-green-500';
-      case 'tool':
-        return 'bg-blue-500/20 text-blue-500';
-      case 'ipc':
-        return 'bg-yellow-500/20 text-yellow-500';
-      default:
-        return 'bg-bg-secondary text-text-secondary';
+  const formatTime = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString('zh-CN', { hour12: false });
+    } catch {
+      return timestamp;
     }
   };
 
@@ -112,15 +190,34 @@ export default function LogsView() {
     <div className="flex flex-col space-y-3">
       {/* 标题和操作栏 */}
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">📋 日志流</div>
-        <button
-          onClick={clearLogs}
-          className="flex items-center gap-1 px-2 py-1 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors"
-          title="清空日志"
-        >
-          <Trash2 size={12} />
-          清空
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="text-sm font-semibold">📋 日志流</div>
+          {isWatching && (
+            <span className="text-xs text-green-500 flex items-center gap-1">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              实时
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadLogs}
+            disabled={isLoading}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+            title="刷新日志"
+          >
+            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+            刷新
+          </button>
+          <button
+            onClick={handleClearLogs}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors"
+            title="清空日志"
+          >
+            <Trash2 size={12} />
+            清空
+          </button>
+        </div>
       </div>
 
       {/* 筛选栏 */}
@@ -141,21 +238,20 @@ export default function LogsView() {
           </select>
         </div>
 
-        {/* 分类筛选 */}
-        <select
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value as LogCategory)}
-          className="bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-xs focus:outline-none focus:border-primary"
-        >
-          <option value="all">全部分类</option>
-          <option value="system">System</option>
-          <option value="agent">Agent</option>
-          <option value="tool">Tool</option>
-          <option value="ipc">IPC</option>
-        </select>
+        {/* 关键词搜索 */}
+        <div className="flex-1 flex items-center gap-1 bg-bg-primary border border-bg-tertiary rounded px-2 py-1">
+          <Search size={12} className="text-text-secondary" />
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜索日志..."
+            className="flex-1 bg-transparent text-xs focus:outline-none"
+          />
+        </div>
 
         {/* 统计 */}
-        <div className="flex-1 text-right text-text-secondary">
+        <div className="text-text-secondary">
           {filteredLogs.length} / {logs.length} 条
         </div>
       </div>
@@ -167,28 +263,28 @@ export default function LogsView() {
         style={{ maxHeight: '600px', minHeight: '300px' }}
       >
         {filteredLogs.length === 0 ? (
-          <div className="text-center text-text-secondary py-8">暂无日志</div>
+          <div className="text-center text-text-secondary py-8">
+            {isLoading ? '加载中...' : '暂无日志'}
+          </div>
         ) : (
-          filteredLogs.map((log) => (
-            <div key={log.id} className="flex items-start gap-2 py-1 hover:bg-bg-secondary rounded px-2">
+          filteredLogs.map((log, index) => (
+            <div key={`${log.timestamp}-${index}`} className="flex items-start gap-2 py-1 hover:bg-bg-secondary rounded px-2">
               {/* 时间 */}
-              <span className="text-text-tertiary flex-shrink-0">
-                {new Date(log.timestamp).toLocaleTimeString()}
+              <span className="text-text-tertiary flex-shrink-0 w-20">
+                {formatTime(log.timestamp)}
               </span>
 
               {/* 级别图标 */}
               <div className="flex-shrink-0 mt-0.5">{getLevelIcon(log.level)}</div>
 
               {/* 级别文本 */}
-              <span className={`${getLevelColor(log.level)} w-12 flex-shrink-0 uppercase`}>
+              <span className={`${getLevelColor(log.level)} w-12 flex-shrink-0 uppercase font-semibold`}>
                 {log.level}
               </span>
 
-              {/* 分类标签 */}
-              <span
-                className={`${getCategoryColor(log.category)} px-1.5 py-0.5 rounded flex-shrink-0 text-xs`}
-              >
-                {log.category}
+              {/* 命名空间 */}
+              <span className="text-purple-400 flex-shrink-0 max-w-[150px] truncate" title={log.namespace}>
+                [{log.namespace}]
               </span>
 
               {/* 消息内容 */}

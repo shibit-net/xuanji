@@ -9,6 +9,9 @@ import path from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'ReadTool' });
 
 /**
  * 单行格式化后的估算开销：行号前缀 "     N │ " 约 10 字符
@@ -96,11 +99,14 @@ export class ReadTool extends BaseTool {
     const limit = input.limit as number | undefined;
     const pages = input.pages as string | undefined;
 
+    log.debug(`Reading file: ${filePath}`, { offset, limit, pages });
+
     try {
       // 检查文件是否存在
       try {
         await access(filePath);
       } catch {
+        log.warn(`File not found: ${filePath}`);
         return this.error(`文件不存在: ${filePath}`);
       }
 
@@ -108,18 +114,26 @@ export class ReadTool extends BaseTool {
 
       // PDF 文件
       if (ext === '.pdf') {
+        log.debug(`Reading PDF file: ${filePath}`);
         return this.readPDF(filePath, pages);
       }
 
       // 图片文件
       if (IMAGE_EXTENSIONS.has(ext)) {
+        log.debug(`Reading image file: ${filePath}`);
         return this.readImage(filePath, ext);
       }
 
       // 文本文件（原有逻辑）
-      return this.readText(filePath, offset, limit);
+      const result = await this.readText(filePath, offset, limit);
+      log.info(`File read successfully: ${filePath}`, {
+        size: result.content.length,
+        truncated: result.content.includes('[truncated]')
+      });
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to read file: ${filePath}`, { error: message });
       return this.error(`读取文件失败: ${message}`);
     }
   }

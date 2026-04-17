@@ -25,6 +25,7 @@ interface FileEditResult {
   path: string;
   stats: { added: number; removed: number; unchanged: number };
   diffPreview: string;
+  diffContent: string; // 添加 diffContent 字段
 }
 
 interface FileEditError {
@@ -214,7 +215,7 @@ export class MultiEditTool extends BaseTool {
       ? `成功编辑 ${successes.length} 个文件:\n${summary}\n\n${diffDetails}`
       : `成功编辑 ${successes.length} 个文件:\n${summary}`;
 
-    return this.success(
+    const result = this.success(
       output,
       {
         filesChanged: successes.length,
@@ -222,6 +223,16 @@ export class MultiEditTool extends BaseTool {
         totalRemoved,
       },
     );
+
+    // 添加文件变更信息
+    result.fileChanges = successes.map((r) => ({
+      filePath: r.path,
+      operation: 'edit' as const,
+      stats: { added: r.stats.added, removed: r.stats.removed, unchanged: r.stats.unchanged },
+      diffContent: r.diffContent,
+    }));
+
+    return result;
   }
 
   /**
@@ -266,12 +277,13 @@ export class MultiEditTool extends BaseTool {
 
       // 生成 diff 和统计
       const diffPreview = DiffRenderer.renderPreview(oldContent, content, path);
+      const diffContent = DiffRenderer.renderLines(oldContent, content, true, true);
       const stats = DiffRenderer.getStats(oldContent, content);
 
       // 写入文件
       await writeFile(path, content, 'utf-8');
 
-      return { path, stats, diffPreview };
+      return { path, stats, diffPreview, diffContent };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { path, error: message };

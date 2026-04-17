@@ -48,6 +48,7 @@ export class TeamManager implements ITeamManager {
   private depth: number;
   private subAgentFactory: SubAgentFactory;
   private teamId: string; // 团队唯一标识，在构造时生成
+  private agentRegistry: AgentRegistry; // 保存 agentRegistry 引用
 
   constructor(
     mainProvider: ILLMProvider,
@@ -71,6 +72,8 @@ export class TeamManager implements ITeamManager {
       throw new Error('TeamManager requires agentRegistry and providerManager');
     }
 
+    this.agentRegistry = agentRegistry; // 保存引用
+
     this.subAgentFactory = new SubAgentFactory(
       agentRegistry,
       providerManager,
@@ -78,7 +81,36 @@ export class TeamManager implements ITeamManager {
       hookRegistry,
       memoryStore,
       mainProvider,  // 传递父 provider
+      agentConfig,  // 🔧 传递父 agent 的完整配置（包含 provider 信息）
     );
+  }
+
+  /**
+   * 标准化 Agent ID（精确匹配）
+   *
+   * 策略：
+   * 1. 精确匹配：检查是否是已注册的 agent（内置/用户/项目）
+   * 2. 未匹配：创建临时 agent，并输出警告
+   *
+   * 不再进行模糊匹配和别名映射，强制 LLM 使用精确的 agent ID。
+   * 这样可以避免错误的自动映射（如 "分析师" 被映射到 "explore"）。
+   */
+  private normalizeAgentId(agentId: string, memberId: string): string {
+    // 1. 精确匹配：检查是否是已注册的 agent（内置/用户/项目）
+    const registeredAgent = this.agentRegistry.get(agentId);
+    if (registeredAgent) {
+      const agentType = registeredAgent.metadata?.builtin ? 'preset' : 'custom';
+      log.info(`[${memberId}] Using ${agentType} agent: ${agentId}`);
+      return agentId;
+    }
+
+    // 2. 未匹配：将创建临时 agent
+    log.warn(
+      `[${memberId}] Agent ID "${agentId}" not found in registry. ` +
+      `Will create temporary agent. ` +
+      `Tip: Use match_agent tool to find suitable preset agents (coder, explore, test-writer, etc.)`
+    );
+    return agentId;
   }
 
   /**
@@ -168,7 +200,7 @@ export class TeamManager implements ITeamManager {
           members: this.context.config.members.map((member, index) => ({
             id: member.id,
             name: member.name || member.id,
-            role: member.role,
+            role: member.agentId, // 使用 agentId
             capabilities: member.capabilities,
             stepIndex: index,
           })),
@@ -361,16 +393,18 @@ export class TeamManager implements ITeamManager {
         const seen = new Set<string>();
 
         for (const prompt of systemPrompts) {
-          if (seen.has(prompt)) {
+          if (prompt && seen.has(prompt)) {
             duplicates.push(prompt.slice(0, 50) + '...');
           }
-          seen.add(prompt);
+          if (prompt) {
+            seen.add(prompt);
+          }
         }
 
         throw new Error(
           `❌ Task decomposition failed: Multiple members have identical system_prompt.\n\n` +
           `Each team member MUST have a UNIQUE, SPECIFIC responsibility.\n\n` +
-          `Duplicate prompt detected: "${duplicates[0]}"\n\n` +
+          `Duplicate prompt detected: "${duplicates[0] || 'unknown'}"\n\n` +
           `Please follow these patterns:\n` +
           `- Pattern 1 (Parallel): Each member analyzes SAME input from DIFFERENT perspective\n` +
           `  Example: member1="Focus on code quality", member2="Focus on security", member3="Focus on performance"\n\n` +
@@ -383,7 +417,7 @@ export class TeamManager implements ITeamManager {
       }
 
       // 如果所有成员的 system_prompt 都为空或过短，也给出警告
-      if (uniquePrompts.size === 0 || systemPrompts.every(p => p.length < 20)) {
+      if (uniquePrompts.size === 0 || systemPrompts.every(p => !p || p.length < 20)) {
         log.warn(
           `⚠️ Warning: Team members have no or very short system_prompt. ` +
           `This may result in all members doing the same task. ` +
@@ -597,20 +631,36 @@ export class TeamManager implements ITeamManager {
       };
     }
 
+    // 标准化 agent ID（自动修正，只调用一次）
+    const normalizedAgentId = this.normalizeAgentId(member.agentId, member.id);
+
     // 触发 TeamMemberStart Hook
     if (this.hookRegistry) {
-      // 从 AgentRegistry 获取 Agent 配置，判断是否为内置 Agent
-      const agentConfig = this.subAgentFactory.agentRegistry.get(member.role);
-      const isBuiltin = agentConfig?.metadata?.builtin === true;
+      // 从 AgentRegistry 获取 Agent 配置，判断 Agent 类型
+      const agentConfig = this.agentRegistry.get(normalizedAgentId);
+      const isFromBuiltinDir = agentConfig?.metadata?.builtin === true;
+
+      // 判断 Agent 类型
+      let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+      if (agentConfig) {
+        if (isFromBuiltinDir) {
+          agentType = 'preset'; // 内置 agent（coder/explore/plan 等）
+        } else {
+          agentType = 'custom'; // 用户自定义 agent
+        }
+      } else {
+        agentType = 'temporary'; // 临时 agent（未注册）
+      }
 
       this.hookRegistry.emit('TeamMemberStart', {
         teamId: this.teamId,
         data: {
           memberId: member.id,
           name: member.name,
-          role: member.role,
+          role: normalizedAgentId, // 使用标准化后的 agent ID
           task: task.substring(0, 200),
-          builtin: isBuiltin,
+          builtin: isFromBuiltinDir, // 保留兼容性
+          agentType, // 新增：详细的 agent 类型
           // 策略和团队信息
           strategy: this.context!.config.strategy,
           teamName: this.context!.config.name,
@@ -636,7 +686,7 @@ export class TeamManager implements ITeamManager {
       // 执行子代理（使用 calculateMemberTimeout 计算超时）
       const memberTimeout = this.calculateMemberTimeout(member, memberIndex);
 
-      const factoryResult = await this.subAgentFactory.createAndRun(member.role, {
+      const factoryResult = await this.subAgentFactory.createAndRun(normalizedAgentId, {
         task: enrichedTask,
         depth: this.depth + 1,
         timeout: memberTimeout,
@@ -644,7 +694,9 @@ export class TeamManager implements ITeamManager {
         systemPrompt: member.systemPrompt,
         tools: member.tools,
         skipSubAgentStartHook: true, // 禁用 SubAgentStart Hook，因为已经通过 TeamMemberStart 添加了
-      });
+        parentAgentId: this.teamId, // 传递团队 ID 作为父 agent ID
+        workingDir: process.cwd(), // 🔧 传递当前工作目录，确保子 agent 在正确的目录下工作
+      }, signal); // 🔧 传递 abort signal，支持用户终止
 
       result = {
         result: factoryResult.result,
@@ -704,6 +756,26 @@ export class TeamManager implements ITeamManager {
     previousResults: TaskExecutionResult[],
   ): string {
     let enriched = task;
+
+    // 🔧 强制使用绝对路径（彻底解决相对路径问题）
+    const cwd = process.cwd();
+    enriched = `⚠️ CRITICAL - Working Directory Context:
+You are working in: ${cwd}
+
+MANDATORY RULES:
+1. ALL file paths MUST be absolute paths starting with: ${cwd}/
+2. NEVER use relative paths like "src/", "./", "../"
+3. When the task mentions a file like "src/foo.ts", convert it to: ${cwd}/src/foo.ts
+4. When creating/reading/editing files, always prepend: ${cwd}/
+
+Example conversions:
+- "src/auth/login.ts" → "${cwd}/src/auth/login.ts"
+- "test/unit/auth.test.ts" → "${cwd}/test/unit/auth.test.ts"
+- "README.md" → "${cwd}/README.md"
+
+---
+
+${enriched}`;
 
     // 添加成员能力说明（帮助成员理解自己的职责范围）
     if (member.capabilities.length > 0) {
@@ -910,27 +982,27 @@ export class TeamManager implements ITeamManager {
           // Leader 需要规划和协调，需要更多时间
           perMemberTimeout = Math.floor(baseTimeout * leaderRatio);
         } else {
-          // 🔧 Workers 根据 capabilities 和 role 动态调整超时
+          // 🔧 Workers 根据 capabilities 和 agentId 动态调整超时
           let workerRatio = 1.0;
 
-          // 根据 role 类型调整
-          if (member.role) {
-            const role = member.role.toLowerCase();
+          // 根据 agentId 类型调整
+          if (member.agentId) {
+            const agentId = member.agentId.toLowerCase();
 
             // 代码相关任务：需要更多时间
-            if (role.includes('coder') || role.includes('developer') || role.includes('implement')) {
+            if (agentId.includes('coder') || agentId.includes('developer') || agentId.includes('implement')) {
               workerRatio = 1.3;
             }
             // 测试相关任务：中等时间
-            else if (role.includes('test') || role.includes('qa')) {
+            else if (agentId.includes('test') || agentId.includes('qa')) {
               workerRatio = 1.1;
             }
             // 探索/研究任务：较多时间
-            else if (role.includes('explore') || role.includes('research') || role.includes('analyze')) {
+            else if (agentId.includes('explore') || agentId.includes('research') || agentId.includes('analyze')) {
               workerRatio = 1.2;
             }
             // 规划任务：较多时间
-            else if (role.includes('plan') || role.includes('architect')) {
+            else if (agentId.includes('plan') || agentId.includes('architect')) {
               workerRatio = 1.25;
             }
             // 其他任务：基准时间

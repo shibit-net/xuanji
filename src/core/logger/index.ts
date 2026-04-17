@@ -31,6 +31,8 @@ export { createLogger } from './factory';
 export { DebugLogger } from './implementations/DebugLogger';
 export { ConsolaLogger } from './implementations/ConsolaLogger';
 export { closeFileWriter } from './implementations/FileWriter';
+export { LogReader } from './LogReader';
+export type { LogRecord, LogQuery, LogWatchCallback } from './LogReader';
 
 // 全局默认 Logger 实例
 import { createLogger } from './factory';

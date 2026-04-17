@@ -1,14 +1,17 @@
 // ============================================================
-// RetrieveMemoryTool — 记忆检索工具
+// RetrieveMemoryTool — 记忆检索工具（3.0 增强版）
 // ============================================================
 //
 // 让 LLM 主动检索相关历史记忆
+// 3.0 新增：支持决策点驱动的智能检索
 // 主要用于子 Agent，让其根据任务需要自主决定是否需要上下文
 
 import type { Tool, ToolSchema, ToolResult } from '@/core/types';
 import type { IMemoryStore } from '@/memory/types';
-import type { MemoryEntry } from '@/memory/types';
+import type { MemoryEntry, RetrievedMemory } from '@/memory/types';
 import { logger } from '@/core/logger';
+import { DecisionPointDetector } from '@/memory/DecisionPointDetector';
+import type { DecisionPointMemoryRetriever } from '@/memory/DecisionPointMemoryRetriever';
 
 const log = logger.child({ module: 'RetrieveMemoryTool' });
 
@@ -56,11 +59,22 @@ export class RetrieveMemoryTool implements Tool {
         description: 'Minimum relevance score (0-1, default: 0.65)',
         default: 0.65,
       },
+      useDecisionPoint: {
+        type: 'boolean' as const,
+        description: 'Use decision-point driven retrieval (default: true)',
+        default: true,
+      },
     },
     required: ['query' as const],
   };
 
   private memoryStore: IMemoryStore | null = null;
+  private decisionPointRetriever: DecisionPointMemoryRetriever | null = null;
+  private decisionPointDetector: DecisionPointDetector;
+
+  constructor() {
+    this.decisionPointDetector = new DecisionPointDetector();
+  }
 
   /**
    * 设置记忆存储（依赖注入）
@@ -69,10 +83,18 @@ export class RetrieveMemoryTool implements Tool {
     this.memoryStore = store;
   }
 
+  /**
+   * 设置决策点检索器（依赖注入）
+   */
+  setDecisionPointRetriever(retriever: DecisionPointMemoryRetriever): void {
+    this.decisionPointRetriever = retriever;
+  }
+
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const query = input.query as string;
     const maxResults = Math.min((input.maxResults as number) ?? 3, 10);
     const minConfidence = (input.minConfidence as number) ?? 0.65;
+    const useDecisionPoint = (input.useDecisionPoint as boolean) ?? true;
 
     if (!this.memoryStore) {
       log.warn('Memory store not available');
@@ -92,12 +114,49 @@ export class RetrieveMemoryTool implements Tool {
     try {
       const startTime = Date.now();
 
-      // 检索相关记忆
-      const memories = await this.memoryStore.retrieve(query, {
-        maxResults,
-        minConfidence,
-        scope: 'all',
-      });
+      let memories: MemoryEntry[] | RetrievedMemory[];
+
+      // 3.0 新增：决策点驱动检索
+      if (useDecisionPoint && this.decisionPointRetriever) {
+        log.debug('使用决策点驱动检索');
+
+        // 检测决策点
+        const decisionPoints = await this.decisionPointDetector.detect({
+          userMessage: query,
+        });
+
+        if (decisionPoints.length > 0) {
+          // 使用决策点检索器
+          const retrievedMemories = await this.decisionPointRetriever.retrieve({
+            decisionPoints,
+            userMessage: query,
+            currentScene: 'memory-retrieval',
+          });
+
+          // 过滤：只返回适用性 >= minConfidence 的记忆
+          memories = retrievedMemories.filter(m => m.applicability >= minConfidence);
+
+          log.info(`决策点检索返回 ${memories.length} 条记忆`);
+        } else {
+          log.debug('未检测到决策点，降级到传统检索');
+          memories = await this.memoryStore.retrieve(query, {
+            maxResults,
+            minConfidence,
+            scope: 'all',
+          });
+        }
+      } else {
+        // 传统检索（向后兼容）
+        log.debug('使用传统检索');
+        memories = await this.memoryStore.retrieve(query, {
+          maxResults,
+          minConfidence,
+          scope: 'all',
+        });
+      }
+
+      // 限制结果数量
+      memories = memories.slice(0, maxResults);
 
       const durationMs = Date.now() - startTime;
 
@@ -131,25 +190,36 @@ export class RetrieveMemoryTool implements Tool {
 
   /**
    * 格式化记忆条目（OpenClaw 风格分类）
+   * 3.0 增强：支持 RetrievedMemory 类型，显示适用性评分
    */
-  private formatMemories(memories: MemoryEntry[], query: string): string {
+  private formatMemories(memories: (MemoryEntry | RetrievedMemory)[], query: string): string {
     const parts: string[] = [];
 
     parts.push(`## 📚 Relevant Memories (${memories.length})`);
     parts.push(`Query: "${query}"\n`);
 
-    // 按 category 分组
-    const timeline = memories.filter((m) => m.category === 'timeline');
-    const topic = memories.filter((m) => m.category === 'topic');
-    const fact = memories.filter((m) => m.category === 'fact');
+    // 🆕 添加重要提示：这是长期记忆，还需要检查当前会话
+    parts.push(`⚠️ **Important**: These are long-term memories from past conversations.`);
+    parts.push(`If the user is asking about recent events, also check the **current conversation history** above.\n`);
 
-    // Timeline: 历史会话摘要
-    if (timeline.length > 0) {
-      parts.push('### 📅 Historical Conversations');
-      timeline.forEach((m, idx) => {
-        const timeAgo = this.formatTimeAgo(m.createdAt);
+    // 检查是否是 RetrievedMemory（带适用性评分）
+    const hasApplicability = memories.length > 0 && 'applicability' in memories[0];
+
+    // 按约束级别和适用性分组
+    const mustMemories = memories.filter(m => m.constraint === 'must');
+    const shouldMemories = memories.filter(m => m.constraint === 'should');
+    const mayMemories = memories.filter(m => m.constraint === 'may' || !m.constraint);
+
+    // Must 级别记忆（硬约束）
+    if (mustMemories.length > 0) {
+      parts.push('### 🔴 Must Follow (Hard Constraints)');
+      mustMemories.forEach((m, idx) => {
         const preview = m.content.slice(0, 200).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. [${timeAgo}] ${preview}`);
+        const applicability = hasApplicability ? ` [${((m as RetrievedMemory).applicability * 100).toFixed(0)}%]` : '';
+        parts.push(`${idx + 1}. ${preview}${applicability}`);
+        if (hasApplicability && (m as RetrievedMemory).reason) {
+          parts.push(`   💡 ${(m as RetrievedMemory).reason}`);
+        }
         if (m.content.length > 200) {
           parts.push(`   ...`);
         }
@@ -157,12 +227,30 @@ export class RetrieveMemoryTool implements Tool {
       parts.push('');
     }
 
-    // Topic: 用户偏好、项目知识
-    if (topic.length > 0) {
-      parts.push('### 🏷️ User Preferences & Project Knowledge');
-      topic.forEach((m, idx) => {
+    // Should 级别记忆（强烈建议）
+    if (shouldMemories.length > 0) {
+      parts.push('### 🟡 Should Consider (Strong Recommendations)');
+      shouldMemories.forEach((m, idx) => {
+        const preview = m.content.slice(0, 200).replace(/\n/g, ' ');
+        const applicability = hasApplicability ? ` [${((m as RetrievedMemory).applicability * 100).toFixed(0)}%]` : '';
+        parts.push(`${idx + 1}. ${preview}${applicability}`);
+        if (hasApplicability && (m as RetrievedMemory).reason) {
+          parts.push(`   💡 ${(m as RetrievedMemory).reason}`);
+        }
+        if (m.content.length > 200) {
+          parts.push(`   ...`);
+        }
+      });
+      parts.push('');
+    }
+
+    // May 级别记忆（参考）
+    if (mayMemories.length > 0) {
+      parts.push('### 🟢 May Reference (Optional Context)');
+      mayMemories.forEach((m, idx) => {
         const preview = m.content.slice(0, 150).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. ${preview}`);
+        const applicability = hasApplicability ? ` [${((m as RetrievedMemory).applicability * 100).toFixed(0)}%]` : '';
+        parts.push(`${idx + 1}. ${preview}${applicability}`);
         if (m.content.length > 150) {
           parts.push(`   ...`);
         }
@@ -170,22 +258,14 @@ export class RetrieveMemoryTool implements Tool {
       parts.push('');
     }
 
-    // Fact: 技能、代码片段
-    if (fact.length > 0) {
-      parts.push('### 📌 Skills & Code Snippets');
-      fact.forEach((m, idx) => {
-        const preview = m.content.slice(0, 150).replace(/\n/g, ' ');
-        parts.push(`${idx + 1}. ${preview}`);
-        if (m.content.length > 150) {
-          parts.push(`   ...`);
-        }
-      });
-      parts.push('');
+    // 添加统计信息
+    if (hasApplicability) {
+      const avgApplicability = memories.reduce((sum, m) => sum + (m as RetrievedMemory).applicability, 0) / memories.length;
+      parts.push(`> Avg applicability: ${(avgApplicability * 100).toFixed(1)}%`);
+    } else {
+      const avgConfidence = memories.reduce((sum, m) => sum + m.confidence, 0) / memories.length;
+      parts.push(`> Avg relevance: ${(avgConfidence * 100).toFixed(1)}%`);
     }
-
-    // 添加置信度信息
-    const avgConfidence = memories.reduce((sum, m) => sum + m.confidence, 0) / memories.length;
-    parts.push(`> Avg relevance: ${(avgConfidence * 100).toFixed(1)}%`);
 
     return parts.join('\n');
   }

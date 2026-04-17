@@ -167,6 +167,14 @@ process.on('message', async (msg: any) => {
     case 'permission-clear':
       handlePermissionClear(msg.requestId);
       break;
+
+    // ============ Todo 管理 ============
+    case 'todo-archive-completed':
+      handleTodoArchiveCompleted(msg.requestId);
+      break;
+    case 'todo-get-archived-count':
+      handleTodoGetArchivedCount(msg.requestId);
+      break;
   }
 });
 
@@ -529,6 +537,10 @@ function registerSessionCallbacks(s: ChatSession) {
     onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
       safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
     },
+    onFileChanges: (changes: any[]) => {
+      console.log('[agent-bridge] onFileChanges 触发，变更数量:', changes.length);
+      safeSend({ type: 'agent:file-changes', data: { changes } });
+    },
     onUsage: (usage: any) => {
       safeSend({ type: 'agent:usage', data: usage });
     },
@@ -561,11 +573,9 @@ async function handleSendMessage(message: string) {
   }
 
   try {
-    // 清空旧任务（如果没有活跃任务）
-    const todoManager = getTodoManager();
-    if (!todoManager.hasActiveTodos()) {
-      await todoManager.startTurn();
-    }
+    // 🆕 不再自动清空任务，让 LLM 或用户显式管理任务生命周期
+    // 如果需要清空任务，LLM 可以调用 todo_clear 工具（需要添加）
+    // 或者在创建新任务前检查是否有旧任务需要清理
 
     await session.run(message);
     safeSend({
@@ -1644,6 +1654,28 @@ async function handlePermissionClear(requestId: string) {
   }
 }
 
+// ============ Todo 管理 ============
+
+async function handleTodoArchiveCompleted(requestId: string) {
+  try {
+    const todoManager = getTodoManager();
+    const count = await todoManager.archiveCompleted();
+    safeSend({ requestId, data: { success: true, count } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleTodoGetArchivedCount(requestId: string) {
+  try {
+    const todoManager = getTodoManager();
+    const count = await todoManager.getArchivedCount();
+    safeSend({ requestId, data: { success: true, count } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
 // 优雅退出
 process.on('SIGTERM', async () => {
   console.log('[agent-bridge] SIGTERM received, starting cleanup...');
@@ -1666,3 +1698,91 @@ process.on('SIGINT', async () => {
   console.log('[agent-bridge] Cleanup completed, exiting');
   process.exit(0);
 });
+
+// ============================================================
+// 全局错误处理 - 防止子进程静默崩溃
+// ============================================================
+
+/**
+ * 捕获未处理的异常
+ * 当代码中有未捕获的同步错误时触发
+ */
+process.on('uncaughtException', (err: Error) => {
+  console.error('[agent-bridge] ❌ Uncaught Exception:', err);
+
+  // 通知主进程发生了致命错误（格式与 onError 回调一致）
+  safeSend({
+    type: 'agent:error',
+    data: `致命错误: ${err.message}`,
+  });
+
+  // 通知 agent:end，让 GUI 恢复到 idle 状态
+  safeSend({
+    type: 'agent:end',
+    data: {
+      tokenUsage: { inputTokens: 0, outputTokens: 0 },
+      cost: 0,
+      currentIteration: 0,
+    },
+  });
+
+  // 如果会话正在运行，尝试停止
+  if (session) {
+    try {
+      session.stop();
+    } catch (stopErr) {
+      console.error('[agent-bridge] Failed to stop session:', stopErr);
+    }
+  }
+
+  // 延迟退出，确保消息发送成功
+  setTimeout(() => {
+    console.error('[agent-bridge] Exiting due to uncaught exception');
+    process.exit(1);
+  }, 100);
+});
+
+/**
+ * 捕获未处理的 Promise rejection
+ * 当 async 函数中有未捕获的错误时触发
+ */
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('[agent-bridge] ❌ Unhandled Rejection at:', promise);
+  console.error('[agent-bridge] Reason:', reason);
+
+  const errorMessage = reason instanceof Error
+    ? reason.message
+    : String(reason);
+
+  // 通知主进程发生了未处理的 Promise rejection（格式与 onError 回调一致）
+  safeSend({
+    type: 'agent:error',
+    data: `未处理的异步错误: ${errorMessage}`,
+  });
+
+  // 通知 agent:end，让 GUI 恢复到 idle 状态
+  safeSend({
+    type: 'agent:end',
+    data: {
+      tokenUsage: { inputTokens: 0, outputTokens: 0 },
+      cost: 0,
+      currentIteration: 0,
+    },
+  });
+
+  // 如果会话正在运行，尝试停止
+  if (session) {
+    try {
+      session.stop();
+    } catch (stopErr) {
+      console.error('[agent-bridge] Failed to stop session:', stopErr);
+    }
+  }
+
+  // 延迟退出，确保消息发送成功
+  setTimeout(() => {
+    console.error('[agent-bridge] Exiting due to unhandled rejection');
+    process.exit(1);
+  }, 100);
+});
+

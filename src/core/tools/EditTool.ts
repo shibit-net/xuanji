@@ -7,6 +7,9 @@ import { resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { DiffRenderer } from '../utils/DiffRenderer';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'EditTool' });
 
 /**
  * 编辑文件工具 (精确字符串替换)
@@ -68,8 +71,11 @@ export class EditTool extends BaseTool {
     const replaceAll = (input.replace_all as boolean) ?? false;
     const path = resolve(rawPath);
 
+    log.debug(`Editing file: ${path}`, { replaceAll, oldLength: oldStr.length, newLength: newStr.length });
+
     // 路径穿越保护：禁止编辑敏感系统目录
     if (this.isSensitivePath(path)) {
+      log.warn(`Sensitive path blocked: ${path}`);
       return this.error(`安全限制: 不允许编辑路径 "${path}"。该路径位于受保护的系统或用户目录。`);
     }
 
@@ -78,6 +84,7 @@ export class EditTool extends BaseTool {
       try {
         await access(path);
       } catch {
+        log.warn(`File not found: ${path}`);
         return this.error(`文件不存在: ${path}`);
       }
 
@@ -85,22 +92,26 @@ export class EditTool extends BaseTool {
 
       // 二进制文件检测：包含 NUL 字节则拒绝编辑
       if (content.includes('\0')) {
+        log.warn(`Binary file rejected: ${path}`);
         return this.error('无法编辑二进制文件');
       }
 
       // 空 old_string 无意义（会匹配所有位置）
       if (oldStr.length === 0) {
+        log.warn('Empty old_string rejected');
         return this.error('old_string 不能为空。如需创建新文件，请使用 write_file 工具。');
       }
 
       // 检查匹配次数
       const occurrences = content.split(oldStr).length - 1;
       if (occurrences === 0) {
+        log.warn(`No match found in ${path}`);
         return this.error(`未找到匹配的字符串:\n${oldStr}`);
       }
 
       // 非全局替换时要求唯一匹配
       if (!replaceAll && occurrences > 1) {
+        log.warn(`Multiple matches found in ${path}: ${occurrences}`);
         // 找到所有匹配位置的行号和上下文
         const matchLines: { lineNum: number; context: string }[] = [];
         let searchFrom = 0;
@@ -135,15 +146,33 @@ export class EditTool extends BaseTool {
 
       await writeFile(path, newContent, 'utf-8');
 
+      log.info(`File edited successfully: ${path}`, {
+        occurrences,
+        replaceAll,
+        added: stats.added,
+        removed: stats.removed
+      });
+
       const countInfo = replaceAll && occurrences > 1
         ? ` (共替换 ${occurrences} 处)`
         : '';
 
       // 返回结果包含 diff 预览
-      return this.success(
+      const result = this.success(
         `已编辑 ${path}${countInfo}\n\n${diffPreview}`,
         { ...stats, filePath: path }
       );
+
+      // 添加文件变更信息
+      result.fileChanges = [{
+        filePath: path,
+        operation: 'edit',
+        stats: { added: stats.added, removed: stats.removed, unchanged: stats.unchanged },
+        diffContent: DiffRenderer.renderLines(content, newContent, true, true),
+        size: { lines: newContent.split('\n').length, chars: newContent.length }
+      }];
+
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return this.error(`编辑文件失败: ${message}`);

@@ -3,7 +3,7 @@
 // ============================================================
 
 import React from 'react';
-import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, AlertCircle, Archive } from 'lucide-react';
 import { useExecutionStore } from '../stores/executionStore';
 
 /** 状态排序权重：in_progress → pending → failed → completed */
@@ -17,6 +17,40 @@ const STATUS_ORDER: Record<string, number> = {
 export default function TodoPanel() {
   const todos = useExecutionStore((state) => state.todos);
   const [collapsed, setCollapsed] = React.useState(true); // 默认收起
+  const [archivedCount, setArchivedCount] = React.useState(0);
+  const [archiving, setArchiving] = React.useState(false);
+
+  // 加载归档数量
+  React.useEffect(() => {
+    window.electron.todoGetArchivedCount().then((res) => {
+      if (res.success && res.count !== undefined) {
+        setArchivedCount(res.count);
+      }
+    });
+  }, []);
+
+  // 归档已完成任务
+  const handleArchiveCompleted = async () => {
+    if (archiving) return;
+
+    const completedCount = todos.filter((t) => t.status === 'completed').length;
+    if (completedCount === 0) return;
+
+    setArchiving(true);
+    try {
+      const res = await window.electron.todoArchiveCompleted();
+      if (res.success && res.count !== undefined) {
+        // 更新归档总数
+        setArchivedCount((prev) => prev + res.count);
+        // 提示用户
+        console.log(`✅ 已归档 ${res.count} 个任务`);
+      }
+    } catch (err) {
+      console.error('归档失败:', err);
+    } finally {
+      setArchiving(false);
+    }
+  };
 
   // 没有任务时不显示
   if (todos.length === 0) return null;
@@ -78,10 +112,29 @@ export default function TodoPanel() {
             {inProgress > 0 && <span className="ml-2 text-primary">· {inProgress} 进行中</span>}
             {pending > 0 && <span className="ml-2">· {pending} 待处理</span>}
             {failed > 0 && <span className="ml-2 text-red-500">· {failed} 失败</span>}
+            {archivedCount > 0 && (
+              <span className="ml-2 text-text-tertiary">· {archivedCount} 已归档</span>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 归档按钮 */}
+          {completed > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleArchiveCompleted();
+              }}
+              disabled={archiving}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+              title={`归档 ${completed} 个已完成任务`}
+            >
+              <Archive size={12} className={archiving ? 'animate-pulse' : ''} />
+              <span>归档</span>
+            </button>
+          )}
+
           {/* 进度条 */}
           <div className="w-32 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
             <div

@@ -13,8 +13,11 @@ import type { AgentState, ToolResult } from '@/core/types';
 export interface TeamMember {
   /** 成员唯一标识 */
   id: string;
-  /** 成员角色 */
-  role: AgentRoleType;
+  /**
+   * Agent ID（预置 agent 的 ID 或自定义角色名）
+   * 推荐使用 match_agent 返回的预置 agent ID：coder, explore, test-writer, doc-writer, plan, general-purpose
+   */
+  agentId: string;
   /** 成员名称（可选） */
   name?: string;
   /** 能力描述列表 */
@@ -31,6 +34,8 @@ export interface TeamMember {
    * 基于 TeamConfig.defaultMemberTimeout 和策略权重。
    */
   timeout?: number;
+  /** @deprecated 使用 agentId 代替 */
+  role?: AgentRoleType;
 }
 
 /**

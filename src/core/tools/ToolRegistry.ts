@@ -14,7 +14,8 @@ import { PlanReviewTool } from './PlanReviewTool';
 import { AskUserTool } from './AskUserTool';
 import { TaskOutputTool } from './TaskOutputTool';
 import { WebFetchTool } from './WebFetchTool';
-import { TodoCreateTool, TodoListTool, TodoUpdateTool } from './TodoTool';
+import { TodoCreateTool, TodoListTool, TodoUpdateTool, TodoClearTool } from './TodoTool';
+import { TodoArchiveTool } from './TodoArchiveTool';
 import { SleepTool } from './SleepTool';
 import { EnterPlanModeTool } from './EnterPlanModeTool';
 import { ExitPlanModeTool } from './ExitPlanModeTool';
@@ -24,6 +25,8 @@ import { LSTool } from './LSTool';
 import { MultiEditTool } from './MultiEditTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
+import { MemoryUpdateTool } from './builtin/MemoryUpdateTool';
+import { MemoryDeleteTool } from './builtin/MemoryDeleteTool';
 // TeamTool 在 ChatSession.initTaskTool() 中动态注册
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
@@ -39,12 +42,14 @@ export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
   private permissionController?: IPermissionController;
   private _planMode: boolean = false;
+  private log = logger.child({ module: 'ToolRegistry' });
 
   /**
    * 注入权限控制器 (可选)
    */
   setPermissionController(controller: IPermissionController): void {
     this.permissionController = controller;
+    this.log.debug('Permission controller injected');
     // 同步注入到 PlanReviewTool
     const planTool = this.tools.get('plan_review');
     if (planTool && planTool instanceof PlanReviewTool) {
@@ -57,16 +62,20 @@ export class ToolRegistry implements IToolRegistry {
    */
   register(tool: Tool): void {
     if (this.tools.has(tool.name)) {
+      this.log.warn(`Tool already registered: ${tool.name}`);
       throw new Error(`工具已注册: ${tool.name}`);
     }
     this.tools.set(tool.name, tool);
+    this.log.debug(`Tool registered: ${tool.name}`);
   }
 
   /**
    * 注销工具
    */
   unregister(name: string): void {
-    this.tools.delete(name);
+    if (this.tools.delete(name)) {
+      this.log.debug(`Tool unregistered: ${name}`);
+    }
   }
 
   /**
@@ -108,6 +117,7 @@ export class ToolRegistry implements IToolRegistry {
    */
   enterPlanMode(): void {
     this._planMode = true;
+    this.log.info('Entered Plan Mode (read-only)');
   }
 
   /**
@@ -115,6 +125,7 @@ export class ToolRegistry implements IToolRegistry {
    */
   exitPlanMode(): void {
     this._planMode = false;
+    this.log.info('Exited Plan Mode');
   }
 
   /**
@@ -151,14 +162,18 @@ export class ToolRegistry implements IToolRegistry {
   async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
+      this.log.error(`Tool not found: ${name}`);
       return {
         content: `未知工具: ${name}`,
         isError: true,
       };
     }
 
+    this.log.debug(`Executing tool: ${name}`, { input });
+
     // 如果外部已中止，直接返回
     if (signal?.aborted) {
+      this.log.warn(`Tool execution aborted before start: ${name}`);
       return { content: '[Aborted] Tool execution was cancelled.', isError: true };
     }
 
@@ -169,6 +184,7 @@ export class ToolRegistry implements IToolRegistry {
         : !tool.readonly;
 
       if (isWrite) {
+        this.log.warn(`Write operation blocked in Plan Mode: ${name}`);
         return {
           content: `[Plan Mode] 写操作被拦截: ${name}。使用 /exit-plan 退出 Plan Mode 后再执行。`,
           isError: true,
@@ -186,6 +202,7 @@ export class ToolRegistry implements IToolRegistry {
       };
       const perm = await this.permissionController.check(request);
       if (!perm.allowed) {
+        this.log.warn(`Permission denied for tool: ${name}`, { reason: perm.reason });
         return {
           content: `[Permission Denied] ${perm.reason ?? '操作被拒绝'}`,
           isError: true,
@@ -194,6 +211,7 @@ export class ToolRegistry implements IToolRegistry {
       }
     }
 
+    const startTime = Date.now();
     try {
       const timeout = (tool as { timeout?: number }).timeout ?? getToolTimeouts()?.default ?? DEFAULT_TOOL_TIMEOUT;
       const abortController = new AbortController();
@@ -219,18 +237,23 @@ export class ToolRegistry implements IToolRegistry {
             });
           }),
         ]);
+
+        const duration = Date.now() - startTime;
+        this.log.info(`Tool executed successfully: ${name}`, { duration: `${duration}ms` });
         return result;
       } finally {
         clearTimeout(timeoutId);
         signal?.removeEventListener('abort', onAbort);
       }
     } catch (err) {
+      const duration = Date.now() - startTime;
       // 外部中止（用户 Ctrl+C / stop()）时返回友好的中止消息
       if (signal?.aborted) {
+        this.log.warn(`Tool execution cancelled: ${name}`, { duration: `${duration}ms` });
         return { content: '[Aborted] Tool execution was cancelled.', isError: true };
       }
       const message = err instanceof Error ? err.message : String(err);
-      logger.child({ module: 'ToolRegistry' }).warn(`Tool "${name}" execution error: ${message}`);
+      this.log.error(`Tool execution failed: ${name}`, { error: message, duration: `${duration}ms` });
       return {
         content: `工具执行异常: ${message}`,
         isError: true,
@@ -257,6 +280,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new TodoCreateTool());
   registry.register(new TodoListTool());
   registry.register(new TodoUpdateTool());
+  registry.register(new TodoClearTool());
+  registry.register(new TodoArchiveTool());
   registry.register(new SleepTool());
   registry.register(new EnterPlanModeTool());
   registry.register(new ExitPlanModeTool());
@@ -264,6 +289,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WorktreeTool());
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
+  registry.register(new MemoryUpdateTool());
+  registry.register(new MemoryDeleteTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 ChatSession.initTaskTool() 中动态注册（需要注入依赖）
   return registry;
 }

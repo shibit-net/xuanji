@@ -158,6 +158,7 @@ export class TaskTool extends BaseTool {
       this.hookRegistry,
       this.memoryStore,
       this.parentProvider,  // 传递父 provider
+      this.agentConfig,  // 🔧 传递父 agent 的完整配置（包含 provider 信息）
     );
   }
 

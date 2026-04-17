@@ -112,14 +112,16 @@ export default function ChatArea() {
       // 用户在上方查看历史，显示新消息提示
       setShowNewMessageButton(true);
     }
-  }, [messages, isAtBottom, scrollToBottom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isAtBottom]);
 
   // typing indicator 出现时也滚动到底部
   useEffect(() => {
     if (showTypingIndicator && isAtBottom) {
       scrollToBottom();
     }
-  }, [showTypingIndicator, isAtBottom, scrollToBottom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTypingIndicator, isAtBottom]);
 
   // 初始化时滚动到底部
   useEffect(() => {

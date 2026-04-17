@@ -108,6 +108,8 @@ export interface AgentConfig {
   retry?: RetryConfig;
   /** Extended Thinking 配置（Anthropic Claude 4.5+） */
   thinking?: ThinkingConfig;
+  /** 工作目录（用于解析相对路径，默认为 process.cwd()） */
+  workingDir?: string;
 }
 
 /**

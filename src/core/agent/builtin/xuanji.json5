@@ -55,13 +55,11 @@
     { name: 'plan_review', required: false },
 
     // === 任务管理工具 ===
-    { name: 'task_create', required: false },
-    { name: 'task_list', required: false },
-    { name: 'task_update', required: false },
-    { name: 'task_get', required: false },
-    { name: 'delegate', required: false },         // 委托给专业 Agent
-    { name: 'orchestrate', required: false },      // 编排多 Agent 协作
-    { name: 'pipeline', required: false },         // Agent 流水线
+    { name: 'todo_create', required: false },
+    { name: 'todo_list', required: false },
+    { name: 'todo_update', required: false },
+    { name: 'todo_clear', required: false },
+    { name: 'todo_archive', required: false },
     { name: 'task_output', required: false },
 
     // === 子 Agent 工具 ===

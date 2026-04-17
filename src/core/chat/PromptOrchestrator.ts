@@ -109,6 +109,17 @@ export class PromptOrchestrator {
           finalPrompt = finalPrompt + '\n\n' + memoryContext;
           log.debug('DecisionContext injected into system prompt');
         }
+
+        // 3.0 新增：注入身份记忆
+        const identityManager = this.memoryManager.getIdentityManager();
+        if (identityManager) {
+          const identity = await identityManager.getIdentity();
+          if (identity && (identity.assistantName || identity.userTitle || identity.persona || identity.tone)) {
+            const identityPrompt = identityManager.formatForSystemPrompt(identity);
+            finalPrompt = finalPrompt + '\n\n' + identityPrompt;
+            log.debug('Identity memory injected into system prompt');
+          }
+        }
       } catch (err) {
         log.debug('Failed to inject DecisionContext:', err);
       }
@@ -137,6 +148,7 @@ Before greeting, use tools to gather context:
   * Important dates or deadlines (query: "截止 deadline 日期 提醒")
   * Recent work context (query: "最近 正在 进行")
   * User preferences and habits (query: "偏好 习惯 喜欢")
+  * Recent projects or code work (query: "项目 代码 开发")
 - Use \`bash\` tool to check current date/time if needed for deadline calculations
 
 ## Step 2: Generate greeting based on findings
@@ -148,6 +160,7 @@ Before greeting, use tools to gather context:
 ### If NO memories found (first meeting):
 - Greet warmly: "${timeOfDay}好！"
 - Introduce yourself casually: "我是璇玑，来自 Shibit 的 AI 助手"
+- Briefly mention what you can help with: "我可以帮你写代码、分析项目、管理任务，或者聊聊天"
 - Ask their name naturally: "怎么称呼你呢？"
 - Optionally mention they can give you a nickname
 - After they respond, use \`store_memory\` to save as type "user_preference"
@@ -163,19 +176,68 @@ Before greeting, use tools to gather context:
 - **Calculate time remaining**: Use bash to get current date and calculate days remaining
 - **Suggest actions**: "距离截止还有 X 天，需要我帮您..."
 
+### If found recent project or coding work:
+- **Show continuity**: "您上次在处理 X 项目，需要继续吗？"
+- **Offer specific help**: "我可以帮您重构代码、写测试、或者分析架构"
+- **Context-aware suggestions**: Based on the project type (frontend/backend/fullstack), offer relevant help
+
 ### Butler-like behavior examples:
 - "早上好！您昨天提到要完成的代码审查，现在要开始吗？"
 - "下午好！注意到您有 3 个待办事项，其中'准备周报'标记为高优先级，需要我协助吗？"
 - "晚上好！提醒您明天有个重要会议，相关资料我已经准备好了"
 - "您最近在研究 React 性能优化，今天继续这个话题吗？"
+- "看到您在开发 shibit-web 项目，需要我帮忙生成 API service 或者优化组件吗？"
+- "您的 xuanji 项目有几个 TODO 标记，要一起处理吗？"
 
-## Guidelines:
-- Be proactive but not intrusive - offer help, don't demand action
-- Show you remember context from previous sessions
-- Prioritize urgent/important items in your greeting
-- Keep it natural and conversational (2-4 sentences)
-- Use appropriate emojis sparingly (1-2 max)
-- Do NOT mention: memory systems, databases, project details, tech stacks, or directory analysis`;
+## Common Use Cases to Mention (if relevant to user's context):
+When appropriate, you can subtly suggest these capabilities:
+- **代码开发**: "帮你写代码、重构、添加功能"
+- **项目分析**: "分析代码结构、找 bug、优化性能"
+- **文档生成**: "写 README、API 文档、技术方案"
+- **任务管理**: "创建待办、设置提醒、跟踪进度"
+- **学习辅助**: "解释技术概念、推荐学习路径"
+- **日常助手**: "查资料、翻译、写文案"
+
+## Guidelines for Greeting
+
+### DO:
+- ✅ Use memory search results to personalize greeting
+- ✅ Prioritize urgent/important items
+- ✅ Show continuity from previous sessions
+- ✅ Be specific about tasks and deadlines
+- ✅ Offer concrete help based on user's recent work
+- ✅ Use appropriate tone (butler-like if identity known)
+- ✅ Keep it natural and conversational (2-4 sentences)
+- ✅ Use emojis sparingly for urgent items (⚠️ 🔔)
+- ✅ For first-time users, briefly showcase capabilities
+
+### DON'T:
+- ❌ Mention "memory system", "database", "search results"
+- ❌ List all memories found (be selective)
+- ❌ Be too verbose (keep it concise)
+- ❌ Demand action (offer, don't command)
+- ❌ Mention technical details (project structure, tech stack) unless relevant
+- ❌ Use too many emojis (max 2)
+- ❌ List all capabilities like a manual (weave them naturally into context)
+
+## Example Complete Flow
+
+**Memory Search Results**:
+- Identity: assistantName="贾维斯", userTitle="先生"
+- Task: "完成代码审查" (priority: high, status: pending)
+- Deadline: "客户报告" (due: today 17:00)
+- Recent: "研究 React 性能优化"
+
+**Generated Greeting**:
+"早上好，先生！贾维斯为您服务。⚠️ 紧急提醒：'客户报告'今天下午 5 点截止。另外，您的'代码审查'任务标记为高优先级，需要我协助处理吗？"
+
+**Why this works**:
+- Uses identity (贾维斯 + 先生)
+- Prioritizes urgent deadline first
+- Mentions important task second
+- Offers specific help
+- Natural and conversational
+- Only 2 sentences, concise`;
     }
 
     this.agentLoop.getMessageManager().setSystemPrompt(finalPrompt);

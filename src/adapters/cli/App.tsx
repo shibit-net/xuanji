@@ -2168,6 +2168,61 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           });
         },
       },
+      // ─── 记忆系统 3.0 命令 ──────────────────────────────
+      {
+        name: '/identity',
+        description: '身份记忆管理 (set-title/set-name/clear)',
+        handler: async (args) => {
+          const memoryManager = p().session?.getMemoryManager();
+          if (!memoryManager) {
+            p().addSystemMessage('❌ 记忆系统未初始化');
+            return;
+          }
+
+          const identityManager = memoryManager.getIdentityManager();
+          if (!identityManager) {
+            p().addSystemMessage('❌ 身份管理器未初始化');
+            return;
+          }
+
+          try {
+            const { handleIdentity } = await import('@/memory/commands/IdentityCommand');
+            const parts = (args || '').trim().split(/\s+/);
+            const result = await handleIdentity(identityManager, parts);
+            p().addSystemMessage(result);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(`❌ Identity 命令执行失败: ${errMsg}`);
+          }
+        },
+      },
+      {
+        name: '/dream',
+        description: '做梦机制 (run/status/dry-run)',
+        handler: async (args) => {
+          const memoryManager = p().session?.getMemoryManager();
+          if (!memoryManager) {
+            p().addSystemMessage('❌ 记忆系统未初始化');
+            return;
+          }
+
+          const dreamScheduler = memoryManager.getDreamScheduler();
+          if (!dreamScheduler) {
+            p().addSystemMessage('❌ 做梦调度器未初始化');
+            return;
+          }
+
+          try {
+            const { handleDream } = await import('@/memory/commands/DreamCommand');
+            const parts = (args || '').trim().split(/\s+/);
+            const result = await handleDream(dreamScheduler, parts);
+            p().addSystemMessage(result);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(`❌ Dream 命令执行失败: ${errMsg}`);
+          }
+        },
+      },
     ]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

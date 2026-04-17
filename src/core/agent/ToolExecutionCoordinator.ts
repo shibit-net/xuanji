@@ -23,6 +23,8 @@ export interface ToolExecutionResult {
   totalDurationMs: number;
   /** 工具统计更新 */
   statsUpdates: Map<string, { count: number; durationMs: number; errorCount: number }>;
+  /** 文件变更列表（从工具结果中收集） */
+  fileChanges: import('@/core/types').FileChange[];
 }
 
 /**
@@ -65,6 +67,18 @@ export class ToolExecutionCoordinator {
     const blockedIds = new Set<string>();
     const mockResults = new Map<string, { content: string; isError: boolean }>();
     const modifiedToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
+
+    // 防御性检查：如果没有工具调用，直接返回空分组
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      return {
+        parallelIds,
+        serialIds,
+        readonlyIds,
+        blockedIds,
+        mockResults,
+        modifiedToolCalls,
+      };
+    }
 
     // 1. 分类工具（只读 vs 写入）
     for (const tc of result.toolCalls) {
@@ -148,7 +162,18 @@ export class ToolExecutionCoordinator {
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     const resultsMap = new Map<string, { content: string; isError: boolean }>();
+    const fullResultsMap = new Map<string, import('@/core/types').ToolResult>(); // 存储完整的 ToolResult
     const statsUpdates = new Map<string, { count: number; durationMs: number; errorCount: number }>();
+
+    // 防御性检查：如果没有工具调用，直接返回空结果
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      return {
+        resultsMap,
+        totalDurationMs: 0,
+        statsUpdates,
+        fileChanges: [],
+      };
+    }
 
     // 1. 处理 Hook 阻止和 Mock 的工具
     for (const [id, mockResult] of grouping.mockResults) {
@@ -192,7 +217,8 @@ export class ToolExecutionCoordinator {
 
       // 合并结果并触发回调
       for (const [id, toolResult] of dispatcherResults) {
-        resultsMap.set(id, toolResult);
+        fullResultsMap.set(id, toolResult); // 保存完整结果
+        resultsMap.set(id, { content: toolResult.content, isError: toolResult.isError });
         const tc = result.toolCalls.find(t => t.id === id);
         if (tc) {
           callbacks.onToolEnd?.(id, tc.name, toolResult.content, toolResult.isError);
@@ -202,7 +228,15 @@ export class ToolExecutionCoordinator {
 
     const totalDurationMs = Date.now() - startTime;
 
-    // 4. 更新统计
+    // 4. 收集文件变更
+    const fileChanges: import('@/core/types').FileChange[] = [];
+    for (const [id, fullResult] of fullResultsMap) {
+      if (fullResult.fileChanges && fullResult.fileChanges.length > 0) {
+        fileChanges.push(...fullResult.fileChanges);
+      }
+    }
+
+    // 5. 更新统计
     for (const tc of result.toolCalls) {
       const toolResult = resultsMap.get(tc.id);
       if (toolResult) {
@@ -218,6 +252,7 @@ export class ToolExecutionCoordinator {
       resultsMap,
       totalDurationMs,
       statsUpdates,
+      fileChanges,
     };
   }
 

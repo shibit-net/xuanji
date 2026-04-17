@@ -50,10 +50,16 @@ export class ConsolaLogger implements ILogger {
       ?? (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 
     // 创建 consola 实例（consola 自带颜色支持）
+    // 强制启用颜色输出（即使在非 TTY 环境中）
     this.consola = createConsola({
       level: LEVEL_MAP[level] ?? LogLevels.info,
       defaults: {
         tag: this.namespace,
+      },
+      fancy: true,  // 启用美化输出
+      formatOptions: {
+        colors: true,  // 强制启用颜色
+        date: true,    // 显示时间戳
       },
     });
   }

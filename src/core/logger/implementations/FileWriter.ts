@@ -42,6 +42,22 @@ export class FileWriter {
   }
 
   /**
+   * 格式化时间戳为易读格式
+   * 格式: 2026-04-17 13:55:08.012
+   */
+  private formatTimestamp(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
+  }
+
+  /**
    * 写入一行日志（异步，不阻塞）
    */
   write(level: LogLevel, namespace: string, message: string, args: unknown[]): void {
@@ -52,7 +68,7 @@ export class FileWriter {
         }).join(' ')
       : '';
 
-    const logLine = `[${new Date().toISOString()}] [${level.toUpperCase().padEnd(5)}] [${namespace}] ${message}${argsStr}\n`;
+    const logLine = `[${this.formatTimestamp()}] [${level.toUpperCase().padEnd(5)}] [${namespace}] ${message}${argsStr}\n`;
 
     const doWrite = async () => {
       await this.ready;

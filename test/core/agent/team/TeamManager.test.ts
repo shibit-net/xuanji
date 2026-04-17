@@ -42,7 +42,7 @@ describe('TeamManager', () => {
         members: [
           {
             id: 'member1',
-            role: 'explore',
+            agentId: 'explore',
             capabilities: ['testing'],
           },
         ],
@@ -61,7 +61,7 @@ describe('TeamManager', () => {
     it('should reject empty team name', async () => {
       const config: TeamConfig = {
         name: '',
-        members: [{ id: 'member1', role: 'explore', capabilities: ['testing'] }],
+        members: [{ id: 'member1', agentId: 'explore', capabilities: ['testing'] }],
         strategy: 'sequential',
         goal: 'Test',
       };
@@ -84,8 +84,8 @@ describe('TeamManager', () => {
       const config: TeamConfig = {
         name: 'Test',
         members: [
-          { id: 'member1', role: 'explore', capabilities: ['a'] },
-          { id: 'member1', role: 'coder', capabilities: ['b'] },
+          { id: 'member1', agentId: 'explore', capabilities: ['a'] },
+          { id: 'member1', agentId: 'coder', capabilities: ['b'] },
         ],
         strategy: 'sequential',
         goal: 'Test',
@@ -98,8 +98,8 @@ describe('TeamManager', () => {
       const config: TeamConfig = {
         name: 'Test',
         members: [
-          { id: 'member1', role: 'explore', capabilities: ['a'] },
-          { id: 'member2', role: 'coder', capabilities: ['b'] },
+          { id: 'member1', agentId: 'explore', capabilities: ['a'] },
+          { id: 'member2', agentId: 'coder', capabilities: ['b'] },
         ],
         strategy: 'hierarchical',
         goal: 'Test',
@@ -119,7 +119,7 @@ describe('TeamManager', () => {
     it('should return context after team creation', async () => {
       const config: TeamConfig = {
         name: 'Test',
-        members: [{ id: 'm1', role: 'explore', capabilities: ['test'] }],
+        members: [{ id: 'm1', agentId: 'explore', capabilities: ['test'] }],
         strategy: 'sequential',
         goal: 'Test',
       };
@@ -148,9 +148,9 @@ describe('TeamManager', () => {
       const config: TeamConfig = {
         name: 'Parallel Team',
         members: [
-          { id: 'm1', role: 'explore', capabilities: ['test1'] },
-          { id: 'm2', role: 'coder', capabilities: ['test2'] },
-          { id: 'm3', role: 'explore', capabilities: ['test3'] },
+          { id: 'm1', agentId: 'explore', capabilities: ['test1'] },
+          { id: 'm2', agentId: 'coder', capabilities: ['test2'] },
+          { id: 'm3', agentId: 'explore', capabilities: ['test3'] },
         ],
         strategy: 'parallel',
         goal: 'Test parallel timeout allocation',
@@ -171,7 +171,7 @@ describe('TeamManager', () => {
         members: [
           {
             id: 'm1',
-            role: 'explore',
+            agentId: 'explore',
             capabilities: ['test'],
             timeout: 30000, // Explicitly set to 30s
           },
@@ -196,7 +196,7 @@ describe('TeamManager', () => {
         members: [
           {
             id: 'm1',
-            role: 'explore',
+            agentId: 'explore',
             capabilities: ['test'],
             // No timeout set - should use auto-calculated
           },
