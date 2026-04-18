@@ -110,6 +110,8 @@ class ApiClient {
       const requestOptions: Electron.ClientRequestConstructorOptions = {
         method: options.method || 'GET',
         url: fullUrl,
+        useSessionCookies: true, // 关键：使用 Session Cookies
+        session: session.defaultSession
       };
 
       const request = net.request(requestOptions);
@@ -117,46 +119,35 @@ class ApiClient {
       // 设置请求头
       request.setHeader('Content-Type', 'application/json');
 
-      // 添加 Cookie 头
-      const cookieHeader = this.buildCookieHeader();
-      if (cookieHeader) {
-        request.setHeader('Cookie', cookieHeader);
-        const accessToken = this.getCookie('accessToken');
-        console.log('请求包含 Cookie:', Object.keys(Object.fromEntries(this.cookies)));
-        console.log('accessToken 前10位:', accessToken?.substring(0, 10));
-      }
+      // 不再手动添加 Cookie 头，让 Electron 自动处理
+      console.log('使用 Electron Session Cookies 发送请求');
 
       const timeoutId = setTimeout(() => {
         console.error('请求超时:', fullUrl);
-        request.destroy(new Error('请求超时'));
+        request.abort();
       }, this.config.timeout);
 
       request.on('response', (response) => {
         console.log('收到响应，状态码:', response.statusCode);
-        
+
         let data = '';
-        
+
         response.on('data', (chunk) => {
           data += chunk;
         });
-        
+
         response.on('end', () => {
           clearTimeout(timeoutId);
-          
+
           try {
-            // 处理 Set-Cookie 响应头
+            // 处理 Set-Cookie 响应头（登录时需要）
             const setCookieHeaders = response.headers['set-cookie'];
             if (setCookieHeaders) {
               console.log('收到 Set-Cookie 头:', setCookieHeaders);
               this.parseAndStoreCookies(setCookieHeaders);
               console.log('解析后的 Cookies:', Object.keys(Object.fromEntries(this.cookies)));
             }
-            
-            // 同时尝试从 Electron Session 同步
-            this.syncFromElectronCookies(fullUrl).catch(err => {
-              console.error('同步 Cookies 失败:', err);
-            });
-            
+
             const result: ApiResponse<T> = JSON.parse(data);
             console.log('响应数据:', { success: result.success, message: result.message });
             resolve({
@@ -165,12 +156,12 @@ class ApiClient {
               message: result.message,
               code: result.code,
             });
-          } catch (err) {
+          } catch (err: any) {
             console.error('解析响应失败:', err, '响应数据:', data);
             reject(err);
           }
         });
-        
+
         response.on('error', (err) => {
           clearTimeout(timeoutId);
           console.error('响应错误:', err);
