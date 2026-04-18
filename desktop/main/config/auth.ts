@@ -233,12 +233,16 @@ async function loadAuthState(): Promise<AuthState> {
       user: currentAuth.user
     };
 
+    // 同步到 apiClient
     if (authState.accessToken) apiClient.setCookie('accessToken', authState.accessToken);
     if (authState.refreshToken) apiClient.setCookie('refreshToken', authState.refreshToken);
     if (authState.tokenExpiresAt) {
       const expiresIn = Math.max(3600, Math.floor((authState.tokenExpiresAt - Date.now()) / 1000));
       apiClient.setCookie('tokenExpiresIn', expiresIn.toString());
     }
+
+    // 同步到 Electron Session Cookies
+    await syncToElectronCookies();
 
     console.log('加载认证状态成功:', { user: authState.user?.email });
     return authState;
@@ -329,6 +333,47 @@ function syncCookiesFromClient() {
     tokenExpiresAt: authState.tokenExpiresAt,
     expiresIn
   });
+
+  // 同步到 Electron Session Cookies
+  syncToElectronCookies().catch(err => {
+    console.error('[syncCookiesFromClient] 同步到 Electron Session 失败:', err);
+  });
+}
+
+// 将 token 同步到 Electron Session Cookies
+async function syncToElectronCookies() {
+  const { session } = await import('electron');
+  const baseUrl = apiClient.getCookie('baseUrl') || 'https://shibit.net';
+
+  try {
+    if (authState.accessToken) {
+      await session.defaultSession.cookies.set({
+        url: baseUrl,
+        name: 'accessToken',
+        value: authState.accessToken,
+        secure: true,
+        httpOnly: true,
+        sameSite: 'lax',
+        expirationDate: authState.tokenExpiresAt ? authState.tokenExpiresAt / 1000 : undefined
+      });
+      console.log('[syncToElectronCookies] accessToken 已同步到 Electron Session');
+    }
+
+    if (authState.refreshToken) {
+      await session.defaultSession.cookies.set({
+        url: baseUrl,
+        name: 'refreshToken',
+        value: authState.refreshToken,
+        secure: true,
+        httpOnly: true,
+        sameSite: 'lax',
+        expirationDate: authState.tokenExpiresAt ? (authState.tokenExpiresAt + 259200000) / 1000 : undefined
+      });
+      console.log('[syncToElectronCookies] refreshToken 已同步到 Electron Session');
+    }
+  } catch (err) {
+    console.error('[syncToElectronCookies] 同步失败:', err);
+  }
 }
 
 async function refreshUserInfo(): Promise<User | null> {
@@ -365,6 +410,7 @@ export {
   clearAuthState,
   isTokenValid,
   syncCookiesFromClient,
+  syncToElectronCookies,
   refreshUserInfo,
   getAuthState,
   setAuthState,
