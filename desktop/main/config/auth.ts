@@ -343,7 +343,9 @@ function syncCookiesFromClient() {
 // 将 token 同步到 Electron Session Cookies
 async function syncToElectronCookies() {
   const { session } = await import('electron');
-  const baseUrl = apiClient.getCookie('baseUrl') || 'https://shibit.net';
+  const baseUrl = 'https://shibit.net'; // 使用生产环境域名
+
+  console.log('[syncToElectronCookies] 准备同步到 Electron Session, baseUrl:', baseUrl);
 
   try {
     if (authState.accessToken) {
@@ -351,6 +353,8 @@ async function syncToElectronCookies() {
         url: baseUrl,
         name: 'accessToken',
         value: authState.accessToken,
+        domain: '.shibit.net', // 设置域名
+        path: '/',
         secure: true,
         httpOnly: true,
         sameSite: 'lax',
@@ -364,6 +368,8 @@ async function syncToElectronCookies() {
         url: baseUrl,
         name: 'refreshToken',
         value: authState.refreshToken,
+        domain: '.shibit.net',
+        path: '/',
         secure: true,
         httpOnly: true,
         sameSite: 'lax',
@@ -371,6 +377,10 @@ async function syncToElectronCookies() {
       });
       console.log('[syncToElectronCookies] refreshToken 已同步到 Electron Session');
     }
+
+    // 验证 Cookie 是否设置成功
+    const cookies = await session.defaultSession.cookies.get({ url: baseUrl });
+    console.log('[syncToElectronCookies] 当前 Session Cookies:', cookies.map(c => ({ name: c.name, domain: c.domain, value: c.value.substring(0, 20) + '...' })));
   } catch (err) {
     console.error('[syncToElectronCookies] 同步失败:', err);
   }
