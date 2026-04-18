@@ -25,7 +25,7 @@ function registerAuthIpcHandlers() {
 
       if (result.success) {
         console.log('登录成功，开始同步 Cookie...');
-        syncCookiesFromClient();
+        await syncCookiesFromClient();
         console.log('Cookie 同步完成，当前 authState:', {
           hasAccessToken: !!getAuthState().accessToken,
           hasRefreshToken: !!getAuthState().refreshToken,

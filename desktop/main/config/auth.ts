@@ -335,9 +335,11 @@ function syncCookiesFromClient() {
   });
 
   // 同步到 Electron Session Cookies
-  syncToElectronCookies().catch(err => {
+  try {
+    await syncToElectronCookies();
+  } catch (err) {
     console.error('[syncCookiesFromClient] 同步到 Electron Session 失败:', err);
-  });
+  }
 }
 
 // 将 token 同步到 Electron Session Cookies
