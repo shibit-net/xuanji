@@ -308,7 +308,7 @@ function isTokenValid(): boolean {
   return Date.now() < authState.tokenExpiresAt;
 }
 
-function syncCookiesFromClient() {
+async function syncCookiesFromClient() {
   console.log('[syncCookiesFromClient] 开始同步 Cookie...');
   const accessToken = apiClient.getCookie('accessToken');
   const refreshToken = apiClient.getCookie('refreshToken');
