@@ -102,10 +102,18 @@ class ApiClient {
   // 通用请求方法 - 使用 Electron net 模块
   async request<T = any>(
     url: string, options: { method?: string; body?: any } = {}): Promise<ApiResponse<T>> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       const fullUrl = url.startsWith('http') ? url : `${this.config.baseUrl}${url}`;
 
       console.log('发送 API 请求:', options.method || 'GET', fullUrl);
+
+      // 先检查 Session Cookies
+      try {
+        const cookies = await session.defaultSession.cookies.get({ url: fullUrl });
+        console.log('请求前的 Session Cookies:', cookies.map(c => ({ name: c.name, domain: c.domain })));
+      } catch (err) {
+        console.error('获取 Session Cookies 失败:', err);
+      }
 
       const requestOptions: Electron.ClientRequestConstructorOptions = {
         method: options.method || 'GET',
