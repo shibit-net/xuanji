@@ -12,14 +12,13 @@
 // - JSON 格式缓存聚合结果
 //
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { UsageRecord } from './UsageStatsRecorder';
 import { UsageStatsRecorder } from './UsageStatsRecorder';
-import { CostTracker } from '@/core/agent/CostTracker';
-import type { PricingResolver } from '@/core/agent/PricingResolver';
+import { CostTracker } from '../agent/CostTracker';
+import type { PricingResolver } from '../agent/PricingResolver';
 
 // ── 类型定义 ──
 
@@ -104,7 +103,7 @@ export class DailyUsageStats {
       this.dailyFilePath = dailyFilePath;
       this.statsDir = join(dailyFilePath, '..');
     } else {
-      this.statsDir = join(homedir(), '.xuanji', 'stats');
+      this.statsDir = join(process.cwd(), '.xuanji', 'stats');
       this.dailyFilePath = join(this.statsDir, 'daily.json');
     }
   }

@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import path from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ReadTool' });

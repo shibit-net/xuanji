@@ -1,12 +1,10 @@
 // ============================================================
-// 配置源实现
+// 配置源实现 - 简化版（只保留默认和用户配置）
 // ============================================================
 
 import type { IConfigSource } from './ConfigService';
 import { DEFAULT_CONFIG } from '@/core/config/defaults';
-import { loadGlobalConfig, saveGlobalConfig } from '@/core/config/GlobalConfig';
-import { loadProjectConfig } from '@/core/config/ProjectConfig';
-import { getEnvProviderConfig, getEnvUIConfig, getEnvMemoryConfig } from '@/core/config/EnvConfig';
+import { UserConfig } from '@/core/config/UserConfig';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ConfigSources' });
@@ -24,65 +22,53 @@ export class DefaultConfigSource implements IConfigSource {
 }
 
 /**
- * 全局配置源
+ * 用户配置源
  */
-export class GlobalConfigSource implements IConfigSource {
-  name = 'global';
+export class UserConfigSource implements IConfigSource {
+  name = 'user';
   priority = 10;
+  private userId: string;
+
+  constructor(userId: string = 'default') {
+    this.userId = userId;
+  }
 
   async load(): Promise<Record<string, any>> {
     try {
-      return await loadGlobalConfig();
+      const userConfig = UserConfig.getInstance(this.userId);
+      return await userConfig.load() as Record<string, any>;
     } catch (error) {
-      log.warn('Failed to load global config:', error);
+      log.warn(`Failed to load user config (${this.userId}):`, error);
       return {};
     }
   }
 
   async save(config: Record<string, any>): Promise<void> {
-    await saveGlobalConfig(config);
+    const userConfig = UserConfig.getInstance(this.userId);
+    await userConfig.save(config);
+  }
+
+  /**
+   * 切换用户
+   */
+  setUserId(userId: string): void {
+    this.userId = userId;
+  }
+
+  /**
+   * 获取当前用户 ID
+   */
+  getUserId(): string {
+    return this.userId;
   }
 }
 
 /**
- * 项目配置源
- */
-export class ProjectConfigSource implements IConfigSource {
-  name = 'project';
-  priority = 20;
-
-  async load(): Promise<Record<string, any>> {
-    try {
-      return await loadProjectConfig();
-    } catch (error) {
-      log.warn('Failed to load project config:', error);
-      return {};
-    }
-  }
-}
-
-/**
- * 环境变量配置源
- */
-export class EnvConfigSource implements IConfigSource {
-  name = 'env';
-  priority = 30;
-
-  async load(): Promise<Record<string, any>> {
-    return {
-      provider: getEnvProviderConfig(),
-      ui: getEnvUIConfig(),
-      memory: getEnvMemoryConfig()
-    };
-  }
-}
-
-/**
- * 运行时配置源
+ * 运行时配置源（用于动态修改）
  */
 export class RuntimeConfigSource implements IConfigSource {
   name = 'runtime';
-  priority = 40;
+  priority = 20;
   private config: Record<string, any> = {};
 
   async load(): Promise<Record<string, any>> {
@@ -124,7 +110,7 @@ export class RuntimeConfigSource implements IConfigSource {
  */
 export class MemoryConfigSource implements IConfigSource {
   name = 'memory';
-  priority = 50;
+  priority = 30;
 
   constructor(private config: Record<string, any> = {}) {}
 

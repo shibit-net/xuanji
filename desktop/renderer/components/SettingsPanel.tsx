@@ -22,13 +22,22 @@ interface ProviderConfig {
 
 type TabId = 'general';
 
+interface ModelOption {
+  id: number;
+  name: string;
+  model: string;
+  adapter: string;
+  vendor?: string;
+}
+
 const ADAPTERS = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'ollama', label: 'Ollama (本地)' },
 ];
 
-const MODELS: Record<string, string[]> = {
+// 作为备选的硬编码模型列表（如果 API 不可用）
+const FALLBACK_MODELS: Record<string, string[]> = {
   anthropic: ['claude-sonnet-4-5-20250514', 'claude-haiku-4-5-20251001', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'],
   ollama: ['llama3.1', 'codellama', 'mistral', 'qwen2.5'],
@@ -48,10 +57,20 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('');
 
+  // 模型列表状态
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
   // 加载当前配置
   useEffect(() => {
     loadConfig();
+    loadModels();
   }, []);
+
+  // 当适配器变化时，重新加载模型列表
+  useEffect(() => {
+    loadModels();
+  }, [adapter]);
 
   const loadConfig = async () => {
     setLoading(true);
@@ -68,6 +87,45 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       setError('加载配置失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadModels = async () => {
+    setModelsLoading(true);
+    try {
+      // 尝试从 API 获取模型列表
+      const result = await window.electron.modelsListMarketplace({ vendor: adapter });
+      if (result.success && result.data?.list) {
+        const modelList: ModelOption[] = result.data.list.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          model: item.model,
+          adapter: item.adapter,
+          vendor: item.vendor
+        }));
+        setModels(modelList);
+      } else {
+        // API 不可用，使用硬编码的备选列表
+        const fallbackModels = FALLBACK_MODELS[adapter] || [];
+        setModels(fallbackModels.map((modelName, index) => ({
+          id: index,
+          name: modelName,
+          model: modelName,
+          adapter: adapter
+        })));
+      }
+    } catch (err) {
+      console.error('加载模型列表失败:', err);
+      // 出错时使用硬编码的备选列表
+      const fallbackModels = FALLBACK_MODELS[adapter] || [];
+      setModels(fallbackModels.map((modelName, index) => ({
+        id: index,
+        name: modelName,
+        model: modelName,
+        adapter: adapter
+      })));
+    } finally {
+      setModelsLoading(false);
     }
   };
 
@@ -99,7 +157,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   };
 
-  const availableModels = MODELS[adapter] || [];
+  const availableModels = models.map(m => m.model);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-bg-primary">

@@ -463,7 +463,16 @@ export class CanvasRenderer {
           judge: '裁判',
         };
         const roleLabel = roleLabels[agent.multiAgent.debateRole];
-        const displayName = `${roleLabel}·${agent.name}`;
+
+        // 🔧 检查 agent.name 是否已包含角色前缀，避免重复
+        let displayName = agent.name;
+        if (displayName.startsWith(roleLabel + '·')) {
+          // 名称已包含角色前缀，直接使用
+          displayName = agent.name;
+        } else {
+          // 名称不包含角色前缀，添加前缀
+          displayName = `${roleLabel}·${agent.name}`;
+        }
 
         // 角色标签颜色
         const roleColors = {
@@ -1129,42 +1138,67 @@ export class CanvasRenderer {
     this.ctx.fill();
     this.ctx.stroke();
 
-    // 🔧 小三角尾巴（根据气泡位置调整方向）
+    // 🔧 小三角尾巴（动态计算最佳连接点）
     this.ctx.fillStyle = 'rgba(124,140,245,0.15)';
+    this.ctx.strokeStyle = 'rgba(124,140,245,0.6)';
+    this.ctx.lineWidth = 1;
     this.ctx.beginPath();
 
-    if (isLeft) {
-      // 气泡在左侧，尾巴向右（垂直居中）
-      const tailX = bubblePos.x + bubbleWidth;
-      const tailY = agentPos.y;
-      this.ctx.moveTo(tailX, tailY - 6);
-      this.ctx.lineTo(tailX, tailY + 6);
-      this.ctx.lineTo(tailX + 8, tailY);
-    } else if (isRight) {
-      // 气泡在右侧，尾巴向左（垂直居中）
-      const tailX = bubblePos.x;
-      const tailY = agentPos.y;
-      this.ctx.moveTo(tailX, tailY - 6);
-      this.ctx.lineTo(tailX, tailY + 6);
-      this.ctx.lineTo(tailX - 8, tailY);
-    } else if (isAbove) {
-      // 气泡在上方，尾巴向下
-      const tailX = agentPos.x;
-      const tailY = bubblePos.y + bubbleHeight;
-      this.ctx.moveTo(tailX - 6, tailY);
-      this.ctx.lineTo(tailX + 6, tailY);
-      this.ctx.lineTo(tailX, tailY + 8);
-    } else if (isBelow) {
-      // 气泡在下方，尾巴向上
-      const tailX = agentPos.x;
-      const tailY = bubblePos.y;
-      this.ctx.moveTo(tailX - 6, tailY);
-      this.ctx.lineTo(tailX + 6, tailY);
-      this.ctx.lineTo(tailX, tailY - 8);
+    // 计算气泡中心点
+    const bubbleCenterX = bubblePos.x + bubbleWidth / 2;
+    const bubbleCenterY = bubblePos.y + bubbleHeight / 2;
+
+    // 计算从气泡中心到 agent 中心的向量
+    const dx = agentPos.x - bubbleCenterX;
+    const dy = agentPos.y - bubbleCenterY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > 0) {
+      // 归一化方向向量
+      const dirX = dx / distance;
+      const dirY = dy / distance;
+
+      // 找到气泡边缘上最接近 agent 的点
+      let tailX: number, tailY: number;
+
+      // 判断主要方向（水平 vs 垂直）
+      if (Math.abs(dirX) > Math.abs(dirY)) {
+        // 主要是水平方向
+        if (dirX > 0) {
+          // agent 在气泡右侧
+          tailX = bubblePos.x + bubbleWidth;
+          tailY = Math.max(bubblePos.y + 10, Math.min(bubblePos.y + bubbleHeight - 10, agentPos.y));
+        } else {
+          // agent 在气泡左侧
+          tailX = bubblePos.x;
+          tailY = Math.max(bubblePos.y + 10, Math.min(bubblePos.y + bubbleHeight - 10, agentPos.y));
+        }
+      } else {
+        // 主要是垂直方向
+        if (dirY > 0) {
+          // agent 在气泡下方
+          tailX = Math.max(bubblePos.x + 10, Math.min(bubblePos.x + bubbleWidth - 10, agentPos.x));
+          tailY = bubblePos.y + bubbleHeight;
+        } else {
+          // agent 在气泡上方
+          tailX = Math.max(bubblePos.x + 10, Math.min(bubblePos.x + bubbleWidth - 10, agentPos.x));
+          tailY = bubblePos.y;
+        }
+      }
+
+      // 绘制三角形尾巴（指向 agent）
+      const tailSize = 8;
+      const perpX = -dirY; // 垂直于方向向量
+      const perpY = dirX;
+
+      this.ctx.moveTo(tailX + perpX * tailSize * 0.5, tailY + perpY * tailSize * 0.5);
+      this.ctx.lineTo(tailX - perpX * tailSize * 0.5, tailY - perpY * tailSize * 0.5);
+      this.ctx.lineTo(tailX + dirX * tailSize, tailY + dirY * tailSize);
     }
 
     this.ctx.closePath();
     this.ctx.fill();
+    this.ctx.stroke();
 
     // 🔧 绘制文本（使用 displayLines，实现向上滚动效果）
     this.ctx.fillStyle = '#C4CAFF';
@@ -1330,8 +1364,8 @@ export class CanvasRenderer {
   // ─── 右侧工具调用堆栈 ─────────────────────────────────────────
 
   /**
-   * 绘制工具调用堆栈（节点右侧，垂直排列，最多 5 个）
-   * 只显示正在运行的工具，已完成的工具自动隐藏
+   * 绘制工具调用堆栈（节点右侧，垂直排列，最多 4 个）
+   * 🔧 显示正在运行和最近完成的工具（成功/失败），完成后短暂保留再消失
    */
   private drawToolCallStack(
     agentPos: Point,
@@ -1341,24 +1375,37 @@ export class CanvasRenderer {
     const gap = 8;
     const itemHeight = 26;
     const itemSpacing = 4;
-    const maxVisible = 5;
+    const maxVisible = 4; // 🔧 最多显示 4 个
 
-    // 🔧 只显示正在运行的工具
-    const runningEvents = events.filter(evt => evt.status === 'running');
+    // 🔧 显示正在运行的工具 + 最近完成的工具（3秒内）
+    const now = Date.now();
+    const recentThreshold = 3000; // 3秒
+    const visibleEvents = events.filter(evt => {
+      if (evt.status === 'running') return true;
+      // 已完成的工具：如果在 3 秒内完成，则显示
+      if ((evt.status === 'success' || evt.status === 'error') && evt.startTime) {
+        const elapsed = now - evt.startTime;
+        return elapsed < recentThreshold;
+      }
+      return false;
+    });
 
-    // 获取最近的工具（最多 5 个）
-    const visibleEvents = runningEvents.slice(-maxVisible);
-    const hiddenCount = Math.max(0, runningEvents.length - maxVisible);
+    // 获取最近的工具（最多 4 个）
+    const displayEvents = visibleEvents.slice(-maxVisible);
+    const hiddenCount = Math.max(0, visibleEvents.length - maxVisible);
 
     // 如果有隐藏的工具，先绘制省略号
     if (hiddenCount > 0) {
       this.drawEllipsisIndicator(agentPos, agentRadius, gap, itemHeight, hiddenCount);
     }
 
+    // 🔧 从 agent 图标顶部开始向下排列
+    const startY = agentPos.y - agentRadius; // agent 顶部
+
     // 绘制可见的工具
-    visibleEvents.forEach((evt, index) => {
+    displayEvents.forEach((evt, index) => {
       const verticalOffset = (hiddenCount > 0 ? 1 : 0) * (itemHeight + itemSpacing) + index * (itemHeight + itemSpacing);
-      this.drawToolCallItem(agentPos, agentRadius, evt, verticalOffset, gap, itemHeight);
+      this.drawToolCallItem(agentPos, agentRadius, evt, verticalOffset, gap, itemHeight, startY);
     });
   }
 
@@ -1394,7 +1441,7 @@ export class CanvasRenderer {
   }
 
   /**
-   * 绘制单个工具调用项（右侧）
+   * 绘制单个工具调用项（右侧，从 agent 顶部开始向下排列）
    */
   private drawToolCallItem(
     agentPos: Point,
@@ -1402,7 +1449,8 @@ export class CanvasRenderer {
     event: TimelineEvent,
     verticalOffset: number,
     gap: number,
-    itemHeight: number
+    itemHeight: number,
+    startY: number // 🔧 新增参数：起始 Y 坐标
   ) {
     const padding = { x: 8, y: 5 };
     const iconWidth = 16;
@@ -1411,15 +1459,14 @@ export class CanvasRenderer {
     const labelWidth = this.ctx.measureText(event.label).width;
     const tagWidth = iconWidth + labelWidth + padding.x * 3 + 45; // +45 为计时区域预留
 
-    // 固定右侧位置
+    // 🔧 从 agent 顶部开始向下排列
     const tagPos = {
       x: agentPos.x + agentRadius + gap,
-      y: agentPos.y - (itemHeight / 2) + verticalOffset
+      y: startY + verticalOffset
     };
 
-    // 背景色按类型（复用 getMomentBgColor）
-    const toolType = this.inferToolType(event.icon);
-    this.ctx.fillStyle = this.getMomentBgColor(toolType, event.status);
+    // 🔧 背景色按状态显示
+    this.ctx.fillStyle = this.getToolCallBgColor(event.status);
     this.ctx.beginPath();
     this.roundRect(tagPos.x, tagPos.y, tagWidth, itemHeight, itemHeight / 2);
     this.ctx.fill();
@@ -1435,11 +1482,15 @@ export class CanvasRenderer {
     this.ctx.font = '11px sans-serif';
     this.ctx.fillText(event.label, tagPos.x + padding.x + iconWidth, tagPos.y + itemHeight / 2);
 
-    // ✅ 右侧显示计时（running 时实时显示已过时间）
+    // ✅ 右侧显示计时或状态
     let timeText = '';
     if (event.status === 'running' && event.startTime) {
       const elapsed = Date.now() - event.startTime;
       timeText = `${(elapsed / 1000).toFixed(1)}s`;
+    } else if (event.status === 'success' && event.duration) {
+      timeText = `✓${(event.duration / 1000).toFixed(1)}s`;
+    } else if (event.status === 'error') {
+      timeText = '✗';
     }
 
     if (timeText) {
@@ -1452,6 +1503,22 @@ export class CanvasRenderer {
     // 重置文本对齐
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'alphabetic';
+  }
+
+  /**
+   * 🔧 根据工具调用状态返回背景色
+   */
+  private getToolCallBgColor(status: string): string {
+    switch (status) {
+      case 'running':
+        return 'rgba(59,130,246,0.8)'; // 蓝色 - 运行中
+      case 'success':
+        return 'rgba(52,211,153,0.8)'; // 绿色 - 成功
+      case 'error':
+        return 'rgba(239,68,68,0.85)'; // 红色 - 失败
+      default:
+        return 'rgba(75,85,99,0.8)'; // 灰色 - 默认
+    }
   }
 
   /**
@@ -1753,11 +1820,12 @@ export class CanvasRenderer {
   /**
    * 绘制 Agent 类型标签
    */
-  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom') {
+  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom' | 'temporary') {
     const labelConfig = {
       preset: { text: '预置', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 预置 agent
       builtin: { text: '内置', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
       custom: { text: '自定义', color: 'rgba(168, 85, 247, 0.9)', icon: '✨' }, // purple - 用户自定义
+      temporary: { text: '临时', color: 'rgba(156, 163, 175, 0.9)', icon: '⏱' }, // gray - 临时 agent
     };
 
     const config = labelConfig[agentType] || labelConfig.builtin; // 默认使用 builtin

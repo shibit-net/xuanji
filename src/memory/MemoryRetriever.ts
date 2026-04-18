@@ -11,7 +11,7 @@ import type { CoreRule } from './types';
 import type { MemoryStore } from './MemoryStore.js';
 import type { EmbeddingService } from '@/embedding/EmbeddingService';
 import { logger } from '@/core/logger';
-import { STOP_WORDS } from '@/core/utils/stopwords';
+import { STOP_WORDS } from '@/shared/utils/stopwords';
 import { MemoryWeightEngine } from './MemoryWeightEngine.js';
 
 const log = logger.child({ module: 'MemoryRetriever' });

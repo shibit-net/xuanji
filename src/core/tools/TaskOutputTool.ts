@@ -5,7 +5,7 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
-import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/core/utils/truncation';
+import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/shared/utils/truncation';
 
 /**
  * 查询后台任务结果的工具

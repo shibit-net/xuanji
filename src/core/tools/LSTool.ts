@@ -7,7 +7,7 @@ import type { ToolResult, JSONSchema } from '@/core/types';
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, basename, relative } from 'node:path';
 import glob from 'fast-glob';
-import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 
 const MAX_ENTRIES = 1000; // 最多返回条目数
 

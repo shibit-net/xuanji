@@ -2,7 +2,6 @@
 // M10 遥测 — 会话统计持久化 (JSONL)
 // ============================================================
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { appendFile, readFile, mkdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -40,10 +39,10 @@ export class SessionRecorder {
   private filePath: string;
 
   /**
-   * @param filePath 存储路径 (默认: ~/.xuanji/sessions.jsonl)
+   * @param filePath 存储路径 (默认: ./.xuanji/sessions.jsonl)
    */
   constructor(filePath?: string) {
-    this.filePath = filePath ?? join(homedir(), '.xuanji', 'sessions.jsonl');
+    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'sessions.jsonl');
   }
 
   /**

@@ -9,7 +9,7 @@ import type { StreamProcessor, ProcessResult } from './StreamProcessor';
 import type { ErrorRecovery } from './ErrorRecovery';
 import type { PerfCollector } from '@/core/telemetry/PerfCollector';
 import { shouldRetry, calculateBackoff, isRateLimitError, DEFAULT_RETRY_CONFIG, type RetryConfig } from '@/core/providers/RetryPolicy';
-import { sleep } from '@/core/utils/sleep';
+import { sleep } from '@/shared/utils/sleep';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'StreamRetryHandler' });

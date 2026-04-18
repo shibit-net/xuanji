@@ -1,13 +1,11 @@
 // ============================================================
-// ConfigFactory - 配置服务工厂
+// ConfigFactory - 配置服务工厂（简化版）
 // ============================================================
 
 import { ConfigService } from './ConfigService';
 import {
   DefaultConfigSource,
-  GlobalConfigSource,
-  ProjectConfigSource,
-  EnvConfigSource,
+  UserConfigSource,
   RuntimeConfigSource,
   MemoryConfigSource
 } from './ConfigSources';
@@ -16,20 +14,23 @@ import { logger } from '@/core/logger';
 const log = logger.child({ module: 'ConfigFactory' });
 
 /**
- * ConfigFactory - 配置服务工厂
+ * ConfigFactory - 创建配置服务
  */
 export class ConfigFactory {
+  private static userConfigSource: UserConfigSource | null = null;
+
   /**
    * 创建配置服务
    */
-  static async create(): Promise<ConfigService> {
-    log.info('Creating config service...');
+  static async create(userId: string = 'default'): Promise<ConfigService> {
+    log.info(`Creating config service for user: ${userId}`);
+
+    const userConfigSource = new UserConfigSource(userId);
+    ConfigFactory.userConfigSource = userConfigSource;
 
     const sources = [
       new DefaultConfigSource(),
-      new GlobalConfigSource(),
-      new ProjectConfigSource(),
-      new EnvConfigSource(),
+      userConfigSource,
       new RuntimeConfigSource()
     ];
 
@@ -55,5 +56,12 @@ export class ConfigFactory {
     await service.load();
 
     return service;
+  }
+
+  /**
+   * 获取当前用户配置源（用于切换用户）
+   */
+  static getUserConfigSource(): UserConfigSource | null {
+    return ConfigFactory.userConfigSource;
   }
 }

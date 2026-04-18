@@ -2,8 +2,8 @@
 // AgentEditor - Agent 编辑器组件（完整版）
 // ============================================================
 
-import { useState, useMemo } from 'react';
-import { Save, X, FileCode, Settings, Zap, Shield, Database, ChevronDown, ChevronRight, Plus, Trash2, AlertCircle } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Save, X, FileCode, Settings, Zap, Shield, Database, ChevronDown, ChevronRight, Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import { useToast } from './Toast';
 
 interface AgentEditorProps {
@@ -15,6 +15,14 @@ interface AgentEditorProps {
 
 type EditorMode = 'form' | 'json5';
 type ExpandedSections = Set<string>;
+
+interface ModelOption {
+  id: number;
+  name: string;
+  model: string;
+  adapter: string;
+  vendor?: string;
+}
 
 // 默认配置模板
 const DEFAULT_CONFIG = {
@@ -85,8 +93,8 @@ const AVAILABLE_TOOLS = [
   'memory_search', 'memory_store', 'web_search', 'web_fetch',
 ];
 
-// 模型选项
-const MODEL_OPTIONS = [
+// 模型选项（作为备选）
+const FALLBACK_MODEL_OPTIONS = [
   'claude-3-5-sonnet-20241022',
   'claude-3-5-haiku-20241022',
   'claude-3-opus-20240229',
@@ -102,7 +110,86 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
+  // 模型列表状态
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
   const isCreating = !agent;
+
+  // 加载模型列表
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    setModelsLoading(true);
+    try {
+      // 🆕 优先加载用户配置的模型
+      const userConfigResult = await window.electron.modelsListUserConfig();
+      if (userConfigResult.success && userConfigResult.data?.list) {
+        const userModels: ModelOption[] = userConfigResult.data.list.map((item: any) => ({
+          id: item.id,
+          name: `${item.name} (用户配置)`,
+          model: item.model,
+          adapter: item.adapter,
+          vendor: item.vendor
+        }));
+
+        // 尝试加载市场模型作为补充
+        try {
+          const marketResult = await window.electron.modelsListMarketplace({ size: 100 });
+          if (marketResult.success && marketResult.data?.list) {
+            const marketModels: ModelOption[] = marketResult.data.list.map((item: any) => ({
+              id: item.id + 1000, // 避免 ID 冲突
+              name: item.name,
+              model: item.model,
+              adapter: item.adapter,
+              vendor: item.vendor
+            }));
+            // 用户配置的模型排在前面
+            setModels([...userModels, ...marketModels]);
+          } else {
+            setModels(userModels);
+          }
+        } catch {
+          // 市场模型加载失败，只使用用户配置的模型
+          setModels(userModels);
+        }
+      } else {
+        // 用户配置加载失败，尝试加载市场模型
+        const result = await window.electron.modelsListMarketplace({ size: 100 });
+        if (result.success && result.data?.list) {
+          const modelList: ModelOption[] = result.data.list.map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            model: item.model,
+            adapter: item.adapter,
+            vendor: item.vendor
+          }));
+          setModels(modelList);
+        } else {
+          // 使用备选列表
+          setModels(FALLBACK_MODEL_OPTIONS.map((modelName, index) => ({
+            id: index,
+            name: modelName,
+            model: modelName,
+            adapter: 'anthropic'
+          })));
+        }
+      }
+    } catch (err) {
+      console.error('加载模型列表失败:', err);
+      // 出错时使用备选列表
+      setModels(FALLBACK_MODEL_OPTIONS.map((modelName, index) => ({
+        id: index,
+        name: modelName,
+        model: modelName,
+        adapter: 'anthropic'
+      })));
+    } finally {
+      setModelsLoading(false);
+    }
+  };
 
   // 应用模板
   const applyTemplate = (templateId: string) => {
@@ -266,6 +353,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       setConfig(newConfig);
     };
 
+    const isModelSelect = field === 'model.primary';
+    const currentOptions = isModelSelect ? models.map(m => m.model) : options;
+
     return (
       <div>
         <label className="block text-sm font-medium mb-1">
@@ -280,15 +370,23 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono`}
           />
         ) : type === 'select' ? (
-          <select
-            value={value || ''}
-            onChange={(e) => handleChange(e.target.value)}
-            className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary`}
-          >
-            {options?.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={value || ''}
+              onChange={(e) => handleChange(e.target.value)}
+              className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary`}
+              disabled={isModelSelect && modelsLoading}
+            >
+              {currentOptions?.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {isModelSelect && modelsLoading && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <Loader2 size={16} className="animate-spin text-text-secondary" />
+              </div>
+            )}
+          </div>
         ) : (
           <input
             type={type}
@@ -524,7 +622,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             '模型配置',
             <Zap size={18} className="text-yellow-500" />,
             <div className="grid grid-cols-2 gap-4">
-              {renderFormField('主模型', 'model.primary', 'select', MODEL_OPTIONS)}
+              {renderFormField('主模型', 'model.primary', 'select')}
               {renderFormField('温度 (0-1)', 'model.temperature', 'number')}
             </div>
           )}

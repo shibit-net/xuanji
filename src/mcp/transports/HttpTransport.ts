@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
-import { sleep } from '@/core/utils/sleep';
+import { sleep } from '@/shared/utils/sleep';
 import type {
   JSONRPCRequest,
   JSONRPCResponse,

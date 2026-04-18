@@ -11,11 +11,10 @@
 // - 支持按时间、工具名、风险级别过滤查询
 //
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { appendFile, readFile, mkdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '@/permission/types';
+import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '../../permission/types';
 
 // ── 类型定义 ──
 
@@ -92,7 +91,7 @@ export class AuditLogger {
   private filePath: string;
 
   constructor(filePath?: string) {
-    this.filePath = filePath ?? join(homedir(), '.xuanji', 'logs', 'audit.log');
+    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'audit.log');
   }
 
   /**

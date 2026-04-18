@@ -54,10 +54,16 @@ export class ToolDispatcher implements IToolDispatcher {
       const result = await this.registry.execute(toolCall.name, toolCall.input, controller.signal);
       return result;
     } catch (err) {
+      // 所有错误都转换为错误结果，不向上抛出
+      const message = err instanceof Error ? err.message : String(err);
       if (controller.signal.aborted) {
         return { content: '[Aborted] Tool execution was cancelled.', isError: true };
       }
-      throw err;
+      this.log.error(`Tool ${toolCall.name} execution failed:`, err);
+      return {
+        content: `工具执行失败: ${message}`,
+        isError: true
+      };
     } finally {
       this.runningTools.delete(toolCall.id);
       signal?.removeEventListener('abort', onAbort);

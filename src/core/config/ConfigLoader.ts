@@ -5,12 +5,12 @@
 import type { AppConfig, IConfigLoader } from '@/core/types';
 import type { MCPConfig } from '@/mcp/types';
 import { DEFAULT_CONFIG } from './defaults';
-import { getEnvProviderConfig, getEnvUIConfig, getEnvMemoryConfig } from './EnvConfig';
-import { loadGlobalConfig, GLOBAL_CONFIG_DIR, deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
-import { loadProjectConfig } from './ProjectConfig';
+import { UserConfigInitializer, getUserConfigPath } from './UserConfigInitializer';
+import { deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
 import { ConfigValidator } from './ConfigValidator';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ConfigLoader' });
@@ -19,54 +19,76 @@ const log = logger.child({ module: 'ConfigLoader' });
  * 配置加载器
  *
  * 配置优先级 (从低到高):
- * 1. 默认配置
- * 2. 全局配置 (~/.xuanji/config.json)
- * 3. 项目配置 (.xuanji/config.json)
- * 4. 环境变量
- * 5. CLI 参数 (通过 set 方法)
+ * 1. 默认配置（代码中的 DEFAULT_CONFIG）
+ * 2. 用户配置（.xuanji/users/{userId}/config.json）
+ * 3. 运行时配置（通过 set 方法动态修改）
  */
 export class ConfigLoader implements IConfigLoader {
   private config: AppConfig = { ...DEFAULT_CONFIG };
   private loaded = false;
+  private userId: string;
+
+  constructor(userId: string = 'default') {
+    this.userId = userId;
+  }
 
   async load(): Promise<AppConfig> {
     // 1. 从默认配置开始
     let config: AppConfig = { ...DEFAULT_CONFIG };
 
-    // 2. 合并全局配置
-    const globalConfig = await loadGlobalConfig();
-    config = deepMergeConfig(config as unknown as Record<string, unknown>, globalConfig) as unknown as AppConfig;
+    // 2. 初始化用户配置（如果不存在）
+    const initializer = new UserConfigInitializer(this.userId);
+    await initializer.initialize();
 
-    // 3. 合并项目配置
-    const projectConfig = await loadProjectConfig();
-    config = deepMergeConfig(config as unknown as Record<string, unknown>, projectConfig) as unknown as AppConfig;
-
-    // 4. 合并环境变量（Provider + UI + Memory）
-    const envConfig = getEnvProviderConfig();
-    config.provider = { ...config.provider, ...envConfig };
-
-    const envUIConfig = getEnvUIConfig();
-    if (Object.keys(envUIConfig).length > 0) {
-      config.ui = { ...config.ui, ...envUIConfig } as typeof config.ui;
+    // 3. 加载用户配置
+    const userConfig = await this.loadUserConfig();
+    if (userConfig && Object.keys(userConfig).length > 0) {
+      config = deepMergeConfig(config as unknown as Record<string, unknown>, userConfig) as unknown as AppConfig;
     }
 
-    const envMemoryConfig = getEnvMemoryConfig();
-    if (Object.keys(envMemoryConfig).length > 0) {
-      config.memory = { ...config.memory, ...envMemoryConfig } as typeof config.memory;
-    }
-
-    // 5. 加载 MCP 配置（独立文件 ~/.xuanji/mcp.json）
+    // 4. 加载 MCP 配置（独立文件 .xuanji/users/{userId}/mcp.json）
     const mcpConfig = await this.loadMCPConfig();
     if (mcpConfig) {
       config.mcp = mcpConfig;
     }
 
-    // 6. 校验配置（打印警告，不阻塞启动）
+    // 5. 校验配置（打印警告，不阻塞启动）
     this.validateConfig(config);
 
     this.config = config;
     this.loaded = true;
     return config;
+  }
+
+  /**
+   * 加载用户配置
+   */
+  private async loadUserConfig(): Promise<Record<string, any>> {
+    const configPath = getUserConfigPath(this.userId);
+
+    if (!existsSync(configPath)) {
+      log.debug(`用户配置文件不存在: ${configPath}`);
+      return {};
+    }
+
+    try {
+      const content = await readFile(configPath, 'utf-8');
+      const parsed = JSON.parse(content);
+
+      // 支持两种格式：
+      // 1. { version, userId, config: {...} }
+      // 2. 直接的配置对象 {...}
+      if (parsed.version && parsed.config) {
+        log.debug(`加载用户配置 (版本 ${parsed.version}): ${this.userId}`);
+        return parsed.config;
+      } else {
+        log.debug(`加载用户配置: ${this.userId}`);
+        return parsed;
+      }
+    } catch (error) {
+      log.warn(`加载用户配置失败 (${this.userId}):`, error);
+      return {};
+    }
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -78,9 +100,9 @@ export class ConfigLoader implements IConfigLoader {
   }
 
   validate(): boolean {
-    // 基础校验：必须有模型和 API Key
+    // 基础校验：必须有模型
     if (!this.config.provider.model) return false;
-    if (!this.config.provider.apiKey) return false;
+    // API Key 可以在用户配置中设置，不强制要求
     return true;
   }
 
@@ -92,6 +114,11 @@ export class ConfigLoader implements IConfigLoader {
   /** 是否已加载 */
   isLoaded(): boolean {
     return this.loaded;
+  }
+
+  /** 获取用户 ID */
+  getUserId(): string {
+    return this.userId;
   }
 
   /**
@@ -123,10 +150,22 @@ export class ConfigLoader implements IConfigLoader {
 
   /**
    * 加载 MCP 配置
-   * 从 ~/.xuanji/mcp.json 加载 MCP 服务器配置
+   * 从 .xuanji/users/{userId}/mcp.json 加载 MCP 服务器配置
+   * 如果文件不存在，尝试从模板生成
    */
   async loadMCPConfig(): Promise<MCPConfig | undefined> {
-    const mcpConfigPath = join(GLOBAL_CONFIG_DIR, 'mcp.json');
+    const userConfigRoot = dirname(getUserConfigPath(this.userId));
+    const mcpConfigPath = join(userConfigRoot, 'mcp.json');
+
+    if (!existsSync(mcpConfigPath)) {
+      log.debug(`MCP 配置文件不存在，尝试从模板生成: ${mcpConfigPath}`);
+      await this.createMCPConfigFromTemplate(mcpConfigPath);
+
+      // 如果生成失败，返回 undefined
+      if (!existsSync(mcpConfigPath)) {
+        return undefined;
+      }
+    }
 
     try {
       const text = await readFile(mcpConfigPath, 'utf-8');
@@ -138,15 +177,44 @@ export class ConfigLoader implements IConfigLoader {
         return undefined;
       }
 
+      log.debug(`加载 MCP 配置: ${parsed.servers.length} 个服务器`);
       return parsed as MCPConfig;
     } catch (error) {
-      // 文件不存在时静默返回 undefined
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return undefined;
-      }
-
       log.warn('Failed to load mcp.json:', error);
       return undefined;
+    }
+  }
+
+  /**
+   * 从模板创建 MCP 配置文件
+   */
+  private async createMCPConfigFromTemplate(destPath: string): Promise<void> {
+    try {
+      // MCP 配置模板
+      const template: MCPConfig = {
+        servers: [],
+        // 可以添加一些示例配置
+        _examples: {
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/allowed/directory'],
+            description: 'File system access server'
+          },
+          github: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-github'],
+            env: {
+              GITHUB_TOKEN: 'your-github-token'
+            },
+            description: 'GitHub API server'
+          }
+        }
+      };
+
+      await writeFile(destPath, JSON.stringify(template, null, 2), 'utf-8');
+      log.info(`创建 MCP 配置模板: ${destPath}`);
+    } catch (error) {
+      log.error(`创建 MCP 配置模板失败: ${destPath}`, error);
     }
   }
 }

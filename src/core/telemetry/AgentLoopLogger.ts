@@ -17,11 +17,10 @@
 // - 支持按 sessionId/迭代/事件类型查询
 //
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { appendFile, readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import type { TokenUsage, ToolCall, Message } from '@/core/types';
+import type { TokenUsage, ToolCall, Message } from '../types';
 
 // ── 事件类型定义 ──
 
@@ -362,7 +361,7 @@ export class AgentLoopLogger {
     this.sessionId = sessionId;
     this.model = model;
     this.startTime = Date.now();
-    this.filePath = filePath ?? join(homedir(), '.xuanji', 'logs', 'agent-loop.log');
+    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'agent-loop.log');
   }
 
   // ── 日志记录方法 ──
@@ -752,7 +751,7 @@ export class AgentLoopLogger {
    * 查询日志记录
    */
   static async query(filter?: AgentLoopLogFilter, filePath?: string): Promise<AgentLoopLog[]> {
-    const path = filePath ?? join(homedir(), '.xuanji', 'logs', 'agent-loop.log');
+    const path = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'agent-loop.log');
 
     try {
       if (!existsSync(path)) {

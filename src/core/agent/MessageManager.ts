@@ -3,8 +3,8 @@
 // ============================================================
 
 import type { Message, ContentBlock, ToolResult } from '@/core/types';
-import { middleTruncate, getMaxToolResultLength } from '@/core/utils/truncation';
-import { stripAnsi } from '@/core/utils/ansi';
+import { middleTruncate, getMaxToolResultLength } from '@/shared/utils/truncation';
+import { stripAnsi } from '@/shared/utils/ansi';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'MessageManager' });

@@ -20,7 +20,8 @@
       "@/*": ["./renderer/*"],
       "@main/*": ["./main/*"],
       "@shared/*": ["./shared/*"],
-      "@core/*": ["../src/core/*"]
+      "@core/*": ["../src/core/*"],
+      "@root/src/*": ["../src/*"]
     }
   },
   "include": ["renderer", "main", "shared"],

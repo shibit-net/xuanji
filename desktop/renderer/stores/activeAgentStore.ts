@@ -46,7 +46,7 @@ export interface AgentState {
   subAgents: AgentState[];
 
   // Agent 类型标识
-  agentType?: 'builtin' | 'preset' | 'custom';
+  agentType?: 'builtin' | 'preset' | 'custom' | 'temporary';
 
   // Multi-Agent 扩展字段
   multiAgent?: {

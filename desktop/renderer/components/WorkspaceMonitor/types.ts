@@ -142,7 +142,7 @@ export interface SubAgentData {
   tokenUsage?: number;
   progress?: number;
   roleIcon: string;            // 角色 emoji
-  agentType?: 'builtin' | 'preset' | 'custom'; // Agent 类型标识
+  agentType?: 'builtin' | 'preset' | 'custom' | 'temporary'; // Agent 类型标识
   // 新增
   currentMoment?: AgentMoment; // 区域3：右侧动作标签
   momentHistory: HistoryDot[]; // 区域4：左侧历史点阵（最多8条）

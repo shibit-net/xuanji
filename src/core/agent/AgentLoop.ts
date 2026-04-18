@@ -466,7 +466,7 @@ export class AgentLoop {
                 id,
                 name,
                 !isError,
-                resultContent.length,
+                resultContent?.length || 0,
                 toolDuration,
                 isError ? resultContent : undefined
               );
@@ -603,9 +603,8 @@ export class AgentLoop {
       // 使用友好化的错误消息
       const friendlyError = new Error(ErrorRecovery.formatError(err));
 
-      // 移除这里的 onError 调用，避免重复通知
-      // 异常会被外层捕获并调用 onError
-      // this.callbacks.onError?.(friendlyError);
+      // 触发 onError 回调，通知前端显示错误消息
+      this.callbacks.onError?.(friendlyError);
 
       // API 错误已在 stream 层重试过，此处记录统计
       this.errorRecovery.recordError(err);

@@ -39,6 +39,8 @@ const log = logger.child({ module: 'SessionFactory' });
  * 会话创建选项
  */
 export interface SessionOptions {
+  /** 用户 ID */
+  userId?: string;
   /** 模型覆盖 */
   model?: string;
   /** 已有的配置（跳过加载） */
@@ -58,23 +60,27 @@ export interface SessionOptions {
  */
 export class SessionFactory {
   private container: DependencyContainer;
+  private userId: string;
 
-  constructor() {
+  constructor(userId: string = 'default') {
     this.container = new DependencyContainer();
+    this.userId = userId;
   }
 
   /**
    * 创建会话
    */
   async create(options: SessionOptions = {}): Promise<ChatSession> {
-    log.info('Creating session...');
+    // 使用传入的 userId 或构造函数的 userId
+    const userId = options.userId || this.userId;
+    log.info(`Creating session for user: ${userId}`);
 
     // 1. 加载配置
-    const config = await this.loadConfig(options);
+    const config = await this.loadConfig({ ...options, userId });
     this.container.registerSingleton('config', config);
 
     // 2. 初始化基础设施
-    await this.initInfrastructure(config, options);
+    await this.initInfrastructure(config, options, userId);
 
     // 3. 初始化领域服务
     await this.initDomainServices(config, options);
@@ -82,10 +88,13 @@ export class SessionFactory {
     // 4. 初始化应用服务
     await this.initApplicationServices(config, options);
 
-    // 5. 创建编排器
+    // 5. 注册高级工具（需要依赖注入）
+    await this.registerAdvancedTools(config);
+
+    // 6. 创建编排器
     const orchestrator = await this.createOrchestrator(options.callbacks);
 
-    // 6. 创建会话
+    // 7. 创建会话
     const session = new ChatSession(orchestrator, this.container);
 
     log.info('Session created successfully');
@@ -101,8 +110,9 @@ export class SessionFactory {
       return options.config;
     }
 
-    log.debug('Loading config...');
-    const loader = new ConfigLoader();
+    const userId = options.userId || 'default';
+    log.debug(`Loading config for user: ${userId}`);
+    const loader = new ConfigLoader(userId);
     const config = await loader.load();
 
     // 模型覆盖
@@ -116,7 +126,7 @@ export class SessionFactory {
   /**
    * 初始化基础设施层
    */
-  private async initInfrastructure(config: AppConfig, options: SessionOptions): Promise<void> {
+  private async initInfrastructure(config: AppConfig, options: SessionOptions, userId: string): Promise<void> {
     log.debug('Initializing infrastructure...');
 
     // SessionManager
@@ -131,15 +141,15 @@ export class SessionFactory {
       return new HookRegistry(config.hooks || {});
     });
 
-    // AgentRegistry
-    this.container.register('agentRegistry', () => {
-      const { AgentRegistry } = require('@/core/agent/AgentRegistry');
-      return new AgentRegistry();
+    // AgentRegistry（传入 userId）
+    this.container.register('agentRegistry', async () => {
+      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      return new AgentRegistry(userId);
     });
 
     // 初始化 AgentRegistry
     try {
-      const agentRegistry = await this.container.resolve('agentRegistry');
+      const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
       await agentRegistry.init();
       log.info('🤖 Agent Registry initialized');
     } catch (err) {
@@ -147,15 +157,15 @@ export class SessionFactory {
     }
 
     // SkillRegistry
-    this.container.register('skillRegistry', () => {
-      const { SkillRegistry } = require('@/core/skills');
+    this.container.register('skillRegistry', async () => {
+      const { SkillRegistry } = await import('@/core/skills');
       return new SkillRegistry();
     });
 
     // 初始化 SkillRegistry
     try {
-      const { initializeBuiltinSkills, SkillLoader } = require('@/core/skills');
-      const skillRegistry = await this.container.resolve('skillRegistry');
+      const { initializeBuiltinSkills, SkillLoader } = await import('@/core/skills');
+      const skillRegistry = await this.container.resolve('skillRegistry') as SkillRegistry;
 
       // 加载内置技能
       initializeBuiltinSkills(skillRegistry);
@@ -303,6 +313,88 @@ export class SessionFactory {
         () => undefined
       );
     });
+  }
+
+  /**
+   * 注册高级工具（需要依赖注入）
+   */
+  private async registerAdvancedTools(config: AppConfig): Promise<void> {
+    log.debug('Registering advanced tools...');
+
+    const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
+    const provider = await this.container.resolve<ILLMProvider>('provider');
+    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
+    const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
+    const memoryManager = await this.container.resolve<IMemoryStore>('memoryManager');
+
+    // ProviderManager
+    const providerManager = new ProviderManager(config);
+
+    // 动态导入工具类
+    const { TaskTool } = await import('@/core/tools/TaskTool');
+    const { TeamTool } = await import('@/core/tools/TeamTool');
+    const { ListAgentsTool } = await import('@/core/tools/ListAgentsTool');
+    const { MatchAgentTool } = await import('@/core/tools/MatchAgentTool');
+
+    // 创建并注册 TaskTool
+    const taskTool = new TaskTool();
+    taskTool.setDependencies({
+      providerManager,
+      agentRegistry,
+      registry,
+      agentConfig: {
+        model: config.provider.model,
+        apiKey: config.provider.apiKey,
+        baseURL: config.provider.baseURL,
+        maxTokens: config.provider.maxTokens,
+        temperature: config.provider.temperature,
+      },
+      parentProvider: provider,
+      hookRegistry,
+      memoryStore: memoryManager,
+      depth: 0,
+      agentId: 'main',
+    });
+    registry.register(taskTool);
+    log.debug('✓ TaskTool registered');
+
+    // 创建并注册 TeamTool
+    const teamTool = new TeamTool();
+    teamTool.setDependencies({
+      provider,
+      registry,
+      agentConfig: {
+        model: config.provider.model,
+        apiKey: config.provider.apiKey,
+        baseURL: config.provider.baseURL,
+        maxTokens: config.provider.maxTokens,
+        temperature: config.provider.temperature,
+      },
+      hookRegistry,
+      memoryStore: memoryManager,
+      depth: 0,
+      agentRegistry,
+      providerManager,
+    });
+    registry.register(teamTool);
+    log.debug('✓ TeamTool registered');
+
+    // 创建并注册 ListAgentsTool
+    const listAgentsTool = new ListAgentsTool();
+    listAgentsTool.setAgentRegistry(agentRegistry);
+    registry.register(listAgentsTool);
+    log.debug('✓ ListAgentsTool registered');
+
+    // 创建并注册 MatchAgentTool
+    const matchAgentTool = new MatchAgentTool();
+    matchAgentTool.setDependencies({
+      agentRegistry,
+      embeddingService: null, // TODO: 集成 EmbeddingService
+    });
+    registry.register(matchAgentTool);
+    log.debug('✓ MatchAgentTool registered');
+
+    log.info('🔧 Advanced tools registered');
   }
 
   /**

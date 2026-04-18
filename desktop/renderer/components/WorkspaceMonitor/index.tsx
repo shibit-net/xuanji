@@ -62,6 +62,39 @@ function getFriendlyName(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+// 递归计算所有 agent 的总 token 使用量
+function calculateTotalTokens(agent: AgentState | null): { input: number; output: number; cached: number } {
+  if (!agent) return { input: 0, output: 0, cached: 0 };
+
+  let total = {
+    input: agent.stats.tokenUsage.input,
+    output: agent.stats.tokenUsage.output,
+    cached: agent.stats.tokenUsage.cached,
+  };
+
+  for (const subAgent of agent.subAgents) {
+    const subTotal = calculateTotalTokens(subAgent);
+    total.input += subTotal.input;
+    total.output += subTotal.output;
+    total.cached += subTotal.cached;
+  }
+
+  return total;
+}
+
+// 递归计算所有 agent 的总工具调用次数（作为迭代次数的近似）
+function calculateTotalIterations(agent: AgentState | null): number {
+  if (!agent) return 0;
+
+  let total = agent.stats.toolCount;
+
+  for (const subAgent of agent.subAgents) {
+    total += calculateTotalIterations(subAgent);
+  }
+
+  return total;
+}
+
 export default function WorkspaceMonitor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CanvasRenderer | null>(null);
@@ -69,14 +102,16 @@ export default function WorkspaceMonitor() {
 
   // 从 runtimeStore 获取数据
   const agentStatus = useRuntimeStore((state) => state.agentStatus);
-  const tokenUsage = useRuntimeStore((state) => state.tokenUsage);
-  const currentIteration = useRuntimeStore((state) => state.currentIteration);
   const isProcessing = useRuntimeStore((state) => state.isProcessing);
   const currentCallTokens = useRuntimeStore((state) => state.currentCallTokens);
   const agentActivity = useRuntimeStore((state) => state.agentActivity);
 
   // 从 activeAgentStore 获取 agent 层级数据
   const activeMainAgent = useActiveAgentStore((state) => state.mainAgent);
+
+  // 计算所有 agent 的总 token 和迭代次数
+  const totalTokens = calculateTotalTokens(activeMainAgent);
+  const totalIterations = calculateTotalIterations(activeMainAgent);
 
   // 初始化渲染器
   useEffect(() => {
@@ -277,11 +312,11 @@ export default function WorkspaceMonitor() {
     // 构建统计信息
     const now = Date.now();
     const stats = {
-      totalTokens: tokenUsage.input + tokenUsage.output,
+      totalTokens: totalTokens.input + totalTokens.output,
       currentCallTokens: currentCallTokens.input + currentCallTokens.output,
       currentTokenDelta: 0,
       duration: agentActivity.runStartTime ? now - agentActivity.runStartTime : 0,
-      iteration: currentIteration,
+      iteration: totalIterations,
       startTime: agentActivity.runStartTime ?? undefined,
     };
 
@@ -300,8 +335,8 @@ export default function WorkspaceMonitor() {
     rendererRef.current.updateState(state);
   }, [
     agentStatus,
-    tokenUsage,
-    currentIteration,
+    totalTokens,
+    totalIterations,
     isProcessing,
     isReady,
     currentCallTokens,
@@ -341,8 +376,8 @@ export default function WorkspaceMonitor() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-secondary">累计 Token:</span>
             <span className="text-sm font-mono font-semibold text-warning">
-              {tokenUsage.input + tokenUsage.output > 0
-                ? (tokenUsage.input + tokenUsage.output).toLocaleString()
+              {totalTokens.input + totalTokens.output > 0
+                ? (totalTokens.input + totalTokens.output).toLocaleString()
                 : '0'}
             </span>
           </div>
@@ -361,7 +396,7 @@ export default function WorkspaceMonitor() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-secondary">迭代:</span>
             <span className="text-sm font-mono font-semibold text-success">
-              {currentIteration}
+              {totalIterations}
             </span>
           </div>
           <div className="flex items-center gap-2">

@@ -209,6 +209,13 @@ export function LoginPrompt({ authManager, initialEmail, onComplete }: LoginProm
             : 'Enter 登录 · Backspace 回到邮箱 · Esc 取消'}
         </Text>
       </Box>
+
+      {/* 注册链接 */}
+      <Box marginTop={1}>
+        <Text color="gray" dimColor>没有账号？访问 </Text>
+        <Text color={theme.primary}>https://shibit.net/register</Text>
+        <Text color="gray" dimColor> 注册</Text>
+      </Box>
     </Box>
   );
 }

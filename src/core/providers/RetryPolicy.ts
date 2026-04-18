@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { RetryConfig } from '@/core/types';
-import { sleep } from '@/core/utils/sleep';
+import { sleep } from '@/shared/utils/sleep';
 
 // 重新导出类型供外部使用
 export type { RetryConfig };

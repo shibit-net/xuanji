@@ -1,0 +1,45 @@
+import { defineConfig } from 'tsup';
+import path from 'path';
+
+export default defineConfig({
+  entry: ['main/agent-bridge.ts'],
+  format: ['esm'],
+  target: 'node20',
+  outDir: 'dist-electron',
+  clean: false,
+  dts: false,
+  sourcemap: false,
+  minify: true,
+  external: [
+    'electron',
+    'better-sqlite3',
+    'sqlite-vec',
+    '@xenova/transformers',
+    'tree-sitter',
+    'tree-sitter-typescript',
+    'tree-sitter-python',
+    'tree-sitter-java',
+  ],
+  esbuildOptions: (options) => {
+    // 设置路径别名，与 vite.config.ts 保持一致
+    options.alias = {
+      '@/adapters': path.resolve(__dirname, '../src/adapters'),
+      '@/auth': path.resolve(__dirname, '../src/auth'),
+      '@/butler': path.resolve(__dirname, '../src/butler'),
+      '@/context': path.resolve(__dirname, '../src/context'),
+      '@/core': path.resolve(__dirname, '../src/core'),
+      '@/embedding': path.resolve(__dirname, '../src/embedding'),
+      '@/hooks': path.resolve(__dirname, '../src/hooks'),
+      '@/infrastructure': path.resolve(__dirname, '../src/infrastructure'),
+      '@/mcp': path.resolve(__dirname, '../src/mcp'),
+      '@/memory': path.resolve(__dirname, '../src/memory'),
+      '@/permission': path.resolve(__dirname, '../src/permission'),
+      '@/reminder': path.resolve(__dirname, '../src/reminder'),
+      '@/session': path.resolve(__dirname, '../src/session'),
+      '@/shared/utils': path.resolve(__dirname, '../src/shared/utils'),
+      '@/shared': path.resolve(__dirname, '../src/shared'),
+      '@/tiangong': path.resolve(__dirname, '../src/tiangong'),
+      '@/types': path.resolve(__dirname, '../src/types'),
+    };
+  },
+});

@@ -6,7 +6,7 @@ import { readFile, writeFile, access } from 'node:fs/promises';
 import { resolve, basename } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { DiffRenderer } from '../utils/DiffRenderer';
+import { DiffRenderer } from '@/shared/utils/DiffRenderer';
 
 /**
  * 单个编辑操作

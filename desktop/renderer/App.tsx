@@ -1,3 +1,4 @@
+
 // ============================================================
 // Xuanji Desktop - 主应用组件
 // ============================================================
@@ -22,8 +23,10 @@ import StatsDialog from './components/StatsDialog';
 import DiagnosticsDialog from './components/DiagnosticsDialog';
 import PromptManager from './components/PromptManager';
 import MemoryManager from './components/MemoryManager';
+import LoginPage from './components/LoginPage';
 import { ToastProvider } from './components/Toast';
 import { useChatStore } from './stores/chatStore';
+import { useAuthStore } from './stores/authStore';
 
 type ViewMode = 'chat' | 'settings' | 'agents' | 'skills' | 'tools' | 'mcp' | 'system-prompt' | 'memory';
 type DialogType = 'stats' | 'diagnostics' | null;
@@ -38,6 +41,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [activeDialog, setActiveDialog] = useState<DialogType>(null);
 
+  // 认证状态
+  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+
   // 权限交互状态
   const permissionRequest = useChatStore((state) => state.permissionRequest);
   const planReviewRequest = useChatStore((state) => state.planReviewRequest);
@@ -45,6 +51,11 @@ export default function App() {
   const setPermissionRequest = useChatStore((state) => state.setPermissionRequest);
   const setPlanReviewRequest = useChatStore((state) => state.setPlanReviewRequest);
   const setAskUserRequest = useChatStore((state) => state.setAskUserRequest);
+
+  // 应用启动时检查认证状态
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   // 压缩上下文
   const handleCompact = async () => {
@@ -75,6 +86,22 @@ export default function App() {
     });
   }, []);
 
+  // 如果正在加载认证状态，显示加载页面
+  if (isLoading && !isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-bg-primary text-text-primary">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-gray-400">正在验证身份...</p>
+      </div>
+    );
+  }
+
+  // 如果未认证，显示登录页面
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  // 已认证，显示主应用
   return (
     <ToastProvider>
       <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">

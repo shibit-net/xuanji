@@ -4,7 +4,7 @@
 
 import type { SessionMemory, ToolCallRecord, MemoryConfig } from './types';
 import { DEFAULT_MEMORY_CONFIG } from './types';
-import { STOP_WORDS_EN, STOP_WORDS_ZH } from '@/core/utils/stopwords';
+import { STOP_WORDS_EN, STOP_WORDS_ZH } from '@/shared/utils/stopwords';
 
 /** 文件路径正则 */
 const FILE_PATH_RE = /(?:\/|\.\/|\.\.\/)?[\w\-./]+\.\w{1,10}/g;

@@ -101,14 +101,23 @@ export class TimeoutMiddleware implements IMiddleware<ToolContext, ToolResult> {
   constructor(private timeoutMs: number) {}
 
   async execute(context: ToolContext, next: () => Promise<ToolResult>): Promise<ToolResult> {
-    return await Promise.race([
-      next(),
-      new Promise<ToolResult>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms`));
-        }, this.timeoutMs);
-      })
-    ]);
+    try {
+      return await Promise.race([
+        next(),
+        new Promise<ToolResult>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms`));
+          }, this.timeoutMs);
+        })
+      ]);
+    } catch (error) {
+      // 超时异常转换为错误结果，不向上抛出
+      log.error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 }
 

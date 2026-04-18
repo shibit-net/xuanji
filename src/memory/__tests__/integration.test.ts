@@ -73,30 +73,25 @@ describe('璇玑记忆系统 3.0 - 端到端集成测试', () => {
 
   describe('场景1：用户设置身份并使用', () => {
     it('应该能设置用户称呼', async () => {
-      await identityManager.setUserTitle('先生');
+      await constraintManager.setUserTitle('先生');
 
-      const identity = await identityManager.getIdentity();
+      const identity = await constraintManager.getIdentity();
       expect(identity.userTitle).toBe('先生');
     });
 
     it('应该能设置助手名字', async () => {
-      await identityManager.setAssistantName('贾维斯');
+      await constraintManager.setAssistantName('贾维斯');
 
-      const identity = await identityManager.getIdentity();
+      const identity = await constraintManager.getIdentity();
       expect(identity.assistantName).toBe('贾维斯');
     });
 
     it('应该能格式化为 System Prompt', async () => {
-      const identity = await identityManager.getIdentity();
-      const prompt = identityManager.formatForSystemPrompt(identity);
+      const identity = await constraintManager.getIdentity();
+      const prompt = constraintManager.formatIdentityForPrompt(identity);
 
       expect(prompt).toContain('贾维斯');
       expect(prompt).toContain('先生');
-    });
-
-    it('应该能检测名字呼叫', () => {
-      const detected = identityManager.detectNameMention('贾维斯，帮我写个函数', '贾维斯');
-      expect(detected).toBe(true);
     });
   });
 
@@ -329,10 +324,10 @@ describe('璇玑记忆系统 3.0 - 端到端集成测试', () => {
   describe('场景4：完整工作流', () => {
     it('应该能完成：设置身份 → 检测决策点 → 检索记忆 → 整理记忆', async () => {
       // 1. 设置身份
-      await identityManager.setUserTitle('老板');
-      await identityManager.setAssistantName('小助手');
+      await constraintManager.setUserTitle('老板');
+      await constraintManager.setAssistantName('小助手');
 
-      const identity = await identityManager.getIdentity();
+      const identity = await constraintManager.getIdentity();
       expect(identity.userTitle).toBe('老板');
       expect(identity.assistantName).toBe('小助手');
 

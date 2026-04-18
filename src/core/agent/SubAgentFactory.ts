@@ -532,6 +532,17 @@ export class SubAgentFactory {
 
     // 3. 触发 SubAgentStart Hook（除非被禁用）
     if (this.hookRegistry && !options.skipSubAgentStartHook) {
+      // 判断 Agent 类型
+      const isBuiltin = config.metadata?.builtin === true;
+      let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+      if (config.metadata?.source === 'builtin') {
+        agentType = 'preset'; // 内置 agent（coder/explore/plan 等）
+      } else if (config.metadata?.source === 'project' || config.metadata?.source === 'global') {
+        agentType = 'custom'; // 用户自定义 agent
+      } else {
+        agentType = 'temporary'; // 临时 agent（未注册）
+      }
+
       this.hookRegistry.emit('SubAgentStart', {
         subAgentId,
         data: {
@@ -539,7 +550,8 @@ export class SubAgentFactory {
           depth: context.depth,
           role: config.id,
           name: config.name, // 传递 Agent 名称
-          builtin: config.metadata?.builtin === true, // 传递是否为内置 Agent
+          builtin: isBuiltin, // 传递是否为内置 Agent（兼容旧逻辑）
+          agentType, // 🔧 新增：传递详细的 Agent 类型
           parentAgentId: options.parentAgentId || 'main', // 🔧 传递父 Agent ID
         },
       }).catch((err) => {

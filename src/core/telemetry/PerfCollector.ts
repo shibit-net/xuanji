@@ -4,7 +4,6 @@
 
 import { appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
 
 /**
  * 单次 LLM 调用的性能指标
@@ -44,7 +43,7 @@ export interface PerfStats {
   avgThroughput: number;
 }
 
-const DEFAULT_PERF_PATH = join(homedir(), '.xuanji', 'logs', 'perf.jsonl');
+const DEFAULT_PERF_PATH = join(process.cwd(), '.xuanji', 'logs', 'perf.jsonl');
 
 /**
  * 性能指标采集器

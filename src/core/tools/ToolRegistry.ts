@@ -272,6 +272,25 @@ export class ToolRegistry implements IToolRegistry {
       };
     }
 
+    // 获取工具特定的超时配置
+    const timeouts = getToolTimeouts();
+    let toolTimeout = DEFAULT_TOOL_TIMEOUT;
+
+    if (timeouts) {
+      // 优先使用工具特定的超时配置
+      if (toolName === 'agent_team' && timeouts.agent_team) {
+        toolTimeout = timeouts.agent_team;
+      } else if (toolName === 'task' && timeouts.task) {
+        toolTimeout = timeouts.task;
+      } else if (toolName === 'bash' && timeouts.bash) {
+        toolTimeout = timeouts.bash;
+      } else if (toolName === 'web_fetch' && timeouts.webFetch) {
+        toolTimeout = timeouts.webFetch;
+      } else if (timeouts.default) {
+        toolTimeout = timeouts.default;
+      }
+    }
+
     const context: ToolContext = {
       toolName,
       input,
@@ -281,7 +300,20 @@ export class ToolRegistry implements IToolRegistry {
       planMode: this._planMode,
     };
 
-    return this.pipeline.execute(context, async () => {
+    // 为此次执行创建临时的 pipeline，使用工具特定的超时
+    const tempPipeline = new MiddlewarePipeline<ToolContext, ToolResult>();
+    tempPipeline
+      .use(new ErrorHandlingMiddleware())
+      .use(new LoggingMiddleware())
+      .use(new TimeoutMiddleware(toolTimeout))
+      .use(new AbortCheckMiddleware())
+      .use(new PlanModeMiddleware());
+
+    if (this.permissionController) {
+      tempPipeline.use(new PermissionMiddleware(this.permissionController));
+    }
+
+    return tempPipeline.execute(context, async () => {
       return tool.execute(input, signal);
     });
   }
@@ -316,6 +348,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new MultiEditTool());
   registry.register(new MemoryUpdateTool());
   registry.register(new MemoryDeleteTool());
-  // TeamTool, MatchAgentTool, ListAgentsTool 在 ChatSession.initTaskTool() 中动态注册（需要注入依赖）
+  // TaskTool, TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

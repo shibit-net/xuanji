@@ -7,7 +7,7 @@
 
 import type { Message } from '@/core/types';
 import type { MessageManager } from './MessageManager';
-import { sleep } from '@/core/utils/sleep';
+import { sleep } from '@/shared/utils/sleep';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'MessagePreparationHandler' });

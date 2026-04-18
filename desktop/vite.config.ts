@@ -4,6 +4,39 @@ import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 import path from 'path';
 
+// 构建别名配置函数
+function buildAliases() {
+  const rootSrc = path.resolve(__dirname, '../src');
+  const renderer = path.resolve(__dirname, './renderer');
+  
+  return {
+    // 核心模块指向根目录 src（按字母顺序排列）
+    '@/adapters': path.join(rootSrc, 'adapters'),
+    '@/auth': path.join(rootSrc, 'auth'),
+    '@/butler': path.join(rootSrc, 'butler'),
+    '@/context': path.join(rootSrc, 'context'),
+    '@/core': path.join(rootSrc, 'core'),
+    '@/embedding': path.join(rootSrc, 'embedding'),
+    '@/hooks': path.join(rootSrc, 'hooks'),
+    '@/infrastructure': path.join(rootSrc, 'infrastructure'),
+    '@/mcp': path.join(rootSrc, 'mcp'),
+    '@/memory': path.join(rootSrc, 'memory'),
+    '@/permission': path.join(rootSrc, 'permission'),
+    '@/reminder': path.join(rootSrc, 'reminder'),
+    '@/session': path.join(rootSrc, 'session'),
+    '@/shared/utils': path.join(rootSrc, 'shared/utils'),
+    '@/shared': path.join(rootSrc, 'shared'),
+    '@/tiangong': path.join(rootSrc, 'tiangong'),
+    '@/types': path.join(rootSrc, 'types'),
+
+    // 原来的别名（desktop 内部使用）
+    '@': renderer,
+    '@main': path.resolve(__dirname, './main'),
+    '@root': path.resolve(__dirname, '..'),
+    '@root/src': rootSrc,
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -15,21 +48,19 @@ export default defineConfig({
           // preload 编译完成后不启动 Electron，等主进程编译完再启动
         },
         vite: {
+          resolve: { alias: buildAliases() },
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
-            },
+            rollupOptions: { external: ['electron'] },
           },
         },
       },
       {
         // 主进程入口（后编译，编译完成后启动 Electron）
         entry: 'main/index.ts',
-        onstart(options) {
-          options.startup();
-        },
+        onstart(options) { options.startup(); },
         vite: {
+          resolve: { alias: buildAliases() },
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
@@ -47,13 +78,7 @@ export default defineConfig({
     ]),
     renderer(),
   ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './renderer'),
-      '@main': path.resolve(__dirname, './main'),
-      '@shared': path.resolve(__dirname, './shared'),
-    },
-  },
+  resolve: { alias: buildAliases() },
   base: './',
   build: {
     outDir: 'dist',

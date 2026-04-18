@@ -38,6 +38,9 @@ process.on('message', async (msg: any) => {
     case 'init':
       await handleInit();
       break;
+    case 'trigger-startup':
+      await handleTriggerStartup();
+      break;
     case 'send-message':
       await handleSendMessage(msg.data);
       break;
@@ -218,6 +221,7 @@ function registerHookListeners(hookRegistry: any) {
         role: ctx.data?.role,
         task: ctx.data?.task,
         builtin: ctx.data?.builtin,
+        agentType: ctx.data?.agentType, // 🔧 新增：传递 agentType 字段
         strategy: ctx.data?.strategy,
         teamName: ctx.data?.teamName,
         stepIndex: ctx.data?.stepIndex,
@@ -271,6 +275,7 @@ function registerHookListeners(hookRegistry: any) {
         role: role,
         task: ctx.data?.task,
         builtin: isBuiltin,
+        agentType: ctx.data?.agentType, // 🔧 新增：传递 agentType 字段
         parentId: parentAgentId,
       },
     });
@@ -436,8 +441,24 @@ function registerHookListeners(hookRegistry: any) {
  */
 async function handleInit() {
   try {
-    const factory = new SessionFactory();
+    // 获取当前用户 ID（从认证系统或使用默认值）
+    let userId = 'default';
+    try {
+      const { AuthManager } = await import('./services/auth.js');
+      const authManager = AuthManager.getInstance();
+      const currentUser = authManager.getCurrentUser();
+      if (currentUser?.userId) {
+        userId = currentUser.userId;
+      }
+    } catch (err) {
+      console.warn('[agent-bridge] 无法获取当前用户，使用默认用户:', err);
+    }
+
+    console.log(`[agent-bridge] 初始化会话，用户: ${userId}`);
+
+    const factory = new SessionFactory(userId);
     session = await factory.create({
+      userId,
       callbacks: {
         // 启动引导：思考状态
         onBootThinking: () => {
@@ -482,40 +503,9 @@ async function handleInit() {
     registerHookListeners(hookRegistry);
 
     safeSend({
-      type: 'init-result',
+      type: 'init-complete',
       data: { success: true },
     });
-
-    // 判断是否需要触发启动消息（新用户引导 or 老用户有记忆回忆）
-    // init-result 先发，renderer 端先进入就绪状态，然后再触发 __startup__
-    void (async () => {
-      try {
-        const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
-        const globalConfig = await GlobalConfig.readGlobalConfig();
-        const isNewUser = !globalConfig.onboardingDone;
-
-        let hasMemories = false;
-        if (!isNewUser && session) {
-          const container = session.getContainer();
-          const memoryManager = container.resolveSync('memoryManager');
-          if (memoryManager) {
-            const stats = await (memoryManager as any).getStats?.();
-            hasMemories = stats ? stats.total > 0 : false;
-          }
-        }
-
-        if (isNewUser || hasMemories) {
-          // 延迟触发，确保 renderer 已处理完 init-result
-          setTimeout(() => {
-            handleSendMessage('__startup__').catch((err) => {
-              console.warn('[agent-bridge] Failed to send startup message:', err);
-            });
-          }, 300);
-        }
-      } catch (err) {
-        console.warn('[agent-bridge] Failed to check startup conditions:', err);
-      }
-    })();
   } catch (err) {
     safeSend({
       type: 'init-result',
@@ -571,6 +561,33 @@ function registerSessionCallbacks(s: ChatSession) {
 }
 
 /**
+ * 触发启动消息（用户登录后调用）
+ */
+async function handleTriggerStartup() {
+  try {
+    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
+    const globalConfig = await GlobalConfig.readGlobalConfig();
+    const isNewUser = !globalConfig.onboardingDone;
+
+    let hasMemories = false;
+    if (!isNewUser && session) {
+      const container = session.getContainer();
+      const memoryManager = container.resolveSync('memoryManager');
+      if (memoryManager) {
+        const stats = await (memoryManager as any).getStats?.();
+        hasMemories = stats ? stats.total > 0 : false;
+      }
+    }
+
+    if (isNewUser || hasMemories) {
+      await handleSendMessage('__startup__');
+    }
+  } catch (err) {
+    console.warn('[agent-bridge] Failed to trigger startup message:', err);
+  }
+}
+
+/**
  * 发送消息
  */
 async function handleSendMessage(message: string) {
@@ -593,6 +610,7 @@ async function handleSendMessage(message: string) {
       data: { success: true },
     });
   } catch (err) {
+    // 错误已经通过 onError 回调发送到前端，这里只返回结果状态
     safeSend({
       type: 'send-result',
       data: {

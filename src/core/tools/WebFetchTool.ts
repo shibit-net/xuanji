@@ -4,7 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 
 /** 默认超时 (ms) */

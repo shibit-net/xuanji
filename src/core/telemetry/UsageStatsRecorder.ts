@@ -11,7 +11,6 @@
 // - JSONL 格式，追加友好，流式解析
 //
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { appendFile, readFile, mkdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -110,7 +109,7 @@ export class UsageStatsRecorder {
   private filePath: string;
 
   constructor(filePath?: string) {
-    this.filePath = filePath ?? join(homedir(), '.xuanji', 'logs', 'usage.jsonl');
+    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'usage.jsonl');
   }
 
   /**

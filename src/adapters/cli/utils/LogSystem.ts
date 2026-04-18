@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import type { LogEntry } from '../types';
+import { formatShortTime } from '../../../shared/utils/time/formatters.js';
 
 type LogSource = LogEntry['source'];
 
@@ -86,7 +87,7 @@ export class LogSystem {
    */
   async info(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
-      timestamp: new Date().toISOString().split('T')[1].slice(0, 8), // HH:mm:ss
+      timestamp: formatShortTime(new Date()),
       source,
       message,
       level: 'info',
@@ -99,7 +100,7 @@ export class LogSystem {
    */
   async warn(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
-      timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
+      timestamp: formatShortTime(new Date()),
       source,
       message,
       level: 'warn',
@@ -112,7 +113,7 @@ export class LogSystem {
    */
   async error(source: LogSource, message: string): Promise<void> {
     const entry: LogEntry = {
-      timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
+      timestamp: formatShortTime(new Date()),
       source,
       message,
       level: 'error',

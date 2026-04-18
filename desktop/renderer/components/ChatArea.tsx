@@ -106,8 +106,11 @@ export default function ChatArea() {
   // 虚拟滚动到最后一项
   const scrollToLastItem = useCallback(() => {
     if (messages.length > 0) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
-      setShowNewMessageButton(false);
+      // 使用 setTimeout 确保 DOM 已更新
+      setTimeout(() => {
+        virtualizer.scrollToIndex(messages.length - 1, { align: 'end', behavior: 'smooth' });
+        setShowNewMessageButton(false);
+      }, 0);
     }
   }, [messages.length, virtualizer]);
 
@@ -132,18 +135,30 @@ export default function ChatArea() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isAtBottom]);
 
-  // typing indicator 出现时也滚动到底部
+  // typing indicator 出现时滚动到底部
   useEffect(() => {
-    if (showTypingIndicator && isAtBottom) {
-      scrollToLastItem();
+    if (showTypingIndicator) {
+      // 延迟执行确保 TypingIndicator 已渲染
+      const timer = setTimeout(() => {
+        scrollToBottom();
+      }, 50);
+      return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTypingIndicator, isAtBottom]);
+  }, [showTypingIndicator, scrollToBottom]);
 
-  // 初始化时滚动到底部
+  // 初始化滚动：等待虚拟滚动器和消息都准备好
   useEffect(() => {
-    scrollToLastItem();
-  }, []);
+    if (messages.length > 0 && containerRef.current) {
+      // 延迟执行确保虚拟滚动器已完成测量
+      const timer = setTimeout(() => {
+        if (containerRef.current) {
+          // 直接设置 scrollTop，最可靠
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length]);
 
   return (
     <div className="flex-1 min-h-0 relative">

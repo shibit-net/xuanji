@@ -265,6 +265,7 @@ export class ToolExecutionCoordinator {
     toolExecDurationMs: number,
   ): Promise<void> {
     if (!this.hookRegistry) return;
+    if (!result.toolCalls || result.toolCalls.length === 0) return;
 
     for (const toolCall of result.toolCalls) {
       const toolResult = resultsMap.get(toolCall.id);

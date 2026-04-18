@@ -1,20 +1,40 @@
 // ============================================================
-// Xuanji Desktop - Preload 脚本
-// ============================================================
+  // Xuanji Desktop - Preload 脚本
+  // ============================================================
 
-import { contextBridge, ipcRenderer } from 'electron';
+  import { contextBridge, ipcRenderer } from 'electron';
 
-/**
- * 暴露到 window.electron
- */
-contextBridge.exposeInMainWorld('electron', {
-  // 应用信息
-  getVersion: () => ipcRenderer.invoke('app:version'),
+  /**
+   * 暴露到 window.electron
+   */
+  contextBridge.exposeInMainWorld('electron', {
+    // 应用信息
+    getVersion: () => ipcRenderer.invoke('app:version'),
 
-  // 窗口控制
-  minimize: () => ipcRenderer.send('window:minimize'),
-  maximize: () => ipcRenderer.send('window:maximize'),
-  close: () => ipcRenderer.send('window:close'),
+    // 窗口控制
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximize: () => ipcRenderer.send('window:maximize'),
+    close: () => ipcRenderer.send('window:close'),
+
+    // ============================================================
+  // 认证相关
+  // ============================================================
+  authLogin: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authCheck: () => ipcRenderer.invoke('auth:check'),
+  authGetSavedAccounts: () => ipcRenderer.invoke('auth:getSavedAccounts'),
+  authSwitchAccount: (email: string) => ipcRenderer.invoke('auth:switchAccount', email),
+  authRemoveAccount: (email: string) => ipcRenderer.invoke('auth:removeAccount', email),
+
+  // ============================================================
+  // 模型管理
+  // ============================================================
+  modelsListMarketplace: (options?: { vendor?: string, name?: string, routeId?: number, page?: number, size?: number }) =>
+    ipcRenderer.invoke('models:list-marketplace', options),
+  modelsListAll: () => ipcRenderer.invoke('models:list-all'),
+  modelsListVendors: () => ipcRenderer.invoke('models:list-vendors'),
+  modelsGetInfo: (id: number, routeId?: number) => ipcRenderer.invoke('models:get-info', id, routeId),
+  modelsListUserConfig: () => ipcRenderer.invoke('models:list-user-config'),
 
   // Agent 操作
   agentInit: () => ipcRenderer.invoke('agent:init'),
@@ -22,6 +42,8 @@ contextBridge.exposeInMainWorld('electron', {
   agentInterrupt: (message?: string) => ipcRenderer.invoke('agent:interrupt', message),
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
+  agentSendSupplment: (content: string) => ipcRenderer.invoke('agent:send-supplement', content),
+  analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
 
   // 流式事件监听
   onAgentText: (callback: (text: string) => void) => {

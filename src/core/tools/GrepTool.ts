@@ -8,7 +8,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import glob from 'fast-glob';
-import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { getGrepConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 

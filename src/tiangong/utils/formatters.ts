@@ -2,7 +2,7 @@
 // Tiangong 工具 — 格式化函数
 // ============================================================
 
-import { getStatusIcon as getUIStatusIcon, getSubscriptionStatusIcon as getUISubscriptionStatusIcon } from '@/core/utils/ui';
+import { getStatusIcon as getUIStatusIcon, getSubscriptionStatusIcon as getUISubscriptionStatusIcon } from '@/shared/utils/ui';
 
 /** 获取包状态图标（复用公共函数） */
 export function getStatusIcon(status: number): string {

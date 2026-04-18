@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { AggregatedStats } from '@/core/telemetry';
-import { formatDuration, formatNumber } from '@/core/utils/ui';
+import { formatDuration, formatNumber } from '@/shared/utils/ui';
 
 /**
  * 格式化使用统计为可读文本

@@ -7,7 +7,7 @@ import type { MCPManager } from '@/mcp/MCPManager';
 import type { SkillRegistry } from '@/core/skills';
 import type { IMemoryStore } from '@/memory/types';
 import type { IPermissionController } from '@/permission/types';
-import { maskApiKey } from '@/core/utils/ui/formatters';
+import { maskApiKey } from '@/shared/utils/ui/formatters';
 
 export interface DiagnosticsContext {
   config: AppConfig;

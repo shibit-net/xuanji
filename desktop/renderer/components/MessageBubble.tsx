@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { User, Bot, Loader2, Copy, Check } from 'lucide-react';
@@ -80,6 +81,7 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
         <div className="max-w-none text-text-primary">
           {typeof message.content === 'string' ? (
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 code({ node, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');

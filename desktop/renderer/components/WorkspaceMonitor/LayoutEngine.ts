@@ -431,8 +431,8 @@ export class LayoutEngine {
           break;
         case 'debate':
           // 🔧 根据成员数量动态计算所需空间
-          const baseRadius = 140;
-          const radiusPerMember = 10;
+          const baseRadius = 180; // 与 layoutDebate 保持一致
+          const radiusPerMember = 15;
           const debateRadius = baseRadius + Math.max(0, team.length - 3) * radiusPerMember;
           // 需要的空间 = (半径 + 节点半径 + 气泡宽度) * 2
           const spaceNeeded = (debateRadius + 25 + 220) * 2; // 25是节点半径，220是气泡宽度
@@ -634,10 +634,10 @@ export class LayoutEngine {
   private layoutDebate(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
     // 🔧 增大半径，避免 agent 标签遮挡中心圆
-    // 中心圆半径为 50px，agent 半径为 25px，标签高度约 30px
-    // 需要确保 agent 到中心的距离 > 50 + 25 + 30 = 105px
-    const baseRadius = 160; // 基础半径从 140 增加到 160
-    const radiusPerMember = 15; // 每增加一个成员，半径增加 15px（从 10 增加）
+    // 中心圆半径为 50px，agent 半径为 25px，标签高度约 40px（名称15px + 类型标签20px + 间距）
+    // 需要确保 agent 到中心的距离 > 50 + 25 + 40 = 115px
+    const baseRadius = 180; // 基础半径从 160 增加到 180
+    const radiusPerMember = 15; // 每增加一个成员，半径增加 15px
     const radius = baseRadius + Math.max(0, members.length - 3) * radiusPerMember;
     const angleStep = (2 * Math.PI) / members.length;
 
@@ -780,7 +780,7 @@ export class LayoutEngine {
 
       const paddingX = 70;
       const paddingTop = 60;
-      const paddingBottom = 80;
+      const paddingBottom = 100; // 🔧 增加底部 padding，确保包含 agent 类型标签
 
       const canvasMargin = 40;
 

@@ -2,7 +2,7 @@
 // M9 配置管理 — 默认配置
 // ============================================================
 
-import type { AppConfig } from '@/core/types';
+import type { AppConfig } from '@/shared/types/config';
 import { DEFAULT_ROUTING_CONFIG } from '@/core/routing/TaskRouter';
 
 /**
@@ -50,6 +50,14 @@ export const DEFAULT_CONFIG: AppConfig = {
       enabled: false, // 默认不启用（Phase 2 功能）
       threshold: 10_000,
       tools: ['read_file', 'bash', 'grep'],
+    },
+    timeouts: {
+      default: 300_000,        // 5 分钟（默认工具超时）
+      bash: 120_000,           // 2 分钟（Bash 命令）
+      webFetch: 30_000,        // 30 秒（Web 请求）
+      agent_team: 1_800_000,   // 30 分钟（团队协作）
+      task: 600_000,           // 10 分钟（子任务）
+      backgroundTask: 3_600_000, // 1 小时（后台任务）
     },
     permissions: {
       fileWrite: 'ask',
@@ -152,5 +160,14 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxConcurrent: 3, // 最多并行执行 3 个子任务
     timeout: 300000, // 5 分钟超时
     stopOnError: false, // 默认不在错误时停止（继续执行其他任务）
+  },
+  logging: {
+    // 日志目录模式：
+    // 'home' → ~/.xuanji/logs（默认）
+    // 'project' → ./.xuanji/logs（项目目录）
+    // 'custom' → 自定义目录（通过 'dir' 配置）
+    mode: 'project', // 改为项目目录
+    enableFile: true,
+    enableConsole: true,
   },
 };

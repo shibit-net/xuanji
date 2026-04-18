@@ -35,4 +35,4 @@ export { WorktreeTool } from './WorktreeTool';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
 
 // Utils
-export { DiffRenderer } from '../utils/DiffRenderer';
+export { DiffRenderer } from '@/shared/utils/DiffRenderer';

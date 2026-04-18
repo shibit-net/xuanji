@@ -22,7 +22,7 @@
     "test:multi-agent:full": "tsx tests/multi-agent/comprehensive-test.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist release"
+    "clean": "rm -rf dist release desktop/dist desktop/dist-electron"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

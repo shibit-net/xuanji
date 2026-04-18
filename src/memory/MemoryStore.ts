@@ -72,9 +72,6 @@ export class MemoryStore {
     // M5 字段迁移
     await this.migrateM5Fields();
 
-    // 决策点记忆系统字段迁移
-    await this.migrateDecisionPointFields();
-
     log.info(`MemoryStore initialized: ${this.dbPath}`);
   }
 
@@ -723,14 +720,7 @@ export class MemoryStore {
     }
   }
 
-  private async migrateDecisionPointFields(): Promise<void> {
-    try {
-      const { migrate001 } = await import('./migrations/001_add_decision_point_fields.js');
-      await migrate001(this.db!);
-    } catch (err) {
-      log.debug('Decision point fields migration skipped:', err);
-    }
-  }
+
 
   private ensureReady(): void {
     if (!this.ready || !this.db) {

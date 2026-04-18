@@ -4,7 +4,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { stripAnsi } from '@/core/utils/ansi';
+import { stripAnsi } from '@/shared/utils/ansi';
 
 export interface CollapsibleToolResultProps {
   name: string;
@@ -29,7 +29,7 @@ const EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'write_file']);
 // ============================================================
 // ANSI 转义序列处理
 // ============================================================
-// (已迁移到 @/core/utils/ansi 公共模块)
+// (已迁移到 @/shared/utils/ansi 公共模块)
 
 /** 判断是否为 diff 变更行（+/-/空格开头） */
 function isDiffLine(raw: string): boolean {

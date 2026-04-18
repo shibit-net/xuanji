@@ -7,7 +7,7 @@ import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { getSharedShell } from './PersistentShell';
-import { middleTruncate, getMaxToolOutputLength } from '@/core/utils/truncation';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { getToolTimeouts, getRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 import type { SandboxExecutor, SandboxConfig } from './sandbox/SandboxExecutor';

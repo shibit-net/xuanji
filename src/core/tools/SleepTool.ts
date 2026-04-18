@@ -4,7 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { sleep } from '@/core/utils/sleep';
+import { sleep } from '@/shared/utils/sleep';
 
 /** 最大等待秒数 */
 const MAX_SECONDS = 300;
