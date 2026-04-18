@@ -91,19 +91,33 @@ async function loadAccountsList(): Promise<AccountsData> {
 // 保存当前登录状态
 async function saveCurrentAuth(data: CurrentAuthData) {
   ensureAuthDir();
+  console.log('[saveCurrentAuth] 准备保存:', {
+    email: data.email,
+    hasAccessToken: !!data.accessToken,
+    hasRefreshToken: !!data.refreshToken,
+    tokenExpiresAt: data.tokenExpiresAt,
+    accessTokenLength: data.accessToken?.length
+  });
+
   try {
     const serialized = JSON.stringify(data);
+    console.log('[saveCurrentAuth] 序列化后的数据长度:', serialized.length);
 
     if (safeStorage.isEncryptionAvailable()) {
+      console.log('[saveCurrentAuth] 使用加密存储');
       const encrypted = safeStorage.encryptString(serialized);
       fs.writeFileSync(CURRENT_AUTH_FILE, encrypted);
+      console.log('[saveCurrentAuth] 加密文件已写入:', CURRENT_AUTH_FILE);
     } else {
+      console.log('[saveCurrentAuth] 使用 JSON 存储（加密不可用）');
       fs.writeFileSync(CURRENT_AUTH_FILE_JSON, serialized);
+      console.log('[saveCurrentAuth] JSON 文件已写入:', CURRENT_AUTH_FILE_JSON);
     }
 
-    console.log('保存当前登录状态成功:', data.email);
+    console.log('[saveCurrentAuth] 保存当前登录状态成功:', data.email);
   } catch (err) {
-    console.error('保存当前登录状态失败:', err);
+    console.error('[saveCurrentAuth] 保存当前登录状态失败:', err);
+    throw err;
   }
 }
 
@@ -142,13 +156,29 @@ async function clearCurrentAuth() {
 }
 
 async function saveAuthState() {
+  console.log('[saveAuthState] 开始保存认证状态...');
+  console.log('[saveAuthState] 当前 authState:', {
+    hasUser: !!authState.user,
+    userEmail: authState.user?.email,
+    hasAccessToken: !!authState.accessToken,
+    hasRefreshToken: !!authState.refreshToken,
+    tokenExpiresAt: authState.tokenExpiresAt,
+    accessTokenLength: authState.accessToken?.length,
+    refreshTokenLength: authState.refreshToken?.length
+  });
+
   if (!authState.user) {
-    console.log('没有用户信息，不保存认证状态');
+    console.log('[saveAuthState] 没有用户信息，不保存认证状态');
     return;
+  }
+
+  if (!authState.accessToken) {
+    console.error('[saveAuthState] ⚠️ 警告：accessToken 为空！');
   }
 
   try {
     // 保存当前登录状态
+    console.log('[saveAuthState] 调用 saveCurrentAuth...');
     await saveCurrentAuth({
       email: authState.user.email,
       accessToken: authState.accessToken || '',
@@ -156,6 +186,7 @@ async function saveAuthState() {
       tokenExpiresAt: authState.tokenExpiresAt || 0,
       user: authState.user
     });
+    console.log('[saveAuthState] saveCurrentAuth 完成');
 
     // 更新账号列表中的 lastLogin
     const accountsData = await loadAccountsList();
@@ -185,8 +216,9 @@ async function saveAuthState() {
     }
 
     await saveAccountsList(accountsData);
+    console.log('[saveAuthState] 认证状态保存完成');
   } catch (err) {
-    console.error('保存认证状态失败:', err);
+    console.error('[saveAuthState] 保存认证状态失败:', err);
   }
 }
 
@@ -273,11 +305,30 @@ function isTokenValid(): boolean {
 }
 
 function syncCookiesFromClient() {
-  authState.accessToken = apiClient.getCookie('accessToken') || null;
-  authState.refreshToken = apiClient.getCookie('refreshToken') || null;
+  console.log('[syncCookiesFromClient] 开始同步 Cookie...');
+  const accessToken = apiClient.getCookie('accessToken');
+  const refreshToken = apiClient.getCookie('refreshToken');
   const expiresInStr = apiClient.getCookie('tokenExpiresIn');
+
+  console.log('[syncCookiesFromClient] 从 apiClient 获取的 Cookie:', {
+    hasAccessToken: !!accessToken,
+    hasRefreshToken: !!refreshToken,
+    expiresInStr,
+    accessTokenLength: accessToken?.length,
+    refreshTokenLength: refreshToken?.length
+  });
+
+  authState.accessToken = accessToken || null;
+  authState.refreshToken = refreshToken || null;
   const expiresIn = expiresInStr ? parseInt(expiresInStr, 10) : 3600;
   authState.tokenExpiresAt = Date.now() + (expiresIn * 1000);
+
+  console.log('[syncCookiesFromClient] 同步后的 authState:', {
+    hasAccessToken: !!authState.accessToken,
+    hasRefreshToken: !!authState.refreshToken,
+    tokenExpiresAt: authState.tokenExpiresAt,
+    expiresIn
+  });
 }
 
 async function refreshUserInfo(): Promise<User | null> {

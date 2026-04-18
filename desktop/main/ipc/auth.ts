@@ -24,9 +24,18 @@ function registerAuthIpcHandlers() {
       console.log('登录 API 响应:', { success: result.success, message: result.message });
 
       if (result.success) {
+        console.log('登录成功，开始同步 Cookie...');
         syncCookiesFromClient();
+        console.log('Cookie 同步完成，当前 authState:', {
+          hasAccessToken: !!getAuthState().accessToken,
+          hasRefreshToken: !!getAuthState().refreshToken,
+          tokenExpiresAt: getAuthState().tokenExpiresAt
+        });
+
         setAuthState({ user: result.data || null });
+        console.log('开始保存认证状态...');
         await saveAuthState();
+        console.log('认证状态保存完成');
 
         console.log('登录成功，用户信息:', result.data);
 
