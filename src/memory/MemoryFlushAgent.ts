@@ -53,6 +53,7 @@ interface ExtractionResult {
     volatility?: string;
     significance?: number;
     categoryLabel?: string;
+    constraint?: string;  // 'must' | 'should' | 'may'
     isCoreRule?: boolean;
     coreRuleCategory?: string;
   }>;
@@ -238,6 +239,7 @@ export class MemoryFlushAgent {
           volatility: memory.volatility as MemoryVolatility | undefined,
           significance: memory.significance,
           categoryLabel: memory.categoryLabel,
+          constraint: memory.constraint as 'must' | 'should' | 'may' | undefined,
         });
         savedCount++;
       } catch (err) {
@@ -382,10 +384,15 @@ export class MemoryFlushAgent {
 - **episode**：具体事件、会话摘要，正常衰减（半衰期 14-60 天）
 
 时效性（volatility）决定半衰期：
-- **permanent**：永不衰减（重要日期、用户底线规则）
+- **permanent**：永不衰减（重要日期、用户底线规则、永久约束）
 - **stable**：极慢衰减（用户基本信息、长期偏好）
 - **normal**：正常衰减（技术决策、经验教训）
 - **transient**：快速衰减（会话摘要、临时任务）
+
+约束级别（constraint）决定是否为强制规则：
+- **must**：必须遵守的永久约束/规则（如："回复要简洁"、"使用中文回复"）
+- **should**：应该遵守的建议性规则
+- **may**：可选参考的普通记忆
 
 ---
 
@@ -404,6 +411,11 @@ export class MemoryFlushAgent {
 - ✓ 示例："用户偏好简洁代码，不喜欢过度注释" / "用户习惯先讨论方案再动手"
 - ✗ 不包括：客观事实（→ user_fact）；一次性的具体请求
 - **scope**: profile, **volatility**: stable, **category**: topic
+- **特别注意**：如果用户明确说"记住"、"以后"、"必须"、"不要"等强制性词汇，应标记为：
+  - **constraint**: must（永久约束/规则）
+  - **volatility**: permanent（永不衰减）
+  - **scope**: core_rule（核心规则层）
+  - 示例："记住，以后回复要简洁" → constraint='must', volatility='permanent', scope='core_rule'
 
 ### ▸ relationship（人际关系背景）
 补充描述用户与他人的关系特征、互动模式，**不包含基本信息**（基本信息在 user_fact）。
@@ -526,6 +538,7 @@ ${conversation}
       "volatility": "permanent|stable|normal|transient",
       "significance": 0.8,
       "categoryLabel": "用户/工具偏好",
+      "constraint": "must|should|may",
       "isCoreRule": false,
       "coreRuleCategory": null
     }
@@ -572,6 +585,14 @@ ${conversation}
 8. **每次对话至少提取 1-2 条 lessons**（如果有任何问题解决或改进）
 9. 如无经验教训，lessons 返回空数组
 10. 如无成功经验模式，successfulPatterns 返回空数组
+11. **永久约束/规则识别**：
+    - 如果用户使用"记住"、"以后"、"必须"、"不要"、"规则"、"约束"等强制性词汇
+    - 或者明确表达永久性要求（如："回复要简洁"、"使用中文"）
+    - 应标记为：constraint='must', volatility='permanent', scope='core_rule'
+    - 这类记忆会被系统始终注入到 system prompt 中，作为强制规则执行
+12. **普通偏好 vs 永久规则**：
+    - 普通偏好："我喜欢吃辣" → constraint='may', volatility='stable'
+    - 永久规则："记住，以后回复要简洁" → constraint='must', volatility='permanent'
 11. 如无未完成任务，unfinishedTasks 返回空数组
 12. unfinishedTasks 只记录真正未完成的任务，不要记录已完成的`;
   }

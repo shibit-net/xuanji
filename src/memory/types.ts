@@ -14,7 +14,7 @@ export interface CoreRule {
   id: string;
   rule: string;
   description?: string;
-  category: 'behavior' | 'privacy' | 'communication' | 'ethics' | 'task' | 'custom';
+  category: 'behavior' | 'privacy' | 'communication' | 'ethics' | 'task' | 'identity' | 'custom';
   createdAt: string;
   updatedAt: string;
   active: boolean;
@@ -572,6 +572,8 @@ export interface DreamProgress {
 
 /** 做梦结果 */
 export interface DreamResult {
+  /** 合并冲突数量 */
+  merged: number;
   /** 提炼数量 */
   distilled: number;
   /** 压缩数量 */

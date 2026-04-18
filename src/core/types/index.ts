@@ -29,6 +29,7 @@ export type {
   ToolResult,
   ToolCall,
   IToolRegistry,
+  FileChange,
 } from './tools';
 
 export type {

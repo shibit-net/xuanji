@@ -46,6 +46,7 @@ export class DreamAgent {
     if (totalCount === 0) {
       log.info('🌙 没有需要处理的记忆');
       return {
+        merged: 0,
         distilled: 0,
         compressed: 0,
         deduplicated: 0,
@@ -62,6 +63,7 @@ export class DreamAgent {
 
     // 3. 聚合结果
     const aggregatedResult: DreamResult = {
+      merged: 0,
       distilled: 0,
       compressed: 0,
       deduplicated: 0,
@@ -93,6 +95,7 @@ export class DreamAgent {
       });
 
       // 聚合结果
+      aggregatedResult.merged += batchResult.merged;
       aggregatedResult.distilled += batchResult.distilled;
       aggregatedResult.compressed += batchResult.compressed;
       aggregatedResult.deduplicated += batchResult.deduplicated;
@@ -124,6 +127,7 @@ export class DreamAgent {
 
     log.info(
       `🌙 做梦完成（${totalBatches}批，${processedCount}条）：` +
+      `合并${aggregatedResult.merged}条、` +
       `提炼${aggregatedResult.distilled}条、` +
       `压缩${aggregatedResult.compressed}条、` +
       `去重${aggregatedResult.deduplicated}条、` +
@@ -238,11 +242,40 @@ export class DreamAgent {
 ${JSON.stringify(context, null, 2)}
 
 请执行以下任务：
-1. 提炼相似记忆
-2. 压缩冗长记忆
-3. 去重重复记忆
-4. 淘汰低价值记忆
-5. 更新记忆评分
+1. **合并冲突记忆**（最高优先级）
+   - 检测唯一性字段的冲突（用户称呼、助手名字、用户姓名、人格设定、语气风格）
+   - 将多条冲突记忆合并为一条最新的记忆
+   - 在 metadata.history 中保存修改历史
+   - 标记旧记忆为 obsolete = true
+   - 示例：
+     * 记忆 A: "用户希望被称呼为'先生'" (2026-04-12)
+     * 记忆 B: "用户希望被称呼为'Boss'" (2026-04-17)
+     * 操作：保留 B，标记 A 为 obsolete，在 B 的 metadata.history 中记录 ["先生" (2026-04-12)]
+
+2. 提炼相似记忆
+   - 将多条相似但不冲突的记忆提炼为一条更精炼的记忆
+
+3. 压缩冗长记忆
+   - 将过长的记忆内容压缩为更简洁的表达
+
+4. 去重重复记忆
+   - 删除完全重复的记忆
+
+5. 淘汰低价值记忆
+   - 删除使用率低、置信度低的记忆
+
+6. 更新记忆评分
+   - 根据使用情况更新记忆的 significance 和 confidence
+
+**重要提示**：
+- 唯一性字段冲突检测模式：
+  * 用户称呼：包含"被称呼为"、"叫我"、"call me"
+  * 助手名字：包含"称呼助手为"、"你的名字"、"your name"
+  * 用户姓名：包含"我的名字"、"my name is"
+  * 人格设定：包含"人格设定"、"性格设定"、"persona"
+  * 语气风格：包含"语气风格"、"说话风格"、"tone"
+- 合并时优先保留最新的记忆（createdAt 最大）
+- 修改历史格式：metadata.history = [{ value: "旧值", timestamp: "时间戳" }]
 
 ${options.dryRun ? '【试运行模式，不实际修改】' : ''}`;
 
@@ -263,6 +296,7 @@ ${options.dryRun ? '【试运行模式，不实际修改】' : ''}`;
     } catch (err) {
       log.error('处理批次失败', err);
       return {
+        merged: 0,
         distilled: 0,
         compressed: 0,
         deduplicated: 0,
@@ -279,6 +313,12 @@ ${options.dryRun ? '【试运行模式，不实际修改】' : ''}`;
   private parseDreamResult(agentResult: any): Omit<DreamResult, 'duration'> {
     // 从工具调用中统计
     const toolCalls = agentResult.toolCalls || [];
+
+    // 合并操作：标记为 obsolete 的记忆
+    const merged = toolCalls.filter((t: any) =>
+      t.name === 'memory_update' &&
+      (t.input?.obsolete === true || t.input?.reason?.includes('merge') || t.input?.reason?.includes('conflict'))
+    ).length;
 
     const distilled = toolCalls.filter((t: any) =>
       t.name === 'memory_store' && t.input?.dreamGeneration > 0
@@ -300,7 +340,7 @@ ${options.dryRun ? '【试运行模式，不实际修改】' : ''}`;
       t.name === 'memory_update' && t.input?.reason?.includes('score')
     ).length;
 
-    return { distilled, compressed, deduplicated, pruned, scored };
+    return { merged, distilled, compressed, deduplicated, pruned, scored };
   }
 
   /**

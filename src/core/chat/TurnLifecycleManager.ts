@@ -24,13 +24,13 @@ export class TurnLifecycleManager {
   /**
    * 每轮对话结束后调用：自动保存 + 消息淘汰 + 归档检查
    */
-  async afterTurn(turnCount: number): Promise<void> {
-    await this.autoSaveAfterTurn(turnCount);
+  async afterTurn(): Promise<void> {
+    await this.autoSaveAfterTurn();
     await this.evictIfNeeded();
     await this.checkAndArchive();
   }
 
-  private async autoSaveAfterTurn(turnCount: number): Promise<void> {
+  private async autoSaveAfterTurn(): Promise<void> {
     const messages = this.agentLoop.getMessageHistory();
     if (messages.length === 0) return;
 
@@ -46,7 +46,7 @@ export class TurnLifecycleManager {
       },
       historyMessages,
     });
-    log.debug(`Auto-saved session (turn ${turnCount})`);
+    log.debug('Auto-saved session');
   }
 
   private extractHistoryMessages(messages: SessionMessage[]): HistoryMessage[] {

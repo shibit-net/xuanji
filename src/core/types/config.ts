@@ -121,6 +121,8 @@ export interface AppConfig {
   provider: ProviderConfig;
   /** UI 配置 */
   ui: UIConfig;
+  /** 权限配置 */
+  permission: PermissionConfig;
   /** 工具配置 */
   tools: ToolsConfig;
   /** 重试策略 */
@@ -157,6 +159,8 @@ export interface AppConfig {
   executor?: ExecutorConfig;
   /** 机器人拟人化配置 */
   persona?: PersonaConfig;
+  /** Hooks 配置 */
+  hooks?: Record<string, any>;
   /** 是否已完成首次引导（onboarding） */
   onboardingDone?: boolean;
 }

@@ -31,12 +31,15 @@ import { VectorManager } from './VectorManager.js';
 import { MemoryMaintenanceScheduler } from './MemoryMaintenanceScheduler.js';
 import { DecisionPointDetector } from './DecisionPointDetector.js';
 import { DecisionPointMemoryRetriever } from './DecisionPointMemoryRetriever.js';
-import { IdentityManager } from './IdentityManager.js';
 import { DreamAgent } from './DreamAgent.js';
 import { DreamScheduler } from './DreamScheduler.js';
+import { PermanentConstraintManager } from './PermanentConstraintManager.js';
+import { ConstraintClassifier } from './ConstraintClassifier.js';
+import { SmartMemoryStorage } from './SmartMemoryStorage.js';
 import { logger } from '@/core/logger';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
+import type { ILLMProvider } from '@/core/types';
 
 const log = logger.child({ module: 'MemoryManager' });
 
@@ -65,10 +68,14 @@ export class MemoryManager implements IMemoryStore {
   // 3.0 新增组件
   private decisionPointDetector: DecisionPointDetector;
   private decisionPointRetriever: DecisionPointMemoryRetriever | null = null;
-  private identityManager: IdentityManager;
   private dreamAgent: DreamAgent | null = null;
   private dreamScheduler: DreamScheduler | null = null;
   private subAgentFactory: SubAgentFactory | null = null;
+
+  // 统一永久记忆系统
+  private constraintManager: PermanentConstraintManager;
+  private constraintClassifier: ConstraintClassifier | null = null;
+  private smartStorage: SmartMemoryStorage | null = null;
 
   private initialized = false;
   private initPromise: Promise<void> | null = null;
@@ -90,12 +97,16 @@ export class MemoryManager implements IMemoryStore {
     this._store = new MemoryStore();
     this.extractor = new MemoryExtractor(this.config, resolvedRoot);
     this.retriever = new MemoryRetriever(this._store, this.config.decayHalfLifeDays);
-    this.coreRuleStore = new CoreRuleStore();
     this.vectorManager = new VectorManager(this._store);
+
+    // 统一永久记忆系统
+    this.constraintManager = new PermanentConstraintManager(this._store);
+
+    // CoreRuleStore 作为兼容层，委托给 constraintManager
+    this.coreRuleStore = new CoreRuleStore(this.constraintManager);
 
     // 3.0 新增组件初始化
     this.decisionPointDetector = new DecisionPointDetector();
-    this.identityManager = new IdentityManager(this._store);
   }
 
   /** 初始化（建表、自动迁移、异步初始化向量系统） */
@@ -409,6 +420,23 @@ export class MemoryManager implements IMemoryStore {
     return this.coreRuleStore;
   }
 
+  /** 获取统一的永久约束管理器（推荐使用） */
+  getConstraintManager(): PermanentConstraintManager {
+    return this.constraintManager;
+  }
+
+  /** 获取智能记忆存储器（自动分类） */
+  getSmartStorage(): SmartMemoryStorage | null {
+    return this.smartStorage;
+  }
+
+  /** 设置 LLM Provider（用于智能分类） */
+  setLLMProvider(provider: ILLMProvider): void {
+    this.constraintClassifier = new ConstraintClassifier(provider);
+    this.smartStorage = new SmartMemoryStorage(provider, this._store);
+    log.info('Smart memory storage enabled');
+  }
+
   // ────────── 3.0 新增组件访问 ──────────
 
   /** 获取决策点检测器 */
@@ -419,11 +447,6 @@ export class MemoryManager implements IMemoryStore {
   /** 获取决策点记忆检索器 */
   getDecisionPointRetriever(): DecisionPointMemoryRetriever | null {
     return this.decisionPointRetriever;
-  }
-
-  /** 获取身份管理器 */
-  getIdentityManager(): IdentityManager {
-    return this.identityManager;
   }
 
   /** 获取做梦调度器 */

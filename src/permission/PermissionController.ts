@@ -38,11 +38,31 @@ import { FileGuard } from './guards/FileGuard';
 import { CommandGuard } from './guards/CommandGuard';
 import { PolicyEngine } from './policies/PolicyEngine';
 import { DecisionStore } from './DecisionStore';
-import { AuditLogger } from '@/core/telemetry';
+import { EventBus } from '@/infrastructure/messaging';
 import { logger } from '@/core/logger';
 import { t } from '@/core/i18n';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
+
+/**
+ * 权限检查事件
+ */
+export interface PermissionCheckedEvent {
+  request: PermissionRequest;
+  result: PermissionResult;
+  guardResult: GuardCheckResult | null;
+  rememberChoice?: boolean;
+  timestamp: Date;
+}
+
+/**
+ * 计划审查事件
+ */
+export interface PlanReviewedEvent {
+  plan: string;
+  result: PlanReviewResult;
+  timestamp: Date;
+}
 
 /**
  * PermissionController — 权限决策核心
@@ -52,7 +72,7 @@ export class PermissionController implements IPermissionController {
   private fileGuard: FileGuard;
   private commandGuard: CommandGuard;
   private policyEngine: PolicyEngine;
-  private auditLogger: AuditLogger;
+  private eventBus: EventBus;
   private confirmationHandler: ConfirmationHandler | null = null;
   private planReviewHandler: PlanReviewHandler | null = null;
   private config: PermissionConfig;
@@ -78,22 +98,24 @@ export class PermissionController implements IPermissionController {
   /** 确认队列: 保证同一时刻只有一个确认框 */
   private confirmationQueue: Promise<void> = Promise.resolve();
 
-  constructor(config: PermissionConfig) {
+  constructor(config: PermissionConfig, eventBus?: EventBus) {
     this.config = config;
     this.fileGuard = new FileGuard();
     this.commandGuard = new CommandGuard();
     this.policyEngine = new PolicyEngine(config);
-    this.auditLogger = new AuditLogger();
+    this.eventBus = eventBus ?? new EventBus();
 
-    // 初始化持久化存储（异步）
+    // 初始化持久化存储（异步），初始化完成后会自动加载拒绝操作记录
     this.initDecisionStore().catch((err) => {
       this.log.warn('Failed to init decision store:', err);
     });
+  }
 
-    // 加载拒绝操作记录
-    this.loadDeniedOperations().catch((err) => {
-      this.log.warn('Failed to load denied operations:', err);
-    });
+  /**
+   * 获取 EventBus 实例（供外部订阅事件）
+   */
+  getEventBus(): EventBus {
+    return this.eventBus;
   }
 
   /**
@@ -210,7 +232,12 @@ export class PermissionController implements IPermissionController {
     if (!guardResult) {
       // 无需权限检查的工具 (如未识别的工具名、plan_review 等)
       const result: PermissionResult = { allowed: true, checkedBy: 'no-guard' };
-      this.auditLogger.recordPermissionCheck(request, result, null).catch(() => {});
+      this.eventBus.emit('permission:checked', {
+        request,
+        result,
+        guardResult: null,
+        timestamp: new Date(),
+      });
       return result;
     }
 
@@ -218,7 +245,12 @@ export class PermissionController implements IPermissionController {
     // safe + fileRead — 始终自动放行
     if (guardResult.riskLevel === 'safe' && guardResult.category === 'fileRead') {
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-safe-read' };
-      this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+      this.eventBus.emit('permission:checked', {
+        request,
+        result,
+        guardResult,
+        timestamp: new Date(),
+      });
       return result;
     }
 
@@ -238,13 +270,23 @@ export class PermissionController implements IPermissionController {
         if (confirmWrite === 'plan-only') {
           // 依赖 LLM 通过 plan_review 主动确认，此处自动放行
           const result: PermissionResult = { allowed: true, checkedBy: 'plan-delegated' };
-          this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+          this.eventBus.emit('permission:checked', {
+            request,
+            result,
+            guardResult,
+            timestamp: new Date(),
+          });
           return result;
         }
 
         // confirmWrite === 'auto'，自动放行
         const result: PermissionResult = { allowed: true, checkedBy: 'auto-write' };
-        this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+        this.eventBus.emit('permission:checked', {
+          request,
+          result,
+          guardResult,
+          timestamp: new Date(),
+        });
         return result;
       }
     }
@@ -252,7 +294,12 @@ export class PermissionController implements IPermissionController {
     // safe + bashExec — 自动放行
     if (guardResult.riskLevel === 'safe') {
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-safe' };
-      this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+      this.eventBus.emit('permission:checked', {
+        request,
+        result,
+        guardResult,
+        timestamp: new Date(),
+      });
       return result;
     }
 
@@ -273,7 +320,12 @@ export class PermissionController implements IPermissionController {
             reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
             checkedBy: 'session-cache',
           };
-          this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+          this.eventBus.emit('permission:checked', {
+            request,
+            result,
+            guardResult,
+            timestamp: new Date(),
+          });
           return result;
         }
 
@@ -289,7 +341,12 @@ export class PermissionController implements IPermissionController {
               reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
               checkedBy: 'persist-cache',
             };
-            this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+            this.eventBus.emit('permission:checked', {
+              request,
+              result,
+              guardResult,
+              timestamp: new Date(),
+            });
             return result;
           }
         }
@@ -301,7 +358,12 @@ export class PermissionController implements IPermissionController {
       // warnLevel === 'auto-allow'，自动放行
       this.log.debug(`Auto-allowing warn-level operation: ${guardResult.description}`);
       const result: PermissionResult = { allowed: true, checkedBy: 'auto-warn' };
-      this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+      this.eventBus.emit('permission:checked', {
+        request,
+        result,
+        guardResult,
+        timestamp: new Date(),
+      });
       return result;
     }
 
@@ -315,7 +377,12 @@ export class PermissionController implements IPermissionController {
         reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
         checkedBy: 'session-cache',
       };
-      this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+      this.eventBus.emit('permission:checked', {
+        request,
+        result,
+        guardResult,
+        timestamp: new Date(),
+      });
       return result;
     }
 
@@ -331,7 +398,12 @@ export class PermissionController implements IPermissionController {
           reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
           checkedBy: 'persist-cache',
         };
-        this.auditLogger.recordPermissionCheck(request, result, guardResult).catch(() => {});
+        this.eventBus.emit('permission:checked', {
+          request,
+          result,
+          guardResult,
+          timestamp: new Date(),
+        });
         return result;
       }
     }
@@ -445,7 +517,13 @@ export class PermissionController implements IPermissionController {
             reason: confirmation.allowed ? undefined : t('perm.denied_user', { desc: guardResult.description }),
             checkedBy: 'user-confirmation',
           };
-          this.auditLogger.recordPermissionCheck(request, permResult, guardResult, confirmation.remember).catch(() => {});
+          this.eventBus.emit('permission:checked', {
+            request,
+            result: permResult,
+            guardResult,
+            rememberChoice: confirmation.remember,
+            timestamp: new Date(),
+          });
           resolve(permResult);
         } catch (err) {
           // handler 异常: 自动拒绝
@@ -455,7 +533,12 @@ export class PermissionController implements IPermissionController {
             reason: t('perm.denied_timeout'),
             checkedBy: 'timeout',
           };
-          this.auditLogger.recordPermissionCheck(request, permResult, guardResult).catch(() => {});
+          this.eventBus.emit('permission:checked', {
+            request,
+            result: permResult,
+            guardResult,
+            timestamp: new Date(),
+          });
           resolve(permResult);
         }
       });
@@ -484,19 +567,31 @@ export class PermissionController implements IPermissionController {
     if (!this.planReviewHandler) {
       this.log.warn('No plan review handler, auto-approving');
       const result: PlanReviewResult = { decision: 'approve' };
-      this.auditLogger.recordPlanReview(plan, result).catch(() => {});
+      this.eventBus.emit('plan:reviewed', {
+        plan,
+        result,
+        timestamp: new Date(),
+      });
       return result;
     }
 
     // 直接 await handler，超时逻辑由 UI 层（App.tsx）负责
     try {
       const result = await this.planReviewHandler(plan);
-      this.auditLogger.recordPlanReview(plan, result).catch(() => {});
+      this.eventBus.emit('plan:reviewed', {
+        plan,
+        result,
+        timestamp: new Date(),
+      });
       return result;
     } catch (err) {
       this.log.warn('Plan review handler error, rejecting:', err);
       const result: PlanReviewResult = { decision: 'reject' };
-      this.auditLogger.recordPlanReview(plan, result).catch(() => {});
+      this.eventBus.emit('plan:reviewed', {
+        plan,
+        result,
+        timestamp: new Date(),
+      });
       return result;
     }
   }

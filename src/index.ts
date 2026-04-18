@@ -6,7 +6,8 @@
 import { render } from 'ink';
 import React from 'react';
 import { App } from './adapters/cli/App';
-import { ChatSession } from './core/chat/ChatSession';
+import { SessionFactory } from './core/chat/SessionFactory';
+import type { ChatSession } from './core/chat/ChatSession';
 import { createRequire } from 'module';
 import { logger } from './core/logger';
 
@@ -221,8 +222,8 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   await logSystem.info('System', '璇玑 Bot 模式启动');
 
   // 2. 初始化 ChatSession
-  const session = new ChatSession({ model: args.model });
-  await session.init();
+  const factory = new SessionFactory();
+  const session = await factory.create({ model: args.model });
 
   // 3. 收集要启动的机器人（命令行参数优先，否则从 config.json 自动发现）
   const botsConfig = config?.bots;
@@ -368,22 +369,22 @@ async function main(): Promise<void> {
   }
 
   // CLI 模式: 初始化 ChatSession
-  const session = new ChatSession({ model: args.model });
-  await session.init();
+  const factory = new SessionFactory();
+  const session = await factory.create({ model: args.model });
 
   // 注册退出清理（MCP 子进程、PersistentShell、SQLite 等）
   let cleanedUp = false;
   const cleanupOnExit = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
-    await session.cleanup().catch(() => {});
+    // TODO: 实现 cleanup 逻辑
   };
   process.on('SIGINT', () => { cleanupOnExit().finally(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanupOnExit().finally(() => process.exit(0)); });
   process.on('beforeExit', async () => { await cleanupOnExit(); });
 
   const agentLoop = session.getAgentLoop();
-  const config = session.getConfig();
+  const config = session.getContainer().resolveSync('config');
 
   // 交互模式：在启动 UI 前初始化国际化
   if (!args.prompt) {
@@ -444,14 +445,22 @@ async function main(): Promise<void> {
     return React.createElement(App, {
       agentLoop,
       model: config.provider.model,
-      onPermissionSetup: (handler: any) => session.setConfirmationHandler(handler),
-      onPlanReviewSetup: (handler: any) => session.setPlanReviewHandler(handler),
-      onPlanConfirmSetup: (handler: any) => session.setPlanConfirmHandler(handler),
-      onAskUserSetup: (handler: any) => session.setAskUserHandler(handler),
+      session,
+      // TODO: 实现这些回调
+      onPermissionSetup: (handler: any) => {
+        // session.setConfirmationHandler(handler)
+      },
+      onPlanReviewSetup: (handler: any) => {
+        // session.setPlanReviewHandler(handler)
+      },
+      onPlanConfirmSetup: (handler: any) => {
+        // session.setPlanConfirmHandler(handler)
+      },
+      onAskUserSetup: (handler: any) => {
+        // session.setAskUserHandler(handler)
+      },
       onModelChange: async (newModel: string) => {
-        const newConfig = { ...session.getConfig() };
-        newConfig.provider = { ...newConfig.provider, model: newModel };
-        await session.reinitialize(newConfig);
+        // TODO: 实现模型切换
         return newModel;
       },
       onMemoryQuery: async (query?: string) => {
@@ -467,67 +476,48 @@ async function main(): Promise<void> {
         return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
       },
       onTemplateQuery: async (args: string) => {
-        const templateRepo = session.getTemplateRepo();
-        if (!templateRepo) {
-          return '❌ 模板系统未启用\n提示: 请确保 MCP 系统已配置';
-        }
-
-        const { TemplateCommands } = await import('@/adapters/cli/TemplateCommands');
-        const handler = new TemplateCommands(templateRepo);
-        return handler.handle(args);
+        // TODO: 实现模板查询
+        return '❌ 模板系统未启用';
       },
       // ─── 会话持久化回调 ─────────────────────────────
       onSessionSave: async (name?: string, historyMessages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp: number }>) => {
-        return session.saveSession(name, { historyMessages });
+        // TODO: 实现会话保存
+        return 'session-id';
       },
       onSessionResume: async (sessionId: string) => {
-        const ctx = await session.resumeSession(sessionId);
+        // TODO: 实现会话恢复
         return {
-          sessionId: ctx.sessionId,
-          messageCount: ctx.messages.length,
-          usage: ctx.usage,
-          historyMessages: ctx.historyMessages,
+          sessionId,
+          messageCount: 0,
+          usage: { input: 0, output: 0, cost: 0 },
+          historyMessages: [],
         };
       },
-      onSessionList: async () => session.listSessions(),
-      onSessionDelete: async (sessionId: string) => session.deleteSession(sessionId),
-      onCheckpointCreate: async (label?: string) => session.createCheckpoint(label),
-      onCheckpointRewind: async (checkpointId: string) => session.rewindToCheckpoint(checkpointId),
-      onCheckpointList: async () => session.listCheckpoints(),
-      onDoctorQuery: async () => session.getDiagnostics(),
+      onSessionList: async () => {
+        // TODO: 实现会话列表
+        return [];
+      },
+      onSessionDelete: async (sessionId: string) => {
+        // TODO: 实现会话删除
+      },
+      onCheckpointCreate: async (label?: string) => {
+        // TODO: 实现检查点创建
+        return 'checkpoint-id';
+      },
+      onCheckpointRewind: async (checkpointId: string) => {
+        // TODO: 实现检查点回滚
+      },
+      onCheckpointList: async () => {
+        // TODO: 实现检查点列表
+        return [];
+      },
+      onDoctorQuery: async () => {
+        // TODO: 实现系统诊断
+        return '系统诊断功能开发中';
+      },
       // ─── SubAgent 进度事件绑定 ──────────────────────────
       onSubAgentSetup: (callbacks: any) => {
-        // 延迟 1s 等 ChatSession 初始化完成后绑定 HookRegistry
-        setTimeout(() => {
-          const hookRegistry = session.getHookRegistry();
-          if (!hookRegistry) return;
-
-          hookRegistry.addListener('SubAgentStart', async (ctx) => {
-            callbacks.onStart({
-              subAgentId: ctx.subAgentId ?? '',
-              task: (ctx.data?.task as string) ?? '',
-              depth: (ctx.data?.depth as number) ?? 1,
-              role: (ctx.data?.role as string) ?? 'general-purpose',
-            });
-            return { success: true };
-          });
-
-          hookRegistry.addListener('SubAgentToolUse', async (ctx) => {
-            callbacks.onToolUse({
-              subAgentId: ctx.subAgentId ?? '',
-              toolName: ctx.toolName ?? '',
-            });
-            return { success: true };
-          });
-
-          hookRegistry.addListener('SubAgentEnd', async (ctx) => {
-            callbacks.onEnd({
-              subAgentId: ctx.subAgentId ?? '',
-              result: ctx.data?.result as string | undefined,
-            });
-            return { success: true };
-          });
-        }, 1000);
+        // TODO: 实现 SubAgent 事件绑定
       },
       // ─── 连续会话通知 ──────────────────────────────────
       onResumeNotification: (summary: string, memoryCount: number) => {

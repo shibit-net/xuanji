@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { JSONSchema, ToolResult } from '@/core/types';
-import type { IMemoryStore, MemoryEntry, MemoryEntryType } from '@/memory/types';
+import type { IMemoryStore, MemoryEntry, MemoryEntryType, MemoryScope, MemoryVolatility } from '@/memory/types';
 import { inferMemoryAttributes } from '@/memory/MemoryAttributeInferrer';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
@@ -31,6 +31,13 @@ export class MemoryStoreTool extends BaseTool {
     '- Shares important dates (birthdays, deadlines, anniversaries)',
     '- Makes a significant decision',
     '- Corrects previous information ("Actually I can eat mild spice now")',
+    '- **Sets a permanent rule/constraint** (uses words like "记住", "以后", "必须", "不要", "规则", "约束", "remember", "always", "never", "rule", "constraint")',
+    '',
+    'IMPORTANT - Permanent Rules vs Regular Memories:',
+    '- **Permanent Rule**: User says "记住，以后回复要简洁" or "Always use Chinese" → This is a MUST-follow constraint',
+    '  * Mark as: type=user_preference, constraint=must, volatility=permanent, scope=core_rule',
+    '- **Regular Memory**: User says "我喜欢吃辣" or "I prefer dark mode" → This is optional preference',
+    '  * Mark as: type=user_preference, constraint=may, volatility=stable, scope=profile',
     '',
     'Do NOT use for:',
     '- Transient requests (format code, what time is it)',
@@ -91,6 +98,41 @@ export class MemoryStoreTool extends BaseTool {
           '- 0.6-0.7: Inferred from context',
         ].join('\n'),
       },
+      constraint: {
+        type: 'string',
+        enum: ['must', 'should', 'may'],
+        description: [
+          'Constraint level (optional, default based on context):',
+          '- must: Permanent rule/constraint that MUST be followed (e.g., "记住，以后回复要简洁")',
+          '- should: Recommended guideline',
+          '- may: Optional preference or fact',
+          '',
+          'Use "must" when user explicitly sets a rule with words like:',
+          '记住、以后、必须、不要、规则、约束、remember、always、never、rule、constraint',
+        ].join('\n'),
+      },
+      volatility: {
+        type: 'string',
+        enum: ['permanent', 'stable', 'normal', 'transient'],
+        description: [
+          'Memory persistence (optional, default based on type):',
+          '- permanent: Never decays (use with constraint=must for rules)',
+          '- stable: Very slow decay (user facts, long-term preferences)',
+          '- normal: Normal decay (decisions, lessons)',
+          '- transient: Fast decay (session summaries)',
+        ].join('\n'),
+      },
+      scope: {
+        type: 'string',
+        enum: ['core_rule', 'profile', 'knowledge', 'episode'],
+        description: [
+          'Memory scope (optional, default based on type):',
+          '- core_rule: Core rules (use with constraint=must)',
+          '- profile: User profile facts',
+          '- knowledge: Experience and lessons',
+          '- episode: Recent context',
+        ].join('\n'),
+      },
     },
     required: ['type', 'content', 'keywords'],
   };
@@ -113,6 +155,9 @@ export class MemoryStoreTool extends BaseTool {
     const content = input.content as string;
     const keywords = input.keywords as string[];
     const confidence = (input.confidence as number | undefined) ?? 0.8;
+    const constraint = input.constraint as 'must' | 'should' | 'may' | undefined;
+    const volatility = input.volatility as MemoryVolatility | undefined;
+    const scope = input.scope as MemoryScope | undefined;
 
     if (!type) {
       return this.error('Parameter "type" is required');
@@ -137,6 +182,16 @@ export class MemoryStoreTool extends BaseTool {
     // 构造 MemoryEntry
     const attrs = inferMemoryAttributes(type);
 
+    // 如果用户指定了 constraint='must'，自动调整为永久规则
+    let finalScope = scope ?? attrs.scope;
+    let finalVolatility = volatility ?? attrs.volatility;
+    let finalConstraint = constraint ?? 'may';
+
+    if (constraint === 'must') {
+      finalScope = 'core_rule';
+      finalVolatility = 'permanent';
+    }
+
     const entry: MemoryEntry = {
       id: this.generateId(),
       type,
@@ -152,10 +207,11 @@ export class MemoryStoreTool extends BaseTool {
       // 自动解析元数据（特别是 important_date 类型）
       metadata: this.parseMetadata(type, content),
       // M5 分层记忆字段
-      scope: attrs.scope,
-      volatility: attrs.volatility,
+      scope: finalScope,
+      volatility: finalVolatility,
       significance: attrs.significance,
       categoryLabel: attrs.categoryLabel,
+      constraint: finalConstraint,
     };
 
     // 保存

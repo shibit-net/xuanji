@@ -29,6 +29,20 @@ export const DEFAULT_CONFIG: AppConfig = {
     showCost: true,
     showThinking: false,
   },
+  permission: {
+    fileWrite: 'ask',
+    fileRead: 'always',
+    bashExec: 'ask',
+    warnLevel: 'ask',
+    confirmWrite: 'plan-only',
+    confirmBatchWrite: false,
+    allowedCommands: [],
+    deniedCommands: [],
+    allowedPaths: [],
+    deniedPaths: [],
+    persistDecisions: true,
+    decisionsFile: '.xuanji/permission-decisions.db',
+  },
   tools: {
     enabled: [],
     schemaMode: 'compact', // 默认使用极简模式
@@ -49,7 +63,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       allowedPaths: [],
       deniedPaths: [],
       persistDecisions: true,  // ← 新增
-      decisionsFile: '.xuanji/permission-decisions.json',  // ← 新增
+      decisionsFile: '.xuanji/permission-decisions.db',  // ← 新增
     },
   },
   retry: {

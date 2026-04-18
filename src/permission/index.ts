@@ -3,6 +3,7 @@
 // ============================================================
 
 export { PermissionController } from './PermissionController';
+export type { PermissionCheckedEvent, PlanReviewedEvent } from './PermissionController';
 export { DecisionStore } from './DecisionStore';
 export { FileGuard } from './guards/FileGuard';
 export { CommandGuard } from './guards/CommandGuard';

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { MemoryStore } from '../MemoryStore';
 import { DecisionPointDetector } from '../DecisionPointDetector';
 import { DecisionPointMemoryRetriever } from '../DecisionPointMemoryRetriever';
-import { IdentityManager } from '../IdentityManager';
+import { PermanentConstraintManager } from '../PermanentConstraintManager';
 import { DreamAgent } from '../DreamAgent';
 import { DreamScheduler } from '../DreamScheduler';
 import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
@@ -19,7 +19,7 @@ describe('璇玑记忆系统 3.0 - 端到端集成测试', () => {
   let store: MemoryStore;
   let detector: DecisionPointDetector;
   let retriever: DecisionPointMemoryRetriever;
-  let identityManager: IdentityManager;
+  let constraintManager: PermanentConstraintManager;
   let dreamAgent: DreamAgent;
   let dreamScheduler: DreamScheduler;
   let dbPath: string;
@@ -59,7 +59,7 @@ describe('璇玑记忆系统 3.0 - 端到端集成测试', () => {
     // 初始化组件
     detector = new DecisionPointDetector();
     retriever = new DecisionPointMemoryRetriever(store, mockSubAgentFactory);
-    identityManager = new IdentityManager(store);
+    constraintManager = new PermanentConstraintManager(store);
     dreamAgent = new DreamAgent(store, mockSubAgentFactory);
     dreamScheduler = new DreamScheduler(dreamAgent, store);
   });

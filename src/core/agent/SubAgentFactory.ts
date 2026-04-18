@@ -160,7 +160,7 @@ class FilteredToolRegistry implements IToolRegistry {
 export class SubAgentFactory {
   private promptBuilder: LayeredPromptBuilder | null = null;
   private parentProvider: ILLMProvider | null = null;
-  private parentProviderConfig: ProviderConfig | null = null;
+  private parentProviderConfig: import('@/core/types').ProviderConfig | null = null;
 
   constructor(
     public agentRegistry: AgentRegistry, // 改为 public，允许 TeamManager 访问
@@ -169,7 +169,7 @@ export class SubAgentFactory {
     private hookRegistry?: HookRegistry | null,
     private memoryStore?: IMemoryStore | null,
     parentProvider?: ILLMProvider | null,
-    parentProviderConfig?: ProviderConfig | null,
+    parentProviderConfig?: import('@/core/types').ProviderConfig | null,
   ) {
     // 防御性检查：确保 agentRegistry 不是 undefined
     if (!agentRegistry) {

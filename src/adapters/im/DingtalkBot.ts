@@ -235,8 +235,9 @@ export class DingtalkBot implements IMAdapter {
     if (!this._callbacksRegistered) {
       this._callbacksRegistered = true;
       this._currentFormatter = currentFormatter;
-      this.session.on({
-        onText: (text) => this._currentFormatter?.ref?.appendText(text),
+      const agentLoop = this.session.getAgentLoop();
+      agentLoop.on({
+        onText: (text: string) => this._currentFormatter?.ref?.appendText(text),
         onToolStart: (id: string, name: string, input: Record<string, unknown>) => this._currentFormatter?.ref?.toolStart(name, input),
         onToolEnd: (id: string, name: string, result: string, isError: boolean) => this._currentFormatter?.ref?.toolEnd(name, result, isError),
         onError: (err: Error) => this._currentFormatter?.ref?.appendText(`\n❌ 错误: ${err.message}`),

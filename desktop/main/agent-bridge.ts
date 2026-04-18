@@ -8,7 +8,8 @@
 // 不受 Electron ABI 限制。
 //
 
-import { ChatSession } from '../../src/core/chat/ChatSession.js';
+import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
+import type { ChatSession } from '../../src/core/chat/ChatSession.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 
 let session: ChatSession | null = null;
@@ -190,11 +191,253 @@ process.on('message', async (msg: any) => {
 });
 
 /**
+ * 注册 Hook 事件监听器
+ */
+function registerHookListeners(hookRegistry: any) {
+  hookRegistry.addListener('TeamStart', async (ctx: any) => {
+    safeSend({
+      type: 'agent:team-start',
+      data: {
+        teamId: ctx.teamId,
+        name: ctx.data?.name,
+        strategy: ctx.data?.strategy,
+        memberCount: ctx.data?.memberCount,
+        members: ctx.data?.members,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TeamMemberStart', async (ctx: any) => {
+    safeSend({
+      type: 'agent:team-member-start',
+      data: {
+        teamId: ctx.teamId,
+        memberId: ctx.data?.memberId,
+        name: ctx.data?.name,
+        role: ctx.data?.role,
+        task: ctx.data?.task,
+        builtin: ctx.data?.builtin,
+        strategy: ctx.data?.strategy,
+        teamName: ctx.data?.teamName,
+        stepIndex: ctx.data?.stepIndex,
+        totalSteps: ctx.data?.totalSteps,
+        currentRound: ctx.data?.currentRound,
+        maxRounds: ctx.data?.maxRounds,
+        systemPromptHint: ctx.data?.systemPromptHint,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TeamMemberEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:team-member-end',
+      data: {
+        teamId: ctx.teamId,
+        memberId: ctx.data?.memberId,
+        success: ctx.data?.success,
+        duration: ctx.data?.duration,
+        resultSummary: ctx.data?.resultSummary,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TeamEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:team-end',
+      data: {
+        teamId: ctx.teamId,
+        name: ctx.data?.name,
+        success: ctx.data?.success,
+        duration: ctx.data?.duration,
+        error: ctx.data?.error,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
+    const role = ctx.data?.role || 'unknown';
+    const isBuiltin = ctx.data?.builtin === true;
+    const parentAgentId = ctx.data?.parentAgentId || 'main';
+
+    safeSend({
+      type: 'agent:subagent-start',
+      data: {
+        subAgentId: ctx.subAgentId,
+        name: ctx.data?.name || role,
+        role: role,
+        task: ctx.data?.task,
+        builtin: isBuiltin,
+        parentId: parentAgentId,
+      },
+    });
+
+    return { success: true };
+  });
+
+  hookRegistry.addListener('SubAgentEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:subagent-end',
+      data: {
+        subAgentId: ctx.subAgentId,
+        success: !ctx.data?.timedOut,
+        duration: ctx.data?.duration,
+      },
+    });
+
+    return { success: true };
+  });
+
+  hookRegistry.addListener('AgentThinking', async (ctx: any) => {
+    safeSend({
+      type: 'agent:thinking-start',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        content: ctx.thinkingContent || '',
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('SkillStart', async (ctx: any) => {
+    safeSend({
+      type: 'agent:skill-start',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        skillName: ctx.skillName,
+        input: ctx.skillInput,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('SkillEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:skill-end',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        skillName: ctx.skillName,
+        duration: ctx.skillDuration,
+        success: ctx.skillSuccess,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('McpToolStart', async (ctx: any) => {
+    safeSend({
+      type: 'agent:mcp-start',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        serverName: ctx.mcpServerName,
+        toolName: ctx.mcpToolName,
+        input: ctx.mcpInput,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('McpToolEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:mcp-end',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        serverName: ctx.mcpServerName,
+        toolName: ctx.mcpToolName,
+        duration: ctx.mcpDuration,
+        isError: ctx.mcpIsError,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('ToolStart', async (ctx: any) => {
+    safeSend({
+      type: 'agent:tool-start',
+      data: {
+        id: ctx.toolId,
+        name: ctx.toolName,
+        input: ctx.toolInput,
+        agentId: ctx.subAgentId || 'main',
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('ToolEnd', async (ctx: any) => {
+    safeSend({
+      type: 'agent:tool-end',
+      data: {
+        id: ctx.toolId,
+        name: ctx.toolName,
+        result: ctx.toolResult,
+        isError: ctx.toolIsError,
+        agentId: ctx.subAgentId || 'main',
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('MemoryRead', async (ctx: any) => {
+    safeSend({
+      type: 'agent:memory-read',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        hitCount: ctx.memoryHitCount,
+        layersSearched: ctx.memoryLayersSearched,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('MemoryWrite', async (ctx: any) => {
+    safeSend({
+      type: 'agent:memory-write',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        scope: ctx.memoryScope,
+        summary: ctx.memorySummary,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('PreCompact', async (ctx: any) => {
+    safeSend({
+      type: 'agent:compress-start',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        originalTokens: ctx.originalTokens,
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('PostCompact', async (ctx: any) => {
+    safeSend({
+      type: 'agent:compress-end',
+      data: {
+        agentId: ctx.subAgentId || 'main',
+        originalTokens: ctx.originalTokens,
+        compressedTokens: ctx.compressedTokens,
+        compressionRatio: ctx.compressionRatio,
+        duration: ctx.duration,
+      },
+    });
+    return { success: true };
+  });
+}
+
+/**
  * 初始化 ChatSession
  */
 async function handleInit() {
   try {
-    session = new ChatSession({
+    const factory = new SessionFactory();
+    session = await factory.create({
       callbacks: {
         // 启动引导：思考状态
         onBootThinking: () => {
@@ -225,7 +468,6 @@ async function handleInit() {
         },
       },
     });
-    await session.init();
 
     // 注册流式事件回调，转发到主进程
     registerSessionCallbacks(session);
@@ -234,255 +476,10 @@ async function handleInit() {
     injectInteractionHandlers();
 
     // 注册 SubAgent/Team Hook 事件监听，将成员状态变更转发到 renderer
-    // （session.on 只能监听 AgentLoop 流式事件，Hook 事件需单独注册）
-    const hookRegistry = session.getHookRegistry();
-
-    hookRegistry.addListener('TeamStart', async (ctx: any) => {
-      safeSend({
-        type: 'agent:team-start',
-        data: {
-          teamId: ctx.teamId,
-          name: ctx.data?.name,
-          strategy: ctx.data?.strategy,
-          memberCount: ctx.data?.memberCount,
-          members: ctx.data?.members, // 传递完整成员列表
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('TeamMemberStart', async (ctx: any) => {
-      safeSend({
-        type: 'agent:team-member-start',
-        data: {
-          teamId: ctx.teamId,
-          memberId: ctx.data?.memberId,
-          name: ctx.data?.name,
-          role: ctx.data?.role,
-          task: ctx.data?.task,
-          builtin: ctx.data?.builtin,
-          // 策略信息
-          strategy: ctx.data?.strategy,
-          teamName: ctx.data?.teamName,
-          stepIndex: ctx.data?.stepIndex,
-          totalSteps: ctx.data?.totalSteps,
-          // 辩论轮次信息
-          currentRound: ctx.data?.currentRound,
-          maxRounds: ctx.data?.maxRounds,
-          // systemPrompt 提示（用于解析 debate_role）
-          systemPromptHint: ctx.data?.systemPromptHint,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('TeamMemberEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:team-member-end',
-        data: {
-          teamId: ctx.teamId,
-          memberId: ctx.data?.memberId,
-          success: ctx.data?.success,
-          duration: ctx.data?.duration,
-          resultSummary: ctx.data?.resultSummary,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('TeamEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:team-end',
-        data: {
-          teamId: ctx.teamId,
-          name: ctx.data?.name,
-          success: ctx.data?.success,
-          duration: ctx.data?.duration,
-          error: ctx.data?.error,
-        },
-      });
-      return { success: true };
-    });
-
-    // SubAgent（DelegateTool preset 路径）生命周期事件
-    // 统一映射为 TeamMemberStart，与 agent_team 保持一致
-    hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
-      // 🔧 所有 SubAgent 都作为独立 agent 显示
-      // SubAgent 包括：
-      // 1. task 工具创建的 SubAgent（用户显式调用）
-      // 2. 内置系统 SubAgent（如 memory-extractor、intent-analyzer 等）
-      const role = ctx.data?.role || 'unknown';
-      const isBuiltin = ctx.data?.builtin === true;
-      const parentAgentId = ctx.data?.parentAgentId || 'main'; // 从 Hook 数据中获取父 Agent ID
-
-      safeSend({
-        type: 'agent:subagent-start',
-        data: {
-          subAgentId: ctx.subAgentId,
-          name: ctx.data?.name || role,
-          role: role,
-          task: ctx.data?.task,
-          builtin: isBuiltin,
-          parentId: parentAgentId, // 使用传递过来的父 Agent ID
-        },
-      });
-
-      return { success: true };
-    });
-
-    hookRegistry.addListener('SubAgentEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:subagent-end',
-        data: {
-          subAgentId: ctx.subAgentId,
-          success: !ctx.data?.timedOut,
-          duration: ctx.data?.duration,
-        },
-      });
-
-      return { success: true };
-    });
-
-    // ─── 新增：可视化监控 Hook 事件 ─────────────────────────────
-
-    hookRegistry.addListener('AgentThinking', async (ctx: any) => {
-      safeSend({
-        type: 'agent:thinking-start',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          content: ctx.thinkingContent || '',
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('SkillStart', async (ctx: any) => {
-      safeSend({
-        type: 'agent:skill-start',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          skillName: ctx.skillName,
-          input: ctx.skillInput,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('SkillEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:skill-end',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          skillName: ctx.skillName,
-          duration: ctx.skillDuration,
-          success: ctx.skillSuccess,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('McpToolStart', async (ctx: any) => {
-      safeSend({
-        type: 'agent:mcp-start',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          serverName: ctx.mcpServerName,
-          toolName: ctx.mcpToolName,
-          input: ctx.mcpInput,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('McpToolEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:mcp-end',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          serverName: ctx.mcpServerName,
-          toolName: ctx.mcpToolName,
-          duration: ctx.mcpDuration,
-          isError: ctx.mcpIsError,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('ToolStart', async (ctx: any) => {
-      safeSend({
-        type: 'agent:tool-start',
-        data: {
-          id: ctx.toolId,
-          name: ctx.toolName,
-          input: ctx.toolInput,
-          agentId: ctx.subAgentId || 'main',
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('ToolEnd', async (ctx: any) => {
-      safeSend({
-        type: 'agent:tool-end',
-        data: {
-          id: ctx.toolId,
-          name: ctx.toolName,
-          result: ctx.toolResult,
-          isError: ctx.toolIsError,
-          agentId: ctx.subAgentId || 'main',
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('MemoryRead', async (ctx: any) => {
-      safeSend({
-        type: 'agent:memory-read',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          hitCount: ctx.memoryHitCount,
-          layersSearched: ctx.memoryLayersSearched,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('MemoryWrite', async (ctx: any) => {
-      safeSend({
-        type: 'agent:memory-write',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          scope: ctx.memoryScope,
-          summary: ctx.memorySummary,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('PreCompact', async (ctx: any) => {
-      safeSend({
-        type: 'agent:compress-start',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          originalTokens: ctx.originalTokens,
-        },
-      });
-      return { success: true };
-    });
-
-    hookRegistry.addListener('PostCompact', async (ctx: any) => {
-      safeSend({
-        type: 'agent:compress-end',
-        data: {
-          agentId: ctx.subAgentId || 'main',
-          originalTokens: ctx.originalTokens,
-          compressedTokens: ctx.compressedTokens,
-          compressionRatio: ctx.compressionRatio,
-          duration: ctx.duration,
-        },
-      });
-      return { success: true };
-    });
+    // 通过 DependencyContainer 获取 HookRegistry
+    const container = session.getContainer();
+    const hookRegistry = container.resolveSync('hookRegistry');
+    registerHookListeners(hookRegistry);
 
     safeSend({
       type: 'init-result',
@@ -499,7 +496,8 @@ async function handleInit() {
 
         let hasMemories = false;
         if (!isNewUser && session) {
-          const memoryManager = session.getMemoryManager();
+          const container = session.getContainer();
+          const memoryManager = container.resolveSync('memoryManager');
           if (memoryManager) {
             const stats = await (memoryManager as any).getStats?.();
             hasMemories = stats ? stats.total > 0 : false;
@@ -533,7 +531,8 @@ async function handleInit() {
  * 注册流式事件回调，转发到主进程
  */
 function registerSessionCallbacks(s: ChatSession) {
-  s.on({
+  const agentLoop = s.getAgentLoop();
+  agentLoop.on({
     onText: (text: string) => {
       safeSend({ type: 'agent:text', data: text });
     },
@@ -611,10 +610,11 @@ async function handleSendMessage(message: string) {
  */
 function handleInterrupt(message: string) {
   if (session) {
+    const agentLoop = session.getAgentLoop();
     if (message) {
-      session.getAgentLoop().interrupt(message);
+      agentLoop.interrupt(message);
     } else {
-      session.stop();
+      agentLoop.stop();
     }
     safeSend({
       type: 'interrupt-result',
@@ -804,15 +804,42 @@ async function handleUpdateConfig(requestId: string, data: any) {
       console.log('[agent-bridge] 配置已保存到文件，apiKey:', globalConfig.provider.apiKey ? `***${globalConfig.provider.apiKey.slice(-4)}` : '(空)');
     }
 
-    // 5. 重新加载完整配置（包含环境变量）并重新初始化
+    // 5. 重新加载完整配置（包含环境变量）并重新创建 session
     const configLoader = new ConfigLoader();
     const fullConfig = await configLoader.load();
     console.log('[agent-bridge] 重新加载配置完成，apiKey:', fullConfig.provider.apiKey ? `***${fullConfig.provider.apiKey.slice(-4)}` : '(空)');
     console.log('[agent-bridge] 环境变量 XUANJI_API_KEY:', process.env.XUANJI_API_KEY ? `***${process.env.XUANJI_API_KEY.slice(-4)}` : '(未设置)');
-    await session.reinitialize(fullConfig);
+
+    // 重新创建 session
+    const factory = new SessionFactory();
+    session = await factory.create({
+      config: fullConfig,
+      callbacks: {
+        onBootThinking: () => {
+          safeSend({ type: 'session:boot-thinking', data: {} });
+        },
+        onBootGuide: (message: string) => {
+          safeSend({ type: 'session:boot-guide', data: { message } });
+        },
+        onArchiveNotification: (result) => {
+          safeSend({ type: 'session:archive-notification', data: result });
+        },
+        onMessagesRestored: (messages) => {
+          safeSend({ type: 'session:messages-restored', data: { messages } });
+        },
+      },
+    });
 
     // 重新注册事件回调
     registerSessionCallbacks(session);
+
+    // 重新注入权限交互 Handler
+    injectInteractionHandlers();
+
+    // 重新注册 Hook 事件监听
+    const container = session.getContainer();
+    const hookRegistry = container.resolveSync('hookRegistry');
+    registerHookListeners(hookRegistry);
 
     safeSend({
       type: 'update-config-result',

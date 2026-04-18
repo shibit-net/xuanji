@@ -1186,14 +1186,17 @@ export const useChatStore = create<ChatStore>((set, get) => {
       currentStreamingId: null,
       currentStreamingText: '',
       activeToolCalls: new Map(),
-      // 清除 statusHint + 写入最终工具状态
-      messages: currentStreamingId
-        ? prevState.messages.map((msg) =>
-            msg.id === currentStreamingId
-              ? { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls }
-              : msg
-          )
-        : prevState.messages,
+      // 清除所有消息的 statusHint + 写入最终工具状态
+      messages: prevState.messages.map((msg) => {
+        if (msg.id === currentStreamingId) {
+          // 当前流式消息：清除 statusHint + 写入最终工具状态
+          return { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls };
+        } else if (msg.statusHint) {
+          // 其他有 statusHint 的消息：清除 statusHint
+          return { ...msg, statusHint: undefined };
+        }
+        return msg;
+      }),
       stats: {
         ...prevState.stats,
         model: state.model || prevState.stats.model,

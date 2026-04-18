@@ -1,9 +1,19 @@
 // ============================================================
 // M6 工具系统 — 工具注册表
 // ============================================================
+// 使用 MiddlewarePipeline 替代重复的横切逻辑
 
 import type { Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
+import {
+  MiddlewarePipeline,
+  PermissionMiddleware,
+  LoggingMiddleware,
+  ErrorHandlingMiddleware,
+  TimeoutMiddleware,
+  type IMiddleware,
+  type NextFunction
+} from '@/infrastructure/middleware';
 import { ReadTool } from './ReadTool';
 import { WriteTool } from './WriteTool';
 import { EditTool } from './EditTool';
@@ -27,12 +37,72 @@ import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
 import { MemoryUpdateTool } from './builtin/MemoryUpdateTool';
 import { MemoryDeleteTool } from './builtin/MemoryDeleteTool';
-// TeamTool 在 ChatSession.initTaskTool() 中动态注册
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
 /** 工具执行默认超时（5 分钟） */
 const DEFAULT_TOOL_TIMEOUT = 300_000;
+
+/**
+ * 工具执行上下文
+ */
+export interface ToolContext {
+  toolName: string;
+  input: Record<string, unknown>;
+  signal?: AbortSignal;
+  timestamp: Date;
+  tool: Tool;
+  planMode: boolean;
+}
+
+/**
+ * Plan Mode 中间件
+ * 拦截写操作
+ */
+class PlanModeMiddleware implements IMiddleware<ToolContext, ToolResult> {
+  private log = logger.child({ module: 'PlanModeMiddleware' });
+
+  async execute(context: ToolContext, next: NextFunction<ToolResult>): Promise<ToolResult> {
+    if (!context.planMode) {
+      return next();
+    }
+
+    const isWrite = 'isWriteOperation' in context.tool
+      ? (context.tool as { isWriteOperation(): boolean }).isWriteOperation()
+      : !context.tool.readonly;
+
+    if (isWrite) {
+      this.log.warn(`Write operation blocked in Plan Mode: ${context.toolName}`);
+      return {
+        content: `[Plan Mode] 写操作被拦截: ${context.toolName}。使用 /exit-plan 退出 Plan Mode 后再执行。`,
+        isError: true,
+        metadata: { planModeBlocked: true },
+      };
+    }
+
+    return next();
+  }
+}
+
+/**
+ * Abort 检查中间件
+ * 在工具执行前检查是否已中止
+ */
+class AbortCheckMiddleware implements IMiddleware<ToolContext, ToolResult> {
+  private log = logger.child({ module: 'AbortCheckMiddleware' });
+
+  async execute(context: ToolContext, next: NextFunction<ToolResult>): Promise<ToolResult> {
+    if (context.signal?.aborted) {
+      this.log.warn(`Tool execution aborted before start: ${context.toolName}`);
+      return {
+        content: `工具执行已中止: ${context.toolName}`,
+        isError: true,
+        metadata: { aborted: true },
+      };
+    }
+    return next();
+  }
+}
 
 /**
  * 工具注册表
@@ -42,7 +112,18 @@ export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
   private permissionController?: IPermissionController;
   private _planMode: boolean = false;
+  private pipeline: MiddlewarePipeline<ToolContext, ToolResult>;
   private log = logger.child({ module: 'ToolRegistry' });
+
+  constructor() {
+    this.pipeline = new MiddlewarePipeline<ToolContext, ToolResult>();
+    this.pipeline
+      .use(new ErrorHandlingMiddleware())
+      .use(new LoggingMiddleware())
+      .use(new TimeoutMiddleware(DEFAULT_TOOL_TIMEOUT))
+      .use(new AbortCheckMiddleware())
+      .use(new PlanModeMiddleware());
+  }
 
   /**
    * 注入权限控制器 (可选)
@@ -50,6 +131,17 @@ export class ToolRegistry implements IToolRegistry {
   setPermissionController(controller: IPermissionController): void {
     this.permissionController = controller;
     this.log.debug('Permission controller injected');
+
+    // 重建 pipeline，加入 PermissionMiddleware
+    this.pipeline = new MiddlewarePipeline<ToolContext, ToolResult>();
+    this.pipeline
+      .use(new ErrorHandlingMiddleware())
+      .use(new LoggingMiddleware())
+      .use(new TimeoutMiddleware(DEFAULT_TOOL_TIMEOUT))
+      .use(new AbortCheckMiddleware())
+      .use(new PlanModeMiddleware())
+      .use(new PermissionMiddleware(controller));
+
     // 同步注入到 PlanReviewTool
     const planTool = this.tools.get('plan_review');
     if (planTool && planTool instanceof PlanReviewTool) {
@@ -166,106 +258,32 @@ export class ToolRegistry implements IToolRegistry {
   /**
    * 执行工具
    */
-  async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
-    const tool = this.tools.get(name);
+  async execute(
+    toolName: string,
+    input: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<ToolResult> {
+    const tool = this.tools.get(toolName);
     if (!tool) {
-      this.log.error(`Tool not found: ${name}`);
+      this.log.error(`Tool not found: ${toolName}`);
       return {
-        content: `未知工具: ${name}`,
+        content: `工具未找到: ${toolName}`,
         isError: true,
       };
     }
 
-    this.log.debug(`Executing tool: ${name}`, { input });
+    const context: ToolContext = {
+      toolName,
+      input,
+      signal,
+      timestamp: new Date(),
+      tool,
+      planMode: this._planMode,
+    };
 
-    // 如果外部已中止，直接返回
-    if (signal?.aborted) {
-      this.log.warn(`Tool execution aborted before start: ${name}`);
-      return { content: '[Aborted] Tool execution was cancelled.', isError: true };
-    }
-
-    // 📋 Plan Mode 检查：拦截写操作
-    if (this._planMode) {
-      const isWrite = 'isWriteOperation' in tool
-        ? (tool as { isWriteOperation(): boolean }).isWriteOperation()
-        : !tool.readonly;
-
-      if (isWrite) {
-        this.log.warn(`Write operation blocked in Plan Mode: ${name}`);
-        return {
-          content: `[Plan Mode] 写操作被拦截: ${name}。使用 /exit-plan 退出 Plan Mode 后再执行。`,
-          isError: true,
-          metadata: { planModeBlocked: true },
-        };
-      }
-    }
-
-    // 🔐 权限检查
-    if (this.permissionController) {
-      const request = {
-        requestId: `${name}-${Date.now()}`,
-        toolName: name,
-        input,
-      };
-      const perm = await this.permissionController.check(request);
-      if (!perm.allowed) {
-        this.log.warn(`Permission denied for tool: ${name}`, { reason: perm.reason });
-        return {
-          content: `[Permission Denied] ${perm.reason ?? '操作被拒绝'}`,
-          isError: true,
-          metadata: { permissionDenied: true },
-        };
-      }
-    }
-
-    const startTime = Date.now();
-    try {
-      const timeout = (tool as { timeout?: number }).timeout ?? getToolTimeouts()?.default ?? DEFAULT_TOOL_TIMEOUT;
-      const abortController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        abortController.abort();
-      }, timeout);
-
-      // 链式中止：外部 signal 中止时，自动中止此工具的 controller
-      const onAbort = () => abortController.abort();
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      try {
-        const result = await Promise.race([
-          tool.execute(input, abortController.signal),
-          new Promise<ToolResult>((_, reject) => {
-            abortController.signal.addEventListener('abort', () => {
-              // 区分超时中止 vs 外部中止
-              if (signal?.aborted) {
-                reject(new Error(`工具 "${name}" 被外部中止`));
-              } else {
-                reject(new Error(`工具 "${name}" 执行超时 (${Math.round(timeout / 1000)}s)`));
-              }
-            });
-          }),
-        ]);
-
-        const duration = Date.now() - startTime;
-        this.log.info(`Tool executed successfully: ${name}`, { duration: `${duration}ms` });
-        return result;
-      } finally {
-        clearTimeout(timeoutId);
-        signal?.removeEventListener('abort', onAbort);
-      }
-    } catch (err) {
-      const duration = Date.now() - startTime;
-      // 外部中止（用户 Ctrl+C / stop()）时返回友好的中止消息
-      if (signal?.aborted) {
-        this.log.warn(`Tool execution cancelled: ${name}`, { duration: `${duration}ms` });
-        return { content: '[Aborted] Tool execution was cancelled.', isError: true };
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      this.log.error(`Tool execution failed: ${name}`, { error: message, duration: `${duration}ms` });
-      return {
-        content: `工具执行异常: ${message}`,
-        isError: true,
-      };
-    }
+    return this.pipeline.execute(context, async () => {
+      return tool.execute(input, signal);
+    });
   }
 }
 

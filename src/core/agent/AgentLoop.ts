@@ -1009,7 +1009,7 @@ export class AgentLoop {
       }
     } catch (err) {
       // 静默失败，不影响主流程
-      log.warn('Failed to inject todo context hint:', err instanceof Error ? err.message : String(err));
+      this.log.warn('Failed to inject todo context hint:', err instanceof Error ? err.message : String(err));
     }
   }
 

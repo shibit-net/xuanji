@@ -73,6 +73,8 @@ export interface AppProps {
     compact: (customInstruction?: string) => Promise<{ originalTokens: number; compressedTokens: number; compressionRatio: number } | null>;
   };
   model: string;
+  /** ChatSession 实例（用于访问 MemoryManager 等） */
+  session?: import('@/core/chat/ChatSession').ChatSession;
   /** 权限确认处理器注册回调 (由 ChatSession 提供) */
   onPermissionSetup?: (handler: ConfirmationHandler) => void;
   /** 计划审查处理器注册回调 (由 ChatSession 提供) */
@@ -2179,16 +2181,16 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
             return;
           }
 
-          const identityManager = memoryManager.getIdentityManager();
-          if (!identityManager) {
-            p().addSystemMessage('❌ 身份管理器未初始化');
+          const constraintManager = memoryManager.getConstraintManager();
+          if (!constraintManager) {
+            p().addSystemMessage('❌ 约束管理器未初始化');
             return;
           }
 
           try {
             const { handleIdentity } = await import('@/memory/commands/IdentityCommand');
             const parts = (args || '').trim().split(/\s+/);
-            const result = await handleIdentity(identityManager, parts);
+            const result = await handleIdentity(constraintManager, parts);
             p().addSystemMessage(result);
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);

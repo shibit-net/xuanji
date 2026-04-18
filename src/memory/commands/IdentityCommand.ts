@@ -8,7 +8,7 @@
 // /identity clear - 清除身份设定
 // ============================================================
 
-import type { IdentityManager } from '@/memory/IdentityManager';
+import type { PermanentConstraintManager } from '@/memory/PermanentConstraintManager';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'IdentityCommand' });
@@ -17,7 +17,7 @@ const log = logger.child({ module: 'IdentityCommand' });
  * 处理 /identity 命令
  */
 export async function handleIdentity(
-  identityManager: IdentityManager,
+  constraintManager: PermanentConstraintManager,
   args: string[]
 ): Promise<string> {
   const subcommand = args[0]?.toLowerCase();
@@ -25,17 +25,17 @@ export async function handleIdentity(
   try {
     switch (subcommand) {
       case 'set-title':
-        return await handleSetTitle(identityManager, args.slice(1));
+        return await handleSetTitle(constraintManager, args.slice(1));
 
       case 'set-name':
-        return await handleSetName(identityManager, args.slice(1));
+        return await handleSetName(constraintManager, args.slice(1));
 
       case 'clear':
-        return await handleClear(identityManager);
+        return await handleClear(constraintManager);
 
       case undefined:
       case 'show':
-        return await handleShow(identityManager);
+        return await handleShow(constraintManager);
 
       default:
         return getUsage();
@@ -49,8 +49,8 @@ export async function handleIdentity(
 /**
  * 显示当前身份设定
  */
-async function handleShow(identityManager: IdentityManager): Promise<string> {
-  const identity = await identityManager.getIdentity();
+async function handleShow(constraintManager: PermanentConstraintManager): Promise<string> {
+  const identity = await constraintManager.getIdentity();
 
   const parts: string[] = ['## 🎭 当前身份设定\n'];
 
@@ -89,7 +89,7 @@ async function handleShow(identityManager: IdentityManager): Promise<string> {
  * 设置用户称呼
  */
 async function handleSetTitle(
-  identityManager: IdentityManager,
+  constraintManager: PermanentConstraintManager,
   args: string[]
 ): Promise<string> {
   if (args.length === 0) {
@@ -102,7 +102,7 @@ async function handleSetTitle(
     return '❌ 称呼不能为空';
   }
 
-  await identityManager.setUserTitle(title);
+  await constraintManager.setUserTitle(title);
 
   return `✅ 已设置用户称呼为"${title}"\n\n从下次对话开始，我会称呼您为"${title}"。`;
 }
@@ -111,7 +111,7 @@ async function handleSetTitle(
  * 设置助手名字
  */
 async function handleSetName(
-  identityManager: IdentityManager,
+  constraintManager: PermanentConstraintManager,
   args: string[]
 ): Promise<string> {
   if (args.length === 0) {
@@ -124,7 +124,7 @@ async function handleSetName(
     return '❌ 名字不能为空';
   }
 
-  await identityManager.setAssistantName(name);
+  await constraintManager.setAssistantName(name);
 
   return `✅ 已设置助手名字为"${name}"\n\n从现在开始，我的名字是"${name}"。您可以直接叫我的名字。`;
 }
@@ -132,9 +132,8 @@ async function handleSetName(
 /**
  * 清除身份设定
  */
-async function handleClear(identityManager: IdentityManager): Promise<string> {
-  identityManager.clearCache();
-
+async function handleClear(constraintManager: PermanentConstraintManager): Promise<string> {
+  // PermanentConstraintManager 没有 clearCache 方法，这里只是提示
   return `✅ 已清除身份设定缓存
 
 ⚠️ 注意：这只是清除了缓存，历史记忆仍然保留。
