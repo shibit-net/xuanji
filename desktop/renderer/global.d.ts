@@ -109,6 +109,30 @@ export interface ElectronAPI {
   extractTopics: () => Promise<{ success: boolean; error?: string }>;
   getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) => Promise<{ success: boolean; memories?: any[]; error?: string }>;
 
+  // 核心规则管理
+  getCoreRules: () => Promise<{
+    success: boolean;
+    rules?: Array<{
+      id: string;
+      rule: string;
+      description?: string;
+      category: 'behavior' | 'privacy' | 'communication' | 'ethics' | 'task' | 'custom';
+      createdAt: string;
+      updatedAt: string;
+      active: boolean;
+      source: 'user_explicit' | 'inferred' | 'llm_extracted';
+    }>;
+    error?: string;
+  }>;
+  updateCoreRule: (data: { id: string; active?: boolean }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  deleteCoreRule: (data: { id: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
   // 工具统计
   usageStats: () => Promise<{ success: boolean; stats?: any; error?: string }>;
 

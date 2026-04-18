@@ -2223,6 +2223,94 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           }
         },
       },
+      {
+        name: '/rules',
+        description: '管理核心安全规则 (list/delete/disable/enable)',
+        group: '记忆管理',
+        usage: '/rules [list|delete <id>|disable <id>|enable <id>]',
+        handler: async (args) => {
+          const memoryManager = p().session?.getMemoryManager();
+          if (!memoryManager) {
+            p().addSystemMessage('❌ 记忆系统未初始化');
+            return;
+          }
+
+          const coreRuleStore = memoryManager.getCoreRuleStore();
+          const parts = (args || '').trim().split(/\s+/);
+          const subCommand = parts[0] || 'list';
+
+          if (subCommand === 'list' || subCommand === '') {
+            // 查看所有规则
+            const rules = coreRuleStore.getAllRules();
+            if (rules.length === 0) {
+              p().addSystemMessage('📋 暂无核心规则');
+              return;
+            }
+
+            const lines = ['📋 核心安全规则：\n'];
+            for (const rule of rules) {
+              const status = rule.active ? '✅' : '⏸️';
+              const category = rule.category === 'custom' ? '' : `[${rule.category}] `;
+              lines.push(`${status} ${rule.id}: ${category}${rule.rule}`);
+            }
+            p().addSystemMessage(lines.join('\n'));
+
+          } else if (subCommand === 'delete') {
+            // 删除规则
+            const id = parts[1];
+            if (!id) {
+              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules delete rule_abc123');
+              return;
+            }
+
+            const rule = coreRuleStore.getRule(id);
+            if (!rule) {
+              p().addSystemMessage(`❌ 规则不存在：${id}`);
+              return;
+            }
+
+            const success = coreRuleStore.delete(id);
+            if (success) {
+              p().addSystemMessage(`✅ 已删除规则：${rule.rule}`);
+            } else {
+              p().addSystemMessage(`❌ 删除失败：${id}`);
+            }
+
+          } else if (subCommand === 'disable') {
+            // 停用规则
+            const id = parts[1];
+            if (!id) {
+              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules disable rule_abc123');
+              return;
+            }
+
+            const success = coreRuleStore.setActive(id, false);
+            if (success) {
+              p().addSystemMessage(`⏸️ 已停用规则：${id}`);
+            } else {
+              p().addSystemMessage(`❌ 规则不存在：${id}`);
+            }
+
+          } else if (subCommand === 'enable') {
+            // 启用规则
+            const id = parts[1];
+            if (!id) {
+              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules enable rule_abc123');
+              return;
+            }
+
+            const success = coreRuleStore.setActive(id, true);
+            if (success) {
+              p().addSystemMessage(`✅ 已启用规则：${id}`);
+            } else {
+              p().addSystemMessage(`❌ 规则不存在：${id}`);
+            }
+
+          } else {
+            p().addSystemMessage(`❌ 未知子命令：${subCommand}\n用法：/rules [list|delete <id>|disable <id>|enable <id>]`);
+          }
+        },
+      },
     ]);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

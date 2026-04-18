@@ -11,9 +11,15 @@ function createMockController(reviewResult: PlanReviewResult): IPermissionContro
     setPlanReviewHandler: vi.fn(),
     reviewPlan: vi.fn().mockResolvedValue(reviewResult),
     setIgnoreFilter: vi.fn(),
+    setCurrentUserIntent: vi.fn(),
     listDecisions: vi.fn().mockReturnValue([]),
     deleteDecision: vi.fn().mockResolvedValue(undefined),
     clearDecisions: vi.fn().mockResolvedValue(undefined),
+    recordDeniedOperation: vi.fn(),
+    isDeniedOperation: vi.fn().mockReturnValue(false),
+    listDeniedOperations: vi.fn().mockReturnValue([]),
+    deleteDeniedOperation: vi.fn().mockResolvedValue(undefined),
+    clearDeniedOperations: vi.fn().mockResolvedValue(undefined),
   };
 }
 

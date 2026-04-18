@@ -13,7 +13,7 @@ interface MessageBubbleProps {
   message: Message;
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const isThinking = message.role === 'assistant' && message.thinking;
@@ -283,4 +283,6 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </div>
   );
-}
+});
+
+export default MessageBubble;

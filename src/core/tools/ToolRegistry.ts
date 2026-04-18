@@ -58,6 +58,13 @@ export class ToolRegistry implements IToolRegistry {
   }
 
   /**
+   * 获取权限控制器
+   */
+  getPermissionController(): IPermissionController | undefined {
+    return this.permissionController;
+  }
+
+  /**
    * 注册工具
    */
   register(tool: Tool): void {

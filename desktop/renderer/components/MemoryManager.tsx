@@ -26,6 +26,7 @@ import {
   Search,
   Loader2,
   Shield,
+  ShieldAlert,
 } from 'lucide-react';
 import { useToast } from './Toast';
 import PermissionRulesPanel from './PermissionRulesPanel';
@@ -62,7 +63,7 @@ interface MemoryConfig {
   };
 }
 
-type Tab = 'stats' | 'config' | 'list' | 'permissions';
+type Tab = 'stats' | 'config' | 'list' | 'permissions' | 'rules';
 
 export default function MemoryManager({ onClose }: MemoryManagerProps) {
   const toast = useToast();
@@ -244,6 +245,17 @@ export default function MemoryManager({ onClose }: MemoryManagerProps) {
           <span className="text-sm font-medium">记忆列表</span>
         </button>
         <button
+          onClick={() => setActiveTab('rules')}
+          className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+            activeTab === 'rules'
+              ? 'bg-primary text-white'
+              : 'bg-bg-secondary hover:bg-bg-tertiary'
+          }`}
+        >
+          <ShieldAlert className="w-4 h-4" />
+          <span className="text-sm font-medium">核心规则</span>
+        </button>
+        <button
           onClick={() => setActiveTab('permissions')}
           className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
             activeTab === 'permissions'
@@ -273,6 +285,9 @@ export default function MemoryManager({ onClose }: MemoryManagerProps) {
         )}
         {activeTab === 'list' && (
           <ListView searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+        )}
+        {activeTab === 'rules' && (
+          <CoreRulesView />
         )}
         {activeTab === 'permissions' && (
           <PermissionRulesPanel />
@@ -865,6 +880,249 @@ function ListView({
           })
         )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 核心规则视图
+// ============================================================
+
+interface CoreRule {
+  id: string;
+  rule: string;
+  description?: string;
+  category: 'behavior' | 'privacy' | 'communication' | 'ethics' | 'task' | 'custom';
+  createdAt: string;
+  updatedAt: string;
+  active: boolean;
+  source: 'user_explicit' | 'inferred' | 'llm_extracted';
+}
+
+function CoreRulesView() {
+  const toast = useToast();
+  const [rules, setRules] = useState<CoreRule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadRules();
+  }, []);
+
+  const loadRules = async () => {
+    setLoading(true);
+    try {
+      const result = await window.electron.getCoreRules();
+      if (result.success && result.rules) {
+        setRules(result.rules);
+      }
+    } catch (err) {
+      console.error('Failed to load core rules:', err);
+      toast.error('加载核心规则失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleActive = async (id: string, active: boolean) => {
+    try {
+      const result = await window.electron.updateCoreRule({ id, active });
+      if (result.success) {
+        toast.success(active ? '规则已启用' : '规则已停用');
+        await loadRules();
+      } else {
+        toast.error(result.error || '操作失败');
+      }
+    } catch (err) {
+      toast.error(`操作失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确定要删除这条规则吗？此操作不可撤销。')) {
+      return;
+    }
+
+    try {
+      const result = await window.electron.deleteCoreRule({ id });
+      if (result.success) {
+        toast.success('规则已删除');
+        await loadRules();
+      } else {
+        toast.error(result.error || '删除失败');
+      }
+    } catch (err) {
+      toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const getCategoryLabel = (category: CoreRule['category']) => {
+    const labels: Record<CoreRule['category'], string> = {
+      behavior: '行为',
+      privacy: '隐私',
+      communication: '沟通',
+      ethics: '伦理',
+      task: '任务',
+      custom: '自定义',
+    };
+    return labels[category];
+  };
+
+  const getCategoryColor = (category: CoreRule['category']) => {
+    const colors: Record<CoreRule['category'], string> = {
+      behavior: 'bg-blue-500/10 text-blue-500',
+      privacy: 'bg-red-500/10 text-red-500',
+      communication: 'bg-green-500/10 text-green-500',
+      ethics: 'bg-purple-500/10 text-purple-500',
+      task: 'bg-yellow-500/10 text-yellow-500',
+      custom: 'bg-gray-500/10 text-gray-500',
+    };
+    return colors[category];
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  if (loading && rules.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (rules.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <ShieldAlert className="w-16 h-16 text-text-tertiary mb-4" />
+        <h3 className="text-lg font-semibold mb-2">暂无核心规则</h3>
+        <p className="text-sm text-text-secondary max-w-md">
+          核心规则是您设定的不可违反的底线。在对话中使用"你永远不要..."、"这是我的底线"等表述来添加规则。
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 说明卡片 */}
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <ShieldAlert className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-blue-500 mb-1">关于核心规则</h3>
+            <p className="text-xs text-text-secondary">
+              核心规则是您设定的最高优先级安全约束，AI 必须始终遵守。这些规则会在每次对话时自动注入到系统提示中。
+              您可以在对话中使用"你永远不要..."、"绝对不能..."等表述来添加新规则。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 规则列表 */}
+      <div className="space-y-3">
+        {rules.map((rule) => {
+          const isExpanded = expandedRuleId === rule.id;
+          return (
+            <div
+              key={rule.id}
+              className="bg-bg-secondary border border-bg-tertiary rounded-lg p-4 hover:border-primary/30 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                {/* 状态指示器 */}
+                <div className="flex-shrink-0 mt-1">
+                  {rule.active ? (
+                    <div className="w-3 h-3 rounded-full bg-green-500" title="已启用" />
+                  ) : (
+                    <div className="w-3 h-3 rounded-full bg-gray-500" title="已停用" />
+                  )}
+                </div>
+
+                {/* 规则内容 */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${getCategoryColor(rule.category)}`}>
+                      {getCategoryLabel(rule.category)}
+                    </span>
+                    <span className="text-xs text-text-secondary">
+                      {formatDate(rule.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-text-primary mb-2">{rule.rule}</p>
+                  {rule.description && (
+                    <p className="text-xs text-text-secondary mb-2">{rule.description}</p>
+                  )}
+
+                  {/* 展开详情 */}
+                  {isExpanded && (
+                    <div className="mt-3 pt-3 border-t border-bg-tertiary space-y-2 text-xs">
+                      <div>
+                        <span className="text-text-secondary">规则 ID: </span>
+                        <span className="text-text-primary font-mono">{rule.id}</span>
+                      </div>
+                      <div>
+                        <span className="text-text-secondary">来源: </span>
+                        <span className="text-text-primary">
+                          {rule.source === 'user_explicit' ? '用户明确指定' :
+                           rule.source === 'inferred' ? '系统推断' : 'LLM 提取'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-text-secondary">最后更新: </span>
+                        <span className="text-text-primary">{formatDate(rule.updatedAt)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => setExpandedRuleId(isExpanded ? null : rule.id)}
+                    className="px-3 py-1.5 text-xs bg-bg-tertiary hover:bg-bg-quaternary rounded transition-colors"
+                  >
+                    {isExpanded ? '收起' : '详情'}
+                  </button>
+                  <button
+                    onClick={() => handleToggleActive(rule.id, !rule.active)}
+                    className={`px-3 py-1.5 text-xs rounded transition-colors ${
+                      rule.active
+                        ? 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20'
+                        : 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
+                    }`}
+                  >
+                    {rule.active ? '停用' : '启用'}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(rule.id)}
+                    className="px-3 py-1.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 刷新按钮 */}
+      <button
+        onClick={loadRules}
+        disabled={loading}
+        className="w-full px-4 py-2 bg-bg-secondary hover:bg-bg-tertiary border border-bg-tertiary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        刷新列表
+      </button>
     </div>
   );
 }

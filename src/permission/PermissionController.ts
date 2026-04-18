@@ -31,6 +31,8 @@ import type {
   PlanReviewResult,
   PlanReviewHandler,
   PersistedDecisionInfo,
+  DeniedOperation,
+  DeniedOperationInfo,
 } from './types';
 import { FileGuard } from './guards/FileGuard';
 import { CommandGuard } from './guards/CommandGuard';
@@ -64,6 +66,15 @@ export class PermissionController implements IPermissionController {
   /** 持久化决策存储（可选） */
   private decisionStore: DecisionStore | null = null;
 
+  /** 用户拒绝的操作记录 */
+  private deniedOperations: Map<string, DeniedOperation> = new Map();
+
+  /** 当前用户意图上下文（用于跟踪同一意图下的多次操作尝试） */
+  private currentUserIntent: string | null = null;
+
+  /** 当前意图下被拒绝的操作类型（用于阻止同一意图的其他实现方式） */
+  private deniedIntentOperations: Set<string> = new Set();
+
   /** 确认队列: 保证同一时刻只有一个确认框 */
   private confirmationQueue: Promise<void> = Promise.resolve();
 
@@ -78,6 +89,11 @@ export class PermissionController implements IPermissionController {
     this.initDecisionStore().catch((err) => {
       this.log.warn('Failed to init decision store:', err);
     });
+
+    // 加载拒绝操作记录
+    this.loadDeniedOperations().catch((err) => {
+      this.log.warn('Failed to load denied operations:', err);
+    });
   }
 
   /**
@@ -89,14 +105,17 @@ export class PermissionController implements IPermissionController {
     }
 
     try {
-      const filePath = this.config.decisionsFile
+      const dbPath = this.config.decisionsFile
         ? resolve(this.config.decisionsFile)
-        : join(process.cwd(), '.xuanji', 'permission-decisions.json');
+        : join(process.cwd(), '.xuanji', 'permission-decisions.db');
 
-      this.decisionStore = new DecisionStore(filePath);
-      await this.decisionStore.load();
+      this.decisionStore = new DecisionStore(dbPath);
+      await this.decisionStore.init();
 
-      this.log.debug(`Decision store initialized: ${filePath}`);
+      this.log.debug(`Decision store initialized: ${dbPath}`);
+      
+      // 初始化后加载拒绝操作记录
+      await this.loadDeniedOperations();
     } catch (err) {
       this.log.warn('Decision store init failed:', err);
       this.decisionStore = null;
@@ -115,6 +134,18 @@ export class PermissionController implements IPermissionController {
    */
   setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void {
     this.fileGuard.setIgnoreFilter(filter);
+  }
+
+  /**
+   * 设置当前用户意图（由 AgentLoop 在处理新用户消息时调用）
+   */
+  setCurrentUserIntent(intent: string | null): void {
+    if (intent !== this.currentUserIntent) {
+      // 新的用户意图，清空之前的拒绝记录
+      this.currentUserIntent = intent;
+      this.deniedIntentOperations.clear();
+      this.log.debug(`User intent changed: ${intent ? intent.slice(0, 50) : 'null'}`);
+    }
   }
 
   /**
@@ -152,8 +183,30 @@ export class PermissionController implements IPermissionController {
     const { toolName, input, requestId } = request;
     this.log.debug(`Permission check: ${requestId} / ${toolName}`);
 
-    // 第 1 步: 守卫评估风险级别
+    // 第 0 步: 检查操作黑名单
     const guardResult = this.evaluateGuard(toolName, input);
+    if (guardResult && this.isDeniedOperation(guardResult.category, guardResult.cacheKey)) {
+      return {
+        allowed: false,
+        reason: '此操作已被用户明确拒绝',
+        checkedBy: 'DeniedOperationFilter',
+      };
+    }
+
+    // 第 0.5 步: 检查当前意图下是否已拒绝同类操作
+    if (guardResult && this.currentUserIntent && guardResult.context?.operationType) {
+      const operationType = guardResult.context.operationType;
+      if (this.deniedIntentOperations.has(operationType)) {
+        this.log.warn(`Blocking ${operationType} operation - user already denied this type of operation for current intent`);
+        return {
+          allowed: false,
+          reason: `您已拒绝当前任务中的${this.getOperationTypeLabel(operationType)}操作，AI 不会尝试其他方式来完成此操作`,
+          checkedBy: 'DeniedIntentFilter',
+        };
+      }
+    }
+
+    // 第 1 步: 守卫评估风险级别
     if (!guardResult) {
       // 无需权限检查的工具 (如未识别的工具名、plan_review 等)
       const result: PermissionResult = { allowed: true, checkedBy: 'no-guard' };
@@ -303,7 +356,14 @@ export class PermissionController implements IPermissionController {
     if (toolName === 'bash') {
       const command = (input.command ?? input.cmd ?? '') as string;
       if (!command) return null;
-      return this.commandGuard.check(command, this.policyEngine);
+      const result = this.commandGuard.check(command, this.policyEngine);
+      const operationInfo = this.commandGuard.detectOperationType(command);
+      result.context = {
+        ...result.context,
+        operationType: operationInfo.type,
+        operationTargets: operationInfo.targets,
+      };
+      return result;
     }
 
     return null;
@@ -347,6 +407,36 @@ export class PermissionController implements IPermissionController {
               this.decisionStore.set(guardResult.cacheKey, confirmation.allowed, request.toolName).catch((err) => {
                 this.log.warn('Failed to persist decision:', err);
               });
+            }
+            
+            // 如果用户拒绝，记录到拒绝操作列表
+            if (!confirmation.allowed) {
+              this.recordDeniedOperation(
+                guardResult.category,
+                guardResult.cacheKey,
+                `用户拒绝: ${guardResult.description}`,
+                false
+              );
+
+              // 记录当前意图下被拒绝的操作类型
+              if (this.currentUserIntent && guardResult.context?.operationType) {
+                this.deniedIntentOperations.add(guardResult.context.operationType);
+                this.log.debug(`Recorded denied operation type for current intent: ${guardResult.context.operationType}`);
+              }
+            }
+          } else if (!confirmation.allowed) {
+            // 仅会话级拒绝
+            this.recordDeniedOperation(
+              guardResult.category,
+              guardResult.cacheKey,
+              `用户拒绝（本会话）: ${guardResult.description}`,
+              true
+            );
+
+            // 记录当前意图下被拒绝的操作类型
+            if (this.currentUserIntent && guardResult.context?.operationType) {
+              this.deniedIntentOperations.add(guardResult.context.operationType);
+              this.log.debug(`Recorded denied operation type for current intent (session only): ${guardResult.context.operationType}`);
             }
           }
 
@@ -444,5 +534,150 @@ export class PermissionController implements IPermissionController {
     if (this.decisionStore) {
       await this.decisionStore.clear();
     }
+  }
+
+  // ============================================================
+  // 拒绝操作管理方法
+  // ============================================================
+
+  /**
+   * 从 DecisionStore 加载拒绝操作记录
+   */
+  private async loadDeniedOperations(): Promise<void> {
+    if (!this.decisionStore) return;
+
+    try {
+      const deniedOpsMap = this.decisionStore.loadDeniedOperations();
+      this.deniedOperations.clear();
+
+      for (const [key, op] of deniedOpsMap) {
+        this.deniedOperations.set(key, {
+          pattern: op.pattern,
+          reason: op.reason,
+          timestamp: op.timestamp,
+          sessionOnly: false,
+        });
+      }
+
+      this.log.debug(`Loaded ${deniedOpsMap.size} denied operations`);
+    } catch (err) {
+      this.log.error('Failed to load denied operations:', err);
+    }
+  }
+
+  /**
+   * 记录用户拒绝的操作
+   */
+  recordDeniedOperation(
+    category: string,
+    pattern: string,
+    reason: string,
+    sessionOnly: boolean = true
+  ): void {
+    const key = `${category}:${pattern}`;
+    const deniedOp: DeniedOperation = {
+      pattern,
+      reason,
+      timestamp: Date.now(),
+      sessionOnly,
+    };
+
+    this.deniedOperations.set(key, deniedOp);
+    this.log.info(`Recorded denied operation: ${key} (sessionOnly=${sessionOnly})`);
+
+    // 持久化存储（仅非会话级）
+    if (!sessionOnly && this.decisionStore) {
+      this.decisionStore.saveDeniedOperation(category, pattern, reason).catch((err) => {
+        this.log.warn('Failed to persist denied operation:', err);
+      });
+    }
+  }
+
+  /**
+   * 检查操作是否被用户拒绝
+   */
+  isDeniedOperation(category: string, target: string): boolean {
+    for (const [key, denied] of this.deniedOperations) {
+      const [deniedCategory, deniedPattern] = key.split(':', 2);
+      if (deniedCategory === category && this.matchPattern(deniedPattern, target)) {
+        this.log.debug(`Operation denied by pattern: ${deniedPattern} matches ${target}`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 模式匹配（支持通配符）
+   */
+  private matchPattern(pattern: string, target: string): boolean {
+    // 精确匹配
+    if (pattern === target) return true;
+
+    // 简单通配符匹配（* 匹配任意字符）
+    const regexPattern = pattern.replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`);
+    return regex.test(target);
+  }
+
+  /**
+   * 列出所有拒绝的操作
+   */
+  listDeniedOperations(): DeniedOperationInfo[] {
+    const result: DeniedOperationInfo[] = [];
+    
+    for (const [key, denied] of this.deniedOperations) {
+      const [category, pattern] = key.split(':', 2);
+      result.push({
+        key,
+        category: category || '',
+        pattern: denied.pattern,
+        reason: denied.reason,
+        timestamp: new Date(denied.timestamp).toISOString(),
+        sessionOnly: denied.sessionOnly,
+      });
+    }
+    
+    return result;
+  }
+
+  /**
+   * 删除指定拒绝记录
+   */
+  async deleteDeniedOperation(key: string): Promise<void> {
+    this.deniedOperations.delete(key);
+    
+    if (this.decisionStore) {
+      await this.decisionStore.deleteDeniedOperation(key);
+    }
+    
+    this.log.info(`Deleted denied operation: ${key}`);
+  }
+
+  /**
+   * 清空所有拒绝记录
+   */
+  async clearDeniedOperations(): Promise<void> {
+    this.deniedOperations.clear();
+
+    if (this.decisionStore) {
+      await this.decisionStore.clearDeniedOperations();
+    }
+
+    this.log.info('Cleared all denied operations');
+  }
+
+  /**
+   * 获取操作类型的中文标签
+   */
+  private getOperationTypeLabel(operationType: string): string {
+    const labels: Record<string, string> = {
+      delete: '删除',
+      write: '写入',
+      read: '读取',
+      execute: '执行',
+      unknown: '未知',
+    };
+    return labels[operationType] || operationType;
   }
 }

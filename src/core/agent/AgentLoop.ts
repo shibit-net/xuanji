@@ -208,6 +208,12 @@ export class AgentLoop {
       // 🆕 注入任务状态提示到 system prompt
       await this.injectTodoContextHint(userMessage);
 
+      // 🆕 设置当前用户意图到权限控制器（用于跟踪同一意图下的拒绝操作）
+      const permissionController = this.registry.getPermissionController?.();
+      if (permissionController && typeof permissionController === 'object' && permissionController !== null && 'setCurrentUserIntent' in permissionController && typeof permissionController.setCurrentUserIntent === 'function') {
+        (permissionController as any).setCurrentUserIntent(userMessage);
+      }
+
       // 构建初始消息
       let messages = this.messageManager.build(userMessage);
 

@@ -4,6 +4,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
 import { useChatStore } from '../stores/chatStore';
 import { useToast } from './Toast';
@@ -58,6 +59,14 @@ export default function ChatArea() {
   // 是否显示三点等待动画：LLM 收到请求后、第一个 token 到达前
   const showTypingIndicator = status === 'thinking' && !currentStreamingId;
 
+  // 虚拟滚动配置
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 100, // 预估每条消息高度
+    overscan: 5, // 预渲染上下各 5 条
+  });
+
   // 监听归档通知
   useEffect(() => {
     const handleArchiveNotification = (data: { archivedCount: number; memoriesExtracted: number; summary?: string }) => {
@@ -94,6 +103,14 @@ export default function ChatArea() {
     }
   }, []);
 
+  // 虚拟滚动到最后一项
+  const scrollToLastItem = useCallback(() => {
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+      setShowNewMessageButton(false);
+    }
+  }, [messages.length, virtualizer]);
+
   // 监听滚动事件
   const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom();
@@ -107,7 +124,7 @@ export default function ChatArea() {
   useEffect(() => {
     if (isAtBottom) {
       // 用户在底部，自动滚动
-      scrollToBottom();
+      scrollToLastItem();
     } else {
       // 用户在上方查看历史，显示新消息提示
       setShowNewMessageButton(true);
@@ -118,14 +135,14 @@ export default function ChatArea() {
   // typing indicator 出现时也滚动到底部
   useEffect(() => {
     if (showTypingIndicator && isAtBottom) {
-      scrollToBottom();
+      scrollToLastItem();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTypingIndicator, isAtBottom]);
 
   // 初始化时滚动到底部
   useEffect(() => {
-    scrollToBottom();
+    scrollToLastItem();
   }, []);
 
   return (
@@ -133,7 +150,7 @@ export default function ChatArea() {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="absolute inset-0 overflow-y-auto px-6 py-4 space-y-4"
+        className="absolute inset-0 overflow-y-auto px-6 py-4"
       >
         {messages.length === 0 ? (
           // 空状态
@@ -148,10 +165,35 @@ export default function ChatArea() {
             </div>
           </div>
         ) : (
-          // 消息列表
-          messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
-          ))
+          // 虚拟滚动消息列表
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const message = messages[virtualItem.index];
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                  className="pb-4"
+                >
+                  <MessageBubble message={message} />
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {/* LLM 响应前的三点等待动画 */}
@@ -161,7 +203,7 @@ export default function ChatArea() {
       {/* 新消息提示按钮 */}
       {showNewMessageButton && (
         <button
-          onClick={scrollToBottom}
+          onClick={scrollToLastItem}
           className="absolute bottom-4 right-6 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all animate-bounce"
         >
           <span className="text-sm">新消息</span>

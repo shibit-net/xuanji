@@ -105,6 +105,17 @@ process.on('message', async (msg: any) => {
       handleGetMemoryList(msg.requestId, msg.data);
       break;
 
+    // ============ 核心规则管理 ============
+    case 'core-rules-get-all':
+      handleCoreRulesGetAll(msg.requestId);
+      break;
+    case 'core-rules-update':
+      handleCoreRulesUpdate(msg.requestId, msg.data);
+      break;
+    case 'core-rules-delete':
+      handleCoreRulesDelete(msg.requestId, msg.data);
+      break;
+
     // ============ 工具统计 ============
     case 'get-usage-stats':
       handleGetUsageStats(msg.requestId);
@@ -1176,6 +1187,93 @@ async function handleGetMemoryList(requestId: string, data: any) {
     const memories = filteredMemories.slice(0, limit);
 
     safeSend({ requestId, data: { success: true, memories } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+// ============================================================
+// 核心规则管理
+// ============================================================
+
+async function handleCoreRulesGetAll(requestId: string) {
+  if (!session) {
+    safeSend({ requestId, data: { success: true, rules: [] } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      safeSend({ requestId, data: { success: true, rules: [] } });
+      return;
+    }
+
+    const coreRuleStore = memoryManager.getCoreRuleStore();
+    if (!coreRuleStore) {
+      safeSend({ requestId, data: { success: true, rules: [] } });
+      return;
+    }
+
+    const rules = coreRuleStore.getAllRules();
+    safeSend({ requestId, data: { success: true, rules } });
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleCoreRulesUpdate(requestId: string, data: { id: string; active?: boolean }) {
+  if (!session) {
+    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      return;
+    }
+
+    const coreRuleStore = memoryManager.getCoreRuleStore();
+    if (!coreRuleStore) {
+      safeSend({ requestId, data: { success: false, error: 'CoreRuleStore not available' } });
+      return;
+    }
+
+    const success = coreRuleStore.setActive(data.id, data.active ?? true);
+    if (success) {
+      safeSend({ requestId, data: { success: true } });
+    } else {
+      safeSend({ requestId, data: { success: false, error: 'Rule not found' } });
+    }
+  } catch (err) {
+    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+  }
+}
+
+async function handleCoreRulesDelete(requestId: string, data: { id: string }) {
+  if (!session) {
+    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
+    return;
+  }
+  try {
+    const memoryManager = session.getMemoryManager();
+    if (!memoryManager) {
+      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
+      return;
+    }
+
+    const coreRuleStore = memoryManager.getCoreRuleStore();
+    if (!coreRuleStore) {
+      safeSend({ requestId, data: { success: false, error: 'CoreRuleStore not available' } });
+      return;
+    }
+
+    const success = coreRuleStore.delete(data.id);
+    if (success) {
+      safeSend({ requestId, data: { success: true } });
+    } else {
+      safeSend({ requestId, data: { success: false, error: 'Rule not found' } });
+    }
   } catch (err) {
     safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
   }

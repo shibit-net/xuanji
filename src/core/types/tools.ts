@@ -127,6 +127,8 @@ export interface IToolRegistry {
   execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
   /** 注入权限控制器 */
   setPermissionController?(controller: unknown): void;
+  /** 获取权限控制器 */
+  getPermissionController?(): unknown;
   /** 进入 Plan Mode（只读模式） */
   enterPlanMode?(): void;
   /** 退出 Plan Mode */

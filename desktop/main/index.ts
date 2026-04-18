@@ -663,6 +663,37 @@ ipcMain.handle('memory:get-list', async (_event, data: any) => {
 });
 
 // ============================================================
+// IPC 通信 - 核心规则管理
+// ============================================================
+
+ipcMain.handle('core-rules:get-all', async () => {
+  if (!sessionReady) return { success: true, rules: [] };
+  try {
+    return await sendRequest('core-rules-get-all');
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('core-rules:update', async (_event, data: { id: string; active?: boolean }) => {
+  if (!sessionReady) return { success: false, error: 'Session not ready' };
+  try {
+    return await sendRequest('core-rules-update', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('core-rules:delete', async (_event, data: { id: string }) => {
+  if (!sessionReady) return { success: false, error: 'Session not ready' };
+  try {
+    return await sendRequest('core-rules-delete', data);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============================================================
 // IPC 通信 - 工具统计
 // ============================================================
 

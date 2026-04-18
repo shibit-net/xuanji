@@ -123,6 +123,8 @@ export interface IPermissionController {
   reviewPlan(plan: string): Promise<PlanReviewResult>;
   /** 设置 IgnoreFilter 到 FileGuard */
   setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void;
+  /** 设置当前用户意图（用于跟踪同一意图下的拒绝操作） */
+  setCurrentUserIntent(intent: string | null): void;
 
   // ============ 权限规则管理 ============
   /** 列出所有持久化决策 */

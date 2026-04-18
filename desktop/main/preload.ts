@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld('electron', {
   getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) =>
     ipcRenderer.invoke('memory:get-list', data),
 
+  // ============ 核心规则管理 ============
+  getCoreRules: () => ipcRenderer.invoke('core-rules:get-all'),
+  updateCoreRule: (data: { id: string; active?: boolean }) => ipcRenderer.invoke('core-rules:update', data),
+  deleteCoreRule: (data: { id: string }) => ipcRenderer.invoke('core-rules:delete', data),
+
   // ============ 工具统计 ============
   usageStats: () => ipcRenderer.invoke('usage:stats'),
 

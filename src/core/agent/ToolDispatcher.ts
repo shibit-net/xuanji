@@ -72,6 +72,7 @@ export class ToolDispatcher implements IToolDispatcher {
    * 2. 连续的只读工具分为一组，并行执行（最多 MAX_PARALLEL 个）
    * 3. 遇到写工具时，先等待前面的并行组完成，再串行执行写工具
    * 4. 这样保证了 read → edit → read 的依赖顺序
+   * 5. 遇到权限拒绝（Permission denied）时，立即终止后续所有操作
    *
    * @param signal - 外部中止信号
    * @returns Map<toolCallId, ToolResult> 保持原始调用顺序
@@ -82,6 +83,7 @@ export class ToolDispatcher implements IToolDispatcher {
     }
 
     const resultsMap = new Map<string, ToolResult>();
+    let permissionDenied = false; // 权限拒绝标志
 
     // 按原始顺序分段：连续的只读工具为一组，写工具单独为一组
     type Segment = { type: 'readonly'; calls: ToolCall[] } | { type: 'write'; call: ToolCall };
@@ -107,15 +109,19 @@ export class ToolDispatcher implements IToolDispatcher {
 
     // 按分段顺序执行
     for (const segment of segments) {
-      // 检查是否已中止
-      if (signal?.aborted) {
+      // 检查是否已中止或权限被拒绝
+      if (signal?.aborted || permissionDenied) {
+        const abortReason = permissionDenied 
+          ? '[Cancelled] Previous operation was denied by user.' 
+          : '[Aborted] Tool execution was cancelled.';
+        
         // 为剩余未执行的工具填充中止结果
         if (segment.type === 'readonly') {
           for (const call of segment.calls) {
-            resultsMap.set(call.id, { content: '[Aborted] Tool execution was cancelled.', isError: true });
+            resultsMap.set(call.id, { content: abortReason, isError: true });
           }
         } else {
-          resultsMap.set(segment.call.id, { content: '[Aborted] Tool execution was cancelled.', isError: true });
+          resultsMap.set(segment.call.id, { content: abortReason, isError: true });
         }
         continue;
       }
@@ -125,12 +131,22 @@ export class ToolDispatcher implements IToolDispatcher {
         const results = await this.executeParallel(segment.calls, undefined, signal);
         for (const { id, result } of results) {
           resultsMap.set(id, result);
+          // 检查是否有权限拒绝
+          if (result.isError && this.isPermissionDenied(result.content)) {
+            permissionDenied = true;
+            this.log.info('Permission denied detected, aborting remaining operations');
+          }
         }
       } else {
         // 串行执行写工具
         try {
           const result = await this.execute(segment.call, signal);
           resultsMap.set(segment.call.id, result);
+          // 检查是否有权限拒绝
+          if (result.isError && this.isPermissionDenied(result.content)) {
+            permissionDenied = true;
+            this.log.info('Permission denied detected, aborting remaining operations');
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           resultsMap.set(segment.call.id, {
@@ -142,6 +158,20 @@ export class ToolDispatcher implements IToolDispatcher {
     }
 
     return resultsMap;
+  }
+
+  /**
+   * 检查结果是否为权限拒绝
+   */
+  private isPermissionDenied(content: string): boolean {
+    return content.includes('操作被拒绝') || 
+           content.includes('用户拒绝') ||
+           content.includes('缓存拒绝') ||
+           content.includes('策略禁止') ||
+           content.includes('Operation denied') ||
+           content.includes('User denied') ||
+           content.includes('Cached denial') ||
+           content.includes('Policy denied');
   }
 
   /**

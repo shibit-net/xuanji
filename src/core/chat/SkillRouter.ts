@@ -108,7 +108,7 @@ export class SkillRouter {
       });
       log.info(`Core rule added via SkillRouter: ${rule.id}`);
 
-      const confirmText = `✅ 已记住这条规则：「${trimmed}」\n我会始终遵守，不会违反。`;
+      const confirmText = `✅ 已记住这条规则：「${trimmed}」\n规则 ID: ${rule.id}\n我会始终遵守，不会违反。\n\n💡 使用 /rules 查看所有规则，使用 /rules delete ${rule.id} 删除此规则。`;
       this.agentLoop.getMessageManager().addAssistantMessage([{ type: 'text', text: confirmText }]);
       this.onTurnComplete();
       return true;

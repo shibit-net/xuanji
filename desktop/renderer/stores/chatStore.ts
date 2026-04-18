@@ -9,6 +9,31 @@ import { useExecutionStore } from './executionStore';
 import { useActiveAgentStore } from './activeAgentStore';
 
 // ============================================================
+// 节流工具函数
+// ============================================================
+function throttle<T extends (...args: any[]) => void>(
+  func: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  return (...args: Parameters<T>) => {
+    lastArgs = args;
+
+    if (!timeoutId) {
+      timeoutId = setTimeout(() => {
+        if (lastArgs) {
+          func(...lastArgs);
+        }
+        timeoutId = null;
+        lastArgs = null;
+      }, delay);
+    }
+  };
+}
+
+// ============================================================
 // 唯一 ID 生成器（解决 Date.now() 重复问题）
 // ============================================================
 let messageIdCounter = 0;
@@ -311,7 +336,30 @@ function generateToolSummaryMessage(
   }
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
+export const useChatStore = create<ChatStore>((set, get) => {
+  // 流式文本更新的节流版本（150ms）
+  let streamTextBuffer = '';
+  let streamingMessageId: string | null = null;
+
+  const flushStreamText = () => {
+    if (!streamingMessageId || !streamTextBuffer) return;
+
+    const messageId = streamingMessageId;
+    const text = streamTextBuffer;
+
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, content: text, statusHint: '✍️ 编写回复中...' }
+          : msg
+      ),
+      currentStreamingText: text,
+    }));
+  };
+
+  const throttledFlushStreamText = throttle(flushStreamText, 150);
+
+  return {
   // 初始状态
   messages: [],
   status: 'idle',
@@ -429,10 +477,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setStatus: (status) => set({ status }),
 
-  clearMessages: () => set({ messages: [], status: 'idle' }),
+  clearMessages: () => {
+    streamTextBuffer = '';
+    streamingMessageId = null;
+    set({ messages: [], status: 'idle' });
+  },
 
   reset: async () => {
     await window.electron.agentReset();
+
+    // 清空流式缓冲区
+    streamTextBuffer = '';
+    streamingMessageId = null;
 
     // 清空前端 todos 显示状态（不清空后端持久化任务）
     // xuanji 是记忆驱动的 agent，任务是工作状态，不应随会话重置而清空
@@ -474,7 +530,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // ============================================================
 
   _handleAgentText: (text) => {
-    const { currentStreamingId, currentStreamingText } = get();
+    const { currentStreamingId } = get();
 
     // 同步更新 runtimeStore
     useRuntimeStore.getState().appendStreamText(text);
@@ -491,23 +547,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         toolCalls: [],
       };
 
+      streamingMessageId = newId;
+      streamTextBuffer = text;
+
       set((state) => ({
         messages: [...state.messages, newMessage],
         currentStreamingId: newId,
         currentStreamingText: text,
       }));
     } else {
-      // 追加文本到当前流式消息
-      const updatedText = currentStreamingText + text;
-
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          msg.id === currentStreamingId
-            ? { ...msg, content: updatedText, statusHint: '✍️ 编写回复中...' }
-            : msg
-        ),
-        currentStreamingText: updatedText,
-      }));
+      // 追加文本到缓冲区，使用节流更新
+      streamTextBuffer += text;
+      throttledFlushStreamText();
     }
   },
 
@@ -1080,7 +1131,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   _handleAgentEnd: (state) => {
     console.log('[chatStore] _handleAgentEnd: 收到 agent:end 事件，准备结束当前消息气泡');
-    
+
+    // 刷新流式文本缓冲区，确保最后的内容显示
+    flushStreamText();
+
     // 同步更新 runtimeStore
     useRuntimeStore.getState().finishMessageStream();
     useRuntimeStore.getState().setProcessing(false);
@@ -1664,7 +1718,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     console.log('[chatStore] _handleTeamEnd: 清理完成');
   },
-}));
+};
+});
 
 // ============================================================
 // 初始化事件监听器
@@ -2145,4 +2200,4 @@ if (typeof window !== 'undefined' && window.electron) {
 
     console.log('[chatStore] Timeline events after finish:', useRuntimeStore.getState().agentActivity.timelineEvents['main']);
   });
-}
+};
