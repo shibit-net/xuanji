@@ -1,22 +1,15 @@
 // ============================================================
-// SessionFactory - 会话工厂
+// SessionFactory - 会话工厂（贾维斯架构版）
 // ============================================================
 // 负责创建和初始化 ChatSession 及其所有依赖
 //
-// 职责:
-// 1. 加载配置
-// 2. 初始化基础设施（Logger、Storage）
-// 3. 初始化领域服务（Memory、Permission、Agent）
-// 4. 初始化应用服务（SkillRouter、TurnManager）
-// 5. 组装 SessionOrchestrator 和 ChatSession
-//
-// 使用 DependencyContainer 管理所有依赖
+// 🎯 简化版：删除 SessionOrchestrator、SkillRouter、PromptOrchestrator
+// 🎯 集成 MainAgent：主调度Agent架构
 // ============================================================
 
 import type { AppConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { IMemoryStore } from '@/memory/types';
 import type { IPermissionController } from '@/permission/types';
-import type { SkillRegistry } from '@/core/skills';
 import { DependencyContainer } from '@/core/di';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { ProviderManager } from '@/core/providers/ProviderManager';
@@ -26,11 +19,16 @@ import { PermissionController } from '@/permission/PermissionController';
 import { SessionManager } from '@/session/SessionManager';
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { AgentLoop } from '@/core/agent/AgentLoop';
-import { SkillRouter } from './SkillRouter';
-import { PromptOrchestrator } from './PromptOrchestrator';
-import { TurnLifecycleManager } from './TurnLifecycleManager';
-import { SessionOrchestrator, type SessionCallbacks } from './SessionOrchestrator';
-import { ChatSession } from './ChatSession';
+import { TeamManager } from '@/core/agent/team/TeamManager';
+import { IntentRouter } from '@/core/intent/IntentRouter';
+import { IntentAnalyzer } from '@/core/prompt/IntentAnalyzer';
+import { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
+import { MainAgent } from '@/core/agent/jarvis/MainAgent';
+import { PromptStore } from '@/core/agent/jarvis/PromptStore';
+import { TaskPlanner } from '@/core/agent/jarvis/TaskPlanner';
+import { ResultAggregator } from '@/core/agent/jarvis/ResultAggregator';
+import { getCodingSceneConfigs } from '@/core/prompt/components/l1-coding-scenes';
+import { ChatSession, type SessionCallbacks } from './ChatSession';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SessionFactory' });
@@ -41,6 +39,8 @@ const log = logger.child({ module: 'SessionFactory' });
 export interface SessionOptions {
   /** 用户 ID */
   userId?: string;
+  /** Agent ID（默认为 'xuanji'） */
+  agentId?: string;
   /** 模型覆盖 */
   model?: string;
   /** 已有的配置（跳过加载） */
@@ -56,27 +56,30 @@ export interface SessionOptions {
 }
 
 /**
- * SessionFactory - 会话工厂
+ * SessionFactory - 会话工厂（贾维斯架构版）
  */
 export class SessionFactory {
   private container: DependencyContainer;
   private userId: string;
+  private agentId: string;
 
-  constructor(userId: string = 'default') {
+  constructor(userId: string, agentId: string = 'xuanji') {
     this.container = new DependencyContainer();
     this.userId = userId;
+    this.agentId = agentId;
   }
 
   /**
    * 创建会话
    */
   async create(options: SessionOptions = {}): Promise<ChatSession> {
-    // 使用传入的 userId 或构造函数的 userId
     const userId = options.userId || this.userId;
-    log.info(`Creating session for user: ${userId}`);
+    const agentId = options.agentId || this.agentId;
+
+    log.info(`Creating session for user: ${userId}, agent: ${agentId} (Jarvis Mode)`);
 
     // 1. 加载配置
-    const config = await this.loadConfig({ ...options, userId });
+    const config = await this.loadConfig({ ...options, userId, agentId });
     this.container.registerSingleton('config', config);
 
     // 2. 初始化基础设施
@@ -88,17 +91,106 @@ export class SessionFactory {
     // 4. 初始化应用服务
     await this.initApplicationServices(config, options);
 
-    // 5. 注册高级工具（需要依赖注入）
+    // 5. 注册高级工具
     await this.registerAdvancedTools(config);
 
-    // 6. 创建编排器
-    const orchestrator = await this.createOrchestrator(options.callbacks);
+    // 6. 创建 MainAgent（贾维斯架构 - 默认模式）
+    const mainAgent = await this.createMainAgent(config);
 
     // 7. 创建会话
-    const session = new ChatSession(orchestrator, this.container);
+    const agentLoop = await this.container.resolve<AgentLoop>('agentLoop');
+    const session = new ChatSession(
+      mainAgent,
+      agentLoop,
+      this.container,
+      options.callbacks
+    );
 
     log.info('Session created successfully');
     return session;
+  }
+
+  /**
+   * 创建 MainAgent（贾维斯架构）
+   */
+  private async createMainAgent(config: AppConfig): Promise<MainAgent> {
+    log.debug('Creating MainAgent (Jarvis Architecture)...');
+
+    const provider = await this.container.resolve<ILLMProvider>('provider');
+    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
+
+    // 1. 初始化 IntentRouter
+    const intentRouter = new IntentRouter(agentRegistry, config.provider);
+    await intentRouter.init();
+    log.debug('IntentRouter initialized');
+
+    // 2. 初始化 IntentAnalyzer
+    const embeddingService = null; // TODO: 注入 EmbeddingService
+    const intentAnalyzer = new IntentAnalyzer(embeddingService);
+
+    // 注册编程场景
+    const sceneConfigs = getCodingSceneConfigs();
+    for (const [scene, sceneConfig] of sceneConfigs) {
+      intentAnalyzer.registerScene(scene, sceneConfig);
+    }
+    await intentAnalyzer.init();
+    log.debug('IntentAnalyzer initialized with coding scenes');
+
+    // 3. 创建 LayeredPromptBuilder
+    const promptBuilder = new LayeredPromptBuilder();
+    await promptBuilder.init();
+    log.debug('LayeredPromptBuilder initialized');
+
+    // 4. 创建 PromptStore
+    const promptStore = new PromptStore(promptBuilder);
+
+    // 5. 创建 TaskPlanner
+    const taskPlanner = new TaskPlanner(provider);
+
+    // 6. 创建 ResultAggregator
+    const resultAggregator = new ResultAggregator(provider);
+
+    // 7. 创建 TeamManager
+    const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
+    const memoryManager = await this.container.resolve<IMemoryStore>('memoryManager');
+    const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
+    const providerManager = new ProviderManager(config);
+
+    const teamManager = new TeamManager(
+      provider,
+      registry,
+      {
+        model: config.provider.model,
+        apiKey: config.provider.apiKey,
+        baseURL: config.provider.baseURL,
+        maxTokens: config.provider.maxTokens,
+        temperature: config.provider.temperature,
+      },
+      hookRegistry,
+      memoryManager,
+      0, // depth
+      agentRegistry,
+      providerManager
+    );
+
+    // 8. 创建 MainAgent
+    const mainAgent = new MainAgent(
+      intentRouter,
+      intentAnalyzer,
+      teamManager,
+      promptStore,
+      taskPlanner,
+      resultAggregator,
+      {
+        enableIntentRouter: true,
+        enableSceneAnalysis: true,
+        enableTaskDecomposition: true,
+        enableResultAggregation: true,
+      }
+    );
+
+    log.info('MainAgent created successfully');
+    return mainAgent;
   }
 
   /**
@@ -110,9 +202,13 @@ export class SessionFactory {
       return options.config;
     }
 
-    const userId = options.userId || 'default';
-    log.debug(`Loading config for user: ${userId}`);
-    const loader = new ConfigLoader(userId);
+    const userId = options.userId;
+    const agentId = options.agentId || 'xuanji';
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+    log.debug(`Loading config for user: ${userId}, agent: ${agentId}`);
+    const loader = new ConfigLoader(userId, agentId);
     const config = await loader.load();
 
     // 模型覆盖
@@ -138,53 +234,8 @@ export class SessionFactory {
 
     // HookRegistry
     this.container.register('hookRegistry', () => {
-      return new HookRegistry(config.hooks || {});
+      return new HookRegistry();
     });
-
-    // AgentRegistry（传入 userId）
-    this.container.register('agentRegistry', async () => {
-      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
-      return new AgentRegistry(userId);
-    });
-
-    // 初始化 AgentRegistry
-    try {
-      const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
-      await agentRegistry.init();
-      log.info('🤖 Agent Registry initialized');
-    } catch (err) {
-      log.warn('Agent Registry init failed:', err);
-    }
-
-    // SkillRegistry
-    this.container.register('skillRegistry', async () => {
-      const { SkillRegistry } = await import('@/core/skills');
-      return new SkillRegistry();
-    });
-
-    // 初始化 SkillRegistry
-    try {
-      const { initializeBuiltinSkills, SkillLoader } = await import('@/core/skills');
-      const skillRegistry = await this.container.resolve('skillRegistry') as SkillRegistry;
-
-      // 加载内置技能
-      initializeBuiltinSkills(skillRegistry);
-
-      // 加载自定义技能（如果配置了）
-      const skillsConfig = config.skills;
-      if (skillsConfig?.loadCustom && skillsConfig.customPath) {
-        const loader = new SkillLoader(skillRegistry);
-        await loader.load({
-          loadBuiltin: false,
-          loadCustom: true,
-          customPath: skillsConfig.customPath,
-        });
-      }
-
-      log.info('🎯 Skill Registry initialized');
-    } catch (err) {
-      log.warn('Skill Registry init failed:', err);
-    }
   }
 
   /**
@@ -194,25 +245,29 @@ export class SessionFactory {
     log.debug('Initializing domain services...');
 
     // Provider
-    this.container.register('provider', () => {
+    this.container.register('provider', async () => {
       if (options.provider) {
+        log.debug('Using provided provider');
         return options.provider;
       }
-      const manager = new ProviderManager(config);
-      return manager.getProvider();
+
+      const providerManager = new ProviderManager(config);
+      return providerManager.getProvider();
     });
 
     // ToolRegistry
     this.container.register('toolRegistry', () => {
       if (options.registry) {
+        log.debug('Using provided registry');
         return options.registry;
       }
-      return createDefaultRegistry();
+
+      return createDefaultRegistry(config, options.projectRoot);
     });
 
     // MemoryManager
     this.container.register('memoryManager', () => {
-      return new MemoryManager(config.memory, options.projectRoot);
+      return new MemoryManager(config);
     });
 
     // PermissionController
@@ -220,9 +275,13 @@ export class SessionFactory {
       return new PermissionController(config.permission);
     });
 
-    // 初始化 MemoryManager
-    const memoryManager = await this.container.resolve<IMemoryStore>('memoryManager');
-    await memoryManager.init?.();
+    // AgentRegistry
+    this.container.register('agentRegistry', async () => {
+      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      const agentRegistry = new AgentRegistry();
+      await agentRegistry.init();
+      return agentRegistry;
+    });
   }
 
   /**
@@ -242,7 +301,6 @@ export class SessionFactory {
 
     // AgentLoop
     this.container.register('agentLoop', () => {
-      // 将 AgentTuningConfig 转换为 AgentConfig
       const agentConfig: import('@/core/types').AgentConfig = {
         model: config.provider.model,
         apiKey: config.provider.apiKey,
@@ -267,52 +325,6 @@ export class SessionFactory {
         memoryManager
       );
     });
-
-    // SkillRouter
-    this.container.register('skillRouter', () => {
-      const agentLoop = this.container.resolveSync<AgentLoop>('agentLoop');
-      // TODO: 实现完整的 SkillRouter 初始化
-      // 目前暂时返回一个简单的实现
-      return {
-        tryRouteToSkill: async (input: string) => {
-          // 暂时不路由到 Skill，直接返回 false 让 AgentLoop 处理
-          return false;
-        }
-      } as any;
-    });
-
-    // PromptOrchestrator
-    this.container.register('promptOrchestrator', () => {
-      const agentLoop = this.container.resolveSync<AgentLoop>('agentLoop');
-      const registry = this.container.resolveSync<IToolRegistry>('toolRegistry');
-      const promptOrchestrator = new PromptOrchestrator(
-        config,
-        agentLoop,
-        registry,
-        () => null
-      );
-
-      // 注入 MemoryManager（启用 DecisionContext 注入）
-      const memoryManager = this.container.resolveSync<IMemoryStore>('memoryManager');
-      if (memoryManager && typeof (memoryManager as any).formatDecisionContext === 'function') {
-        promptOrchestrator.setMemoryManager(memoryManager as any);
-      }
-
-      return promptOrchestrator;
-    });
-
-    // TurnLifecycleManager
-    this.container.register('turnManager', () => {
-      const sessionManager = this.container.resolveSync<SessionManager>('sessionManager');
-      const agentLoop = this.container.resolveSync<AgentLoop>('agentLoop');
-
-      return new TurnLifecycleManager(
-        agentLoop,
-        sessionManager,
-        config,
-        () => undefined
-      );
-    });
   }
 
   /**
@@ -331,98 +343,37 @@ export class SessionFactory {
     const providerManager = new ProviderManager(config);
 
     // 动态导入工具类
-    const { TaskTool } = await import('@/core/tools/TaskTool');
+    const { SubAgentFactory } = await import('@/core/agent/SubAgentFactory');
+    const { AgentTool } = await import('@/core/tools/AgentTool');
     const { TeamTool } = await import('@/core/tools/TeamTool');
-    const { ListAgentsTool } = await import('@/core/tools/ListAgentsTool');
-    const { MatchAgentTool } = await import('@/core/tools/MatchAgentTool');
 
-    // 创建并注册 TaskTool
-    const taskTool = new TaskTool();
-    taskTool.setDependencies({
-      providerManager,
+    // SubAgentFactory
+    const subAgentFactory = new SubAgentFactory(
       agentRegistry,
+      providerManager,
       registry,
-      agentConfig: {
-        model: config.provider.model,
-        apiKey: config.provider.apiKey,
-        baseURL: config.provider.baseURL,
-        maxTokens: config.provider.maxTokens,
-        temperature: config.provider.temperature,
-      },
-      parentProvider: provider,
       hookRegistry,
-      memoryStore: memoryManager,
-      depth: 0,
-      agentId: 'main',
-    });
-    registry.register(taskTool);
-    log.debug('✓ TaskTool registered');
+      memoryManager,
+      provider,
+      config.provider
+    );
 
-    // 创建并注册 TeamTool
-    const teamTool = new TeamTool();
-    teamTool.setDependencies({
+    // 注册 Agent 工具
+    const agentTool = new AgentTool(subAgentFactory);
+    registry.register(agentTool);
+
+    // 注册 Team 工具
+    const teamTool = new TeamTool(
       provider,
       registry,
-      agentConfig: {
-        model: config.provider.model,
-        apiKey: config.provider.apiKey,
-        baseURL: config.provider.baseURL,
-        maxTokens: config.provider.maxTokens,
-        temperature: config.provider.temperature,
-      },
+      config.provider,
       hookRegistry,
-      memoryStore: memoryManager,
-      depth: 0,
+      memoryManager,
       agentRegistry,
-      providerManager,
-    });
-    registry.register(teamTool);
-    log.debug('✓ TeamTool registered');
-
-    // 创建并注册 ListAgentsTool
-    const listAgentsTool = new ListAgentsTool();
-    listAgentsTool.setAgentRegistry(agentRegistry);
-    registry.register(listAgentsTool);
-    log.debug('✓ ListAgentsTool registered');
-
-    // 创建并注册 MatchAgentTool
-    const matchAgentTool = new MatchAgentTool();
-    matchAgentTool.setDependencies({
-      agentRegistry,
-      embeddingService: null, // TODO: 集成 EmbeddingService
-    });
-    registry.register(matchAgentTool);
-    log.debug('✓ MatchAgentTool registered');
-
-    log.info('🔧 Advanced tools registered');
-  }
-
-  /**
-   * 创建编排器
-   */
-  private async createOrchestrator(callbacks?: SessionCallbacks): Promise<SessionOrchestrator> {
-    const agentLoop = await this.container.resolve<AgentLoop>('agentLoop');
-    const skillRouter = await this.container.resolve<SkillRouter>('skillRouter');
-    const promptOrchestrator = await this.container.resolve<PromptOrchestrator>('promptOrchestrator');
-
-    // 先解析 sessionManager，确保它被缓存，因为 turnManager 需要它
-    await this.container.resolve('sessionManager');
-
-    const turnManager = await this.container.resolve<TurnLifecycleManager>('turnManager');
-
-    return new SessionOrchestrator(
-      agentLoop,
-      skillRouter,
-      turnManager,
-      promptOrchestrator,
-      callbacks
+      providerManager
     );
-  }
+    registry.register(teamTool);
 
-  /**
-   * 获取依赖容器（用于测试）
-   */
-  getContainer(): DependencyContainer {
-    return this.container;
+    log.debug('Advanced tools registered');
   }
 }

@@ -4,15 +4,14 @@
  * 测试 MainAgent + 8种编程场景
  */
 
-import { SessionFactory } from './SessionFactory.jarvis';
+import { SessionFactory } from '../src/core/chat/SessionFactory';
 
 async function testJarvisArchitecture() {
   console.log('🚀 Testing Jarvis Architecture...\n');
 
-  // 创建会话
+  // 创建会话（默认贾维斯模式）
   const factory = new SessionFactory('test-user');
   const session = await factory.create({
-    enableJarvisMode: true,
     callbacks: {
       onText: (text) => console.log('📝 Output:', text),
       onThinking: (thinking) => console.log('💭 Thinking:', thinking),
@@ -28,7 +27,7 @@ async function testJarvisArchitecture() {
     }
   });
 
-  console.log(`✅ Session created (Jarvis Mode: ${session.isJarvisMode()})\n`);
+  console.log(`✅ Session created (Jarvis Mode)\n`);
 
   // 测试场景1: 写代码
   console.log('📌 Test 1: write_code scene');
