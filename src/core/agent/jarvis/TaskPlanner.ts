@@ -6,6 +6,11 @@
  * 2. 智能拆分复杂任务
  * 3. 识别任务依赖关系
  * 4. 推荐最佳执行策略
+ *
+ * 🎯 Agent 和 Scene 完全解耦：
+ * - Agent：执行者（coder/explore/plan/general-purpose）
+ * - Scene：场景增强Prompt（write_code/debug/review...）
+ * - 两者可以任意组合
  */
 
 import type { ILLMProvider } from '@/core/types';
@@ -20,8 +25,8 @@ const log = logger.child({ module: 'TaskPlanner' });
  */
 export interface SubTask {
   id: string;
-  agentId: string;  // coder | debugger | reviewer | tester | explainer | explorer | planner | refactorer
-  scene: SceneType;
+  agentId: string;  // 执行者：coder | explore | plan | general-purpose
+  scene: SceneType; // 场景增强：write_code | debug | review | test | ...
   description: string;
   systemPrompt?: string;
   priority?: number;
@@ -39,13 +44,37 @@ export interface TaskPlan {
 }
 
 /**
+ * Agent 选择策略配置
+ */
+export interface AgentSelectionConfig {
+  /** 默认 Agent（当无法匹配时使用） */
+  defaultAgent: string;
+  /** 场景到 Agent 的推荐映射（可选） */
+  sceneToAgentHints?: Record<string, string>;
+}
+
+/**
  * TaskPlanner - 任务规划器
  */
 export class TaskPlanner {
   private provider: ILLMProvider;
+  private config: AgentSelectionConfig;
 
-  constructor(provider: ILLMProvider) {
+  constructor(
+    provider: ILLMProvider,
+    config?: AgentSelectionConfig
+  ) {
     this.provider = provider;
+    this.config = {
+      defaultAgent: 'coder',
+      sceneToAgentHints: {
+        // 这只是推荐，不是强制绑定
+        'explore': 'explore',
+        'plan': 'plan',
+        'explain': 'general-purpose',
+      },
+      ...config,
+    };
   }
 
   /**
@@ -74,6 +103,7 @@ export class TaskPlanner {
     scene: SceneType,
     userInput: string
   ): TaskPlan {
+    // 根据场景推荐 Agent（可配置）
     const agentId = this.selectAgentForScene(scene);
 
     return {
@@ -81,8 +111,8 @@ export class TaskPlanner {
       goal: userInput,
       tasks: [{
         id: 'task-1',
-        agentId,
-        scene,
+        agentId,    // Agent：执行者
+        scene,      // Scene：场景增强Prompt
         description: userInput,
         priority: 10,
       }],
@@ -105,27 +135,36 @@ export class TaskPlanner {
 1. 每个子任务职责单一、可独立执行
 2. 识别任务间的依赖关系
 3. 推荐最佳执行策略
-4. 为每个子任务选择合适的Agent和场景
+4. 为每个子任务选择合适的 Agent 和 Scene
 
-可用Agent：
-- coder: 编写代码
-- debugger: 排查问题
-- reviewer: 代码审查
-- tester: 编写测试
-- explainer: 讲解原理
-- explorer: 探索代码库
-- planner: 方案设计
-- refactorer: 代码重构
+🎯 Agent 和 Scene 的区别：
+- Agent：执行者（谁来做）
+- Scene：场景增强Prompt（怎么做）
+- 两者可以任意组合
 
-可用场景：
-- write_code: 写代码（严谨、低温度）
-- debug: 调试（细致、中温度）
-- review: 审查（批判、中温度）
-- test: 测试（全面、低温度）
-- explain: 讲解（通俗、高温度）
-- explore: 探索（广度、中温度）
-- plan: 规划（结构化、中温度）
-- refactor: 重构（改进、中温度）
+可用 Agent（执行者）：
+- coder: 通用编程 Agent，能处理代码编写、调试、审查、测试、重构
+- explore: 代码探索 Agent，擅长快速定位文件和理解项目结构
+- plan: 方案设计 Agent，擅长架构设计和技术选型
+- general-purpose: 通用 Agent，处理讲解、解释等非编程任务
+
+可用 Scene（场景增强）：
+- write_code: 写代码场景（严谨、低温度、可直接运行）
+- debug: 调试场景（细致、步骤清晰、定位根因）
+- review: 审查场景（批判性、关注质量和安全）
+- test: 测试场景（全面、覆盖边界情况）
+- refactor: 重构场景（改进结构、保持功能）
+- explain: 讲解场景（通俗易懂、循序渐进）
+- explore: 探索场景（快速定位、理解架构）
+- plan: 规划场景（结构化、架构清晰）
+
+推荐组合示例：
+- 写代码：agentId='coder', scene='write_code'
+- 调试：agentId='coder', scene='debug'
+- 审查：agentId='coder', scene='review'
+- 探索代码库：agentId='explore', scene='explore'
+- 方案设计：agentId='plan', scene='plan'
+- 讲解原理：agentId='general-purpose', scene='explain'
 
 可用策略：
 - sequential: 串行执行（任务有依赖）
@@ -139,7 +178,7 @@ export class TaskPlanner {
   "tasks": [
     {
       "id": "task-1",
-      "agentId": "planner",
+      "agentId": "plan",
       "scene": "plan",
       "description": "设计用户系统架构",
       "priority": 10
@@ -180,20 +219,22 @@ export class TaskPlanner {
   }
 
   /**
-   * 为场景选择合适的Agent（使用内置 Agent）
+   * 为场景推荐 Agent（可配置，不强制绑定）
    */
   private selectAgentForScene(scene: SceneType): string {
-    const mapping: Record<string, string> = {
-      'write_code': 'coder',           // 使用内置 coder.json5
-      'debug': 'coder',                // coder 也能调试
-      'review': 'coder',               // coder 也能审查
-      'test': 'coder',                 // coder 也能写测试
-      'refactor': 'coder',             // coder 也能重构
-      'explain': 'general-purpose',    // 使用 general-purpose.json5
-      'explore': 'explore',            // 使用 explore.json5
-      'plan': 'plan',                  // 使用 plan.json5
-      'coding': 'coder',               // 默认
-    };
-    return mapping[scene] || 'coder';
+    // 优先使用配置的推荐映射
+    if (this.config.sceneToAgentHints?.[scene]) {
+      return this.config.sceneToAgentHints[scene];
+    }
+
+    // 默认使用 coder（通用编程 Agent）
+    return this.config.defaultAgent;
+  }
+
+  /**
+   * 更新 Agent 选择配置
+   */
+  updateConfig(config: Partial<AgentSelectionConfig>): void {
+    this.config = { ...this.config, ...config };
   }
 }
