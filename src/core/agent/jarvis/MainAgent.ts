@@ -153,8 +153,8 @@ export class MainAgent {
   ): Promise<TeamExecutionResult> {
     const task = plan.tasks[0];
 
-    // 获取场景Prompt
-    const systemPrompt = await this.promptStore.getPromptForScene(task.scene);
+    // 获取场景增强指令（追加到内置 agent 的 systemPrompt 后）
+    const sceneEnhancement = await this.promptStore.getSceneEnhancement(task.scene);
 
     // 创建单成员团队
     const teamConfig: TeamConfig = {
@@ -163,7 +163,7 @@ export class MainAgent {
       members: [{
         id: task.id,
         agentId: task.agentId,
-        systemPrompt,
+        systemPrompt: sceneEnhancement, // 追加到内置 agent 的 systemPrompt 后
         capabilities: [task.scene],
       }],
     };
@@ -179,14 +179,14 @@ export class MainAgent {
     plan: import('./TaskPlanner').TaskPlan,
     signal?: AbortSignal
   ): Promise<TeamExecutionResult> {
-    // 为每个任务获取场景Prompt
-    const membersWithPrompts = await Promise.all(
+    // 为每个任务获取场景增强指令
+    const members = await Promise.all(
       plan.tasks.map(async (task) => {
-        const systemPrompt = task.systemPrompt || await this.promptStore.getPromptForScene(task.scene);
+        const sceneEnhancement = await this.promptStore.getSceneEnhancement(task.scene);
         return {
           id: task.id,
           agentId: task.agentId,
-          systemPrompt,
+          systemPrompt: sceneEnhancement, // 追加到内置 agent 的 systemPrompt 后
           capabilities: [task.scene],
           priority: task.priority,
         };
@@ -196,7 +196,7 @@ export class MainAgent {
     const teamConfig: TeamConfig = {
       name: 'complex-task',
       strategy: plan.strategy as any,
-      members: membersWithPrompts,
+      members,
     };
 
     await this.teamManager.createTeam(teamConfig);

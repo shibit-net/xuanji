@@ -3,7 +3,7 @@
 // ============================================================
 //
 // 在独立 Node.js 进程中运行 ChatSession，
-// 通过 process.send/process.on 与 Electron 主进程通信。
+// 通过 MessageBus 与 Electron 主进程通信。
 // 这样 better-sqlite3 等 native 模块使用系统 Node.js 加载，
 // 不受 Electron ABI 限制。
 //
@@ -11,187 +11,155 @@
 import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
 import type { ChatSession } from '../../src/core/chat/ChatSession.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
+import { ChildMessageChannel } from './ipc/MessageBus.js';
 
 let session: ChatSession | null = null;
 
-/**
- * 安全地发送消息到主进程
- */
-function safeSend(message: any) {
-  try {
-    if (process.send && process.connected) {
-      process.send(message);
-    }
-  } catch (err: any) {
-    // 忽略 EPIPE 错误（管道已关闭，通常是主进程退出）
-    if (err.code !== 'EPIPE') {
-      console.error('[agent-bridge] 发送消息失败:', err);
-    }
-  }
-}
-
-/**
- * 处理来自主进程的消息
- */
-process.on('message', async (msg: any) => {
-  switch (msg.type) {
-    case 'init':
-      await handleInit();
-      break;
-    case 'trigger-startup':
-      await handleTriggerStartup();
-      break;
-    case 'send-message':
-      await handleSendMessage(msg.data);
-      break;
-    case 'interrupt':
-      handleInterrupt(msg.data?.message || '');
-      break;
-    case 'reset':
-      handleReset();
-      break;
-    case 'get-state':
-      handleGetState(msg.requestId);
-      break;
-    case 'get-config':
-      handleGetConfig(msg.requestId);
-      break;
-    case 'get-full-config':
-      handleGetFullConfig(msg.requestId);
-      break;
-    case 'update-config':
-      handleUpdateConfig(msg.requestId, msg.data);
-      break;
-
-    // ============ 会话管理 ============
-    case 'session-save':
-      handleSessionSave(msg.requestId, msg.data);
-      break;
-    case 'session-resume':
-      handleSessionResume(msg.requestId, msg.data);
-      break;
-    case 'session-list':
-      handleSessionList(msg.requestId);
-      break;
-    case 'session-delete':
-      handleSessionDelete(msg.requestId, msg.data);
-      break;
-    case 'checkpoint-create':
-      handleCheckpointCreate(msg.requestId, msg.data);
-      break;
-    case 'checkpoint-list':
-      handleCheckpointList(msg.requestId);
-      break;
-    case 'checkpoint-rewind':
-      handleCheckpointRewind(msg.requestId, msg.data);
-      break;
-
-    // ============ 记忆管理 ============
-    case 'memory-retrieve':
-      handleMemoryRetrieve(msg.requestId, msg.data);
-      break;
-    case 'memory-stats':
-      handleMemoryStats(msg.requestId);
-      break;
-    case 'memory-get-config':
-      handleGetMemoryConfig(msg.requestId);
-      break;
-    case 'memory-save-config':
-      handleSaveMemoryConfig(msg.requestId, msg.data);
-      break;
-    case 'memory-manual-flush':
-      handleManualMemoryFlush(msg.requestId);
-      break;
-    case 'memory-extract-topics':
-      handleExtractTopics(msg.requestId);
-      break;
-    case 'memory-get-list':
-      handleGetMemoryList(msg.requestId, msg.data);
-      break;
-
-    // ============ 核心规则管理 ============
-    case 'core-rules-get-all':
-      handleCoreRulesGetAll(msg.requestId);
-      break;
-    case 'core-rules-update':
-      handleCoreRulesUpdate(msg.requestId, msg.data);
-      break;
-    case 'core-rules-delete':
-      handleCoreRulesDelete(msg.requestId, msg.data);
-      break;
-
-    // ============ 工具统计 ============
-    case 'get-usage-stats':
-      handleGetUsageStats(msg.requestId);
-      break;
-
-    // ============ Agent 管理 ============
-    case 'agent-list':
-      handleAgentList(msg.requestId);
-      break;
-    case 'agent-get':
-      handleAgentGet(msg.requestId, msg.data);
-      break;
-    case 'agent-create':
-      handleAgentCreate(msg.requestId, msg.data);
-      break;
-    case 'agent-update':
-      handleAgentUpdate(msg.requestId, msg.data);
-      break;
-    case 'agent-delete':
-      handleAgentDelete(msg.requestId, msg.data);
-      break;
-
-    // ============ Skills / Tools / MCP 查询 ============
-    case 'skills-list':
-      handleSkillsList(msg.requestId);
-      break;
-    case 'tools-list':
-      handleToolsList(msg.requestId);
-      break;
-    case 'mcp-list':
-      handleMcpList(msg.requestId);
-      break;
-
-    // ============ 高级功能 ============
-    case 'compact':
-      handleCompact(msg.requestId, msg.data);
-      break;
-    case 'get-diagnostics':
-      handleGetDiagnostics(msg.requestId);
-      break;
-
-    // ============ 权限交互响应 ============
-    case 'permission-response':
-      handlePermissionResponse(msg.data);
-      break;
-    case 'plan-review-response':
-      handlePlanReviewResponse(msg.data);
-      break;
-    case 'ask-user-response':
-      handleAskUserResponse(msg.data);
-      break;
-
-    // ============ 权限规则管理 ============
-    case 'permission-list':
-      handlePermissionList(msg.requestId);
-      break;
-    case 'permission-delete':
-      handlePermissionDelete(msg.requestId, msg.data);
-      break;
-    case 'permission-clear':
-      handlePermissionClear(msg.requestId);
-      break;
-
-    // ============ Todo 管理 ============
-    case 'todo-archive-completed':
-      handleTodoArchiveCompleted(msg.requestId);
-      break;
-    case 'todo-get-archived-count':
-      handleTodoGetArchivedCount(msg.requestId);
-      break;
-  }
+// 创建子进程消息通道
+const channel = new ChildMessageChannel({
+  name: 'agent-child',
+  enableLogging: true,
 });
+
+// 子进程启动完成，通知主进程
+console.log('[agent-bridge] 子进程已启动');
+channel.send('child-ready', { pid: process.pid });
+
+// ============================================================
+// 注册消息处理器
+// ============================================================
+
+// 初始化 Session
+channel.handle('init', async (data) => {
+  return await handleInit(data?.userId);
+});
+
+// 触发启动消息
+channel.handle('trigger-startup', async () => {
+  return await handleTriggerStartup();
+});
+
+// 发送用户消息
+channel.handle('send-message', async (data) => {
+  return await handleSendMessage(data);
+});
+
+// 中断执行
+channel.handle('interrupt', (data) => {
+  handleInterrupt(data?.message || '');
+  return { success: true };
+});
+
+// 重置会话
+channel.handle('reset', () => {
+  return handleReset();
+});
+
+// 获取状态
+channel.handle('get-state', () => {
+  return handleGetState();
+});
+
+// 获取配置
+channel.handle('get-config', () => {
+  return handleGetConfig();
+});
+
+// 获取完整配置
+channel.handle('get-full-config', () => {
+  return handleGetFullConfig();
+});
+
+// 更新配置
+channel.handle('update-config', (data) => {
+  return handleUpdateConfig(data);
+});
+
+// ============ 会话管理 ============
+channel.handle('session-save', (data) => handleSessionSave(data));
+channel.handle('session-resume', (data) => handleSessionResume(data));
+channel.handle('session-list', () => handleSessionList());
+channel.handle('session-delete', (data) => handleSessionDelete(data));
+channel.handle('checkpoint-create', (data) => handleCheckpointCreate(data));
+channel.handle('checkpoint-list', () => handleCheckpointList());
+channel.handle('checkpoint-rewind', (data) => handleCheckpointRewind(data));
+
+// ============ 记忆管理 ============
+channel.handle('memory-retrieve', (data) => handleMemoryRetrieve(data));
+channel.handle('memory-stats', () => handleMemoryStats());
+channel.handle('memory-get-config', () => handleGetMemoryConfig());
+channel.handle('memory-save-config', (data) => handleSaveMemoryConfig(data));
+channel.handle('memory-manual-flush', () => handleManualMemoryFlush());
+channel.handle('memory-extract-topics', () => handleExtractTopics());
+channel.handle('memory-get-list', (data) => handleGetMemoryList(data));
+
+// ============ 核心规则管理 ============
+channel.handle('core-rules-get-all', () => handleCoreRulesGetAll());
+channel.handle('core-rules-update', (data) => handleCoreRulesUpdate(data));
+channel.handle('core-rules-delete', (data) => handleCoreRulesDelete(data));
+
+// ============ 工具统计 ============
+channel.handle('get-usage-stats', () => handleGetUsageStats());
+
+// ============ Agent 管理 ============
+channel.handle('agent-list', () => handleAgentList());
+channel.handle('agent-get', (data) => handleAgentGet(data));
+channel.handle('agent-create', (data) => handleAgentCreate(data));
+channel.handle('agent-update', (data) => handleAgentUpdate(data));
+channel.handle('agent-delete', (data) => handleAgentDelete(data));
+
+// ============ Skills / Tools / MCP 查询 ============
+channel.handle('skills-list', () => handleSkillsList());
+channel.handle('tools-list', () => handleToolsList());
+channel.handle('mcp-list', () => handleMcpList());
+
+// ============ 高级功能 ============
+channel.handle('compact', (data) => handleCompact(data));
+channel.handle('get-diagnostics', () => handleGetDiagnostics());
+
+// ============ Prompt 配置管理 ============
+channel.handle('get-prompt-config', () => handleGetPromptConfig());
+channel.handle('save-prompt-config', (data) => handleSavePromptConfig(data));
+
+// ============ 权限交互响应 ============
+channel.handle('permission-response', (data) => {
+  handlePermissionResponse(data);
+  return { success: true };
+});
+channel.handle('plan-review-response', (data) => {
+  handlePlanReviewResponse(data);
+  return { success: true };
+});
+channel.handle('ask-user-response', (data) => {
+  handleAskUserResponse(data);
+  return { success: true };
+});
+
+// ============ 权限规则管理 ============
+channel.handle('permission-list', () => handlePermissionList());
+channel.handle('permission-delete', (data) => handlePermissionDelete(data));
+channel.handle('permission-clear', () => handlePermissionClear());
+
+// ============ Todo 管理 ============
+channel.handle('todo-archive-completed', () => handleTodoArchiveCompleted());
+channel.handle('todo-get-archived-count', () => handleTodoGetArchivedCount());
+
+// ============ 关闭 ============
+channel.on('shutdown', () => {
+  console.log('[agent-bridge] 收到关闭信号');
+  process.exit(0);
+});
+
+// ============================================================
+// Hook 事件监听器
+// ============================================================
+
+/**
+ * 安全地发送消息到主进程（用于事件通知）
+ */
+function safeSend(message: { type: string; data?: any }) {
+  channel.send(message.type, message.data);
+}
 
 /**
  * 注册 Hook 事件监听器
@@ -439,26 +407,43 @@ function registerHookListeners(hookRegistry: any) {
 /**
  * 初始化 ChatSession
  */
-async function handleInit() {
+/**
+ * 初始化 ChatSession
+ * @param userId - 用户 ID，由主进程传递
+ */
+async function handleInit(userId?: string) {
   try {
-    // 获取当前用户 ID（从认证系统或使用默认值）
-    let userId = 'default';
-    try {
-      const { AuthManager } = await import('./services/auth.js');
-      const authManager = AuthManager.getInstance();
-      const currentUser = authManager.getCurrentUser();
-      if (currentUser?.userId) {
-        userId = currentUser.userId;
+    // 如果没有传递 userId，尝试从 authState 获取（兼容旧逻辑）
+    if (!userId) {
+      try {
+        const { getAuthState } = await import('./config/auth.js');
+        const authState = getAuthState();
+        if (authState?.user?.userId) {
+          userId = authState.user.userId;
+        }
+      } catch (err) {
+        console.warn('[agent-bridge] 无法从 authState 获取用户:', err);
       }
-    } catch (err) {
-      console.warn('[agent-bridge] 无法获取当前用户，使用默认用户:', err);
+    }
+
+    if (!userId) {
+      console.error('[agent-bridge] 用户未登录，无法初始化 session');
+      // 发送初始化失败事件
+      safeSend({
+        type: 'init-complete',
+        data: { success: false, error: '用户未登录' },
+      });
+      return { success: false, error: '用户未登录' };
     }
 
     console.log(`[agent-bridge] 初始化会话，用户: ${userId}`);
 
-    const factory = new SessionFactory(userId);
+    // 默认使用 'xuanji' agent，后续可以支持动态切换
+    const agentId = 'xuanji';
+    const factory = new SessionFactory(userId, agentId);
     session = await factory.create({
       userId,
+      agentId,
       callbacks: {
         // 启动引导：思考状态
         onBootThinking: () => {
@@ -502,18 +487,27 @@ async function handleInit() {
     const hookRegistry = container.resolveSync('hookRegistry');
     registerHookListeners(hookRegistry);
 
+    // 发送初始化完成事件
     safeSend({
       type: 'init-complete',
       data: { success: true },
     });
+    console.log('[agent-bridge] Session 初始化完成');
+
+    // 返回成功结果
+    return { success: true };
   } catch (err) {
+    console.error('[agent-bridge] Session 初始化失败:', err);
+    const error = err instanceof Error ? err.message : String(err);
+
+    // 发送初始化失败事件
     safeSend({
-      type: 'init-result',
-      data: {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      },
+      type: 'init-complete',
+      data: { success: false, error },
     });
+
+    // 返回失败结果
+    return { success: false, error };
   }
 }
 
@@ -565,12 +559,16 @@ function registerSessionCallbacks(s: ChatSession) {
  */
 async function handleTriggerStartup() {
   try {
-    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
-    const globalConfig = await GlobalConfig.readGlobalConfig();
-    const isNewUser = !globalConfig.onboardingDone;
+    if (!session) {
+      console.warn('[agent-bridge] Session 未初始化，无法触发启动消息');
+      return;
+    }
+
+    const config = session.getConfig();
+    const isNewUser = !config.onboardingDone;
 
     let hasMemories = false;
-    if (!isNewUser && session) {
+    if (!isNewUser) {
       const container = session.getContainer();
       const memoryManager = container.resolveSync('memoryManager');
       if (memoryManager) {
@@ -596,7 +594,7 @@ async function handleSendMessage(message: string) {
       type: 'send-result',
       data: { success: false, error: '会话未初始化' },
     });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
 
   try {
@@ -667,25 +665,19 @@ function handleReset() {
 /**
  * 获取状态
  */
-function handleGetState(requestId: string) {
+function handleGetState() {
   if (!session) {
-    safeSend({
-      type: 'state-result',
-      requestId,
-      data: {
+    safeSend({ type: 'state-result', data: {
         status: 'idle',
         tokenUsage: { input: 0, output: 0 },
         cost: 0,
       },
     });
-    return;
+    return null;
   }
 
   const state = session.getState();
-  safeSend({
-    type: 'state-result',
-    requestId,
-    data: {
+  safeSend({ type: 'state-result', data: {
       status: state.status,
       tokenUsage: state.tokenUsage,
       cost: state.cost,
@@ -697,21 +689,15 @@ function handleGetState(requestId: string) {
 /**
  * 获取配置
  */
-function handleGetConfig(requestId: string) {
+function handleGetConfig() {
   if (!session) {
-    safeSend({
-      type: 'config-result',
-      requestId,
-      data: null,
+    safeSend({ type: 'config-result', data: null,
     });
-    return;
+    return null;
   }
 
   const config = session.getConfig();
-  safeSend({
-    type: 'config-result',
-    requestId,
-    data: {
+  safeSend({ type: 'config-result', data: {
       model: config.provider.model,
       adapter: config.provider.adapter || 'anthropic',
       apiKey: config.provider.apiKey ? '***' + config.provider.apiKey.slice(-4) : '',
@@ -726,111 +712,116 @@ function handleGetConfig(requestId: string) {
 /**
  * 获取完整配置（供设置页面使用）
  */
-async function handleGetFullConfig(requestId: string) {
+async function handleGetFullConfig() {
   if (!session) {
-    safeSend({ type: 'full-config-result', requestId, data: null });
-    return;
+    return null;
   }
 
   const config = session.getConfig();
 
-  // onboardingDone 和 persona 直接从全局配置文件读取，确保最新值
-  const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
-  const globalConfig = await GlobalConfig.readGlobalConfig();
-
-  safeSend({
-    type: 'full-config-result',
-    requestId,
-    data: {
-      provider: {
-        model: config.provider.model,
-        adapter: config.provider.adapter || 'anthropic',
-        apiKey: config.provider.apiKey ? '***' + config.provider.apiKey.slice(-4) : '',
-        hasApiKey: !!config.provider.apiKey,
-        baseURL: config.provider.baseURL || '',
-        maxTokens: config.provider.maxTokens,
-        temperature: config.provider.temperature,
-        lightModel: config.provider.lightModel || '',
-      },
-      memory: {
-        enabled: config.memory?.enabled ?? true,
-      },
-      features: {
-        dynamicToolLoading: config.features?.dynamicToolLoading ?? true,
-      },
-      persona: globalConfig.persona ?? {},
-      onboardingDone: globalConfig.onboardingDone,
+  return {
+    provider: {
+      model: config.provider.model,
+      adapter: config.provider.adapter || 'anthropic',
+      apiKey: config.provider.apiKey ? '***' + config.provider.apiKey.slice(-4) : '',
+      hasApiKey: !!config.provider.apiKey,
+      baseURL: config.provider.baseURL || '',
+      maxTokens: config.provider.maxTokens,
+      temperature: config.provider.temperature,
+      lightModel: config.provider.lightModel || '',
     },
-  });
+    memory: {
+      enabled: config.memory?.enabled ?? true,
+    },
+    features: {
+      dynamicToolLoading: config.features?.dynamicToolLoading ?? true,
+    },
+    persona: config.persona ?? {},
+    onboardingDone: config.onboardingDone,
+  };
 }
 
 /**
  * 更新配置（设置页面保存时调用）
  */
-async function handleUpdateConfig(requestId: string, data: any) {
+async function handleUpdateConfig(data: any) {
   if (!session) {
-    safeSend({
-      type: 'update-config-result',
-      requestId,
-      data: { success: false, error: '会话未初始化' },
-    });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
 
   try {
+    // 获取当前用户 ID
+    const { getAuthState } = await import('./config/auth.js');
+    const authState = getAuthState();
+    const userId = authState?.user?.userId;
+
+    if (!userId) {
+      return { success: false, error: '用户未登录' };
+    }
+
     const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
-    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
+    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+    const { readFile, writeFile } = await import('node:fs/promises');
 
-    // 1. 读取仅全局配置（不包含环境变量覆盖）
-    const globalConfig = await GlobalConfig.readGlobalConfig();
+    // 1. 读取用户配置文件
+    const configPath = getUserConfigPath(userId);
+    const content = await readFile(configPath, 'utf-8');
+    const userConfigFile = JSON.parse(content);
 
-    // 2. 确保 provider 对象存在
-    if (!globalConfig.provider) {
-      globalConfig.provider = {} as any;
+    // 2. 确保 config.provider 对象存在
+    if (!userConfigFile.config) {
+      userConfigFile.config = {};
+    }
+    if (!userConfigFile.config.provider) {
+      userConfigFile.config.provider = {};
     }
 
     // 3. 合并新配置
     let needPersist = false;
     if (data.apiKey && !data.apiKey.startsWith('***')) {
-      globalConfig.provider.apiKey = data.apiKey;
+      userConfigFile.config.provider.apiKey = data.apiKey;
       needPersist = true;
     }
     if (data.model) {
-      globalConfig.provider.model = data.model;
+      userConfigFile.config.provider.model = data.model;
       needPersist = true;
     }
     if (data.adapter) {
-      globalConfig.provider.adapter = data.adapter;
+      userConfigFile.config.provider.adapter = data.adapter;
       needPersist = true;
     }
     if (data.baseURL !== undefined) {
-      globalConfig.provider.baseURL = data.baseURL;
+      userConfigFile.config.provider.baseURL = data.baseURL;
       needPersist = true;
     }
     if (data.persona !== undefined) {
-      globalConfig.persona = data.persona;
+      userConfigFile.config.persona = data.persona;
       needPersist = true;
     }
     if (data.onboardingDone !== undefined) {
-      globalConfig.onboardingDone = data.onboardingDone;
+      userConfigFile.config.onboardingDone = data.onboardingDone;
       needPersist = true;
     }
 
-    // 4. 持久化到全局配置文件
+    // 4. 持久化到用户配置文件
     if (needPersist) {
-      await GlobalConfig.writeGlobalConfig(globalConfig);
-      console.log('[agent-bridge] 配置已保存到文件，apiKey:', globalConfig.provider.apiKey ? `***${globalConfig.provider.apiKey.slice(-4)}` : '(空)');
+      userConfigFile.updatedAt = new Date().toISOString();
+      await writeFile(configPath, JSON.stringify(userConfigFile, null, 2), 'utf-8');
+      console.log('[agent-bridge] 用户配置已保存，userId:', userId);
     }
 
-    // 5. 重新加载完整配置（包含环境变量）并重新创建 session
-    const configLoader = new ConfigLoader();
+    // 5. 重新加载完整配置并重新创建 session
+    const agentId = 'xuanji'; // 默认使用 xuanji agent
+    const configLoader = new ConfigLoader(userId, agentId);
     const fullConfig = await configLoader.load();
-    console.log('[agent-bridge] 重新加载配置完成，apiKey:', fullConfig.provider.apiKey ? `***${fullConfig.provider.apiKey.slice(-4)}` : '(空)');
-    console.log('[agent-bridge] 环境变量 XUANJI_API_KEY:', process.env.XUANJI_API_KEY ? `***${process.env.XUANJI_API_KEY.slice(-4)}` : '(未设置)');
+    console.log('[agent-bridge] 重新加载配置完成');
 
     // 重新创建 session
-    const factory = new SessionFactory();
+    const { SessionFactory } = await import('../../src/core/chat/SessionFactory.js');
+    const factory = new SessionFactory(userId, agentId);
     session = await factory.create({
+      userId,
+      agentId,
       config: fullConfig,
       callbacks: {
         onBootThinking: () => {
@@ -859,16 +850,10 @@ async function handleUpdateConfig(requestId: string, data: any) {
     const hookRegistry = container.resolveSync('hookRegistry');
     registerHookListeners(hookRegistry);
 
-    safeSend({
-      type: 'update-config-result',
-      requestId,
-      data: { success: true },
+    safeSend({ type: 'update-config-result', data: { success: true },
     });
   } catch (err) {
-    safeSend({
-      type: 'update-config-result',
-      requestId,
-      data: {
+    safeSend({ type: 'update-config-result', data: {
         success: false,
         error: err instanceof Error ? err.message : String(err),
       },
@@ -880,29 +865,25 @@ async function handleUpdateConfig(requestId: string, data: any) {
 // 会话管理
 // ============================================================
 
-async function handleSessionSave(requestId: string, data: any) {
+async function handleSessionSave(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const sessionId = await session.saveSession(data?.name, data?.options);
-    safeSend({ requestId, data: { success: true, sessionId } });
+    return { success: true, sessionId };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleSessionResume(requestId: string, data: any) {
+async function handleSessionResume(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const ctx = await session.resumeSession(data?.sessionId);
-    safeSend({
-      requestId,
-      data: {
+    safeSend({ data: {
         success: true,
         sessionId: ctx.sessionId,
         usage: ctx.usage,
@@ -911,72 +892,67 @@ async function handleSessionResume(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleSessionList(requestId: string) {
+async function handleSessionList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, sessions: [] } });
-    return;
+    return { success: true, sessions: [] };
   }
   try {
     const sessions = await session.listSessions();
-    safeSend({ requestId, data: { success: true, sessions } });
+    return { success: true, sessions };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleSessionDelete(requestId: string, data: any) {
+async function handleSessionDelete(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     await session.deleteSession(data?.sessionId);
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleCheckpointCreate(requestId: string, data: any) {
+async function handleCheckpointCreate(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const checkpointId = await session.createCheckpoint(data?.label);
-    safeSend({ requestId, data: { success: true, checkpointId } });
+    return { success: true, checkpointId };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleCheckpointList(requestId: string) {
+async function handleCheckpointList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, checkpoints: [] } });
-    return;
+    return { success: true, checkpoints: [] };
   }
   try {
     const checkpoints = await session.listCheckpoints();
-    safeSend({ requestId, data: { success: true, checkpoints } });
+    return { success: true, checkpoints };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleCheckpointRewind(requestId: string, data: any) {
+async function handleCheckpointRewind(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const messageCount = await session.rewindToCheckpoint(data?.checkpointId);
-    safeSend({ requestId, data: { success: true, messageCount } });
+    return { success: true, messageCount };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -984,21 +960,17 @@ async function handleCheckpointRewind(requestId: string, data: any) {
 // 记忆管理
 // ============================================================
 
-async function handleMemoryRetrieve(requestId: string, data: any) {
+async function handleMemoryRetrieve(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: true, entries: [] } });
-    return;
+    return { success: true, entries: [] };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: true, entries: [], stats: null } });
-      return;
+      return { success: true, entries: [], stats: null };
     }
     const entries = await memoryManager.retrieve(data?.query || '', data?.options);
-    safeSend({
-      requestId,
-      data: {
+    safeSend({ data: {
         success: true,
         entries: entries.map((e: any) => ({
           type: e.type,
@@ -1010,106 +982,110 @@ async function handleMemoryRetrieve(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleMemoryStats(requestId: string) {
+async function handleMemoryStats() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, stats: null } });
-    return;
+    return { success: true, stats: null };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: true, stats: null } });
-      return;
+      return { success: true, stats: null };
     }
     const stats = await memoryManager.getStats();
-    safeSend({ requestId, data: { success: true, stats } });
+    return { success: true, stats };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // 获取记忆配置
-async function handleGetMemoryConfig(requestId: string) {
+async function handleGetMemoryConfig() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, config: null } });
-    return;
+    return { success: true, config: null };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: true, config: null } });
-      return;
+      return { success: true, config: null };
     }
     const config = memoryManager.getConfig();
-    safeSend({ requestId, data: { success: true, config } });
+    return { success: true, config };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // 保存记忆配置
-async function handleSaveMemoryConfig(requestId: string, data: any) {
+async function handleSaveMemoryConfig(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
-    return;
+    return { success: false, error: 'Session not initialized' };
   }
   try {
     const memoryConfig = data.config;
     if (!memoryConfig) {
-      safeSend({ requestId, data: { success: false, error: 'No config provided' } });
-      return;
+      return { success: false, error: 'No config provided' };
     }
 
-    // 1. 读取当前全局配置
-    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
-    const currentConfig = await GlobalConfig.readGlobalConfig();
+    // 获取当前用户 ID
+    const { getAuthState } = await import('./config/auth.js');
+    const authState = getAuthState();
+    const userId = authState?.user?.userId;
+
+    if (!userId) {
+      return { success: false, error: '用户未登录' };
+    }
+
+    // 1. 读取用户配置文件
+    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+    const { readFile, writeFile } = await import('node:fs/promises');
+    const configPath = getUserConfigPath(userId);
+    const content = await readFile(configPath, 'utf-8');
+    const userConfigFile = JSON.parse(content);
 
     // 2. 合并 memory 配置
-    const updatedConfig = {
-      ...currentConfig,
-      memory: {
-        ...currentConfig.memory,
-        ...memoryConfig,
-      },
+    if (!userConfigFile.config) {
+      userConfigFile.config = {};
+    }
+    userConfigFile.config.memory = {
+      ...userConfigFile.config.memory,
+      ...memoryConfig,
     };
 
-    // 3. 保存到全局配置文件
-    await GlobalConfig.writeGlobalConfig(updatedConfig);
+    // 3. 保存到用户配置文件
+    userConfigFile.updatedAt = new Date().toISOString();
+    await writeFile(configPath, JSON.stringify(userConfigFile, null, 2), 'utf-8');
 
     // 4. 热更新运行时 MemoryManager 配置（如果可能）
     const memoryManager = session.getMemoryManager();
     if (memoryManager) {
       // 注意：这里只是更新配置，不重新初始化组件
       // 完整的配置生效需要重新初始化会话
-      (memoryManager as any).config = updatedConfig.memory;
+      (memoryManager as any).config = userConfigFile.config.memory;
     }
 
-    safeSend({ requestId, data: { success: true, requiresRestart: true } });
+    return { success: true, requiresRestart: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // 手动触发记忆刷新
-async function handleManualMemoryFlush(requestId: string) {
+async function handleManualMemoryFlush() {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
-    return;
+    return { success: false, error: 'Session not initialized' };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
-      return;
+      return { success: false, error: 'MemoryManager not available' };
     }
     const intelligentFlush = memoryManager.getIntelligentFlush();
     if (!intelligentFlush) {
-      safeSend({ requestId, data: { success: false, error: 'IntelligentFlush not enabled' } });
-      return;
+      return { success: false, error: 'IntelligentFlush not enabled' };
     }
 
     // 获取当前消息历史
@@ -1130,45 +1106,41 @@ async function handleManualMemoryFlush(requestId: string) {
     };
 
     const flushed = await intelligentFlush.checkAndFlush(context);
-    safeSend({ requestId, data: { success: true, flushed } });
+    return { success: true, flushed };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // 手动提取主题
-async function handleExtractTopics(requestId: string) {
+async function handleExtractTopics() {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
-    return;
+    return { success: false, error: 'Session not initialized' };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
-      return;
+      return { success: false, error: 'MemoryManager not available' };
     }
 
     // 调用 MemoryManager 的 extractTopics 方法
     const dayKey = new Date().toISOString().split('T')[0]; // 今天的日期
     await memoryManager.extractTopics(dayKey);
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // 获取记忆列表
-async function handleGetMemoryList(requestId: string, data: any) {
+async function handleGetMemoryList(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: true, memories: [] } });
-    return;
+    return { success: true, memories: [] };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: true, memories: [] } });
-      return;
+      return { success: true, memories: [] };
     }
 
     // 从 MemoryManager 获取所有记忆条目
@@ -1231,9 +1203,9 @@ async function handleGetMemoryList(requestId: string, data: any) {
     const limit = data.limit || 100;
     const memories = filteredMemories.slice(0, limit);
 
-    safeSend({ requestId, data: { success: true, memories } });
+    return { success: true, memories };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1241,86 +1213,77 @@ async function handleGetMemoryList(requestId: string, data: any) {
 // 核心规则管理
 // ============================================================
 
-async function handleCoreRulesGetAll(requestId: string) {
+async function handleCoreRulesGetAll() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, rules: [] } });
-    return;
+    return { success: true, rules: [] };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: true, rules: [] } });
-      return;
+      return { success: true, rules: [] };
     }
 
     const coreRuleStore = memoryManager.getCoreRuleStore();
     if (!coreRuleStore) {
-      safeSend({ requestId, data: { success: true, rules: [] } });
-      return;
+      return { success: true, rules: [] };
     }
 
     const rules = coreRuleStore.getAllRules();
-    safeSend({ requestId, data: { success: true, rules } });
+    return { success: true, rules };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleCoreRulesUpdate(requestId: string, data: { id: string; active?: boolean }) {
+async function handleCoreRulesUpdate(data: { id: string; active?: boolean }) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
-    return;
+    return { success: false, error: 'Session not initialized' };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
-      return;
+      return { success: false, error: 'MemoryManager not available' };
     }
 
     const coreRuleStore = memoryManager.getCoreRuleStore();
     if (!coreRuleStore) {
-      safeSend({ requestId, data: { success: false, error: 'CoreRuleStore not available' } });
-      return;
+      return { success: false, error: 'CoreRuleStore not available' };
     }
 
     const success = coreRuleStore.setActive(data.id, data.active ?? true);
     if (success) {
-      safeSend({ requestId, data: { success: true } });
+      return { success: true };
     } else {
-      safeSend({ requestId, data: { success: false, error: 'Rule not found' } });
+      return { success: false, error: 'Rule not found' };
     }
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleCoreRulesDelete(requestId: string, data: { id: string }) {
+async function handleCoreRulesDelete(data: { id: string }) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: 'Session not initialized' } });
-    return;
+    return { success: false, error: 'Session not initialized' };
   }
   try {
     const memoryManager = session.getMemoryManager();
     if (!memoryManager) {
-      safeSend({ requestId, data: { success: false, error: 'MemoryManager not available' } });
-      return;
+      return { success: false, error: 'MemoryManager not available' };
     }
 
     const coreRuleStore = memoryManager.getCoreRuleStore();
     if (!coreRuleStore) {
-      safeSend({ requestId, data: { success: false, error: 'CoreRuleStore not available' } });
-      return;
+      return { success: false, error: 'CoreRuleStore not available' };
     }
 
     const success = coreRuleStore.delete(data.id);
     if (success) {
-      safeSend({ requestId, data: { success: true } });
+      return { success: true };
     } else {
-      safeSend({ requestId, data: { success: false, error: 'Rule not found' } });
+      return { success: false, error: 'Rule not found' };
     }
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1328,16 +1291,13 @@ async function handleCoreRulesDelete(requestId: string, data: { id: string }) {
 // 工具统计
 // ============================================================
 
-async function handleGetUsageStats(requestId: string) {
+async function handleGetUsageStats() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, stats: null } });
-    return;
+    return { success: true, stats: null };
   }
   try {
     const state = session.getState();
-    safeSend({
-      requestId,
-      data: {
+    safeSend({ data: {
         success: true,
         stats: {
           status: state.status,
@@ -1348,7 +1308,7 @@ async function handleGetUsageStats(requestId: string) {
       },
     });
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1356,16 +1316,13 @@ async function handleGetUsageStats(requestId: string) {
 // 高级功能
 // ============================================================
 
-async function handleCompact(requestId: string, data: any) {
+async function handleCompact(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const result = await session.getAgentLoop().compact(data?.instruction);
-    safeSend({
-      requestId,
-      data: {
+    safeSend({ data: {
         success: true,
         result: result ? {
           originalTokens: result.originalTokens,
@@ -1376,20 +1333,19 @@ async function handleCompact(requestId: string, data: any) {
       },
     });
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleGetDiagnostics(requestId: string) {
+async function handleGetDiagnostics() {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const report = await session.getDiagnostics();
-    safeSend({ requestId, data: { success: true, report } });
+    return { success: true, report };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1397,115 +1353,107 @@ async function handleGetDiagnostics(requestId: string) {
 // Agent 管理
 // ============================================================
 
-async function handleAgentList(requestId: string) {
+/**
+ * 获取 Agent 列表
+ */
+async function handleAgentList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, agents: [] } });
-    return;
+    return { success: true, agents: [] };
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      safeSend({ requestId, data: { success: true, agents: [] } });
-      return;
+      return { success: true, agents: [] };
     }
-    // 获取所有启用的 Agent（包括内部系统 Agent）
-    const agents = agentRegistry.getEnabled();
-    safeSend({ requestId, data: { success: true, agents } });
+    // 获取所有 Agent（包括禁用的），用于 GUI 管理界面
+    const agents = agentRegistry.getAll();
+    return { success: true, agents };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    console.error('[agent-bridge] 获取 Agent 列表失败:', err);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleAgentGet(requestId: string, data: any) {
+async function handleAgentGet(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
-      return;
+      return { success: false, error: 'Agent Registry 未初始化' };
     }
     const agent = agentRegistry.get(data?.agentId);
     if (!agent) {
-      safeSend({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
-      return;
+      return { success: false, error: `Agent 不存在: ${data?.agentId}` };
     }
-    safeSend({ requestId, data: { success: true, agent } });
+    return { success: true, agent };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleAgentCreate(requestId: string, data: any) {
+async function handleAgentCreate(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
-      return;
+      return { success: false, error: 'Agent Registry 未初始化' };
     }
 
     // 保存到 YAML 文件（全局或项目级）
     const scope = data?.scope || 'global';
     await agentRegistry.saveToFile(data?.config, scope);
 
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleAgentUpdate(requestId: string, data: any) {
+async function handleAgentUpdate(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
-      return;
+      return { success: false, error: 'Agent Registry 未初始化' };
     }
 
     // 更新 YAML 文件（自动检测 scope）
     const existingAgent = agentRegistry.get(data?.agentId);
     if (!existingAgent || !existingAgent.metadata) {
-      safeSend({ requestId, data: { success: false, error: `Agent 不存在: ${data?.agentId}` } });
-      return;
+      return { success: false, error: `Agent 不存在: ${data?.agentId}` };
     }
 
     const scope = existingAgent.metadata.source === 'project' ? 'project' : 'global';
     await agentRegistry.saveToFile(data?.config, scope);
 
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleAgentDelete(requestId: string, data: any) {
+async function handleAgentDelete(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const agentRegistry = session.getAgentRegistry();
     if (!agentRegistry) {
-      safeSend({ requestId, data: { success: false, error: 'Agent Registry 未初始化' } });
-      return;
+      return { success: false, error: 'Agent Registry 未初始化' };
     }
 
     // 删除 YAML 文件
     await agentRegistry.deleteFile(data?.agentId);
 
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1513,10 +1461,9 @@ async function handleAgentDelete(requestId: string, data: any) {
 // Skills / Tools / MCP 查询
 // ============================================================
 
-async function handleSkillsList(requestId: string) {
+async function handleSkillsList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, skills: [] } });
-    return;
+    return { success: true, skills: [] };
   }
   try {
     const skillRegistry = session.getSkillRegistry();
@@ -1531,22 +1478,20 @@ async function handleSkillsList(requestId: string) {
       triggers: skill.triggers || [],
       tags: skill.tags || [],
     }));
-    safeSend({ requestId, data: { success: true, skills } });
+    return { success: true, skills };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleToolsList(requestId: string) {
+async function handleToolsList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, tools: [] } });
-    return;
+    return { success: true, tools: [] };
   }
   try {
     const baseRegistry = session.getBaseRegistry();
     if (!baseRegistry) {
-      safeSend({ requestId, data: { success: true, tools: [] } });
-      return;
+      return { success: true, tools: [] };
     }
 
     // 使用 TOOL_CATEGORIES 做分类映射
@@ -1575,22 +1520,20 @@ async function handleToolsList(requestId: string) {
       required: tool.required ?? false,
       readonly: tool.readonly ?? true,
     }));
-    safeSend({ requestId, data: { success: true, tools } });
+    return { success: true, tools };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleMcpList(requestId: string) {
+async function handleMcpList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, servers: [] } });
-    return;
+    return { success: true, servers: [] };
   }
   try {
     const mcpManager = session.getMCPManager();
     if (!mcpManager) {
-      safeSend({ requestId, data: { success: true, servers: [] } });
-      return;
+      return { success: true, servers: [] };
     }
 
     // 使用 getServerRuntimes() 获取服务器信息
@@ -1616,9 +1559,9 @@ async function handleMcpList(requestId: string) {
       };
     });
 
-    safeSend({ requestId, data: { success: true, servers } });
+    return { success: true, servers };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1751,71 +1694,68 @@ function handleAskUserResponse(data: any) {
 // 权限规则管理
 // ============================================================
 
-function handlePermissionList(requestId: string) {
+function handlePermissionList() {
   if (!session) {
-    safeSend({ requestId, data: { success: true, rules: [] } });
-    return;
+    return { success: true, rules: [] };
   }
   try {
     const pc = session.getPermissionController();
     const rules = pc ? pc.listDecisions() : [];
-    safeSend({ requestId, data: { success: true, rules } });
+    return { success: true, rules };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handlePermissionDelete(requestId: string, data: any) {
+async function handlePermissionDelete(data: any) {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const pc = session.getPermissionController();
     if (pc) {
       await pc.deleteDecision(data?.cacheKey);
     }
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handlePermissionClear(requestId: string) {
+async function handlePermissionClear() {
   if (!session) {
-    safeSend({ requestId, data: { success: false, error: '会话未初始化' } });
-    return;
+    return { success: false, error: '会话未初始化' };
   }
   try {
     const pc = session.getPermissionController();
     if (pc) {
       await pc.clearDecisions();
     }
-    safeSend({ requestId, data: { success: true } });
+    return { success: true };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 // ============ Todo 管理 ============
 
-async function handleTodoArchiveCompleted(requestId: string) {
+async function handleTodoArchiveCompleted() {
   try {
     const todoManager = getTodoManager();
     const count = await todoManager.archiveCompleted();
-    safeSend({ requestId, data: { success: true, count } });
+    return { success: true, count };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-async function handleTodoGetArchivedCount(requestId: string) {
+async function handleTodoGetArchivedCount() {
   try {
     const todoManager = getTodoManager();
     const count = await todoManager.getArchivedCount();
-    safeSend({ requestId, data: { success: true, count } });
+    return { success: true, count };
   } catch (err) {
-    safeSend({ requestId, data: { success: false, error: err instanceof Error ? err.message : String(err) } });
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 

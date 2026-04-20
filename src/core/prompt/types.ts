@@ -139,31 +139,3 @@ export interface LayeredPromptBuildOptions {
   /** 应用配置（传给 PromptComponent.render 的 context） */
   config?: import('@/core/types').AppConfig;
 }
-
-// ─── 旧类型兼容（过渡期保留） ─────────────────────────
-
-/** @deprecated 使用 PromptComponent 替代 */
-export interface PromptBlock {
-  id: string;
-  name: string;
-  priority: number;
-  render(context: PromptBuildContext): string | Promise<string>;
-}
-
-/** @deprecated 使用 PromptComponent 替代 */
-export interface SceneTemplate {
-  scene: SceneType;
-  name: string;
-  description: string;
-  priority: number;
-  requiredTools: string[];
-  thinking?: import('@/core/types').ThinkingConfig;
-  render(context: PromptBuildContext): string | Promise<string>;
-}
-
-/** @deprecated 使用 LayeredPromptBuildOptions 替代 */
-export interface PromptBuildOptions {
-  scene?: SceneType | 'auto';
-  language?: string;
-  toolList?: any[];
-}

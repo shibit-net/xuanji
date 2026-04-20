@@ -9,6 +9,8 @@ import { OpenAIProvider } from './OpenAIProvider';
 /**
  * Provider 工厂
  * 根据模型名称或 adapter 标识路由到对应 Provider
+ *
+ * 采用懒加载模式，只在需要时才创建 Provider 实例
  */
 export class ProviderFactory {
   private providers: Map<string, ILLMProvider> = new Map();
@@ -21,10 +23,8 @@ export class ProviderFactory {
   };
 
   constructor() {
-    // 默认注册 Anthropic Provider
-    this.register(new AnthropicProvider());
-    // 注册 OpenAI Provider
-    this.register(new OpenAIProvider());
+    // 不再在构造函数中预注册所有 Provider
+    // 改为懒加载模式，按需创建
   }
 
   /**
@@ -35,26 +35,51 @@ export class ProviderFactory {
   }
 
   /**
-   * 根据模型名称获取 Provider
+   * 根据模型名称获取 Provider（懒加载）
    */
   getByModel(model: string): ILLMProvider | undefined {
+    // 先检查已缓存的 Provider
     for (const provider of this.providers.values()) {
       if (provider.isSupported(model)) {
         return provider;
       }
     }
-    return undefined;
+
+    // 未找到，尝试懒加载
+    let provider: ILLMProvider | undefined;
+
+    if (model.includes('claude-')) {
+      provider = this.getOrCreateProvider('anthropic', () => new AnthropicProvider());
+    } else if (model.includes('gpt-') || model.includes('o1-') || model.includes('o3-')) {
+      provider = this.getOrCreateProvider('openai', () => new OpenAIProvider());
+    }
+
+    return provider;
   }
 
   /**
-   * 根据 adapter 标识获取 Provider
+   * 根据 adapter 标识获取 Provider（懒加载）
    */
   getByAdapter(adapter: string): ILLMProvider | undefined {
     const providerName = ProviderFactory.ADAPTER_MAP[adapter];
-    if (providerName) {
-      return this.providers.get(providerName);
+    if (!providerName) {
+      return undefined;
     }
-    return undefined;
+
+    // 先检查缓存
+    let provider = this.providers.get(providerName);
+    if (provider) {
+      return provider;
+    }
+
+    // 懒加载
+    if (providerName === 'anthropic') {
+      provider = this.getOrCreateProvider('anthropic', () => new AnthropicProvider());
+    } else if (providerName === 'openai') {
+      provider = this.getOrCreateProvider('openai', () => new OpenAIProvider());
+    }
+
+    return provider;
   }
 
   /**
@@ -82,4 +107,15 @@ export class ProviderFactory {
     return this.getByModel(config.model);
   }
 
+  /**
+   * 懒加载辅助方法：获取或创建 Provider
+   */
+  private getOrCreateProvider(name: string, factory: () => ILLMProvider): ILLMProvider {
+    let provider = this.providers.get(name);
+    if (!provider) {
+      provider = factory();
+      this.providers.set(name, provider);
+    }
+    return provider;
+  }
 }

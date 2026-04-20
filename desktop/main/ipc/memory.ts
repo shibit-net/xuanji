@@ -8,7 +8,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('retrieve-memory', data);
+      return await sendRequest('memory-retrieve', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -34,7 +34,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('get-memory-config');
+      return await sendRequest('memory-get-config');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -47,7 +47,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('save-memory-config', data);
+      return await sendRequest('memory-save-config', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -60,7 +60,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('manual-memory-flush');
+      return await sendRequest('memory-manual-flush');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -73,7 +73,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('extract-topics');
+      return await sendRequest('memory-extract-topics');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -86,7 +86,7 @@ function registerMemoryIpcHandlers() {
     }
 
     try {
-      return await sendRequest('get-memory-list', data);
+      return await sendRequest('memory-get-list', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };

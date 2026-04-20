@@ -5,10 +5,10 @@
 // 将用户的 Always/Never 决策持久化到 SQLite 数据库，重启后不需重新确认
 //
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { logger } from '@/core/logger';
+import { getUserPermissionPath } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'DecisionStore' });
 
@@ -52,8 +52,8 @@ export class DecisionStore {
   private dbPath: string;
   private ready: boolean = false;
 
-  constructor(dbPath?: string) {
-    this.dbPath = dbPath ?? join(homedir(), '.xuanji', 'permission-decisions.db');
+  constructor(userId: string) {
+    this.dbPath = getUserPermissionPath(userId);
   }
 
   /**

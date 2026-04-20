@@ -11,8 +11,8 @@
 
 import type { LayeredPromptBuilder } from '../prompt/LayeredPromptBuilder';
 import type { SceneType } from '../prompt/types';
-import { getCodingSceneConfigs } from '../prompt/components/l1-coding-scenes';
-import { logger } from '../logger';
+import { getCodingSceneConfigs } from '@/core/prompt/components/l1-coding-scenes';
+import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'PromptStore' });
 
@@ -40,7 +40,30 @@ export class PromptStore {
   }
 
   /**
+   * 获取场景增强指令（不覆盖，只增强）
+   */
+  async getSceneEnhancement(scene: SceneType): Promise<string> {
+    const config = this.sceneConfigs.get(scene);
+    if (!config) {
+      return '';
+    }
+
+    // 返回场景专业指令（用于增强内置 agent 的 systemPrompt）
+    return `
+# 当前场景：${scene}
+
+${config.description}
+
+请特别注意：
+- 遵循场景的专业要求
+- 使用合适的语气和风格
+- 输出符合场景预期的结果
+`;
+  }
+
+  /**
    * 获取场景Prompt（集成LayeredPromptBuilder）
+   * @deprecated 不再使用，改用 getSceneEnhancement
    */
   async getPromptForScene(
     scene: SceneType,

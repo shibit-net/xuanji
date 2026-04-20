@@ -6,7 +6,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
-import { useChatStore } from '../stores/chatStore';
+import { useChatStore, type Message } from '../stores/chatStore';
 import { useToast } from './Toast';
 
 // ============================================================

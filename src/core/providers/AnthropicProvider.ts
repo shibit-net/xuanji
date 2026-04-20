@@ -16,35 +16,44 @@ export class AnthropicProvider extends BaseLLMProvider {
   private log = logger.child({ module: 'AnthropicProvider' });
 
   private getClient(config: ProviderConfig): Anthropic {
-    // 显式检查 API Key，不依赖 SDK 的环境变量回退
     if (!config.apiKey || config.apiKey.trim() === '') {
-      throw new Error(
-        '未配置 API Key。请通过以下方式之一设置：\n' +
-        '1. 环境变量: export XUANJI_API_KEY="your-key"\n' +
-        '2. 全局配置: 编辑 ~/.xuanji/config.json\n' +
-        '3. 项目配置: 编辑 .xuanji/config.json',
-      );
+      throw new Error('Anthropic Provider: API Key 未配置');
     }
 
-    // 🆕 记录 baseURL 用于调试
-    if (config.baseURL) {
-      this.log.debug(`Using baseURL: ${config.baseURL}`);
-    }
-
-    // 🆕 超时配置优化：默认 10 分钟，适配长时间思考和工具执行
-    // 注意：此超时是 HTTP 请求层超时，不是 LLM 生成超时
-    // 工具执行超时由 ToolRegistry 单独控制（默认 5 分钟）
     const timeout = config.timeout ?? 600_000;
 
-    // 🆕 超时预警：如果超时 > 5 分钟，记录日志
-    if (timeout > 300_000) {
-      this.log.debug(`HTTP timeout set to ${timeout}ms (${Math.round(timeout / 60000)}min). Tool execution timeout is separate (default 5min).`);
-    }
+    // 检测是否使用第三方代理服务
+    const isThirdPartyProxy = config.baseURL &&
+      !config.baseURL.includes('api.anthropic.com') &&
+      !config.baseURL.includes('bedrock');
+
+    // 为第三方代理服务创建兼容的 fetch 函数
+    // 某些代理服务会拒绝 Anthropic SDK 的默认 User-Agent
+    const customFetch: typeof fetch | undefined = isThirdPartyProxy
+      ? async (url, init) => {
+          const headers = new Headers(init?.headers);
+
+          // 移除可能导致代理服务拒绝的 User-Agent
+          headers.delete('user-agent');
+          headers.delete('User-Agent');
+
+          // 确保 anthropic-version 头存在
+          if (!headers.has('anthropic-version')) {
+            headers.set('anthropic-version', '2023-06-01');
+          }
+
+          return fetch(url, {
+            ...init,
+            headers,
+          });
+        }
+      : undefined;
 
     return new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
       timeout,
+      ...(customFetch ? { fetch: customFetch } : {}),
     });
   }
 
@@ -128,7 +137,31 @@ export class AnthropicProvider extends BaseLLMProvider {
     }
     this.log.debug(`Request: model=${params.model}, max_tokens=${params.max_tokens}, messages=${chatMessages.length}, tools=${tools.length}, cache_breakpoints=${cacheBreakpoints}`);
 
-    // 🆕 打印完整请求体用于调试（仅打印结构，不打印完整内容）
+    // 🆕 打印完整请求体用于调试
+    // 设置环境变量 DEBUG_FULL_REQUEST=1 可以查看完整请求体（包括 prompt 内容）
+    if (process.env.DEBUG_FULL_REQUEST === '1') {
+      this.log.info('=== 完整请求体 ===');
+      this.log.info(JSON.stringify({
+        model: params.model,
+        max_tokens: params.max_tokens,
+        stream: params.stream,
+        temperature: params.temperature,
+        thinking: (params as any).thinking,
+        system: params.system,
+        messages: chatMessages.map(m => ({
+          role: m.role,
+          content: m.content
+        })),
+        tools: params.tools?.map(t => ({
+          name: (t as any).name,
+          description: (t as any).description,
+          cache_control: (t as any).cache_control
+        }))
+      }, null, 2));
+      this.log.info('=== 请求体结束 ===');
+    }
+
+    // 打印请求结构摘要
     this.log.debug(`Request structure: {
   model: "${params.model}",
   max_tokens: ${params.max_tokens},

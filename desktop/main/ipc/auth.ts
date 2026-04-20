@@ -20,6 +20,15 @@ function registerAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
     console.log('收到登录请求:', email);
     try {
+      // 登录前先清除旧的 token 和 Session Cookies
+      console.log('清除旧的认证信息...');
+      await clearAuthState();
+
+      // 清除 Electron Session 中的所有 Cookies
+      const ses = session.defaultSession;
+      await ses.clearStorageData({ storages: ['cookies'] });
+      console.log('旧的 Cookies 已清除');
+
       const result = await authService.login({ email, password });
       console.log('登录 API 响应:', { success: result.success, message: result.message });
 

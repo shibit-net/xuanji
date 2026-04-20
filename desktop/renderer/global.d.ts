@@ -3,6 +3,75 @@
 // Xuanji Desktop - 全局类型定义
 // ============================================================
 
+// 权限请求数据
+export interface PermissionRequestData {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  risk: 'safe' | 'warn' | 'danger';
+  reason?: string;
+}
+
+// 计划审查请求数据
+export interface PlanReviewRequestData {
+  id: string;
+  plan: string;
+  filePath?: string;
+}
+
+// 询问用户请求数据
+export interface AskUserRequestData {
+  id: string;
+  questions: Array<{
+    question: string;
+    header: string;
+    options: Array<{
+      label: string;
+      description: string;
+    }>;
+    multiSelect: boolean;
+  }>;
+}
+
+// 权限规则
+export interface PermissionRule {
+  cacheKey: string;
+  tool: string;
+  decision: 'allow' | 'deny';
+  timestamp: number;
+}
+
+// Checkpoint 项
+export interface CheckpointItem {
+  id: string;
+  timestamp: number;
+  description?: string;
+}
+
+// 记忆条目
+export interface MemoryEntry {
+  id: string;
+  content: string;
+  type?: string;
+  category?: string;
+  timestamp: number;
+}
+
+// 会话列表项
+export interface SessionListItem {
+  id: string;
+  title: string;
+  timestamp: number;
+  messageCount?: number;
+}
+
+// 文件变更
+export interface FileChange {
+  path: string;
+  type: 'create' | 'modify' | 'delete';
+  content?: string;
+}
+
 export interface ElectronAPI {
   // 应用信息
   getVersion: () => Promise<string>;

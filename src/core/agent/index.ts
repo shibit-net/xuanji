@@ -12,7 +12,7 @@ export { CostTracker } from './CostTracker';
 export { ErrorRecovery } from './ErrorRecovery';
 export { PricingResolver } from './PricingResolver';
 export { WorktreeManager } from './WorktreeManager';
-export { runSubAgent } from './SubAgentLoop';
+export type { SubAgentResult } from './SubAgentLoop';
 export { SubAgentContext } from './SubAgentContext';
 export { emitSubAgentToolUse, createSubAgentToolUseHook, type SubAgentHookContext } from './SubAgentHooks';
 

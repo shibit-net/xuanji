@@ -2,7 +2,7 @@
 // 统一配置管理 - 导出
 // ============================================================
 
-export { DEFAULT_CONFIG } from './defaults';
+// DEFAULT_CONFIG 已删除，所有默认配置都在模板中（src/core/templates/config.json）
 export { ConfigLoader } from './ConfigLoader';
 export {
   UserConfigInitializer,
@@ -17,7 +17,7 @@ export { ProjectConfigWriter } from './ProjectConfigWriter';
 export { ConfigService, type IConfigSource, type ConfigWatcher } from '../../infrastructure/config/ConfigService';
 export { ConfigFactory } from '../../infrastructure/config/ConfigFactory';
 export {
-  DefaultConfigSource,
+  TemplateConfigSource,
   UserConfigSource,
   RuntimeConfigSource,
   MemoryConfigSource

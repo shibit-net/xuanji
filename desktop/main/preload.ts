@@ -119,18 +119,12 @@
   agentUpdate: (data: { agentId: string; config: any }) => ipcRenderer.invoke('agent:update', data),
   agentDelete: (data: { agentId: string }) => ipcRenderer.invoke('agent:delete', data),
 
-  // ============ Skills / Tools / MCP 查询 ============
-  skillsList: () => ipcRenderer.invoke('skills:list'),
+  // ============ Tools 查询 ============
   toolsList: () => ipcRenderer.invoke('tools:list'),
-  mcpList: () => ipcRenderer.invoke('mcp:list'),
 
   // ============ Todo 管理 ============
   todoArchiveCompleted: () => ipcRenderer.invoke('todo:archive-completed'),
   todoGetArchivedCount: () => ipcRenderer.invoke('todo:get-archived-count'),
-
-  // ============ Prompt 配置管理 ============
-  promptGetConfig: () => ipcRenderer.invoke('prompt:get-config'),
-  promptSaveConfig: (data: any) => ipcRenderer.invoke('prompt:save-config', data),
 
   // ============ 高级功能 ============
   compact: (data: any) => ipcRenderer.invoke('compact', data),

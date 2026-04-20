@@ -90,11 +90,11 @@ export class MemoryManager implements IMemoryStore {
     this.retriever = new MemoryRetriever(s, this.config.decayHalfLifeDays);
   }
 
-  constructor(config?: Partial<MemoryConfig>, projectRoot?: string) {
+  constructor(config?: Partial<MemoryConfig>, projectRoot?: string, userId?: string) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
     const resolvedRoot = projectRoot ? resolve(projectRoot) : undefined;
 
-    this._store = new MemoryStore();
+    this._store = new MemoryStore(userId || '');
     this.extractor = new MemoryExtractor(this.config, resolvedRoot);
     this.retriever = new MemoryRetriever(this._store, this.config.decayHalfLifeDays);
     this.vectorManager = new VectorManager(this._store);

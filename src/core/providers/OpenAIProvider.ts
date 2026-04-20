@@ -18,14 +18,9 @@ export class OpenAIProvider extends BaseLLMProvider {
   private log = logger.child({ module: 'OpenAIProvider' });
 
   private getClient(config: ProviderConfig): OpenAI {
-    // 显式检查 API Key，不依赖 SDK 的环境变量回退
+    // 检查 API Key 是否存在（由上层 ProviderManager 负责配置合并）
     if (!config.apiKey || config.apiKey.trim() === '') {
-      throw new Error(
-        '未配置 API Key。请通过以下方式之一设置：\n' +
-        '1. 环境变量: export XUANJI_API_KEY="your-key"\n' +
-        '2. 全局配置: 编辑 ~/.xuanji/config.json\n' +
-        '3. 项目配置: 编辑 .xuanji/config.json',
-      );
+      throw new Error('OpenAI Provider: API Key 未配置');
     }
 
     // OpenAI SDK 标准 baseURL 格式为 https://api.openai.com/v1

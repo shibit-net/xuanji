@@ -13,9 +13,6 @@
  * 记忆通过 ChatSession 的 suffix 机制独立管理，不在此处处理。
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type {
   PromptComponent,
   PromptBuildContext,
@@ -25,6 +22,7 @@ import type {
   IntentComplexity,
 } from './types';
 import { IntentAnalyzer } from './IntentAnalyzer';
+import { PromptComponentRegistry } from './PromptComponentRegistry';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'LayeredPromptBuilder' });
@@ -32,12 +30,17 @@ const log = logger.child({ module: 'LayeredPromptBuilder' });
 export class LayeredPromptBuilder {
   private components: Map<string, PromptComponent> = new Map();
   private intentAnalyzer: IntentAnalyzer;
+  private userRegistry: PromptComponentRegistry | null = null;
   private currentScene: SceneType | null = null;
   private currentComplexity: IntentComplexity = 'standard';
   private componentsLoaded = false;
 
-  constructor(intentAnalyzer?: IntentAnalyzer) {
+  constructor(intentAnalyzer?: IntentAnalyzer, userId?: string) {
     this.intentAnalyzer = intentAnalyzer ?? new IntentAnalyzer();
+    // 如果提供了 userId，创建用户组件注册表
+    if (userId) {
+      this.userRegistry = new PromptComponentRegistry(userId);
+    }
   }
 
   /**
@@ -57,11 +60,28 @@ export class LayeredPromptBuilder {
   }
 
   /**
-   * 初始化：扫描 components/ 目录自动注册所有组件，预计算 embeddings
+   * 初始化：加载用户自定义组件，预计算 embeddings
    */
   async init(): Promise<void> {
     if (!this.componentsLoaded) {
-      await this.loadComponents();
+      // 仅加载用户自定义组件（不再加载内置 TypeScript 组件）
+      if (this.userRegistry) {
+        await this.userRegistry.init();
+        // 合并用户组件到主注册表
+        const userComponents = this.userRegistry.getComponents();
+        for (const [id, component] of userComponents) {
+          this.components.set(id, component);
+          // 如果是 L1 组件且有 match 配置，注册到 IntentAnalyzer
+          if (component.layer === 'L1' && component.match && component.scenes?.length) {
+            for (const scene of component.scenes) {
+              this.intentAnalyzer.registerScene(scene, component.match);
+            }
+          }
+          log.debug(`加载用户组件: ${id}`);
+        }
+      } else {
+        log.warn('未提供 userId，无法加载用户自定义组件');
+      }
       this.componentsLoaded = true;
     }
     await this.intentAnalyzer.init();
@@ -201,66 +221,8 @@ export class LayeredPromptBuilder {
     return false;
   }
 
-  /**
-   * 扫描 components/ 目录，自动注册所有 PromptComponent。
-   *
-   * 约定：components/ 下每个 .ts/.js 文件可导出任意数量的 PromptComponent，
-   * 只要导出值满足 { id, layer, render } 即可被自动识别并注册。
-   * 新增场景只需新建 l1-xxx.ts，无需修改本文件。
-   */
-  private async loadComponents(): Promise<void> {
-    // 兼容 ESM（import.meta.url）和 CommonJS（__dirname）
-    const selfUrl = typeof __filename !== 'undefined'
-      ? __filename
-      : fileURLToPath(import.meta.url);
-    const componentsDir = path.join(path.dirname(selfUrl), 'components');
-
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(componentsDir, { withFileTypes: true });
-    } catch {
-      log.warn('components/ directory not found, no components loaded');
-      return;
-    }
-
-    const fileExts = new Set(['.ts', '.js', '.mjs']);
-
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const ext = path.extname(entry.name);
-      if (!fileExts.has(ext)) continue;
-      // 跳过 index 文件（只是聚合导出，组件本体在各自文件中）
-      if (entry.name === 'index.ts' || entry.name === 'index.js') continue;
-
-      const filePath = path.join(componentsDir, entry.name);
-      try {
-        const mod = await import(filePath);
-        for (const value of Object.values(mod)) {
-          if (this.isPromptComponent(value)) {
-            this.register(value);
-          }
-        }
-      } catch (err) {
-        log.warn(`Failed to load component file ${entry.name}:`, err);
-      }
-    }
-
-    log.info(`Loaded ${this.components.size} prompt components from ${componentsDir}`);
-  }
-
-  /**
-   * 判断一个值是否符合 PromptComponent 接口
-   */
-  private isPromptComponent(value: unknown): value is PromptComponent {
-    return (
-      value !== null &&
-      typeof value === 'object' &&
-      typeof (value as any).id === 'string' &&
-      typeof (value as any).layer === 'string' &&
-      typeof (value as any).render === 'function' &&
-      typeof (value as any).priority === 'number'
-    );
-  }
+  // ─── 移除 loadComponents() 方法，不再自动加载 TypeScript 组件 ───
+  // 所有组件现在都从用户目录加载（.xuanji/users/{userId}/prompts/）
 
   // ─── Getters ────────────────────────────────────────
 
@@ -304,6 +266,13 @@ export class LayeredPromptBuilder {
     this.currentScene = null;
     this.currentComplexity = 'standard';
     this.intentAnalyzer.reset();
+  }
+
+  /** 释放资源 */
+  dispose(): void {
+    if (this.userRegistry) {
+      this.userRegistry.dispose();
+    }
   }
 
   /**

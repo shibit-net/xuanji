@@ -180,19 +180,19 @@ export class TaskPlanner {
   }
 
   /**
-   * 为场景选择合适的Agent
+   * 为场景选择合适的Agent（使用内置 Agent）
    */
   private selectAgentForScene(scene: SceneType): string {
     const mapping: Record<string, string> = {
-      'write_code': 'coder',
-      'debug': 'debugger',
-      'review': 'reviewer',
-      'test': 'tester',
-      'refactor': 'refactorer',
-      'explain': 'explainer',
-      'explore': 'explorer',
-      'plan': 'planner',
-      'coding': 'coder', // 默认
+      'write_code': 'coder',           // 使用内置 coder.json5
+      'debug': 'coder',                // coder 也能调试
+      'review': 'coder',               // coder 也能审查
+      'test': 'coder',                 // coder 也能写测试
+      'refactor': 'coder',             // coder 也能重构
+      'explain': 'general-purpose',    // 使用 general-purpose.json5
+      'explore': 'explore',            // 使用 explore.json5
+      'plan': 'plan',                  // 使用 plan.json5
+      'coding': 'coder',               // 默认
     };
     return mapping[scene] || 'coder';
   }

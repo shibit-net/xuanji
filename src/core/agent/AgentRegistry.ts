@@ -9,15 +9,15 @@ import globCb from 'glob';
 import type { ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
 import { AgentConfigManager } from './AgentConfigManager';
+import {
+  getUserAgentsDir,
+  getTemplateAgentsDir
+} from '@/core/config/PathManager';
 
 const glob = promisify(globCb);
 const log = logger.child({ module: 'AgentRegistry' });
 const __filename_esm = fileURLToPath(import.meta.url);
 const __dirname_esm = path.dirname(__filename_esm);
-
-function getUserConfigDir(userId: string): string {
-  return path.join(process.cwd(), '.xuanji', 'users', userId);
-}
 
 export class AgentRegistry {
   private agents = new Map<string, ConfigurableAgentConfig>();
@@ -25,11 +25,13 @@ export class AgentRegistry {
   private configPaths: string[];
   private configManager: AgentConfigManager;
   private userAgentsDir: string;
+  private templateAgentsDir: string;
   private userId: string;
 
-  constructor(userId: string = 'default') {
+  constructor(userId: string) {
     this.userId = userId;
-    this.userAgentsDir = path.join(getUserConfigDir(userId), 'agents');
+    this.userAgentsDir = getUserAgentsDir(userId);
+    this.templateAgentsDir = getTemplateAgentsDir();
     this.configPaths = [this.userAgentsDir];
     this.configManager = new AgentConfigManager(userId);
   }
@@ -73,18 +75,16 @@ export class AgentRegistry {
   }
 
   private async copyBuiltinAgentsToUserDir(): Promise<void> {
-    // 从 default 模板复制 agents 目录
-    const templateAgentsDir = path.join(process.cwd(), '.xuanji', 'users', 'default', 'agents');
-
-    if (!fs.existsSync(templateAgentsDir)) {
-      log.warn(`模板 agents 目录不存在: ${templateAgentsDir}`);
+    // 从源码模板目录复制 agents
+    if (!fs.existsSync(this.templateAgentsDir)) {
+      log.warn(`模板 agents 目录不存在: ${this.templateAgentsDir}`);
       return;
     }
 
-    const builtinFiles = await glob(templateAgentsDir + '/**/*.{json5,yaml,yml,json}');
+    const builtinFiles = await glob(this.templateAgentsDir + '/**/*.{json5,yaml,yml,json}');
 
     if (builtinFiles.length === 0) {
-      log.warn(`未找到模板 agent 配置文件: ${templateAgentsDir}`);
+      log.warn(`未找到模板 agent 配置文件: ${this.templateAgentsDir}`);
       return;
     }
 
@@ -155,6 +155,11 @@ export class AgentRegistry {
   getEnabled(): ConfigurableAgentConfig[] {
     return Array.from(this.agents.values())
       .filter(agent => agent.enabled)
+      .map(agent => this.configManager.getAgentWithOverride(agent));
+  }
+
+  getAll(): ConfigurableAgentConfig[] {
+    return Array.from(this.agents.values())
       .map(agent => this.configManager.getAgentWithOverride(agent));
   }
 

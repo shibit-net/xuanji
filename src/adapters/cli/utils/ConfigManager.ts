@@ -15,8 +15,8 @@ export class ConfigManager {
   private loader: ConfigLoader;
   private currentConfig: AppConfig | null = null;
 
-  constructor() {
-    this.loader = new ConfigLoader();
+  constructor(userId: string = 'cli-user') {
+    this.loader = new ConfigLoader(userId);
   }
 
   /**
@@ -100,11 +100,19 @@ export class ConfigManager {
   }
 
   /**
-   * 重置为默认配置
+   * 重置为默认配置（从模板加载）
    */
   async reset(): Promise<void> {
-    const { DEFAULT_CONFIG } = await import('@/core/config/defaults');
-    await saveGlobalConfig(DEFAULT_CONFIG as unknown as Record<string, unknown>);
+    // 从模板加载默认配置
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+
+    const templatePath = join(process.cwd(), 'src/core/templates/config.json');
+    const content = await readFile(templatePath, 'utf-8');
+    const template = JSON.parse(content);
+    const defaultConfig = template.config || template;
+
+    await saveGlobalConfig(defaultConfig as unknown as Record<string, unknown>);
     // 重新加载
     await this.load();
   }

@@ -344,7 +344,7 @@ export class SessionFactory {
 
     // 动态导入工具类
     const { SubAgentFactory } = await import('@/core/agent/SubAgentFactory');
-    const { AgentTool } = await import('@/core/tools/AgentTool');
+    const { TaskTool } = await import('@/core/tools/TaskTool');
     const { TeamTool } = await import('@/core/tools/TeamTool');
 
     // SubAgentFactory
@@ -358,9 +358,9 @@ export class SessionFactory {
       config.provider
     );
 
-    // 注册 Agent 工具
-    const agentTool = new AgentTool(subAgentFactory);
-    registry.register(agentTool);
+    // 注册 Task 工具
+    const taskTool = new TaskTool(subAgentFactory);
+    registry.register(taskTool);
 
     // 注册 Team 工具
     const teamTool = new TeamTool(

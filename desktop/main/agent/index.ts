@@ -2,6 +2,7 @@ import type { ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
+import { messageBus } from '../ipc/MessageBus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,9 +10,10 @@ let agentProcess: ChildProcess | null = null;
 let sessionReady = false;
 let cachedConfig: any = null;
 let initializationInProgress: Promise<boolean> | null = null;
-let pendingRequests = new Map<string, { resolve: (val: any) => void; timer: ReturnType<typeof setTimeout> }>();
-let requestIdCounter = 0;
 let isCleaningUp = false;
+
+// 获取 agent 消息通道
+const getAgentChannel = () => messageBus.getChannel('agent');
 
 function findNodePath(): string {
   const { execSync } = require('child_process');
@@ -37,6 +39,19 @@ function initChatSession(): Promise<boolean> {
     try {
       console.log('🚀 开始初始化 ChatSession 子进程...');
 
+      // 1. 检查用户是否登录
+      const { getAuthState } = await import('../config/auth.js');
+      const authState = getAuthState();
+
+      if (!authState?.user?.userId) {
+        console.warn('⚠️ 用户未登录，无法初始化会话');
+        sessionReady = false;
+        return false;
+      }
+
+      const userId = authState.user.userId;
+      console.log(`👤 当前用户: ${userId}`);
+
       const nodePath = findNodePath();
       console.log(`📍 使用 Node.js: ${nodePath}`);
 
@@ -46,12 +61,9 @@ function initChatSession(): Promise<boolean> {
 
       if (isDev) {
         // 开发环境：使用 tsx 直接运行源文件
-        // __dirname 在编译后是 desktop/dist-electron
-        // 源文件在 desktop/main/agent-bridge.ts
-        const desktopRoot = path.join(__dirname, '../');  // desktop/
+        const desktopRoot = path.join(__dirname, '../');
         scriptPath = path.join(desktopRoot, 'main/agent-bridge.ts');
-        // tsx 在项目根目录的 node_modules/.bin/tsx
-        const projectRoot = path.join(desktopRoot, '../');  // xuanji/
+        const projectRoot = path.join(desktopRoot, '../');
         const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
         args = [tsxPath, scriptPath];
         console.log(`📜 开发模式，使用 tsx 运行: ${scriptPath}`);
@@ -64,7 +76,7 @@ function initChatSession(): Promise<boolean> {
 
       const { spawn } = require('child_process');
       agentProcess = spawn(nodePath, args, {
-        cwd: path.join(__dirname, '../../'), // 在项目根目录运行
+        cwd: path.join(__dirname, '../../'),
         env: {
           ...process.env,
           NODE_ENV: process.env.NODE_ENV || 'development',
@@ -77,12 +89,11 @@ function initChatSession(): Promise<boolean> {
         const lines = data.toString('utf8').trim().split('\n');
         lines.forEach(line => {
           if (line) {
-            // 简单的错误检测：检查是否包含明显的错误关键词
-            const isError = line.toLowerCase().includes('error') || 
+            const isError = line.toLowerCase().includes('error') ||
                            line.toLowerCase().includes('exception') ||
                            line.toLowerCase().includes('failed') ||
                            line.toLowerCase().includes('fatal');
-            
+
             if (isError) {
               console.error(`🚨 [Agent Error] ${line}`);
             } else {
@@ -92,12 +103,11 @@ function initChatSession(): Promise<boolean> {
         });
       };
 
-      agentProcess.stdout?.on('data', handleOutput);
-      agentProcess.stderr?.on('data', handleOutput);
+      agentProcess!.stdout?.on('data', handleOutput);
+      agentProcess!.stderr?.on('data', handleOutput);
 
-      agentProcess.on('exit', (code: number, signal: string) => {
+      agentProcess!.on('exit', (code: number, signal: string) => {
         console.log(`❌ ChatSession 子进程已退出 (code: ${code}, signal: ${signal})`);
-        // 移除所有事件监听器，防止 EPIPE 错误
         if (agentProcess) {
           agentProcess.stdout?.removeAllListeners();
           agentProcess.stderr?.removeAllListeners();
@@ -107,37 +117,58 @@ function initChatSession(): Promise<boolean> {
         sessionReady = false;
       });
 
-      agentProcess.on('error', (err: Error) => {
-        console.error('💥 ChatSession 子进程错误:', err);
+      agentProcess!.on('error', (err: Error) => {
+        console.error('[Agent] 子进程错误:', err);
       });
 
-      agentProcess.on('message', (msg: any) => {
-        if (!msg) return;
+      // 创建并绑定 agent 消息通道
+      const agentChannel = messageBus.createChannel('agent', {
+        timeout: 30000,
+        maxRetries: 3,
+        retryDelay: 1000,
+        enableLogging: true,
+      });
+      agentChannel.attach(agentProcess!);
 
-        if (msg.type === 'init-complete') {
-          console.log('✅ ChatSession 初始化完成！');
+      // 监听子进程就绪
+      agentChannel.once('child-ready', () => {
+        console.log('[Agent] 子进程已就绪');
+      });
+
+      // 监听初始化完成
+      agentChannel.on('init-complete', (data) => {
+        if (data.success) {
           sessionReady = true;
-          return;
-        }
-
-        if (msg.requestId) {
-          const pending = pendingRequests.get(msg.requestId);
-          if (pending) {
-            clearTimeout(pending.timer);
-            pendingRequests.delete(msg.requestId);
-            pending.resolve(msg.data);
-          }
-          return;
-        }
-
-        const mainWindow = getMainWindow();
-        if (mainWindow && mainWindow.webContents) {
-          mainWindow.webContents.send(msg.type, msg.data);
+          console.log('[Agent] Session 初始化完成');
+        } else {
+          console.error('[Agent] Session 初始化失败:', data.error);
         }
       });
 
-      // 发送 init 消息触发子进程初始化
-      agentProcess.send({ type: 'init' });
+      // 转发消息到渲染进程
+      const forwardToRenderer = (type: string) => {
+        agentChannel.on(type, (data) => {
+          const mainWindow = getMainWindow();
+          if (mainWindow && mainWindow.webContents) {
+            mainWindow.webContents.send(type, data);
+          }
+        });
+      };
+
+      // 需要转发的消息类型
+      const forwardTypes = [
+        'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
+        'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
+        'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
+        'agent:team-member-text', 'agent:team-member-thinking',
+        'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
+        'ask-user:request', 'session:messages-restored', 'session:resume-notification',
+        'session:archive-notification', 'session:boot-thinking', 'session:boot-guide',
+      ];
+      forwardTypes.forEach(forwardToRenderer);
+
+      // 发送 init 消息触发子进程初始化，并传递 userId
+      agentChannel.send('init', { userId });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -177,67 +208,46 @@ function initChatSession(): Promise<boolean> {
 async function cleanupAgentProcess() {
   if (!agentProcess) return;
 
-  console.log('🧹 正在清理 ChatSession 子进程...');
+  console.log('[Agent] 正在清理子进程...');
 
   // 先移除所有监听器，防止 EPIPE 错误
   agentProcess.stdout?.removeAllListeners();
   agentProcess.stderr?.removeAllListeners();
 
-  // 检查进程是否还活着再发送消息
-  if (!agentProcess.killed && agentProcess.connected) {
-    try {
-      agentProcess.send({ type: 'shutdown' });
-    } catch (err) {
-      console.warn('⚠️ 发送 shutdown 消息失败:', err);
-    }
+  // 获取 agent 通道
+  const agentChannel = getAgentChannel();
+  if (agentChannel) {
+    // 发送 shutdown 消息
+    agentChannel.send('shutdown');
   }
 
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       if (agentProcess && !agentProcess.killed) {
-        console.warn('⚠️ ChatSession 子进程未在 5 秒内退出，发送 SIGKILL');
-        agentProcess.kill('SIGKILL');
+        console.warn('[Agent] 子进程未在 5 秒内退出，发送 SIGKILL');
+        agentProcess!.kill('SIGKILL');
       }
       resolve();
     }, 5000);
-    agentProcess.once('exit', () => {
+    agentProcess!.once('exit', () => {
       clearTimeout(timer);
       resolve();
     });
   });
+
+  // 删除消息通道
+  messageBus.deleteChannel('agent');
 
   agentProcess = null;
   sessionReady = false;
 }
 
 function sendRequest(type: string, data?: any, timeoutMs = 30000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    if (!agentProcess) {
-      reject(new Error('子进程未启动'));
-      return;
-    }
-
-    if (agentProcess.killed || !agentProcess.connected) {
-      reject(new Error('子进程已关闭'));
-      return;
-    }
-
-    const requestId = `req-${++requestIdCounter}`;
-    const timer = setTimeout(() => {
-      pendingRequests.delete(requestId);
-      reject(new Error(`请求超时 (${type})`));
-    }, timeoutMs);
-
-    pendingRequests.set(requestId, { resolve, timer });
-
-    try {
-      agentProcess.send({ type, data, requestId });
-    } catch (err) {
-      clearTimeout(timer);
-      pendingRequests.delete(requestId);
-      reject(new Error(`发送消息失败: ${err instanceof Error ? err.message : String(err)}`));
-    }
-  });
+  const agentChannel = getAgentChannel();
+  if (!agentChannel) {
+    return Promise.reject(new Error('Agent 通道未初始化'));
+  }
+  return agentChannel.request(type, data, timeoutMs);
 }
 
 function getAgentProcess(): ChildProcess | null {

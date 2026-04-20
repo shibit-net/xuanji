@@ -345,9 +345,27 @@ async function syncCookiesFromClient() {
 // 将 token 同步到 Electron Session Cookies
 async function syncToElectronCookies() {
   const { session } = await import('electron');
-  const baseUrl = 'https://shibit.net'; // 使用生产环境域名
+  const baseUrl = process.env.STARSHIP_API_URL || 'https://shibit.net';
 
   console.log('[syncToElectronCookies] 准备同步到 Electron Session, baseUrl:', baseUrl);
+
+  // 从 URL 提取域名
+  let domain: string;
+  try {
+    const url = new URL(baseUrl);
+    domain = url.hostname;
+    // 如果是子域名，设置为顶级域名（例如 dev.shibit.net -> .shibit.net）
+    const parts = domain.split('.');
+    if (parts.length > 2) {
+      domain = '.' + parts.slice(-2).join('.');
+    } else {
+      domain = '.' + domain;
+    }
+  } catch {
+    domain = '.shibit.net'; // 默认值
+  }
+
+  console.log('[syncToElectronCookies] Cookie 域名:', domain);
 
   try {
     if (authState.accessToken) {
@@ -355,7 +373,7 @@ async function syncToElectronCookies() {
         url: baseUrl,
         name: 'accessToken',
         value: authState.accessToken,
-        domain: '.shibit.net', // 设置域名
+        domain: domain,
         path: '/',
         secure: true,
         httpOnly: true,
@@ -370,7 +388,7 @@ async function syncToElectronCookies() {
         url: baseUrl,
         name: 'refreshToken',
         value: authState.refreshToken,
-        domain: '.shibit.net',
+        domain: domain,
         path: '/',
         secure: true,
         httpOnly: true,

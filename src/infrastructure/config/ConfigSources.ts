@@ -1,23 +1,33 @@
 // ============================================================
-// 配置源实现 - 简化版（只保留默认和用户配置）
+// 配置源实现 - 简化版（只保留用户配置）
 // ============================================================
 
 import type { IConfigSource } from './ConfigService';
-import { DEFAULT_CONFIG } from '@/core/config/defaults';
 import { UserConfig } from '@/core/config/UserConfig';
 import { logger } from '@/core/logger';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const log = logger.child({ module: 'ConfigSources' });
 
 /**
- * 默认配置源
+ * 模板配置源
+ * 从 src/core/templates/config.json 加载默认配置
  */
-export class DefaultConfigSource implements IConfigSource {
-  name = 'default';
+export class TemplateConfigSource implements IConfigSource {
+  name = 'template';
   priority = 0;
 
   async load(): Promise<Record<string, any>> {
-    return DEFAULT_CONFIG as any;
+    try {
+      const templatePath = join(process.cwd(), 'src/core/templates/config.json');
+      const content = await readFile(templatePath, 'utf-8');
+      const parsed = JSON.parse(content);
+      return parsed.config || parsed;
+    } catch (error) {
+      log.error('Failed to load template config:', error);
+      return {};
+    }
   }
 }
 
@@ -29,7 +39,7 @@ export class UserConfigSource implements IConfigSource {
   priority = 10;
   private userId: string;
 
-  constructor(userId: string = 'default') {
+  constructor(userId: string) {
     this.userId = userId;
   }
 

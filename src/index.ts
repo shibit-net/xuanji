@@ -221,9 +221,10 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
 
   await logSystem.info('System', '璇玑 Bot 模式启动');
 
-  // 2. 初始化 ChatSession
-  const factory = new SessionFactory();
-  const session = await factory.create({ model: args.model });
+  // 2. 初始化 ChatSession（Bot 模式使用固定用户 ID）
+  const factory = new SessionFactory('bot-user');
+  // 默认使用用户主 agent 配置
+  const session = await factory.createWithMainAgentConfig({ model: args.model });
 
   // 3. 收集要启动的机器人（命令行参数优先，否则从 config.json 自动发现）
   const botsConfig = config?.bots;
@@ -368,9 +369,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // CLI 模式: 初始化 ChatSession
-  const factory = new SessionFactory();
-  const session = await factory.create({ model: args.model });
+  // CLI 模式: 初始化 ChatSession（CLI 模式使用固定用户 ID）
+  const factory = new SessionFactory('cli-user');
+  // 默认使用用户主 agent 配置
+  const session = await factory.createWithMainAgentConfig({ model: args.model });
 
   // 注册退出清理（MCP 子进程、PersistentShell、SQLite 等）
   let cleanedUp = false;
@@ -540,6 +542,13 @@ async function main(): Promise<void> {
   // 等待应用退出
   await waitUntilExit;
 }
+
+// 导出核心模块，方便其他模块使用
+export { SessionFactory } from './core/chat/SessionFactory';
+export { ChatSession } from './core/chat/ChatSession';
+
+// 导出类型
+export type { SessionOptions } from './core/chat/SessionFactory';
 
 // 启动
 main().catch((err) => {

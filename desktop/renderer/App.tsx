@@ -1,201 +1,77 @@
-
 // ============================================================
-// Xuanji Desktop - 主应用组件
+// App - 应用入口（路由管理 + 懒加载）
 // ============================================================
 
-import { useState, useEffect } from 'react';
-import TitleBar from './components/TitleBar';
-import Sidebar from './components/Sidebar';
-import ChatArea from './components/ChatArea';
-import RightPanel from './components/RightPanel';
-import InputArea from './components/InputArea';
-import TodoPanel from './components/TodoPanel';
-import StatusBar from './components/StatusBar';
-import SettingsPanel from './components/SettingsPanel';
-import AgentManager from './components/AgentManager';
-import SkillsManager from './components/SkillsManager';
-import ToolsManager from './components/ToolsManager';
-import MCPManager from './components/MCPManager';
-import PermissionDialog from './components/PermissionDialog';
-import PlanReviewDialog from './components/PlanReviewDialog';
-import AskUserDialog from './components/AskUserDialog';
-import StatsDialog from './components/StatsDialog';
-import DiagnosticsDialog from './components/DiagnosticsDialog';
-import PromptManager from './components/PromptManager';
-import MemoryManager from './components/MemoryManager';
-import LoginPage from './components/LoginPage';
+import { lazy, Suspense, useEffect } from 'react';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
-import { useChatStore } from './stores/chatStore';
 import { useAuthStore } from './stores/authStore';
 
-type ViewMode = 'chat' | 'settings' | 'agents' | 'skills' | 'tools' | 'mcp' | 'system-prompt' | 'memory';
-type DialogType = 'stats' | 'diagnostics' | null;
+// 懒加载页面组件
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const MainLayout = lazy(() => import('./layouts/MainLayout'));
+const MainPage = lazy(() => import('./pages/MainPage'));
+const AgentsPage = lazy(() => import('./pages/AgentsPage'));
+const MemoryPage = lazy(() => import('./pages/MemoryPage'));
 
-export default function App() {
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [rightPanelVisible, setRightPanelVisible] = useState(true);
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    const saved = localStorage.getItem('rightPanelWidth');
-    return saved ? parseInt(saved, 10) : 320;
-  });
-  const [viewMode, setViewMode] = useState<ViewMode>('chat');
-  const [activeDialog, setActiveDialog] = useState<DialogType>(null);
+// 加载中组件
+function LoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center h-screen w-screen bg-bg-primary text-text-primary">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+      <p className="text-gray-400">加载中...</p>
+    </div>
+  );
+}
 
-  // 认证状态
+// 认证检查组件
+function AuthCheck({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
 
-  // 权限交互状态
-  const permissionRequest = useChatStore((state) => state.permissionRequest);
-  const planReviewRequest = useChatStore((state) => state.planReviewRequest);
-  const askUserRequest = useChatStore((state) => state.askUserRequest);
-  const setPermissionRequest = useChatStore((state) => state.setPermissionRequest);
-  const setPlanReviewRequest = useChatStore((state) => state.setPlanReviewRequest);
-  const setAskUserRequest = useChatStore((state) => state.setAskUserRequest);
-
-  // 应用启动时检查认证状态
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  // 压缩上下文
-  const handleCompact = async () => {
-    try {
-      const result = await window.electron.compact({});
-      if (result.success && result.result) {
-        alert(`压缩完成！\n原始: ${result.result.originalTokens} tokens\n压缩后: ${result.result.compressedTokens} tokens\n压缩率: ${(result.result.compressionRatio * 100).toFixed(1)}%`);
-      } else if (result.error) {
-        alert(`压缩失败: ${result.error}`);
-      } else {
-        alert('没有足够的上下文需要压缩');
-      }
-    } catch (err) {
-      alert(`压缩失败: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
-  // 处理右侧面板宽度变化
-  const handleRightPanelResize = (width: number) => {
-    setRightPanelWidth(width);
-    localStorage.setItem('rightPanelWidth', width.toString());
-  };
-
-  // Persona 更新事件监听（onboarding 完成后后端会发送此事件）
-  useEffect(() => {
-    window.electron.onPersonaUpdated((_data) => {
-      // persona 已保存，无需前端额外处理
-    });
-  }, []);
-
-  // 如果正在加载认证状态，显示加载页面
-  if (isLoading && !isAuthenticated) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen bg-bg-primary text-text-primary">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-        <p className="text-gray-400">正在验证身份...</p>
-      </div>
-    );
+  if (isLoading) {
+    return <LoadingScreen />;
   }
 
-  // 如果未认证，显示登录页面
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
-  // 已认证，显示主应用
+  return <>{children}</>;
+}
+
+export default function App() {
   return (
     <ToastProvider>
-      <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
-        {/* 标题栏 */}
-        <TitleBar
-          onCompact={handleCompact}
-          onShowStats={() => setActiveDialog('stats')}
-          onShowDiagnostics={() => setActiveDialog('diagnostics')}
-          onToggleRightPanel={() => setRightPanelVisible(!rightPanelVisible)}
-        />
+      <HashRouter>
+        <Suspense fallback={<LoadingScreen />}>
+          <Routes>
+            {/* 登录页面 */}
+            <Route path="/login" element={<LoginPage />} />
 
-        {/* 主内容区域 */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* 左侧边栏 */}
-          {sidebarVisible && (
-            <Sidebar
-              onToggle={() => setSidebarVisible(!sidebarVisible)}
-              onOpenSettings={() => setViewMode(viewMode === 'settings' ? 'chat' : 'settings')}
-              onOpenAgents={() => setViewMode(viewMode === 'agents' ? 'chat' : 'agents')}
-              onOpenSkills={() => setViewMode(viewMode === 'skills' ? 'chat' : 'skills')}
-              onOpenTools={() => setViewMode(viewMode === 'tools' ? 'chat' : 'tools')}
-              onOpenMCP={() => setViewMode(viewMode === 'mcp' ? 'chat' : 'mcp')}
-              onOpenSystemPrompt={() => setViewMode(viewMode === 'system-prompt' ? 'chat' : 'system-prompt')}
-              onOpenMemory={() => setViewMode(viewMode === 'memory' ? 'chat' : 'memory')}
+            {/* 主应用路由（需要认证） */}
+            <Route
+              path="/*"
+              element={
+                <AuthCheck>
+                  <MainLayout>
+                    <Routes>
+                      <Route path="/" element={<MainPage />} />
+                      <Route path="/chat" element={<MainPage />} />
+                      <Route path="/agents" element={<AgentsPage onClose={() => window.history.back()} />} />
+                      <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </MainLayout>
+                </AuthCheck>
+              }
             />
-          )}
-
-          {/* 中间内容区 */}
-          {viewMode === 'settings' ? (
-            <SettingsPanel onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'agents' ? (
-            <AgentManager onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'skills' ? (
-            <SkillsManager onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'tools' ? (
-            <ToolsManager onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'mcp' ? (
-            <MCPManager onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'system-prompt' ? (
-            <PromptManager onClose={() => setViewMode('chat')} />
-          ) : viewMode === 'memory' ? (
-            <MemoryManager onClose={() => setViewMode('chat')} />
-          ) : (
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <ChatArea />
-              <TodoPanel />
-              <InputArea />
-            </div>
-          )}
-
-          {/* 右侧面板（仅对话模式显示） */}
-          {viewMode === 'chat' && rightPanelVisible && (
-            <RightPanel
-              onToggle={() => setRightPanelVisible(!rightPanelVisible)}
-              width={rightPanelWidth}
-              onResize={handleRightPanelResize}
-            />
-          )}
-        </div>
-
-        {/* 状态栏 */}
-        <StatusBar />
-
-        {/* 权限交互对话框 */}
-        {permissionRequest && (
-          <PermissionDialog
-            request={permissionRequest}
-            onClose={() => setPermissionRequest(null)}
-          />
-        )}
-
-        {planReviewRequest && (
-          <PlanReviewDialog
-            request={planReviewRequest}
-            onClose={() => setPlanReviewRequest(null)}
-          />
-        )}
-
-        {askUserRequest && (
-          <AskUserDialog
-            request={askUserRequest}
-            onClose={() => setAskUserRequest(null)}
-          />
-        )}
-
-        {/* 功能对话框 */}
-        {activeDialog === 'stats' && (
-          <StatsDialog onClose={() => setActiveDialog(null)} />
-        )}
-
-        {activeDialog === 'diagnostics' && (
-          <DiagnosticsDialog onClose={() => setActiveDialog(null)} />
-        )}
-      </div>
+          </Routes>
+        </Suspense>
+      </HashRouter>
     </ToastProvider>
   );
 }

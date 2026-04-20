@@ -1,0 +1,15 @@
+{
+  // Security Baseline
+
+  id: 'l0-safety',
+  name: 'Security Baseline',
+  layer: 'L0',
+  priority: 90,
+  estimatedTokens: 200,
+  enabled: true,
+
+  content: `# Security Baseline
+
+## BLOCKED — Never execute, no exceptions
+- \`
+}

@@ -50,16 +50,22 @@ function registerModelsIpcHandlers() {
       const { existsSync } = await import('node:fs');
 
       // 获取当前用户 ID
-      let userId = 'default';
+      let userId: string | null = null;
       try {
-        const { AuthManager } = await import('../services/auth.js');
-        const authManager = AuthManager.getInstance();
-        const currentUser = authManager.getCurrentUser();
-        if (currentUser?.userId) {
-          userId = currentUser.userId;
+        const { getAuthState } = await import('../config/auth.js');
+        const authState = getAuthState();
+        if (authState?.user?.userId) {
+          userId = authState.user.userId;
         }
       } catch (err) {
-        console.warn('无法获取当前用户，使用默认用户:', err);
+        console.warn('无法获取当前用户:', err);
+      }
+
+      if (!userId) {
+        return {
+          success: false,
+          error: '用户未登录'
+        };
       }
 
       const configPath = getUserConfigPath(userId);

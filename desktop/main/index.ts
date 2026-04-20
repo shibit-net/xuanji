@@ -9,7 +9,8 @@ app.whenReady().then(async () => {
   setAuthState(authState);
   registerAllIpcHandlers();
   createWindow();
-  await initChatSession();
+  // TODO: 会话初始化已移至用户登录后
+  // await initChatSession();
 
   app.on('activate', () => {
     const mainWindow = getMainWindow();

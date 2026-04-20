@@ -3,12 +3,9 @@ import * as path from 'node:path';
 import JSON5 from 'json5';
 import type { ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
+import { getUserRoot } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'AgentConfigManager' });
-
-function getUserConfigDir(userId: string): string {
-  return path.join(process.cwd(), '.xuanji', 'users', userId);
-}
 
 export interface AgentOverrideConfig {
   id: string;
@@ -28,9 +25,9 @@ export class AgentConfigManager {
   private overrideConfigDir: string;
   private overrideConfigs = new Map<string, AgentOverrideConfig>();
 
-  constructor(userId: string = 'default') {
+  constructor(userId: string) {
     this.userId = userId;
-    this.overrideConfigDir = path.join(getUserConfigDir(userId), 'agent-overrides');
+    this.overrideConfigDir = path.join(getUserRoot(userId), 'agent-overrides');
   }
 
   async init(): Promise<void> {

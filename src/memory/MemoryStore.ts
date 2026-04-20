@@ -1,14 +1,14 @@
 // ============================================================
 // MemoryStore — 统一 SQLite 存储层
 // ============================================================
-// 替代 StorageBackend + LongTermMemory + EmbeddingMigrator
-// 单文件：~/.xuanji/memory.db
+// 单文件：.xuanji/users/{userId}/memory/memory.db
 // 支持：CRUD、FTS5 全文检索、向量存储、事务批量写入
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { logger } from '@/core/logger';
+import { getUserMemoryPath } from '@/core/config/PathManager';
 import type { MemoryEntry, MemoryRow, VectorRow, CountRow, StatsRow, MemoryEntryType, MemoryScope, MemoryVolatility, MemoryCategory } from './types';
 
 const log = logger.child({ module: 'MemoryStore' });
@@ -22,7 +22,7 @@ export interface VectorSearchResult {
 /**
  * MemoryStore — 统一 SQLite 存储
  *
- * 数据库路径: ~/.xuanji/memory.db
+ * 数据库路径：.xuanji/users/{userId}/memory/memory.db
  * 支持全局记忆（project_path = NULL）和项目级记忆（project_path = 路径）
  */
 export class MemoryStore {
@@ -31,8 +31,8 @@ export class MemoryStore {
   private vecAvailable = false;
   private dbPath: string;
 
-  constructor(dbPath?: string) {
-    this.dbPath = dbPath ?? join(homedir(), '.xuanji', 'memory.db');
+  constructor(userId: string) {
+    this.dbPath = getUserMemoryPath(userId);
   }
 
   /** 初始化数据库（建表、触发器、尝试加载 sqlite-vec） */
@@ -98,7 +98,7 @@ export class MemoryStore {
   /** 更新记忆（部分字段）
    *
    * 使用真正的 UPDATE 语句（而非 INSERT OR REPLACE），
-   * 保持 rowid 不变，确保 FTS5 content table 索引不被破坏。
+   * 保持 rowid 不变，确保 FTS5 索引不被破坏。
    */
   updateEntry(id: string, updates: Partial<MemoryEntry>): void {
     this.ensureReady();
@@ -164,7 +164,6 @@ export class MemoryStore {
     const params: (string | number)[] = [];
 
     if (options?.projectPath !== undefined) {
-      // 精确匹配项目路径或全局（NULL）
       sql += ' AND (project_path = ? OR project_path IS NULL)';
       params.push(options.projectPath);
     }
@@ -188,7 +187,6 @@ export class MemoryStore {
     this.ensureReady();
 
     try {
-      // FTS5 的 MATCH 语法：支持前缀匹配（term*）
       const ftsQuery = query
         .toLowerCase()
         .split(/\s+/)
@@ -230,19 +228,17 @@ export class MemoryStore {
           FROM vec_memories v
           INNER JOIN memory_vector_map map ON map.vec_rowid = v.rowid
           INNER JOIN memories m ON m.id = map.memory_id
-          WHERE v.embedding MATCH ?
-            AND k = ?
+          WHERE v.embedding MATCH ? AND k = ?
           ORDER BY v.distance
         `).all(queryBuf, topK) as Array<{ id: string; distance: number }>;
 
         log.debug(`sqlite-vec search returned ${rows.length} results`);
 
-        return rows.map((r) => ({
-          id: r.id,
-          similarity: 1 - r.distance,
+        return rows.map((row) => ({
+          id: row.id,
+          similarity: 1 - row.distance,
         }));
       } catch (err) {
-        // 降级到暴力搜索
         log.debug('sqlite-vec search failed, falling back to brute-force:', err);
       }
     }
@@ -267,23 +263,17 @@ export class MemoryStore {
     if (this.vecAvailable) {
       try {
         const tx = this.db!.transaction(() => {
-          // 1. 检查是否已有映射
           const existingMap = this.db!.prepare(`
             SELECT vec_rowid FROM memory_vector_map WHERE memory_id = ?
           `).get(memoryId) as { vec_rowid: number } | undefined;
 
           if (existingMap) {
-            // 更新：删除旧向量 -> 插入新向量 -> 更新映射
             this.db!.prepare('DELETE FROM vec_memories WHERE rowid = ?').run(existingMap.vec_rowid);
           }
 
-          // 2. 插入新向量（不指定 rowid，让 vec0 自动生成）
-          this.db!.prepare('INSERT INTO vec_memories (embedding) VALUES (?)').run(embeddingBuf);
+          const result = this.db!.prepare('INSERT INTO vec_memories (embedding) VALUES (?)').run(embeddingBuf);
+          const vecRowid = result.lastInsertRowid;
 
-          // 3. 获取自动生成的 vec_rowid
-          const vecRowid = (this.db!.prepare('SELECT last_insert_rowid() as rowid').get() as { rowid: number }).rowid;
-
-          // 4. 创建或更新映射
           this.db!.prepare(`
             INSERT OR REPLACE INTO memory_vector_map (memory_id, vec_rowid)
             VALUES (?, ?)
@@ -294,17 +284,16 @@ export class MemoryStore {
 
         tx();
       } catch (err) {
-        // vec_memories 同步失败，但 memory_vectors 已保存，可以降级使用暴力搜索
         log.debug(`Failed to sync to vec_memories for ${memoryId}, will use brute-force search:`, err);
       }
     }
   }
 
-  /** 获取已有向量的 ID 集合 */
+  /** 获取已有向量的记忆 ID 集合 */
   getVectorIds(): Set<string> {
     this.ensureReady();
     const rows = this.db!.prepare('SELECT memory_id FROM memory_vectors').all() as Array<{ memory_id: string }>;
-    return new Set(rows.map((r) => r.memory_id));
+    return new Set(rows.map((row) => row.memory_id));
   }
 
   /** 压缩后覆盖写入（替代 LongTermMemory.replaceAll） */
@@ -313,10 +302,8 @@ export class MemoryStore {
 
     const transaction = this.db!.transaction(() => {
       if (projectPath !== undefined) {
-        // 只替换指定项目路径的记忆
         this.db!.prepare('DELETE FROM memories WHERE project_path = ?').run(projectPath);
       } else {
-        // 替换全局记忆（project_path IS NULL）
         this.db!.prepare('DELETE FROM memories WHERE project_path IS NULL').run();
       }
 
@@ -336,9 +323,7 @@ export class MemoryStore {
     const total = (this.db!.prepare('SELECT COUNT(*) as count FROM memories WHERE obsolete = 0').get() as CountRow).count;
 
     const rows = this.db!.prepare(`
-      SELECT type, COUNT(*) as count FROM memories
-      WHERE obsolete = 0
-      GROUP BY type
+      SELECT type, COUNT(*) as count FROM memories WHERE obsolete = 0 GROUP BY type
     `).all() as StatsRow[];
 
     const byType: Record<string, number> = {};
@@ -361,12 +346,10 @@ export class MemoryStore {
       LIMIT ?
     `).all(limit) as MemoryRow[];
 
-    return rows.map((r) => this.rowToEntry(r));
+    return rows.map((row) => this.rowToEntry(row));
   }
 
-  // ────────── Skill 向量（从 vector.db 合并） ──────────
-
-  /** 插入/更新 Skill embedding */
+  /** Skill 向量相关（从 vector.db 合并） */
   upsertSkillEmbedding(skillId: string, skillName: string, embedding: Float32Array, description: string): void {
     this.ensureReady();
     const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
@@ -376,7 +359,6 @@ export class MemoryStore {
     `).run(skillId, skillName, embeddingBuf, description, new Date().toISOString());
   }
 
-  /** 获取所有 Skill embeddings */
   getAllSkillEmbeddings(): Array<{ skillId: string; skillName: string; embedding: Float32Array; description: string }> {
     this.ensureReady();
     const rows = this.db!.prepare('SELECT * FROM skill_vectors LIMIT 1000').all() as Array<{
@@ -385,6 +367,7 @@ export class MemoryStore {
       embedding: Buffer;
       description: string;
     }>;
+
     return rows.map((row) => {
       const buf = Buffer.from(row.embedding);
       return {
@@ -405,11 +388,8 @@ export class MemoryStore {
     }
   }
 
-  // ────────── 私有方法 ──────────
-
   private createTables(): void {
     this.db!.exec(`
-      -- 记忆主表
       CREATE TABLE IF NOT EXISTS memories (
         id                TEXT PRIMARY KEY,
         type              TEXT NOT NULL,
@@ -430,7 +410,6 @@ export class MemoryStore {
         dismissed         INTEGER DEFAULT 0,
         obsolete          INTEGER DEFAULT 0,
         metadata          TEXT DEFAULT '{}',
-        -- M5 分层记忆字段
         scope             TEXT,
         volatility        TEXT,
         significance      REAL,
@@ -446,7 +425,6 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_mem_scope    ON memories(scope);
       CREATE INDEX IF NOT EXISTS idx_mem_volatility ON memories(volatility);
 
-      -- FTS5 全文检索
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
         id UNINDEXED,
         content,
@@ -455,40 +433,32 @@ export class MemoryStore {
         content_rowid='rowid'
       );
 
-      -- FTS 同步触发器
       CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
-        INSERT INTO memories_fts(rowid, id, content, keywords)
-        VALUES (new.rowid, new.id, new.content, new.keywords);
+        INSERT INTO memories_fts(rowid, id, content, keywords) VALUES (new.rowid, new.id, new.content, new.keywords);
       END;
 
       CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, id, content, keywords)
-        VALUES ('delete', old.rowid, old.id, old.content, old.keywords);
+        INSERT INTO memories_fts(memories_fts, rowid, id, content, keywords) VALUES ('delete', old.rowid, old.id, old.content, old.keywords);
       END;
 
       CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, id, content, keywords)
-        VALUES ('delete', old.rowid, old.id, old.content, old.keywords);
-        INSERT INTO memories_fts(rowid, id, content, keywords)
-        VALUES (new.rowid, new.id, new.content, new.keywords);
+        INSERT INTO memories_fts(memories_fts, rowid, id, content, keywords) VALUES ('delete', old.rowid, old.id, old.content, old.keywords);
+        INSERT INTO memories_fts(rowid, id, content, keywords) VALUES (new.rowid, new.id, new.content, new.keywords);
       END;
 
-      -- 向量存储
       CREATE TABLE IF NOT EXISTS memory_vectors (
-        memory_id  TEXT PRIMARY KEY,
-        embedding  BLOB NOT NULL,
+        memory_id TEXT PRIMARY KEY,
+        embedding BLOB NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
       );
 
-      -- 向量映射表（关联 memory_id 和 vec_rowid）
       CREATE TABLE IF NOT EXISTS memory_vector_map (
         memory_id TEXT PRIMARY KEY,
         vec_rowid INTEGER NOT NULL,
         FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
       );
 
-      -- Skill 向量
       CREATE TABLE IF NOT EXISTS skill_vectors (
         skill_id    TEXT PRIMARY KEY,
         skill_name  TEXT NOT NULL,
@@ -498,7 +468,6 @@ export class MemoryStore {
       );
     `);
 
-    // sqlite-vec 虚拟表（可选）
     if (this.vecAvailable) {
       try {
         this.db!.exec(`
@@ -520,29 +489,19 @@ export class MemoryStore {
         project_path, created_at, updated_at, last_accessed_at, access_count,
         category, session_id, day_key, superseded_by, dismissed, obsolete, metadata,
         scope, volatility, significance, category_label
-      ) VALUES (
-        @id, @type, @content, @keywords, @source, @confidence, @accuracy,
-        @project_path, @created_at, @updated_at, @last_accessed_at, @access_count,
-        @category, @session_id, @day_key, @superseded_by, @dismissed, @obsolete, @metadata,
-        @scope, @volatility, @significance, @category_label
-      )
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
 
   private entryToRow(entry: MemoryEntry): Record<string, string | number | null> {
     const now = new Date().toISOString();
-    const nowMs = Date.now();
 
-    // 将扩展字段打包到 metadata JSON（M5 字段已移到独立列）
     const metadata = JSON.stringify({
       ...(entry.metadata ?? {}),
-      // 关联关系字段
       relatedMemories: entry.relatedMemories,
       extractedFrom: entry.extractedFrom,
       topicId: entry.topicId,
-      // 任务跟踪字段
       taskContext: entry.taskContext,
-      // 经验教训字段
       lessonType: entry.lessonType,
       problemDescription: entry.problemDescription,
       solution: entry.solution,
@@ -569,28 +528,10 @@ export class MemoryStore {
       dismissed: entry.dismissed ? 1 : 0,
       obsolete: (entry as MemoryEntry & { obsolete?: boolean }).obsolete ? 1 : 0,
       metadata,
-      // M5 分层记忆字段（独立列）
       scope: entry.scope ?? null,
       volatility: entry.volatility ?? null,
       significance: entry.significance ?? null,
       category_label: entry.categoryLabel ?? null,
-      // 决策点记忆系统字段（3.0 新增）
-      usage_scenarios: JSON.stringify(entry.usageScenarios ?? []),
-      constraint_level: entry.constraint ?? 'may',
-      usage_count: entry.usageCount ?? 0,
-      last_used: entry.lastUsed ?? null,
-      effective_count: entry.effectiveCount ?? 0,
-      memory_origin_v2: entry.memoryOriginV2 ?? 'agent',
-      related_memories: JSON.stringify(entry.relatedMemories ?? []),
-      // 做梦机制字段
-      dream_generation: entry.dreamGeneration ?? 0,
-      evidence_count: entry.evidenceCount ?? 1,
-      last_reviewed: entry.lastReviewed ?? null,
-      last_dreamed: entry.lastDreamed ?? null,
-      dream_count: entry.dreamCount ?? 0,
-      // 软删除字段
-      deleted_at: entry.deletedAt ?? null,
-      delete_reason: entry.deleteReason ?? null,
     };
   }
 
@@ -598,14 +539,20 @@ export class MemoryStore {
     let metadata: Record<string, unknown> = {};
     try {
       metadata = JSON.parse(row.metadata ?? '{}');
-    } catch {}
+    } catch {
+      // no-op
+    }
 
     return {
       id: row.id,
       type: row.type as MemoryEntryType,
       content: row.content,
       keywords: (() => {
-        try { return JSON.parse(row.keywords ?? '[]'); } catch { return []; }
+        try {
+          return JSON.parse(row.keywords ?? '[]');
+        } catch {
+          return [];
+        }
       })(),
       source: row.source ?? 'conversation',
       confidence: row.confidence ?? 0.8,
@@ -618,7 +565,7 @@ export class MemoryStore {
       dayKey: row.day_key ?? undefined,
       supersededBy: row.superseded_by ?? undefined,
       dismissed: row.dismissed === 1,
-      // 从 metadata 恢复扩展字段
+      obsolete: (row as any).obsolete === 1,
       metadata: Object.fromEntries(
         Object.entries(metadata).filter(([key]) =>
           !['relatedMemories', 'extractedFrom', 'topicId', 'taskContext',
@@ -634,37 +581,13 @@ export class MemoryStore {
       problemDescription: metadata.problemDescription as string | undefined,
       solution: metadata.solution as string | undefined,
       applicableScenarios: metadata.applicableScenarios as string[] | undefined,
-      // M5 分层记忆字段（优先从独立列读取，降级到 metadata）
       scope: (row.scope as MemoryScope | null) ?? (metadata.scope as MemoryScope | undefined),
       volatility: (row.volatility as MemoryVolatility | null) ?? (metadata.volatility as MemoryVolatility | undefined),
       significance: row.significance ?? (metadata.significance as number | undefined),
       categoryLabel: row.category_label ?? (metadata.categoryLabel as string | undefined),
-      // 决策点记忆系统字段（3.0 新增）
-      usageScenarios: (() => {
-        try {
-          return JSON.parse((row as any).usage_scenarios ?? '[]');
-        } catch {
-          return [];
-        }
-      })(),
-      constraint: ((row as any).constraint_level as 'must' | 'should' | 'may') ?? 'may',
-      usageCount: (row as any).usage_count ?? 0,
-      lastUsed: (row as any).last_used ?? undefined,
-      effectiveCount: (row as any).effective_count ?? 0,
-      memoryOriginV2: ((row as any).memory_origin_v2 as 'user' | 'agent' | 'dream') ?? 'agent',
-      // 做梦机制字段
-      dreamGeneration: (row as any).dream_generation ?? 0,
-      evidenceCount: (row as any).evidence_count ?? 1,
-      lastReviewed: (row as any).last_reviewed ?? undefined,
-      lastDreamed: (row as any).last_dreamed ?? undefined,
-      dreamCount: (row as any).dream_count ?? 0,
-      // 软删除字段
-      deletedAt: (row as any).deleted_at ?? undefined,
-      deleteReason: (row as any).delete_reason ?? undefined,
     };
   }
 
-  /** 暴力搜索（sqlite-vec 不可用时） */
   private bruteForceSearch(queryEmbedding: Float32Array, topK: number): VectorSearchResult[] {
     const PAGE_SIZE = 500;
     const total = (this.db!.prepare('SELECT COUNT(*) as count FROM memory_vectors').get() as CountRow).count;
@@ -672,8 +595,7 @@ export class MemoryStore {
 
     for (let offset = 0; offset < total; offset += PAGE_SIZE) {
       const rows = this.db!.prepare(`
-        SELECT memory_id, embedding FROM memory_vectors
-        LIMIT ? OFFSET ?
+        SELECT memory_id, embedding FROM memory_vectors LIMIT ? OFFSET ?
       `).all(PAGE_SIZE, offset) as VectorRow[];
 
       for (const row of rows) {
@@ -688,18 +610,15 @@ export class MemoryStore {
     return results.slice(0, topK);
   }
 
-  /** 检测旧 JSONL 数据，自动迁移 */
   private async autoMigrateIfNeeded(): Promise<void> {
     const { existsSync: exists } = await import('node:fs');
     const oldMemoryDir = join(homedir(), '.xuanji', 'memory');
 
-    // 检查是否有旧 JSONL 数据且新库为空
     if (!exists(oldMemoryDir)) return;
 
     const currentCount = (this.db!.prepare('SELECT COUNT(*) as count FROM memories').get() as CountRow).count;
-    if (currentCount > 0) return; // 新库已有数据，跳过迁移
+    if (currentCount > 0) return;
 
-    // 动态加载迁移器，避免循环依赖
     try {
       const { MigrationRunner } = await import('./migration/MigrationRunner.js');
       const runner = new MigrationRunner(this);
@@ -709,7 +628,6 @@ export class MemoryStore {
     }
   }
 
-  /** M5 字段迁移 */
   private async migrateM5Fields(): Promise<void> {
     try {
       const { M5FieldsMigration } = await import('./migration/M5FieldsMigration.js');
@@ -720,8 +638,6 @@ export class MemoryStore {
     }
   }
 
-
-
   private ensureReady(): void {
     if (!this.ready || !this.db) {
       throw new Error('MemoryStore not initialized. Call init() first.');
@@ -729,10 +645,11 @@ export class MemoryStore {
   }
 }
 
-/** 余弦相似度 */
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) return 0;
-  let dot = 0, normA = 0, normB = 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];

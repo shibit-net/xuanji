@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { readFile, writeFile, mkdir, readdir, existsSync } from 'node:fs/promises';
 import type { AppConfig } from '@/shared/types/config';
 import { logger } from '@/core/logger';
-import { DEFAULT_CONFIG } from './defaults';
+// DEFAULT_CONFIG 已删除，使用模板配置
 
 const log = logger.child({ module: 'UserConfig' });
 
@@ -63,7 +63,7 @@ export class UserConfig {
   /**
    * 获取单例实例
    */
-  static getInstance(userId: string = 'default'): UserConfig {
+  static getInstance(userId: string): UserConfig {
     if (!UserConfig.instances.has(userId)) {
       UserConfig.instances.set(userId, new UserConfig(userId));
     }
@@ -133,26 +133,13 @@ export class UserConfig {
   }
 
   /**
+   * @deprecated 使用 UserConfigInitializer 代替
+   *
    * 初始化新用户配置（带默认值）
+   * 此方法已废弃，请使用 UserConfigInitializer.initialize()
    */
   async init(): Promise<void> {
-    const defaultConfig: Partial<AppConfig> = {
-      provider: DEFAULT_CONFIG.provider,
-      ui: DEFAULT_CONFIG.ui,
-      permission: DEFAULT_CONFIG.permission,
-      tools: DEFAULT_CONFIG.tools,
-      retry: DEFAULT_CONFIG.retry,
-      skills: DEFAULT_CONFIG.skills,
-      memory: DEFAULT_CONFIG.memory,
-      agent: DEFAULT_CONFIG.agent,
-      session: DEFAULT_CONFIG.session,
-      features: DEFAULT_CONFIG.features,
-      butler: DEFAULT_CONFIG.butler,
-      routing: DEFAULT_CONFIG.routing,
-      planner: DEFAULT_CONFIG.planner,
-      executor: DEFAULT_CONFIG.executor,
-    };
-    await this.save(defaultConfig);
+    throw new Error('UserConfig.init() 已废弃，请使用 UserConfigInitializer.initialize()');
   }
 }
 

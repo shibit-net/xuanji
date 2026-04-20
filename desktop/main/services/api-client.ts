@@ -3,8 +3,8 @@
 // ============================================================
 // 统一管理 API 请求，处理 Cookie 传递和响应解析
 
-import { net, session } from 'electron';
-import { URL } from 'url';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { session } from 'electron';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -21,12 +21,74 @@ export interface ApiConfig {
 class ApiClient {
   private config: ApiConfig;
   private cookies: Map<string, string> = new Map();
+  private axiosInstance: AxiosInstance;
 
   constructor(config: ApiConfig) {
     this.config = {
       timeout: 15000,
       ...config
     };
+
+    // 创建 axios 实例
+    this.axiosInstance = axios.create({
+      baseURL: this.config.baseUrl,
+      timeout: this.config.timeout,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // 请求拦截器：自动添加 Cookie（仅限 shibit.net 域）
+    this.axiosInstance.interceptors.request.use(async (config) => {
+      try {
+        // 从 Electron Session 获取 Cookie
+        const fullUrl = config.baseURL + config.url;
+
+        // 🔧 只为 shibit.net 域添加 Cookie，避免污染其他域名的请求
+        if (fullUrl.includes('shibit.net')) {
+          const cookies = await session.defaultSession.cookies.get({ url: fullUrl });
+
+          if (cookies.length > 0) {
+            const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+            config.headers['Cookie'] = cookieHeader;
+            console.log('[API Client] 自动添加 Cookie，数量:', cookies.length);
+            console.log('[API Client] Cookie 内容（前200字符）:', cookieHeader.substring(0, 200));
+
+            // 打印所有请求头
+            console.log('[API Client] 所有请求头:', JSON.stringify(config.headers, null, 2));
+          } else {
+            console.log('[API Client] 警告：没有可用的 Cookie');
+          }
+        } else {
+          console.log('[API Client] 跳过 Cookie 添加（非 shibit.net 域）:', fullUrl);
+        }
+      } catch (err) {
+        console.error('[API Client] 获取 Cookie 失败:', err);
+      }
+
+      console.log('[API Client] 发送请求:', config.method?.toUpperCase(), config.url);
+      return config;
+    });
+
+    // 响应拦截器：处理 Set-Cookie
+    this.axiosInstance.interceptors.response.use(
+      (response) => {
+        console.log('[API Client] 收到响应，状态码:', response.status);
+
+        // 处理 Set-Cookie（如果有）
+        const setCookie = response.headers['set-cookie'];
+        if (setCookie) {
+          console.log('[API Client] 收到 Set-Cookie:', setCookie);
+          this.parseAndStoreCookies(setCookie);
+        }
+
+        return response;
+      },
+      (error) => {
+        console.error('[API Client] 请求失败:', error.message);
+        throw error;
+      }
+    );
   }
 
   // 设置 Cookie
@@ -90,107 +152,53 @@ class ApiClient {
     }
   }
 
-  // 构建 Cookie 头
-  private buildCookieHeader(): string {
-    const cookies: string[] = [];
-    this.cookies.forEach((value, name) => {
-      cookies.push(`${name}=${value}`);
-    });
-    return cookies.join('; ');
-  }
+  // 构建 Cookie 头（保留供参考，但不再使用）
+  // private buildCookieHeader(): string {
+  //   const cookies: string[] = [];
+  //   this.cookies.forEach((value, name) => {
+  //     cookies.push(`${name}=${value}`);
+  //   });
+  //   return cookies.join('; ');
+  // }
 
-  // 通用请求方法 - 使用 Electron net 模块
+  // 通用请求方法 - 使用 axios
   async request<T = any>(
-    url: string, options: { method?: string; body?: any } = {}): Promise<ApiResponse<T>> {
-    return new Promise(async (resolve, reject) => {
-      const fullUrl = url.startsWith('http') ? url : `${this.config.baseUrl}${url}`;
-
-      console.log('发送 API 请求:', options.method || 'GET', fullUrl);
-
-      // 先检查 Session Cookies
-      try {
-        const cookies = await session.defaultSession.cookies.get({ url: fullUrl });
-        console.log('请求前的 Session Cookies:', cookies.map(c => ({ name: c.name, domain: c.domain })));
-      } catch (err) {
-        console.error('获取 Session Cookies 失败:', err);
-      }
-
-      const requestOptions: Electron.ClientRequestConstructorOptions = {
-        method: options.method || 'GET',
-        url: fullUrl,
-        useSessionCookies: true, // 关键：使用 Session Cookies
-        session: session.defaultSession
+    url: string,
+    options: { method?: string; body?: any } = {}
+  ): Promise<ApiResponse<T>> {
+    try {
+      const config: AxiosRequestConfig = {
+        url,
+        method: (options.method || 'GET') as any,
+        data: options.body
       };
 
-      const request = net.request(requestOptions);
+      const response = await this.axiosInstance.request(config);
+      const result = response.data;
 
-      // 设置请求头
-      request.setHeader('Content-Type', 'application/json');
+      return {
+        success: result.success !== false,
+        data: result.data,
+        message: result.message,
+        code: result.code,
+      };
+    } catch (error: any) {
+      console.error('[API Client] 请求异常:', error);
 
-      // 不再手动添加 Cookie 头，让 Electron 自动处理
-      console.log('使用 Electron Session Cookies 发送请求');
-
-      const timeoutId = setTimeout(() => {
-        console.error('请求超时:', fullUrl);
-        request.abort();
-      }, this.config.timeout);
-
-      request.on('response', (response) => {
-        console.log('收到响应，状态码:', response.statusCode);
-
-        let data = '';
-
-        response.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        response.on('end', () => {
-          clearTimeout(timeoutId);
-
-          try {
-            // 处理 Set-Cookie 响应头（登录时需要）
-            const setCookieHeaders = response.headers['set-cookie'];
-            if (setCookieHeaders) {
-              console.log('收到 Set-Cookie 头:', setCookieHeaders);
-              this.parseAndStoreCookies(setCookieHeaders);
-              console.log('解析后的 Cookies:', Object.keys(Object.fromEntries(this.cookies)));
-            }
-
-            const result: ApiResponse<T> = JSON.parse(data);
-            console.log('响应数据:', { success: result.success, message: result.message });
-            resolve({
-              success: result.success !== false,
-              data: result.data,
-              message: result.message,
-              code: result.code,
-            });
-          } catch (err: any) {
-            console.error('解析响应失败:', err, '响应数据:', data);
-            reject(err);
-          }
-        });
-
-        response.on('error', (err) => {
-          clearTimeout(timeoutId);
-          console.error('响应错误:', err);
-          reject(err);
-        });
-      });
-
-      request.on('error', (err) => {
-        clearTimeout(timeoutId);
-        console.error('请求错误:', err);
-        reject(err);
-      });
-
-      if (options.body) {
-        const bodyStr = JSON.stringify(options.body);
-        console.log('请求体长度:', bodyStr.length);
-        request.write(bodyStr);
+      // 如果是 HTTP 错误响应
+      if (error.response) {
+        const result = error.response.data;
+        return {
+          success: false,
+          data: result?.data,
+          message: result?.message || error.message,
+          code: result?.code || error.response.status,
+        };
       }
-      
-      request.end();
-    });
+
+      // 网络错误或其他错误
+      throw error;
+    }
   }
 
   // GET 请求

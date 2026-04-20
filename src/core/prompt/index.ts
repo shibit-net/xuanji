@@ -18,7 +18,4 @@ export type {
   SceneType,
   PromptBuildContext,
   SceneMatchConfig,
-  PromptBlock,
-  SceneTemplate,
-  PromptBuildOptions,
 } from './types';

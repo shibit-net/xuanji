@@ -86,13 +86,14 @@ function registerAgentIpcHandlers() {
     }
   });
 
+  // Agent 列表查询
   ipcMain.handle('agent:list', async () => {
     if (!isSessionReady()) {
       return { success: false, error: '会话未初始化' };
     }
 
     try {
-      return await sendRequest('list-agents');
+      return await sendRequest('agent-list');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -105,7 +106,7 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      return await sendRequest('get-agent', data);
+      return await sendRequest('agent-get', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -118,7 +119,7 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      return await sendRequest('create-agent', data);
+      return await sendRequest('agent-create', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -131,7 +132,7 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      return await sendRequest('update-agent', data);
+      return await sendRequest('agent-update', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -144,7 +145,7 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      return await sendRequest('delete-agent', data);
+      return await sendRequest('agent-delete', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };

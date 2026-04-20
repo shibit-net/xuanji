@@ -4,7 +4,7 @@
 
 import { ConfigService } from './ConfigService';
 import {
-  DefaultConfigSource,
+  TemplateConfigSource,
   UserConfigSource,
   RuntimeConfigSource,
   MemoryConfigSource
@@ -22,14 +22,14 @@ export class ConfigFactory {
   /**
    * 创建配置服务
    */
-  static async create(userId: string = 'default'): Promise<ConfigService> {
+  static async create(userId: string): Promise<ConfigService> {
     log.info(`Creating config service for user: ${userId}`);
 
     const userConfigSource = new UserConfigSource(userId);
     ConfigFactory.userConfigSource = userConfigSource;
 
     const sources = [
-      new DefaultConfigSource(),
+      new TemplateConfigSource(),
       userConfigSource,
       new RuntimeConfigSource()
     ];
@@ -48,7 +48,7 @@ export class ConfigFactory {
     log.debug('Creating config service for testing');
 
     const sources = [
-      new DefaultConfigSource(),
+      new TemplateConfigSource(),
       new MemoryConfigSource(overrides)
     ];
 

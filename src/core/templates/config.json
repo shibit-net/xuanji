@@ -1,0 +1,144 @@
+{
+  "version": "1.0",
+  "isTemplate": true,
+  "config": {
+    "ui": {
+      "theme": "auto",
+      "language": "en",
+      "showTokenUsage": true,
+      "showCost": true,
+      "showThinking": false
+    },
+    "permission": {
+      "fileWrite": "ask",
+      "fileRead": "always",
+      "bashExec": "ask",
+      "warnLevel": "ask",
+      "confirmWrite": "plan-only",
+      "confirmBatchWrite": false,
+      "allowedCommands": [],
+      "deniedCommands": [],
+      "allowedPaths": [],
+      "deniedPaths": [],
+      "persistDecisions": true
+    },
+    "tools": {
+      "enabled": [],
+      "schemaMode": "compact",
+      "resultSummary": {
+        "enabled": false,
+        "threshold": 10000,
+        "tools": ["read_file", "bash", "grep"]
+      },
+      "timeouts": {
+        "default": 300000,
+        "bash": 120000,
+        "webFetch": 30000,
+        "agent_team": 1800000,
+        "task": 600000,
+        "backgroundTask": 3600000
+      },
+      "permissions": {
+        "fileWrite": "ask",
+        "fileRead": "always",
+        "bashExec": "ask",
+        "warnLevel": "ask",
+        "confirmWrite": "plan-only",
+        "confirmBatchWrite": false,
+        "allowedCommands": [],
+        "deniedCommands": [],
+        "allowedPaths": [],
+        "deniedPaths": [],
+        "persistDecisions": true,
+        "decisionsFile": ".xuanji/permission-decisions.db"
+      }
+    },
+    "retry": {
+      "maxRetries": 3,
+      "initialDelay": 1000,
+      "maxDelay": 30000,
+      "backoffMultiplier": 2,
+      "retryableStatusCodes": [429, 500, 502, 503, 529]
+    },
+    "skills": {
+      "enabled": ["commit", "review-pr"],
+      "disabled": [],
+      "loadCustom": true,
+      "customPath": ".xuanji/skills"
+    },
+    "memory": {
+      "enabled": true,
+      "shortTermMaxEntries": 100,
+      "longTermMaxEntries": 1000,
+      "retrieveMaxResults": 10,
+      "maxEntryLength": 500,
+      "maxPromptLength": 5000,
+      "compactionThreshold": 500,
+      "decayHalfLifeDays": 30,
+      "formatting": {
+        "style": "openclaw",
+        "showAccessCount": true,
+        "showRelatedMemories": true,
+        "maxTimelineItems": 10
+      }
+    },
+    "agent": {
+      "maxIterations": null,
+      "subAgent": {
+        "maxNestingDepth": 3,
+        "maxConcurrent": 3,
+        "timeout": 300000,
+        "maxIterations": null
+      }
+    },
+    "session": {
+      "archiveThresholds": {
+        "messageCount": 50,
+        "tokenCount": 100000,
+        "timeMinutes": 120
+      },
+      "archiveStrategy": {
+        "keepRecentMessages": 10,
+        "generateSummary": true,
+        "extractKeyPoints": true
+      },
+      "autoResumeLastSession": true,
+      "memoryRetrievalCount": 20,
+      "showResumeNotification": true,
+      "maxSessions": 50
+    },
+    "features": {
+      "intentRouter": true
+    },
+    "butler": {
+      "enabled": true,
+      "decisionModel": null,
+      "decisionTemperature": 0.3,
+      "antiBother": {
+        "minIntervalMinutes": 60,
+        "quietHours": ["22:00", "08:00"],
+        "dailySummaryTime": "09:00"
+      },
+      "checkSchedule": ["09:00", "20:00"],
+      "fallbackIntervalMinutes": 60,
+      "defaultChannels": ["system"],
+      "storageFile": "butler_pushes.jsonl"
+    },
+    "planner": {
+      "model": "claude-3-5-sonnet-20241022",
+      "maxSteps": 10,
+      "timeout": 30000,
+      "requireConfirmation": true
+    },
+    "executor": {
+      "maxConcurrent": 3,
+      "timeout": 300000,
+      "stopOnError": false
+    },
+    "logging": {
+      "mode": "project",
+      "enableFile": true,
+      "enableConsole": true
+    }
+  }
+}
