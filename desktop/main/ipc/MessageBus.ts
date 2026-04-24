@@ -595,6 +595,15 @@ export class MessageBus {
   }
 
   /**
+   * 创建增强的消息通道（支持自动转发到renderer）
+   * 注意：这个方法需要在EnhancedMessageBus.ts中实现
+   */
+  createEnhancedChannel(name: string, options?: any): MessageChannel {
+    // 暂时返回普通通道，实际实现在EnhancedMessageBus中
+    return this.createChannel(name, options);
+  }
+
+  /**
    * 获取消息通道
    */
   getChannel(name: string): MessageChannel | undefined {

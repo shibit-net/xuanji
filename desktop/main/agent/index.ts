@@ -2,7 +2,7 @@ import type { ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
-import { messageBus } from '../ipc/MessageBus.js';
+import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,8 +12,9 @@ let cachedConfig: any = null;
 let initializationInProgress: Promise<boolean> | null = null;
 let isCleaningUp = false;
 
+// 🔧 使用增强的消息总线，支持自动转发到renderer
 // 获取 agent 消息通道
-const getAgentChannel = () => messageBus.getChannel('agent');
+const getAgentChannel = () => enhancedMessageBus.getChannel('agent');
 
 function findNodePath(): string {
   const { execSync } = require('child_process');

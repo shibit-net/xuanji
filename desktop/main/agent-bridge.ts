@@ -17,7 +17,9 @@ import { DownloadManager } from '../../src/core/download/DownloadManager.js';
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
 
-// 创建子进程消息通道
+// 🔧 创建子进程消息通道
+// 注意：这里仍使用 ChildMessageChannel，因为它是子进程端的通道
+// 主进程端会使用 EnhancedMessageChannel 来接收和转发消息
 const channel = new ChildMessageChannel({
   name: 'agent-child',
   enableLogging: true,
