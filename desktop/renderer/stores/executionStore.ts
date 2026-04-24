@@ -70,11 +70,6 @@ export interface SystemStatus {
     cached: number;
   };
   cost: number;
-  mcpServers: Array<{
-    name: string;
-    status: 'connected' | 'disconnected';
-    toolsCount: number;
-  }>;
   currentIteration: number;
 }
 
@@ -146,7 +141,6 @@ interface ExecutionStore {
   // ========== 系统状态操作 ==========
   updateTokenUsage: (usage: Partial<SystemStatus['tokenUsage']>) => void;
   updateCost: (cost: number) => void;
-  updateMCPServers: (servers: SystemStatus['mcpServers']) => void;
   incrementIteration: () => void;
 
   // ========== 重置 ==========
@@ -165,7 +159,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
   systemStatus: {
     tokenUsage: { input: 0, output: 0, cached: 0 },
     cost: 0,
-    mcpServers: [],
     currentIteration: 0,
   },
 
@@ -449,15 +442,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
     }));
   },
 
-  updateMCPServers: (servers) => {
-    set((state) => ({
-      systemStatus: {
-        ...state.systemStatus,
-        mcpServers: servers,
-      },
-    }));
-  },
-
   incrementIteration: () => {
     set((state) => ({
       systemStatus: {
@@ -480,7 +464,6 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
       systemStatus: {
         tokenUsage: { input: 0, output: 0, cached: 0 },
         cost: 0,
-        mcpServers: [],
         currentIteration: 0,
       },
     });

@@ -147,7 +147,7 @@ export interface LogStats {
 
 /** ANSI 颜色工具 */
 export class ColorUtil {
-  private static readonly ANSI_CODES = {
+  static readonly ANSI_CODES = {
     reset: '\x1b[0m',
     bold: '\x1b[1m',
     dim: '\x1b[2m',
@@ -261,9 +261,9 @@ export class UnifiedLogManager {
 
   constructor(baseDir?: string, lokiConfig?: LokiClientConfig) {
     this.logDir = baseDir ?? join(process.cwd(), '.xuanji');
-    
+
     this.logReader = new LogReader(join(this.logDir, 'logs'));
-    this.agentLoopLogger = new AgentLoopLogger();
+    this.agentLoopLogger = new AgentLoopLogger('unified-log-manager', 'system');
     this.sessionRecorder = new SessionRecorder();
     this.auditLogger = new AuditLogger();
     this.usageStatsRecorder = new UsageStatsRecorder();
@@ -529,14 +529,14 @@ export class UnifiedLogManager {
 
   private async queryCoreLogger(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
     const coreFilter = filter.core;
-    const records = await this.logReader.read({
+    const records = await this.logReader.readAll({
       levels: coreFilter?.levels as any,
       startTime: filter.startTime ? new Date(filter.startTime) : undefined,
       endTime: filter.endTime ? new Date(filter.endTime) : undefined,
       keyword: filter.keyword,
     });
     
-    return records.map(r => ({
+    return records.map((r: any) => ({
       timestamp: r.timestamp,
       source: 'core' as const,
       level: r.level,
@@ -548,12 +548,12 @@ export class UnifiedLogManager {
 
   private async queryAgentLoopLogger(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
     const agentLoopFilter = filter.agentLoop;
-    const records = await this.agentLoopLogger.query({
+    const records = await AgentLoopLogger.query({
       sessionId: agentLoopFilter?.sessionId,
-      eventTypes: agentLoopFilter?.eventTypes as any[],
+      eventType: agentLoopFilter?.eventTypes as any,
     });
     
-    return records.map(r => ({
+    return records.map((r: any) => ({
       timestamp: r.timestamp,
       source: 'agentloop' as const,
       level: this.inferLevelFromEventType(r.eventType),
@@ -569,10 +569,10 @@ export class UnifiedLogManager {
     // 时间过滤
     let filtered = records;
     if (filter.startTime) {
-      filtered = filtered.filter(r => r.timestamp >= filter.startTime);
+      filtered = filtered.filter(r => r.timestamp >= filter.startTime!);
     }
     if (filter.endTime) {
-      filtered = filtered.filter(r => r.timestamp <= filter.endTime);
+      filtered = filtered.filter(r => r.timestamp <= filter.endTime!);
     }
     if (filter.keyword) {
       filtered = filtered.filter(r => 
@@ -593,14 +593,14 @@ export class UnifiedLogManager {
   private async queryAuditLogger(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
     const auditFilter = filter.audit;
     const records = await this.auditLogger.query({
-      eventTypes: auditFilter?.eventTypes,
-      riskLevels: auditFilter?.riskLevels,
+      eventType: auditFilter?.eventTypes?.[0],
+      riskLevel: auditFilter?.riskLevels?.[0],
       allowed: auditFilter?.allowed,
       startTime: filter.startTime,
       endTime: filter.endTime,
     });
     
-    return records.map(r => ({
+    return records.map((r: any) => ({
       timestamp: r.timestamp,
       source: 'audit' as const,
       level: r.allowed ? 'info' : 'warn',
@@ -616,11 +616,11 @@ export class UnifiedLogManager {
       endTime: filter.endTime,
     });
     
-    return records.map(r => ({
+    return records.map((r: any) => ({
       timestamp: r.timestamp,
       source: 'usage' as const,
       level: 'info',
-      message: `${r.toolName || 'Usage'}: ${r.totalTokens} tokens, ${r.totalCost} cost`,
+      message: `${r.model || 'Usage'}: ${r.input + r.output} tokens`,
       namespace: 'usage',
       data: r,
     }));

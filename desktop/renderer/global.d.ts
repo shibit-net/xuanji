@@ -139,6 +139,18 @@ export interface ElectronAPI {
   onAgentError: (callback: (error: string) => void) => void;
   onAgentEnd: (callback: (state: { tokenUsage: any; cost: number; currentIteration: number }) => void) => void;
 
+  // Workspace 事件监听（MainAgent 执行流程可视化）
+  onWorkspaceIntentAnalysisStart: (callback: (data: any) => void) => void;
+  onWorkspaceIntentAnalysisEnd: (callback: (data: any) => void) => void;
+  onWorkspaceModelClassifierStart: (callback: (data: any) => void) => void;
+  onWorkspaceModelClassifierEnd: (callback: (data: any) => void) => void;
+  onWorkspaceTaskPlanningStart: (callback: (data: any) => void) => void;
+  onWorkspaceTaskPlanningEnd: (callback: (data: any) => void) => void;
+  onWorkspaceTaskExecutionStart: (callback: (data: any) => void) => void;
+  onWorkspaceTaskExecutionEnd: (callback: (data: any) => void) => void;
+  onWorkspaceResultAggregationStart: (callback: (data: any) => void) => void;
+  onWorkspaceResultAggregationEnd: (callback: (data: any) => void) => void;
+
   // 移除监听器
   removeAllListeners: (channel: string) => void;
 
@@ -157,18 +169,6 @@ export interface ElectronAPI {
   checkpointList: () => Promise<any>;
   checkpointRewind: (data: any) => Promise<any>;
 
-  // 记忆管理
-  memoryRetrieve: (data: any) => Promise<any>;
-  memoryStats: () => Promise<any>;
-
-  // 记忆系统高级功能
-  getMemoryStats: () => Promise<any>;
-  getMemoryConfig: () => Promise<any>;
-  saveMemoryConfig: (data: { config: any }) => Promise<any>;
-  manualMemoryFlush: () => Promise<any>;
-  extractTopics: () => Promise<any>;
-  getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) => Promise<any>;
-
   // 核心规则管理
   getCoreRules: () => Promise<any>;
   updateCoreRule: (data: { id: string; active?: boolean }) => Promise<any>;
@@ -184,18 +184,92 @@ export interface ElectronAPI {
   agentUpdate: (data: { agentId: string; config: any }) => Promise<any>;
   agentDelete: (data: { agentId: string }) => Promise<any>;
 
-  // Skills / Tools / MCP 查询
-  skillsList: () => Promise<any>;
+  // Tools 查询
   toolsList: () => Promise<any>;
-  mcpList: () => Promise<any>;
 
   // Todo 管理
   todoArchiveCompleted: () => Promise<any>;
   todoGetArchivedCount: () => Promise<any>;
 
+  // ============ Prompt 管理 ============
+  promptGetComponents: () => Promise<{
+    success: boolean;
+    components?: Array<{
+      id: string;
+      name: string;
+      layer: string;
+      priority: number;
+      estimatedTokens: number;
+      enabled: boolean;
+      scenes?: string[];
+      complexity?: string;
+      content: string;
+      dynamic?: boolean;
+    }>;
+    error?: string;
+  }>;
+  promptToggleComponent: (data: { id: string; enabled: boolean }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  promptPreview: (data: { scene?: string; complexity?: string }) => Promise<{
+    success: boolean;
+    prompt?: string;
+    tokenCount?: number;
+    error?: string;
+  }>;
+
   // Prompt 配置管理
-  promptGetConfig: () => Promise<any>;
-  promptSaveConfig: (data: any) => Promise<any>;
+  getPromptConfig: () => Promise<{
+    success: boolean;
+    config?: { defaultComplexity?: string; defaultScene?: string };
+    error?: string;
+  }>;
+  setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
+  // 项目管理
+  projectsList: () => Promise<{
+    success: boolean;
+    projects?: Array<{
+      path: string;
+      name: string;
+      hasRules: boolean;
+      lastAccessed: number;
+      firstAccessed: number;
+    }>;
+    error?: string;
+  }>;
+  projectsGetRules: (data: { projectPath: string }) => Promise<{
+    success: boolean;
+    rules?: string;
+    filePath?: string;
+    error?: string;
+  }>;
+  projectsSaveRules: (data: { projectPath: string; rules: string; filePath?: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  projectsGetDocs: (data: { projectPath: string }) => Promise<{
+    success: boolean;
+    docs?: Array<{
+      name: string;
+      path: string;
+      relativePath: string;
+    }>;
+    error?: string;
+  }>;
+  projectsReadDoc: (data: { filePath: string }) => Promise<{
+    success: boolean;
+    content?: string;
+    error?: string;
+  }>;
 
   // 高级功能
   compact: (data: any) => Promise<any>;
@@ -219,6 +293,90 @@ export interface ElectronAPI {
   permissionDeleteRule: (data: { cacheKey: string }) => Promise<any>;
   permissionClearRules: () => Promise<any>;
 
+  // 权限配置管理
+  permissionConfigGet: () => Promise<{
+    success: boolean;
+    config?: {
+      fileRead: boolean;
+      fileWrite: boolean;
+      bashExec: boolean;
+      warnLevel: 'safe' | 'warn' | 'danger';
+      confirmWrite: boolean;
+      allowedPaths?: string[];
+      deniedPaths?: string[];
+      allowedCommands?: string[];
+      deniedCommands?: string[];
+    };
+    error?: string;
+  }>;
+  permissionConfigUpdate: (updates: any) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
+  // 审计日志管理
+  permissionAuditList: (options?: {
+    toolName?: string;
+    decision?: string;
+    riskLevel?: string;
+    startTime?: number;
+    endTime?: number;
+    limit?: number;
+    offset?: number;
+  }) => Promise<{
+    success: boolean;
+    logs?: Array<{
+      id: number;
+      eventType: string;
+      toolName: string;
+      category?: string;
+      riskLevel?: string;
+      decision: string;
+      reason?: string;
+      target?: string;
+      userAction?: string;
+      timestamp: number;
+      sessionId?: string;
+    }>;
+    error?: string;
+  }>;
+  permissionAuditStats: () => Promise<{
+    success: boolean;
+    stats?: {
+      totalChecks: number;
+      allowedCount: number;
+      deniedCount: number;
+      allowRate: number;
+    };
+    error?: string;
+  }>;
+  permissionAuditClear: () => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
+  // 拒绝操作管理
+  permissionDeniedList: () => Promise<{
+    success: boolean;
+    deniedOps?: Array<{
+      key: string;
+      tool: string;
+      category: string;
+      target: string;
+      reason: string;
+      timestamp: number;
+    }>;
+    error?: string;
+  }>;
+  permissionDeniedDelete: (data: { key: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  permissionDeniedClear: () => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
   // 日志管理
   logsRead: (query?: any) => Promise<any>;
   logsReadLatest: (count?: number, levels?: string[]) => Promise<any>;
@@ -228,11 +386,66 @@ export interface ElectronAPI {
   logsStopWatch: () => Promise<any>;
   onLogsNewRecord: (callback: (record: any) => void) => void;
 
-  // 会话事件监听
-  onSessionMessagesRestored: (callback: (data: { messages: any[] }) => void) => void;
-
   // Persona 事件
   onPersonaUpdated: (callback: (data: { persona: any; onboardingDone: boolean }) => void) => void;
+
+  // 下载管理
+  downloadGetTasks: () => Promise<{
+    success: boolean;
+    tasks?: Array<{
+      id: string;
+      url: string;
+      name: string;
+      category?: string;
+      status: 'pending' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+      progress: {
+        percent: number;
+        downloaded: number;
+        total: number;
+        speed: number;
+      };
+      error?: string;
+    }>;
+    error?: string;
+  }>;
+  downloadCancel: (taskId: string) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  downloadClearFinished: () => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+
+  // 本地模型管理
+  localModelCheck: (modelId: string) => Promise<{
+    success: boolean;
+    installed?: boolean;
+    error?: string;
+  }>;
+  localModelDownload: (modelId: string) => Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }>;
+  localModelList: () => Promise<{
+    success: boolean;
+    models?: Array<{
+      filename: string;
+      path: string;
+      size: number;
+      modifiedAt: string;
+    }>;
+    error?: string;
+  }>;
+  localModelDelete: (filename: string) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  localModelOpenDir: () => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
 
   // 通用事件监听
   on: (channel: string, callback: (...args: any[]) => void) => void;

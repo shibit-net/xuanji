@@ -6,7 +6,11 @@
       "Bash(grep -n \"return;$\" desktop/main/agent-bridge.ts)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Read(//Users/kevinshi/.xuanji/agents/**)",
+      "Bash(rm -rf dist-electron)",
+      "Read(//private/tmp/**)"
     ]
   }
 }

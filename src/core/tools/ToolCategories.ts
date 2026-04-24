@@ -44,11 +44,6 @@ export const TOOL_CATEGORIES = {
    * - list_agents: 列出可用 Agent
    * - match_agent: 匹配最佳 Agent
    *
-   * 记忆系统:
-   * - retrieve_memory: 检索历史记忆
-   * - memory_store: 存储记忆（所有场景均需要，主 Agent 委托记忆 Agent 时使用）
-   * - memory_search: 搜索记忆
-   *
    * 系统管理:
    * - butler_daemon: 智能管家守护进程
    * - enter_worktree: 进入 Git 工作树
@@ -72,10 +67,6 @@ export const TOOL_CATEGORIES = {
     'agent_team',
     'list_agents',
     'match_agent',
-    // 记忆系统（基础能力，所有场景均可用）
-    'retrieve_memory',
-    'memory_store',
-    'memory_search',
     // 系统管理
     'butler_daemon',
     'enter_worktree',
@@ -86,93 +77,115 @@ export const TOOL_CATEGORIES = {
   /**
    * 场景工具（按场景分组）
    *
-   * 双索引：同时支持 Scene 名称（新）和 Skill ID（旧，降级兼容）
+   * @deprecated 场景不再控制工具可用性，此字段已废弃。
+   * 工具可用性现在完全由权限系统统一管控。
+   * 保留空对象以向后兼容，将在下一大版本移除。
    */
-  SCENE: {
-    // === 按 Scene 名称索引（新） ===
-    /**
-     * 编程场景
-     * - write_file: 创建文件
-     * - edit_file: 编辑文件
-     * - multi_edit: 批量编辑
-     * - list_directory (ls): 目录浏览
-     * - notebook_edit: Notebook 编辑
-     */
-    'coding': [
-      'write_file',
-      'edit_file',
-      'multi_edit',
-      'list_directory',
-      'notebook_edit',
-    ],
-
-    /**
-     * 生活场景
-     * - reminder_set / reminder_check: 提醒管理
-     * - web_search / web_fetch: Web 信息获取
-     * （memory_store / memory_search 已移至 META 层，所有场景均可用）
-     */
-    'life': [
-      'reminder_set',
-      'reminder_check',
-      'web_search',
-      'web_fetch',
-    ],
-
-  } as Record<string, readonly string[]>,
+  SCENE: {} as Record<string, readonly string[]>,
 } as const;
 
 /**
- * 从 Skill/Scene 的 requiredTools 自动提取场景工具
- *
- * @param id - Scene 名称或 Skill ID
- * @param requiredTools - 声明的 requiredTools（可选）
- * @returns 对应的场景工具列表
- *
- * 优先级：
- * 1. requiredTools（如果提供）
- * 2. TOOL_CATEGORIES.SCENE[id]（硬编码默认值）
- * 3. 两者合并去重
+ * 工具权限需求类型
  */
-export function getSceneTools(id: string, requiredTools?: string[]): string[] {
-  const hardcoded = TOOL_CATEGORIES.SCENE[id] || [];
-  const fromSkill = requiredTools || [];
+export type ToolPermissionRequirement =
+  | 'none'      // 无需权限检查（只读查询型工具）
+  | 'fileRead'  // 需要文件读取权限
+  | 'fileWrite' // 需要文件写入权限
+  | 'bashExec'  // 需要命令执行权限
+  | 'network';  // 需要网络访问权限
 
-  // 合并去重
-  return [...new Set([...hardcoded, ...fromSkill])];
+/**
+ * 工具权限需求映射表
+ *
+ * 定义每个工具的天然权限需求，用于权限系统的精细化控制。
+ * 未在此映射表中的工具默认需要最高权限（bashExec）。
+ */
+export const TOOL_PERMISSION_MAP: Record<string, ToolPermissionRequirement[]> = {
+  // 无需权限检查的工具（天然安全）
+  'ask_user': ['none'],
+  'todo_create': ['none'],
+  'todo_update': ['none'],
+  'todo_list': ['none'],
+  'todo_archive': ['none'],
+  'todo_clear': ['none'],
+  'list_agents': ['none'],
+  'match_agent': ['none'],
+  'plan_review': ['none'],
+  'enter_plan_mode': ['none'],
+  'exit_plan_mode': ['none'],
+  'sleep': ['none'],
+
+  // 只读文件操作
+  'read_file': ['fileRead'],
+  'list_directory': ['fileRead'],
+  'grep': ['fileRead'],
+  'glob': ['fileRead'],
+
+  // 写入文件操作
+  'write_file': ['fileWrite'],
+  'edit_file': ['fileWrite'],
+  'multi_edit': ['fileWrite'],
+  'notebook_edit': ['fileWrite'],
+
+  // 命令执行
+  'bash': ['bashExec'],
+  'task_output': ['bashExec'],
+  'enter_worktree': ['bashExec'],
+  'butler_daemon': ['bashExec'],
+
+  // 网络操作
+  'web_search': ['network'],
+  'web_fetch': ['network'],
+
+  // 复合权限
+  'task': ['bashExec'], // SubAgent 可能执行任意操作
+  'agent_team': ['bashExec'], // 多 Agent 协作可能执行任意操作
+  'reminder_set': ['fileWrite'], // 提醒需要持久化
+  'reminder_check': ['fileRead'],
+};
+
+/**
+ * 判断工具是否豁免权限检查
+ *
+ * 用于 PermissionMiddleware 快速跳过无副作用的工具。
+ */
+export function isPermissionExempt(toolName: string): boolean {
+  const reqs = TOOL_PERMISSION_MAP[toolName];
+  return reqs !== undefined && reqs.length === 1 && reqs[0] === 'none';
 }
 
 /**
- * 计算指定场景/Skill 列表应该启用的所有工具
+ * 获取工具的权限需求列表
  *
- * @param skills - 激活的场景或 Skill 列表
- * @returns 应该启用的工具名称集合
+ * 未知工具默认返回 bashExec（最高权限要求）。
  */
-export function computeAllowedTools(skills: Array<{ id: string; requiredTools?: string[] }>): Set<string> {
+export function getToolPermissionRequirements(toolName: string): ToolPermissionRequirement[] {
+  return TOOL_PERMISSION_MAP[toolName] ?? ['bashExec'];
+}
+
+/**
+ * @deprecated 场景不再控制工具可用性，此函数已废弃，始终返回空数组。
+ * 工具可用性现在完全由权限系统统一管控。
+ */
+export function getSceneTools(_id: string, _requiredTools?: string[]): string[] {
+  return [];
+}
+
+/**
+ * @deprecated 场景不再控制工具可用性，此函数已废弃。
+ * 返回 CORE + META 工具集，不再按场景过滤。
+ */
+export function computeAllowedTools(_skills?: Array<{ id: string; requiredTools?: string[] }>): Set<string> {
   const allowed = new Set<string>();
-
-  // 1. 核心工具（始终可用）
   TOOL_CATEGORIES.CORE.forEach(tool => allowed.add(tool));
-
-  // 2. 元能力工具（始终可用）
   TOOL_CATEGORIES.META.forEach(tool => allowed.add(tool));
-
-  // 3. 激活场景/Skill 的工具
-  for (const skill of skills) {
-    const sceneTools = getSceneTools(skill.id, skill.requiredTools);
-    sceneTools.forEach(tool => allowed.add(tool));
-  }
-
   return allowed;
 }
 
 /**
- * 基于 Scene 计算允许的工具集
- *
- * @param scene - 场景类型
- * @param extraTools - 额外的工具列表（来自 SceneTemplate.requiredTools）
- * @returns 应该启用的工具名称集合
+ * @deprecated 场景不再控制工具可用性，此函数已废弃。
+ * 返回 CORE + META 工具集，不再按场景过滤。
  */
-export function computeAllowedToolsByScene(scene: SceneType, extraTools?: string[]): Set<string> {
-  return computeAllowedTools([{ id: scene, requiredTools: extraTools }]);
+export function computeAllowedToolsByScene(_scene?: SceneType, _extraTools?: string[]): Set<string> {
+  return computeAllowedTools();
 }

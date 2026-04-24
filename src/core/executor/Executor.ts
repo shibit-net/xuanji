@@ -8,11 +8,10 @@
  * 4. 汇总执行结果
  */
 
-import type { ILLMProvider, IToolRegistry } from '@/core/types';
+import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { ExecutionPlan } from '@/core/routing/types';
 import type { ExecutorConfig, ExecutionResult, SubTaskResult, ExecutionCallbacks } from './types';
 import { SubAgentContext } from '@/core/agent/SubAgentContext';
-import type { AgentConfig } from '@/core/types/agent';
 import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
 import { logger } from '@/core/logger';
 

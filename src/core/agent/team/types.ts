@@ -28,6 +28,10 @@ export interface TeamMember {
   priority?: number;
   /** 成员特定的系统提示（会追加到角色默认提示后） */
   systemPrompt?: string;
+  /** 🆕 场景类型（write_code / debug / review 等） */
+  scene?: string;
+  /** 🆕 场景专用 prompt（L1 层，会与 agent.systemPrompt 组合） */
+  scenePrompt?: string;
   /**
    * 成员独立超时（毫秒）。
    * 若未设置，由 TeamManager 根据策略自动推算，

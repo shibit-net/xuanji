@@ -18,6 +18,8 @@ import type {
   ToolCallState,
   ContextInfo,
   LogEntry,
+  PromptBuildState,
+  PromptComponent,
 } from '../types/models';
 import type { AgentMoment, HistoryDot, TimelineEvent, RecentEvent } from '../components/WorkspaceMonitor/types';
 
@@ -105,6 +107,15 @@ interface RuntimeStoreState extends RuntimeState {
   /** 清空 activity 状态 */
   resetActivity: () => void;
 
+  // ========== Prompt 构建状态操作 ==========
+  setPromptBuildState: (state: PromptBuildState | null) => void;
+  updatePromptBuildState: (updates: Partial<PromptBuildState>) => void;
+  startPromptBuild: () => void;
+  setPromptIntent: (intent: PromptBuildState['intent']) => void;
+  addPromptComponent: (component: PromptComponent) => void;
+  finishPromptBuild: (finalStructure: PromptBuildState['finalStructure']) => void;
+  resetPromptBuildState: () => void;
+
   // ========== 重置 ==========
   reset: () => void;
   resetAll: () => void;
@@ -127,6 +138,7 @@ const initialState: RuntimeState & { currentCallTokens: TokenUsage; agentActivit
   isProcessing: false,
   contextInfo: null,
   logs: [],
+  promptBuildState: null,
   currentCallTokens: { input: 0, output: 0, cached: 0 },
   agentActivity: initialActivityState,
 };
@@ -373,22 +385,31 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
   setAgentMoment: (agentId, moment) =>
     set((state) => {
       console.log('[runtimeStore] setAgentMoment 被调用:', { agentId, moment });
-      return {
+      console.log('[runtimeStore] setAgentMoment 之前的 currentMoments:', state.agentActivity.currentMoments);
+      const newState = {
         agentActivity: {
           ...state.agentActivity,
           currentMoments: { ...state.agentActivity.currentMoments, [agentId]: moment },
         },
       };
+      console.log('[runtimeStore] setAgentMoment 之后的 currentMoments:', newState.agentActivity.currentMoments);
+      return newState;
     }),
 
   finishAgentMoment: (agentId, status) =>
     set((state) => {
+      console.log('[runtimeStore] finishAgentMoment 被调用:', { agentId, status });
+      console.log('[runtimeStore] finishAgentMoment 之前的 currentMoments:', state.agentActivity.currentMoments);
       const current = state.agentActivity.currentMoments[agentId];
-      if (!current) return {};
+      if (!current) {
+        console.log('[runtimeStore] finishAgentMoment: 没有找到 currentMoment，跳过');
+        return {};
+      }
 
       // 清除 currentMoment（不需要历史记录）
       const newMoments = { ...state.agentActivity.currentMoments };
       delete newMoments[agentId];
+      console.log('[runtimeStore] finishAgentMoment 之后的 currentMoments:', newMoments);
 
       return {
         agentActivity: {
@@ -462,6 +483,58 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
 
   resetActivity: () =>
     set({ agentActivity: initialActivityState }),
+
+  // ========== Prompt 构建状态操作 ==========
+  setPromptBuildState: (state) => set({ promptBuildState: state }),
+
+  updatePromptBuildState: (updates) =>
+    set((state) => ({
+      promptBuildState: state.promptBuildState
+        ? { ...state.promptBuildState, ...updates }
+        : null,
+    })),
+
+  startPromptBuild: () =>
+    set({
+      promptBuildState: {
+        status: 'analyzing',
+        startTime: Date.now(),
+        selectedComponents: [],
+      },
+    }),
+
+  setPromptIntent: (intent) =>
+    set((state) => ({
+      promptBuildState: state.promptBuildState
+        ? { ...state.promptBuildState, status: 'selecting', intent }
+        : null,
+    })),
+
+  addPromptComponent: (component) =>
+    set((state) => {
+      if (!state.promptBuildState) return {};
+      return {
+        promptBuildState: {
+          ...state.promptBuildState,
+          status: 'building',
+          selectedComponents: [...state.promptBuildState.selectedComponents, component],
+        },
+      };
+    }),
+
+  finishPromptBuild: (finalStructure) =>
+    set((state) => ({
+      promptBuildState: state.promptBuildState
+        ? {
+            ...state.promptBuildState,
+            status: 'done',
+            endTime: Date.now(),
+            finalStructure,
+          }
+        : null,
+    })),
+
+  resetPromptBuildState: () => set({ promptBuildState: null }),
 
   // ========== 重置 ==========
   reset: () =>

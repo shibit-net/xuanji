@@ -11,6 +11,33 @@
  *   L3 上下文层 — 项目上下文（动态注入）
  */
 
+// ─── Prompt 构建事件 ────────────────────────────────────
+
+/**
+ * Prompt 构建事件类型
+ */
+export type PromptBuildEventType =
+  | 'build:start'
+  | 'intent:analyzed'
+  | 'intent:match'
+  | 'components:selected'
+  | 'build:complete';
+
+/**
+ * Prompt 构建事件数据
+ */
+export interface PromptBuildEvent {
+  type: PromptBuildEventType;
+  timestamp: number;
+  agentId: string;
+  data?: any;
+}
+
+/**
+ * Prompt 构建事件监听器
+ */
+export type PromptBuildEventListener = (event: PromptBuildEvent) => void;
+
 // ─── 基础类型 ────────────────────────────────────────
 
 /**
@@ -71,6 +98,12 @@ export interface PromptComponent {
 
   /** 场景匹配配置（仅 L1 组件需要） */
   match?: SceneMatchConfig;
+
+  /** 组件来源（用户目录 or 项目目录） */
+  source?: 'user' | 'project';
+
+  /** 是否启用（用于 GUI 管理） */
+  enabled?: boolean;
 
   /** 渲染方法 */
   render(context: PromptBuildContext): string | Promise<string>;

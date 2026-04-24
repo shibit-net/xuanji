@@ -38,12 +38,6 @@ function describeToolCall(name: string, input: Record<string, unknown>): string 
       return `搜索文件 ${input.pattern || ''}`;
     case 'grep':
       return `搜索内容 ${input.pattern || ''}`;
-    case 'memory_search':
-      return `检索记忆 ${input.query || ''}`;
-    case 'memory_store':
-      return `保存记忆`;
-    case 'retrieve_memory':
-      return `回忆 ${input.query || ''}`;
     case 'web_search':
       return `搜索 ${input.query || ''}`;
     case 'web_fetch':
@@ -67,8 +61,6 @@ function toolIcon(name: string): string {
   if (name === 'bash') return '💻';
   if (name === 'glob') return '📁';
   if (name === 'grep') return '🔍';
-  if (name === 'memory_search' || name === 'retrieve_memory') return '🧠';
-  if (name === 'memory_store') return '💾';
   if (name === 'web_search' || name === 'web_fetch') return '🌐';
   if (name === 'delegate' || name === 'orchestrate') return '🤖';
   if (name.startsWith('todo_')) return '📋';

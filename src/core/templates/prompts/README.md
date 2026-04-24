@@ -95,7 +95,35 @@ src/core/templates/prompts/     # 内置模板（git 追踪）
 - **L0 核心层**：始终加载，包含核心身份、安全底线
 - **L1 能力层**：standard/complex 加载，根据场景选择（coding/life 等）
 - **L2 行为层**：仅 complex 加载，包含计划、循环控制等
-- **L3 上下文层**：始终加载，动态生成项目上下文
+- **L3 上下文层**：动态加载，仅在检测到项目时加载。包含：
+  - 项目类型和结构（通过 ProjectScanner 自动检测）
+  - 项目规则文件（按优先级加载）：
+    - `XUANJI.md` — 项目根目录的规则文件（可提交到 git，团队共享）
+    - `.xuanji/rules.md` — 项目的私有规则（不提交到 git）
+    - `~/.xuanji/rules.md` — 全局用户规则
+  - 代码结构索引（Top N 文件和导出符号）
+  - 依赖分析（package.json、pom.xml 等）
+
+### 复杂度和场景配置
+
+可以在 Agent 配置文件中设置默认复杂度和场景：
+
+```yaml
+# .xuanji/users/{userId}/agents/xuanji.yaml
+prompt:
+  # 默认场景（不设置则自动分析）
+  defaultScene: "coding"
+  # 默认复杂度（不设置则为 'standard'）
+  # - simple: 仅 L0 + L3（约 600 tokens）
+  # - standard: L0 + L1 + L3（约 1,400 tokens）
+  # - complex: L0 + L1 + L2 + L3（约 2,400 tokens）
+  defaultComplexity: "standard"
+```
+
+**说明**：
+- `defaultScene`: 跳过场景分析，直接使用指定场景。适合专用 Agent（如只做编程的 Agent）
+- `defaultComplexity`: 控制 prompt 的详细程度。simple 适合简单问答，complex 适合复杂任务规划
+- 这些配置可以被运行时参数覆盖（如 API 调用时指定 scene/complexity）
 
 ### 优先级规则
 

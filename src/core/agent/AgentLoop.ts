@@ -3,15 +3,12 @@
 // ============================================================
 
 import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
-import type { IMemoryStore, SessionMemory, ToolCallRecord } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { MessageManager } from './MessageManager';
 import { StreamProcessor, type ProcessResult } from './StreamProcessor';
 import { ToolDispatcher } from './ToolDispatcher';
 import { TokenManager } from './TokenManager';
 import { ContextCompressor } from './ContextCompressor';
-import { CostTracker } from './CostTracker';
-import { PricingResolver } from './PricingResolver';
 import { ErrorRecovery } from './ErrorRecovery';
 import { MessagePreparationHandler } from './MessagePreparationHandler';
 import { MessageContextHandler } from './MessageContextHandler';
@@ -61,7 +58,6 @@ export class AgentLoop {
   private toolDispatcher: ToolDispatcher;
   private tokenManager: TokenManager;
   private contextCompressor: ContextCompressor;
-  private costTracker: CostTracker;
   private errorRecovery: ErrorRecovery;
   private sessionRecorder: SessionRecorder;
   private usageStatsRecorder: UsageStatsRecorder;
@@ -73,7 +69,6 @@ export class AgentLoop {
   private callbacks: AgentCallbacks = {};
   private running = false;
   private currentIteration = 0;
-  private memoryStore: IMemoryStore | null = null;
   private hookRegistry: HookRegistry | null = null;
   /** 🆕 消息准备处理器 */
   private messagePreparationHandler: MessagePreparationHandler;
@@ -102,12 +97,10 @@ export class AgentLoop {
     provider: ILLMProvider,
     registry: IToolRegistry,
     config: AgentConfig,
-    memoryStore?: IMemoryStore,
   ) {
     this.provider = provider;
     this.registry = registry;
     this.config = config;
-    this.memoryStore = memoryStore ?? null;
     this.messageManager = new MessageManager(config.systemPrompt);
     this.streamProcessor = new StreamProcessor();
     this.toolDispatcher = new ToolDispatcher(registry);
@@ -121,7 +114,6 @@ export class AgentLoop {
       maxTokens: config.maxTokens,
       temperature: config.temperature,
     });
-    this.costTracker = new CostTracker(config.model);
     this.errorRecovery = new ErrorRecovery();
     this.sessionRecorder = new SessionRecorder();
     this.usageStatsRecorder = new UsageStatsRecorder();
@@ -170,7 +162,6 @@ export class AgentLoop {
     });
     this.streamProcessor.onUsage((usage) => {
       this.tokenManager.recordUsage(usage);
-      this.costTracker.record(usage);
       this.callbacks.onUsage?.(usage);
     });
 
@@ -196,8 +187,7 @@ export class AgentLoop {
     const startTime = Date.now();
     const sessionId = `session-${startTime}`;
     const toolStatsMap = new Map<string, { count: number; durationMs: number; errorCount: number }>();
-    const sessionToolCalls: ToolCallRecord[] = [];
-
+    const sessionToolCalls: Array<{ name: string; input: Record<string, unknown>; isError: boolean; resultSummary: string }> = [];
     // 🔧 创建新的 AbortController（用于级联终止所有子任务）
     this._abortController = new AbortController();
 
@@ -637,7 +627,6 @@ export class AgentLoop {
       await this.agentLoopLogger?.logSessionComplete(
         this.currentIteration,
         state.tokenUsage,
-        state.cost,
         toolStats,
         sessionStatus
       );
@@ -672,60 +661,6 @@ export class AgentLoop {
           iterations: this.currentIteration,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         });
-
-        // 保存会话记忆
-        if (this.memoryStore) {
-          try {
-            const history = this.messageManager.getHistory();
-            const sessionMemory: SessionMemory = {
-              sessionId,
-              startTime: new Date(startTime).toISOString(),
-              endTime: new Date().toISOString(),
-              userMessages: history
-                .filter((m) => m.role === 'user')
-                .map((m) => (typeof m.content === 'string' ? m.content : '[complex]'))
-                .slice(0, 10),
-              assistantHighlights: history
-                .filter((m) => m.role === 'assistant')
-                .flatMap((m) => {
-                  if (typeof m.content === 'string') return [m.content];
-                  if (Array.isArray(m.content)) {
-                    return m.content
-                      .filter((b: { type: string }) => b.type === 'text')
-                      .map((b: { type: string; text?: string }) => b.text ?? '');
-                  }
-                  return [];
-                })
-                .filter((t: string) => t.length > 0)
-                .slice(0, 5),
-              toolCalls: sessionToolCalls,
-              durationMs: Date.now() - startTime,
-              model: this.config.model,
-            };
-            await this.memoryStore.save(sessionMemory);
-
-            // 🆕 记录记忆保存成功
-            await this.agentLoopLogger?.logMemorySave(
-              this.currentIteration,
-              'session',
-              `session ${sessionId}: ${sessionToolCalls.length} tool calls`,
-              JSON.stringify(sessionMemory).length,
-              true
-            );
-          } catch (memoryErr) {
-            this.log.debug('Failed to save session memory:', memoryErr);
-
-            // 🆕 记录记忆保存失败
-            await this.agentLoopLogger?.logMemorySave(
-              this.currentIteration,
-              'session',
-              `session ${sessionId}`,
-              0,
-              false,
-              memoryErr instanceof Error ? memoryErr.message : String(memoryErr)
-            );
-          }
-        }
       }
     }
   }
@@ -930,7 +865,7 @@ export class AgentLoop {
       status: this.running ? 'thinking' : 'idle',
       messages: this.messageManager.getHistory(),
       tokenUsage: this.tokenManager.getTotalUsage(),
-      cost: this.costTracker.getTotalCost(),
+      cost: 0,
       currentIteration: this.currentIteration,
     };
   }
@@ -949,13 +884,6 @@ export class AgentLoop {
    */
   getTokenManager(): TokenManager {
     return this.tokenManager;
-  }
-
-  /**
-   * 获取 CostTracker（用于 session resume 时恢复费用）
-   */
-  getCostTracker(): CostTracker {
-    return this.costTracker;
   }
 
   /**
@@ -1049,12 +977,5 @@ export class AgentLoop {
       this.config,
       thinkingConfig,
     );
-  }
-
-  /**
-   * 注入 PricingResolver（由 ChatSession 调用）
-   */
-  setPricingResolver(resolver: PricingResolver): void {
-    this.costTracker.setPricingResolver(resolver);
   }
 }

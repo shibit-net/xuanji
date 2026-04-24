@@ -21,6 +21,7 @@ export const l3Project: PromptComponent = {
   id: 'l3-project',
   name: 'Project Context',
   layer: 'L3',
+  // 不限制 scenes，让所有场景都可以尝试加载，但在 render 中判断是否真的是项目
   priority: 60,
   estimatedTokens: 0, // 动态，取决于项目大小
 
@@ -39,6 +40,12 @@ export const l3Project: PromptComponent = {
 async function buildProjectContext(): Promise<string> {
   const scanner = new ProjectScanner();
   const metadata = scanner.scan();
+
+  // 如果不是项目（没有 git 且类型未知），不加载项目上下文
+  if (metadata.type === 'unknown' && !metadata.hasGit) {
+    log.debug('Not a project, skipping project context');
+    return '';
+  }
 
   const loader = new RulesLoader();
   const rules = loader.loadRulesSync(metadata.rootPath);

@@ -4,14 +4,8 @@
 
 // DEFAULT_CONFIG 已删除，所有默认配置都在模板中（src/core/templates/config.json）
 export { ConfigLoader } from './ConfigLoader';
-export {
-  UserConfigInitializer,
-  getUserConfigRoot,
-  getUserConfigPath,
-  getUserAgentsDir,
-  getUserAgentOverridesDir,
-  getBuiltinAgentsDir
-} from './UserConfigInitializer';
+export { UserConfigInitializer, initializeUserConfig, ensureUserConfigIntegrity } from './UserConfigInitializer';
+export { getUserRoot, getUserConfigPath, getUserAgentsDir } from './PathManager';
 export { UserConfig, getUserConfigDir, listUsers } from './UserConfig';
 export { ProjectConfigWriter } from './ProjectConfigWriter';
 export { ConfigService, type IConfigSource, type ConfigWatcher } from '../../infrastructure/config/ConfigService';

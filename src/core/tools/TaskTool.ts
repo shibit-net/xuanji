@@ -12,7 +12,6 @@
  */
 
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
-import type { IMemoryStore } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
@@ -76,6 +75,14 @@ export class TaskTool extends BaseTool {
           'Common preset agents: general-purpose, explore, plan, coder, test-writer, doc-writer',
         ].join('\n'),
       },
+      scene: {
+        type: 'string',
+        description: [
+          'Scene type for this task (e.g., write_code, debug, review).',
+          'The scene determines which prompt enhancements will be applied to the sub-agent.',
+          'If omitted, the sub-agent will use its default configuration.',
+        ].join('\n'),
+      },
       isolation: {
         type: 'string',
         enum: ['none', 'worktree'],
@@ -115,7 +122,6 @@ export class TaskTool extends BaseTool {
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
-  private memoryStore: IMemoryStore | null = null;
   private currentDepth = 0;
   private parentProvider: ILLMProvider | null = null; // 父 Provider
   private currentAgentId: string = 'main'; // 🔧 当前 Agent ID
@@ -136,7 +142,6 @@ export class TaskTool extends BaseTool {
     agentConfig: AgentConfig;
     parentProvider?: ILLMProvider; // 可选：父 Provider（用于继承）
     hookRegistry?: HookRegistry | null;
-    memoryStore?: IMemoryStore | null;
     depth?: number;
     agentId?: string; // 🔧 当前 Agent ID
   }): void {
@@ -146,7 +151,6 @@ export class TaskTool extends BaseTool {
     this.agentConfig = deps.agentConfig;
     this.parentProvider = deps.parentProvider ?? null; // 保存父 Provider
     this.hookRegistry = deps.hookRegistry ?? null;
-    this.memoryStore = deps.memoryStore ?? null;
     this.currentDepth = deps.depth ?? 0;
     this.currentAgentId = deps.agentId ?? 'main'; // 🔧 保存当前 Agent ID
 
@@ -156,7 +160,7 @@ export class TaskTool extends BaseTool {
       this.providerManager,
       this.registry,
       this.hookRegistry,
-      this.memoryStore,
+      null,
       this.parentProvider,  // 传递父 provider
       this.agentConfig,  // 🔧 传递父 agent 的完整配置（包含 provider 信息）
     );
@@ -166,6 +170,7 @@ export class TaskTool extends BaseTool {
     const description = input.description as string;
     const timeout = input.timeout as number | undefined;
     let role = (input.subagent_type as AgentRoleType) ?? null;
+    const scene = input.scene as string | undefined;
     const isolation = (input.isolation as IsolationMode) ?? 'none';
     const systemPrompt = input.system_prompt as string | undefined;
     const tools = input.tools as string[] | undefined;
@@ -185,7 +190,7 @@ export class TaskTool extends BaseTool {
       );
     }
 
-    console.log('[TaskTool] execute() called, subAgentFactory:', !!this.subAgentFactory, 'agentConfig:', !!this.agentConfig);
+    console.log('[TaskTool] execute() called, subAgentFactory:', !!this.subAgentFactory, 'agentConfig:', !!this.agentConfig, 'scene:', scene);
 
     // ✅ 智能匹配：如果没有指定 subagent_type，尝试自动匹配最佳内置 Agent
     if (!role && this.agentRegistry) {
@@ -225,6 +230,7 @@ export class TaskTool extends BaseTool {
         isolation,
         parentConfig: this.agentConfig,
         systemPrompt,
+        scene,  // 传递 scene 参数
         tools,
         parentAgentId: this.currentAgentId, // 🔧 传递父 Agent ID
       }, signal); // 🔧 传递 AbortSignal
@@ -265,7 +271,7 @@ export class TaskTool extends BaseTool {
         priority: 10,
       },
       {
-        agent: 'test-writer',
+        agent: 'coder' as AgentRoleType,
         keywords: ['测试', 'test', '单元测试', 'unit test', '集成测试', 'integration test', 'jest', 'vitest', 'pytest'],
         priority: 9,
       },
@@ -275,7 +281,7 @@ export class TaskTool extends BaseTool {
         priority: 8,
       },
       {
-        agent: 'doc-writer',
+        agent: 'general-purpose' as AgentRoleType,
         keywords: ['文档', 'document', 'doc', '注释', 'comment', '说明', 'readme', 'api文档', 'api doc'],
         priority: 7,
       },

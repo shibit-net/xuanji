@@ -11,7 +11,7 @@
  */
 
 import type { SceneType, IntentComplexity, IntentAnalysis, SceneMatchConfig } from './types';
-import type { EmbeddingService } from '@/embedding/EmbeddingService';
+import type { EmbeddingProvider } from '@/embedding/EmbeddingProvider';
 import { cosineSimilarity } from '@/embedding/VectorStore';
 import { logger } from '@/core/logger';
 
@@ -34,15 +34,32 @@ const COMPLEX_LENGTH_THRESHOLD = 200;
 // ─── IntentAnalyzer ────────────────────────────────────
 
 export class IntentAnalyzer {
-  private embeddingService: EmbeddingService | null = null;
+  private embeddingProvider: EmbeddingProvider | null = null;
   private sceneConfigs: Map<SceneType, SceneMatchConfig> = new Map();
   private sceneEmbeddings: Map<SceneType, Float32Array> = new Map();
   private initialized = false;
   private lastScene: SceneType | null = null;
   private sceneStableCount = 0; // 连续匹配到同一场景的次数
+  private eventCallback?: (event: any) => void;
 
-  constructor(embeddingService?: EmbeddingService) {
-    this.embeddingService = embeddingService ?? null;
+  constructor(embeddingProvider?: EmbeddingProvider) {
+    this.embeddingProvider = embeddingProvider ?? null;
+  }
+
+  /**
+   * 设置事件回调
+   */
+  setEventCallback(callback: (event: any) => void): void {
+    this.eventCallback = callback;
+  }
+
+  /**
+   * 发射事件
+   */
+  private emitEvent(event: any): void {
+    if (this.eventCallback) {
+      this.eventCallback(event);
+    }
   }
 
   /**
@@ -59,16 +76,16 @@ export class IntentAnalyzer {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    if (!this.embeddingService) {
-      log.debug('IntentAnalyzer: no embedding service, keyword-only mode');
+    if (!this.embeddingProvider) {
+      log.debug('IntentAnalyzer: no embedding provider, keyword-only mode');
       this.initialized = true;
       return;
     }
 
     for (const [scene, config] of this.sceneConfigs) {
       try {
-        const embedding = await this.embeddingService.embed(config.description);
-        this.sceneEmbeddings.set(scene, embedding);
+        const embedding = await this.embeddingProvider.embed(config.description);
+        this.sceneEmbeddings.set(scene, new Float32Array(embedding));
       } catch (err) {
         log.warn(`Failed to embed scene "${scene}":`, err);
       }
@@ -90,7 +107,7 @@ export class IntentAnalyzer {
     const complexity = this.analyzeComplexity(userMessage);
 
     // 2. 场景匹配
-    const scene = await this.matchScene(userMessage, isFirstTurn);
+    const { scene, matchMethod } = await this.matchScene(userMessage, isFirstTurn);
 
     // 3. 场景防抖：连续 2 轮匹配到新场景才切换
     let finalScene = scene;
@@ -112,7 +129,7 @@ export class IntentAnalyzer {
     return {
       scene: finalScene,
       complexity,
-      matchMethod: 'keyword', // 简化：实际匹配方式在 matchScene 中决定
+      matchMethod,
       confidence: 1.0,
     };
   }
@@ -140,23 +157,34 @@ export class IntentAnalyzer {
   /**
    * 场景匹配：规则 → Embedding → 默认
    */
-  private async matchScene(userMessage: string, isFirstTurn: boolean): Promise<SceneType | null> {
+  private async matchScene(
+    userMessage: string,
+    isFirstTurn: boolean,
+  ): Promise<{ scene: SceneType | null; matchMethod: 'keyword' | 'embedding' | 'default' }> {
     // 1. 规则匹配（<1ms）
+    log.debug('[IntentAnalyzer] 发出 match:trying (keyword)');
+    this.emitEvent({ type: 'match:trying', method: 'keyword', timestamp: Date.now() });
     for (const [scene, config] of this.sceneConfigs) {
       if (config.keywords.test(userMessage)) {
         log.debug(`Scene matched by keyword: ${scene}`);
-        return scene;
+        log.debug('[IntentAnalyzer] 发出 match:success (keyword)');
+        this.emitEvent({ type: 'match:success', method: 'keyword', scene, timestamp: Date.now() });
+        return { scene, matchMethod: 'keyword' };
       }
     }
+    log.debug('[IntentAnalyzer] 发出 match:failed (keyword)');
+    this.emitEvent({ type: 'match:failed', method: 'keyword', timestamp: Date.now() });
 
     // 2. Embedding 匹配（降级）
-    if (this.embeddingService && this.sceneEmbeddings.size > 0) {
+    if (this.embeddingProvider && this.sceneEmbeddings.size > 0) {
+      log.debug('[IntentAnalyzer] 发出 match:trying (embedding)');
+      this.emitEvent({ type: 'match:trying', method: 'embedding', timestamp: Date.now() });
       try {
-        const queryEmbedding = await this.embeddingService.embed(userMessage);
+        const queryEmbedding = await this.embeddingProvider.embed(userMessage);
         let bestMatch: { scene: SceneType; similarity: number } | null = null;
 
         for (const [scene, sceneEmb] of this.sceneEmbeddings) {
-          const similarity = cosineSimilarity(queryEmbedding, sceneEmb);
+          const similarity = cosineSimilarity(new Float32Array(queryEmbedding), sceneEmb);
           if (similarity >= 0.3 && (!bestMatch || similarity > bestMatch.similarity)) {
             bestMatch = { scene, similarity };
           }
@@ -164,21 +192,27 @@ export class IntentAnalyzer {
 
         if (bestMatch) {
           log.debug(`Scene matched by embedding: ${bestMatch.scene} (${bestMatch.similarity.toFixed(3)})`);
-          return bestMatch.scene;
+          log.debug('[IntentAnalyzer] 发出 match:success (embedding)');
+          this.emitEvent({ type: 'match:success', method: 'embedding', scene: bestMatch.scene, timestamp: Date.now() });
+          return { scene: bestMatch.scene, matchMethod: 'embedding' };
         }
+        log.debug('[IntentAnalyzer] 发出 match:failed (embedding)');
+        this.emitEvent({ type: 'match:failed', method: 'embedding', timestamp: Date.now() });
       } catch (err) {
         log.debug('Embedding match failed:', err);
+        log.debug('[IntentAnalyzer] 发出 match:failed (embedding)');
+        this.emitEvent({ type: 'match:failed', method: 'embedding', timestamp: Date.now() });
       }
     }
 
-    // 3. 默认：非首轮沿用上轮场景，首轮默认 coding
+    // 3. 默认：非首轮沿用上轮场景，首轮返回 null（让主 Agent 自己决策）
     if (!isFirstTurn && this.lastScene) {
       log.debug(`Scene: using last scene (${this.lastScene})`);
-      return this.lastScene;
+      return { scene: this.lastScene, matchMethod: 'default' };
     }
 
-    log.debug('Scene: default to coding');
-    return 'coding';
+    log.debug('Scene: default to null (let main agent decide)');
+    return { scene: null, matchMethod: 'default' };
   }
 
   /** 是否已初始化 */

@@ -4,7 +4,9 @@
 
 import type { IMiddleware } from './MiddlewarePipeline';
 import type { IPermissionController, PermissionRequest } from '@/permission/types';
+import type { ToolResult } from '@/shared/types/tools';
 import { logger } from '@/core/logger';
+import { isPermissionExempt } from '@/core/tools/ToolCategories';
 
 const log = logger.child({ module: 'Middlewares' });
 
@@ -18,25 +20,22 @@ export interface ToolContext {
 }
 
 /**
- * 工具执行结果
- */
-export interface ToolResult {
-  success?: boolean;
-  data?: any;
-  error?: string;
-}
-
-/**
  * 权限中间件
  */
 export class PermissionMiddleware implements IMiddleware<ToolContext, ToolResult> {
   constructor(private controller: IPermissionController) {}
 
   async execute(context: ToolContext, next: () => Promise<ToolResult>): Promise<ToolResult> {
+    // 工具级别豁免检查：无副作用的工具直接跳过权限检查
+    if (isPermissionExempt(context.toolName)) {
+      log.debug(`Tool ${context.toolName} is permission-exempt, skipping check`);
+      return await next();
+    }
+
     // 构建权限请求
     const request: PermissionRequest = {
-      operation: context.toolName,
-      tool: context.toolName,
+      requestId: `${context.toolName}-${Date.now()}`,
+      toolName: context.toolName,
       input: context.input
     };
 
@@ -46,8 +45,8 @@ export class PermissionMiddleware implements IMiddleware<ToolContext, ToolResult
     if (!result.allowed) {
       log.warn(`Permission denied for tool: ${context.toolName}`);
       return {
-        success: false,
-        error: `Permission denied: ${result.reason || 'Access not allowed'}`
+        content: `Permission denied: ${result.reason || 'Access not allowed'}`,
+        isError: true
       };
     }
 
@@ -87,8 +86,8 @@ export class ErrorHandlingMiddleware implements IMiddleware<ToolContext, ToolRes
     } catch (error) {
       log.error(`Error in tool ${context.toolName}:`, error);
       return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
+        content: error instanceof Error ? error.message : String(error),
+        isError: true
       };
     }
   }
@@ -111,11 +110,10 @@ export class TimeoutMiddleware implements IMiddleware<ToolContext, ToolResult> {
         })
       ]);
     } catch (error) {
-      // 超时异常转换为错误结果，不向上抛出
       log.error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms:`, error);
       return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
+        content: error instanceof Error ? error.message : String(error),
+        isError: true
       };
     }
   }
@@ -161,14 +159,12 @@ export class CacheMiddleware implements IMiddleware<ToolContext, ToolResult> {
   async execute(context: ToolContext, next: () => Promise<ToolResult>): Promise<ToolResult> {
     const cacheKey = this.getCacheKey(context);
 
-    // 检查缓存
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() < cached.expireAt) {
       log.debug(`Cache hit for tool: ${context.toolName}`);
       return cached.result;
     }
 
-    // 执行并缓存
     const result = await next();
     this.cache.set(cacheKey, {
       result,

@@ -9,12 +9,14 @@
  *    - 预置 Agent（有 provider.apiKey）→ 使用独立 provider
  *    - 临时 Agent（无 provider 配置）→ 继承父 agent 的 provider
  *    - 错误情况（临时 Agent 且无父 provider）→ 抛出错误
+ * 5. 【未来扩展】Skill 加载：创建 Agent 时加载其关联的 Skills
  *
  * 架构优势：
  * - ✅ 废弃 lightProvider（每个 Agent 配置自己的 model）
  * - ✅ 支持用户自定义 Agent（.xuanji/agents/*.json5）
  * - ✅ 统一代码路径（消除 executePresetAgent / executeDynamicAgent 分支）
  * - ✅ 易于测试和维护
+ * - 🔮 预留 Skill 接入点（未来支持 clawHub 等 Skill 系统）
  *
  * 迁移策略：
  * - SubAgentFactory.createAndRun() - 新接口，推荐使用
@@ -25,7 +27,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
-import type { IMemoryStore } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { ConfigurableAgentConfig } from './types';
 import type { AgentRegistry } from './AgentRegistry';
@@ -56,10 +57,19 @@ export interface SubAgentFactoryOptions {
   /** 父代理配置（用于继承部分配置） */
   parentConfig?: AgentConfig;
   /**
-   * 动态 System Prompt（覆盖配置文件中的 systemPrompt）
-   * 找不到预置配置时，作为子 Agent 的完整 system prompt
+   * 动态 System Prompt（Agent 特定的 prompt）
+   * 会与 agent 配置中的 systemPrompt 组合
    */
   systemPrompt?: string;
+  /**
+   * 🆕 场景类型（write_code / debug / review 等）
+   */
+  scene?: string;
+  /**
+   * 🆕 场景专用 prompt（L1 层）
+   * 会与 agent.systemPrompt 组合
+   */
+  scenePrompt?: string;
   /**
    * 动态工具白名单（覆盖配置文件中的 tools）
    * 找不到预置配置时，作为子 Agent 的工具列表
@@ -96,22 +106,18 @@ export interface SubAgentInstance {
 
 /**
  * 工具过滤的注册表代理
+ *
+ * 🆕 支持注入 agent 上下文信息到工具调用
  */
 class FilteredToolRegistry implements IToolRegistry {
   private inner: IToolRegistry;
   private allowedTools: Set<string>;
+  private agentContext?: { agentId: string; agentName: string };
 
-  constructor(inner: IToolRegistry, allowedTools: string[], isSystemAgent = false) {
+  constructor(inner: IToolRegistry, allowedTools: string[], isSystemAgent = false, agentContext?: { agentId: string; agentName: string }) {
     this.inner = inner;
     this.allowedTools = new Set(allowedTools);
-
-    // 自动注入基础工具（除非是系统内部 Agent）
-    if (!isSystemAgent) {
-      // 记忆工具作为基础能力，所有非系统 Agent 都可用
-      this.allowedTools.add('memory_search');
-      this.allowedTools.add('memory_store');
-      this.allowedTools.add('retrieve_memory');
-    }
+    this.agentContext = agentContext;
   }
 
   register(): void {
@@ -150,6 +156,16 @@ class FilteredToolRegistry implements IToolRegistry {
         isError: true,
       };
     }
+
+    // 🆕 为 ask_user 工具注入 agent 上下文
+    if (name === 'ask_user' && this.agentContext) {
+      input = {
+        ...input,
+        _agentId: this.agentContext.agentId,
+        _agentName: this.agentContext.agentName,
+      };
+    }
+
     return this.inner.execute(name, input, signal);
   }
 }
@@ -167,7 +183,7 @@ export class SubAgentFactory {
     private providerManager: ProviderManager,
     private baseRegistry: IToolRegistry,
     private hookRegistry?: HookRegistry | null,
-    private memoryStore?: IMemoryStore | null,
+    memoryStore?: null,
     parentProvider?: ILLMProvider | null,
     parentProviderConfig?: import('@/core/types').ProviderConfig | null,
   ) {
@@ -208,10 +224,7 @@ export class SubAgentFactory {
       throw new Error(`Agent configuration not found: ${agentIdOrRole}`);
     }
 
-    log.info(`🤖 Creating sub-agent: ${agentConfig.name} (${agentConfig.id})`);
-    log.debug(`  Model: ${agentConfig.model.primary}`);
-    log.debug(`  Tools: ${agentConfig.tools.length} tools`);
-    log.debug(`  Source: ${agentConfig.metadata?.source || 'unknown'}`);
+    log.info(`[SubAgentFactory] createSubAgent: agentId=${agentConfig.id} name="${agentConfig.name}" model=${agentConfig.model.primary} tools=${agentConfig.tools.length} source=${agentConfig.metadata?.source ?? 'unknown'}`);
 
     // 2. 创建 SubAgentContext（深度控制、工具过滤）
     const context = new SubAgentContext({
@@ -246,7 +259,7 @@ export class SubAgentFactory {
 
     if (hasIndependentProvider) {
       // 预置 Agent：有独立配置
-      log.debug(`  Using independent provider for agent: ${agentConfig.id}`);
+      log.info(`[SubAgentFactory] provider=独立 agentId=${agentConfig.id} adapter=${(agentConfig as any).provider?.adapter ?? 'auto'} model=${agentConfig.model.primary}`);
       provider = this.providerManager.getProvider({
         id: agentConfig.id,
         model: agentConfig.model,
@@ -255,7 +268,7 @@ export class SubAgentFactory {
     } else {
       // 临时 Agent：必须复用父 Provider
       if (this.parentProvider) {
-        log.debug(`  Using parent provider for temporary agent: ${agentConfig.id}`);
+        log.info(`[SubAgentFactory] provider=继承父Agent agentId=${agentConfig.id} model=${agentConfig.model.primary}`);
         provider = this.parentProvider;
       } else {
         // 错误：临时 Agent 无法创建（缺少 API Key 配置）
@@ -273,37 +286,70 @@ export class SubAgentFactory {
       ? options.tools
       : agentConfig.tools.map((t) => t.name);
 
+    log.info(`[SubAgentFactory] tools agentId=${agentConfig.id} count=${allowedTools.length} list=[${allowedTools.slice(0, 8).join(', ')}${allowedTools.length > 8 ? '...' : ''}]`);
+
     // 判断是否为系统内部 Agent
     const isSystemAgent = agentConfig.metadata?.internal === true;
-    const filteredRegistry = new FilteredToolRegistry(this.baseRegistry, allowedTools, isSystemAgent);
+
+    // 🆕 准备 agent 上下文信息
+    const agentContext = {
+      agentId: agentConfig.id,
+      agentName: agentConfig.name || agentConfig.id,
+    };
+
+    const filteredRegistry = new FilteredToolRegistry(
+      this.baseRegistry,
+      allowedTools,
+      isSystemAgent,
+      agentContext  // 传递上下文
+    );
 
     // 5. 构建完整的 System Prompt
-    // 如果有 LayeredPromptBuilder，使用统一的基础层 + 角色专用层
-    // 否则回退到旧的 buildSystemPrompt 方法
+    // 🎯 Prompt 组合策略：
+    // 子 Agent Prompt = L0（身份） + Agent.systemPrompt（agent 特性） + L1（场景增强）
     let systemPrompt: string;
     const isInternalAgent = agentConfig.metadata?.internal === true;
 
-    if (this.promptBuilder && !isInternalAgent && !options.systemPrompt) {
-      // 使用 LayeredPromptBuilder 构建统一 prompt（基础层 + 角色专用层）
+    // 🆕 使用 LayeredPromptBuilder 构建基础 prompt（L0）
+    if (this.promptBuilder && !isInternalAgent) {
       try {
+        // 1. 构建 L0 基础层
         const buildResult = await this.promptBuilder.buildForSubAgent({
           agentId: agentConfig.id,
           agentConfig,
           includeProjectContext: !isInternalAgent,
         });
-        systemPrompt = buildResult.prompt;
+        systemPrompt = buildResult.prompt;  // L0 基础层
 
-        // 追加子代理模式标记和项目规则
+        // 2. 追加 Agent 自身的 systemPrompt（agent 特性）
+        if (agentConfig.systemPrompt && agentConfig.systemPrompt.trim()) {
+          systemPrompt += `\n\n---\n# Agent 特性\n${agentConfig.systemPrompt}`;
+        }
+
+        // 3. 追加场景专用 prompt（L1 场景增强）
+        if (options.scenePrompt && options.scenePrompt.trim()) {
+          systemPrompt += `\n\n---\n# 场景增强\n${options.scenePrompt}`;
+        }
+
+        // 4. 追加 options.systemPrompt（额外的动态 prompt，如果有）
+        if (options.systemPrompt && options.systemPrompt.trim()) {
+          systemPrompt += `\n\n---\n# 任务特定指令\n${options.systemPrompt}`;
+        }
+
+        // 5. 追加项目规则
         const projectRules = this.loadProjectRules();
         if (projectRules) {
-          systemPrompt += `\n\n---\n[Project Rules]\n${projectRules}`;
+          systemPrompt += `\n\n---\n# 项目规则\n${projectRules}`;
         }
-        const depth = options.depth ?? 0;
-        systemPrompt += `\n\n---\n[SubAgent Mode - Depth: ${depth}, Role: ${agentConfig.id}]\nDo NOT ask clarifying questions. Do NOT start new sub-tasks.`;
 
-        log.debug(`  Prompt built via LayeredPromptBuilder: ${buildResult.components.join(', ')}`);
+        // 6. 追加子代理模式标记
+        const depth = options.depth ?? 0;
+        systemPrompt += `\n\n---\n# SubAgent 模式\nDepth: ${depth}, Role: ${agentConfig.id}\n不要提出澄清问题，不要启动新的子任务。`;
+
+        log.debug(`  Prompt built: L0 + Agent.systemPrompt + Scene.prompt`);
       } catch (err) {
         log.warn(`Failed to build prompt via LayeredPromptBuilder, falling back:`, err);
+        // 降级：使用旧的 buildSystemPrompt 方法
         const baseSystemPrompt = agentConfig.systemPrompt ?? '';
         systemPrompt = this.buildSystemPrompt(
           { ...agentConfig, systemPrompt: baseSystemPrompt },
@@ -311,7 +357,7 @@ export class SubAgentFactory {
         );
       }
     } else {
-      // 回退：使用旧的 buildSystemPrompt 方法
+      // 降级：使用旧的 buildSystemPrompt 方法
       const baseSystemPrompt = options.systemPrompt ?? agentConfig.systemPrompt ?? '';
       systemPrompt = this.buildSystemPrompt(
         { ...agentConfig, systemPrompt: baseSystemPrompt },
@@ -366,7 +412,6 @@ export class SubAgentFactory {
       provider,
       filteredRegistry,
       runtimeConfig,
-      undefined,  // 子 Agent 不自动注入记忆
     );
 
     // 8. 注入 Hook
@@ -389,31 +434,57 @@ export class SubAgentFactory {
   /**
    * 解析 Agent 配置
    *
-   * 从 AgentRegistry 查找配置，找不到则报错
+   * 从 AgentRegistry 查找配置，找不到则自动创建临时 Agent
    */
   private resolveAgentConfig(agentIdOrRole: string): ConfigurableAgentConfig | null {
+    // 1. 先从 AgentRegistry 查找
     const config = this.agentRegistry.get(agentIdOrRole);
 
-    if (!config) {
-      log.error(`❌ Agent 配置不存在: ${agentIdOrRole}`);
+    if (config) {
+      log.debug(`✓ 找到 Agent 配置: ${agentIdOrRole}`);
+
+      // 🔍 调试：检查 provider 配置是否存在
+      const hasProvider = !!(config as any).provider;
+      const hasApiKey = !!(config as any).provider?.apiKey;
+      log.debug(`  Provider 配置存在: ${hasProvider}, 有 apiKey: ${hasApiKey}`);
+      if (hasProvider) {
+        log.debug(`  Provider 详情:`, {
+          adapter: (config as any).provider.adapter,
+          baseURL: (config as any).provider.baseURL,
+        });
+      }
+
+      return config;
+    }
+
+    // 2. 找不到，尝试创建临时 Agent
+    log.warn(`❌ Agent 配置不存在: ${agentIdOrRole}，尝试创建临时 Agent`);
+
+    try {
+      const factory = this.agentRegistry.getTemporaryAgentFactory();
+
+      // 从 agentIdOrRole 推断角色和能力
+      // 例如：'technical-writer' -> 'Technical Writer', ['技术文档编写']
+      const role = agentIdOrRole
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+
+      const capabilities = [role]; // 简单推断，可以后续优化
+
+      const tempAgent = factory.createTemporaryAgent({
+        role,
+        capabilities,
+        taskDescription: `临时创建的 ${role}`,
+      });
+
+      log.info(`✓ 创建临时 Agent: ${tempAgent.id} (${tempAgent.name})`);
+
+      return tempAgent;
+    } catch (error) {
+      log.error(`创建临时 Agent 失败: ${agentIdOrRole}`, error);
       return null;
     }
-
-    log.debug(`✓ 找到 Agent 配置: ${agentIdOrRole}`);
-
-    // 🔍 调试：检查 provider 配置是否存在
-    const hasProvider = !!(config as any).provider;
-    const hasApiKey = !!(config as any).provider?.apiKey;
-    log.debug(`  Provider 配置存在: ${hasProvider}, 有 apiKey: ${hasApiKey}`);
-    if (hasProvider) {
-      log.debug(`  Provider 详情:`, {
-        adapter: (config as any).provider.adapter,
-        baseURL: (config as any).provider.baseURL,
-        apiKeyPreview: (config as any).provider.apiKey?.slice(0, 15) + '...',
-      });
-    }
-
-    return config;
   }
 
   /**
@@ -485,7 +556,24 @@ export class SubAgentFactory {
     timedOut: boolean;
     iterations: number;
   }> {
+    log.info(`[SubAgentFactory] createAndRun start: agentId=${agentIdOrRole} task="${options.task.substring(0, 80)}" scene=${options.scene ?? 'none'} depth=${options.depth ?? 0} timeout=${options.timeout ?? 'default'}ms`);
     const startTime = Date.now();
+
+    // 🆕 如果指定了 scene 但没有 scenePrompt，从 PromptBuilder 加载
+    if (options.scene && !options.scenePrompt && this.promptBuilder) {
+      try {
+        const sceneComponent = await this.promptBuilder.getSceneComponent(options.scene);
+        if (sceneComponent) {
+          const config = await this.promptBuilder['userRegistry']?.getComponentConfig(`l1-${options.scene}`);
+          if (config?.content) {
+            options.scenePrompt = config.content;
+            log.info(`[SubAgentFactory] Loaded scene prompt for scene=${options.scene}`);
+          }
+        }
+      } catch (err) {
+        log.warn(`[SubAgentFactory] Failed to load scene prompt for scene=${options.scene}:`, err);
+      }
+    }
 
     // 1. 创建子代理实例
     const { agentLoop, config, context, subAgentId } = await this.createSubAgent(
@@ -533,14 +621,14 @@ export class SubAgentFactory {
     // 3. 触发 SubAgentStart Hook（除非被禁用）
     if (this.hookRegistry && !options.skipSubAgentStartHook) {
       // 判断 Agent 类型
-      const isBuiltin = config.metadata?.builtin === true;
+      const category = config.metadata?.category || 'custom';
       let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
-      if (config.metadata?.source === 'builtin') {
-        agentType = 'preset'; // 内置 agent（coder/explore/plan 等）
-      } else if (config.metadata?.source === 'project' || config.metadata?.source === 'global') {
-        agentType = 'custom'; // 用户自定义 agent
+      if (category === 'system') {
+        agentType = 'builtin'; // 系统内置 agent
+      } else if (category === 'app') {
+        agentType = 'preset'; // 应用 agent
       } else {
-        agentType = 'temporary'; // 临时 agent（未注册）
+        agentType = 'custom'; // 用户自定义 agent
       }
 
       this.hookRegistry.emit('SubAgentStart', {
@@ -549,10 +637,9 @@ export class SubAgentFactory {
           task: options.task,
           depth: context.depth,
           role: config.id,
-          name: config.name, // 传递 Agent 名称
-          builtin: isBuiltin, // 传递是否为内置 Agent（兼容旧逻辑）
-          agentType, // 🔧 新增：传递详细的 Agent 类型
-          parentAgentId: options.parentAgentId || 'main', // 🔧 传递父 Agent ID
+          name: config.name,
+          agentType,
+          parentAgentId: options.parentAgentId || 'main',
         },
       }).catch((err) => {
         log.debug('SubAgentStart hook emit failed:', err);
@@ -620,9 +707,7 @@ export class SubAgentFactory {
       }).catch(() => {});
     }
 
-    log.info(
-      `[${subAgentId}] Finished in ${duration}ms (${state.currentIteration} iterations, timedOut=${timedOut})`,
-    );
+    log.info(`[SubAgentFactory] createAndRun done: agentId=${agentIdOrRole} subAgentId=${subAgentId} duration=${duration}ms iterations=${state.currentIteration} timedOut=${timedOut} outputLen=${outputText.length}`);
 
     // 6. 返回结果
     return {

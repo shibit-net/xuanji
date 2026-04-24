@@ -8,5 +8,4 @@
 
 export { default as ToolMonitor } from './ToolMonitor';
 export { default as ContextView } from './ContextView';
-export { default as MemoryView } from './MemoryView';
 export { default as LogsView } from './LogsView';

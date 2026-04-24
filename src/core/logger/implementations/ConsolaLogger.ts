@@ -56,7 +56,6 @@ export class ConsolaLogger implements ILogger {
       defaults: {
         tag: this.namespace,
       },
-      fancy: true,  // 启用美化输出
       formatOptions: {
         colors: true,  // 强制启用颜色
         date: true,    // 显示时间戳

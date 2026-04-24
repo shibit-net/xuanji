@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import JSON5 from 'json5';
-import type { ConfigurableAgentConfig } from './types';
+import type { AgentCategory, ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
 import { getUserRoot } from '@/core/config/PathManager';
 
@@ -17,7 +17,11 @@ export interface AgentOverrideConfig {
   };
   model?: {
     primary?: string;
+    maxTokens?: number;
+    temperature?: number;
   };
+  systemPrompt?: string | null;
+  tools?: Array<{ name: string; description?: string; config?: Record<string, any>; enabled?: boolean }>;
 }
 
 export class AgentConfigManager {
@@ -55,30 +59,35 @@ export class AgentConfigManager {
     }
   }
 
-  isBuiltinAgent(agent: ConfigurableAgentConfig): boolean {
-    return agent.metadata?.builtin === true;
+  getCategory(agent: ConfigurableAgentConfig): AgentCategory {
+    if (agent.metadata?.category) return agent.metadata.category;
+    if (agent.metadata?.isSystemAgent) return 'system';
+    return 'custom';
   }
 
-  getEditableFieldsForBuiltin(): string[] {
-    return [
-      'provider.adapter',
-      'provider.apiKey',
-      'provider.baseURL',
-      'provider.model',
-      'model.primary'
-    ];
+  getEditableFields(category: AgentCategory): string[] {
+    if (category === 'system') {
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens'];
+    }
+    if (category === 'app') {
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'systemPrompt', 'tools'];
+    }
+    // custom: all fields except id
+    return ['*'];
   }
 
   validateEditPermission(agent: ConfigurableAgentConfig, updates: Partial<ConfigurableAgentConfig>): boolean {
-    const isBuiltin = this.isBuiltinAgent(agent);
-    if (!isBuiltin) {
-      return true;
-    }
-    const editableFields = this.getEditableFieldsForBuiltin();
+    const category = this.getCategory(agent);
+    if (category === 'custom') return true;
+
+    const editableFields = this.getEditableFields(category);
     const updatePaths = this.getAllUpdatePaths(updates, '');
     for (const updatePath of updatePaths) {
+      if (updatePath === 'id') {
+        throw new Error('不允许修改 Agent ID');
+      }
       if (!editableFields.some(editable => updatePath.startsWith(editable))) {
-        throw new Error('内置 Agent "' + agent.name + '" 不允许修改字段: ' + updatePath);
+        throw new Error(category === 'system' ? '系统 Agent "' + agent.name + '" 不允许修改字段: ' + updatePath : 'App Agent "' + agent.name + '" 不允许修改字段: ' + updatePath);
       }
     }
     return true;
@@ -98,28 +107,36 @@ export class AgentConfigManager {
   }
 
   async updateAgent(agent: ConfigurableAgentConfig, updates: Partial<ConfigurableAgentConfig>): Promise<ConfigurableAgentConfig> {
-    const isBuiltin = this.isBuiltinAgent(agent);
+    const category = this.getCategory(agent);
     this.validateEditPermission(agent, updates);
-    
-    if (isBuiltin) {
-      const override: AgentOverrideConfig = { id: agent.id };
-      if (updates.provider) {
-        override.provider = {
-          adapter: updates.provider.adapter,
-          apiKey: updates.provider.apiKey,
-          baseURL: updates.provider.baseURL,
-          model: updates.provider.model
-        };
-      }
-      if (updates.model?.primary) {
-        override.model = { primary: updates.model.primary };
-      }
-      await this.saveOverrideConfig(override);
-      return this.applyOverride(agent, override);
-    } else {
-      const updatedAgent = { ...agent, ...updates };
-      return updatedAgent;
+
+    if (category === 'custom') {
+      return { ...agent, ...updates };
     }
+
+    // system / app: store as override
+    const override: AgentOverrideConfig = { id: agent.id };
+    if (updates.provider) {
+      override.provider = {
+        adapter: updates.provider.adapter,
+        apiKey: updates.provider.apiKey,
+        baseURL: updates.provider.baseURL,
+        model: updates.provider.model
+      };
+    }
+    if (updates.model) {
+      override.model = {
+        primary: updates.model.primary,
+        maxTokens: updates.model.maxTokens,
+        temperature: updates.model.temperature
+      };
+    }
+    if (category === 'app') {
+      if ('systemPrompt' in updates) override.systemPrompt = updates.systemPrompt ?? null;
+      if (updates.tools) override.tools = updates.tools;
+    }
+    await this.saveOverrideConfig(override);
+    return this.applyOverride(agent, override);
   }
 
   private async saveOverrideConfig(override: AgentOverrideConfig): Promise<void> {
@@ -132,15 +149,20 @@ export class AgentConfigManager {
 
   applyOverride(agent: ConfigurableAgentConfig, override?: AgentOverrideConfig): ConfigurableAgentConfig {
     const actualOverride = override || this.overrideConfigs.get(agent.id);
-    if (!actualOverride) {
-      return agent;
-    }
+    if (!actualOverride) return agent;
+
     const result = { ...agent };
     if (actualOverride.provider) {
       result.provider = { ...result.provider, ...actualOverride.provider };
     }
-    if (actualOverride.model?.primary) {
-      result.model = { ...result.model, primary: actualOverride.model.primary };
+    if (actualOverride.model) {
+      result.model = { ...result.model, ...actualOverride.model };
+    }
+    if ('systemPrompt' in actualOverride) {
+      result.systemPrompt = actualOverride.systemPrompt ?? null;
+    }
+    if (actualOverride.tools) {
+      result.tools = actualOverride.tools;
     }
     return result;
   }

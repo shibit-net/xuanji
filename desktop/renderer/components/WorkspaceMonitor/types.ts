@@ -71,7 +71,6 @@ export type MomentType =
   | 'file'
   | 'bash'
   | 'skill'
-  | 'mcp'
   | 'memory_read'
   | 'memory_write'
   | 'idle';

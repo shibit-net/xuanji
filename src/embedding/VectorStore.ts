@@ -4,9 +4,22 @@
 
 import type Database from 'better-sqlite3';
 import { logger } from '@/core/logger';
-import type { MemoryEntry } from '@/memory/types';
 
 const log = logger.child({ module: 'vector-store' });
+
+/** 记忆条目（内联定义，不依赖 memory 系统） */
+export interface MemoryEntry {
+  id: string;
+  type: string;
+  content: string;
+  keywords: string[];
+  confidence: number;
+  createdAt: string;
+  lastAccessedAt: string;
+  accessCount: number;
+  projectPath?: string;
+  source?: string;
+}
 
 /** 向量搜索结果 */
 export interface VectorSearchResult {

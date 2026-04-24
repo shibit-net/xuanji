@@ -7,6 +7,7 @@ import { CanvasRenderer } from './CanvasRenderer';
 import type { WorkspaceState, SubAgentData } from './types';
 import { useRuntimeStore } from '../../stores/runtimeStore';
 import { useActiveAgentStore, type AgentState } from '../../stores/activeAgentStore';
+import { MainFlowVisualization } from './MainFlowVisualization';
 
 // Agent 角色图标映射
 const ROLE_ICON_MAP: Record<string, string> = {
@@ -105,6 +106,7 @@ export default function WorkspaceMonitor() {
   const isProcessing = useRuntimeStore((state) => state.isProcessing);
   const currentCallTokens = useRuntimeStore((state) => state.currentCallTokens);
   const agentActivity = useRuntimeStore((state) => state.agentActivity);
+  const contextInfo = useRuntimeStore((state) => state.contextInfo);
 
   // 从 activeAgentStore 获取 agent 层级数据
   const activeMainAgent = useActiveAgentStore((state) => state.mainAgent);
@@ -143,6 +145,9 @@ export default function WorkspaceMonitor() {
     // 构建主 Agent 数据
     const mainId = 'main';
 
+    console.log('[WorkspaceMonitor] agentActivity.currentMoments:', agentActivity.currentMoments);
+    console.log('[WorkspaceMonitor] agentActivity.currentMoments[mainId]:', agentActivity.currentMoments[mainId]);
+
     const mainAgent = {
       id: mainId,
       name: agentStatus?.name || 'Xuanji',
@@ -154,6 +159,8 @@ export default function WorkspaceMonitor() {
       momentHistory: agentActivity.momentHistories[mainId] || [],
       timelineEvents: agentActivity.timelineEvents[mainId] || [],
     };
+
+    console.log('[WorkspaceMonitor] mainAgent.currentMoment:', mainAgent.currentMoment);
 
     // 构建子 Agent 数据（从 activeAgentStore 读取）
     // 递归展平，保留真实父子关系
@@ -359,6 +366,41 @@ export default function WorkspaceMonitor() {
         </div>
         <div className="text-xs text-text-secondary">实时监控</div>
       </div>
+
+      {/* 项目信息条 */}
+      {contextInfo?.projectInfo && (
+        <div className="bg-bg-primary border-b border-bg-tertiary px-4 py-2">
+          <div className="flex flex-col gap-1">
+            {/* 第一行：项目类型 */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-text-secondary">📦</span>
+              <span className="text-text-tertiary">项目类型:</span>
+              <span className="text-text-primary font-semibold">{contextInfo.projectInfo.type}</span>
+            </div>
+
+            {/* 第二行：Git 分支 */}
+            {contextInfo.projectInfo.gitBranch && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-text-secondary">🌿</span>
+                <span className="text-text-tertiary">Git 分支:</span>
+                <span className="text-text-primary font-mono font-semibold">{contextInfo.projectInfo.gitBranch}</span>
+              </div>
+            )}
+
+            {/* 第三行：项目路径 */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-text-secondary">📁</span>
+              <span className="text-text-tertiary">项目路径:</span>
+              <span className="text-text-primary font-mono text-xs break-all" title={contextInfo.projectInfo.rootPath}>
+                {contextInfo.projectInfo.rootPath}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🆕 主 Agent 执行状态（类似"正在回忆中"） */}
+      {/* <MainFlowVisualization /> */}
 
       {/* Canvas 区域 */}
       <div className="flex-1 w-full overflow-auto">

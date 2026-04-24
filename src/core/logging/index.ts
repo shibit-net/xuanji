@@ -2,7 +2,8 @@
 // Unified Logging - 统一日志模块导出
 // ============================================================
 
-import { ColorUtil } from './UnifiedLogManager';
+import { ColorUtil, getUnifiedLogManager, type LogSource } from './UnifiedLogManager';
+import type { LokiClientConfig } from './LokiClient';
 
 export {
   UnifiedLogManager,

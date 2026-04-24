@@ -30,6 +30,11 @@ describe('ProviderManager', () => {
         showCost: true,
         showThinking: false,
       },
+      permission: {
+        fileRead: 'always',
+        fileWrite: 'ask',
+        bashExec: 'ask',
+      },
       tools: {
         enabled: [],
         permissions: {

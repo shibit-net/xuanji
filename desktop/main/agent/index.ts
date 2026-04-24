@@ -89,10 +89,16 @@ function initChatSession(): Promise<boolean> {
         const lines = data.toString('utf8').trim().split('\n');
         lines.forEach(line => {
           if (line) {
-            const isError = line.toLowerCase().includes('error') ||
-                           line.toLowerCase().includes('exception') ||
-                           line.toLowerCase().includes('failed') ||
-                           line.toLowerCase().includes('fatal');
+            // 改进错误检测逻辑：
+            // 1. 排除 "error: undefined" 这种情况
+            // 2. 排除 JSON 中的 error 字段（如果值为 undefined/null）
+            const lowerLine = line.toLowerCase();
+            const isError = (
+              (lowerLine.includes('error') && !lowerLine.includes('error: undefined') && !lowerLine.includes('error: null')) ||
+              lowerLine.includes('exception') ||
+              lowerLine.includes('failed') ||
+              lowerLine.includes('fatal')
+            ) && !lowerLine.includes('🚨'); // 避免重复标记
 
             if (isError) {
               console.error(`🚨 [Agent Error] ${line}`);
@@ -148,9 +154,19 @@ function initChatSession(): Promise<boolean> {
       // 转发消息到渲染进程
       const forwardToRenderer = (type: string) => {
         agentChannel.on(type, (data) => {
+          if (type === 'prompt:build-event' || type === 'download:event') {
+            console.log(`[agent/index] 收到 ${type}，准备转发到渲染进程:`, data);
+          }
           const mainWindow = getMainWindow();
           if (mainWindow && mainWindow.webContents) {
+            if (type === 'prompt:build-event' || type === 'download:event') {
+              console.log(`[agent/index] 转发 ${type} 到渲染进程`);
+            }
             mainWindow.webContents.send(type, data);
+          } else {
+            if (type === 'prompt:build-event' || type === 'download:event') {
+              console.log(`[agent/index] mainWindow 不存在，无法转发 ${type}`);
+            }
           }
         });
       };
@@ -164,6 +180,13 @@ function initChatSession(): Promise<boolean> {
         'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
         'ask-user:request', 'session:messages-restored', 'session:resume-notification',
         'session:archive-notification', 'session:boot-thinking', 'session:boot-guide',
+        'prompt:build-event', 'project:info',
+        'download:event', // 添加下载事件转发
+        'workspace:intent-analysis-start', 'workspace:intent-analysis-end',
+        'workspace:model-classifier-start', 'workspace:model-classifier-end',
+        'workspace:task-planning-start', 'workspace:task-planning-end',
+        'workspace:task-execution-start', 'workspace:task-execution-end',
+        'workspace:result-aggregation-start', 'workspace:result-aggregation-end',
       ];
       forwardTypes.forEach(forwardToRenderer);
 
@@ -274,16 +297,6 @@ function setIsCleaningUp(value: boolean) {
   isCleaningUp = value;
 }
 
-function triggerStartup() {
-  if (!agentProcess || !sessionReady) {
-    console.warn('⚠️ ChatSession 未就绪，无法触发启动消息');
-    return;
-  }
-
-  console.log('🚀 触发启动消息...');
-  agentProcess.send({ type: 'trigger-startup' });
-}
-
 export {
   initChatSession,
   cleanupAgentProcess,
@@ -293,6 +306,5 @@ export {
   getCachedConfig,
   setCachedConfig,
   getIsCleaningUp,
-  setIsCleaningUp,
-  triggerStartup
+  setIsCleaningUp
 };

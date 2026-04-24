@@ -2,16 +2,13 @@
  * 意图路由器
  *
  * 智能识别用户意图，支持：
- * 1. 向量匹配（快速，语义理解）
- * 2. LLM 分类（未命中时，精确分析）
- * 3. 自动学习（持续优化）
+ * 1. LLM 分类（精确分析）
+ * 2. 注册表查找（快速匹配）
  */
 
 import { UniversalIntentScanner } from './UniversalIntentScanner.js';
 import { IntentRegistry } from './IntentRegistry.js';
-import { VectorIntentMatcher } from './VectorIntentMatcher.js';
 import { LLMIntentClassifier, type AvailableModule } from './LLMIntentClassifier.js';
-import { IntentLearner } from './IntentLearner.js';
 import type { Intent, IntentMatchOptions } from './types.js';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry.js';
 import type { ProviderConfig } from '@/core/types';
@@ -75,9 +72,7 @@ export class CapabilityAssembler {
 export class IntentRouter {
   private scanner: UniversalIntentScanner;
   private registry: IntentRegistry;
-  private vectorMatcher: VectorIntentMatcher;
   private llmClassifier: LLMIntentClassifier;
-  private learner: IntentLearner;
   private initialized = false;
 
   constructor(
@@ -86,9 +81,7 @@ export class IntentRouter {
   ) {
     this.scanner = new UniversalIntentScanner();
     this.registry = new IntentRegistry();
-    this.vectorMatcher = new VectorIntentMatcher();
     this.llmClassifier = new LLMIntentClassifier(agentRegistry, providerConfig);
-    this.learner = new IntentLearner(this.vectorMatcher);
   }
 
   /**
@@ -104,34 +97,19 @@ export class IntentRouter {
 
   /**
    * 初始化
-   * @param options 初始化选项
-   * @param options.skipVectorInit 跳过向量匹配器初始化（测试用）
    */
-  async init(options?: { skipVectorInit?: boolean }): Promise<void> {
+  async init(): Promise<void> {
     if (this.initialized) return;
 
     // 1. 扫描所有可注册模块
     const { results: scanResults, stats } = await this.scanner.scanAll();
 
-    // 2. 批量注册到注册表（文件系统扫描结果 + 已通过 registerExternalModules 注册的）
+    // 2. 批量注册到注册表
     this.registry.registerBatch(scanResults);
-
-    // 3. 初始化学习器并加载已学习的意图
-    await this.learner.init();
-
-    // 4. 获取意图定义列表（注册的 + 学习的）
-    const registeredDefs = this.registry.getIntentDefinitions();
-    const learnedDefs = this.learner.getLearnedIntentDefinitions();
-    const allDefs = [...registeredDefs, ...learnedDefs];
-
-    // 5. 初始化向量匹配器（可跳过，测试用）
-    if (!options?.skipVectorInit) {
-      await this.vectorMatcher.init(allDefs);
-    }
 
     const regStats = this.registry.getStats();
     log.info('IntentRouter initialized', {
-      intentTypes: allDefs.length,
+      intentTypes: this.registry.getIntentDefinitions().length,
       modules: regStats.totalModules,
       byType: stats.byType.size > 0 ? Object.fromEntries(stats.byType) : undefined,
     });
@@ -140,7 +118,7 @@ export class IntentRouter {
   }
 
   /**
-   * 路由用户输入（自动学习版）
+   * 路由用户输入（LLM 分类）
    *
    * @param userInput 用户输入
    * @param availableModules 所有可用模块（用于 LLM 分类）
@@ -155,37 +133,10 @@ export class IntentRouter {
       throw new Error('IntentRouter 未初始化，请先调用 init()');
     }
 
-    const threshold = options?.threshold || 0.7;
-    const enableVector = options?.enableVector !== false;
     const enableLLM = options?.enableLLM !== false;
-
-    // ========================================
-    // Step 1: 向量匹配（快速）
-    // ========================================
-    if (enableVector) {
-      const vectorIntents = await this.vectorMatcher.match(userInput, { threshold, topK: 3 });
-
-      if (vectorIntents.length > 0) {
-        const topIntent = vectorIntents[0];
-        log.debug(`向量匹配命中: ${topIntent.type} (${topIntent.confidence.toFixed(2)})`);
-        this.learner.learnFromVector(userInput, topIntent).catch((err) => log.warn('向量学习失败:', err));
-        return vectorIntents;
-      }
-    }
-
     if (!enableLLM) return [];
 
-    log.debug('向量未命中，使用 LLM 分析...');
     const llmIntents = await this.llmClassifier.classify(userInput, availableModules);
-
-    if (llmIntents.length === 0) return [];
-
-    const topIntent = llmIntents[0];
-    const moduleInfo = availableModules.find((m) => m.id === topIntent.params?.moduleId);
-    if (moduleInfo) {
-      this.learner.learnFromLLM(userInput, topIntent, moduleInfo).catch((err) => log.warn('LLM 学习失败:', err));
-    }
-
     return llmIntents;
   }
 

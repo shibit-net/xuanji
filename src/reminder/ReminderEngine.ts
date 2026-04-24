@@ -5,7 +5,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { SimpleStorage } from '@/core/SimpleStorage';
-import type { MemoryEntry } from '@/memory/types';
 import type {
   Reminder,
   ReminderInput,
@@ -13,6 +12,7 @@ import type {
   ReminderContext,
   RelationshipReminder,
   IReminderEngine,
+  MemoryEntry,
 } from './types';
 import { DEFAULT_REMINDER_CONFIG } from './types';
 import { logger } from '@/core/logger';
@@ -148,7 +148,7 @@ export class ReminderEngine implements IReminderEngine {
     const results: RelationshipReminder[] = [];
 
     for (const mem of relationshipMemories) {
-      const lastAccessed = new Date(mem.lastAccessedAt || mem.createdAt);
+      const lastAccessed = new Date(mem.updatedAt);
       const daysSince = Math.floor((today.getTime() - lastAccessed.getTime()) / (1000 * 60 * 60 * 24));
 
       if (daysSince >= threshold) {

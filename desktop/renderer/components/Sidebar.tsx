@@ -3,7 +3,7 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import { Settings, HelpCircle, Bot, Wrench, FileText, Package, Server, Brain, MessageSquare, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Package, Brain, MessageSquare, LogOut, User as UserIcon, ChevronDown, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useState, useEffect, useRef } from 'react';
 
@@ -11,14 +11,13 @@ interface SidebarProps {
   onToggle: () => void;
   onOpenSettings: () => void;
   onOpenAgents: () => void;
-  onOpenSkills: () => void;
   onOpenTools: () => void;
-  onOpenMCP: () => void;
   onOpenSystemPrompt: () => void;
   onOpenMemory: () => void;
+  onOpenPermissions: () => void;
 }
 
-export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenSkills, onOpenTools, onOpenMCP, onOpenSystemPrompt, onOpenMemory }: SidebarProps) {
+export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenPermissions }: SidebarProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -109,27 +108,11 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
         </button>
 
         <button
-          onClick={onOpenSkills}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
-        >
-          <Package size={16} className="text-text-secondary" />
-          <span>Skills</span>
-        </button>
-
-        <button
           onClick={onOpenTools}
           className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
         >
           <Wrench size={16} className="text-text-secondary" />
           <span>Tools</span>
-        </button>
-
-        <button
-          onClick={onOpenMCP}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
-        >
-          <Server size={16} className="text-text-secondary" />
-          <span>MCP</span>
         </button>
 
         <button
@@ -146,6 +129,14 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
         >
           <Brain size={16} className="text-text-secondary" />
           <span>Memory</span>
+        </button>
+
+        <button
+          onClick={onOpenPermissions}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-bg-tertiary transition-colors text-sm"
+        >
+          <ShieldCheck size={16} className="text-text-secondary" />
+          <span>权限管理</span>
         </button>
 
         <button

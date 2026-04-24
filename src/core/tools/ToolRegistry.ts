@@ -35,8 +35,8 @@ import { LSTool } from './LSTool';
 import { MultiEditTool } from './MultiEditTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
-import { MemoryUpdateTool } from './builtin/MemoryUpdateTool';
-import { MemoryDeleteTool } from './builtin/MemoryDeleteTool';
+import { ListScenesTool } from './ListScenesTool';
+import { ChangeDirectoryTool } from './ChangeDirectoryTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -330,6 +330,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new BashTool());
   registry.register(new GlobTool());
   registry.register(new GrepTool());
+  registry.register(new ChangeDirectoryTool());
   registry.register(new PlanReviewTool());
   registry.register(new AskUserTool());
   registry.register(new TaskOutputTool());
@@ -346,8 +347,9 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WorktreeTool());
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
-  registry.register(new MemoryUpdateTool());
-  registry.register(new MemoryDeleteTool());
+  // TODO: MemoryUpdateTool 和 MemoryDeleteTool 已移除
+  // registry.register(new MemoryUpdateTool());
+  // registry.register(new MemoryDeleteTool());
   // TaskTool, TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

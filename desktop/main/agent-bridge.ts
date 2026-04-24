@@ -12,8 +12,10 @@ import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
 import type { ChatSession } from '../../src/core/chat/ChatSession.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 import { ChildMessageChannel } from './ipc/MessageBus.js';
+import { DownloadManager } from '../../src/core/download/DownloadManager.js';
 
 let session: ChatSession | null = null;
+let currentUserId: string | null = null;
 
 // 创建子进程消息通道
 const channel = new ChildMessageChannel({
@@ -26,17 +28,38 @@ console.log('[agent-bridge] 子进程已启动');
 channel.send('child-ready', { pid: process.pid });
 
 // ============================================================
+// 下载事件转发
+// ============================================================
+const downloadManager = DownloadManager.getInstance();
+
+// 转发 DownloadManager 事件到主进程
+const forwardDownloadEvent = (eventName: string) => {
+  downloadManager.on(eventName, (task) => {
+    console.log(`[agent-bridge] DownloadManager 事件: ${eventName}, task:`, task.id, task.name);
+    // 子进程任务统一加 child: 前缀，避免与主进程任务 ID 冲突
+    const prefixedTask = { ...task, id: `child:${task.id}` };
+    console.log(`[agent-bridge] 转发下载事件到主进程: ${eventName}, prefixedTask:`, prefixedTask.id);
+    channel.send('download:event', { type: eventName, task: prefixedTask });
+    console.log(`[agent-bridge] 下载事件已发送: ${eventName}`);
+  });
+};
+
+forwardDownloadEvent('task-created');
+forwardDownloadEvent('task-started');
+forwardDownloadEvent('task-progress');
+forwardDownloadEvent('task-completed');
+forwardDownloadEvent('task-failed');
+forwardDownloadEvent('task-cancelled');
+
+console.log('[agent-bridge] Download events forwarding enabled');
+
+// ============================================================
 // 注册消息处理器
 // ============================================================
 
 // 初始化 Session
 channel.handle('init', async (data) => {
   return await handleInit(data?.userId);
-});
-
-// 触发启动消息
-channel.handle('trigger-startup', async () => {
-  return await handleTriggerStartup();
 });
 
 // 发送用户消息
@@ -84,20 +107,6 @@ channel.handle('checkpoint-create', (data) => handleCheckpointCreate(data));
 channel.handle('checkpoint-list', () => handleCheckpointList());
 channel.handle('checkpoint-rewind', (data) => handleCheckpointRewind(data));
 
-// ============ 记忆管理 ============
-channel.handle('memory-retrieve', (data) => handleMemoryRetrieve(data));
-channel.handle('memory-stats', () => handleMemoryStats());
-channel.handle('memory-get-config', () => handleGetMemoryConfig());
-channel.handle('memory-save-config', (data) => handleSaveMemoryConfig(data));
-channel.handle('memory-manual-flush', () => handleManualMemoryFlush());
-channel.handle('memory-extract-topics', () => handleExtractTopics());
-channel.handle('memory-get-list', (data) => handleGetMemoryList(data));
-
-// ============ 核心规则管理 ============
-channel.handle('core-rules-get-all', () => handleCoreRulesGetAll());
-channel.handle('core-rules-update', (data) => handleCoreRulesUpdate(data));
-channel.handle('core-rules-delete', (data) => handleCoreRulesDelete(data));
-
 // ============ 工具统计 ============
 channel.handle('get-usage-stats', () => handleGetUsageStats());
 
@@ -108,18 +117,27 @@ channel.handle('agent-create', (data) => handleAgentCreate(data));
 channel.handle('agent-update', (data) => handleAgentUpdate(data));
 channel.handle('agent-delete', (data) => handleAgentDelete(data));
 
-// ============ Skills / Tools / MCP 查询 ============
-channel.handle('skills-list', () => handleSkillsList());
+// ============ Tools 查询 ============
 channel.handle('tools-list', () => handleToolsList());
-channel.handle('mcp-list', () => handleMcpList());
 
 // ============ 高级功能 ============
 channel.handle('compact', (data) => handleCompact(data));
 channel.handle('get-diagnostics', () => handleGetDiagnostics());
 
 // ============ Prompt 配置管理 ============
+channel.handle('prompt-get-components', () => handlePromptGetComponents());
+channel.handle('prompt-toggle-component', (data) => handlePromptToggleComponent(data));
+channel.handle('prompt-update-component', (data) => handlePromptUpdateComponent(data));
+channel.handle('prompt-preview', (data) => handlePromptPreview(data));
 channel.handle('get-prompt-config', () => handleGetPromptConfig());
 channel.handle('save-prompt-config', (data) => handleSavePromptConfig(data));
+
+// ============ 项目管理 ============
+channel.handle('projects-list', () => handleProjectsList());
+channel.handle('projects-get-rules', (data) => handleProjectsGetRules(data));
+channel.handle('projects-save-rules', (data) => handleProjectsSaveRules(data));
+channel.handle('projects-get-docs', (data) => handleProjectsGetDocs(data));
+channel.handle('projects-read-doc', (data) => handleProjectsReadDoc(data));
 
 // ============ 权限交互响应 ============
 channel.handle('permission-response', (data) => {
@@ -139,10 +157,42 @@ channel.handle('ask-user-response', (data) => {
 channel.handle('permission-list', () => handlePermissionList());
 channel.handle('permission-delete', (data) => handlePermissionDelete(data));
 channel.handle('permission-clear', () => handlePermissionClear());
+channel.handle('permission-config-get', () => handlePermissionConfigGet());
+channel.handle('permission-config-update', (data) => handlePermissionConfigUpdate(data));
+channel.handle('permission-audit-list', (data) => handlePermissionAuditList(data));
+channel.handle('permission-audit-stats', () => handlePermissionAuditStats());
+channel.handle('permission-audit-clear', () => handlePermissionAuditClear());
+channel.handle('permission-denied-list', () => handlePermissionDeniedList());
+channel.handle('permission-denied-delete', (data) => handlePermissionDeniedDelete(data));
+channel.handle('permission-denied-clear', () => handlePermissionDeniedClear());
 
 // ============ Todo 管理 ============
 channel.handle('todo-archive-completed', () => handleTodoArchiveCompleted());
 channel.handle('todo-get-archived-count', () => handleTodoGetArchivedCount());
+
+// ============ 下载管理 ============
+channel.handle('download-get-tasks', () => {
+  const tasks = downloadManager.getAllTasks();
+  return { success: true, tasks };
+});
+
+channel.handle('download-cancel', (data) => {
+  try {
+    downloadManager.cancel(data.taskId);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+channel.handle('download-clear-finished', () => {
+  try {
+    downloadManager.clearFinished();
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
 
 // ============ 关闭 ============
 channel.on('shutdown', () => {
@@ -165,6 +215,157 @@ function safeSend(message: { type: string; data?: any }) {
  * 注册 Hook 事件监听器
  */
 function registerHookListeners(hookRegistry: any) {
+  // ━━━ MainAgent 流程事件 ━━━
+  // 注意：prompt:build-event 现在由 LayeredPromptBuilder 直接发送真实事件
+
+  // ModelClassifier 事件
+  hookRegistry.addListener('ModelClassifierStart', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:model-classifier-start',
+      data: {
+        userInput: ctx.data.userInput,
+        model: ctx.data.model,
+        sessionId: ctx.sessionId,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('ModelClassifierEnd', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:model-classifier-end',
+      data: {
+        userInput: ctx.data.userInput,
+        model: ctx.data.model,
+        agent: ctx.data.agent,
+        scene: ctx.data.scene,
+        confidence: ctx.data.confidence,
+        durationMs: ctx.data.durationMs,
+        sessionId: ctx.sessionId,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  // IntentAnalysis 事件
+  hookRegistry.addListener('IntentAnalysisStart', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:intent-analysis-start',
+      data: {
+        userInput: ctx.data.userInput,
+        sessionId: ctx.sessionId,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('IntentAnalysisEnd', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:intent-analysis-end',
+      data: {
+        userInput: ctx.data.userInput,
+        scene: ctx.data.scene,
+        complexity: ctx.data.complexity,
+        confidence: ctx.data.confidence,
+        matchMethod: ctx.data.matchMethod,
+        intentClassifier: ctx.data.modelClassifier,
+        sessionId: ctx.sessionId,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  // ━━━ SubAgent/Team 事件 ━━━
+  hookRegistry.addListener('TaskPlanningStart', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:task-planning-start',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        scene: ctx.scene,
+        complexity: ctx.complexity,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TaskPlanningEnd', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:task-planning-end',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        strategy: ctx.strategy,
+        tasks: ctx.tasks,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TaskExecutionStart', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:task-execution-start',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        strategy: ctx.strategy,
+        taskCount: ctx.taskCount,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('TaskExecutionEnd', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:task-execution-end',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        success: ctx.success,
+        duration: ctx.duration,
+        output: ctx.output,
+        error: ctx.error,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('ResultAggregationStart', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:result-aggregation-start',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        memberCount: ctx.memberCount,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  hookRegistry.addListener('ResultAggregationEnd', async (ctx: any) => {
+    safeSend({
+      type: 'workspace:result-aggregation-end',
+      data: {
+        userInput: ctx.userInput,
+        sessionId: ctx.sessionId,
+        output: ctx.output,
+        timestamp: Date.now(),
+      },
+    });
+    return { success: true };
+  });
+
+  // ━━━ 原有的 Team 事件 ━━━
+
   hookRegistry.addListener('TeamStart', async (ctx: any) => {
     safeSend({
       type: 'agent:team-start',
@@ -188,8 +389,7 @@ function registerHookListeners(hookRegistry: any) {
         name: ctx.data?.name,
         role: ctx.data?.role,
         task: ctx.data?.task,
-        builtin: ctx.data?.builtin,
-        agentType: ctx.data?.agentType, // 🔧 新增：传递 agentType 字段
+        agentType: ctx.data?.agentType,
         strategy: ctx.data?.strategy,
         teamName: ctx.data?.teamName,
         stepIndex: ctx.data?.stepIndex,
@@ -217,22 +417,25 @@ function registerHookListeners(hookRegistry: any) {
   });
 
   hookRegistry.addListener('TeamEnd', async (ctx: any) => {
+    const data: any = {
+      teamId: ctx.teamId,
+      name: ctx.data?.name,
+      success: ctx.data?.success,
+      duration: ctx.data?.duration,
+    };
+    // 只在有错误时才添加 error 字段
+    if (ctx.data?.error !== undefined) {
+      data.error = ctx.data.error;
+    }
     safeSend({
       type: 'agent:team-end',
-      data: {
-        teamId: ctx.teamId,
-        name: ctx.data?.name,
-        success: ctx.data?.success,
-        duration: ctx.data?.duration,
-        error: ctx.data?.error,
-      },
+      data,
     });
     return { success: true };
   });
 
   hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
     const role = ctx.data?.role || 'unknown';
-    const isBuiltin = ctx.data?.builtin === true;
     const parentAgentId = ctx.data?.parentAgentId || 'main';
 
     safeSend({
@@ -242,8 +445,7 @@ function registerHookListeners(hookRegistry: any) {
         name: ctx.data?.name || role,
         role: role,
         task: ctx.data?.task,
-        builtin: isBuiltin,
-        agentType: ctx.data?.agentType, // 🔧 新增：传递 agentType 字段
+        agentType: ctx.data?.agentType,
         parentId: parentAgentId,
       },
     });
@@ -295,33 +497,6 @@ function registerHookListeners(hookRegistry: any) {
         skillName: ctx.skillName,
         duration: ctx.skillDuration,
         success: ctx.skillSuccess,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('McpToolStart', async (ctx: any) => {
-    safeSend({
-      type: 'agent:mcp-start',
-      data: {
-        agentId: ctx.subAgentId || 'main',
-        serverName: ctx.mcpServerName,
-        toolName: ctx.mcpToolName,
-        input: ctx.mcpInput,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('McpToolEnd', async (ctx: any) => {
-    safeSend({
-      type: 'agent:mcp-end',
-      data: {
-        agentId: ctx.subAgentId || 'main',
-        serverName: ctx.mcpServerName,
-        toolName: ctx.mcpToolName,
-        duration: ctx.mcpDuration,
-        isError: ctx.mcpIsError,
       },
     });
     return { success: true };
@@ -436,6 +611,8 @@ async function handleInit(userId?: string) {
       return { success: false, error: '用户未登录' };
     }
 
+    // 保存当前用户 ID
+    currentUserId = userId;
     console.log(`[agent-bridge] 初始化会话，用户: ${userId}`);
 
     // 默认使用 'xuanji' agent，后续可以支持动态切换
@@ -445,47 +622,88 @@ async function handleInit(userId?: string) {
       userId,
       agentId,
       callbacks: {
-        // 启动引导：思考状态
-        onBootThinking: () => {
-          safeSend({
-            type: 'session:boot-thinking',
-            data: {},
-          });
+        onBeforeExecution: async (input: string) => {
+          // 在执行任务前，如果有项目根目录，切换到该目录
+          if (currentProjectRoot) {
+            try {
+              process.chdir(currentProjectRoot);
+              console.log(`[agent-bridge] 切换工作目录到项目根目录: ${currentProjectRoot}`);
+            } catch (err) {
+              console.warn(`[agent-bridge] 切换目录失败: ${err}`);
+            }
+          }
         },
-        // 启动引导消息回调
-        onBootGuide: (message: string) => {
+        onText: (text: string) => {
+          safeSend({ type: 'agent:text', data: text });
+        },
+        onThinking: (thinking: string) => {
+          safeSend({ type: 'agent:thinking', data: thinking });
+        },
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+          safeSend({ type: 'agent:tool-start', data: { id, name, input } });
+
+          // 从工具调用中提取文件路径，自动检测项目
+          detectProjectFromToolCall(name, input);
+        },
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
+
+          // 如果是 change_directory 工具且执行成功，立即检测项目信息
+          if (name === 'change_directory' && !isError) {
+            detectProjectFromCwd();
+          }
+        },
+        onFileChanges: (changes: any[]) => {
+          safeSend({ type: 'agent:file-changes', data: { changes } });
+        },
+        onUsage: (usage: any) => {
+          safeSend({ type: 'agent:usage', data: usage });
+        },
+        onError: (err: Error) => {
+          safeSend({ type: 'agent:error', data: err.message });
+        },
+        onEnd: (state: any) => {
           safeSend({
-            type: 'session:boot-guide',
-            data: { message },
+            type: 'agent:end',
+            data: {
+              tokenUsage: state.tokenUsage,
+              cost: state.cost,
+              currentIteration: state.currentIteration,
+            },
           });
         },
         onArchiveNotification: (result) => {
-          safeSend({
-            type: 'session:archive-notification',
-            data: result,
-          });
-        },
-        // 恢复消息历史回调
-        onMessagesRestored: (messages) => {
-          safeSend({
-            type: 'session:messages-restored',
-            data: { messages },
-          });
+          safeSend({ type: 'session:archive-notification', data: result });
         },
       },
     });
-
-    // 注册流式事件回调，转发到主进程
-    registerSessionCallbacks(session);
 
     // 注入权限交互 Handler
     injectInteractionHandlers();
 
     // 注册 SubAgent/Team Hook 事件监听，将成员状态变更转发到 renderer
-    // 通过 DependencyContainer 获取 HookRegistry
     const container = session.getContainer();
     const hookRegistry = container.resolveSync('hookRegistry');
     registerHookListeners(hookRegistry);
+
+    // 注册 Prompt 构建事件监听器
+    const promptBuilder = session.getLayeredPromptBuilder();
+    console.log('[agent-bridge] promptBuilder 存在:', !!promptBuilder);
+    if (promptBuilder) {
+      console.log('[agent-bridge] 注册 promptBuilder 事件监听器');
+      promptBuilder.addEventListener((event) => {
+        console.log('[agent-bridge] 收到 promptBuilder 事件:', event.type, event);
+        safeSend({
+          type: 'prompt:build-event',
+          data: event,
+        });
+        console.log('[agent-bridge] 已转发 prompt:build-event');
+      });
+    }
+
+    // 🔧 初始化时不自动扫描项目，避免显示 xuanji 自身的路径
+    // 项目信息会在用户明确打开/切换项目时通过 detectProjectFromCwd() 或 detectProjectFromFile() 发送
+    console.log('[agent-bridge] 初始化完成，等待用户打开项目');
 
     // 发送初始化完成事件
     safeSend({
@@ -508,80 +726,6 @@ async function handleInit(userId?: string) {
 
     // 返回失败结果
     return { success: false, error };
-  }
-}
-
-/**
- * 注册流式事件回调，转发到主进程
- */
-function registerSessionCallbacks(s: ChatSession) {
-  const agentLoop = s.getAgentLoop();
-  agentLoop.on({
-    onText: (text: string) => {
-      safeSend({ type: 'agent:text', data: text });
-    },
-    onThinking: (thinking: string) => {
-      console.log('[agent-bridge] onThinking 触发，内容长度:', thinking.length, '前50字符:', thinking.slice(0, 50));
-      safeSend({ type: 'agent:thinking', data: thinking });
-    },
-    onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-      console.log('[agent-bridge] onToolStart 触发:', { id, name, input });
-      safeSend({ type: 'agent:tool-start', data: { id, name, input } });
-    },
-    onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-      safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
-    },
-    onFileChanges: (changes: any[]) => {
-      console.log('[agent-bridge] onFileChanges 触发，变更数量:', changes.length);
-      safeSend({ type: 'agent:file-changes', data: { changes } });
-    },
-    onUsage: (usage: any) => {
-      safeSend({ type: 'agent:usage', data: usage });
-    },
-    onError: (err: Error) => {
-      safeSend({ type: 'agent:error', data: err.message });
-    },
-    onEnd: (state: any) => {
-      safeSend({
-        type: 'agent:end',
-        data: {
-          tokenUsage: state.tokenUsage,
-          cost: state.cost,
-          currentIteration: state.currentIteration,
-        },
-      });
-    },
-  });
-}
-
-/**
- * 触发启动消息（用户登录后调用）
- */
-async function handleTriggerStartup() {
-  try {
-    if (!session) {
-      console.warn('[agent-bridge] Session 未初始化，无法触发启动消息');
-      return;
-    }
-
-    const config = session.getConfig();
-    const isNewUser = !config.onboardingDone;
-
-    let hasMemories = false;
-    if (!isNewUser) {
-      const container = session.getContainer();
-      const memoryManager = container.resolveSync('memoryManager');
-      if (memoryManager) {
-        const stats = await (memoryManager as any).getStats?.();
-        hasMemories = stats ? stats.total > 0 : false;
-      }
-    }
-
-    if (isNewUser || hasMemories) {
-      await handleSendMessage('__startup__');
-    }
-  } catch (err) {
-    console.warn('[agent-bridge] Failed to trigger startup message:', err);
   }
 }
 
@@ -705,6 +849,13 @@ function handleGetConfig() {
       maxTokens: config.provider.maxTokens,
       temperature: config.provider.temperature,
       lightModel: config.provider.lightModel || '',
+      embedding: config.embedding ? {
+        model: config.embedding.model,
+        dimensions: config.embedding.dimensions,
+        cacheEnabled: config.embedding.cacheEnabled,
+        cacheMaxSize: config.embedding.cacheMaxSize,
+        hfMirror: config.embedding.hfMirror,
+      } : undefined,
     },
   });
 }
@@ -729,6 +880,19 @@ async function handleGetFullConfig() {
       maxTokens: config.provider.maxTokens,
       temperature: config.provider.temperature,
       lightModel: config.provider.lightModel || '',
+    },
+    embedding: config.embedding ? {
+      model: config.embedding.model,
+      dimensions: config.embedding.dimensions,
+      cacheEnabled: config.embedding.cacheEnabled,
+      cacheMaxSize: config.embedding.cacheMaxSize,
+      hfMirror: config.embedding.hfMirror,
+    } : {
+      model: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
+      dimensions: 384,
+      cacheEnabled: true,
+      cacheMaxSize: 100,
+      hfMirror: 'https://hf-mirror.com',
     },
     memory: {
       enabled: config.memory?.enabled ?? true,
@@ -761,6 +925,7 @@ async function handleUpdateConfig(data: any) {
 
     const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
     const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
     const { readFile, writeFile } = await import('node:fs/promises');
 
     // 1. 读取用户配置文件
@@ -776,7 +941,7 @@ async function handleUpdateConfig(data: any) {
       userConfigFile.config.provider = {};
     }
 
-    // 3. 合并新配置
+    // 3. 合并新配置（用户级配置）
     let needPersist = false;
     if (data.apiKey && !data.apiKey.startsWith('***')) {
       userConfigFile.config.provider.apiKey = data.apiKey;
@@ -810,6 +975,15 @@ async function handleUpdateConfig(data: any) {
       console.log('[agent-bridge] 用户配置已保存，userId:', userId);
     }
 
+    // 5. 处理项目级配置（embedding）
+    if (data.embedding !== undefined) {
+      const projectRoot = process.cwd();
+      const projectConfig = await GlobalConfig.readProjectConfig(projectRoot);
+      projectConfig.embedding = data.embedding;
+      await GlobalConfig.writeProjectConfig(projectConfig, projectRoot);
+      console.log('[agent-bridge] 项目配置已保存（embedding）');
+    }
+
     // 5. 重新加载完整配置并重新创建 session
     const agentId = 'xuanji'; // 默认使用 xuanji agent
     const configLoader = new ConfigLoader(userId, agentId);
@@ -824,23 +998,50 @@ async function handleUpdateConfig(data: any) {
       agentId,
       config: fullConfig,
       callbacks: {
-        onBootThinking: () => {
-          safeSend({ type: 'session:boot-thinking', data: {} });
+        onText: (text: string) => {
+          safeSend({ type: 'agent:text', data: text });
         },
-        onBootGuide: (message: string) => {
-          safeSend({ type: 'session:boot-guide', data: { message } });
+        onThinking: (thinking: string) => {
+          safeSend({ type: 'agent:thinking', data: thinking });
+        },
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+          safeSend({ type: 'agent:tool-start', data: { id, name, input } });
+
+          // 从工具调用中提取文件路径，自动检测项目
+          detectProjectFromToolCall(name, input);
+        },
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
+
+          // 如果是 change_directory 工具且执行成功，立即检测项目信息
+          if (name === 'change_directory' && !isError) {
+            detectProjectFromCwd();
+          }
+        },
+        onFileChanges: (changes: any[]) => {
+          safeSend({ type: 'agent:file-changes', data: { changes } });
+        },
+        onUsage: (usage: any) => {
+          safeSend({ type: 'agent:usage', data: usage });
+        },
+        onError: (err: Error) => {
+          safeSend({ type: 'agent:error', data: err.message });
+        },
+        onEnd: (state: any) => {
+          safeSend({
+            type: 'agent:end',
+            data: {
+              tokenUsage: state.tokenUsage,
+              cost: state.cost,
+              currentIteration: state.currentIteration,
+            },
+          });
         },
         onArchiveNotification: (result) => {
           safeSend({ type: 'session:archive-notification', data: result });
         },
-        onMessagesRestored: (messages) => {
-          safeSend({ type: 'session:messages-restored', data: { messages } });
-        },
       },
     });
-
-    // 重新注册事件回调
-    registerSessionCallbacks(session);
 
     // 重新注入权限交互 Handler
     injectInteractionHandlers();
@@ -957,335 +1158,11 @@ async function handleCheckpointRewind(data: any) {
 }
 
 // ============================================================
-// 记忆管理
-// ============================================================
-
-async function handleMemoryRetrieve(data: any) {
-  if (!session) {
-    return { success: true, entries: [] };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: true, entries: [], stats: null };
-    }
-    const entries = await memoryManager.retrieve(data?.query || '', data?.options);
-    safeSend({ data: {
-        success: true,
-        entries: entries.map((e: any) => ({
-          type: e.type,
-          content: e.content,
-          tags: e.tags,
-          createdAt: e.createdAt,
-          score: e.score,
-        })),
-      },
-    });
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleMemoryStats() {
-  if (!session) {
-    return { success: true, stats: null };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: true, stats: null };
-    }
-    const stats = await memoryManager.getStats();
-    return { success: true, stats };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// 获取记忆配置
-async function handleGetMemoryConfig() {
-  if (!session) {
-    return { success: true, config: null };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: true, config: null };
-    }
-    const config = memoryManager.getConfig();
-    return { success: true, config };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// 保存记忆配置
-async function handleSaveMemoryConfig(data: any) {
-  if (!session) {
-    return { success: false, error: 'Session not initialized' };
-  }
-  try {
-    const memoryConfig = data.config;
-    if (!memoryConfig) {
-      return { success: false, error: 'No config provided' };
-    }
-
-    // 获取当前用户 ID
-    const { getAuthState } = await import('./config/auth.js');
-    const authState = getAuthState();
-    const userId = authState?.user?.userId;
-
-    if (!userId) {
-      return { success: false, error: '用户未登录' };
-    }
-
-    // 1. 读取用户配置文件
-    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
-    const { readFile, writeFile } = await import('node:fs/promises');
-    const configPath = getUserConfigPath(userId);
-    const content = await readFile(configPath, 'utf-8');
-    const userConfigFile = JSON.parse(content);
-
-    // 2. 合并 memory 配置
-    if (!userConfigFile.config) {
-      userConfigFile.config = {};
-    }
-    userConfigFile.config.memory = {
-      ...userConfigFile.config.memory,
-      ...memoryConfig,
-    };
-
-    // 3. 保存到用户配置文件
-    userConfigFile.updatedAt = new Date().toISOString();
-    await writeFile(configPath, JSON.stringify(userConfigFile, null, 2), 'utf-8');
-
-    // 4. 热更新运行时 MemoryManager 配置（如果可能）
-    const memoryManager = session.getMemoryManager();
-    if (memoryManager) {
-      // 注意：这里只是更新配置，不重新初始化组件
-      // 完整的配置生效需要重新初始化会话
-      (memoryManager as any).config = userConfigFile.config.memory;
-    }
-
-    return { success: true, requiresRestart: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// 手动触发记忆刷新
-async function handleManualMemoryFlush() {
-  if (!session) {
-    return { success: false, error: 'Session not initialized' };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: false, error: 'MemoryManager not available' };
-    }
-    const intelligentFlush = memoryManager.getIntelligentFlush();
-    if (!intelligentFlush) {
-      return { success: false, error: 'IntelligentFlush not enabled' };
-    }
-
-    // 获取当前消息历史
-    const messageManager = session.getAgentLoop().getMessageManager();
-    const messages = messageManager?.getMessages() || [];
-
-    // 获取配置和会话ID
-    const sessionManager = session.getSessionManager();
-    const sessionId = sessionManager?.getActiveSessionId() || undefined;
-
-    // 手动触发刷新（强制触发：timeSinceLastFlush 设为超大值）
-    const context = {
-      messages: messages as any[],
-      currentTokens: 1000000, // 强制触发：设置一个超大值
-      maxTokens: 100, // 强制触发：设置一个很小的 maxTokens
-      timeSinceLastFlush: 999999999, // 强制触发：设置一个超大值
-      sessionId,
-    };
-
-    const flushed = await intelligentFlush.checkAndFlush(context);
-    return { success: true, flushed };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// 手动提取主题
-async function handleExtractTopics() {
-  if (!session) {
-    return { success: false, error: 'Session not initialized' };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: false, error: 'MemoryManager not available' };
-    }
-
-    // 调用 MemoryManager 的 extractTopics 方法
-    const dayKey = new Date().toISOString().split('T')[0]; // 今天的日期
-    await memoryManager.extractTopics(dayKey);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// 获取记忆列表
-async function handleGetMemoryList(data: any) {
-  if (!session) {
-    return { success: true, memories: [] };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: true, memories: [] };
-    }
-
-    // 从 MemoryManager 获取所有记忆条目
-    const allMemories = memoryManager.getAllEntries ? memoryManager.getAllEntries(2000) : [];
-
-    // 为没有 category 字段的记忆自动推断 category（兼容旧版本数据）
-    const enrichedMemories = allMemories.map((m: any) => {
-      if (m.category) return m; // 已有 category，保持不变
-
-      // 根据 type 推断 category
-      let category = 'fact'; // 默认类别
-
-      // Timeline: 会话摘要
-      if (m.type === 'session_summary') {
-        category = 'timeline';
-      }
-      // Topic: 用户偏好、重要日期、关系
-      else if (m.type === 'user_preference' || m.type === 'important_date' || m.type === 'relationship') {
-        category = 'topic';
-      }
-      // Fact: 其他所有类型（决策、错误解决、工具模式、项目事实、用户事实）
-      else {
-        category = 'fact';
-      }
-
-      return { ...m, category };
-    });
-
-    // 应用过滤条件
-    let filteredMemories = enrichedMemories;
-
-    // 按 category 过滤
-    if (data.category && data.category !== 'all') {
-      filteredMemories = filteredMemories.filter((m: any) => m.category === data.category);
-    }
-
-    // 按 type 过滤
-    if (data.type && data.type !== 'all') {
-      filteredMemories = filteredMemories.filter((m: any) => m.type === data.type);
-    }
-
-    // 按查询词过滤（搜索 content 和 keywords）
-    if (data.query && data.query.trim()) {
-      const query = data.query.toLowerCase();
-      filteredMemories = filteredMemories.filter((m: any) => {
-        const content = (m.content || '').toLowerCase();
-        const keywords = (m.keywords || []).join(' ').toLowerCase();
-        return content.includes(query) || keywords.includes(query);
-      });
-    }
-
-    // 按时间排序（最新在前）
-    filteredMemories.sort((a: any, b: any) => {
-      const aTime = new Date(a.lastAccessedAt || a.createdAt).getTime();
-      const bTime = new Date(b.lastAccessedAt || b.createdAt).getTime();
-      return bTime - aTime;
-    });
-
-    // 限制数量
-    const limit = data.limit || 100;
-    const memories = filteredMemories.slice(0, limit);
-
-    return { success: true, memories };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// ============================================================
 // 核心规则管理
 // ============================================================
 
-async function handleCoreRulesGetAll() {
-  if (!session) {
-    return { success: true, rules: [] };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: true, rules: [] };
-    }
 
-    const coreRuleStore = memoryManager.getCoreRuleStore();
-    if (!coreRuleStore) {
-      return { success: true, rules: [] };
-    }
 
-    const rules = coreRuleStore.getAllRules();
-    return { success: true, rules };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleCoreRulesUpdate(data: { id: string; active?: boolean }) {
-  if (!session) {
-    return { success: false, error: 'Session not initialized' };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: false, error: 'MemoryManager not available' };
-    }
-
-    const coreRuleStore = memoryManager.getCoreRuleStore();
-    if (!coreRuleStore) {
-      return { success: false, error: 'CoreRuleStore not available' };
-    }
-
-    const success = coreRuleStore.setActive(data.id, data.active ?? true);
-    if (success) {
-      return { success: true };
-    } else {
-      return { success: false, error: 'Rule not found' };
-    }
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleCoreRulesDelete(data: { id: string }) {
-  if (!session) {
-    return { success: false, error: 'Session not initialized' };
-  }
-  try {
-    const memoryManager = session.getMemoryManager();
-    if (!memoryManager) {
-      return { success: false, error: 'MemoryManager not available' };
-    }
-
-    const coreRuleStore = memoryManager.getCoreRuleStore();
-    if (!coreRuleStore) {
-      return { success: false, error: 'CoreRuleStore not available' };
-    }
-
-    const success = coreRuleStore.delete(data.id);
-    if (success) {
-      return { success: true };
-    } else {
-      return { success: false, error: 'Rule not found' };
-    }
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
 
 // ============================================================
 // 工具统计
@@ -1367,6 +1244,7 @@ async function handleAgentList() {
     }
     // 获取所有 Agent（包括禁用的），用于 GUI 管理界面
     const agents = agentRegistry.getAll();
+
     return { success: true, agents };
   } catch (err) {
     console.error('[agent-bridge] 获取 Agent 列表失败:', err);
@@ -1458,39 +1336,23 @@ async function handleAgentDelete(data: any) {
 }
 
 // ============================================================
-// Skills / Tools / MCP 查询
+// Tools 查询
 // ============================================================
 
-async function handleSkillsList() {
-  if (!session) {
-    return { success: true, skills: [] };
-  }
-  try {
-    const skillRegistry = session.getSkillRegistry();
-    const skills = skillRegistry.list().map((skill: any) => ({
-      id: skill.id,
-      name: skill.name,
-      description: skill.description || '',
-      type: skill.category || 'prompt',
-      category: skill.sceneCategory || undefined,
-      enabled: skill.enabled ?? true,
-      requiredTools: skill.requiredTools || [],
-      triggers: skill.triggers || [],
-      tags: skill.tags || [],
-    }));
-    return { success: true, skills };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 async function handleToolsList() {
+  console.log('[agent-bridge handleToolsList] 开始处理');
+  console.log('[agent-bridge handleToolsList] session:', !!session);
+
   if (!session) {
+    console.warn('[agent-bridge handleToolsList] session 不存在，返回空数组');
     return { success: true, tools: [] };
   }
   try {
     const baseRegistry = session.getBaseRegistry();
+    console.log('[agent-bridge handleToolsList] baseRegistry:', !!baseRegistry);
+
     if (!baseRegistry) {
+      console.warn('[agent-bridge handleToolsList] baseRegistry 不存在，返回空数组');
       return { success: true, tools: [] };
     }
 
@@ -1513,6 +1375,8 @@ async function handleToolsList() {
     };
 
     const allTools = baseRegistry.getAll();
+    console.log('[agent-bridge handleToolsList] allTools 数量:', allTools.length);
+
     const tools = allTools.map((tool: any) => ({
       name: tool.name,
       description: tool.description || '',
@@ -1520,47 +1384,13 @@ async function handleToolsList() {
       required: tool.required ?? false,
       readonly: tool.readonly ?? true,
     }));
+
+    console.log('[agent-bridge handleToolsList] 返回工具数量:', tools.length);
+    console.log('[agent-bridge handleToolsList] 前3个工具:', tools.slice(0, 3));
+
     return { success: true, tools };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleMcpList() {
-  if (!session) {
-    return { success: true, servers: [] };
-  }
-  try {
-    const mcpManager = session.getMCPManager();
-    if (!mcpManager) {
-      return { success: true, servers: [] };
-    }
-
-    // 使用 getServerRuntimes() 获取服务器信息
-    const runtimes = mcpManager.getServerRuntimes();
-
-    // 获取所有工具和 prompts 用于统计
-    let allTools: Array<{ serverName: string; tool: any }> = [];
-    let allPrompts: Array<{ serverName: string; prompt: any }> = [];
-    try { allTools = await mcpManager.getAllTools(); } catch { /* ignore */ }
-    try { allPrompts = await mcpManager.getAllPrompts(); } catch { /* ignore */ }
-
-    const servers = runtimes.map((runtime: any) => {
-      const toolCount = allTools.filter(t => t.serverName === runtime.name).length;
-      const promptCount = allPrompts.filter(p => p.serverName === runtime.name).length;
-      return {
-        name: runtime.name,
-        command: runtime.config?.command || '',
-        args: runtime.config?.args || [],
-        env: runtime.config?.env || {},
-        enabled: !runtime.config?.disabled,
-        toolCount,
-        promptCount,
-      };
-    });
-
-    return { success: true, servers };
-  } catch (err) {
+    console.error('[agent-bridge handleToolsList] 异常:', err);
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -1628,6 +1458,8 @@ function injectInteractionHandlers() {
         options: question?.options || [],
         multiSelect: question?.multiSelect || false,
         default: question?.default,
+        // 🆕 传递上下文信息到前端
+        context: question?.context || {},
       },
     });
     return new Promise((resolve) => {
@@ -1737,6 +1569,431 @@ async function handlePermissionClear() {
   }
 }
 
+function handlePermissionConfigGet() {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const pc = session.getPermissionController();
+    const config = pc ? pc.getConfig() : null;
+    return { success: true, config };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePermissionConfigUpdate(data: any) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc && data?.updates) {
+      await pc.updateConfig(data.updates);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function handlePermissionAuditList(data: any) {
+  if (!session) {
+    return { success: true, logs: [] };
+  }
+  try {
+    const pc = session.getPermissionController();
+    const logs = pc ? pc.listAuditLogs(data?.options || {}) : [];
+    return { success: true, logs };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function handlePermissionAuditStats() {
+  if (!session) {
+    return { success: true, stats: { totalChecks: 0, allowedCount: 0, deniedCount: 0, allowRate: 0 } };
+  }
+  try {
+    const pc = session.getPermissionController();
+    const stats = pc ? pc.getAuditStats() : { totalChecks: 0, allowedCount: 0, deniedCount: 0, allowRate: 0 };
+    return { success: true, stats };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePermissionAuditClear() {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc) {
+      await pc.clearAuditLogs();
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function handlePermissionDeniedList() {
+  if (!session) {
+    return { success: true, deniedOps: [] };
+  }
+  try {
+    const pc = session.getPermissionController();
+    const deniedOps = pc ? pc.listDeniedOperations() : [];
+    return { success: true, deniedOps };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePermissionDeniedDelete(data: any) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc && data?.key) {
+      await pc.deleteDeniedOperation(data.key);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePermissionDeniedClear() {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const pc = session.getPermissionController();
+    if (pc) {
+      await pc.clearDeniedOperations();
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ============================================================
+// Prompt 组件管理
+// ============================================================
+
+async function handlePromptGetComponents() {
+  if (!session) {
+    return { success: true, components: [] };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: true, components: [] };
+    }
+    const allComponents = builder.getAllComponents();
+
+    // 调用 render() 获取内容
+    const components = await Promise.all(
+      allComponents.map(async (c: any) => {
+        let content = '';
+        try {
+          // render 可能是同步或异步的
+          const rendered = c.render({});
+          content = typeof rendered === 'string' ? rendered : await rendered;
+        } catch (err) {
+          console.error(`Failed to render component ${c.id}:`, err);
+          content = '[渲染失败]';
+        }
+
+        return {
+          id: c.id,
+          name: c.name,
+          layer: c.layer,
+          priority: c.priority,
+          estimatedTokens: c.estimatedTokens,
+          enabled: c.enabled ?? true,
+          scenes: c.scenes,
+          complexity: c.complexity,
+          content,
+          dynamic: c.dynamic ?? false,
+          match: c.match ? {
+            keywords: c.match.keywords?.source || '',
+            description: c.match.description || '',
+          } : undefined,
+        };
+      })
+    );
+
+    return { success: true, components };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePromptToggleComponent(data: { id: string; enabled: boolean }) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: false, error: 'LayeredPromptBuilder 未初始化' };
+    }
+    await builder.toggleComponent(data.id, data.enabled);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePromptUpdateComponent(data: { id: string; content?: string; keywords?: string }) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: false, error: 'LayeredPromptBuilder 未初始化' };
+    }
+    await builder.updateComponent(data.id, { content: data.content, keywords: data.keywords });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePromptPreview(data: { scene?: string; complexity?: string }) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: false, error: 'LayeredPromptBuilder 未初始化' };
+    }
+    const result = await builder.build({
+      scene: (data.scene as any) || 'coding',
+      complexity: (data.complexity as any) || 'standard',
+    });
+    return { success: true, prompt: result.prompt, components: result.components, estimatedTokens: result.estimatedTokens };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handleGetPromptConfig() {
+  return { success: true, config: {} };
+}
+
+async function handleSavePromptConfig(_data: any) {
+  return { success: true };
+}
+
+// ============ 项目管理 ============
+
+/**
+ * 获取所有项目列表
+ */
+async function handleProjectsList() {
+  try {
+    // 优先使用全局 currentUserId
+    let userId = currentUserId;
+
+    // 如果没有，尝试从 authState 获取（兼容性）
+    if (!userId) {
+      const { getAuthState } = await import('./config/auth.js');
+      const authState = getAuthState();
+      userId = authState?.user?.userId;
+    }
+
+    if (!userId) {
+      return { success: false, error: '用户未登录' };
+    }
+
+    const { ProjectRegistry } = await import('../../src/core/project/ProjectRegistry.js');
+    const registry = new ProjectRegistry(userId);
+    const projects = await registry.list();
+
+    return { success: true, projects };
+  } catch (err) {
+    console.error('[agent-bridge] 获取项目列表失败:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : '获取项目列表失败',
+    };
+  }
+}
+
+/**
+ * 获取项目规则文件内容
+ */
+async function handleProjectsGetRules(data: any) {
+  try {
+    const { projectPath } = data;
+    if (!projectPath) {
+      return { success: false, error: '缺少 projectPath 参数' };
+    }
+
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+
+    // 按优先级读取规则文件
+    const ruleFiles = [
+      path.join(projectPath, 'XUANJI.md'),
+      path.join(projectPath, '.xuanji', 'rules.md'),
+    ];
+
+    for (const filePath of ruleFiles) {
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        return {
+          success: true,
+          rules: content,
+          filePath,
+        };
+      } catch {
+        // 文件不存在，继续尝试下一个
+      }
+    }
+
+    // 所有文件都不存在
+    return {
+      success: true,
+      rules: '',
+      filePath: ruleFiles[0], // 默认使用第一个文件路径
+    };
+  } catch (err) {
+    console.error('[agent-bridge] 获取项目规则失败:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : '获取项目规则失败',
+    };
+  }
+}
+
+/**
+ * 保存项目规则文件
+ */
+async function handleProjectsSaveRules(data: any) {
+  try {
+    const { projectPath, rules, filePath } = data;
+    if (!projectPath || rules === undefined) {
+      return { success: false, error: '缺少必要参数' };
+    }
+
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+
+    // 确定保存路径
+    const targetPath = filePath || path.join(projectPath, 'XUANJI.md');
+
+    // 确保目录存在
+    const dir = path.dirname(targetPath);
+    await fs.mkdir(dir, { recursive: true });
+
+    // 保存文件
+    await fs.writeFile(targetPath, rules, 'utf-8');
+
+    console.log('[agent-bridge] 项目规则已保存:', targetPath);
+    return { success: true };
+  } catch (err) {
+    console.error('[agent-bridge] 保存项目规则失败:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : '保存项目规则失败',
+    };
+  }
+}
+
+/**
+ * 获取项目的所有 xuanji 文档文件列表
+ */
+async function handleProjectsGetDocs(data: any) {
+  try {
+    const { projectPath } = data;
+    if (!projectPath) {
+      return { success: false, error: '缺少 projectPath 参数' };
+    }
+
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+
+    const docs: Array<{ name: string; path: string; relativePath: string }> = [];
+
+    // 检查 XUANJI.md
+    const xuanjiMd = path.join(projectPath, 'XUANJI.md');
+    try {
+      await fs.access(xuanjiMd);
+      docs.push({
+        name: 'XUANJI.md',
+        path: xuanjiMd,
+        relativePath: 'XUANJI.md',
+      });
+    } catch {
+      // 文件不存在
+    }
+
+    // 检查 .xuanji 目录
+    const xuanjiDir = path.join(projectPath, '.xuanji');
+    try {
+      const entries = await fs.readdir(xuanjiDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
+          const fullPath = path.join(xuanjiDir, entry.name);
+          docs.push({
+            name: entry.name,
+            path: fullPath,
+            relativePath: `.xuanji/${entry.name}`,
+          });
+        }
+      }
+    } catch {
+      // 目录不存在或无法读取
+    }
+
+    return {
+      success: true,
+      docs,
+    };
+  } catch (err) {
+    console.error('[agent-bridge] 获取项目文档列表失败:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : '获取项目文档列表失败',
+    };
+  }
+}
+
+/**
+ * 读取指定文档文件的内容
+ */
+async function handleProjectsReadDoc(data: any) {
+  try {
+    const { filePath } = data;
+    if (!filePath) {
+      return { success: false, error: '缺少 filePath 参数' };
+    }
+
+    const fs = await import('node:fs/promises');
+    const content = await fs.readFile(filePath, 'utf-8');
+
+    return {
+      success: true,
+      content,
+    };
+  } catch (err) {
+    console.error('[agent-bridge] 读取文档失败:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : '读取文档失败',
+    };
+  }
+}
+
 // ============ Todo 管理 ============
 
 async function handleTodoArchiveCompleted() {
@@ -1782,8 +2039,6 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// ============================================================
-// 全局错误处理 - 防止子进程静默崩溃
 // ============================================================
 
 /**
@@ -1868,4 +2123,151 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
     process.exit(1);
   }, 100);
 });
+
+// ============================================================
+// 项目自动检测
+// ============================================================
+
+let currentProjectRoot: string | null = null;
+
+/**
+ * 从当前工作目录检测项目信息
+ */
+async function detectProjectFromCwd() {
+  try {
+    const cwd = process.cwd();
+    const { ProjectScanner } = await import('../../src/context/ProjectScanner.js');
+    const scanner = new ProjectScanner();
+    const projectMetadata = scanner.scan(cwd);
+
+    // 如果检测到项目，且与当前项目不同，更新项目信息
+    if ((projectMetadata.type !== 'unknown' || projectMetadata.hasGit) &&
+        projectMetadata.rootPath !== currentProjectRoot) {
+      currentProjectRoot = projectMetadata.rootPath;
+
+      // 获取 git 分支信息
+      let gitBranch: string | null = null;
+      if (projectMetadata.hasGit) {
+        try {
+          const { execSync } = await import('node:child_process');
+          gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: projectMetadata.rootPath,
+            encoding: 'utf-8',
+          }).trim();
+        } catch (err) {
+          console.warn('[agent-bridge] 获取 git 分支失败:', err);
+        }
+      }
+
+      // 注册项目到 ProjectRegistry
+      await registerProjectToRegistry(projectMetadata.rootPath);
+
+      safeSend({
+        type: 'project:info',
+        data: {
+          type: projectMetadata.type,
+          hasGit: projectMetadata.hasGit,
+          rootPath: projectMetadata.rootPath,
+          configFiles: projectMetadata.configFiles,
+          gitBranch,
+        },
+      });
+
+      console.log('[agent-bridge] 切换到项目:', projectMetadata.type, projectMetadata.rootPath, gitBranch ? `(${gitBranch})` : '');
+    }
+  } catch (err) {
+    console.warn('[agent-bridge] 从当前目录检测项目失败:', err);
+  }
+}
+
+/**
+ * 注册项目到 ProjectRegistry（内部工具函数）
+ */
+async function registerProjectToRegistry(rootPath: string) {
+  if (!currentUserId) return;
+  try {
+    const { ProjectRegistry } = await import('../../src/core/project/ProjectRegistry.js');
+    const registry = new ProjectRegistry(currentUserId);
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const hasXuanjiMd = fs.existsSync(path.join(rootPath, 'XUANJI.md'));
+    const hasRulesMd = fs.existsSync(path.join(rootPath, '.xuanji', 'rules.md'));
+    await registry.register(rootPath, hasXuanjiMd || hasRulesMd);
+  } catch (err) {
+    console.warn('[agent-bridge] 注册项目到 ProjectRegistry 失败:', err);
+  }
+}
+
+/**
+ * 从工具调用中提取文件路径，自动检测项目
+ */
+async function detectProjectFromToolCall(toolName: string, input: Record<string, unknown>) {
+  // 只处理文件相关工具
+  const fileTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
+  if (!fileTools.includes(toolName)) return;
+
+  // 提取文件路径
+  let filePath: string | null = null;
+  if (input.file_path && typeof input.file_path === 'string') {
+    filePath = input.file_path;
+  } else if (input.path && typeof input.path === 'string') {
+    filePath = input.path;
+  }
+
+  if (!filePath) return;
+
+  // 如果不是绝对路径，跳过
+  const path = await import('node:path');
+  if (!path.isAbsolute(filePath)) return;
+
+  try {
+    const { ProjectScanner } = await import('../../src/context/ProjectScanner.js');
+    const scanner = new ProjectScanner();
+
+    // 从文件路径的目录开始扫描
+    const fs = await import('node:fs');
+    const stats = await fs.promises.stat(filePath).catch(() => null);
+    const startDir = stats?.isDirectory() ? filePath : path.dirname(filePath);
+
+    const projectMetadata = scanner.scan(startDir);
+
+    // 如果检测到项目，且与当前项目不同，更新项目信息
+    if ((projectMetadata.type !== 'unknown' || projectMetadata.hasGit) &&
+        projectMetadata.rootPath !== currentProjectRoot) {
+      currentProjectRoot = projectMetadata.rootPath;
+
+      // 注册项目到 ProjectRegistry
+      await registerProjectToRegistry(projectMetadata.rootPath);
+
+      // 获取 git 分支信息
+      let gitBranch: string | null = null;
+      if (projectMetadata.hasGit) {
+        try {
+          const { execSync } = await import('node:child_process');
+          gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: projectMetadata.rootPath,
+            encoding: 'utf-8',
+          }).trim();
+        } catch (err) {
+          console.warn('[agent-bridge] 获取 git 分支失败:', err);
+        }
+      }
+
+      safeSend({
+        type: 'project:info',
+        data: {
+          type: projectMetadata.type,
+          hasGit: projectMetadata.hasGit,
+          rootPath: projectMetadata.rootPath,
+          configFiles: projectMetadata.configFiles,
+          gitBranch,
+        },
+      });
+
+      console.log('[agent-bridge] 检测到新项目:', projectMetadata.type, projectMetadata.rootPath, gitBranch ? `(${gitBranch})` : '');
+    }
+  } catch (err) {
+    console.warn('[agent-bridge] 项目检测失败:', err);
+  }
+}
 

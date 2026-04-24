@@ -4,19 +4,17 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { FileText, Database, Clock, Search, X } from 'lucide-react';
+import { FileText, Clock, Search, X } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
-import { useMemoryManager } from '../hooks/useMemoryManager';
 
 interface ContextPanelProps {
   onToggle: () => void;
 }
 
-type TabId = 'files' | 'memory' | 'activity';
+type TabId = 'files' | 'activity';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'files', label: '文件', icon: <FileText size={16} /> },
-  { id: 'memory', label: '记忆', icon: <Database size={16} /> },
   { id: 'activity', label: '活动', icon: <Clock size={16} /> },
 ];
 
@@ -61,7 +59,6 @@ export default function ContextPanel({ onToggle }: ContextPanelProps) {
       {/* 内容区域 */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'files' && <FilesTab />}
-        {activeTab === 'memory' && <MemoryTab />}
         {activeTab === 'activity' && <ActivityTab />}
       </div>
     </div>
@@ -171,119 +168,6 @@ function FilesTab() {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// 记忆标签
-function MemoryTab() {
-  const { entries, loading, retrieve } = useMemoryManager();
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const handleSearch = () => {
-    if (searchQuery.trim()) {
-      retrieve(searchQuery);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  };
-
-  const getTypeIcon = (type: string) => {
-    const icons: Record<string, string> = {
-      user_preference: '💝',
-      project_fact: '📚',
-      decision: '💡',
-      tool_pattern: '⚡',
-      error_resolution: '🔧',
-    };
-    return icons[type] || '💾';
-  };
-
-  const getTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      user_preference: '偏好',
-      knowledge: '知识',
-      decision: '决策',
-      tool_pattern: '经验',
-      error_resolution: '问题',
-      user_fact: '个人',
-      relationship: '关系',
-      important_date: '日期',
-    };
-    return labels[type] || type;
-  };
-
-  return (
-    <div className="p-4 space-y-3">
-      <div className="text-sm text-text-secondary mb-2">
-        Agent 记住的关于你的信息
-      </div>
-
-      {/* 搜索框 */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="搜索记忆..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="flex-1 bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
-        />
-        <button
-          onClick={handleSearch}
-          disabled={!searchQuery.trim() || loading}
-          className="px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          <Search size={14} />
-        </button>
-      </div>
-
-      {/* 记忆列表 */}
-      <div className="space-y-2">
-        {entries.length === 0 ? (
-          <div className="text-center text-sm text-text-secondary py-8">
-            {searchQuery ? '没有找到相关记忆' : '输入关键词搜索记忆'}
-          </div>
-        ) : (
-          entries.slice(0, 10).map((entry, index) => (
-            <div
-              key={index}
-              className="p-2.5 bg-bg-primary hover:bg-bg-tertiary rounded-lg transition-colors"
-            >
-              <div className="flex items-start gap-2 mb-1.5">
-                <div className="text-base">{getTypeIcon(entry.type)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-text-secondary mb-1">
-                    {getTypeLabel(entry.type)}
-                  </div>
-                  <div className="text-sm">{entry.content}</div>
-                </div>
-                {entry.score !== undefined && (
-                  <div className="text-xs text-primary font-semibold">
-                    {(entry.score * 100).toFixed(0)}%
-                  </div>
-                )}
-              </div>
-              {entry.tags && entry.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {entry.tags.slice(0, 3).map((tag, idx) => (
-                    <span
-                      key={idx}
-                      className="text-xs px-1.5 py-0.5 bg-bg-secondary rounded text-text-secondary"
-                    >
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

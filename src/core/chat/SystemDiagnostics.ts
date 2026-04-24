@@ -6,7 +6,6 @@
 import type { AppConfig } from '@/core/types';
 import { MCPManager } from '@/mcp/MCPManager';
 import type { SkillRegistry } from '@/core/skills';
-import type { IMemoryStore } from '@/memory/types';
 import type { IPermissionController } from '@/permission/types';
 import { generateDiagnostics, type DiagnosticsContext } from './SessionDiagnostics';
 import { logger } from '@/core/logger';
@@ -27,7 +26,6 @@ export class SystemDiagnostics {
     config: AppConfig;
     mcpManager: MCPManager | null;
     skillRegistry: SkillRegistry | null;
-    memoryManager: IMemoryStore | null;
     permissionController: IPermissionController | null;
     initialized: boolean;
   }): Promise<string> {
@@ -36,7 +34,6 @@ export class SystemDiagnostics {
         config: context.config,
         mcpManager: context.mcpManager,
         skillRegistry: context.skillRegistry,
-        memoryManager: context.memoryManager,
         permissionController: context.permissionController,
         initialized: context.initialized,
       };
@@ -72,13 +69,6 @@ export class SystemDiagnostics {
       }
       if (!config.provider.model) {
         errors.push('模型配置缺失');
-      }
-    }
-
-    // 验证 Memory 配置
-    if (config.memory) {
-      if (config.memory.enabled && !config.memory.enabled) {
-        warnings.push('Memory 已启用但未配置');
       }
     }
 
@@ -140,7 +130,6 @@ export class SystemDiagnostics {
     config: AppConfig;
     mcpManager: MCPManager | null;
     skillRegistry: SkillRegistry | null;
-    memoryManager: IMemoryStore | null;
     permissionController: IPermissionController | null;
     initialized: boolean;
   }): Promise<string> {

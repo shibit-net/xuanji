@@ -94,11 +94,17 @@ export default function MainLayout({ children }: MainLayoutProps) {
             onToggle={() => setSidebarVisible(!sidebarVisible)}
             onOpenAgents={() => navigate(location.pathname === '/agents' ? '/chat' : '/agents')}
             onOpenMemory={() => navigate(location.pathname === '/memory' ? '/chat' : '/memory')}
+            onOpenSystemPrompt={() => navigate(location.pathname === '/system-prompt' ? '/chat' : '/system-prompt')}
+            onOpenPermissions={() => navigate(location.pathname === '/permissions' ? '/chat' : '/permissions')}
+            onOpenSettings={() => navigate(location.pathname === '/settings' ? '/chat' : '/settings')}
+            onOpenTools={() => navigate(location.pathname === '/tools' ? '/chat' : '/tools')}
           />
         )}
 
         {/* 页面内容 */}
-        {children}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {children}
+        </div>
       </div>
 
       {/* 状态栏 */}

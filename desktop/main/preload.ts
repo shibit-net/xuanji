@@ -71,6 +71,38 @@
     ipcRenderer.on('agent:end', (_event, state) => callback(state));
   },
 
+  // Workspace 事件监听（MainAgent 执行流程可视化）
+  onWorkspaceIntentAnalysisStart: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:intent-analysis-start', (_event, data) => callback(data));
+  },
+  onWorkspaceIntentAnalysisEnd: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:intent-analysis-end', (_event, data) => callback(data));
+  },
+  onWorkspaceModelClassifierStart: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:model-classifier-start', (_event, data) => callback(data));
+  },
+  onWorkspaceModelClassifierEnd: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:model-classifier-end', (_event, data) => callback(data));
+  },
+  onWorkspaceTaskPlanningStart: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:task-planning-start', (_event, data) => callback(data));
+  },
+  onWorkspaceTaskPlanningEnd: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:task-planning-end', (_event, data) => callback(data));
+  },
+  onWorkspaceTaskExecutionStart: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:task-execution-start', (_event, data) => callback(data));
+  },
+  onWorkspaceTaskExecutionEnd: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:task-execution-end', (_event, data) => callback(data));
+  },
+  onWorkspaceResultAggregationStart: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:result-aggregation-start', (_event, data) => callback(data));
+  },
+  onWorkspaceResultAggregationEnd: (callback: (data: any) => void) => {
+    ipcRenderer.on('workspace:result-aggregation-end', (_event, data) => callback(data));
+  },
+
   // 移除监听器
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel);
@@ -91,19 +123,6 @@
   checkpointList: () => ipcRenderer.invoke('checkpoint:list'),
   checkpointRewind: (data: any) => ipcRenderer.invoke('checkpoint:rewind', data),
 
-  // ============ 记忆管理 ============
-  memoryRetrieve: (data: any) => ipcRenderer.invoke('memory:retrieve', data),
-  memoryStats: () => ipcRenderer.invoke('memory:stats'),
-
-  // ============ 记忆系统高级功能 ============
-  getMemoryStats: () => ipcRenderer.invoke('memory:stats'),
-  getMemoryConfig: () => ipcRenderer.invoke('memory:get-config'),
-  saveMemoryConfig: (data: { config: any }) => ipcRenderer.invoke('memory:save-config', data),
-  manualMemoryFlush: () => ipcRenderer.invoke('memory:manual-flush'),
-  extractTopics: () => ipcRenderer.invoke('memory:extract-topics'),
-  getMemoryList: (data: { query?: string; type?: string; category?: string; limit?: number }) =>
-    ipcRenderer.invoke('memory:get-list', data),
-
   // ============ 核心规则管理 ============
   getCoreRules: () => ipcRenderer.invoke('core-rules:get-all'),
   updateCoreRule: (data: { id: string; active?: boolean }) => ipcRenderer.invoke('core-rules:update', data),
@@ -121,6 +140,29 @@
 
   // ============ Tools 查询 ============
   toolsList: () => ipcRenderer.invoke('tools:list'),
+
+  // ============ Prompt 管理 ============
+  promptGetComponents: () => ipcRenderer.invoke('prompt-get-components'),
+  promptToggleComponent: (data: { id: string; enabled: boolean }) =>
+    ipcRenderer.invoke('prompt-toggle-component', data),
+  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string }) =>
+    ipcRenderer.invoke('prompt-update-component', data),
+  promptPreview: (data: { scene?: string; complexity?: string }) =>
+    ipcRenderer.invoke('prompt-preview', data),
+  getPromptConfig: () => ipcRenderer.invoke('prompt-get-config'),
+  setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) =>
+    ipcRenderer.invoke('prompt-set-config', data),
+
+  // ============ 项目管理 ============
+  projectsList: () => ipcRenderer.invoke('projects-list'),
+  projectsGetRules: (data: { projectPath: string }) =>
+    ipcRenderer.invoke('projects-get-rules', data),
+  projectsSaveRules: (data: { projectPath: string; rules: string; filePath?: string }) =>
+    ipcRenderer.invoke('projects-save-rules', data),
+  projectsGetDocs: (data: { projectPath: string }) =>
+    ipcRenderer.invoke('projects-get-docs', data),
+  projectsReadDoc: (data: { filePath: string }) =>
+    ipcRenderer.invoke('projects-read-doc', data),
 
   // ============ Todo 管理 ============
   todoArchiveCompleted: () => ipcRenderer.invoke('todo:archive-completed'),
@@ -158,6 +200,20 @@
   permissionDeleteRule: (data: { cacheKey: string }) => ipcRenderer.invoke('permission:delete', data),
   permissionClearRules: () => ipcRenderer.invoke('permission:clear'),
 
+  // ============ 权限配置管理 ============
+  permissionConfigGet: () => ipcRenderer.invoke('permission:config-get'),
+  permissionConfigUpdate: (updates: any) => ipcRenderer.invoke('permission:config-update', updates),
+
+  // ============ 审计日志管理 ============
+  permissionAuditList: (options?: any) => ipcRenderer.invoke('permission:audit-list', options),
+  permissionAuditStats: () => ipcRenderer.invoke('permission:audit-stats'),
+  permissionAuditClear: () => ipcRenderer.invoke('permission:audit-clear'),
+
+  // ============ 拒绝操作管理 ============
+  permissionDeniedList: () => ipcRenderer.invoke('permission:denied-list'),
+  permissionDeniedDelete: (data: { key: string }) => ipcRenderer.invoke('permission:denied-delete', data),
+  permissionDeniedClear: () => ipcRenderer.invoke('permission:denied-clear'),
+
   // ============ 日志管理 ============
   logsRead: (query?: any) => ipcRenderer.invoke('logs:read', query),
   logsReadLatest: (count?: number, levels?: string[]) => ipcRenderer.invoke('logs:read-latest', count, levels),
@@ -169,15 +225,22 @@
     ipcRenderer.on('logs:new-record', (_event, record) => callback(record));
   },
 
-  // ============ 会话事件监听 ============
-  onSessionMessagesRestored: (callback: (data: { messages: any[] }) => void) => {
-    ipcRenderer.on('session:messages-restored', (_event, data) => callback(data));
-  },
-
   // ============ Persona 事件 ============
   onPersonaUpdated: (callback: (data: { persona: any; onboardingDone: boolean }) => void) => {
     ipcRenderer.on('persona-updated', (_event, data) => callback(data));
   },
+
+  // ============ 下载管理 ============
+  downloadGetTasks: () => ipcRenderer.invoke('download:get-tasks'),
+  downloadCancel: (taskId: string) => ipcRenderer.invoke('download:cancel', taskId),
+  downloadClearFinished: () => ipcRenderer.invoke('download:clear-finished'),
+
+  // ============ 本地模型管理 ============
+  localModelCheck: (modelId: string) => ipcRenderer.invoke('local-model:check', modelId),
+  localModelDownload: (modelId: string) => ipcRenderer.invoke('local-model:download', modelId),
+  localModelList: () => ipcRenderer.invoke('local-model:list'),
+  localModelDelete: (filename: string) => ipcRenderer.invoke('local-model:delete', filename),
+  localModelOpenDir: () => ipcRenderer.invoke('local-model:open-dir'),
 
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {

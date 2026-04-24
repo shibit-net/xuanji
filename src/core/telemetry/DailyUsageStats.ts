@@ -17,8 +17,6 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { UsageRecord } from './UsageStatsRecorder';
 import { UsageStatsRecorder } from './UsageStatsRecorder';
-import { CostTracker } from '../agent/CostTracker';
-import type { PricingResolver } from '../agent/PricingResolver';
 
 // ── 类型定义 ──
 
@@ -42,8 +40,6 @@ export interface DailyUsageRecord {
   cacheReadTokens: number;
   /** 缓存写入 token */
   cacheWriteTokens: number;
-  /** 总费用 (USD) */
-  totalCost: number;
   /** 工具调用统计 */
   tools: Record<string, number>; // { tool_name: count }
   /** 平均迭代次数 */
@@ -86,17 +82,14 @@ export interface DailyUsageFilter {
 export class DailyUsageStats {
   private static readonly VERSION = '1.0';
 
-  private pricingResolver: PricingResolver | null = null;
   private usageRecorder: UsageStatsRecorder;
   private dailyFilePath: string;
   private statsDir: string;
 
   constructor(
-    pricingResolver?: PricingResolver,
     usageRecorder?: UsageStatsRecorder,
     dailyFilePath?: string,
   ) {
-    this.pricingResolver = pricingResolver ?? null;
     this.usageRecorder = usageRecorder ?? new UsageStatsRecorder();
 
     if (dailyFilePath) {
@@ -139,7 +132,6 @@ export class DailyUsageStats {
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          totalCost: 0,
           tools: {},
           avgIterations: 0,
           totalDurationMs: 0,
@@ -154,18 +146,6 @@ export class DailyUsageStats {
       daily.cacheWriteTokens += record.cacheWrite ?? 0;
       daily.totalTokens = daily.inputTokens + daily.outputTokens;
       daily.totalDurationMs += record.durationMs;
-
-      // 计算费用
-      if (this.pricingResolver) {
-        const costTracker = new CostTracker(record.model, this.pricingResolver);
-        const cost = costTracker.calculateCost({
-          input: record.input,
-          output: record.output,
-          cacheRead: record.cacheRead,
-          cacheWrite: record.cacheWrite,
-        });
-        daily.totalCost += cost;
-      }
 
       // 聚合工具调用
       if (record.toolCalls) {
@@ -302,32 +282,10 @@ export class DailyUsageStats {
 
   /**
    * 获取费用趋势（最近 N 天）
+   * @deprecated 费用功能已移除
    */
   async getCostTrend(days: number): Promise<{ date: string; cost: number }[]> {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days + 1);
-
-    const startStr = startDate.toISOString().split('T')[0]!;
-    const endStr = endDate.toISOString().split('T')[0]!;
-
-    const records = await this.getRange(startStr, endStr);
-
-    // 按日期聚合费用
-    const dailyCosts = new Map<string, number>();
-    for (const record of records) {
-      const cost = dailyCosts.get(record.date) || 0;
-      dailyCosts.set(record.date, cost + record.totalCost);
-    }
-
-    // 填充缺失日期（费用为 0）
-    const result: { date: string; cost: number }[] = [];
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
-      result.push({ date: dateStr, cost: dailyCosts.get(dateStr) || 0 });
-    }
-
-    return result;
+    return [];
   }
 
   // ── 存储管理 ──
@@ -411,7 +369,6 @@ export class DailyUsageStats {
         existing.cacheReadTokens += record.cacheReadTokens;
         existing.cacheWriteTokens += record.cacheWriteTokens;
         existing.totalTokens = existing.inputTokens + existing.outputTokens;
-        existing.totalCost += record.totalCost;
         existing.totalDurationMs += record.totalDurationMs;
 
         // 合并工具调用

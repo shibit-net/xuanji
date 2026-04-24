@@ -6,7 +6,7 @@
  */
 
 import type { Tool, ToolResult } from '@/core/types';
-import type { PersonaConfig } from '@/core/types/config';
+import type { PersonaConfig } from '@/shared/types/config';
 
 export interface UpdatePersonaInput {
   name?: string;

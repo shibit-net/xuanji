@@ -21,7 +21,6 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({ stats, title = 'Toke
   }
 
   const totalTokens = stats.reduce((sum, s) => sum + s.totalTokens, 0);
-  const totalCost = stats.reduce((sum, s) => sum + s.estimatedCost, 0);
 
   // Aggregate top tools across all days
   const toolMap = new Map<string, { count: number; tokens: number }>();
@@ -48,9 +47,6 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({ stats, title = 'Toke
       <Box flexDirection="column" paddingY={1}>
         <Text>
           <Text color="green">Total Tokens:</Text> {totalTokens.toLocaleString()}
-        </Text>
-        <Text>
-          <Text color="green">Estimated Cost:</Text> ${totalCost.toFixed(4)}
         </Text>
         {stats.length > 1 && (
           <Text>
@@ -88,7 +84,6 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({ stats, title = 'Toke
                 <Text color="blue">{day.date}</Text>
                 <Text dimColor> → </Text>
                 <Text>{day.totalTokens.toLocaleString()} tokens</Text>
-                <Text dimColor> (${day.estimatedCost.toFixed(4)})</Text>
               </Text>
             ))}
           </Box>

@@ -56,6 +56,9 @@ export class ComplexityAnalyzer {
 
       // 从 RuntimeConfig 获取完整的 provider 配置
       const runtimeConfig = getRuntimeConfig();
+      if (!runtimeConfig) {
+        throw new Error('RuntimeConfig not initialized');
+      }
 
       const stream = this.provider.stream(
         [{ role: 'user', content: prompt }],

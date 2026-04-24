@@ -24,16 +24,15 @@ import type {
   ResumedSessionContext,
 } from './types.js';
 import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/core/types';
-import type { IMemoryStore, MemoryEntry, SessionMemory } from '@/memory/types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'session-manager' });
 
 /**
- * 记忆驱动会话配置
+ * 记忆驱动会话配置（已废弃，保留接口兼容性）
  */
 export interface MemoryDrivenConfig {
-  /** 是否启用记忆驱动模式（默认 true） */
+  /** 是否启用记忆驱动模式（默认 false，已废弃） */
   enabled: boolean;
   /** 保留最近 N 条消息（默认 10） */
   keepRecentMessages: number;
@@ -44,18 +43,16 @@ export interface MemoryDrivenConfig {
 export interface SessionManagerOptions extends Partial<SessionStorageOptions> {
   /** 会话配置 */
   sessionConfig?: SessionConfig;
-  /** 记忆驱动配置 */
+  /** 记忆驱动配置（已废弃） */
   memoryDriven?: Partial<MemoryDrivenConfig>;
   /** LLM Provider（用于生成摘要） */
   provider?: ILLMProvider;
   /** Provider 配置 */
   providerConfig?: ProviderConfig;
-  /** 记忆管理器（用于检索记忆） */
-  memoryManager?: IMemoryStore;
 }
 
 const DEFAULT_MEMORY_DRIVEN_CONFIG: MemoryDrivenConfig = {
-  enabled: true,
+  enabled: false,
   keepRecentMessages: 10,
   generateSummaryOnSave: true,
 };
@@ -66,12 +63,10 @@ export class SessionManager {
   private activeSessionId: string | null = null;
   /** 会话配置 */
   private sessionConfig: SessionConfig | null = null;
-  /** 记忆驱动配置 */
+  /** 记忆驱动配置（已废弃） */
   private memoryDrivenConfig: MemoryDrivenConfig;
   /** 会话摘要生成器 */
   private summarizer: SessionSummarizer | null = null;
-  /** 记忆管理器 */
-  private memoryManager: IMemoryStore | null = null;
   /** 上次归档后的消息起始索引 */
   private lastArchiveMessageIndex: number = 0;
   /** 上次归档时间 */
@@ -84,14 +79,12 @@ export class SessionManager {
       ...DEFAULT_MEMORY_DRIVEN_CONFIG,
       ...options?.memoryDriven,
     };
-    this.memoryManager = options?.memoryManager || null;
 
     // 初始化摘要生成器（如果提供了 provider）
     if (options?.provider && options?.providerConfig) {
       this.summarizer = new SessionSummarizer({
         provider: options.provider,
         config: options.providerConfig,
-        memoryManager: this.memoryManager,
       });
     }
   }
@@ -99,14 +92,9 @@ export class SessionManager {
   /**
    * 保存当前会话
    *
-   * 🆕 记忆驱动模式：
-   * 1. 生成会话摘要和关键点（如果启用）
-   * 2. 只保留最近 N 条消息
-   * 3. 记录相关记忆引用
-   *
    * @param messages - 当前完整消息历史（来自 MessageManager.getHistory()）
    * @param name - 可选会话名称（默认自动生成）
-   * @param options - 额外保存选项（usage、historyMessages、memoryRefs）
+   * @param options - 额外保存选项（usage、historyMessages）
    * @returns 会话 ID
    */
   async save(
@@ -115,7 +103,6 @@ export class SessionManager {
     options?: {
       usage?: SessionUsage;
       historyMessages?: HistoryMessage[];
-      memoryRefs?: string[];
     },
   ): Promise<string> {
     const sessionId = this.activeSessionId ?? randomUUID();
@@ -132,62 +119,9 @@ export class SessionManager {
       gitInfo: this.getGitInfo(),
     };
 
-    // 🆕 记忆驱动模式处理
-    let summary: string | undefined;
-    let keyPoints: string[] | undefined;
-    let memoryRefs: string[] | undefined = options?.memoryRefs;
-    let recentMessages: Message[] | undefined;
-
-    if (this.memoryDrivenConfig.enabled) {
-      // 1. 生成摘要（如果启用且有摘要生成器）
-      if (this.memoryDrivenConfig.generateSummaryOnSave && this.summarizer && messages.length > 0) {
-        try {
-          const summaryResult = await this.summarizer.summarize(messages);
-          summary = summaryResult.summary;
-          keyPoints = summaryResult.keyPoints;
-          memoryRefs = summaryResult.memoryRefs || memoryRefs;
-          log.info(`Session summary generated: ${keyPoints?.length || 0} key points`);
-        } catch (err) {
-          log.warn('Failed to generate session summary:', err);
-        }
-      }
-
-      // 2. 只保留最近 N 条消息（确保窗口不以孤立的 tool_result 开头）
-      // Anthropic/Bedrock 要求每条 tool_result 必须与前一条 assistant 消息的 tool_use 配对，
-      // 若 slice 边界恰好落在配对之间，恢复会话时会抛出 ValidationException。
-      const keepCount = this.memoryDrivenConfig.keepRecentMessages;
-      if (keepCount > 0 && messages.length > keepCount) {
-        let startIdx = messages.length - keepCount;
-        // 从初始边界向前推进，直到第一条消息不是孤立的 tool_result
-        while (startIdx < messages.length - 1) {
-          const firstMsg = messages[startIdx];
-          if (
-            firstMsg.role === 'user' &&
-            Array.isArray(firstMsg.content) &&
-            firstMsg.content.length > 0 &&
-            (firstMsg.content[0] as { type?: string }).type === 'tool_result'
-          ) {
-            startIdx++;
-          } else {
-            break;
-          }
-        }
-        recentMessages = messages.slice(startIdx);
-        log.info(
-          `Keeping recent messages (total: ${messages.length}, window: ${recentMessages.length}, startIdx: ${startIdx})`
-        );
-      } else {
-        recentMessages = messages;
-      }
-    }
-
     const snapshot: SessionSnapshot = {
       metadata,
-      summary,
-      keyPoints,
-      memoryRefs,
-      recentMessages,
-      messages: this.memoryDrivenConfig.enabled ? [] : messages,
+      messages,
       checkpoints: [],
       usage: options?.usage,
       historyMessages: options?.historyMessages,
@@ -202,12 +136,7 @@ export class SessionManager {
   /**
    * 恢复已保存的会话
    *
-   * 🆕 记忆驱动模式：
-   * 1. 加载会话摘要和关键点
-   * 2. 检索相关记忆条目
-   * 3. 返回最近 N 条消息（而非完整历史）
-   *
-   * @returns 恢复的会话上下文（含摘要、记忆、最近消息）
+   * @returns 恢复的会话上下文
    */
   async resume(sessionId: string, _options?: ResumeOptions): Promise<ResumedSessionContext> {
     const exists = await this.storage.exists(sessionId);
@@ -226,38 +155,10 @@ export class SessionManager {
       updatedAt: Date.now(),
     }));
 
-    // 🆕 记忆驱动模式处理
-    let memories: Array<{ id: string; content: string; tags?: string[]; timestamp: number }> = [];
-
-    if (this.memoryDrivenConfig.enabled && snapshot.memoryRefs && this.memoryManager) {
-      // 检索相关记忆
-      try {
-        const retrieved = await this.memoryManager.retrieve(
-          snapshot.summary || '',
-          { maxResults: 20 }
-        );
-
-        memories = retrieved.map((entry) => ({
-          id: entry.id,
-          content: entry.content,
-          tags: entry.keywords,
-          timestamp: new Date(entry.createdAt).getTime(),
-        }));
-
-        log.info(`Retrieved ${memories.length} memories for session ${sessionId}`);
-      } catch (err) {
-        log.warn('Failed to retrieve memories:', err);
-      }
-    }
-
-    // messages.jsonl 已包含 recentMessages 内容（saveSnapshot 时优先写入）
     const messages = snapshot.messages;
 
     return {
       sessionId,
-      summary: snapshot.summary,
-      keyPoints: snapshot.keyPoints,
-      memories,
       messages,
       usage: snapshot.usage ?? { input: 0, output: 0, cost: 0 },
       historyMessages: snapshot.historyMessages ?? [],
@@ -438,8 +339,6 @@ export class SessionManager {
   async initialize(): Promise<{
     resumed: boolean;
     sessionId?: string;
-    summary?: string;
-    memories?: MemoryEntry[];
     messages?: Message[];
     historyMessages?: HistoryMessage[];
   }> {
@@ -466,25 +365,11 @@ export class SessionManager {
 
       const context = await this.resume(lastSession.id);
 
-      let memories: MemoryEntry[] = [];
-      if (this.memoryManager) {
-        try {
-          memories = await this.memoryManager.retrieve(
-            context.summary || '',
-            { maxResults: this.sessionConfig.memoryRetrievalCount }
-          );
-        } catch (err) {
-          log.warn('Failed to retrieve memories during auto-resume:', err);
-        }
-      }
-
-      log.info(`Auto-resumed session ${context.sessionId}, retrieved ${memories.length} memories`);
+      log.info(`Auto-resumed session ${context.sessionId}`);
 
       return {
         resumed: true,
         sessionId: context.sessionId,
-        summary: context.summary,
-        memories,
         messages: context.messages,
         historyMessages: context.historyMessages,
       };
@@ -542,111 +427,13 @@ export class SessionManager {
    *
    * 流程:
    * 1. 生成会话摘要和关键点
-   * 2. 提取记忆（调用 MemoryManager.save）
-   * 3. 保存到长期记忆
-   * 4. 保留最近 N 条消息
+   * 2. 保留最近 N 条消息
    * 5. 更新归档状态
    *
    * @param messages - 当前完整消息历史
    * @param currentMessageIndex - 当前消息索引
    * @returns 归档结果
    */
-  async archive(
-    messages: Message[],
-    currentMessageIndex: number
-  ): Promise<{
-    archivedCount: number;
-    memoriesExtracted: number;
-    summary?: string;
-    keyPoints?: string[];
-  }> {
-    if (!this.sessionConfig) {
-      throw new Error('Session config not initialized');
-    }
-
-    const { archiveStrategy } = this.sessionConfig;
-    const now = Date.now();
-
-    // 1. 确定归档范围（从上次归档到当前，保留最近的）
-    const archiveEndIndex = currentMessageIndex - archiveStrategy.keepRecentMessages;
-    const archiveMessages = messages.slice(
-      this.lastArchiveMessageIndex,
-      archiveEndIndex
-    );
-
-    if (archiveMessages.length === 0) {
-      log.debug('No messages to archive (archive range is empty)');
-      return { archivedCount: 0, memoriesExtracted: 0 };
-    }
-
-    // 2. 生成会话摘要
-    let summary: string | undefined;
-    let keyPoints: string[] | undefined;
-
-    if (archiveStrategy.generateSummary && this.summarizer) {
-      try {
-        const summaryResult = await this.summarizer.summarize(archiveMessages);
-        summary = summaryResult.summary;
-        keyPoints = summaryResult.keyPoints;
-        log.debug(`Generated summary for ${archiveMessages.length} messages`);
-      } catch (err) {
-        log.warn('Failed to generate summary during archive:', err);
-      }
-    }
-
-    // 3. 提取记忆（调用 MemoryManager）
-    let memoriesExtracted = 0;
-    if (this.memoryManager) {
-      try {
-        const sessionMemory: SessionMemory = {
-          sessionId: this.activeSessionId ?? 'continuous',
-          startTime: new Date(this.lastArchiveTime).toISOString(),
-          endTime: new Date(now).toISOString(),
-          userMessages: archiveMessages
-            .filter(m => m.role === 'user')
-            .map(m => typeof m.content === 'string' ? m.content : this.extractTextContent(m)),
-          assistantHighlights: keyPoints || archiveMessages
-            .filter(m => m.role === 'assistant')
-            .slice(-5)
-            .map(m => typeof m.content === 'string' ? m.content : this.extractTextContent(m))
-            .map(text => text.slice(0, 200)), // 取前 200 字符作为亮点
-          toolCalls: [],
-          model: 'continuous',
-        };
-
-        // 保存到记忆系统（自动提取 + 持久化）
-        await this.memoryManager.save(sessionMemory);
-
-        // 查询提取的记忆数量（粗略估算）
-        const recentMemories = await this.memoryManager.retrieve(
-          summary || '',
-          { maxResults: 5 }
-        );
-        memoriesExtracted = recentMemories.length;
-
-        log.debug(`Extracted ${memoriesExtracted} memories from archived messages`);
-      } catch (err) {
-        log.warn('Failed to extract memories during archive:', err);
-      }
-    }
-
-    // 4. 更新归档状态
-    this.lastArchiveMessageIndex = archiveEndIndex;
-    this.lastArchiveTime = now;
-
-    log.info(
-      `Archived ${archiveMessages.length} messages, ` +
-      `extracted ${memoriesExtracted} memories, ` +
-      `kept recent ${archiveStrategy.keepRecentMessages} messages`
-    );
-
-    return {
-      archivedCount: archiveMessages.length,
-      memoriesExtracted,
-      summary,
-      keyPoints,
-    };
-  }
 
   /**
    * 检索相关记忆（用于注入 system prompt）
@@ -654,18 +441,4 @@ export class SessionManager {
    * @param query - 查询内容（用户消息或会话摘要）
    * @returns 相关记忆条目
    */
-  async retrieveMemories(query: string): Promise<MemoryEntry[]> {
-    if (!this.sessionConfig || !this.memoryManager) {
-      return [];
-    }
-
-    try {
-      return await this.memoryManager.retrieve(query, {
-        maxResults: this.sessionConfig.memoryRetrievalCount,
-      });
-    } catch (err) {
-      log.warn('Failed to retrieve memories:', err);
-      return [];
-    }
-  }
 }

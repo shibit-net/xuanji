@@ -67,6 +67,8 @@ export default defineConfig({
               external: (id) => {
                 if (id === 'electron') return true;
                 if (id.startsWith('node:')) return true;
+                if (id.startsWith('node-llama-cpp')) return true;
+                if (id.startsWith('@node-llama-cpp/')) return true;
                 const builtins = ['path', 'fs', 'url', 'module', 'child_process', 'os', 'crypto', 'stream', 'util', 'events', 'http', 'https', 'net', 'tls', 'zlib', 'buffer', 'querystring', 'assert', 'tty', 'readline', 'worker_threads', 'perf_hooks', 'async_hooks', 'dns', 'dgram'];
                 if (builtins.includes(id)) return true;
                 return false;

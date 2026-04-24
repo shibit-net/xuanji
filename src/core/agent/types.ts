@@ -12,6 +12,14 @@ import type { ILLMProvider } from '@/core/types';
 export type AgentRole = 'router' | 'specialist' | 'coordinator';
 
 /**
+ * Agent 分类（三大类）
+ * - system: 系统 agent，框架自动调用（意图分析、上下文压缩、记忆整理、分类）
+ * - app: 应用 agent，执行具体工作（主 agent、各场景角色 agent）
+ * - custom: 用户自定义 agent
+ */
+export type AgentCategory = 'system' | 'app' | 'custom';
+
+/**
  * Agent 输入
  */
 export interface AgentInput {
@@ -261,8 +269,8 @@ export interface ConfigurableAgentConfig {
   description: string;
 
   // ========== 意图匹配 ==========
-  /** 标签 */
-  tags: string[];
+  /** 标签（已废弃，保留向后兼容） */
+  tags?: string[];
   /** 触发关键词 */
   triggers?: string[];
   /** 能力描述 */
@@ -270,6 +278,13 @@ export interface ConfigurableAgentConfig {
   /** 示例（Few-shot learning） */
   examples?: Array<{ input: string; output: string }>;
 
+  // ========== Skills（未来扩展） ==========
+  /**
+   * Agent 拥有的 Skills（未来支持）
+   * 用于接入 clawHub 等 Skill 系统
+   * @future
+   */
+  skills?: string[];  // Skill IDs
   // ========== 专属知识库 ==========
   /** 知识库配置 */
   knowledgeBase?: {
@@ -307,6 +322,15 @@ export interface ConfigurableAgentConfig {
     };
   };
 
+  // ========== Prompt 配置 ==========
+  /** Prompt 配置 */
+  prompt?: {
+    /** 默认场景（不设置则自动分析） */
+    defaultScene?: string;
+    /** 默认复杂度（不设置则为 'standard'） */
+    defaultComplexity?: 'simple' | 'standard' | 'complex';
+  };
+
   // ========== Provider 配置 ==========
   /** Provider 配置（可选，用于独立 API Key/BaseURL） */
   provider?: {
@@ -337,39 +361,6 @@ export interface ConfigurableAgentConfig {
     retryOnError?: boolean;
   };
 
-  // ========== 权限控制 ==========
-  /** 权限配置 */
-  permissions: {
-    /** 文件读取权限 */
-    fileRead?: 'always' | 'ask' | 'deny';
-    /** 文件写入权限 */
-    fileWrite?: 'always' | 'ask' | 'deny';
-    /** 命令执行权限 */
-    bashExec?: 'always' | 'ask' | 'deny';
-    /** 网络访问权限 */
-    network?: 'always' | 'ask' | 'deny';
-    /** 允许的路径 */
-    allowedPaths?: string[];
-    /** 禁止的路径 */
-    deniedPaths?: string[];
-    /** 允许的命令 */
-    allowedCommands?: string[];
-    /** 禁止的命令 */
-    deniedCommands?: string[];
-    /** 受限路径（旧字段，兼容） */
-    restrictedPaths?: string[];
-    /** 允许访问的域名（旧字段，兼容） */
-    allowedDomains?: string[];
-    /** 允许读取文件（旧字段，兼容） */
-    allowFileRead?: boolean;
-    /** 允许写入文件（旧字段，兼容） */
-    allowFileWrite?: boolean;
-    /** 允许执行命令（旧字段，兼容） */
-    allowBashExecution?: boolean;
-    /** 允许网络访问（旧字段，兼容） */
-    allowNetworkAccess?: boolean;
-  };
-
   // ========== 成本控制 ==========
   /** 成本控制 */
   cost?: {
@@ -398,6 +389,13 @@ export interface ConfigurableAgentConfig {
     loadedAt?: string;
     /** 是否为内置 Agent */
     internal?: boolean;
+    /**
+     * Agent 分类（统一三大类）
+     * - system: 系统 agent，框架自动调用（意图分析、上下文压缩、记忆整理、分类）
+     * - app: 应用 agent，执行具体工作（主 agent、各场景角色 agent）
+     * - custom: 用户自定义 agent
+     */
+    category?: AgentCategory;
     /** 额外元数据 */
     [key: string]: any;
   };

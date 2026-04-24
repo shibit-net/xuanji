@@ -21,7 +21,6 @@ import type {
   TeamStrategy,
 } from './types';
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
-import type { IMemoryStore } from '@/memory/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { AgentRegistry } from '../AgentRegistry';
 import type { ProviderManager } from '@/core/providers/ProviderManager';
@@ -41,12 +40,11 @@ export class TeamManager implements ITeamManager {
   private registry: IToolRegistry;
   private agentConfig: AgentConfig;
   private hookRegistry: HookRegistry | null;
-  private memoryStore: IMemoryStore | null;
   private running = false;
   private taskQueue: TaskAssignment[] = [];
   private completedTasks: Map<string, TaskExecutionResult> = new Map();
   private depth: number;
-  private subAgentFactory: SubAgentFactory;
+  public subAgentFactory: SubAgentFactory;  // 🆕 改为 public，允许外部注入 promptBuilder
   private teamId: string; // 团队唯一标识，在构造时生成
   private agentRegistry: AgentRegistry; // 保存 agentRegistry 引用
 
@@ -55,7 +53,7 @@ export class TeamManager implements ITeamManager {
     registry: IToolRegistry,
     agentConfig: AgentConfig,
     hookRegistry?: HookRegistry | null,
-    memoryStore?: IMemoryStore | null,
+    memoryStore?: null,
     depth = 0,
     agentRegistry?: AgentRegistry,
     providerManager?: ProviderManager,
@@ -64,7 +62,6 @@ export class TeamManager implements ITeamManager {
     this.registry = registry;
     this.agentConfig = agentConfig;
     this.hookRegistry = hookRegistry ?? null;
-    this.memoryStore = memoryStore ?? null;
     this.depth = depth;
     this.teamId = `team-${Date.now()}`; // 在构造时生成唯一 ID
 
@@ -79,7 +76,7 @@ export class TeamManager implements ITeamManager {
       providerManager,
       registry,
       hookRegistry,
-      memoryStore,
+      null,
       mainProvider,  // 传递父 provider
       agentConfig,  // 🔧 传递父 agent 的完整配置（包含 provider 信息）
     );
@@ -99,7 +96,8 @@ export class TeamManager implements ITeamManager {
     // 1. 精确匹配：检查是否是已注册的 agent（内置/用户/项目）
     const registeredAgent = this.agentRegistry.get(agentId);
     if (registeredAgent) {
-      const agentType = registeredAgent.metadata?.builtin ? 'preset' : 'custom';
+      const category = registeredAgent.metadata?.category || 'custom';
+      const agentType = category === 'system' ? 'builtin' : category === 'app' ? 'preset' : 'custom';
       log.info(`[${memberId}] Using ${agentType} agent: ${agentId}`);
       return agentId;
     }
@@ -638,13 +636,15 @@ export class TeamManager implements ITeamManager {
     if (this.hookRegistry) {
       // 从 AgentRegistry 获取 Agent 配置，判断 Agent 类型
       const agentConfig = this.agentRegistry.get(normalizedAgentId);
-      const isFromBuiltinDir = agentConfig?.metadata?.builtin === true;
+      const category = agentConfig?.metadata?.category || 'custom';
 
       // 判断 Agent 类型
       let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
       if (agentConfig) {
-        if (isFromBuiltinDir) {
-          agentType = 'preset'; // 内置 agent（coder/explore/plan 等）
+        if (category === 'system') {
+          agentType = 'builtin'; // 系统内置 agent
+        } else if (category === 'app') {
+          agentType = 'preset'; // 应用 agent
         } else {
           agentType = 'custom'; // 用户自定义 agent
         }
@@ -659,7 +659,6 @@ export class TeamManager implements ITeamManager {
           name: member.name,
           role: normalizedAgentId, // 使用标准化后的 agent ID
           task: task.substring(0, 200),
-          builtin: isFromBuiltinDir, // 保留兼容性
           agentType, // 新增：详细的 agent 类型
           // 策略和团队信息
           strategy: this.context!.config.strategy,
@@ -691,12 +690,14 @@ export class TeamManager implements ITeamManager {
         depth: this.depth + 1,
         timeout: memberTimeout,
         parentConfig: this.agentConfig,
-        systemPrompt: member.systemPrompt,
+        systemPrompt: member.systemPrompt,  // Agent 特定的 prompt（可选）
+        scene: member.scene,                // 🆕 场景类型
+        scenePrompt: member.scenePrompt,    // 🆕 场景专用 prompt（L1）
         tools: member.tools,
-        skipSubAgentStartHook: true, // 禁用 SubAgentStart Hook，因为已经通过 TeamMemberStart 添加了
-        parentAgentId: this.teamId, // 传递团队 ID 作为父 agent ID
-        workingDir: process.cwd(), // 🔧 传递当前工作目录，确保子 agent 在正确的目录下工作
-      }, signal); // 🔧 传递 abort signal，支持用户终止
+        skipSubAgentStartHook: true,
+        parentAgentId: this.teamId,
+        workingDir: process.cwd(),
+      }, signal);
 
       result = {
         result: factoryResult.result,

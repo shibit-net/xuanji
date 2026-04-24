@@ -7,7 +7,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { EmbeddingService } from '@/embedding/EmbeddingService';
+import type { EmbeddingProvider } from '@/embedding/EmbeddingProvider';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
 
@@ -75,17 +75,17 @@ export class MatchAgentTool extends BaseTool {
   readonly readonly = true;
 
   private agentRegistry: AgentRegistry | null = null;
-  private embeddingService: EmbeddingService | null = null;
+  private embeddingProvider: EmbeddingProvider | null = null;
 
   /**
    * 注入依赖
    */
   setDependencies(deps: {
     agentRegistry: AgentRegistry;
-    embeddingService?: EmbeddingService | null;
+    embeddingProvider?: EmbeddingProvider | null;
   }): void {
     this.agentRegistry = deps.agentRegistry;
-    this.embeddingService = deps.embeddingService ?? null;
+    this.embeddingProvider = deps.embeddingProvider ?? null;
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
@@ -135,7 +135,7 @@ export class MatchAgentTool extends BaseTool {
       let totalScore = 0;
 
       // 1. 向量相似度（如果可用）
-      if (this.embeddingService) {
+      if (this.embeddingProvider) {
         try {
           const vectorScore = await this.calculateVectorSimilarity(
             taskDescription,
@@ -148,22 +148,22 @@ export class MatchAgentTool extends BaseTool {
         }
       }
 
-      // 2. 关键词匹配
-      const keywordScore = this.calculateKeywordMatch(taskDescription, agent);
-      breakdown.keyword = keywordScore;
-      totalScore += keywordScore * 0.3; // 30% 权重
-
-      // 3. 标签匹配（如果有 domain hint）
-      if (domainHint) {
-        const tagScore = this.calculateTagMatch(domainHint, agent.tags);
-        breakdown.tag = tagScore;
-        totalScore += tagScore * 0.2; // 20% 权重
-      }
-
-      // 4. 能力匹配
+      // 2. 能力匹配（最重要）
       const capabilityScore = this.calculateCapabilityMatch(taskDescription, agent.capabilities);
       breakdown.capability = capabilityScore;
-      totalScore += capabilityScore * 0.1; // 10% 权重
+      totalScore += capabilityScore * 0.4; // 40% 权重
+
+      // 3. 关键词匹配
+      const keywordScore = this.calculateKeywordMatch(taskDescription, agent);
+      breakdown.keyword = keywordScore;
+      totalScore += keywordScore * 0.2; // 20% 权重
+
+      // 4. 标签匹配（如果有 domain hint，权重较低，向后兼容）
+      if (domainHint && agent.tags && agent.tags.length > 0) {
+        const tagScore = this.calculateTagMatch(domainHint, agent.tags);
+        breakdown.tag = tagScore;
+        totalScore += tagScore * 0.1; // 10% 权重（降低）
+      }
 
       // 生成推荐理由
       const reason = this.generateReason(agent, breakdown);
@@ -184,19 +184,15 @@ export class MatchAgentTool extends BaseTool {
    * 计算向量相似度
    */
   private async calculateVectorSimilarity(text1: string, text2: string): Promise<number> {
-    if (!this.embeddingService) return 0;
+    if (!this.embeddingProvider) return 0;
 
     const [embedding1, embedding2] = await Promise.all([
-      this.embeddingService.embed(text1),
-      this.embeddingService.embed(text2),
+      this.embeddingProvider.embed(text1),
+      this.embeddingProvider.embed(text2),
     ]);
 
-    // 计算余弦相似度
-    const dotProduct = embedding1.reduce((sum, val, idx) => sum + val * embedding2[idx], 0);
-    const magnitude1 = Math.sqrt(embedding1.reduce((sum, val) => sum + val * val, 0));
-    const magnitude2 = Math.sqrt(embedding2.reduce((sum, val) => sum + val * val, 0));
-
-    return dotProduct / (magnitude1 * magnitude2);
+    // 使用 EmbeddingProvider 的余弦相似度计算
+    return this.embeddingProvider.cosineSimilarity(embedding1, embedding2);
   }
 
   /**
@@ -208,8 +204,8 @@ export class MatchAgentTool extends BaseTool {
       agent.id + ' ' +
       agent.name + ' ' +
       agent.description + ' ' +
-      agent.capabilities.join(' ') + ' ' +
-      agent.tags.join(' ')
+      agent.capabilities.join(' ') +
+      (agent.tags ? ' ' + agent.tags.join(' ') : '') // 向后兼容，tags可选
     ).toLowerCase();
 
     const matchedWords = taskWords.filter(word =>

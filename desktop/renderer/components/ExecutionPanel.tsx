@@ -666,31 +666,6 @@ function SystemSection() {
         </div>
       </div>
 
-      {/* MCP 服务器 */}
-      {systemStatus.mcpServers.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs font-semibold text-text-secondary">MCP 服务器</div>
-          <div className="space-y-1">
-            {systemStatus.mcpServers.map((server, index) => (
-              <div key={index} className="p-2 bg-bg-primary rounded flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium">{server.name}</div>
-                  <div className="text-xs text-text-secondary">{server.toolsCount} 个工具</div>
-                </div>
-                <div
-                  className={`text-xs px-2 py-1 rounded ${
-                    server.status === 'connected'
-                      ? 'bg-green-500/10 text-green-500'
-                      : 'bg-red-500/10 text-red-500'
-                  }`}
-                >
-                  {server.status === 'connected' ? '已连接' : '已断开'}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

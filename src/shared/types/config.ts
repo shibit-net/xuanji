@@ -3,7 +3,6 @@
 // ============================================================
 
 import type { ProviderConfig, RetryConfig } from './provider';
-import type { MemoryConfig } from '@/memory/types';
 import type { MCPConfig } from '@/mcp/types';
 import type { PricingConfig } from './pricing';
 import type { RoutingConfig } from '@/core/routing/types';
@@ -133,6 +132,22 @@ export interface LoggingConfig {
 }
 
 /**
+ * Embedding 配置
+ */
+export interface EmbeddingConfig {
+  /** 模型 ID */
+  model: string;
+  /** 向量维度 */
+  dimensions: number;
+  /** 是否启用缓存 */
+  cacheEnabled: boolean;
+  /** 缓存最大条数 */
+  cacheMaxSize: number;
+  /** HuggingFace 镜像地址 */
+  hfMirror?: string;
+}
+
+/**
  * 应用总配置
  */
 export interface AppConfig {
@@ -140,6 +155,15 @@ export interface AppConfig {
   projectRoot?: string;
   /** LLM Provider 配置 */
   provider: ProviderConfig;
+  /** Embedding 配置 */
+  embedding?: EmbeddingConfig;
+  /** Prompt 配置 */
+  prompt?: {
+    /** 默认场景 */
+    defaultScene?: string;
+    /** 默认复杂度 */
+    defaultComplexity?: 'simple' | 'standard' | 'complex';
+  };
   /** UI 配置 */
   ui: UIConfig;
   /** 权限配置 */
@@ -152,8 +176,6 @@ export interface AppConfig {
   skills?: SkillsConfig;
   /** 子代理配置 */
   agent?: AgentTuningConfig;
-  /** 记忆系统配置 */
-  memory?: MemoryConfig;
   /** IM 机器人配置（可选） */
   bots?: BotsConfig;
   /** MCP 配置 */
@@ -161,7 +183,7 @@ export interface AppConfig {
   /** Web Search 配置 */
   webSearch?: WebSearchConfig;
   /** 智能管家配置 */
-  butler?: import('@/butler/types').ButlerConfig;
+  butler?: any; // import('@/butler/types').ButlerConfig; // TODO: Butler module not implemented yet
   /** 定价配置 */
   pricing?: PricingConfig;
   /** 天工坊配置 */
@@ -512,8 +534,6 @@ export interface SessionConfig {
 
   /** 启动时是否自动恢复上一次对话（默认 true） */
   autoResumeLastSession: boolean;
-  /** 检索记忆条数（默认 20） */
-  memoryRetrievalCount: number;
   /** 是否显示恢复提示（默认 true） */
   showResumeNotification: boolean;
 

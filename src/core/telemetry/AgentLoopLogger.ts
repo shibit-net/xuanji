@@ -288,8 +288,6 @@ export interface SessionCompleteLog extends AgentLoopLogBase {
   totalDurationMs: number;
   /** Token 使用汇总 */
   totalUsage: TokenUsage;
-  /** 总成本 (USD) */
-  totalCost: number;
   /** 工具调用汇总 */
   toolStats: Array<{
     name: string;
@@ -720,7 +718,6 @@ export class AgentLoopLogger {
   async logSessionComplete(
     totalIterations: number,
     totalUsage: TokenUsage,
-    totalCost: number,
     toolStats: Array<{
       name: string;
       count: number;
@@ -738,7 +735,6 @@ export class AgentLoopLogger {
       totalIterations,
       totalDurationMs: Date.now() - this.startTime,
       totalUsage,
-      totalCost,
       toolStats,
       status,
     };
@@ -792,7 +788,6 @@ export class AgentLoopLogger {
     totalIterations: number;
     totalDurationMs: number;
     totalTokens: number;
-    totalCost: number;
     errorCount: number;
     toolCallCount: number;
     events: { [K in AgentLoopEventType]?: number };
@@ -804,7 +799,6 @@ export class AgentLoopLogger {
     let totalIterations = 0;
     let totalDurationMs = 0;
     let totalTokens = 0;
-    let totalCost = 0;
     let errorCount = 0;
     let toolCallCount = 0;
 
@@ -831,7 +825,6 @@ export class AgentLoopLogger {
       if (log.eventType === 'session_complete') {
         totalDurationMs = log.totalDurationMs;
         totalTokens = log.totalUsage.input + log.totalUsage.output;
-        totalCost = log.totalCost;
       }
     }
 
@@ -840,7 +833,6 @@ export class AgentLoopLogger {
       totalIterations,
       totalDurationMs,
       totalTokens,
-      totalCost,
       errorCount,
       toolCallCount,
       events,

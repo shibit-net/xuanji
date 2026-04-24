@@ -5,12 +5,10 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TokenUsage } from '@/core/types';
-import { CostTracker } from '@/core/agent/CostTracker';
 
 export interface StatusBarProps {
   model: string;
   usage: TokenUsage;
-  cost: number;
   /** 已登录用户名（未登录时为 null） */
   username?: string | null;
   /** 是否处于 Plan Mode */
@@ -31,9 +29,9 @@ function formatNumber(num: number): string {
 }
 
 /**
- * StatusBar — 底部状态栏，显示模型、Token 用量和费用
+ * StatusBar — 底部状态栏，显示模型、Token 用量
  */
-export function StatusBar({ model, usage, cost, username, isPlanMode }: StatusBarProps) {
+export function StatusBar({ model, usage, username, isPlanMode }: StatusBarProps) {
   const totalTokens = usage.input + usage.output;
 
   return (
@@ -66,14 +64,6 @@ export function StatusBar({ model, usage, cost, username, isPlanMode }: StatusBa
       <Text color="gray" dimColor> (</Text>
       <Text color="white">{formatNumber(totalTokens)}</Text>
       <Text color="gray" dimColor>)</Text>
-
-      {/* 费用 */}
-      {cost > 0 && (
-        <>
-          <Text color="gray" dimColor> │ </Text>
-          <Text color="magenta">💰 {CostTracker.formatCost(cost)}</Text>
-        </>
-      )}
 
       {/* 快捷键提示 */}
       <Text color="gray" dimColor> │ </Text>

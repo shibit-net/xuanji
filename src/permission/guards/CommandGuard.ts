@@ -49,6 +49,27 @@ const DANGER_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
   { pattern: /\bnpm\s+publish\b/, description: '发布 npm 包' },
   { pattern: /\bdocker\s+rm\b/, description: '删除 Docker 容器' },
   { pattern: /\bdocker\s+system\s+prune\b/, description: '清理 Docker 系统' },
+  // 云原生高危命令
+  { pattern: /\bkubectl\s+(delete|destroy)\b/, description: 'kubectl 删除资源' },
+  { pattern: /\bterraform\s+destroy\b/, description: 'Terraform 销毁基础设施' },
+  { pattern: /\baws\s+.*\s+(delete|remove|destroy)\b/, description: 'AWS CLI 删除操作' },
+  { pattern: /\bgcloud\s+.*\s+(delete|destroy)\b/, description: 'GCloud CLI 删除操作' },
+  // 容器管理
+  { pattern: /\bdocker\s+rmi\b/, description: '删除 Docker 镜像' },
+  { pattern: /\bdocker\s+volume\s+rm\b/, description: '删除 Docker 数据卷' },
+  { pattern: /\bdocker\s+network\s+rm\b/, description: '删除 Docker 网络' },
+  // 数据库危险操作
+  { pattern: /\bDROP\s+(TABLE|DATABASE|SCHEMA)\b/i, description: '删除数据库表/库' },
+  { pattern: /\bTRUNCATE\s+TABLE\b/i, description: '清空数据库表 (TRUNCATE)' },
+  { pattern: /\bDELETE\s+FROM\b/i, description: '删除数据库记录 (DELETE FROM)' },
+  // 全局包安装
+  { pattern: /\bnpm\s+install\s+(-g|--global)\b/, description: '全局安装 npm 包' },
+  { pattern: /\bpip\s+install\s+(--user|-U)\b/, description: '安装 Python 包 (pip install)' },
+  { pattern: /\byarn\s+global\s+add\b/, description: '全局安装 yarn 包' },
+  // 环境变量泄露
+  { pattern: /\bprintenv\b/, description: '打印所有环境变量' },
+  { pattern: /\benv\s*>/, description: '导出环境变量到文件' },
+  { pattern: /\bexport\s+\w*(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)\w*\s*=/i, description: '导出敏感环境变量' },
 ];
 
 /**

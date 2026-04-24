@@ -2,7 +2,15 @@
 // 提醒系统 — 类型定义
 // ============================================================
 
-import type { MemoryEntry } from '@/memory/types';
+/**
+ * 简化的 MemoryEntry 接口（用于关系提醒功能）
+ */
+export interface MemoryEntry {
+  id: string;
+  content: string;
+  keywords: string[];
+  updatedAt: string;
+}
 
 /**
  * 提醒循环类型

@@ -48,7 +48,6 @@ import { PlanConfirm } from './PlanConfirm';
 import { AskUserPrompt } from './AskUserPrompt';
 import { UsageStatsRecorder } from '@/core/telemetry';
 import { DailyUsageStats } from '@/core/telemetry/DailyUsageStats';
-import { PricingResolver } from '@/core/agent/PricingResolver';
 import { formatUsageStats } from './utils/FormatStats';
 import {
   formatDailyStats,
@@ -73,7 +72,7 @@ export interface AppProps {
     compact: (customInstruction?: string) => Promise<{ originalTokens: number; compressedTokens: number; compressionRatio: number } | null>;
   };
   model: string;
-  /** ChatSession 实例（用于访问 MemoryManager 等） */
+  /** ChatSession 实例 */
   session?: import('@/core/chat/ChatSession').ChatSession;
   /** 权限确认处理器注册回调 (由 ChatSession 提供) */
   onPermissionSetup?: (handler: ConfirmationHandler) => void;
@@ -95,7 +94,7 @@ export interface AppProps {
   /** 保存当前会话 */
   onSessionSave?: (name?: string, historyMessages?: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }>) => Promise<string>;
   /** 恢复会话 */
-  onSessionResume?: (sessionId: string) => Promise<{ sessionId: string; messageCount: number; usage: { input: number; output: number; cost: number }; historyMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }> }>;
+  onSessionResume?: (sessionId: string) => Promise<{ sessionId: string; messageCount: number; usage: { input: number; output: number }; historyMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string; timestamp: number }> }>;
   /** 列出会话 */
   onSessionList?: () => Promise<Array<{ id: string; name: string; updatedAt: number; messageCount: number; preview?: string }>>;
   /** 删除会话 */
@@ -350,7 +349,6 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamText, setStreamText] = useState('');
   const [usage, setUsage] = useState<TokenUsage>({ input: 0, output: 0 });
-  const [cost, setCost] = useState(0);
   const [currentTheme, setCurrentTheme] = useState<UITheme>('auto');
   // 工具导航状态
   const [isNavigating, setIsNavigating] = useState(false);
@@ -1326,7 +1324,6 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
         archiveStreamText();
 
         dispatchTool({ type: 'RESET_IDLE' });
-        setCost(state.cost);
         toolInfoRef.current.clear();
         turnStartTimeRef.current = 0;
         // ★ 重置忽略标志（确保下一轮可以正常追加）★
@@ -1577,7 +1574,6 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           setTurnStats('');
           dispatchTool({ type: 'CLEAR_ALL' });
           setUsage({ input: 0, output: 0 });
-          setCost(0);
           setExpandedToolIds(new Set());
           setIsNavigating(false);
           setSelectedToolIndex(-1);
@@ -1623,8 +1619,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
           const subCmd = args.trim().toLowerCase();
           try {
             const recorder = new UsageStatsRecorder();
-            const pricingResolver = new PricingResolver();
-            const stats = new DailyUsageStats(pricingResolver, recorder);
+            const stats = new DailyUsageStats(recorder);
 
             switch (subCmd) {
               case '':
@@ -1885,11 +1880,10 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
                 return;
               }
               const result = await p().onSessionResume!(match.id);
-              // 恢复 UI 状态：usage、cost、historyMessages
+              // 恢复 UI 状态：usage、historyMessages
               if (result.usage) {
                 usageRef.current = { input: result.usage.input, output: result.usage.output };
                 setUsage(usageRef.current);
-                setCost(result.usage.cost);
               }
               if (result.historyMessages && result.historyMessages.length > 0) {
                 const historyMsgs: ChatMessage[] = result.historyMessages.map((m) => ({
@@ -2168,149 +2162,6 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
             };
             checkDone();
           });
-        },
-      },
-      // ─── 记忆系统 3.0 命令 ──────────────────────────────
-      {
-        name: '/identity',
-        description: '身份记忆管理 (set-title/set-name/clear)',
-        handler: async (args) => {
-          const memoryManager = p().session?.getMemoryManager();
-          if (!memoryManager) {
-            p().addSystemMessage('❌ 记忆系统未初始化');
-            return;
-          }
-
-          const constraintManager = memoryManager.getConstraintManager();
-          if (!constraintManager) {
-            p().addSystemMessage('❌ 约束管理器未初始化');
-            return;
-          }
-
-          try {
-            const { handleIdentity } = await import('@/memory/commands/IdentityCommand');
-            const parts = (args || '').trim().split(/\s+/);
-            const result = await handleIdentity(constraintManager, parts);
-            p().addSystemMessage(result);
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            p().addSystemMessage(`❌ Identity 命令执行失败: ${errMsg}`);
-          }
-        },
-      },
-      {
-        name: '/dream',
-        description: '做梦机制 (run/status/dry-run)',
-        handler: async (args) => {
-          const memoryManager = p().session?.getMemoryManager();
-          if (!memoryManager) {
-            p().addSystemMessage('❌ 记忆系统未初始化');
-            return;
-          }
-
-          const dreamScheduler = memoryManager.getDreamScheduler();
-          if (!dreamScheduler) {
-            p().addSystemMessage('❌ 做梦调度器未初始化');
-            return;
-          }
-
-          try {
-            const { handleDream } = await import('@/memory/commands/DreamCommand');
-            const parts = (args || '').trim().split(/\s+/);
-            const result = await handleDream(dreamScheduler, parts);
-            p().addSystemMessage(result);
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            p().addSystemMessage(`❌ Dream 命令执行失败: ${errMsg}`);
-          }
-        },
-      },
-      {
-        name: '/rules',
-        description: '管理核心安全规则 (list/delete/disable/enable)',
-        group: '记忆管理',
-        usage: '/rules [list|delete <id>|disable <id>|enable <id>]',
-        handler: async (args) => {
-          const memoryManager = p().session?.getMemoryManager();
-          if (!memoryManager) {
-            p().addSystemMessage('❌ 记忆系统未初始化');
-            return;
-          }
-
-          const coreRuleStore = memoryManager.getCoreRuleStore();
-          const parts = (args || '').trim().split(/\s+/);
-          const subCommand = parts[0] || 'list';
-
-          if (subCommand === 'list' || subCommand === '') {
-            // 查看所有规则
-            const rules = coreRuleStore.getAllRules();
-            if (rules.length === 0) {
-              p().addSystemMessage('📋 暂无核心规则');
-              return;
-            }
-
-            const lines = ['📋 核心安全规则：\n'];
-            for (const rule of rules) {
-              const status = rule.active ? '✅' : '⏸️';
-              const category = rule.category === 'custom' ? '' : `[${rule.category}] `;
-              lines.push(`${status} ${rule.id}: ${category}${rule.rule}`);
-            }
-            p().addSystemMessage(lines.join('\n'));
-
-          } else if (subCommand === 'delete') {
-            // 删除规则
-            const id = parts[1];
-            if (!id) {
-              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules delete rule_abc123');
-              return;
-            }
-
-            const rule = coreRuleStore.getRule(id);
-            if (!rule) {
-              p().addSystemMessage(`❌ 规则不存在：${id}`);
-              return;
-            }
-
-            const success = coreRuleStore.delete(id);
-            if (success) {
-              p().addSystemMessage(`✅ 已删除规则：${rule.rule}`);
-            } else {
-              p().addSystemMessage(`❌ 删除失败：${id}`);
-            }
-
-          } else if (subCommand === 'disable') {
-            // 停用规则
-            const id = parts[1];
-            if (!id) {
-              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules disable rule_abc123');
-              return;
-            }
-
-            const success = coreRuleStore.setActive(id, false);
-            if (success) {
-              p().addSystemMessage(`⏸️ 已停用规则：${id}`);
-            } else {
-              p().addSystemMessage(`❌ 规则不存在：${id}`);
-            }
-
-          } else if (subCommand === 'enable') {
-            // 启用规则
-            const id = parts[1];
-            if (!id) {
-              p().addSystemMessage('❌ 请指定规则 ID，例如：/rules enable rule_abc123');
-              return;
-            }
-
-            const success = coreRuleStore.setActive(id, true);
-            if (success) {
-              p().addSystemMessage(`✅ 已启用规则：${id}`);
-            } else {
-              p().addSystemMessage(`❌ 规则不存在：${id}`);
-            }
-
-          } else {
-            p().addSystemMessage(`❌ 未知子命令：${subCommand}\n用法：/rules [list|delete <id>|disable <id>|enable <id>]`);
-          }
         },
       },
     ]);
@@ -2764,7 +2615,6 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
             if (result.usage) {
               usageRef.current = { input: result.usage.input, output: result.usage.output };
               setUsage(usageRef.current);
-              setCost(result.usage.cost);
             }
             // 恢复历史消息到聊天框
             if (result.historyMessages && result.historyMessages.length > 0) {
@@ -2922,7 +2772,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
 
       {/* 状态栏 - 始终显示在输入框上方（交互对话框时隐藏）*/}
       {!hasInteractiveUI && (usage.input > 0 || usage.output > 0) && (
-        <StatusBar model={model} usage={usage} cost={cost} username={authUsername} isPlanMode={planModeActive} />
+        <StatusBar model={model} usage={usage} username={authUsername} isPlanMode={planModeActive} />
       )}
 
       {/* 输入框 — 面板显示时禁用，交互对话框激活时隐藏渲染输出（减少动态区域行数，避免 Ink 重绘闪烁） */}

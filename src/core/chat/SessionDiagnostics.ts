@@ -5,7 +5,6 @@
 import type { AppConfig } from '@/core/types';
 import type { MCPManager } from '@/mcp/MCPManager';
 import type { SkillRegistry } from '@/core/skills';
-import type { IMemoryStore } from '@/memory/types';
 import type { IPermissionController } from '@/permission/types';
 import { maskApiKey } from '@/shared/utils/ui/formatters';
 
@@ -13,7 +12,6 @@ export interface DiagnosticsContext {
   config: AppConfig;
   mcpManager: MCPManager | null;
   skillRegistry: SkillRegistry | null;
-  memoryManager: IMemoryStore | null;
   permissionController: IPermissionController | null;
   initialized: boolean;
 }
@@ -63,7 +61,7 @@ export async function generateDiagnostics(ctx: DiagnosticsContext): Promise<stri
   if (ctx.skillRegistry) {
     const allSkills = ctx.skillRegistry.list();
     const builtinSkills = allSkills.filter(s => [
-      'xuanji-assistant', 'memory-context', 'project-rules', 'life-secretary',
+      'xuanji-assistant', 'project-rules', 'life-secretary',
       'code-assistant', 'tool-guidance', 'security-rules', 'agent-rules',
       'commit', 'review-pr',
     ].includes(s.id));
@@ -81,22 +79,6 @@ export async function generateDiagnostics(ctx: DiagnosticsContext): Promise<stri
     }
   } else {
     lines.push('🧩 Skills (未初始化)');
-  }
-
-  // ── Memory ──
-  lines.push('');
-  if (ctx.memoryManager) {
-    lines.push('🧠 记忆系统 (已启用)');
-    const stats = await ctx.memoryManager.getStats();
-    lines.push(`  总记忆数: ${stats.total}`);
-    lines.push(`  类型分布:`);
-    for (const [type, count] of Object.entries(stats.byType)) {
-      lines.push(`    ${type}: ${count}`);
-    }
-  } else {
-    lines.push('🧠 记忆系统 (未启用)');
-    lines.push('  配置文件: xuanji.config.ts');
-    lines.push('  示例: memory: { enabled: true }');
   }
 
   // ── Permission ──

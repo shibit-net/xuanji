@@ -3,7 +3,8 @@
 // ============================================================
 
 import { join } from 'node:path';
-import { readFile, writeFile, mkdir, readdir, existsSync } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import type { AppConfig } from '@/shared/types/config';
 import { logger } from '@/core/logger';
 // DEFAULT_CONFIG 已删除，使用模板配置

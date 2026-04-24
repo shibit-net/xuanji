@@ -2,7 +2,7 @@
 // PermissionCache - 权限缓存实现
 // ============================================================
 
-import type { IPermissionCache } from './interfaces';
+import type { IPermissionCache } from '../interfaces';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'PermissionCache' });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DiffRenderer } from '@/core/utils/DiffRenderer';
+import { DiffRenderer } from '@/shared/utils/DiffRenderer';
 
 describe('DiffRenderer', () => {
   describe('renderLines', () => {

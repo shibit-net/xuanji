@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { createWindow, getMainWindow } from './window/index.js';
-import { initChatSession, cleanupAgentProcess, getIsCleaningUp, setIsCleaningUp } from './agent/index.js';
+import { cleanupAgentProcess, getIsCleaningUp, setIsCleaningUp } from './agent/index.js';
 import { registerAllIpcHandlers } from './ipc/index.js';
 import { loadAuthState, setAuthState } from './config/auth.js';
 
@@ -9,8 +9,6 @@ app.whenReady().then(async () => {
   setAuthState(authState);
   registerAllIpcHandlers();
   createWindow();
-  // TODO: 会话初始化已移至用户登录后
-  // await initChatSession();
 
   app.on('activate', () => {
     const mainWindow = getMainWindow();
@@ -26,7 +24,6 @@ app.on('window-all-closed', () => {
   }
 });
 
-let isCleaningUp = false;
 app.on('before-quit', async (e) => {
   if (!getIsCleaningUp()) {
     e.preventDefault();

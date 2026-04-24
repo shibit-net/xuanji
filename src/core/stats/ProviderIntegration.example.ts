@@ -9,8 +9,8 @@
  * 3. Record to globalStatsCollector
  */
 
-import type { StreamEvent, ProviderConfig } from '../../types/provider.js';
-import type { ToolCall } from '../../types/tools.js';
+import type { StreamEvent, ProviderConfig } from '@/shared/types/provider';
+import type { ToolCall } from '@/shared/types/tools';
 import { globalStatsCollector } from '../stats/index.js';
 
 /**

@@ -3,7 +3,8 @@
 // ============================================================
 
 import type { Tool, ToolResult } from '@/core/types';
-import type { IProactiveButler } from '@/butler';
+// import type { IProactiveButler } from '@/butler'; // TODO: Butler module not implemented yet
+type IProactiveButler = any; // Stub
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'butler-daemon-tool' });

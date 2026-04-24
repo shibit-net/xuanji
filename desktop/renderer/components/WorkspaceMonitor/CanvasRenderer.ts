@@ -374,6 +374,11 @@ export class CanvasRenderer {
 
     // 🔧 思考气泡已移至 drawAllThinkingBubbles() 统一绘制，确保在最上层
 
+    // 区域3：右侧动作标签（AgentMoment）
+    if (agent.currentMoment) {
+      this.drawMomentTag(pos, radius, agent.currentMoment);
+    }
+
     // 区域3：右侧工具调用列表（最近 5 个）
     if (agent.timelineEvents && agent.timelineEvents.length > 0) {
       const recent5 = agent.timelineEvents.slice(-5);
@@ -1212,16 +1217,20 @@ export class CanvasRenderer {
   // ─── 区域3：右侧动作标签 ────────────────────────────────────
 
   /**
-   * 绘制右侧动作标签（胶囊形）
+   * 绘制右侧动作标签（胶囊形，支持多行文本）
    */
   private drawMomentTag(agentPos: Point, agentRadius: number, moment: AgentMoment) {
     const padding = { x: 8, y: 5 };
     const iconWidth = 16;
+    const lineHeight = 14;
+
+    // 支持多行文本（用 \n 分隔）
+    const lines = moment.label.split('\n');
 
     this.ctx.font = '11px sans-serif';
-    const labelWidth = this.ctx.measureText(moment.label).width;
-    const tagWidth = iconWidth + labelWidth + padding.x * 3;
-    const tagHeight = 24;
+    const maxLineWidth = Math.max(...lines.map(line => this.ctx.measureText(line).width));
+    const tagWidth = iconWidth + maxLineWidth + padding.x * 3;
+    const tagHeight = Math.max(24, lines.length * lineHeight + padding.y * 2);
 
     // 传入实际尺寸，让 LayoutEngine 做碰撞避让
     const tagPos = this.layoutEngine.getMomentTagPosition(agentPos, agentRadius, tagWidth, tagHeight);
@@ -1229,19 +1238,26 @@ export class CanvasRenderer {
     // 背景色按类型
     this.ctx.fillStyle = this.getMomentBgColor(moment.type, moment.status);
     this.ctx.beginPath();
-    this.roundRect(tagPos.x, tagPos.y, tagWidth, tagHeight, tagHeight / 2);
+    this.roundRect(tagPos.x, tagPos.y, tagWidth, tagHeight, 12);
     this.ctx.fill();
 
-    // 图标
+    // 图标（垂直居中）
     this.ctx.font = '12px sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillStyle = '#fff';
     this.ctx.fillText(moment.icon, tagPos.x + padding.x, tagPos.y + tagHeight / 2);
 
-    // 标签文字
+    // 标签文字（多行）
     this.ctx.font = '11px sans-serif';
-    this.ctx.fillText(moment.label, tagPos.x + padding.x + iconWidth, tagPos.y + tagHeight / 2);
+    const textStartY = tagPos.y + padding.y + lineHeight / 2;
+    lines.forEach((line, i) => {
+      this.ctx.fillText(
+        line,
+        tagPos.x + padding.x + iconWidth,
+        textStartY + i * lineHeight
+      );
+    });
 
     // 右下角状态/耗时
     const durationText = moment.status === 'running'
@@ -1261,7 +1277,6 @@ export class CanvasRenderer {
       file: 'rgba(59,130,246,0.8)',
       bash: 'rgba(75,85,99,0.9)',
       skill: 'rgba(139,92,246,0.8)',
-      mcp: 'rgba(234,88,12,0.8)',
       memory_read: 'rgba(16,185,129,0.8)',
       memory_write: 'rgba(16,185,129,0.8)',
       thinking: 'rgba(124,140,245,0.6)',
@@ -1535,7 +1550,6 @@ export class CanvasRenderer {
       '🧠': 'memory_read',
       '💾': 'memory_write',
       '✨': 'skill',
-      '🔗': 'mcp',
     };
     return typeMap[icon] || 'idle';
   }

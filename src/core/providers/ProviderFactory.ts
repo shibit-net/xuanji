@@ -5,6 +5,7 @@
 import type { ILLMProvider, ProviderConfig } from '@/core/types';
 import { AnthropicProvider } from './AnthropicProvider';
 import { OpenAIProvider } from './OpenAIProvider';
+import { LocalLlamaAdapter } from './LocalLlamaAdapter';
 
 /**
  * Provider 工厂
@@ -19,7 +20,8 @@ export class ProviderFactory {
   private static readonly ADAPTER_MAP: Record<string, string> = {
     'anthropic': 'anthropic',
     'openai': 'openai',
-    'openai-response': 'openai',  // OpenAI Responses 仍使用 OpenAI Provider
+    'openai-response': 'openai',
+    'local-llama': 'local-llama',
   };
 
   constructor() {
@@ -77,6 +79,8 @@ export class ProviderFactory {
       provider = this.getOrCreateProvider('anthropic', () => new AnthropicProvider());
     } else if (providerName === 'openai') {
       provider = this.getOrCreateProvider('openai', () => new OpenAIProvider());
+    } else if (providerName === 'local-llama') {
+      provider = this.getOrCreateProvider('local-llama', () => new LocalLlamaAdapter());
     }
 
     return provider;

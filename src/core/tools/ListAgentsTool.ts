@@ -21,8 +21,7 @@ export class ListAgentsTool extends BaseTool {
     'Returns agent information including:',
     '- Agent ID (use in task or agent_chain tools)',
     '- Name and description',
-    '- Capabilities',
-    '- Tags (domains)',
+    '- Capabilities (primary matching criteria)',
     '- Whether it\'s a built-in or custom agent',
   ].join('\n');
 

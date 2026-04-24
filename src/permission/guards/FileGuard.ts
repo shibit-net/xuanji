@@ -36,6 +36,20 @@ const SYSTEM_PATHS = [
 ];
 
 /**
+ * 关键系统文件 — 写操作极度危险
+ */
+const CRITICAL_WRITE_PATHS = [
+  '/etc/passwd',
+  '/etc/shadow',
+  '/etc/sudoers',
+  '/etc/hosts',
+  '/etc/hostname',
+  '/etc/resolv.conf',
+  '~/.ssh/authorized_keys',
+  '~/.ssh/config',
+];
+
+/**
  * 用户敏感目录 — 操作风险较高，标记为 danger
  */
 const SENSITIVE_USER_DIRS = [
@@ -44,6 +58,18 @@ const SENSITIVE_USER_DIRS = [
   '~/.gnupg/',
   '~/.config/',
   '~/.kube/',
+];
+
+/**
+ * 敏感配置目录 — 写操作需要警告
+ */
+const SENSITIVE_CONFIG_DIRS = [
+  '~/.npmrc',
+  '~/.gitconfig',
+  '~/.bash_profile',
+  '~/.bashrc',
+  '~/.zshrc',
+  '~/.profile',
 ];
 
 /**
@@ -61,6 +87,22 @@ const SENSITIVE_FILE_PATTERNS = [
   '**/secrets.yml',
   '**/.netrc',
   '**/.npmrc',
+];
+
+/**
+ * 扩展敏感文件模式 — 证书、密钥、配置文件
+ */
+const EXTENDED_SENSITIVE_PATTERNS = [
+  '**/.env.local',
+  '**/.env.production',
+  '**/*.p12',
+  '**/*.pfx',
+  '**/*.keystore',
+  '**/*.jks',
+  '**/kubeconfig',
+  '**/config.json',
+  '**/.aws/credentials',
+  '**/.docker/config.json',
 ];
 
 /**
@@ -140,6 +182,16 @@ export class FileGuard {
       };
     }
 
+    // 检查关键系统文件（写操作极度危险）
+    if (isWrite && this.isCriticalWritePath(normalizedPath)) {
+      return {
+        category,
+        riskLevel: 'danger',
+        description: t('perm.guard_critical_write', { path: filePath }),
+        cacheKey: `${category}:critical:${path.basename(filePath)}`,
+      };
+    }
+
     // 检查用户敏感目录
     if (this.isSensitiveUserDir(normalizedPath)) {
       const key = isWrite ? 'perm.guard_sensitive_dir_write' : 'perm.guard_sensitive_dir_read';
@@ -151,6 +203,16 @@ export class FileGuard {
       };
     }
 
+    // 检查敏感配置文件（写操作需要警告）
+    if (isWrite && this.isSensitiveConfigFile(normalizedPath)) {
+      return {
+        category,
+        riskLevel: 'warn',
+        description: t('perm.guard_sensitive_config_write', { path: filePath }),
+        cacheKey: `${category}:config:${path.basename(filePath)}`,
+      };
+    }
+
     // 检查敏感文件模式
     if (this.isSensitiveFile(normalizedPath)) {
       const key = isWrite ? 'perm.guard_sensitive_file_write' : 'perm.guard_sensitive_file_read';
@@ -159,6 +221,21 @@ export class FileGuard {
         riskLevel: isWrite ? 'danger' : 'warn',
         description: t(key, { name: path.basename(filePath) }),
         cacheKey: `${category}:sensitive:${path.basename(filePath)}`,
+        context: {
+          isProjectPath: !this.isOutsideProject(normalizedPath),
+          isSensitiveFile: true,
+        },
+      };
+    }
+
+    // 检查扩展敏感文件模式
+    if (this.isExtendedSensitiveFile(normalizedPath)) {
+      const key = isWrite ? 'perm.guard_extended_sensitive_write' : 'perm.guard_extended_sensitive_read';
+      return {
+        category,
+        riskLevel: isWrite ? 'danger' : 'warn',
+        description: t(key, { name: path.basename(filePath) }),
+        cacheKey: `${category}:extended-sensitive:${path.basename(filePath)}`,
         context: {
           isProjectPath: !this.isOutsideProject(normalizedPath),
           isSensitiveFile: true,
@@ -281,6 +358,35 @@ export class FileGuard {
    */
   private isSensitiveFile(normalizedPath: string): boolean {
     return this.pathMatcher.matchesAny(normalizedPath, SENSITIVE_FILE_PATTERNS);
+  }
+
+  /**
+   * 检查是否为扩展敏感文件
+   */
+  private isExtendedSensitiveFile(normalizedPath: string): boolean {
+    return this.pathMatcher.matchesAny(normalizedPath, EXTENDED_SENSITIVE_PATTERNS);
+  }
+
+  /**
+   * 检查是否为关键系统文件
+   */
+  private isCriticalWritePath(normalizedPath: string): boolean {
+    const home = os.homedir();
+    return CRITICAL_WRITE_PATHS.some((criticalPath) => {
+      const expanded = criticalPath.replace('~', home);
+      return normalizedPath === expanded;
+    });
+  }
+
+  /**
+   * 检查是否为敏感配置文件
+   */
+  private isSensitiveConfigFile(normalizedPath: string): boolean {
+    const home = os.homedir();
+    return SENSITIVE_CONFIG_DIRS.some((configPath) => {
+      const expanded = configPath.replace('~', home);
+      return normalizedPath === expanded;
+    });
   }
 
   /**

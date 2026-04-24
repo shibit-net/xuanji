@@ -95,12 +95,8 @@ export class ProviderManager {
     // 1. 合并配置（Agent 配置 > 全局配置）
     const mergedConfig = this.mergeProviderConfig(agentConfig);
 
-    // 2. 创建 provider（ProviderFactory 已单例）
-    log.debug('Getting provider', {
-      model: mergedConfig.model,
-      adapter: mergedConfig.adapter,
-      baseURL: mergedConfig.baseURL,
-    });
+    const agentId = (agentConfig as any)?.id ?? 'main';
+    log.info(`[ProviderManager] getProvider agentId=${agentId} model=${mergedConfig.model} adapter=${mergedConfig.adapter ?? 'auto'} baseURL=${mergedConfig.baseURL ?? 'default'}`);
 
     const provider = this.createProvider(mergedConfig);
 
@@ -132,6 +128,12 @@ export class ProviderManager {
       globalApiKeyPreview: globalProvider.apiKey?.slice(0, 15) + '...',
     });
 
+    const resolvedModel = agentProvider?.model ?? legacyModel ?? globalProvider.model;
+    const modelSource = agentProvider?.model ? 'agent.provider.model'
+      : legacyModel ? 'agent.model.primary'
+      : 'global.model';
+    log.info(`[ProviderManager] model="${resolvedModel}" source=${modelSource} adapter=${agentProvider?.adapter ?? globalProvider.adapter ?? 'auto'}`);
+
     const mergedConfig: MergedProviderConfig = {
       // 认证信息（优先使用 Agent 配置）
       apiKey: agentProvider?.apiKey ?? globalProvider.apiKey,
@@ -141,7 +143,7 @@ export class ProviderManager {
       adapter: agentProvider?.adapter ?? globalProvider.adapter,
 
       // 模型配置（优先级：agent.provider.model > agent.model.primary > global.model）
-      model: agentProvider?.model ?? legacyModel ?? globalProvider.model,
+      model: resolvedModel,
 
       // 调用参数
       maxTokens:

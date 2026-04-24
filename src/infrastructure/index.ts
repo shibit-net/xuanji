@@ -27,7 +27,6 @@ export type {
 export {
   JSONSerializer,
   SQLiteStorage,
-  MemoryStorage,
   FileStorage,
   StorageFactory
 } from './storage';
@@ -40,10 +39,8 @@ export type {
 
 export {
   ConfigService,
-  DefaultConfigSource,
-  GlobalConfigSource,
-  ProjectConfigSource,
-  EnvConfigSource,
+  TemplateConfigSource,
+  UserConfigSource,
   RuntimeConfigSource,
   MemoryConfigSource,
   ConfigFactory
@@ -52,10 +49,7 @@ export {
 // 消息传递
 export type {
   EventHandler,
-  SubscribeOptions,
-  EventMetadata,
-  MessageHandler,
-  MessageFilter
+  SubscribeOptions
 } from './messaging';
 
 export {

@@ -13,7 +13,6 @@ import {
   getSavedAccounts,
   type SavedAccount
 } from '../config/auth.js';
-import { triggerStartup } from '../agent/index.js';
 import { initializeUserConfig } from '../../../src/core/config/UserConfigInitializer.js';
 
 function registerAuthIpcHandlers() {
@@ -57,9 +56,6 @@ function registerAuthIpcHandlers() {
             console.error('初始化用户配置失败:', err);
           }
         }
-
-        // 登录成功后触发启动消息
-        triggerStartup();
 
         return {
           success: true,
@@ -128,8 +124,6 @@ function registerAuthIpcHandlers() {
                   }
                 }
 
-                // Token 刷新成功，触发启动消息
-                triggerStartup();
                 return { success: true, data: user };
               }
             }
@@ -155,8 +149,6 @@ function registerAuthIpcHandlers() {
             }
           }
 
-          // 认证检查成功，触发启动消息
-          triggerStartup();
           return { success: true, data: user };
         }
       } catch (err) {

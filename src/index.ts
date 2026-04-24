@@ -8,6 +8,7 @@ import React from 'react';
 import { App } from './adapters/cli/App';
 import { SessionFactory } from './core/chat/SessionFactory';
 import type { ChatSession } from './core/chat/ChatSession';
+import type { AppConfig } from './shared/types/config';
 import { createRequire } from 'module';
 import { logger } from './core/logger';
 
@@ -224,7 +225,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   // 2. 初始化 ChatSession（Bot 模式使用固定用户 ID）
   const factory = new SessionFactory('bot-user');
   // 默认使用用户主 agent 配置
-  const session = await factory.createWithMainAgentConfig({ model: args.model });
+  const session = await factory.create({ model: args.model });
 
   // 3. 收集要启动的机器人（命令行参数优先，否则从 config.json 自动发现）
   const botsConfig = config?.bots;
@@ -372,7 +373,7 @@ async function main(): Promise<void> {
   // CLI 模式: 初始化 ChatSession（CLI 模式使用固定用户 ID）
   const factory = new SessionFactory('cli-user');
   // 默认使用用户主 agent 配置
-  const session = await factory.createWithMainAgentConfig({ model: args.model });
+  const session = await factory.create({ model: args.model });
 
   // 注册退出清理（MCP 子进程、PersistentShell、SQLite 等）
   let cleanedUp = false;
@@ -386,7 +387,7 @@ async function main(): Promise<void> {
   process.on('beforeExit', async () => { await cleanupOnExit(); });
 
   const agentLoop = session.getAgentLoop();
-  const config = session.getContainer().resolveSync('config');
+  const config = session.getContainer().resolveSync('config') as AppConfig;
 
   // 交互模式：在启动 UI 前初始化国际化
   if (!args.prompt) {
@@ -466,13 +467,7 @@ async function main(): Promise<void> {
         return newModel;
       },
       onMemoryQuery: async (query?: string) => {
-        const memoryManager = session.getMemoryManager();
-        if (!memoryManager) return '❌ 记忆系统未启用';
-
-        // 使用新的 MemoryCommands 处理器
-        const { MemoryCommands } = await import('@/adapters/cli/MemoryCommands');
-        const handler = new MemoryCommands(memoryManager);
-        return handler.handle(query || 'list');
+        return '❌ 记忆系统已移除';
       },
       onAgentQuery: async (_args: string) => {
         return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
@@ -508,6 +503,7 @@ async function main(): Promise<void> {
       },
       onCheckpointRewind: async (checkpointId: string) => {
         // TODO: 实现检查点回滚
+        return 0;
       },
       onCheckpointList: async () => {
         // TODO: 实现检查点列表

@@ -180,14 +180,30 @@ export class ConfigLoader implements IConfigLoader {
         }
       }
 
+      // 从 agent.prompt 读取配置
+      const promptConfig: Record<string, any> = {};
+      if (agentConfig.prompt) {
+        if (agentConfig.prompt.defaultScene) {
+          promptConfig.defaultScene = agentConfig.prompt.defaultScene;
+        }
+        if (agentConfig.prompt.defaultComplexity) {
+          promptConfig.defaultComplexity = agentConfig.prompt.defaultComplexity;
+        }
+      }
+
       log.debug(`加载 Agent 配置: ${agentId}`, {
         model: providerConfig.model,
         adapter: providerConfig.adapter,
         hasApiKey: !!providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
+        prompt: promptConfig,
       });
 
-      return { provider: providerConfig };
+      const result: Record<string, any> = { provider: providerConfig };
+      if (Object.keys(promptConfig).length > 0) {
+        result.prompt = promptConfig;
+      }
+      return result;
     } catch (error) {
       log.error(`加载 Agent 配置失败:`, error);
       return null;
@@ -302,22 +318,6 @@ export class ConfigLoader implements IConfigLoader {
       // MCP 配置模板
       const template: MCPConfig = {
         servers: [],
-        // 可以添加一些示例配置
-        _examples: {
-          filesystem: {
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/allowed/directory'],
-            description: 'File system access server'
-          },
-          github: {
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-github'],
-            env: {
-              GITHUB_TOKEN: 'your-github-token'
-            },
-            description: 'GitHub API server'
-          }
-        }
       };
 
       await writeFile(destPath, JSON.stringify(template, null, 2), 'utf-8');

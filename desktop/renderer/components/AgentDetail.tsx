@@ -14,42 +14,42 @@ interface AgentDetailProps {
 }
 
 export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }: AgentDetailProps) {
-  const isBuiltin = agent.metadata?.source === 'builtin';
+  const category = agent.metadata?.category || 'custom';
+  const canEdit = true;
+  const canDelete = category === 'custom';
   const [showConfig, setShowConfig] = useState(false);
 
   const configJson = JSON.stringify(agent, null, 2);
 
   // Agent 类型标识
   const getAgentTypeInfo = () => {
-    const metadata = agent.metadata || {};
-
-    // 主 Agent
-    if (metadata.isMainAgent) {
+    if (agent.metadata?.isMainAgent) {
       return {
         type: '主 Agent',
         icon: '⭐',
-        color: 'text-yellow-500',
+        color: 'text-yellow-400',
         bgColor: 'bg-yellow-500/20',
-        description: '用户直接交互的主 Agent，处理所有用户输入',
+        description: '主 Agent，负责所有用户交互和任务执行',
       };
     }
-
-    // 子 Agent（包括 SubAgent 和 SystemAgent）
-    if (metadata.isSubAgent || metadata.isSystemAgent) {
-      const isSystem = metadata.isSystemAgent;
+    if (category === 'system') {
       return {
-        type: '子 Agent',
-        icon: isSystem ? '⚙️' : '🤖',
+        type: '系统 Agent',
+        icon: '⚙️',
+        color: 'text-gray-400',
+        bgColor: 'bg-gray-500/20',
+        description: '系统内置 Agent，由框架自动调用',
+      };
+    }
+    if (category === 'app') {
+      return {
+        type: '应用 Agent',
+        icon: '🤖',
         color: 'text-blue-500',
         bgColor: 'bg-blue-500/20',
-        description: isSystem
-          ? '系统内部专用子代理（上下文压缩、意图分析等），由框架自动调用'
-          : '执行特定任务的专业子代理，由主 Agent 或其他 Agent 调用',
-        subType: isSystem ? '系统' : '通用',
+        description: '执行特定任务的应用 Agent',
       };
     }
-
-    // 自定义 Agent
     return {
       type: '自定义 Agent',
       icon: '📝',
@@ -62,9 +62,6 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
   // System Prompt 构建方式
   const getSystemPromptMode = () => {
     const { systemPrompt } = agent;
-    const isMainAgent = agent.metadata?.isMainAgent;
-    const isSubAgent = agent.metadata?.isSubAgent;
-    const isSystemAgent = agent.metadata?.isSystemAgent;
 
     if (systemPrompt === null || systemPrompt === undefined) {
       return {
@@ -73,36 +70,6 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
         color: 'text-green-500',
         bgColor: 'bg-green-500/20',
         description: '使用 LayeredPromptBuilder 根据场景和复杂度动态生成（L0-L3 分层组件）',
-        layers: isMainAgent
-          ? ['L0 基础层 (base-identity + base-memory-guide + base-task-execution)', 'L1 场景层 (coding/life)', 'L2 复杂任务层 (agent-rules/planning)', 'L3 项目层 (project context)']
-          : null,
-      };
-    }
-
-    // 子 Agent 使用统一基础层 + 角色专用 prompt
-    if (isSubAgent && !isSystemAgent) {
-      return {
-        mode: '统一基础层 + 角色专用',
-        icon: '🧩',
-        color: 'text-blue-500',
-        bgColor: 'bg-blue-500/20',
-        description: '加载 L0 基础层（记忆/任务执行指导）+ 角色专用 prompt',
-        layers: [
-          'L0 基础层 (base-identity + base-memory-guide + base-task-execution)',
-          '角色专用 prompt (配置文件中定义)',
-          'L3 项目层 (可选)',
-        ],
-      };
-    }
-
-    // 系统内部 Agent 使用固定 prompt
-    if (isSystemAgent) {
-      return {
-        mode: '固定字符串',
-        icon: '📌',
-        color: 'text-orange-500',
-        bgColor: 'bg-orange-500/20',
-        description: '系统内部 Agent，使用配置中定义的固定 system prompt',
         layers: null,
       };
     }
@@ -112,7 +79,9 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
       icon: '📌',
       color: 'text-orange-500',
       bgColor: 'bg-orange-500/20',
-      description: '使用配置中定义的固定 system prompt',
+      description: category === 'system'
+        ? '系统 Agent，使用配置中定义的固定 system prompt'
+        : '使用配置中定义的固定 system prompt',
       layers: null,
     };
   };
@@ -125,17 +94,22 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
       {/* 头部 */}
       <div className="flex items-start justify-between mb-6">
         <div className="flex items-start gap-4">
-          <div className="w-16 h-16 bg-primary/20 rounded-lg flex items-center justify-center">
-            <span className="text-3xl">🤖</span>
+          {/* Avatar */}
+          <div
+            className={`w-16 h-16 rounded-lg flex items-center justify-center ${
+              agent.color ? `bg-gradient-to-br ${agent.color}` : 'bg-primary/20'
+            }`}
+          >
+            <span className="text-3xl">{agent.avatar || '🤖'}</span>
           </div>
           <div>
             <h3 className="text-2xl font-bold mb-1">{agent.name}</h3>
             <p className="text-sm text-text-secondary">{agent.id}</p>
-            {agent.metadata?.source && (
+            {category && (
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs bg-bg-tertiary px-2 py-1 rounded">
-                  {agent.metadata.source === 'builtin' ? '📦 内置' :
-                   agent.metadata.source === 'global' ? '🌐 全局' : '📁 项目'}
+                  {category === 'system' ? '⚙️ 系统' :
+                   category === 'app' ? '🤖 应用' : '📝 自定义'}
                 </span>
                 {!agent.enabled && (
                   <span className="text-xs bg-red-500/20 text-red-500 px-2 py-1 rounded">
@@ -156,23 +130,23 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
             <Copy size={16} />
             复制
           </button>
-          {!isBuiltin && (
-            <>
-              <button
-                onClick={onEdit}
-                className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
-              >
-                <Edit size={16} />
-                编辑
-              </button>
-              <button
-                onClick={onDelete}
-                className="px-4 py-2 border border-red-500/20 text-red-500 rounded hover:bg-red-500/10 transition-colors text-sm flex items-center gap-2"
-              >
-                <Trash2 size={16} />
-                删除
-              </button>
-            </>
+          {canEdit && (
+            <button
+              onClick={onEdit}
+              className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
+            >
+              <Edit size={16} />
+              编辑
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={onDelete}
+              className="px-4 py-2 border border-red-500/20 text-red-500 rounded hover:bg-red-500/10 transition-colors text-sm flex items-center gap-2"
+            >
+              <Trash2 size={16} />
+              删除
+            </button>
           )}
           <button
             onClick={onTest}
@@ -234,7 +208,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
           </div>
 
           {/* 工具配置 */}
-          {agent.tools && (
+          {agent.tools && agent.tools.length > 0 && (
             <div className="p-3 rounded-lg bg-bg-primary col-span-2">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔧</span>
@@ -243,27 +217,42 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
               <div className="space-y-2">
                 <p className="text-xs text-text-secondary">
                   共 {agent.tools.length} 个工具
-                  {agent.tools.filter((t: any) => t.required).length > 0 && (
+                  {agent.tools.filter((t: any) => t.enabled !== false).length > 0 && (
                     <span className="ml-2">
-                      (必备: {agent.tools.filter((t: any) => t.required).length} 个)
+                      (已启用: {agent.tools.filter((t: any) => t.enabled !== false).length} 个)
                     </span>
                   )}
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {agent.tools.map((tool: any) => (
-                    <span
-                      key={tool.name}
-                      className={`text-xs px-2 py-1 rounded ${
-                        tool.required
-                          ? 'bg-primary/20 text-primary'
-                          : 'bg-bg-tertiary text-text-secondary'
-                      }`}
-                      title={tool.required ? '必备工具' : '可选工具'}
-                    >
-                      {tool.name}
-                      {tool.required && ' *'}
-                    </span>
-                  ))}
+                  {agent.tools.map((tool: any) => {
+                    const toolName = typeof tool === 'string' ? tool : tool.name;
+                    const toolEnabled = typeof tool === 'string' ? true : tool.enabled !== false;
+                    const toolRequired = typeof tool === 'string' ? false : tool.required === true;
+
+                    return (
+                      <span
+                        key={toolName}
+                        className={`text-xs px-2 py-1 rounded ${
+                          !toolEnabled
+                            ? 'bg-gray-500/20 text-gray-500 line-through'
+                            : toolRequired
+                            ? 'bg-primary/20 text-primary'
+                            : 'bg-bg-tertiary text-text-secondary'
+                        }`}
+                        title={
+                          !toolEnabled
+                            ? '已禁用'
+                            : toolRequired
+                            ? '必备工具'
+                            : '可选工具'
+                        }
+                      >
+                        {toolName}
+                        {toolRequired && ' *'}
+                        {!toolEnabled && ' (禁用)'}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -284,7 +273,17 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
                 )}
                 {agent.execution.maxIterations !== undefined && (
                   <p className="text-xs text-text-secondary">
-                    最大迭代: {agent.execution.maxIterations === Infinity ? '∞' : agent.execution.maxIterations}
+                    最大迭代: {agent.execution.maxIterations === Infinity ? '∞ 不限' : agent.execution.maxIterations}
+                  </p>
+                )}
+                {agent.execution.timeout !== undefined && (
+                  <p className="text-xs text-text-secondary">
+                    超时: {(agent.execution.timeout / 1000).toFixed(0)}s
+                  </p>
+                )}
+                {agent.execution.streaming !== undefined && (
+                  <p className="text-xs text-text-secondary">
+                    流式输出: {agent.execution.streaming ? '✓ 启用' : '✗ 禁用'}
                   </p>
                 )}
                 {agent.execution.parallelTools !== undefined && (
@@ -296,27 +295,32 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
             </div>
           )}
 
-          {/* 权限模式 */}
+          {/* 权限配置 */}
           {agent.permissions && (
             <div className="p-3 rounded-lg bg-bg-primary">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔒</span>
-                <span className="font-medium">权限模式</span>
+                <span className="font-medium">权限配置</span>
               </div>
               <div className="space-y-1">
                 {agent.permissions.fileRead && (
                   <p className="text-xs text-text-secondary">
-                    文件读: {agent.permissions.fileRead === 'always' ? '✓ 总是允许' : agent.permissions.fileRead}
+                    文件读取: {agent.permissions.fileRead === 'always' ? '✓ 始终允许' : agent.permissions.fileRead === 'ask' ? '? 询问' : '✗ 禁止'}
                   </p>
                 )}
                 {agent.permissions.fileWrite && (
                   <p className="text-xs text-text-secondary">
-                    文件写: {agent.permissions.fileWrite === 'deny' ? '✗ 禁止' : agent.permissions.fileWrite}
+                    文件写入: {agent.permissions.fileWrite === 'always' ? '✓ 始终允许' : agent.permissions.fileWrite === 'ask' ? '? 询问' : '✗ 禁止'}
                   </p>
                 )}
                 {agent.permissions.bashExec && (
                   <p className="text-xs text-text-secondary">
-                    命令执行: {agent.permissions.bashExec === 'deny' ? '✗ 禁止' : agent.permissions.bashExec}
+                    Bash执行: {agent.permissions.bashExec === 'always' ? '✓ 始终允许' : agent.permissions.bashExec === 'ask' ? '? 询问' : '✗ 禁止'}
+                  </p>
+                )}
+                {agent.permissions.network && (
+                  <p className="text-xs text-text-secondary">
+                    网络访问: {agent.permissions.network === 'always' ? '✓ 始终允许' : agent.permissions.network === 'ask' ? '? 询问' : '✗ 禁止'}
                   </p>
                 )}
               </div>
@@ -385,15 +389,50 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
       </div>
 
       {/* 标签 */}
-      {agent.tags && agent.tags.length > 0 && (
+      {/* Capabilities（能力） */}
+      {agent.capabilities && agent.capabilities.length > 0 && (
         <div className="bg-bg-secondary rounded-lg p-4 mb-6">
-          <h4 className="font-medium mb-3">🏷️ 标签</h4>
+          <h4 className="font-medium mb-3">💪 能力清单</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {agent.capabilities.map((capability: string, idx: number) => (
+              <div key={idx} className="flex items-start gap-2 text-sm">
+                <span className="text-primary mt-0.5">✓</span>
+                <span className="text-text-secondary">{capability}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Skills（未来支持） */}
+      {agent.skills && agent.skills.length > 0 && (
+        <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+          <h4 className="font-medium mb-3 flex items-center gap-2">
+            <span>🎯</span>
+            <span>Skills</span>
+            <span className="text-xs bg-blue-500/20 text-blue-500 px-2 py-0.5 rounded">未来支持</span>
+          </h4>
           <div className="flex gap-2 flex-wrap">
-            {agent.tags.map((tag: string) => (
-              <span key={tag} className="bg-primary/20 text-primary px-3 py-1 rounded-full text-sm">
-                {tag}
+            {agent.skills.map((skill: string) => (
+              <span key={skill} className="bg-blue-500/20 text-blue-500 px-3 py-1 rounded-full text-sm">
+                {skill}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* System Prompt */}
+      {agent.systemPrompt && (
+        <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+          <h4 className="font-medium mb-3 flex items-center gap-2">
+            <span>📝</span>
+            <span>System Prompt</span>
+          </h4>
+          <div className="bg-bg-primary rounded p-3 max-h-64 overflow-y-auto">
+            <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono">
+              {agent.systemPrompt}
+            </pre>
           </div>
         </div>
       )}
@@ -417,10 +456,10 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
       </div>
 
       {/* 元数据 */}
-      {isBuiltin && (
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-          <p className="text-sm text-blue-400">
-            ℹ️ 内置 Agent 不可编辑或删除，但可以通过"复制"按钮创建副本后修改。
+      {category === 'system' && (
+        <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-4">
+          <p className="text-sm text-gray-400">
+            ℹ️ 系统 Agent 可配置模型和 Provider，但不可修改 Prompt/工具，也不可删除。
           </p>
         </div>
       )}

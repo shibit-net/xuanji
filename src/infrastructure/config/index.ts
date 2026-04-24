@@ -4,10 +4,8 @@
 
 export { ConfigService, type IConfigSource, type ConfigWatcher } from './ConfigService';
 export {
-  DefaultConfigSource,
-  GlobalConfigSource,
-  ProjectConfigSource,
-  EnvConfigSource,
+  TemplateConfigSource,
+  UserConfigSource,
   RuntimeConfigSource,
   MemoryConfigSource
 } from './ConfigSources';

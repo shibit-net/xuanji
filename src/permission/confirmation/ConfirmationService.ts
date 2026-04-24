@@ -56,15 +56,17 @@ export class ConfirmationService implements IConfirmationService {
    * 显示确认提示
    */
   private async showPrompt(request: ConfirmationRequest): Promise<ConfirmationResult> {
-    log.debug(`Requesting confirmation for: ${request.request.operation}`);
+    log.debug(`Requesting confirmation for: ${request.request.toolName}`);
 
-    const userConfirmation = await this.handler!({
-      operation: request.request.operation,
-      path: request.request.path,
-      command: request.request.command,
-      level: request.level,
-      reason: request.reason
-    });
+    // 构造 GuardCheckResult
+    const guardResult = {
+      category: 'bashExec' as const,
+      riskLevel: request.level,
+      description: request.reason || `Tool: ${request.request.toolName}`,
+      cacheKey: `tool:${request.request.toolName}`,
+    };
+
+    const userConfirmation = await this.handler!(request.request, guardResult);
 
     return {
       allowed: userConfirmation.allowed,

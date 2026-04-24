@@ -5,7 +5,7 @@
 // ─── 事件类型 ──────────────────────────────────────────
 
 /**
- * 14 种 Hook 事件
+ * Hook 事件类型
  */
 export type HookEvent =
   | 'SessionStart'
@@ -26,7 +26,7 @@ export type HookEvent =
   | 'TeamMemberEnd'
   | 'CheckpointCreated'
   | 'CheckpointRestored'
-  // ─── 新增：可视化监控事件 ────────────────────────────────────
+  // ─── 可视化监控事件 ────────────────────────────────────
   | 'AgentThinking'    // Agent 进入 Extended Thinking
   | 'SkillStart'       // Skill 开始执行
   | 'SkillEnd'         // Skill 执行完成
@@ -35,7 +35,20 @@ export type HookEvent =
   | 'MemoryRead'       // 记忆检索（buildDecisionContext）
   | 'MemoryWrite'      // 记忆写入
   | 'ToolStart'        // 工具调用开始（子 Agent）
-  | 'ToolEnd';         // 工具调用结束（子 Agent）
+  | 'ToolEnd'          // 工具调用结束（子 Agent）
+  // ─── 🆕 MainAgent 流程事件 ────────────────────────────────────
+  | 'IntentAnalysisStart'      // 意图分析开始
+  | 'IntentAnalysisEnd'        // 意图分析结束
+  | 'TaskPlanningStart'        // 任务规划开始
+  | 'TaskPlanningEnd'          // 任务规划结束
+  | 'TaskExecutionStart'       // 任务执行开始
+  | 'TaskExecutionEnd'         // 任务执行结束
+  | 'ResultAggregationStart'   // 结果汇总开始
+  | 'ResultAggregationEnd'     // 结果汇总结束
+  | 'PromptBuildStart'         // Prompt 构建开始
+  | 'PromptBuildEnd'           // Prompt 构建结束
+  | 'AgentSelectionStart'      // Agent 选择开始
+  | 'AgentSelectionEnd';       // Agent 选择结束
 
 /**
  * 同步事件（可阻塞主流程）
@@ -74,6 +87,19 @@ export const ALL_EVENTS: HookEvent[] = [
   'MemoryWrite',
   'ToolStart',
   'ToolEnd',
+  // 🆕 MainAgent 流程事件
+  'IntentAnalysisStart',
+  'IntentAnalysisEnd',
+  'TaskPlanningStart',
+  'TaskPlanningEnd',
+  'TaskExecutionStart',
+  'TaskExecutionEnd',
+  'ResultAggregationStart',
+  'ResultAggregationEnd',
+  'PromptBuildStart',
+  'PromptBuildEnd',
+  'AgentSelectionStart',
+  'AgentSelectionEnd',
 ];
 
 // ─── Handler 类型 ──────────────────────────────────────

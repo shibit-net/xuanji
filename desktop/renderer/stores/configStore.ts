@@ -2,7 +2,7 @@
 // Xuanji Desktop - 配置 Store (Configuration Store)
 // ============================================================
 // 职责：
-// - 管理所有静态配置（Settings, Agents, Skills, Tools, MCP）
+// - 管理所有静态配置（Settings, Agents, Tools）
 // - 从后端 IPC 加载配置
 // - 保存配置到后端
 // - 持久化用户设置（通过 zustand persist）
@@ -16,18 +16,14 @@ import type {
   APIConfig,
   PermissionConfig,
   AgentProfile,
-  SkillDefinition,
   ToolDefinition,
-  MCPServerConfig,
 } from '../types/models';
 
 interface ConfigState {
   // ========== 数据 ==========
   settings: UserSettings;
   agents: AgentProfile[];
-  skills: SkillDefinition[];
   tools: ToolDefinition[];
-  mcpServers: MCPServerConfig[];
 
   // ========== 加载状态 ==========
   loaded: boolean;
@@ -48,16 +44,9 @@ interface ConfigState {
   updateAgent: (id: string, agent: Partial<AgentProfile>) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
 
-  // ========== Skills 操作 ==========
-  loadSkills: () => Promise<void>;
-  getSkill: (id: string) => SkillDefinition | undefined;
-
   // ========== Tools 操作 ==========
   loadTools: () => Promise<void>;
   getTool: (name: string) => ToolDefinition | undefined;
-
-  // ========== MCP 操作 ==========
-  loadMCPServers: () => Promise<void>;
 
   // ========== 批量加载 ==========
   loadAll: () => Promise<void>;
@@ -87,9 +76,7 @@ export const useConfigStore = create<ConfigState>()(
       // ========== 初始状态 ==========
       settings: defaultSettings,
       agents: [],
-      skills: [],
       tools: [],
-      mcpServers: [],
       loaded: false,
       loading: false,
       error: null,
@@ -215,24 +202,6 @@ export const useConfigStore = create<ConfigState>()(
         }
       },
 
-      // ========== Skills 操作 ==========
-      loadSkills: async () => {
-        try {
-          const result = await window.electron.skillsList();
-          if (result.success && result.skills) {
-            set({ skills: result.skills as any });
-          } else if (result.error) {
-            set({ error: result.error });
-          }
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) });
-        }
-      },
-
-      getSkill: (id) => {
-        return get().skills.find((skill) => skill.id === id);
-      },
-
       // ========== Tools 操作 ==========
       loadTools: async () => {
         try {
@@ -251,20 +220,6 @@ export const useConfigStore = create<ConfigState>()(
         return get().tools.find((tool) => tool.name === name);
       },
 
-      // ========== MCP 操作 ==========
-      loadMCPServers: async () => {
-        try {
-          const result = await window.electron.mcpList();
-          if (result.success && result.servers) {
-            set({ mcpServers: result.servers });
-          } else if (result.error) {
-            set({ error: result.error });
-          }
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) });
-        }
-      },
-
       // ========== 批量加载 ==========
       loadAll: async () => {
         set({ loading: true, error: null });
@@ -272,9 +227,7 @@ export const useConfigStore = create<ConfigState>()(
           await Promise.all([
             get().loadSettings(),
             get().loadAgents(),
-            get().loadSkills(),
             get().loadTools(),
-            get().loadMCPServers(),
           ]);
           set({ loaded: true });
         } catch (err) {

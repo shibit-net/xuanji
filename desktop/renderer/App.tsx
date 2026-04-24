@@ -12,7 +12,10 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const MainPage = lazy(() => import('./pages/MainPage'));
 const AgentsPage = lazy(() => import('./pages/AgentsPage'));
-const MemoryPage = lazy(() => import('./pages/MemoryPage'));
+const ToolsPage = lazy(() => import('./pages/ToolsPage'));
+const SystemPromptPage = lazy(() => import('./pages/SystemPromptPage'));
+const PermissionsPage = lazy(() => import('./pages/PermissionsPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 // 加载中组件
 function LoadingScreen() {
@@ -62,7 +65,10 @@ export default function App() {
                       <Route path="/" element={<MainPage />} />
                       <Route path="/chat" element={<MainPage />} />
                       <Route path="/agents" element={<AgentsPage onClose={() => window.history.back()} />} />
-                      <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
+                      <Route path="/tools" element={<ToolsPage onClose={() => window.history.back()} />} />
+                      <Route path="/system-prompt" element={<SystemPromptPage onClose={() => window.history.back()} />} />
+                      <Route path="/permissions" element={<PermissionsPage onClose={() => window.history.back()} />} />
+                      <Route path="/settings" element={<SettingsPage onClose={() => window.history.back()} />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </MainLayout>

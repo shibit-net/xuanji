@@ -280,14 +280,26 @@ export class LayoutEngine {
   /**
    * 右侧动作标签位置，溢出时自动调整
    * 会自动注册到 occupiedRects
+   * 增加更多候选位置，确保不会盖在主 agent 上
    */
   getMomentTagPosition(agentPos: Point, agentRadius: number, tagWidth = 100, tagHeight = 24): Point {
-    const gap = 8;
+    const gap = 12;
+    const verticalOffset = agentRadius + gap;
 
-    // 候选：右侧 → 左侧
+    // 候选位置优先级：右侧 → 上方 → 下方 → 左侧
     const candidates: Point[] = [
+      // 右侧（水平居中）
       { x: agentPos.x + agentRadius + gap, y: agentPos.y - tagHeight / 2 },
+      // 上方（水平居中）
+      { x: agentPos.x - tagWidth / 2, y: agentPos.y - verticalOffset - tagHeight },
+      // 下方（水平居中）
+      { x: agentPos.x - tagWidth / 2, y: agentPos.y + verticalOffset },
+      // 左侧（水平居中）
       { x: agentPos.x - agentRadius - gap - tagWidth, y: agentPos.y - tagHeight / 2 },
+      // 右上角
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y - verticalOffset - tagHeight },
+      // 右下角
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y + verticalOffset },
     ];
 
     for (const pos of candidates) {
@@ -299,6 +311,7 @@ export class LayoutEngine {
       }
     }
 
+    // 如果所有候选位置都被占用，使用第一个候选位置（右侧）作为 fallback
     const fallback = this.clampRect({
       x: candidates[0].x,
       y: candidates[0].y,

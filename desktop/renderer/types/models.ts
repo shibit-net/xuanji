@@ -58,7 +58,6 @@ export interface AgentProfile {
   metadata: {
     source: 'builtin' | 'global' | 'project';
     filePath?: string;
-    builtin?: boolean;
     isSubAgent?: boolean;
     createdAt: string;
     updatedAt: string;
@@ -82,18 +81,10 @@ export interface SkillDefinition {
 export interface ToolDefinition {
   name: string;
   description: string;
-  category: 'core' | 'search' | 'meta' | 'task' | 'memory' | 'reminder' | 'network' | 'mcp' | 'special';
+  category: 'core' | 'search' | 'meta' | 'task' | 'memory' | 'reminder' | 'network' | 'special';
   required: boolean;
   readonly: boolean;
   inputSchema?: any;
-}
-
-export interface MCPServerConfig {
-  name: string;
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  enabled: boolean;
 }
 
 // ============================================================
@@ -165,11 +156,14 @@ export interface TokenUsage {
 
 export interface ContextInfo {
   workingDirectory: string;
-  focusedFiles: string[];
-  recentFiles: string[];
+  focusedFiles?: string[];
+  recentFiles?: string[];
   projectInfo?: {
     name: string;
     type: string;
+    hasGit: boolean;
+    rootPath: string;
+    gitBranch?: string;
     dependencies?: string[];
   };
 }
@@ -183,6 +177,33 @@ export interface LogEntry {
   details?: any;
 }
 
+export interface PromptComponent {
+  id: string;
+  name: string;
+  layer: number;
+  source: 'user' | 'project' | 'builtin';
+  reason?: string;
+}
+
+export interface PromptBuildState {
+  status: 'idle' | 'analyzing' | 'selecting' | 'building' | 'done';
+  startTime?: number;
+  endTime?: number;
+  intent?: {
+    scene: string;
+    complexity: 'simple' | 'medium' | 'complex';
+    confidence: number;
+  };
+  selectedComponents: PromptComponent[];
+  finalStructure?: {
+    layers: Array<{
+      layer: number;
+      components: string[];
+    }>;
+    totalTokens?: number;
+  };
+}
+
 export interface RuntimeState {
   agentStatus: AgentStatus | null;
   messageStream: MessageStreamState | null;
@@ -192,6 +213,7 @@ export interface RuntimeState {
   isProcessing: boolean;
   contextInfo: ContextInfo | null;
   logs: LogEntry[];
+  promptBuildState: PromptBuildState | null;
 }
 
 // ============================================================

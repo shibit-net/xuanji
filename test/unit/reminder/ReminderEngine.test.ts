@@ -9,8 +9,7 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { ReminderEngine } from '@/reminder/ReminderEngine';
 import { SimpleStorage } from '@/core/SimpleStorage';
-import type { Reminder, ReminderInput } from '@/reminder/types';
-import type { MemoryEntry } from '@/memory/types';
+import type { Reminder, ReminderInput, MemoryEntry } from '@/reminder/types';
 
 /** 获取本地日期字符串 YYYY-MM-DD（与 ReminderEngine.getToday() 保持一致） */
 function getLocalToday(): string {
@@ -31,14 +30,9 @@ function createReminderInput(overrides: Partial<ReminderInput> = {}): ReminderIn
 function createMemoryEntry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
     id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-    type: 'relationship',
     content: 'Bob is a college friend',
     keywords: ['Bob', 'friend', 'college'],
-    source: 'llm-explicit',
-    confidence: 0.9,
-    createdAt: new Date().toISOString(),
-    lastAccessedAt: new Date().toISOString(),
-    accessCount: 0,
+    updatedAt: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -256,8 +250,7 @@ describe('ReminderEngine', () => {
         createMemoryEntry({
           content: 'Bob is a college friend',
           keywords: ['Bob', 'friend', 'college'],
-          lastAccessedAt: oldDate.toISOString(),
-          createdAt: oldDate.toISOString(),
+          updatedAt: oldDate.toISOString(),
         }),
       ];
 
@@ -280,7 +273,7 @@ describe('ReminderEngine', () => {
         createMemoryEntry({
           content: 'Alice likes Japanese food',
           keywords: ['Alice', 'japanese', 'food'],
-          lastAccessedAt: yesterday.toISOString(),
+          updatedAt: yesterday.toISOString(),
         }),
       ];
 

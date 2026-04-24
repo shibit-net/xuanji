@@ -3,7 +3,6 @@
 // ============================================================
 
 import type { DailyUsageRecord } from '@/core/telemetry/DailyUsageStats';
-import { CostTracker } from '@/core/agent/CostTracker';
 
 /**
  * 格式化按天统计信息
@@ -32,7 +31,6 @@ export function formatDailyStats(records: DailyUsageRecord[]): string {
         lines.push(`  - 缓存写: ${record.cacheWriteTokens.toLocaleString()}`);
       }
     }
-    lines.push(`费用: ${CostTracker.formatCost(record.totalCost)}`);
 
     if (record.avgIterations > 0) {
       lines.push(`平均迭代: ${record.avgIterations} 轮`);
@@ -56,32 +54,13 @@ export function formatDailyStats(records: DailyUsageRecord[]): string {
 
 /**
  * 格式化费用趋势
+ * @deprecated 费用功能已移除
  */
 export function formatCostTrend(
   trend: { date: string; cost: number }[],
   days: number,
 ): string {
-  if (trend.length === 0) {
-    return `📈 最近 ${days} 天费用趋势\n\n暂无数据`;
-  }
-
-  const lines: string[] = [];
-  lines.push(`📈 最近 ${days} 天费用趋势`);
-  lines.push('');
-
-  let totalCost = 0;
-  for (const item of trend) {
-    totalCost += item.cost;
-    const costStr = CostTracker.formatCost(item.cost);
-    const bar = generateBar(item.cost, Math.max(...trend.map((t) => t.cost)));
-    lines.push(`${item.date}  ${costStr.padStart(8)}  ${bar}`);
-  }
-
-  lines.push('');
-  lines.push(`总计: ${CostTracker.formatCost(totalCost)}`);
-  lines.push(`平均: ${CostTracker.formatCost(totalCost / trend.length)}`);
-
-  return lines.join('\n');
+  return `📈 最近 ${days} 天趋势\n\n费用功能已移除`;
 }
 
 /**
@@ -126,40 +105,35 @@ export function formatModelSummary(records: DailyUsageRecord[]): string {
   const byModel = new Map<string, {
     calls: number;
     tokens: number;
-    cost: number;
   }>();
 
   for (const record of records) {
     if (!byModel.has(record.model)) {
-      byModel.set(record.model, { calls: 0, tokens: 0, cost: 0 });
+      byModel.set(record.model, { calls: 0, tokens: 0 });
     }
     const summary = byModel.get(record.model)!;
     summary.calls += record.totalCalls;
     summary.tokens += record.totalTokens;
-    summary.cost += record.totalCost;
   }
 
-  // 按费用降序排序
+  // 按 token 降序排序
   const sorted = Array.from(byModel.entries())
-    .sort((a, b) => b[1].cost - a[1].cost);
+    .sort((a, b) => b[1].tokens - a[1].tokens);
 
   for (const [model, summary] of sorted) {
     lines.push(`模型: ${model}`);
     lines.push(`  调用: ${summary.calls} 次`);
     lines.push(`  Token: ${summary.tokens.toLocaleString()}`);
-    lines.push(`  费用: ${CostTracker.formatCost(summary.cost)}`);
     lines.push('');
   }
 
   // 总计
   const totalCalls = Array.from(byModel.values()).reduce((sum, s) => sum + s.calls, 0);
   const totalTokens = Array.from(byModel.values()).reduce((sum, s) => sum + s.tokens, 0);
-  const totalCost = Array.from(byModel.values()).reduce((sum, s) => sum + s.cost, 0);
 
   lines.push('总计:');
   lines.push(`  调用: ${totalCalls} 次`);
   lines.push(`  Token: ${totalTokens.toLocaleString()}`);
-  lines.push(`  费用: ${CostTracker.formatCost(totalCost)}`);
 
   return lines.join('\n');
 }

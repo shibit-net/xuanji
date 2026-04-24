@@ -1,15 +1,9 @@
 /**
  * ============================================================
- * Prompt Components — 导出所有分层组件
+ * Prompt Components — 导出动态组件
  * ============================================================
+ * 静态组件已迁移到 YAML 格式，从用户目录加载。
+ * 此处只导出需要动态逻辑的 TypeScript 组件。
  */
 
-export { l0Identity } from './l0-identity';
-export { l0Safety } from './l0-safety';
-export { l1Coding } from './l1-coding';
-export { l1Life } from './l1-life';
-export { l1CodingScenes, getCodingSceneConfigs } from './l1-coding-scenes';
-export { l2Planning } from './l2-planning';
-export { l2AgentRules } from './l2-agent-rules';
-export { l2Safety } from './l2-safety';
 export { l3Project } from './l3-project';

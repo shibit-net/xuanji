@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { IPermissionAudit, PermissionEvent, AuditFilter } from '../interfaces';
+import type { DecisionStore, AuditLogEntry } from '../DecisionStore';
 import { AuditLogger } from '@/core/telemetry';
 import { logger } from '@/core/logger';
 
@@ -15,22 +16,36 @@ export class PermissionAudit implements IPermissionAudit {
   private auditLogger: AuditLogger;
   private events: PermissionEvent[] = [];
   private maxEvents: number;
+  private decisionStore: DecisionStore | null = null;
 
-  constructor(maxEvents = 1000) {
+  constructor(maxEvents = 1000, decisionStore?: DecisionStore) {
     this.auditLogger = new AuditLogger();
     this.maxEvents = maxEvents;
+    this.decisionStore = decisionStore ?? null;
+  }
+
+  /**
+   * 设置 DecisionStore（用于持久化）
+   */
+  setDecisionStore(store: DecisionStore): void {
+    this.decisionStore = store;
   }
 
   log(event: PermissionEvent): void {
     // 1. 记录到审计日志
-    this.auditLogger.log({
-      timestamp: event.timestamp,
-      type: 'permission',
-      operation: event.request.operation,
-      result: event.result,
-      source: event.source,
+    const permissionResult = {
+      allowed: event.result === 'allowed',
       reason: event.reason,
-      metadata: event.request
+      checkedBy: event.source
+    };
+
+    this.auditLogger.recordPermissionCheck(
+      event.request,
+      permissionResult,
+      null,
+      false
+    ).catch(err => {
+      log.error('Failed to record permission check:', err);
     });
 
     // 2. 保存到内存（用于查询）
@@ -39,6 +54,26 @@ export class PermissionAudit implements IPermissionAudit {
     // 3. 限制内存大小
     if (this.events.length > this.maxEvents) {
       this.events.shift();
+    }
+
+    // 4. 持久化到数据库
+    if (this.decisionStore) {
+      const auditEntry: AuditLogEntry = {
+        eventType: 'permission_check',
+        toolName: event.request.toolName,
+        category: this.extractCategory(event.request),
+        riskLevel: this.extractRiskLevel(event),
+        decision: event.result,
+        reason: event.reason,
+        target: this.extractTarget(event.request),
+        userAction: event.source === 'user' ? 'manual_decision' : undefined,
+        timestamp: event.timestamp,
+        sessionId: event.request.requestId,
+      };
+
+      this.decisionStore.saveAuditLog(auditEntry).catch(err => {
+        log.error('Failed to persist audit log:', err);
+      });
     }
   }
 
@@ -70,14 +105,24 @@ export class PermissionAudit implements IPermissionAudit {
    * 获取审计统计
    */
   getStats() {
+    // 优先从持久化存储获取统计
+    if (this.decisionStore) {
+      try {
+        return this.decisionStore.getAuditStats();
+      } catch (err) {
+        log.warn('Failed to get stats from DecisionStore, falling back to memory:', err);
+      }
+    }
+
+    // 回退到内存统计
     const total = this.events.length;
     const allowed = this.events.filter(e => e.result === 'allowed').length;
     const denied = this.events.filter(e => e.result === 'denied').length;
 
     return {
-      total,
-      allowed,
-      denied,
+      totalChecks: total,
+      allowedCount: allowed,
+      deniedCount: denied,
       allowRate: total > 0 ? allowed / total : 0
     };
   }
@@ -87,6 +132,69 @@ export class PermissionAudit implements IPermissionAudit {
    */
   clear(): void {
     this.events = [];
+
+    // 同时清空持久化存储
+    if (this.decisionStore) {
+      this.decisionStore.clearAuditLogs().catch(err => {
+        log.error('Failed to clear audit logs from DecisionStore:', err);
+      });
+    }
+
     log.debug('Audit records cleared');
+  }
+
+  /**
+   * 从请求中提取操作类别
+   */
+  private extractCategory(request: any): string | undefined {
+    const toolName = request.toolName;
+    if (['read_file', 'glob', 'grep'].includes(toolName)) {
+      return 'fileRead';
+    }
+    if (['write_file', 'edit_file', 'notebook_edit'].includes(toolName)) {
+      return 'fileWrite';
+    }
+    if (toolName === 'bash') {
+      return 'bashExec';
+    }
+    return undefined;
+  }
+
+  /**
+   * 从事件中提取风险级别
+   */
+  private extractRiskLevel(event: PermissionEvent): string | undefined {
+    // 从 reason 中推断风险级别（简化实现）
+    if (event.reason?.includes('danger') || event.reason?.includes('危险')) {
+      return 'danger';
+    }
+    if (event.reason?.includes('warn') || event.reason?.includes('警告')) {
+      return 'warn';
+    }
+    if (event.source === 'user-confirmation') {
+      return 'danger'; // 需要用户确认的通常是危险操作
+    }
+    return 'safe';
+  }
+
+  /**
+   * 从请求中提取操作目标
+   */
+  private extractTarget(request: any): string | undefined {
+    const input = request.input;
+    if (!input) return undefined;
+
+    // 文件操作
+    if (input.file_path || input.path) {
+      return input.file_path || input.path;
+    }
+
+    // Bash 命令
+    if (input.command || input.cmd) {
+      const cmd = input.command || input.cmd;
+      return cmd.length > 100 ? cmd.substring(0, 100) + '...' : cmd;
+    }
+
+    return undefined;
   }
 }

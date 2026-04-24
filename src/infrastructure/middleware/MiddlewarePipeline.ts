@@ -35,6 +35,11 @@ export type MiddlewareFunction<TContext, TResult> = (
 ) => Promise<TResult>;
 
 /**
+ * Next 函数类型
+ */
+export type NextFunction<TResult> = () => Promise<TResult>;
+
+/**
  * MiddlewarePipeline - 中间件管道
  */
 export class MiddlewarePipeline<TContext, TResult> {

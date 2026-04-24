@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useMemo } from 'react';
-import { Search, Plus, X, Bot, Package, Globe, Folder, RefreshCw, Filter, ChevronDown } from 'lucide-react';
+import { Search, Plus, X, Bot, Package, Folder, RefreshCw, Filter, ChevronDown } from 'lucide-react';
 import { useAgentManager } from '../hooks/useAgentManager';
 import { useToast } from './Toast';
 import AgentDetail from './AgentDetail';
@@ -14,7 +14,7 @@ interface AgentManagerProps {
 }
 
 type ViewType = 'detail' | 'editor' | null;
-type FilterSource = 'all' | 'builtin' | 'global' | 'project';
+type FilterSource = 'all' | 'system' | 'app' | 'custom';
 type FilterStatus = 'all' | 'enabled' | 'disabled';
 type SortBy = 'name' | 'created' | 'source';
 
@@ -41,13 +41,13 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
         agent.id?.toLowerCase().includes(query) ||
         agent.name?.toLowerCase().includes(query) ||
         agent.description?.toLowerCase().includes(query) ||
-        agent.tags?.some((tag: string) => tag.toLowerCase().includes(query))
+        agent.capabilities?.some((cap: string) => cap.toLowerCase().includes(query))
       );
     }
 
     // 来源过滤
     if (filterSource !== 'all') {
-      result = result.filter((agent) => agent.metadata?.source === filterSource);
+      result = result.filter((agent) => agent.metadata?.category === filterSource);
     }
 
     // 状态过滤
@@ -64,9 +64,9 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
       } else if (sortBy === 'created') {
         return (b.metadata?.createdAt || '').localeCompare(a.metadata?.createdAt || '');
       } else if (sortBy === 'source') {
-        const sourceOrder = { builtin: 0, global: 1, project: 2 };
-        const aOrder = sourceOrder[a.metadata?.source as keyof typeof sourceOrder] ?? 99;
-        const bOrder = sourceOrder[b.metadata?.source as keyof typeof sourceOrder] ?? 99;
+        const categoryOrder: Record<string, number> = { system: 0, app: 1, custom: 2 };
+        const aOrder = categoryOrder[a.metadata?.category] ?? 99;
+        const bOrder = categoryOrder[b.metadata?.category] ?? 99;
         return aOrder - bOrder;
       }
       return 0;
@@ -75,26 +75,27 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     return result;
   }, [agents, searchQuery, filterSource, filterStatus, sortBy]);
 
-  // 分组（按公开/内部分组）
+  // 分组（按 system/app/custom 分组）
   const groupedAgents = useMemo(() => {
-    const publicAgents: typeof agents = [];
-    const internalAgents: typeof agents = [];
+    const systemAgents: typeof agents = [];
+    const appAgents: typeof agents = [];
+    const customAgents: typeof agents = [];
 
     filteredAndSortedAgents.forEach((agent) => {
-      if (agent.metadata?.internal === true) {
-        internalAgents.push(agent);
+      const category = agent.metadata?.category;
+      if (category === 'system') {
+        systemAgents.push(agent);
+      } else if (agent.metadata?.category === 'app') {
+        appAgents.push(agent);
       } else {
-        publicAgents.push(agent);
+        customAgents.push(agent);
       }
     });
 
     const groups: Record<string, typeof agents> = {};
-    if (publicAgents.length > 0) {
-      groups['public'] = publicAgents;
-    }
-    if (internalAgents.length > 0) {
-      groups['internal'] = internalAgents;
-    }
+    if (customAgents.length > 0) groups['custom'] = customAgents;
+    if (appAgents.length > 0) groups['app'] = appAgents;
+    if (systemAgents.length > 0) groups['system'] = systemAgents;
 
     return groups;
   }, [filteredAndSortedAgents]);
@@ -121,14 +122,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
       if (result.success) {
         toast.success(selectedAgent ? 'Agent 更新成功' : 'Agent 创建成功');
-        setViewType('detail');
-        // 自动选中新创建/更新的 Agent
-        if (!selectedAgent) {
-          const newAgent = agents.find((a) => a.id === config.id);
-          if (newAgent) {
-            setSelectedAgent(newAgent);
-          }
+
+        // 主动拉取最新 Agent 详情，避免列表状态更新时序问题
+        const latest = await window.electron.agentGet({ agentId: config.id });
+        if (latest.success && latest.agent) {
+          setSelectedAgent(latest.agent);
         }
+
+        setViewType('detail');
       } else {
         toast.error(result.error || '操作失败');
       }
@@ -179,14 +180,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     }
   };
 
-  const getSourceIcon = (source: string) => {
-    switch (source) {
-      case 'builtin':
-        return <Package size={14} className="text-blue-500" />;
-      case 'global':
-        return <Globe size={14} className="text-green-500" />;
-      case 'project':
-        return <Folder size={14} className="text-orange-500" />;
+  const getSourceIcon = (category: string) => {
+    switch (category) {
+      case 'system':
+        return <Package size={14} className="text-gray-400" />;
+      case 'app':
+        return <Bot size={14} className="text-blue-500" />;
+      case 'custom':
+        return <Folder size={14} className="text-green-500" />;
       default:
         return <Bot size={14} />;
     }
@@ -194,49 +195,53 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
   const getGroupLabel = (group: string) => {
     switch (group) {
-      case 'public':
-        return '🌟 公开 Agent';
-      case 'internal':
-        return '🔧 内部系统 Agent';
-      default:
-        return '未知';
+      case 'system': return '⚙️ 系统 Agent';
+      case 'app': return '🌟 应用 Agent';
+      case 'custom': return '📝 自定义 Agent';
+      default: return '未知';
     }
   };
 
   // Agent 类型标识
   const getAgentTypeInfo = (agent: any) => {
-    const metadata = agent.metadata || {};
+    const category = agent.metadata?.category;
 
-    // 主 Agent
-    if (metadata.isMainAgent) {
+    if (agent.metadata?.isMainAgent) {
       return {
         type: '主 Agent',
-        typeEn: 'Main Agent',
+        typeEn: 'Main',
         icon: '⭐',
-        color: 'text-yellow-500',
+        color: 'text-yellow-400',
         bgColor: 'bg-yellow-500/20',
-        description: '用户直接交互的主 Agent',
+        description: '主 Agent，负责所有用户交互和任务执行',
       };
     }
 
-    // 子 Agent（包括 SubAgent 和 SystemAgent）
-    if (metadata.isSubAgent || metadata.isSystemAgent) {
+    if (category === 'system') {
       return {
-        type: '子 Agent',
-        typeEn: 'Sub Agent',
+        type: '系统',
+        typeEn: 'System',
+        icon: '⚙️',
+        color: 'text-gray-400',
+        bgColor: 'bg-gray-500/20',
+        description: '系统内置 Agent，不可删除',
+      };
+    }
+
+    if (category === 'app') {
+      return {
+        type: '应用',
+        typeEn: 'App',
         icon: '🤖',
         color: 'text-blue-500',
         bgColor: 'bg-blue-500/20',
-        description: metadata.isSystemAgent
-          ? '系统内部专用子代理（上下文压缩、意图分析等）'
-          : '执行特定任务的专业子代理',
+        description: '应用 Agent，可配置模型和工具',
       };
     }
 
-    // 自定义 Agent
     return {
       type: '自定义',
-      typeEn: 'Custom Agent',
+      typeEn: 'Custom',
       icon: '📝',
       color: 'text-purple-500',
       bgColor: 'bg-purple-500/20',
@@ -309,16 +314,16 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             {showFilters && (
               <div className="space-y-2 pt-2 border-t border-bg-tertiary">
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">来源</label>
+                  <label className="text-xs text-text-secondary block mb-1">分类</label>
                   <select
                     value={filterSource}
                     onChange={(e) => setFilterSource(e.target.value as FilterSource)}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
                     <option value="all">全部</option>
-                    <option value="builtin">内置</option>
-                    <option value="global">全局</option>
-                    <option value="project">项目</option>
+                    <option value="system">系统 Agent</option>
+                    <option value="app">应用 Agent</option>
+                    <option value="custom">自定义 Agent</option>
                   </select>
                 </div>
 
@@ -415,7 +420,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                             `}
                           >
                             <div className="flex items-center gap-2 mb-1">
-                              {getSourceIcon(source)}
+                              {/* Avatar */}
+                              <div
+                                className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${
+                                  agent.color ? `bg-gradient-to-br ${agent.color}` : 'bg-primary/20'
+                                }`}
+                              >
+                                <span className="text-sm">{agent.avatar || '🤖'}</span>
+                              </div>
                               <span className="text-sm font-medium truncate flex-1">
                                 {agent.name}
                               </span>
@@ -433,21 +445,27 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                             <div className="text-xs text-text-secondary truncate">
                               {agent.description}
                             </div>
-                            {/* Agent 类型英文标签 + Tags */}
+                            {/* Agent 类型英文标签 + Capabilities */}
                             <div className="flex items-center gap-1 mt-1 flex-wrap">
                               <span
                                 className={`text-xs px-1.5 py-0.5 rounded ${typeInfo.bgColor} ${typeInfo.color}`}
                               >
                                 {typeInfo.typeEn}
                               </span>
-                              {agent.tags && agent.tags.slice(0, 2).map((tag: string) => (
+                              {agent.capabilities && agent.capabilities.slice(0, 2).map((cap: string) => (
                                 <span
-                                  key={tag}
+                                  key={cap}
                                   className="text-xs bg-bg-tertiary px-1.5 py-0.5 rounded"
+                                  title={cap}
                                 >
-                                  {tag}
+                                  {cap.length > 8 ? cap.slice(0, 8) + '...' : cap}
                                 </span>
                               ))}
+                              {agent.capabilities && agent.capabilities.length > 2 && (
+                                <span className="text-xs text-text-secondary">
+                                  +{agent.capabilities.length - 2}
+                                </span>
+                              )}
                             </div>
                           </button>
                         );
@@ -473,7 +491,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           ) : viewType === 'editor' ? (
             <AgentEditor
               agent={selectedAgent}
-              builtinAgents={agents.filter((a) => a.metadata?.source === 'builtin')}
+              builtinAgents={agents.filter((a) => a.metadata?.category === 'app')}
               onSave={handleSaveAgent}
               onCancel={() => setViewType(selectedAgent ? 'detail' : null)}
             />

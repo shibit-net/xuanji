@@ -23,7 +23,6 @@ export async function generateTodoContextHint(): Promise<string> {
   const completed = todos.filter((t) => t.status === 'completed');
   const pending = todos.filter((t) => t.status === 'pending');
   const inProgress = todos.filter((t) => t.status === 'in_progress');
-  const failed = todos.filter((t) => t.status === 'failed');
 
   // 检测孤儿任务（7天无更新）
   const staleTasks = await todoManager.detectStaleTasks(7);
@@ -46,15 +45,7 @@ export async function generateTodoContextHint(): Promise<string> {
     );
   }
 
-  // 提示 3：失败任务累积
-  if (failed.length >= 3) {
-    hints.push(
-      `⚠️ 检测到 ${failed.length} 个失败任务。` +
-      `建议询问用户是否重试或清理这些任务。`
-    );
-  }
-
-  // 提示 4：任务总数过多
+  // 提示 3：任务总数过多
   if (todos.length >= 15) {
     hints.push(
       `⚠️ 当前任务列表过长（${todos.length} 个任务）。` +
@@ -73,13 +64,11 @@ export async function generateTodoContextHint(): Promise<string> {
 - 进行中：${inProgress.length}
 - 待处理：${pending.length}
 - 已完成：${completed.length}
-- 失败：${failed.length}
 
 ${hints.join('\n\n')}
 
 **建议操作**：
 - 归档已完成任务：\`todo_archive {"strategy": "completed"}\`
-- 清理失败任务：\`todo_clear {"status": "failed"}\`
 - 查看任务列表：\`todo_list\`
 `;
 }

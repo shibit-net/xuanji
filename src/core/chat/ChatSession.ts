@@ -1,125 +1,239 @@
 // ============================================================
-// ChatSession - 会话管理器（贾维斯架构）
-// ============================================================
-// 使用 MainAgent 主调度架构
+// ChatSession - 会话管理器
 // ============================================================
 
-import type { MainAgent } from '@/core/agent/jarvis/MainAgent';
-import type { AgentLoop } from '@/core/agent/AgentLoop';
+import type { MainAgent } from '@/core/agent/dispatch/MainAgent';
+import type { AgentCallbacks } from '@/core/agent/AgentLoop';
+import { ModelClassifier } from '@/core/agent/dispatch/ModelClassifier';
 import type { DependencyContainer } from '@/core/di';
+import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
+import type { IToolRegistry, AppConfig, AgentState } from '@/core/types';
+import type { AskUserHandler } from '@/core/tools/AskUserTool';
+import type { PlanModeEnterHandler } from '@/core/tools/EnterPlanModeTool';
+import type { PlanModeExitHandler } from '@/core/tools/ExitPlanModeTool';
+import type { SessionManager } from '@/session/SessionManager';
+import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { SkillRegistry } from '@/core/skills';
+import type { MCPManager } from '@/mcp/MCPManager';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ChatSession' });
 
-/**
- * 会话回调
- */
-export interface SessionCallbacks {
-  /** 文本输出回调 */
-  onText?: (text: string) => void;
-  /** 思考过程回调 */
-  onThinking?: (thinking: string) => void;
-  /** 工具开始回调 */
-  onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
-  /** 工具结束回调 */
-  onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
-  /** 执行前回调 */
+export interface SessionCallbacks extends AgentCallbacks {
   onBeforeExecution?: (input: string) => void | Promise<void>;
-  /** 执行后回调 */
   onAfterExecution?: () => void | Promise<void>;
-  /** 错误回调 */
-  onError?: (error: Error) => void | Promise<void>;
-  /** 启动引导回调 */
-  onBootGuide?: (message: string) => void;
+  onArchiveNotification?: (result: any) => void;
 }
 
-/**
- * ChatSession - 会话管理器（贾维斯架构）
- */
 export class ChatSession {
   private mainAgent: MainAgent;
-  private agentLoop: AgentLoop;
   private container: DependencyContainer;
   private callbacks?: SessionCallbacks;
+  private modelClassifier: ModelClassifier | null = null;
 
   constructor(
     mainAgent: MainAgent,
-    agentLoop: AgentLoop,
     container: DependencyContainer,
-    callbacks?: SessionCallbacks
+    callbacks?: SessionCallbacks,
   ) {
     this.mainAgent = mainAgent;
-    this.agentLoop = agentLoop;
     this.container = container;
     this.callbacks = callbacks;
 
-    // 注册 AgentLoop 回调
-    this.agentLoop.on({
-      onText: callbacks?.onText,
-      onThinking: callbacks?.onThinking,
-      onToolStart: callbacks?.onToolStart,
-      onToolEnd: callbacks?.onToolEnd,
-      onError: callbacks?.onError,
-    });
+    if (callbacks) {
+      this.mainAgent.on(callbacks);
+    }
   }
 
-  /**
-   * 执行用户输入（贾维斯模式）
-   */
   async run(input: string): Promise<void> {
-    log.debug('Running session with input (Jarvis Mode)');
-
+    log.debug('Running session');
     try {
-      // 前置回调
       await this.callbacks?.onBeforeExecution?.(input);
-
-      // 使用 MainAgent 调度
-      const result = await this.mainAgent.execute(input);
-      this.callbacks?.onText?.(result);
-
-      // 后置回调
+      await this.mainAgent.run(input);
       await this.callbacks?.onAfterExecution?.();
-
     } catch (error) {
       await this.callbacks?.onError?.(error as Error);
       throw error;
     }
   }
 
-  /**
-   * 停止执行
-   */
-  async stop(): Promise<void> {
-    log.info('Stopping session');
-    this.agentLoop.stop();
+  stop(): void {
+    this.mainAgent.stop();
   }
 
-  /**
-   * 中断并追加新输入
-   */
-  async interrupt(input: string): Promise<void> {
-    log.info('Interrupting session');
-    this.agentLoop.interrupt(input);
+  interrupt(input: string): void {
+    this.mainAgent.interrupt(input);
   }
 
-  /**
-   * 获取 AgentLoop 实例
-   */
-  getAgentLoop(): AgentLoop {
-    return this.agentLoop;
+  reset(): void {
+    this.mainAgent.reset();
   }
 
-  /**
-   * 获取依赖容器
-   */
+  getAgentLoop() {
+    return this.mainAgent.getAgentLoop();
+  }
+
   getContainer(): DependencyContainer {
     return this.container;
   }
 
-  /**
-   * 获取 MainAgent 实例
-   */
   getMainAgent(): MainAgent {
     return this.mainAgent;
   }
+
+  getState(): AgentState {
+    return this.mainAgent.getState();
+  }
+
+  getConfig(): AppConfig {
+    return this.container.resolveSync<AppConfig>('config');
+  }
+
+  setConfirmationHandler(handler: ConfirmationHandler): void {
+    try {
+      const permissionController = this.container.resolveSync<IPermissionController>('permissionController');
+      permissionController.setConfirmationHandler(handler);
+    } catch (error) {
+      log.warn('Failed to set confirmation handler:', error);
+    }
+  }
+
+  setPlanReviewHandler(handler: PlanReviewHandler): void {
+    try {
+      const permissionController = this.container.resolveSync<IPermissionController>('permissionController');
+      permissionController.setPlanReviewHandler(handler);
+    } catch (error) {
+      log.warn('Failed to set plan review handler:', error);
+    }
+  }
+
+  setAskUserHandler(handler: AskUserHandler): void {
+    try {
+      const toolRegistry = this.container.resolveSync<IToolRegistry>('toolRegistry');
+      const askUserTool = toolRegistry.get('ask_user');
+      if (askUserTool && 'setHandler' in askUserTool) {
+        (askUserTool as any).setHandler(handler);
+      }
+    } catch (error) {
+      log.warn('Failed to set ask user handler:', error);
+    }
+  }
+
+  setPlanModeEnterHandler(handler: PlanModeEnterHandler): void {
+    try {
+      const toolRegistry = this.container.resolveSync<IToolRegistry>('toolRegistry');
+      const tool = toolRegistry.get('enter_plan_mode');
+      if (tool && 'setHandler' in tool) {
+        (tool as any).setHandler(handler);
+      }
+    } catch (error) {
+      log.warn('Failed to set plan mode enter handler:', error);
+    }
+  }
+
+  setPlanModeExitHandler(handler: PlanModeExitHandler): void {
+    try {
+      const toolRegistry = this.container.resolveSync<IToolRegistry>('toolRegistry');
+      const tool = toolRegistry.get('exit_plan_mode');
+      if (tool && 'setHandler' in tool) {
+        (tool as any).setHandler(handler);
+      }
+    } catch (error) {
+      log.warn('Failed to set plan mode exit handler:', error);
+    }
+  }
+
+  getPermissionController(): IPermissionController {
+    return this.container.resolveSync<IPermissionController>('permissionController');
+  }
+
+  getSessionManager(): SessionManager {
+    return this.container.resolveSync<SessionManager>('sessionManager');
+  }
+
+  getAgentRegistry(): AgentRegistry {
+    return this.container.resolveSync<AgentRegistry>('agentRegistry');
+  }
+
+  getSkillRegistry(): SkillRegistry | null {
+    try {
+      return this.container.resolveSync<SkillRegistry>('skillRegistry');
+    } catch {
+      return null;
+    }
+  }
+
+  getBaseRegistry(): IToolRegistry {
+    return this.container.resolveSync<IToolRegistry>('toolRegistry');
+  }
+
+  getMCPManager(): MCPManager | null {
+    try {
+      return this.container.resolveSync<MCPManager>('mcpManager');
+    } catch {
+      return null;
+    }
+  }
+
+  getModelClassifier(): ModelClassifier {
+    if (!this.modelClassifier) {
+      const agentRegistry = this.getAgentRegistry();
+      const classifierAgent = agentRegistry?.get('scene-classifier');
+      const modelType = classifierAgent?.model?.primary as any;
+      const systemPrompt = classifierAgent?.systemPrompt;
+      this.modelClassifier = new ModelClassifier({
+        ...(modelType && { modelType }),
+        ...(systemPrompt && { systemPrompt }),
+      });
+      this.modelClassifier.init().catch((err) => {
+        log.warn('ModelClassifier init failed:', err);
+      });
+    }
+    return this.modelClassifier;
+  }
+
+  getLayeredPromptBuilder(): import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null {
+    try {
+      return this.container.resolveSync('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveSession(name?: string, options?: any): Promise<string> {
+    const sessionManager = this.getSessionManager();
+    const messages = this.mainAgent.getAgentLoop().getMessageManager().getMessages();
+    return sessionManager.save(messages, name, options);
+  }
+
+  async resumeSession(sessionId: string): Promise<any> {
+    return this.getSessionManager().resume(sessionId);
+  }
+
+  async listSessions(): Promise<any[]> {
+    return this.getSessionManager().list();
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    return this.getSessionManager().delete(sessionId);
+  }
+
+  async createCheckpoint(label?: string): Promise<string> {
+    log.warn('createCheckpoint not implemented');
+    return '';
+  }
+
+  async listCheckpoints(): Promise<any[]> {
+    return [];
+  }
+
+  async rewindToCheckpoint(checkpointId: string): Promise<number> {
+    return 0;
+  }
+
+  async getDiagnostics(): Promise<any> {
+    return { state: this.getState(), config: this.getConfig() };
+  }
+
+  async cleanup(): Promise<void> {}
 }

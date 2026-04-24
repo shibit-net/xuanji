@@ -14,7 +14,7 @@ import { getUnifiedLogManager } from './UnifiedLogManager';
 /**
  * AgentLoop 事件类型（从 AgentLoopLogger 推断）
  */
-type AgentLoopEventType = 
+export type AgentLoopEventType = 
   | 'iteration_start'
   | 'iteration_end'
   | 'llm_request'
@@ -53,24 +53,15 @@ export class AgentLoopLogAdapter {
 
   /**
    * 包装现有的 AgentLoopLogger
+   * @deprecated AgentLoopLogger 不再有 record 方法，此方法已废弃
    */
   wrap(originalLogger: AgentLoopLogger) {
-    if (this.isWrapping) return;
+    if (this.isWrapping) return this;
 
     this.originalLogger = originalLogger;
     this.isWrapping = true;
 
-    // 保留原始方法引用
-    const originalRecord = originalLogger.record.bind(originalLogger);
-
-    // 重写 record 方法
-    originalLogger.record = (eventType: AgentLoopEventType, data?: Record<string, unknown>) => {
-      // 先调用原始方法
-      originalRecord(eventType, data);
-
-      // 同时推送到统一日志系统
-      this.recordUnifiedLog(eventType, data);
-    };
+    // TODO: 需要重新实现包装逻辑，因为 AgentLoopLogger 使用具体的方法而不是通用的 record 方法
 
     return this;
   }

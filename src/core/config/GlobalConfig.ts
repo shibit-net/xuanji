@@ -68,6 +68,14 @@ const ENV_MAPPINGS: Record<string, { path: string; transform?: (v: string) => un
   'XUANJI_ADAPTER':       { path: 'provider.adapter' },
   'XUANJI_TIMEOUT':       { path: 'provider.timeout', transform: (v) => parseInt(v, 10) || undefined },
 
+  // Embedding 配置（独立命名空间）
+  'XUANJI_EMBEDDING_MODEL': { path: 'embedding.model' },
+  'XUANJI_EMBEDDING_DIMENSIONS': { path: 'embedding.dimensions', transform: (v) => parseInt(v, 10) || undefined },
+  'XUANJI_EMBEDDING_CACHE_ENABLED': { path: 'embedding.cacheEnabled', transform: (v) => v === 'true' || v === '1' },
+  'XUANJI_EMBEDDING_CACHE_MAX_SIZE': { path: 'embedding.cacheMaxSize', transform: (v) => parseInt(v, 10) || undefined },
+  'XUANJI_EMBEDDING_HF_MIRROR': { path: 'embedding.hfMirror' },
+  'HF_ENDPOINT': { path: 'embedding.hfMirror' }, // 向后兼容
+
   // UI 相关
   'XUANJI_THEME':         { path: 'ui.theme' },
   'XUANJI_LANGUAGE':      { path: 'ui.language' },

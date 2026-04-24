@@ -50,6 +50,9 @@ export class Planner {
     try {
       // 从 RuntimeConfig 获取完整的 provider 配置
       const runtimeConfig = getRuntimeConfig();
+      if (!runtimeConfig) {
+        throw new Error('RuntimeConfig not initialized');
+      }
 
       // 调用 LLM 生成计划
       const stream = this.provider.stream(

@@ -25,11 +25,7 @@ export const TOOL_ICONS: Record<string, string> = {
   // 交互
   ask_user: '❓',
   plan_review: '📝',
-  
-  // 记忆
-  memory_store: '💾',
-  memory_search: '🔍',
-  
+
   // 提醒
   reminder_set: '⏰',
   reminder_check: '📅',

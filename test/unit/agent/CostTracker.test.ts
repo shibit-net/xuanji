@@ -1,3 +1,7 @@
+// TODO: CostTracker and PricingResolver modules have been removed
+// This test file is disabled until the modules are reimplemented
+
+/*
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CostTracker } from '@/core/agent/CostTracker';
 import { PricingResolver } from '@/core/agent/PricingResolver';
@@ -137,3 +141,4 @@ describe('CostTracker', () => {
     expect(noResolverTracker.getPricingSource()).toBe('unknown');
   });
 });
+*/

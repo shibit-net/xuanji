@@ -31,7 +31,6 @@ describe('Built-in Skills', () => {
       expect(registry.has('tool-guidance')).toBe(false);
       expect(registry.has('security-rules')).toBe(false);
       expect(registry.has('agent-rules')).toBe(false);
-      expect(registry.has('memory-context')).toBe(false);
       expect(registry.has('life-secretary')).toBe(false);
     });
   });

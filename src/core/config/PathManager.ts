@@ -109,6 +109,24 @@ export function getTemplatePromptsDir(): string {
 }
 
 // ============================================================
+// 项目相关路径
+// ============================================================
+
+/**
+ * 获取项目的 .xuanji 根目录
+ */
+export function getProjectXuanjiRoot(projectRoot: string): string {
+  return join(projectRoot, '.xuanji');
+}
+
+/**
+ * 获取项目的 Prompt 组件目录
+ */
+export function getProjectPromptsDir(projectRoot: string): string {
+  return join(getProjectXuanjiRoot(projectRoot), 'prompts');
+}
+
+// ============================================================
 // 用户相关路径
 // ============================================================
 
@@ -145,6 +163,13 @@ export function getUserPromptPath(userId: string): string {
  */
 export function getUserAgentsDir(userId: string): string {
   return join(getUserRoot(userId), 'agents');
+}
+
+/**
+ * 获取用户 Prompt 组件目录
+ */
+export function getUserPromptsDir(userId: string): string {
+  return join(getUserRoot(userId), 'prompts');
 }
 
 /**
@@ -218,13 +243,6 @@ export function getUserSkillsDir(userId: string): string {
 }
 
 /**
- * 获取用户 Prompt 组件目录
- */
-export function getUserPromptsDir(userId: string): string {
-  return join(getUserRoot(userId), 'prompts');
-}
-
-/**
  * 获取用户统计目录
  */
 export function getUserStatsDir(userId: string): string {
@@ -258,7 +276,6 @@ export async function ensureUserDirectories(userId: string): Promise<void> {
     getUserLogsDir(userId),
     getUserRemindersDir(userId),
     getUserSkillsDir(userId),
-    getUserPromptsDir(userId),
     getUserStatsDir(userId),
   ];
   for (const dir of dirs) {
@@ -294,7 +311,6 @@ export class PathManager {
   get logs(): string { return getUserLogsDir(this._userId); }
   get reminders(): string { return getUserRemindersDir(this._userId); }
   get skills(): string { return getUserSkillsDir(this._userId); }
-  get prompts(): string { return getUserPromptsDir(this._userId); }
   get stats(): string { return getUserStatsDir(this._userId); }
 
   // 权限相关路径的具体文件
