@@ -129,7 +129,7 @@ function initChatSession(): Promise<boolean> {
       });
 
       // 创建并绑定 agent 消息通道
-      const agentChannel = messageBus.createChannel('agent', {
+      const agentChannel = enhancedMessageBus.createChannel('agent', {
         timeout: 30000,
         maxRetries: 3,
         retryDelay: 1000,
@@ -261,7 +261,7 @@ async function cleanupAgentProcess() {
   });
 
   // 删除消息通道
-  messageBus.deleteChannel('agent');
+  enhancedMessageBus.deleteChannel('agent');
 
   agentProcess = null;
   sessionReady = false;
