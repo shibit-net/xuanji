@@ -11,7 +11,8 @@
       "Read(//Users/kevinshi/.xuanji/agents/**)",
       "Bash(rm -rf dist-electron)",
       "Read(//private/tmp/**)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(git checkout *)"
     ]
   }
 }
