@@ -10,7 +10,8 @@
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
       "Read(//Users/kevinshi/.xuanji/agents/**)",
       "Bash(rm -rf dist-electron)",
-      "Read(//private/tmp/**)"
+      "Read(//private/tmp/**)",
+      "Bash(git merge *)"
     ]
   }
 }
