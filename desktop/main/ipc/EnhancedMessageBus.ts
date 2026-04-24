@@ -36,6 +36,21 @@ export class EnhancedMessageChannel extends MessageChannel {
     super(options);
     this.autoForwardToRenderer = options.autoForwardToRenderer !== false;
     this.mainWindow = options.mainWindow || null;
+
+    // 🔧 监听所有从子进程收到的消息，自动转发到renderer
+    if (this.autoForwardToRenderer) {
+      this.on('message', (msg: any) => {
+        // 转发到renderer
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          try {
+            this.mainWindow.webContents.send(msg.type, msg.data);
+            console.log(`[EnhancedMessageBus] 自动转发消息到renderer: ${msg.type}`);
+          } catch (err) {
+            console.error(`[EnhancedMessageBus] 转发到renderer失败 (${msg.type}):`, err);
+          }
+        }
+      });
+    }
   }
 
   /**
