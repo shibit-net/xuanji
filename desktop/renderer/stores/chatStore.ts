@@ -7,6 +7,7 @@ import type { PermissionRequestData, PlanReviewRequestData, AskUserRequestData }
 import { useRuntimeStore } from './runtimeStore';
 import { useExecutionStore } from './executionStore';
 import { useActiveAgentStore } from './activeAgentStore';
+import { messageBus } from '../utils/MessageBus'; // 🔧 导入 messageBus
 
 // ============================================================
 // 节流工具函数
@@ -1769,8 +1770,17 @@ if (typeof window !== 'undefined' && window.electron) {
   agentChannels.forEach((ch) => window.electron.removeAllListeners(ch));
 
   // 绑定流式事件监听器
-  window.electron.onAgentText((text) => {
+  // 🔧 使用 messageBus 订阅 agent:text（渐进式迁移第一步）
+  messageBus.on('agent:text', (text: string) => {
+    console.log('[chatStore] messageBus 收到 agent:text:', text?.substring(0, 50));
     useChatStore.getState()._handleAgentText(text);
+  });
+
+  // 🔧 保留旧的监听方式作为fallback（后续迁移完成后删除）
+  window.electron.onAgentText((text) => {
+    console.log('[chatStore] window.electron 收到 agent:text (fallback):', text?.substring(0, 50));
+    // 不再处理，由messageBus处理
+    // useChatStore.getState()._handleAgentText(text);
   });
 
   window.electron.onAgentThinking((thinking) => {
