@@ -2,6 +2,8 @@
  * WorkspaceStore - 管理 MainAgent 执行流程的可视化状态
  */
 
+import { messageBus } from '../utils/MessageBus';
+
 export interface WorkspaceEvent {
   eventType: string;
   timestamp: number;
@@ -41,7 +43,7 @@ export class WorkspaceStore {
 
   constructor() {
     this.initPhases();
-    // 延迟设置事件监听器，确保 window.electron 已经可用
+    // 延迟设置事件监听器，确保 messageBus 已经可用
     if (typeof window !== 'undefined') {
       // 使用 setTimeout 确保在下一个事件循环中执行
       setTimeout(() => this.setupEventListeners(), 0);
@@ -80,37 +82,31 @@ export class WorkspaceStore {
       return;
     }
 
-    // 检查 window.electron 是否存在
-    if (typeof window === 'undefined' || !window.electron) {
-      console.warn('[WorkspaceStore] window.electron not available, skipping event listeners');
-      return;
-    }
-
-    console.log('[WorkspaceStore] Setting up event listeners');
+    console.log('[WorkspaceStore] Setting up event listeners via messageBus');
     this.listenersSetup = true;
 
     // 意图分析
-    window.electron.onWorkspaceIntentAnalysisStart((data) => {
+    messageBus.on('workspace:intent-analysis-start', (data: any) => {
       console.log('[WorkspaceStore] IntentAnalysisStart received:', data);
       this.handleEvent({
         eventType: 'IntentAnalysisStart',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('intent-analysis', 'running', data.timestamp);
+      this.updatePhase('intent-analysis', 'running', data.timestamp || Date.now());
     });
 
-    window.electron.onWorkspaceIntentAnalysisEnd((data) => {
+    messageBus.on('workspace:intent-analysis-end', (data: any) => {
       this.handleEvent({
         eventType: 'IntentAnalysisEnd',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('intent-analysis', 'completed', data.timestamp, data);
+      this.updatePhase('intent-analysis', 'completed', data.timestamp || Date.now(), data);
     });
 
     // ModelClassifier 结束（意图分析结果）
-    window.electron.onWorkspaceModelClassifierEnd((data) => {
+    messageBus.on('workspace:model-classifier-end', (data: any) => {
       this.intentAnalysisResult = {
         scene: data.scene,
         agent: data.agent,
@@ -121,7 +117,7 @@ export class WorkspaceStore {
     });
 
     // Prompt 构建事件
-    window.electron.on('prompt:build-event', (data: any) => {
+    messageBus.on('prompt:build-event', (data: any) => {
       if (data.type === 'intent:analyzed') {
         // 更新意图分析结果
         this.intentAnalysisResult = {
@@ -146,56 +142,67 @@ export class WorkspaceStore {
     });
 
     // 任务规划
-    window.electron.onWorkspaceTaskPlanningStart((data) => {
+    messageBus.on('workspace:task-planning-start', (data: any) => {
       this.handleEvent({
         eventType: 'TaskPlanningStart',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('task-planning', 'running', data.timestamp);
+      this.updatePhase('task-planning', 'running', data.timestamp || Date.now());
     });
 
-    window.electron.onWorkspaceTaskPlanningEnd((data) => {
+    messageBus.on('workspace:task-planning-end', (data: any) => {
       this.handleEvent({
         eventType: 'TaskPlanningEnd',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('task-planning', 'completed', data.timestamp, data);
+      this.updatePhase('task-planning', 'completed', data.timestamp || Date.now());
     });
 
     // 任务执行
-    window.electron.onWorkspaceTaskExecutionStart((data) => {
+    messageBus.on('workspace:task-execution-start', (data: any) => {
       this.handleEvent({
         eventType: 'TaskExecutionStart',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('task-execution', 'running', data.timestamp);
+      this.updatePhase('task-execution', 'running', data.timestamp || Date.now());
     });
 
-    window.electron.onWorkspaceTaskExecutionEnd((data) => {
+    messageBus.on('workspace:task-execution-end', (data: any) => {
       this.handleEvent({
         eventType: 'TaskExecutionEnd',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      const status = data.success ? 'completed' : 'error';
-      this.updatePhase('task-execution', status, data.timestamp, data);
+      this.updatePhase('task-execution', 'completed', data.timestamp || Date.now());
     });
 
-    // 结果汇总
-    window.electron.onWorkspaceResultAggregationStart((data) => {
+    // 结果聚合
+    messageBus.on('workspace:result-aggregation-start', (data: any) => {
       this.handleEvent({
         eventType: 'ResultAggregationStart',
-        timestamp: data.timestamp,
+        timestamp: data.timestamp || Date.now(),
         data,
       });
-      this.updatePhase('result-aggregation', 'running', data.timestamp);
+      this.updatePhase('result-aggregation', 'running', data.timestamp || Date.now());
     });
 
-    window.electron.onWorkspaceResultAggregationEnd((data) => {
+    messageBus.on('workspace:result-aggregation-end', (data: any) => {
       this.handleEvent({
+        eventType: 'ResultAggregationEnd',
+        timestamp: data.timestamp || Date.now(),
+        data,
+      });
+      this.updatePhase('result-aggregation', 'completed', data.timestamp || Date.now());
+    });
+  }
+
+  /**
+   * 处理事件
+   */
+  private handleEvent(event: WorkspaceEvent) {
         eventType: 'ResultAggregationEnd',
         timestamp: data.timestamp,
         data,
