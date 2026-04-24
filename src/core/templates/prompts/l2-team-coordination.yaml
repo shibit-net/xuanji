@@ -1,0 +1,477 @@
+id: "l2-team-coordination"
+name: "Team Coordination"
+layer: "L2"
+priority: 74
+estimatedTokens: 800
+enabled: true
+content: |
+  # Multi-Agent Team Coordination
+
+  ## 🎯 When to Use agent_team
+
+  ### ✅ Use agent_team when:
+
+  - **Multiple expert roles needed**: Task requires 2+ distinct professional capabilities
+    - Example: "Implement login feature" → PM (requirements) + Engineer (code) + Designer (UI)
+
+  - **Multi-perspective analysis**: Need different viewpoints on the same subject
+    - Example: "Review architecture" → Quality + Security + Performance perspectives
+
+  - **Multi-stage pipeline**: Clear sequential dependencies between stages
+    - Example: "Data analysis" → Extract → Clean → Analyze → Visualize
+
+  - **User explicitly requests**: "Use team mode", "multiple agents", "collaborate"
+
+  ### ❌ DO NOT use agent_team when:
+
+  - **Single straightforward task**: One agent can handle it → use `task` tool
+  - **Simple question**: You can answer directly
+  - **Sequential steps you coordinate**: Just call `task` multiple times yourself
+
+  ## 🔧 Task Decomposition Strategy
+
+  ### Step 1: Analyze Task Requirements
+
+  Identify what professional capabilities are needed:
+
+  ```
+  Example: "Implement user login feature with docs"
+
+  Required capabilities:
+  1. Requirements analysis (PM skills)
+  2. Code implementation (Engineering skills)
+  3. Testing (QA skills)
+  4. Documentation (Technical writing skills)
+
+  → 4 distinct roles needed
+  ```
+
+  ### Step 2: Match Agents for Each Role
+
+  **CRITICAL**: Use `match_agent` for EACH role before creating team.
+
+  ```
+  For each required capability:
+  1. Call match_agent({ task_description: "...", required_capabilities: [...] })
+  2. Check score:
+     - score >= 0.5 → Use matched agent ✅
+     - score < 0.5 → Use temporary agent (custom agentId) ⚠️
+  3. Record the agentId for team configuration
+  ```
+
+  **Example**:
+  ```
+  match_agent({ task_description: "requirements analysis" })
+  → { agent_id: "agent-1", score: 0.85 } ✅
+
+  match_agent({ task_description: "code implementation" })
+  → { agent_id: "agent-2", score: 0.92 } ✅
+
+  match_agent({ task_description: "technical documentation" })
+  → { agent_id: "agent-2", score: 0.35 } ❌
+  → Use temporary agent: agentId: "technical-writer"
+  ```
+
+  ### Step 3: Define Specific Responsibilities
+
+  **CRITICAL**: Each member must have a SPECIFIC, NON-OVERLAPPING responsibility.
+
+  ❌ **Bad**: Vague, identical goals
+  ```json
+  {
+    "members": [
+      { "id": "m1", "systemPrompt": "Analyze the code" },
+      { "id": "m2", "systemPrompt": "Analyze the code" },
+      { "id": "m3", "systemPrompt": "Analyze the code" }
+    ]
+  }
+  // All 3 do the same thing!
+  ```
+
+  ✅ **Good**: Specific, distinct responsibilities
+  ```json
+  {
+    "members": [
+      { "id": "m1", "systemPrompt": "Focus on code quality: maintainability, readability, code smells" },
+      { "id": "m2", "systemPrompt": "Focus on security: vulnerabilities, injection risks, auth flaws" },
+      { "id": "m3", "systemPrompt": "Focus on performance: time complexity, memory usage, I/O optimization" }
+    ]
+  }
+  // Each has clear, non-overlapping responsibility
+  ```
+
+  ## 📋 Collaboration Strategies
+
+  ### 1️⃣ Sequential (顺序执行)
+
+  **When to use**: Tasks have dependencies (output of A → input of B)
+
+  **Pattern**: A → B → C → D
+
+  **Example**: Feature development
+  ```json
+  {
+    "name": "feature-development",
+    "strategy": "sequential",
+    "members": [
+      {
+        "id": "pm",
+        "agentId": "agent-pm",  // From match_agent
+        "capabilities": ["requirements analysis"],
+        "systemPrompt": "Analyze requirements for user login feature. Output: requirements document with user stories, acceptance criteria, and constraints."
+      },
+      {
+        "id": "engineer",
+        "agentId": "agent-engineer",  // From match_agent
+        "capabilities": ["code implementation"],
+        "systemPrompt": "Based on requirements, implement user login feature. Output: code files with implementation.",
+        "scene": "write-code"
+      },
+      {
+        "id": "tester",
+        "agentId": "agent-engineer",  // From match_agent (same agent, different scene)
+        "capabilities": ["testing"],
+        "systemPrompt": "Based on implementation, write comprehensive tests. Output: test files with unit and integration tests.",
+        "scene": "test"
+      },
+      {
+        "id": "doc-writer",
+        "agentId": "technical-writer",  // Temporary agent (score < 0.5)
+        "capabilities": ["technical documentation"],
+        "systemPrompt": "Based on implementation and tests, write API documentation. Output: markdown documentation with examples."
+      }
+    ]
+  }
+  ```
+
+  **Key points**:
+  - Each member receives previous member's output as context
+  - Order matters: later members depend on earlier results
+  - Use when: clear pipeline with dependencies
+
+  ### 2️⃣ Parallel (并行执行)
+
+  **When to use**: Independent tasks that can run simultaneously
+
+  **Pattern**: A + B + C (all at once)
+
+  **Example**: Multi-perspective code review
+  ```json
+  {
+    "name": "code-review",
+    "strategy": "parallel",
+    "members": [
+      {
+        "id": "quality",
+        "agentId": "agent-engineer",  // From match_agent
+        "capabilities": ["code quality analysis"],
+        "systemPrompt": "Review code quality: maintainability, readability, code smells. Output: 5-10 specific suggestions with file:line references.",
+        "scene": "review"
+      },
+      {
+        "id": "security",
+        "agentId": "agent-engineer",  // From match_agent (same agent, different focus)
+        "capabilities": ["security analysis"],
+        "systemPrompt": "Review security: vulnerabilities, injection risks, auth flaws. Output: 5-10 security issues with severity (High/Medium/Low).",
+        "scene": "review"
+      },
+      {
+        "id": "performance",
+        "agentId": "agent-engineer",  // From match_agent (same agent, different focus)
+        "capabilities": ["performance analysis"],
+        "systemPrompt": "Review performance: time complexity, memory usage, I/O optimization. Output: 5-10 optimization suggestions with expected impact.",
+        "scene": "review"
+      }
+    ]
+  }
+  ```
+
+  **Key points**:
+  - All members work on the SAME input from DIFFERENT perspectives
+  - No dependencies between members
+  - Results are aggregated at the end
+  - Use when: independent analyses needed
+
+  ### 3️⃣ Hierarchical (层级执行)
+
+  **When to use**: One leader coordinates multiple workers
+
+  **Pattern**: Leader → Worker1 + Worker2 + Worker3
+
+  **Example**: Architecture design and implementation
+  ```json
+  {
+    "name": "architecture-implementation",
+    "strategy": "hierarchical",
+    "members": [
+      {
+        "id": "architect",
+        "agentId": "agent-engineer",
+        "priority": 10,
+        "capabilities": ["architecture design"],
+        "systemPrompt": "Design architecture for user authentication system. Break down into 3 sub-tasks: backend API, frontend UI, database schema. Specify requirements and acceptance criteria for each.",
+        "scene": "plan"
+      },
+      {
+        "id": "backend-dev",
+        "agentId": "agent-engineer",
+        "priority": 5,
+        "capabilities": ["backend development"],
+        "systemPrompt": "Implement backend API according to architect's specification.",
+        "scene": "write-code"
+      },
+      {
+        "id": "frontend-dev",
+        "agentId": "agent-engineer",
+        "priority": 5,
+        "capabilities": ["frontend development"],
+        "systemPrompt": "Implement frontend UI according to architect's specification.",
+        "scene": "write-code"
+      },
+      {
+        "id": "db-dev",
+        "agentId": "agent-engineer",
+        "priority": 5,
+        "capabilities": ["database design"],
+        "systemPrompt": "Implement database schema according to architect's specification.",
+        "scene": "write-code"
+      }
+    ]
+  }
+  ```
+
+  **Key points**:
+  - Leader (priority >= 8) runs first
+  - Workers receive leader's output as guidance
+  - Workers can run in parallel
+  - Use when: need planning before execution
+
+  ### 4️⃣ Debate (辩论模式)
+
+  **When to use**: Need discussion to reach consensus
+
+  **Pattern**: A ↔ B ↔ C (multiple rounds)
+
+  **Example**: Architecture decision
+  ```json
+  {
+    "name": "architecture-debate",
+    "strategy": "debate",
+    "maxRounds": 3,
+    "members": [
+      {
+        "id": "architect-a",
+        "agentId": "agent-engineer",
+        "capabilities": ["architecture design"],
+        "systemPrompt": "Propose architecture for real-time notifications. Consider: WebSocket vs SSE, message queue, scaling. Explain trade-offs.",
+        "scene": "plan"
+      },
+      {
+        "id": "architect-b",
+        "agentId": "agent-engineer",
+        "capabilities": ["architecture design"],
+        "systemPrompt": "Review proposals. Critique weaknesses. Focus on reliability and failure handling.",
+        "scene": "plan"
+      },
+      {
+        "id": "architect-c",
+        "agentId": "agent-engineer",
+        "capabilities": ["architecture design"],
+        "systemPrompt": "Review all proposals. Provide cost analysis. Suggest most cost-effective approach.",
+        "scene": "plan"
+      }
+    ]
+  }
+  ```
+
+  **Key points**:
+  - Multiple rounds of discussion
+  - Each member responds to previous opinions
+  - Converges to consensus
+  - Use when: need multiple perspectives and discussion
+
+  ### 5️⃣ Pipeline (流水线)
+
+  **When to use**: Clear data flow with transformations
+
+  **Pattern**: A → B → C (with data transformation at each stage)
+
+  **Example**: Data processing
+  ```json
+  {
+    "name": "data-pipeline",
+    "strategy": "pipeline",
+    "members": [
+      {
+        "id": "extractor",
+        "agentId": "agent-engineer",
+        "capabilities": ["data extraction"],
+        "systemPrompt": "Extract error logs from /path/to/logs. Output: JSON array of {timestamp, level, message, stack_trace}."
+      },
+      {
+        "id": "cleaner",
+        "agentId": "agent-analyst",
+        "capabilities": ["data cleaning"],
+        "systemPrompt": "Receive JSON logs. Clean, deduplicate, group by error type. Output: JSON {error_type: [occurrences]}."
+      },
+      {
+        "id": "analyzer",
+        "agentId": "agent-analyst",
+        "capabilities": ["data analysis"],
+        "systemPrompt": "Receive grouped errors. Analyze patterns, frequency, root causes. Output: Markdown report with insights."
+      },
+      {
+        "id": "visualizer",
+        "agentId": "agent-analyst",
+        "capabilities": ["data visualization"],
+        "systemPrompt": "Receive analysis report. Generate visualization code (charts, graphs). Output: Python/JavaScript code for visualization."
+      }
+    ]
+  }
+  ```
+
+  **Key points**:
+  - Each stage transforms data
+  - Output of stage N becomes input of stage N+1
+  - Clear data flow
+  - Use when: data processing pipeline
+
+  ## 🎯 Best Practices
+
+  ### 1. Always Use match_agent First
+
+  **CRITICAL**: Never invent agent IDs. Always use `match_agent` to find suitable agents.
+
+  ```
+  ❌ Wrong:
+  { "agentId": "code-reviewer" }  // Invented name
+
+  ✅ Correct:
+  match_agent({ task_description: "code review" })
+  → { agent_id: "agent-1", score: 0.85 }
+  → { "agentId": "agent-engineer" }
+  ```
+
+  ### 2. Use Temporary Agents When Needed
+
+  When `match_agent` returns score < 0.5, use temporary agent:
+
+  ```
+  match_agent({ task_description: "technical documentation" })
+  → { agent_id: "agent-1", score: 0.35 }  // Too low
+
+  → Use temporary agent:
+  { "agentId": "technical-writer" }  // System auto-creates
+  ```
+
+  ### 3. Provide Clear Context
+
+  Members have NO access to parent conversation. Include ALL context in:
+  - `goal`: Overall team objective
+  - `systemPrompt`: Member-specific instructions
+
+  ```
+  ❌ Wrong:
+  { "goal": "Analyze this file" }  // Which file?
+
+  ✅ Correct:
+  { "goal": "Analyze /Users/kevin/project/src/auth.ts for security vulnerabilities, focusing on authentication logic and session management." }
+  ```
+
+  ### 4. Keep systemPrompt Concise
+
+  Keep systemPrompt under 200 tokens. Don't embed large data.
+
+  ```
+  ❌ Wrong:
+  { "systemPrompt": "Analyze this code:\n\n```\n... 500 lines of code ...\n```" }
+
+  ✅ Correct:
+  {
+    "goal": "Analyze /path/to/file.ts",
+    "systemPrompt": "Focus on security vulnerabilities. Output: 5-10 specific issues with severity and fix suggestions."
+  }
+  ```
+
+  ### 5. Let System Auto-Allocate Timeout
+
+  **CRITICAL**: Don't set `member.timeout` unless you have a specific reason.
+
+  ```
+  ❌ Wrong:
+  {
+    "timeout": 1200000,
+    "members": [
+      { "id": "m1", "timeout": 60000 }  // Overrides auto-allocation
+    ]
+  }
+
+  ✅ Correct:
+  {
+    "timeout": 1200000,  // Team total timeout
+    "members": [
+      { "id": "m1" }  // System auto-allocates based on strategy
+    ]
+  }
+  ```
+
+  ### 6. Specify Scene When Appropriate
+
+  For sub-agents, specify the scene to get better context:
+
+  ```json
+  {
+    "id": "engineer",
+    "agentId": "agent-engineer",
+    "scene": "write-code",  // Loads L1 scene prompt
+    "systemPrompt": "Implement user login API"
+  }
+  ```
+
+  Available scenes (examples):
+  - `write-code`: Code implementation
+  - `debug`: Bug fixing
+  - `test`: Test writing
+  - `refactor`: Code refactoring
+  - `review`: Code review
+  - `explore`: Code exploration
+  - `plan`: Architecture planning
+
+  ## 🚨 Common Mistakes to Avoid
+
+  1. **Inventing agent IDs**: Always use `match_agent` first
+  2. **Identical responsibilities**: Each member must have distinct role
+  3. **Missing context**: Include file paths, constraints, output format
+  4. **Embedding data**: Keep systemPrompt concise, let members read files
+  5. **Too many members**: 2-5 is optimal, 10 is maximum
+  6. **Wrong strategy**: Choose strategy based on task dependencies
+
+  ## 📊 Decision Tree
+
+  ```
+  Need multiple agents?
+    ├─ No → Use `task` tool
+    └─ Yes → Continue
+        ├─ Tasks have dependencies?
+        │   ├─ Yes, sequential → Use "sequential"
+        │   └─ Yes, data flow → Use "pipeline"
+        ├─ Need discussion?
+        │   └─ Yes → Use "debate"
+        ├─ Need leader coordination?
+        │   └─ Yes → Use "hierarchical"
+        └─ Independent analyses?
+            └─ Yes → Use "parallel"
+  ```
+
+  ## ✅ Pre-Flight Checklist
+
+  Before calling `agent_team`, verify:
+
+  - [ ] Called `match_agent` for each member role
+  - [ ] Used matched agent IDs (or temporary agent for score < 0.5)
+  - [ ] Each member has specific, non-overlapping responsibility
+  - [ ] `goal` includes all necessary context (file paths, constraints)
+  - [ ] `systemPrompt` is concise (< 200 tokens per member)
+  - [ ] Chose appropriate strategy (sequential/parallel/hierarchical/debate/pipeline)
+  - [ ] Member count is reasonable (2-5 optimal)
+  - [ ] Did NOT set `member.timeout` (let system auto-allocate)
