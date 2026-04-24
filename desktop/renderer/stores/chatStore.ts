@@ -7,6 +7,7 @@ import type { PermissionRequestData, PlanReviewRequestData, AskUserRequestData }
 import { useRuntimeStore } from './runtimeStore';
 import { useExecutionStore } from './executionStore';
 import { useActiveAgentStore } from './activeAgentStore';
+import { messageBus } from '../utils/MessageBus'; // 🔧 导入 messageBus
 
 // ============================================================
 // 节流工具函数
@@ -1756,26 +1757,26 @@ if (typeof window !== 'undefined' && window.electron) {
     'ask-user:request', 'session:messages-restored', 'session:resume-notification',
     'session:archive-notification', 'prompt:build-event', 'project:info',
   ];
-  agentChannels.forEach((ch) => window.electron.removeAllListeners(ch));
+  // 🔧 使用 MessageBus 统一订阅所有事件（不再需要 removeAllListeners）
 
-  // 绑定流式事件监听器
-  window.electron.onAgentText((text) => {
+  // ========== Agent 基础事件 ==========
+  messageBus.on('agent:text', (text: string) => {
     useChatStore.getState()._handleAgentText(text);
   });
 
-  window.electron.onAgentThinking((thinking) => {
+  messageBus.on('agent:thinking', (thinking: string) => {
     useChatStore.getState()._handleAgentThinking(thinking);
   });
 
-  window.electron.onAgentToolStart((data) => {
+  messageBus.on('agent:tool-start', (data: { id: string; name: string; input: Record<string, unknown>; agentId?: string }) => {
     useChatStore.getState()._handleAgentToolStart(data);
   });
 
-  window.electron.onAgentToolEnd((data) => {
+  messageBus.on('agent:tool-end', (data: { id: string; name: string; result: string; isError: boolean; agentId?: string }) => {
     useChatStore.getState()._handleAgentToolEnd(data);
   });
 
-  window.electron.onAgentFileChanges((data) => {
+  messageBus.on('agent:file-changes', (data: { changes: any[] }) => {
     console.log('[chatStore] 收到文件变更事件，变更数量:', data.changes.length);
     // 为每个文件变更生成一条对话式摘要消息
     data.changes.forEach((change) => {
@@ -1793,20 +1794,20 @@ if (typeof window !== 'undefined' && window.electron) {
     });
   });
 
-  window.electron.onAgentUsage((usage) => {
+  messageBus.on('agent:usage', (usage: any) => {
     useChatStore.getState()._handleAgentUsage(usage);
   });
 
-  window.electron.onAgentError((error) => {
+  messageBus.on('agent:error', (error: string) => {
     useChatStore.getState()._handleAgentError(error);
   });
 
-  window.electron.onAgentEnd((state) => {
+  messageBus.on('agent:end', (state: any) => {
     useChatStore.getState()._handleAgentEnd(state);
   });
 
   // Multi-Agent 成员状态事件（来自 HookRegistry 转发）
-  window.electron.on('agent:team-start', (data: {
+  messageBus.on('agent:team-start', (data: {
     teamId: string;
     name: string;
     strategy?: string;
@@ -1828,7 +1829,7 @@ if (typeof window !== 'undefined' && window.electron) {
     useChatStore.getState()._handleTeamStart(data);
   });
 
-  window.electron.on('agent:team-member-start', (data: {
+  messageBus.on('agent:team-member-start', (data: {
     teamId: string;
     memberId: string;
     name?: string;
@@ -1856,7 +1857,7 @@ if (typeof window !== 'undefined' && window.electron) {
     useChatStore.getState()._handleTeamMemberStart(data);
   });
 
-  window.electron.on('agent:team-member-end', (data: { teamId: string; memberId: string; success?: boolean; duration?: number; resultSummary?: string }) => {
+  messageBus.on('agent:team-member-end', (data: { teamId: string; memberId: string; success?: boolean; duration?: number; resultSummary?: string }) => {
     console.log('[chatStore] ===== agent:team-member-end 事件接收 =====');
     console.log('[chatStore] teamId:', data.teamId);
     console.log('[chatStore] memberId:', data.memberId);
@@ -1865,7 +1866,7 @@ if (typeof window !== 'undefined' && window.electron) {
     useChatStore.getState()._handleTeamMemberEnd(data);
   });
 
-  window.electron.on('agent:team-end', (data: { teamId: string; name: string; success: boolean; duration?: number; error?: string }) => {
+  messageBus.on('agent:team-end', (data: { teamId: string; name: string; success: boolean; duration?: number; error?: string }) => {
     console.log('[chatStore] ===== agent:team-end 事件接收 =====');
     console.log('[chatStore] teamId:', data.teamId);
     console.log('[chatStore] name:', data.name);
@@ -1877,7 +1878,7 @@ if (typeof window !== 'undefined' && window.electron) {
 
   // 🔧 内置系统 SubAgent 事件（如 memory-extractor）
   console.log('[chatStore] 注册 agent:subagent-start 监听器');
-  window.electron.on('agent:subagent-start', (data: {
+  messageBus.on('agent:subagent-start', (data: {
     subAgentId: string;
     name: string;
     role: string;
@@ -1929,7 +1930,7 @@ if (typeof window !== 'undefined' && window.electron) {
     });
   });
 
-  window.electron.on('agent:subagent-end', (data: {
+  messageBus.on('agent:subagent-end', (data: {
     subAgentId: string;
     success: boolean;
     duration?: number;
@@ -1959,7 +1960,7 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // ─── 可视化监控新事件监听 ──────────────────────────────────
-  window.electron.on('agent:thinking-start', (data: { agentId: string; content: string }) => {
+  messageBus.on('agent:thinking-start', (data: { agentId: string; content: string }) => {
     // 🔧 思考状态只展示在思考气泡中，不需要 currentMoment
     // 更新 activeAgentStore 的 currentThought（支持 sub-agent）
     const activeAgentStore = useActiveAgentStore.getState();
@@ -1968,7 +1969,7 @@ if (typeof window !== 'undefined' && window.electron) {
     }
   });
 
-  window.electron.on('agent:skill-start', (data: { agentId: string; skillName: string; input?: any }) => {
+  messageBus.on('agent:skill-start', (data: { agentId: string; skillName: string; input?: any }) => {
     const id = `skill-${Date.now()}`;
     const store = useRuntimeStore.getState();
 
@@ -1987,12 +1988,12 @@ if (typeof window !== 'undefined' && window.electron) {
     });
   });
 
-  window.electron.on('agent:skill-end', (data: { agentId: string; skillName: string; duration?: number; success?: boolean }) => {
+  messageBus.on('agent:skill-end', (data: { agentId: string; skillName: string; duration?: number; success?: boolean }) => {
     // 🔧 Skill 完成时，只需要更新 timelineEvent，不需要 finishAgentMoment
     // 因为 skill 不再使用 currentMoment 展示
   });
 
-  window.electron.on('agent:memory-read', (data: { agentId: string; hitCount?: number; layersSearched?: number }) => {
+  messageBus.on('agent:memory-read', (data: { agentId: string; hitCount?: number; layersSearched?: number }) => {
     const store = useRuntimeStore.getState();
     const eventId = `memory-read-${Date.now()}`;
 
@@ -2017,7 +2018,7 @@ if (typeof window !== 'undefined' && window.electron) {
     }, 300);
   });
 
-  window.electron.on('agent:memory-write', (data: { agentId: string; scope?: string; summary?: string }) => {
+  messageBus.on('agent:memory-write', (data: { agentId: string; scope?: string; summary?: string }) => {
     const store = useRuntimeStore.getState();
     const eventId = `memory-write-${Date.now()}`;
 
@@ -2042,7 +2043,7 @@ if (typeof window !== 'undefined' && window.electron) {
     }, 500);
   });
 
-  window.electron.on('agent:compress-start', (data: { agentId: string; originalTokens?: number }) => {
+  messageBus.on('agent:compress-start', (data: { agentId: string; originalTokens?: number }) => {
     const store = useRuntimeStore.getState();
 
     // 🔧 压缩上下文使用 currentMoment 展示（后台操作，不需要在timeline中）
@@ -2061,7 +2062,7 @@ if (typeof window !== 'undefined' && window.electron) {
     });
   });
 
-  window.electron.on('agent:compress-end', (data: { agentId: string; originalTokens?: number; compressedTokens?: number; compressionRatio?: number; duration?: number }) => {
+  messageBus.on('agent:compress-end', (data: { agentId: string; originalTokens?: number; compressedTokens?: number; compressionRatio?: number; duration?: number }) => {
     const store = useRuntimeStore.getState();
     const ratio = data.compressionRatio ? Math.round(data.compressionRatio * 100) : 0;
     store.finishAgentMoment(data.agentId, 'success');
@@ -2083,24 +2084,24 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 权限交互事件监听
-  window.electron.onPermissionRequest((data) => {
+  messageBus.on('permission:request'((data) => {
     useChatStore.getState().setPermissionRequest(data);
   });
 
-  window.electron.onPlanReviewRequest((data) => {
+  messageBus.on('plan:review-request', (data) => {
     useChatStore.getState().setPlanReviewRequest(data);
   });
 
-  window.electron.onAskUserRequest((data) => {
+  messageBus.on('ask-user:request', (data) => {
     useChatStore.getState().setAskUserRequest(data);
   });
 
   // Plan Mode 事件监听
-  window.electron.onPlanModeEnter(() => {
+  messageBus.on('plan:mode-enter', () => {
     useChatStore.getState().setPlanMode(true);
   });
 
-  window.electron.onPlanModeExit(() => {
+  messageBus.on('plan:mode-exit', () => {
     useChatStore.getState().setPlanMode(false);
   });
 
@@ -2130,7 +2131,7 @@ if (typeof window !== 'undefined' && window.electron) {
     setTimeout(drainMomentQueue, MOMENT_MIN_DISPLAY_MS);
   }
 
-  window.electron.on('prompt:build-event', (event: { type: string; timestamp: number; agentId: string; data?: any }) => {
+  messageBus.on('prompt:build-event', (event: { type: string; timestamp: number; agentId: string; data?: any }) => {
     console.log('[chatStore] 收到 prompt:build-event:', event);
     const runtimeStore = useRuntimeStore.getState();
     // 主 agent (xuanji) 在 WorkspaceMonitor 中的 id 是 'main'
@@ -2249,7 +2250,7 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 监听 ModelClassifier 事件（IntentClassifier 内部触发）
-  window.electron.onWorkspaceModelClassifierStart((data: any) => {
+  messageBus.on('workspace:model-classifier-start', (data: any) => {
     console.log('[chatStore] ModelClassifier 开始:', data);
     const activeAgentStore = useActiveAgentStore.getState();
     console.log('[chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
@@ -2275,7 +2276,7 @@ if (typeof window !== 'undefined' && window.electron) {
     }
   });
 
-  window.electron.onWorkspaceModelClassifierEnd((data: any) => {
+  messageBus.on('workspace:model-classifier-end', (data: any) => {
     console.log('[chatStore] ModelClassifier 结束:', data);
 
     // 延迟 0.5s 后移除 intent-classifier 子 Agent
@@ -2292,7 +2293,7 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 监听项目信息事件
-  window.electron.on('project:info', (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => {
+  messageBus.on('project:info', (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => {
     console.log('[chatStore] 收到 project:info:', data);
     const runtimeStore = useRuntimeStore.getState();
 
