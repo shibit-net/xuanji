@@ -2084,7 +2084,7 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 权限交互事件监听
-  messageBus.on('permission:request'((data) => {
+  messageBus.on('permission:request', (data) => {
     useChatStore.getState().setPermissionRequest(data);
   });
 
