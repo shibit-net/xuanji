@@ -2,7 +2,7 @@ import type { ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
-import { messageBus } from '../ipc/MessageBus.js';
+import { EnhancedMessageChannel } from '../ipc/EnhancedMessageBus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -11,9 +11,10 @@ let sessionReady = false;
 let cachedConfig: any = null;
 let initializationInProgress: Promise<boolean> | null = null;
 let isCleaningUp = false;
+let agentChannel: EnhancedMessageChannel | null = null;
 
-// 获取 agent 消息通道
-const getAgentChannel = () => messageBus.getChannel('agent');
+// 🔧 获取 agent 消息通道
+const getAgentChannel = () => agentChannel;
 
 function findNodePath(): string {
   const { execSync } = require('child_process');
@@ -127,12 +128,15 @@ function initChatSession(): Promise<boolean> {
         console.error('[Agent] 子进程错误:', err);
       });
 
-      // 创建并绑定 agent 消息通道
-      const agentChannel = messageBus.createChannel('agent', {
+      // 🔧 创建增强的消息通道，支持自动转发到renderer
+      agentChannel = new EnhancedMessageChannel({
+        name: 'agent',
         timeout: 30000,
         maxRetries: 3,
         retryDelay: 1000,
         enableLogging: true,
+        autoForwardToRenderer: true,
+        mainWindow: getMainWindow(),
       });
       agentChannel.attach(agentProcess!);
 
@@ -151,44 +155,8 @@ function initChatSession(): Promise<boolean> {
         }
       });
 
-      // 转发消息到渲染进程
-      const forwardToRenderer = (type: string) => {
-        agentChannel.on(type, (data) => {
-          if (type === 'prompt:build-event' || type === 'download:event') {
-            console.log(`[agent/index] 收到 ${type}，准备转发到渲染进程:`, data);
-          }
-          const mainWindow = getMainWindow();
-          if (mainWindow && mainWindow.webContents) {
-            if (type === 'prompt:build-event' || type === 'download:event') {
-              console.log(`[agent/index] 转发 ${type} 到渲染进程`);
-            }
-            mainWindow.webContents.send(type, data);
-          } else {
-            if (type === 'prompt:build-event' || type === 'download:event') {
-              console.log(`[agent/index] mainWindow 不存在，无法转发 ${type}`);
-            }
-          }
-        });
-      };
-
-      // 需要转发的消息类型
-      const forwardTypes = [
-        'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
-        'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
-        'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
-        'agent:team-member-text', 'agent:team-member-thinking',
-        'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
-        'ask-user:request', 'session:messages-restored', 'session:resume-notification',
-        'session:archive-notification', 'session:boot-thinking', 'session:boot-guide',
-        'prompt:build-event', 'project:info',
-        'download:event', // 添加下载事件转发
-        'workspace:intent-analysis-start', 'workspace:intent-analysis-end',
-        'workspace:model-classifier-start', 'workspace:model-classifier-end',
-        'workspace:task-planning-start', 'workspace:task-planning-end',
-        'workspace:task-execution-start', 'workspace:task-execution-end',
-        'workspace:result-aggregation-start', 'workspace:result-aggregation-end',
-      ];
-      forwardTypes.forEach(forwardToRenderer);
+      // 🔧 不再需要手动转发消息到renderer
+      // EnhancedMessageChannel 会自动转发所有消息
 
       // 发送 init 消息触发子进程初始化，并传递 userId
       agentChannel.send('init', { userId });
@@ -242,6 +210,9 @@ async function cleanupAgentProcess() {
   if (agentChannel) {
     // 发送 shutdown 消息
     agentChannel.send('shutdown');
+    // 清理通道
+    agentChannel.detach();
+    agentChannel = null;
   }
 
   await new Promise<void>((resolve) => {
@@ -257,9 +228,6 @@ async function cleanupAgentProcess() {
       resolve();
     });
   });
-
-  // 删除消息通道
-  messageBus.deleteChannel('agent');
 
   agentProcess = null;
   sessionReady = false;

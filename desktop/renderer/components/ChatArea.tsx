@@ -8,6 +8,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
 import { useChatStore, type Message } from '../stores/chatStore';
 import { useToast } from './Toast';
+import { messageBus } from '../utils/MessageBus'; // 🔧 导入 messageBus
 
 // ============================================================
 // 唯一 ID 生成器（与 chatStore 保持一致）
@@ -80,10 +81,11 @@ export default function ChatArea() {
       useChatStore.getState().addMessage(archiveMessage);
     };
 
-    window.electron.on('session:archive-notification', handleArchiveNotification);
+    // 🔧 使用 messageBus 订阅事件
+    const unsubscribe = messageBus.on('session:archive-notification', handleArchiveNotification);
 
     return () => {
-      window.electron.off('session:archive-notification', handleArchiveNotification);
+      unsubscribe();
     };
   }, []);
 
