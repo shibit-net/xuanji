@@ -421,10 +421,26 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
 
   addTimelineEvent: (agentId, event) =>
     set((state) => {
-      console.log('[runtimeStore] addTimelineEvent 被调用:', { agentId, event });
+      console.log('[runtimeStore] ===== addTimelineEvent 被调用 =====');
+      console.log('[runtimeStore] agentId:', agentId);
+      console.log('[runtimeStore] event:', event);
+      console.log('[runtimeStore] event.id:', event.id);
+      console.log('[runtimeStore] event.label:', event.label);
+      console.log('[runtimeStore] event.status:', event.status);
+
       const prev = state.agentActivity.timelineEvents[agentId] || [];
+      console.log('[runtimeStore] 当前 timeline 事件数:', prev.length);
+      console.log('[runtimeStore] 当前 timeline 事件:', prev.map(e => ({ id: e.id, label: e.label, status: e.status })));
+
+      // 🔥 防御性检查：避免重复添加相同 ID 的事件
+      const exists = prev.some(e => e.id === event.id);
+      if (exists) {
+        console.warn('[runtimeStore] ⚠️ 事件已存在，跳过添加:', event.id, event.label);
+        return state; // 不修改，返回原 state
+      }
+
       const newEvents = [...prev, event].slice(-5);
-      console.log('[runtimeStore] 更新后的 timelineEvents:', newEvents);
+      console.log('[runtimeStore] ✅ 添加成功，更新后的 timelineEvents:', newEvents.map(e => ({ id: e.id, label: e.label, status: e.status })));
       return {
         agentActivity: {
           ...state.agentActivity,

@@ -11,7 +11,7 @@ export class StatsStorage implements IStatsStorage {
   private readonly statsDir: string;
 
   constructor(baseDir?: string) {
-    this.statsDir = baseDir || path.join(os.homedir(), '.xuanji', 'stats');
+    this.statsDir = baseDir || path.join(process.cwd(), '.xuanji', 'stats');
   }
 
   async saveRecord(record: UsageRecord): Promise<void> {

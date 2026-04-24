@@ -20,8 +20,8 @@ export class MCPInstaller {
 
   constructor(registryClient: RegistryClient) {
     this.registryClient = registryClient;
-    this.mcpConfigPath = path.join(os.homedir(), '.xuanji', 'mcp.json');
-    this.installedPath = path.join(os.homedir(), '.xuanji', 'tiangong-installed.json');
+    this.mcpConfigPath = path.join(process.cwd(), '.xuanji', 'mcp.json');
+    this.installedPath = path.join(process.cwd(), '.xuanji', 'tiangong-installed.json');
   }
 
   /** 安装 MCP Server */
@@ -46,7 +46,7 @@ export class MCPInstaller {
     if (this.isPlatformProxyEndpoint(serverConfig)) {
       const tiangongApiKey = this.getTiangongApiKey();
       if (!tiangongApiKey) {
-        log.warn('平台代理 MCP 需要设置 tiangong.apiKey，请在 ~/.xuanji/config.json 中配置');
+        log.warn('平台代理 MCP 需要设置 tiangong.apiKey，请在 .xuanji/config.json 中配置');
       } else {
         serverConfig.env = serverConfig.env || {};
         serverConfig.env.SHIBIT_API_KEY = tiangongApiKey;
@@ -161,7 +161,7 @@ export class MCPInstaller {
    */
   private getTiangongApiKey(): string | undefined {
     try {
-      const configPath = path.join(os.homedir(), '.xuanji', 'config.json');
+      const configPath = path.join(process.cwd(), '.xuanji', 'config.json');
       if (fs.existsSync(configPath)) {
         const appConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         return appConfig?.tiangong?.apiKey;

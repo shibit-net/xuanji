@@ -244,9 +244,13 @@
 
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {
-    const handler = (_event: any, ...args: any[]) => callback(...args);
+    const handler = (_event: any, ...args: any[]) => {
+      console.log('[preload] on 事件触发:', channel, args);
+      callback(...args);
+    };
     (callback as any).__ipcHandler = handler;
     ipcRenderer.on(channel, handler);
+    console.log('[preload] 注册监听器:', channel);
   },
   off: (channel: string, callback: (...args: any[]) => void) => {
     const handler = (callback as any).__ipcHandler;

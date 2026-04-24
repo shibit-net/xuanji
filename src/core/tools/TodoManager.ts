@@ -5,7 +5,6 @@
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 
 /**
  * Todo 任务
@@ -31,7 +30,7 @@ export interface Todo {
 /**
  * Todo 任务管理器
  *
- * 使用 JSONL 格式持久化任务到 ~/.xuanji/todos.jsonl
+ * 使用 JSONL 格式持久化任务到 .xuanji/todos.jsonl
  * 每行一个完整的 Todo 对象（写入时覆盖整个文件）
  */
 export class TodoManager {
@@ -42,10 +41,10 @@ export class TodoManager {
   private nextId = 1;
 
   constructor(storagePath?: string) {
-    this.storagePath = storagePath ?? join(homedir(), '.xuanji', 'todos.jsonl');
+    this.storagePath = storagePath ?? join(process.cwd(), '.xuanji', 'todos.jsonl');
     this.archivePath = storagePath
       ? storagePath.replace('.jsonl', '-archive.jsonl')
-      : join(homedir(), '.xuanji', 'todos-archive.jsonl');
+      : join(process.cwd(), '.xuanji', 'todos-archive.jsonl');
   }
 
   /**

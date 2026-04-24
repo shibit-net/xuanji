@@ -52,15 +52,25 @@ export class IntentClassifier {
 
   /**
    * 初始化分类器（懒加载本地模型）
+   * @param force - 强制重新初始化，即使已经初始化过
    */
-  async init(): Promise<void> {
-    log.info('[IntentClassifier] init() called, initialized=' + this.initialized);
-    if (this.initialized) {
-      log.info('[IntentClassifier] already initialized, skipping');
+  async init(force: boolean = false): Promise<void> {
+    log.info('[IntentClassifier] init() called, initialized=' + this.initialized + ', force=' + force);
+
+    if (this.initialized && !force) {
+      // 已初始化，但仍然调用 ModelClassifier.init() 来检测配置变化
+      log.info('[IntentClassifier] already initialized, checking for config changes');
+      try {
+        await this.modelClassifier.init();
+        log.info('[IntentClassifier] Config check completed');
+      } catch (err) {
+        log.warn('[IntentClassifier] Config check failed:', err);
+      }
       return;
     }
 
     try {
+      // 首次初始化或强制重新初始化
       await this.modelClassifier.init();
       log.info('[IntentClassifier] Initialized successfully');
     } catch (err) {
@@ -124,15 +134,20 @@ export class IntentClassifier {
       }
     }
 
-    // 触发分类开始事件（只有在模型真正可用时才触发）
+    // 触发分类开始事件
     if (this.hookRegistry) {
+      log.info('[IntentClassifier] 触发 ModelClassifierStart 事件');
       await this.hookRegistry.emit('ModelClassifierStart', {
         sessionId: `session-${Date.now()}`,
+        timestamp: Date.now(),
         data: {
           userInput,
           model: this.modelClassifier.getCurrentModel(),
         },
       });
+      log.info('[IntentClassifier] ModelClassifierStart 事件已触发');
+    } else {
+      log.warn('[IntentClassifier] hookRegistry 不存在，无法触发 ModelClassifierStart');
     }
 
     try {
@@ -142,8 +157,10 @@ export class IntentClassifier {
 
       // 触发分类结束事件
       if (result && this.hookRegistry) {
+        log.info('[IntentClassifier] 触发 ModelClassifierEnd 事件');
         await this.hookRegistry.emit('ModelClassifierEnd', {
           sessionId: `session-${Date.now()}`,
+          timestamp: Date.now(),
           data: {
             userInput,
             model: this.modelClassifier.getCurrentModel(),
@@ -153,6 +170,11 @@ export class IntentClassifier {
             durationMs,
           },
         });
+        log.info('[IntentClassifier] ModelClassifierEnd 事件已触发');
+      } else if (!result) {
+        log.warn('[IntentClassifier] 分类结果为空，不触发 ModelClassifierEnd');
+      } else {
+        log.warn('[IntentClassifier] hookRegistry 不存在，无法触发 ModelClassifierEnd');
       }
 
       return result;
@@ -239,7 +261,7 @@ export class IntentClassifier {
   private getDefault(): ClassificationResult {
     return {
       scene: 'general',
-      agent: 'general-purpose',
+      agent: 'general',
       complexity: 'simple',
     };
   }

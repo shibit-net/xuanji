@@ -85,7 +85,7 @@ interface ActiveAgentStore {
   currentActiveAgentId: string | null;
 
   // ========== Agent 管理 ==========
-  startMainAgent: (name: string) => void;
+  startMainAgent: (name: string, agentId?: string) => void;
   finishMainAgent: () => void;
   resetAll: () => void;
   setCurrentActiveAgent: (agentId: string | null) => void;
@@ -132,9 +132,9 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
 
   // ========== Agent 管理 ==========
 
-  startMainAgent: (name: string) => {
+  startMainAgent: (name: string, agentId?: string) => {
     const agent: AgentState = {
-      id: `agent-${Date.now()}`,
+      id: agentId || 'xuanji', // 🔧 使用传入的 agentId，默认为 'xuanji'
       name,
       status: 'thinking',
       currentTools: [],
@@ -298,14 +298,27 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
 
   addSubAgent: (parentId: string, subAgent: AgentState) => {
     const { mainAgent } = get();
+    console.log('[activeAgentStore] addSubAgent 被调用:', {
+      parentId,
+      subAgentId: subAgent.id,
+      subAgentName: subAgent.name,
+      mainAgentId: mainAgent?.id,
+      mainAgentName: mainAgent?.name,
+    });
 
-    const updated = updateAgentInTree(mainAgent, parentId, (agent) => ({
-      ...agent,
-      subAgents: [...agent.subAgents, subAgent],
-    }));
+    const updated = updateAgentInTree(mainAgent, parentId, (agent) => {
+      console.log('[activeAgentStore] 找到父 agent:', agent.id, agent.name);
+      return {
+        ...agent,
+        subAgents: [...agent.subAgents, subAgent],
+      };
+    });
 
     if (updated) {
+      console.log('[activeAgentStore] 成功添加子 agent，更新 mainAgent');
       set({ mainAgent: updated });
+    } else {
+      console.warn('[activeAgentStore] ⚠️ 未找到父 agent，无法添加子 agent. parentId:', parentId, 'mainAgent.id:', mainAgent?.id);
     }
   },
 

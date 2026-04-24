@@ -248,7 +248,7 @@ export class LayeredPromptBuilder {
       type: 'intent:analyzed',
       timestamp: Date.now(),
       agentId: this.agentId,
-      data: { scene, complexity, matchMethod },
+      data: { scene, complexity, matchMethod, agent: options.agent },
     });
 
     // 2. 选择组件
@@ -374,15 +374,15 @@ export class LayeredPromptBuilder {
   /**
    * 按层级分组组件
    */
-  private groupComponentsByLayer(components: PromptComponent[]): Array<{ layer: number; components: string[] }> {
-    const layerMap = new Map<string, string[]>();
+  private groupComponentsByLayer(components: PromptComponent[]): Array<{ layer: number; components: Array<{ id: string; name: string }> }> {
+    const layerMap = new Map<string, Array<{ id: string; name: string }>>();
 
     for (const component of components) {
       const layerNum = component.layer.replace('L', '');
       if (!layerMap.has(layerNum)) {
         layerMap.set(layerNum, []);
       }
-      layerMap.get(layerNum)!.push(component.id);
+      layerMap.get(layerNum)!.push({ id: component.id, name: component.name });
     }
 
     return Array.from(layerMap.entries())

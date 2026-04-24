@@ -38,7 +38,7 @@ let authState: AuthState = {
   user: null
 };
 
-const AUTH_DATA_PATH = path.join(os.homedir(), '.xuanji', 'auth');
+const AUTH_DATA_PATH = path.join(process.cwd(), '.xuanji', 'auth');
 const ACCOUNTS_FILE = path.join(AUTH_DATA_PATH, 'accounts.enc');
 const ACCOUNTS_FILE_JSON = path.join(AUTH_DATA_PATH, 'accounts.json');
 const CURRENT_AUTH_FILE = path.join(AUTH_DATA_PATH, 'current-auth.enc');

@@ -218,7 +218,7 @@ function registerHookListeners(hookRegistry: any) {
   // ━━━ MainAgent 流程事件 ━━━
   // 注意：prompt:build-event 现在由 LayeredPromptBuilder 直接发送真实事件
 
-  // ModelClassifier 事件
+  // ModelClassifier 事件（IntentClassifier 内部触发）
   hookRegistry.addListener('ModelClassifierStart', async (ctx: any) => {
     safeSend({
       type: 'workspace:model-classifier-start',
@@ -226,7 +226,7 @@ function registerHookListeners(hookRegistry: any) {
         userInput: ctx.data.userInput,
         model: ctx.data.model,
         sessionId: ctx.sessionId,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -240,23 +240,23 @@ function registerHookListeners(hookRegistry: any) {
         model: ctx.data.model,
         agent: ctx.data.agent,
         scene: ctx.data.scene,
-        confidence: ctx.data.confidence,
+        complexity: ctx.data.complexity,
         durationMs: ctx.data.durationMs,
         sessionId: ctx.sessionId,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
   });
 
-  // IntentAnalysis 事件
+  // IntentAnalysis 事件（已弃用，保留用于向后兼容）
   hookRegistry.addListener('IntentAnalysisStart', async (ctx: any) => {
     safeSend({
       type: 'workspace:intent-analysis-start',
       data: {
         userInput: ctx.data.userInput,
         sessionId: ctx.sessionId,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -271,9 +271,9 @@ function registerHookListeners(hookRegistry: any) {
         complexity: ctx.data.complexity,
         confidence: ctx.data.confidence,
         matchMethod: ctx.data.matchMethod,
-        intentClassifier: ctx.data.modelClassifier,
+        intentClassifier: ctx.data.intentClassifier,
         sessionId: ctx.sessionId,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -288,7 +288,7 @@ function registerHookListeners(hookRegistry: any) {
         sessionId: ctx.sessionId,
         scene: ctx.scene,
         complexity: ctx.complexity,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -302,7 +302,7 @@ function registerHookListeners(hookRegistry: any) {
         sessionId: ctx.sessionId,
         strategy: ctx.strategy,
         tasks: ctx.tasks,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -316,7 +316,7 @@ function registerHookListeners(hookRegistry: any) {
         sessionId: ctx.sessionId,
         strategy: ctx.strategy,
         taskCount: ctx.taskCount,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -332,7 +332,7 @@ function registerHookListeners(hookRegistry: any) {
         duration: ctx.duration,
         output: ctx.output,
         error: ctx.error,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -345,7 +345,7 @@ function registerHookListeners(hookRegistry: any) {
         userInput: ctx.userInput,
         sessionId: ctx.sessionId,
         memberCount: ctx.memberCount,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -358,7 +358,7 @@ function registerHookListeners(hookRegistry: any) {
         userInput: ctx.userInput,
         sessionId: ctx.sessionId,
         output: ctx.output,
-        timestamp: Date.now(),
+        timestamp: ctx.timestamp,
       },
     });
     return { success: true };
@@ -436,7 +436,16 @@ function registerHookListeners(hookRegistry: any) {
 
   hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
     const role = ctx.data?.role || 'unknown';
-    const parentAgentId = ctx.data?.parentAgentId || 'main';
+    const parentAgentId = ctx.data?.parentAgentId || 'xuanji'; // 🔧 默认为 'xuanji'
+
+    console.log('[agent-bridge] SubAgentStart Hook 触发:', {
+      subAgentId: ctx.subAgentId,
+      role,
+      parentAgentId,
+      name: ctx.data?.name,
+      task: ctx.data?.task?.substring(0, 100),
+      agentType: ctx.data?.agentType,
+    });
 
     safeSend({
       type: 'agent:subagent-start',
@@ -446,8 +455,13 @@ function registerHookListeners(hookRegistry: any) {
         role: role,
         task: ctx.data?.task,
         agentType: ctx.data?.agentType,
-        parentId: parentAgentId,
+        parentId: parentAgentId, // 🔧 直接透传，不做映射
       },
+    });
+
+    console.log('[agent-bridge] agent:subagent-start 事件已发送:', {
+      subAgentId: ctx.subAgentId,
+      parentId: parentAgentId,
     });
 
     return { success: true };
@@ -708,7 +722,7 @@ async function handleInit(userId?: string) {
     // 发送初始化完成事件
     safeSend({
       type: 'init-complete',
-      data: { success: true },
+      data: { success: true, agentId }, // 🔧 传递 agentId 给前端
     });
     console.log('[agent-bridge] Session 初始化完成');
 

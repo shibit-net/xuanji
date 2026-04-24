@@ -183,7 +183,7 @@ function printHelp(): void {
 
   文档: https://github.com/shibit/xuanji
 
-  配置文件 (~/.xuanji/config.json) 示例:
+  配置文件 (.xuanji/config.json) 示例:
     {
       "bots": {
         "dingtalk": { "enabled": true, "appKey": "...", "appSecret": "..." },
@@ -201,7 +201,7 @@ function printHelp(): void {
  * 启动 IM 机器人模式（支持后台运行）
  *
  * 配置优先级: 命令行参数 > config.json bots 字段 > 环境变量
- * 日志输出:   console + ~/.xuanji/logs/YYYY-MM-DD.log (JSONL)
+ * 日志输出:   console + .xuanji/logs/YYYY-MM-DD.log (JSONL)
  * 后台运行:   pm2 start xuanji -- bot --dingtalk
  *             或 systemd 服务
  */
@@ -259,7 +259,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   if (adapters.length === 0) {
     const msg = '未找到要启动的机器人。\n'
       + '  方式 1: xuanji bot --dingtalk (命令行指定)\n'
-      + '  方式 2: 在 ~/.xuanji/config.json 中配置 bots.dingtalk.enabled = true';
+      + '  方式 2: 在 .xuanji/config.json 中配置 bots.dingtalk.enabled = true';
     log.error(msg);
     await logSystem.error('System', msg);
     process.exit(1);
@@ -281,7 +281,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   }
 
   log.info(`璇玑 Bot 模式运行中 (${adapters.length} 个机器人)`);
-  log.info(`日志文件: ~/.xuanji/logs/`);
+  log.info(`日志文件: .xuanji/logs/`);
   log.info(`Ctrl+C 或 SIGTERM 停止`);
 
   // 5. 优雅退出
@@ -470,7 +470,7 @@ async function main(): Promise<void> {
         return '❌ 记忆系统已移除';
       },
       onAgentQuery: async (_args: string) => {
-        return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
+        return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
       },
       onTemplateQuery: async (args: string) => {
         // TODO: 实现模板查询

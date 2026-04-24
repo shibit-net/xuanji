@@ -77,7 +77,7 @@ export class TodoArchiveTool implements Tool {
 归档策略：${strategy === 'completed' ? '所有已完成任务' : `${thresholdHours} 小时前完成的任务`}
 归档总数：${archivedTotal} 个任务
 
-归档的任务已保存到 ~/.xuanji/todos-archive.jsonl，可随时查询历史记录。`,
+归档的任务已保存到 .xuanji/todos-archive.jsonl，可随时查询历史记录。`,
         isError: false,
       };
     } catch (err) {

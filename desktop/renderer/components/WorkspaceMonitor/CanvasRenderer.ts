@@ -374,15 +374,17 @@ export class CanvasRenderer {
 
     // 🔧 思考气泡已移至 drawAllThinkingBubbles() 统一绘制，确保在最上层
 
-    // 区域3：右侧动作标签（AgentMoment）
-    if (agent.currentMoment) {
-      this.drawMomentTag(pos, radius, agent.currentMoment);
-    }
-
-    // 区域3：右侧工具调用列表（最近 5 个）
-    if (agent.timelineEvents && agent.timelineEvents.length > 0) {
+    // 区域3：右侧工具调用堆栈
+    const hasTimelineEvents = agent.timelineEvents && agent.timelineEvents.length > 0;
+    if (hasTimelineEvents) {
       const recent5 = agent.timelineEvents.slice(-5);
       this.drawToolCallStack(pos, radius, recent5);
+    }
+
+    // 🔧 currentMoment 现在只用于后台操作（如compress）
+    // 如果有 timelineEvents，currentMoment 会通过碰撞避让自动放在合适的位置
+    if (agent.currentMoment) {
+      this.drawMomentTag(pos, radius, agent.currentMoment);
     }
   }
 
@@ -1409,6 +1411,8 @@ export class CanvasRenderer {
     const displayEvents = visibleEvents.slice(-maxVisible);
     const hiddenCount = Math.max(0, visibleEvents.length - maxVisible);
 
+    if (displayEvents.length === 0) return;
+
     // 如果有隐藏的工具，先绘制省略号
     if (hiddenCount > 0) {
       this.drawEllipsisIndicator(agentPos, agentRadius, gap, itemHeight, hiddenCount);
@@ -1416,6 +1420,16 @@ export class CanvasRenderer {
 
     // 🔧 从 agent 图标顶部开始向下排列
     const startY = agentPos.y - agentRadius; // agent 顶部
+
+    // 🔧 注册工具堆栈的占用区域（用于碰撞避让）
+    const stackHeight = (displayEvents.length + (hiddenCount > 0 ? 1 : 0)) * (itemHeight + itemSpacing);
+    const stackWidth = 200; // 估算宽度
+    this.layoutEngine.addOccupied({
+      x: agentPos.x + agentRadius + gap,
+      y: startY,
+      width: stackWidth,
+      height: stackHeight,
+    });
 
     // 绘制可见的工具
     displayEvents.forEach((evt, index) => {

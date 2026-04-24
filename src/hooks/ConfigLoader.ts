@@ -3,7 +3,7 @@
  *
  * 加载优先级:
  * 1. 项目级: .xuanji/hooks.json（当前目录）
- * 2. 全局级: ~/.xuanji/hooks.json
+ * 2. 全局级: .xuanji/hooks.json
  *
  * 项目级配置会**合并**（非覆盖）到全局配置:
  * - 同一事件的 Handler 数组会拼接（项目级追加到全局后面）
@@ -17,7 +17,7 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'HookConfigLoader' });
 
-const GLOBAL_HOOKS_PATH = path.join(os.homedir(), '.xuanji', 'hooks.json');
+const GLOBAL_HOOKS_PATH = path.join(process.cwd(), '.xuanji', 'hooks.json');
 const PROJECT_HOOKS_FILE = 'hooks.json';
 
 export class HookConfigLoader {
@@ -214,8 +214,8 @@ export class HookConfigLoader {
    * 判断配置来源是否为项目级（非全局）
    */
   private isProjectSource(source: string): boolean {
-    // 全局配置路径: ~/.xuanji/hooks.json
-    const globalDir = path.resolve(os.homedir(), '.xuanji');
+    // 全局配置路径: .xuanji/hooks.json
+    const globalDir = path.resolve(process.cwd(), '.xuanji');
     const resolvedSource = path.resolve(source);
     return !resolvedSource.startsWith(globalDir + path.sep);
   }

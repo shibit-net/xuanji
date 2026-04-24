@@ -432,7 +432,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
     });
 
     // 启动主 Agent（activeAgentStore）
-    useActiveAgentStore.getState().startMainAgent('Xuanji');
+    // 🔧 传递 agentId，默认为 'xuanji'
+    useActiveAgentStore.getState().startMainAgent('Xuanji', 'xuanji');
 
     set((state) => ({
       messages: [...state.messages, userMessage],
@@ -749,16 +750,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
         status: 'running',
         startTime: Date.now(),
       });
-
-      // 🔧 为子 agent 添加 timeline 事件（用于 WorkspaceMonitor 显示）
-      const runtimeStore = useRuntimeStore.getState();
-      runtimeStore.addTimelineEvent(targetAgentId, {
-        id: data.id,
-        type: 'tool',
-        name: data.name,
-        status: 'running',
-        startTime: Date.now(),
-      });
     }
 
     // 记录日志
@@ -808,12 +799,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
       let currentAgentId: string;
       if (data.agentId) {
         // 事件中有 agentId（来自子 Agent 的 Hook）
-        currentAgentId = data.agentId === 'main' ? 'main' : data.agentId;
+        currentAgentId = data.agentId;
       } else {
         // 事件中没有 agentId（来自主 Agent 的回调）
         const rawAgentId = activeAgentStore.currentActiveAgentId;
         const isMainAgent = !rawAgentId || rawAgentId === activeAgentStore.mainAgent?.id;
-        currentAgentId = isMainAgent ? 'main' : rawAgentId;
+        // 🔧 使用实际的 mainAgent.id，而不是硬编码 'main'
+        currentAgentId = isMainAgent ? (activeAgentStore.mainAgent?.id || 'xuanji') : rawAgentId;
       }
       const agentName = activeAgentStore.mainAgent?.name || 'Xuanji';
 
@@ -841,13 +833,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
         console.log('[chatStore] _handleAgentToolStart - 记录工具调用者:', data.name, data.id, '→', currentAgentId);
       }
 
-      actStore.setAgentMoment(currentAgentId, {
-        type: momentType.type,
-        icon: momentType.icon,
-        label: data.name.slice(0, 20),
-        durationMs: 0,
-        status: 'running',
-      });
+      // 🔧 工具调用统一使用 timelineEvents 展示，不再使用 currentMoment
+      // currentMoment 只用于瞬时动作（thinking、memory等）
       actStore.addTimelineEvent(currentAgentId, {
         id: data.id,
         icon: momentType.icon,
@@ -1034,16 +1021,18 @@ export const useChatStore = create<ChatStore>((set, get) => {
       let currentAgentId: string;
       if (data.agentId) {
         // 事件中有 agentId（来自子 Agent 的 Hook）
-        currentAgentId = data.agentId === 'main' ? 'main' : data.agentId;
+        currentAgentId = data.agentId;
       } else {
         // 事件中没有 agentId（来自主 Agent 的回调）
         const rawAgentId = activeAgentStore.currentActiveAgentId;
         const isMainAgent = !rawAgentId || rawAgentId === activeAgentStore.mainAgent?.id;
-        currentAgentId = isMainAgent ? 'main' : rawAgentId;
+        // 🔧 使用实际的 mainAgent.id，而不是硬编码 'main'
+        currentAgentId = isMainAgent ? (activeAgentStore.mainAgent?.id || 'xuanji') : rawAgentId;
       }
 
       const status = data.isError ? 'error' : 'success';
-      actStore.finishAgentMoment(currentAgentId, status);
+      // 🔧 工具调用统一使用 timelineEvents，不再使用 currentMoment
+      // 所以不需要 finishAgentMoment
       const toolCallDuration = activeToolCalls.get(data.id)?.duration;
       actStore.finishTimelineEvent(currentAgentId, data.id, toolCallDuration ?? 0, status);
     }
@@ -1762,6 +1751,7 @@ if (typeof window !== 'undefined' && window.electron) {
     'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
     'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
     'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
+    'agent:subagent-start', 'agent:subagent-end', // 🔧 添加 subagent 事件
     'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
     'ask-user:request', 'session:messages-restored', 'session:resume-notification',
     'session:archive-notification', 'prompt:build-event', 'project:info',
@@ -1886,6 +1876,7 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 🔧 内置系统 SubAgent 事件（如 memory-extractor）
+  console.log('[chatStore] 注册 agent:subagent-start 监听器');
   window.electron.on('agent:subagent-start', (data: {
     subAgentId: string;
     name: string;
@@ -1898,10 +1889,15 @@ if (typeof window !== 'undefined' && window.electron) {
     console.log('[chatStore] subAgentId:', data.subAgentId);
     console.log('[chatStore] name:', data.name);
     console.log('[chatStore] role:', data.role);
+    console.log('[chatStore] parentId:', data.parentId); // 🔧 添加 parentId 日志
+    console.log('[chatStore] agentType:', data.agentType);
 
     const activeAgentStore = useActiveAgentStore.getState();
+    console.log('[chatStore] mainAgent:', activeAgentStore.mainAgent); // 🔧 检查 mainAgent 状态
+    console.log('[chatStore] mainAgent.id:', activeAgentStore.mainAgent?.id); // 🔧 检查 mainAgent.id
 
     // 添加子 Agent 到 activeAgentStore
+    console.log('[chatStore] 调用 addSubAgent, parentId:', data.parentId); // 🔧 添加调用日志
     activeAgentStore.addSubAgent(data.parentId, {
       id: data.subAgentId,
       name: data.name,
@@ -1964,15 +1960,7 @@ if (typeof window !== 'undefined' && window.electron) {
 
   // ─── 可视化监控新事件监听 ──────────────────────────────────
   window.electron.on('agent:thinking-start', (data: { agentId: string; content: string }) => {
-    const store = useRuntimeStore.getState();
-    store.setAgentMoment(data.agentId, {
-      type: 'thinking',
-      icon: '💭',
-      label: data.content.slice(0, 20),
-      durationMs: 0,
-      status: 'running',
-    });
-
+    // 🔧 思考状态只展示在思考气泡中，不需要 currentMoment
     // 更新 activeAgentStore 的 currentThought（支持 sub-agent）
     const activeAgentStore = useActiveAgentStore.getState();
     if (data.agentId && data.content) {
@@ -1983,19 +1971,14 @@ if (typeof window !== 'undefined' && window.electron) {
   window.electron.on('agent:skill-start', (data: { agentId: string; skillName: string; input?: any }) => {
     const id = `skill-${Date.now()}`;
     const store = useRuntimeStore.getState();
-    store.setAgentMoment(data.agentId, {
-      type: 'skill',
-      icon: '✨',
-      label: data.skillName.slice(0, 20),
-      durationMs: 0,
-      status: 'running',
-    });
+
+    // 🔧 Skill 执行统一使用 timelineEvents 展示，不再使用 currentMoment
     store.addTimelineEvent(data.agentId, {
       id,
       icon: '✨',
       label: data.skillName.slice(0, 12),
       status: 'running',
-      startTime: Date.now(),  // ✅ 添加开始时间
+      startTime: Date.now(),
     });
     store.addRecentEvent({
       agentName: data.agentId === 'main' ? 'Xuanji' : data.agentId,
@@ -2005,28 +1988,19 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   window.electron.on('agent:skill-end', (data: { agentId: string; skillName: string; duration?: number; success?: boolean }) => {
-    const store = useRuntimeStore.getState();
-    const status = data.success !== false ? 'success' : 'error';
-    store.finishAgentMoment(data.agentId, status);
+    // 🔧 Skill 完成时，只需要更新 timelineEvent，不需要 finishAgentMoment
+    // 因为 skill 不再使用 currentMoment 展示
   });
 
   window.electron.on('agent:memory-read', (data: { agentId: string; hitCount?: number; layersSearched?: number }) => {
     const store = useRuntimeStore.getState();
     const eventId = `memory-read-${Date.now()}`;
 
-    store.setAgentMoment(data.agentId, {
-      type: 'memory_read',
-      icon: '📖',
-      label: `检索${data.hitCount ?? 0}条记忆`,
-      durationMs: 0,
-      status: 'running',
-    });
-
-    // 添加到 timelineEvents
+    // 🔧 记忆读取统一使用 timelineEvents 展示
     store.addTimelineEvent(data.agentId, {
       id: eventId,
       icon: '📖',
-      label: '回忆检索',
+      label: `回忆${data.hitCount ?? 0}条`,
       status: 'running',
       startTime: Date.now(),
     });
@@ -2039,30 +2013,39 @@ if (typeof window !== 'undefined' && window.electron) {
 
     // 记忆读取是瞬时的，300ms 后标记为完成
     setTimeout(() => {
-      store.finishAgentMoment(data.agentId, 'success');
       store.finishTimelineEvent(data.agentId, eventId, 300, 'success');
     }, 300);
   });
 
   window.electron.on('agent:memory-write', (data: { agentId: string; scope?: string; summary?: string }) => {
     const store = useRuntimeStore.getState();
-    store.setAgentMoment(data.agentId, {
-      type: 'memory_write',
+    const eventId = `memory-write-${Date.now()}`;
+
+    // 🔧 记忆写入统一使用 timelineEvents 展示
+    store.addTimelineEvent(data.agentId, {
+      id: eventId,
       icon: '💾',
-      label: (data.summary || '写入记忆').slice(0, 20),
-      durationMs: 0,
+      label: (data.summary || '写入记忆').slice(0, 12),
       status: 'running',
+      startTime: Date.now(),
     });
+
     store.addRecentEvent({
       agentName: data.agentId === 'main' ? 'Xuanji' : data.agentId,
       description: `记忆写入: ${data.summary || data.scope || ''}`,
       icon: '💾',
     });
-    setTimeout(() => store.finishAgentMoment(data.agentId, 'success'), 500);
+
+    // 记忆写入是瞬时的，500ms 后标记为完成
+    setTimeout(() => {
+      store.finishTimelineEvent(data.agentId, eventId, 500, 'success');
+    }, 500);
   });
 
   window.electron.on('agent:compress-start', (data: { agentId: string; originalTokens?: number }) => {
     const store = useRuntimeStore.getState();
+
+    // 🔧 压缩上下文使用 currentMoment 展示（后台操作，不需要在timeline中）
     store.setAgentMoment(data.agentId, {
       type: 'thinking',
       icon: '🗜️',
@@ -2070,6 +2053,7 @@ if (typeof window !== 'undefined' && window.electron) {
       durationMs: 0,
       status: 'running',
     });
+
     store.addRecentEvent({
       agentName: data.agentId === 'main' ? 'Xuanji' : data.agentId,
       description: `开始压缩上下文 (${data.originalTokens ?? 0} tokens)`,
@@ -2257,33 +2241,23 @@ if (typeof window !== 'undefined' && window.electron) {
           ? { layers: event.data.layers, totalTokens: event.data.estimatedTokens }
           : undefined,
         );
+        // 🔧 清理 prompt 构建过程中的 currentMoment（如意图匹配、规则加载等）
+        runtimeStore.finishAgentMoment(agentId);
         // 不展示"构建完成"状态
         break;
     }
   });
 
-  // 监听 ModelClassifier 事件
+  // 监听 ModelClassifier 事件（IntentClassifier 内部触发）
   window.electron.onWorkspaceModelClassifierStart((data: any) => {
-    console.log('🔥🔥🔥 [chatStore] ModelClassifier 开始事件触发:', data);
-    const agentId = 'main';
-    enqueueMoment(agentId, {
-      type: 'thinking',
-      icon: '🤖',
-      label: `${data.model}`,
-      durationMs: 0,
-      status: 'running',
-    });
-
-    // 🔧 在 activeAgentStore 中注入 scene-classifier 子 Agent
+    console.log('[chatStore] ModelClassifier 开始:', data);
     const activeAgentStore = useActiveAgentStore.getState();
-    console.log('🔥🔥🔥 [chatStore] activeAgentStore:', activeAgentStore);
-    console.log('🔥🔥🔥 [chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
-    console.log('🔥🔥🔥 [chatStore] activeAgentStore.mainAgent?.id:', activeAgentStore.mainAgent?.id);
+    console.log('[chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
 
     if (activeAgentStore.mainAgent) {
       const classifierAgent: import('./activeAgentStore').AgentState = {
-        id: 'scene-classifier',
-        name: '意图分析师',
+        id: 'intent-classifier',
+        name: '意图分析',
         status: 'executing',
         currentThought: `正在使用 ${data.model} 分析意图...`,
         currentTools: [],
@@ -2295,37 +2269,24 @@ if (typeof window !== 'undefined' && window.electron) {
           toolCount: 0,
         },
       };
-      console.log('🔥🔥🔥 [chatStore] 准备添加 scene-classifier 子 Agent');
-      console.log('🔥🔥🔥 [chatStore] classifierAgent:', classifierAgent);
+      console.log('[chatStore] 准备添加 intent-classifier 子 Agent');
       activeAgentStore.addSubAgent(activeAgentStore.mainAgent.id, classifierAgent);
-      console.log('🔥🔥🔥 [chatStore] 添加完成，当前 mainAgent.subAgents:', activeAgentStore.mainAgent.subAgents);
-      console.log('🔥🔥🔥 [chatStore] 添加完成，subAgents 长度:', activeAgentStore.mainAgent.subAgents?.length);
-    } else {
-      console.error('🔥🔥🔥 [chatStore] mainAgent 为 null，无法添加子 Agent');
+      console.log('[chatStore] 添加完成，当前 subAgents:', activeAgentStore.mainAgent.subAgents);
     }
   });
 
   window.electron.onWorkspaceModelClassifierEnd((data: any) => {
     console.log('[chatStore] ModelClassifier 结束:', data);
-    const agentId = 'main';
-    // 使用 complexity 或 confidence 作为标签
-    const complexity = data.complexity || data.confidence || 'standard';
-    const label = `${data.scene} (${complexity})`;
-    enqueueMoment(agentId, {
-      type: 'thinking',
-      icon: '✅',
-      label: label.slice(0, 20),
-      durationMs: data.durationMs || 0,
-      status: 'success',
-    });
 
-    // 🔧 延迟 0.5s 后移除 scene-classifier 子 Agent
+    // 延迟 0.5s 后移除 intent-classifier 子 Agent
     setTimeout(() => {
+      console.log('[chatStore] 延迟后准备移除 intent-classifier');
       const activeAgentStore = useActiveAgentStore.getState();
-      console.log('[chatStore] 延迟后准备移除 scene-classifier');
+      console.log('[chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
       if (activeAgentStore.mainAgent) {
-        activeAgentStore.removeSubAgent(activeAgentStore.mainAgent.id, 'scene-classifier');
-        console.log('[chatStore] 移除完成，当前 mainAgent.subAgents:', activeAgentStore.mainAgent.subAgents);
+        console.log('[chatStore] 当前 subAgents:', activeAgentStore.mainAgent.subAgents);
+        activeAgentStore.removeSubAgent(activeAgentStore.mainAgent.id, 'intent-classifier');
+        console.log('[chatStore] 移除完成，剩余 subAgents:', activeAgentStore.mainAgent.subAgents);
       }
     }, 500);
   });

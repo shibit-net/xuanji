@@ -90,7 +90,7 @@ export interface ReminderConfig {
   neglectThresholdDays: number;
   /** 启动时预览未来 N 天的提醒 */
   upcomingDays: number;
-  /** 存储文件路径 (相对于 ~/.xuanji/) */
+  /** 存储文件路径 (相对于 .xuanji/) */
   storageFile: string;
 }
 

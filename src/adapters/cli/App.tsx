@@ -3,7 +3,8 @@
 // ============================================================
 
 import React, { useState, useCallback, useRef, useEffect, useMemo, useReducer } from 'react';
-import { Box, Text, useInput, useApp, useStdin, Static } from 'ink';
+import { Box, Text, useInput, useApp, useStdin, useStdout, Static } from 'ink';
+import { join } from 'node:path';
 import type { AgentState, TokenUsage, UITheme, UILanguage } from '@/core/types';
 import type { AgentCallbacks } from '@/core/agent/AgentLoop';
 import { t, setLanguage, getLanguage } from '@/core/i18n';
@@ -15,7 +16,6 @@ import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { RegistryClient, MCPInstaller, SkillInstaller } from '@/tiangong';
 import { handleSearch, handleInstall, handleList, handleUninstall } from '@/tiangong/commands';
 import { AuthManager } from '@/auth';
-import { GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
 import { getTodoManager } from '@/core/tools/TodoTool';
 import { LoginPrompt } from './auth/LoginPrompt';
 import { WhoamiDisplay } from './auth/WhoamiDisplay';
@@ -526,7 +526,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   const configManager = useMemo(() => new ConfigManager(), []);
   const logSystem = useMemo(() => new LogSystem(), []);
   const botManager = useMemo(() => new BotManager(logSystem), [logSystem]);
-  const authManager = useMemo(() => new AuthManager(GLOBAL_CONFIG_DIR), []);
+  const authManager = useMemo(() => new AuthManager(join(process.cwd(), '.xuanji')), []);
   // 登录状态
   const [authUsername, setAuthUsername] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false); // 登录完成前阻塞主界面

@@ -139,7 +139,7 @@ export class ProjectConfigWriter {
   private getConfigTemplateZH(): Record<string, unknown> {
     return {
       '// 说明': '这是 Xuanji 项目配置文件，所有字段都是可选的',
-      '// 配置优先级': '项目配置 > 全局配置(~/.xuanji/config.json) > 默认配置',
+      '// 配置优先级': '项目配置 > 全局配置(.xuanji/config.json) > 默认配置',
 
       provider: {
         '// model': '使用的 LLM 模型，如: claude-sonnet-4, gpt-4o',
@@ -194,7 +194,7 @@ export class ProjectConfigWriter {
   private getConfigTemplateEN(): Record<string, unknown> {
     return {
       '// Note': 'This is Xuanji project config. All fields are optional',
-      '// Priority': 'Project config > Global config(~/.xuanji/config.json) > Defaults',
+      '// Priority': 'Project config > Global config(.xuanji/config.json) > Defaults',
 
       provider: {
         '// model': 'LLM model to use, e.g.: claude-sonnet-4, gpt-4o',

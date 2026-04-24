@@ -39,7 +39,7 @@ const MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'models');
 export interface ModelConfig {
   /** 模型 ID，支持格式:
    * - "hf:owner/repo:filename.gguf" (HuggingFace)
-   * - "file:filename.gguf" (本地文件，从 ~/.xuanji/models/ 加载)
+   * - "file:filename.gguf" (本地文件，从 .xuanji/models/ 加载)
    */
   modelId: string;
   /** 系统提示词 */
@@ -176,7 +176,7 @@ export class LocalModelLoader {
    * 下载模型文件（使用全局 DownloadManager）
    * URI 格式:
    * - "hf:owner/repo:filename.gguf" (HuggingFace)
-   * - "file:filename.gguf" (本地文件，直接从 ~/.xuanji/models/ 加载)
+   * - "file:filename.gguf" (本地文件，直接从 .xuanji/models/ 加载)
    */
   private async downloadModelIfNeeded(modelId: string): Promise<string> {
     if (modelId.startsWith('file:')) {

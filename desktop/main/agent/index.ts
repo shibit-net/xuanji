@@ -177,6 +177,7 @@ function initChatSession(): Promise<boolean> {
         'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
         'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
         'agent:team-member-text', 'agent:team-member-thinking',
+        'agent:subagent-start', 'agent:subagent-end', // 🔧 添加 subagent 事件转发
         'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
         'ask-user:request', 'session:messages-restored', 'session:resume-notification',
         'session:archive-notification', 'session:boot-thinking', 'session:boot-guide',

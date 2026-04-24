@@ -32,7 +32,7 @@ export interface SessionRecord {
  * 特性:
  * - 使用 JSONL 格式 (每行一个 JSON 对象)
  * - 追加友好,流式分析,崩溃安全
- * - 默认存储到 ~/.xuanji/sessions.jsonl
+ * - 默认存储到 .xuanji/sessions.jsonl
  * - 写入失败静默处理,不影响主流程
  */
 export class SessionRecorder {

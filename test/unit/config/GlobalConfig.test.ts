@@ -131,7 +131,7 @@ describe('GlobalConfig', () => {
 
   // ---- 路径相关 ----
 
-  it('getGlobalConfigPath() 应返回 ~/.xuanji/config.json', () => {
+  it('getGlobalConfigPath() 应返回 .xuanji/config.json', () => {
     const path = GlobalConfig.getGlobalConfigPath();
     expect(path).toContain('.xuanji');
     expect(path).toContain('config.json');

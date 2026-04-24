@@ -119,7 +119,7 @@ export type LogDirMode = 'home' | 'project' | 'custom';
  * 日志配置
  */
 export interface LoggingConfig {
-  /** 日志目录模式（默认: home，使用 ~/.xuanji/logs） */
+  /** 日志目录模式（默认: home，使用 .xuanji/logs） */
   mode?: LogDirMode;
   /** 自定义日志目录（仅在 mode: custom 时使用） */
   dir?: string;

@@ -5,9 +5,8 @@
 // 统一的规则文件加载器，支持同步和异步加载。
 //
 // 扫描优先级（低 → 高）:
-// 1. ~/.xuanji/XUANJI.md — 全局用户偏好
-// 2. 项目根到 cwd 路径上的所有 XUANJI.md
-// 3. .xuanji/rules.md — 备选位置
+// 1. 项目根到 cwd 路径上的所有 XUANJI.md
+// 2. .xuanji/rules.md — 备选位置
 //
 // 安全措施：
 // - 单文件最大 500KB，超过截断并警告
@@ -17,7 +16,6 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve, parse as parsePath } from 'node:path';
-import { homedir } from 'node:os';
 import type { RulesContent } from '@/context/types';
 import { logger } from '@/core/logger';
 
@@ -61,14 +59,7 @@ export class RulesLoader {
   async loadRules(cwd: string): Promise<RuleEntry[]> {
     const rules: RuleEntry[] = [];
 
-    // 1. 全局规则: ~/.xuanji/XUANJI.md
-    const globalPath = join(homedir(), '.xuanji', 'XUANJI.md');
-    const globalRule = await this.tryReadFile(globalPath);
-    if (globalRule) {
-      rules.push({ path: globalPath, content: globalRule, level: 'global' });
-    }
-
-    // 2. 从文件系统根到 cwd，扫描每一层的 XUANJI.md
+    // 从文件系统根到 cwd，扫描每一层的 XUANJI.md
     const visitedPaths = new Set<string>();
     const directories = this.getAncestorDirs(cwd);
 
@@ -108,10 +99,6 @@ export class RulesLoader {
     const projectRulesPath = join(rootPath, '.xuanji', 'rules.md');
     result.projectRules = this.tryReadFileSync(projectRulesPath, '.xuanji/rules.md');
 
-    // 3. 加载 ~/.xuanji/rules.md
-    const globalRulesPath = join(homedir(), '.xuanji', 'rules.md');
-    result.globalRules = this.tryReadFileSync(globalRulesPath, '~/.xuanji/rules.md');
-
     return result;
   }
 
@@ -144,9 +131,6 @@ export class RulesLoader {
     }
     if (rules.projectRules) {
       parts.push(`### Custom Rules (.xuanji/rules.md)\n${rules.projectRules}`);
-    }
-    if (rules.globalRules) {
-      parts.push(`### Global Rules (~/.xuanji/rules.md)\n${rules.globalRules}`);
     }
 
     return parts.join('\n\n');

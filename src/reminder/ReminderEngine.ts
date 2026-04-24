@@ -28,7 +28,7 @@ const log = logger.child({ module: 'reminder-engine' });
  * - 关系维护检查（扫描 relationship 记忆中超过阈值天数未联系的人）
  * - 格式化提醒为 System Prompt 注入内容
  *
- * 存储：~/.xuanji/reminders.jsonl
+ * 存储：.xuanji/reminders.jsonl
  */
 export class ReminderEngine implements IReminderEngine {
   private storage: SimpleStorage;
@@ -44,7 +44,7 @@ export class ReminderEngine implements IReminderEngine {
   constructor(config?: Partial<ReminderConfig>, storage?: SimpleStorage) {
     this.config = { ...DEFAULT_REMINDER_CONFIG, ...config };
     this.storage = storage ?? new SimpleStorage();
-    this.filePath = join(homedir(), '.xuanji', this.config.storageFile);
+    this.filePath = join(process.cwd(), '.xuanji', this.config.storageFile);
   }
 
   /** 初始化：加载已有提醒 */

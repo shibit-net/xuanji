@@ -165,6 +165,8 @@ export interface LayeredPromptBuildOptions {
   scene?: SceneType | 'auto';
   /** 强制复杂度（跳过复杂度分析） */
   complexity?: IntentComplexity;
+  /** Agent 类型（从意图分析结果传入） */
+  agent?: string;
   /** 语言 */
   language?: string;
   /** 工具列表 */

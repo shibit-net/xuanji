@@ -21,7 +21,7 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SessionStorage' });
 
-const DEFAULT_BASE_DIR = path.join(os.homedir(), '.xuanji', 'sessions');
+const DEFAULT_BASE_DIR = path.join(process.cwd(), '.xuanji', 'sessions');
 
 export class SessionStorage {
   private baseDir: string;

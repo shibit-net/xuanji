@@ -41,7 +41,7 @@ export interface SkillEmbeddingRecord {
  * 使用 better-sqlite3 作为 SQLite driver，
  * sqlite-vec 作为向量索引扩展。
  *
- * 数据库路径: ~/.xuanji/vector.db
+ * 数据库路径: .xuanji/vector.db
  */
 export class VectorStore {
   private db: Database.Database | null = null;

@@ -180,7 +180,7 @@ export interface SessionListItem {
  * SessionStorage 配置
  */
 export interface SessionStorageOptions {
-  /** 会话存储根目录（默认 ~/.xuanji/sessions） */
+  /** 会话存储根目录（默认 .xuanji/sessions） */
   baseDir: string;
   /** 是否自动创建备份（.bak 文件） */
   autoBackup: boolean;

@@ -18,8 +18,8 @@ export class SkillInstaller {
 
   constructor(registryClient: RegistryClient) {
     this.registryClient = registryClient;
-    this.skillsDir = path.join(os.homedir(), '.xuanji', 'skills');
-    this.installedPath = path.join(os.homedir(), '.xuanji', 'tiangong-installed.json');
+    this.skillsDir = path.join(process.cwd(), '.xuanji', 'skills');
+    this.installedPath = path.join(process.cwd(), '.xuanji', 'tiangong-installed.json');
   }
 
   /** 安装 Agent Skill */

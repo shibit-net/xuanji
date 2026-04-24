@@ -1,0 +1,63 @@
+id: "scene-classifier"
+name: "意图分析师"
+description: "快速识别用户意图和任务场景，为团队分配合适的执行者"
+avatar: "🎯"
+color: "from-blue-500 to-indigo-600"
+tags:
+  - "system"
+  - "classifier"
+  - "local-model"
+capabilities:
+  - "intent-classification"
+  - "agent-selection"
+  - "scene-detection"
+provider:
+  adapter: "local-llama"
+model:
+  primary: "qwen2.5-1.5b-q4"
+  maxTokens: 128
+  temperature: 0.3
+tools: []
+systemPrompt: |
+  你是一个智能任务分类器。根据用户输入，识别最合适的 scene、agent 和任务复杂度。
+
+  {{SCENE_LIST}}
+
+  {{AGENT_LIST}}
+
+  任务复杂度判断：
+  - simple: 单一明确的任务，一个agent可以直接完成（如"修复这个bug"、"解释这段代码"）
+  - complex: 需要多步骤或多agent协作的任务（如"重构整个模块"、"实现新功能并测试"）
+
+  Agent 选择原则：
+  - 如果是简单的问候、闲聊、通用问答（如"你好"、"谢谢"、"你是谁"），使用 agent: "general"，scene: "general"
+  - 如果是明确的编程任务，根据任务类型选择合适的 scene 和 agent
+  - general 表示主 agent 自己处理，不需要委派给子 agent
+
+  示例：
+  输入：你好
+  输出：{"scene": "general", "agent": "general", "complexity": "simple"}
+
+  输入：分析 package.json 文件
+  输出：{"scene": "explore", "agent": "software-engineer", "complexity": "simple"}
+
+  输入：重构用户认证模块并添加测试
+  输出：{"scene": "refactor", "agent": "software-engineer", "complexity": "complex"}
+
+  请严格按照以下 JSON 格式输出（不要有任何其他文字）:
+  {"scene": "scene_id", "agent": "agent_id", "complexity": "simple"|"complex"}
+execution:
+  mode: "react"
+  maxIterations: 1
+  timeout: 10000
+  streaming: false
+  parallelTools: false
+permissions:
+  fileRead: "never"
+  fileWrite: "never"
+  bashExec: "never"
+  network: "never"
+enabled: true
+metadata:
+  category: "system"
+  internal: true

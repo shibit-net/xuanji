@@ -195,6 +195,8 @@ export class SubAgentFactory {
     }
     this.parentProvider = parentProvider ?? null;
     this.parentProviderConfig = parentProviderConfig ?? null;
+
+    console.log('[SubAgentFactory] 构造函数调用，hookRegistry:', !!hookRegistry);
   }
 
   /**
@@ -218,7 +220,7 @@ export class SubAgentFactory {
     const startTime = Date.now();
 
     // 1. 查找 Agent 配置（优先级：project > global > builtin）
-    const agentConfig = this.resolveAgentConfig(agentIdOrRole);
+    const agentConfig = this.resolveAgentConfig(agentIdOrRole, options.systemPrompt);
 
     if (!agentConfig) {
       throw new Error(`Agent configuration not found: ${agentIdOrRole}`);
@@ -435,8 +437,12 @@ export class SubAgentFactory {
    * 解析 Agent 配置
    *
    * 从 AgentRegistry 查找配置，找不到则自动创建临时 Agent
+   *
+   * @param agentIdOrRole - Agent ID 或角色
+   * @param systemPrompt - 临时 Agent 的 system prompt（如果需要创建临时 Agent，此参数必填）
+   * @returns Agent 配置，如果找不到且无法创建则返回 null
    */
-  private resolveAgentConfig(agentIdOrRole: string): ConfigurableAgentConfig | null {
+  private resolveAgentConfig(agentIdOrRole: string, systemPrompt?: string): ConfigurableAgentConfig | null {
     // 1. 先从 AgentRegistry 查找
     const config = this.agentRegistry.get(agentIdOrRole);
 
@@ -460,6 +466,15 @@ export class SubAgentFactory {
     // 2. 找不到，尝试创建临时 Agent
     log.warn(`❌ Agent 配置不存在: ${agentIdOrRole}，尝试创建临时 Agent`);
 
+    // 验证：创建临时 Agent 必须提供 systemPrompt
+    if (!systemPrompt || systemPrompt.trim() === '') {
+      log.error(`创建临时 Agent 失败: agent_id="${agentIdOrRole}" 不存在，且未提供 system_prompt 参数`);
+      throw new Error(
+        `Agent "${agentIdOrRole}" not found in registry. ` +
+        `To create a temporary agent, you must provide a "system_prompt" parameter that defines the agent's behavior and capabilities.`
+      );
+    }
+
     try {
       const factory = this.agentRegistry.getTemporaryAgentFactory();
 
@@ -475,10 +490,10 @@ export class SubAgentFactory {
       const tempAgent = factory.createTemporaryAgent({
         role,
         capabilities,
-        taskDescription: `临时创建的 ${role}`,
+        taskDescription: systemPrompt, // 使用提供的 systemPrompt 作为任务描述
       });
 
-      log.info(`✓ 创建临时 Agent: ${tempAgent.id} (${tempAgent.name})`);
+      log.info(`✓ 创建临时 Agent: ${tempAgent.id} (${tempAgent.name})，继承父 Agent 的 LLM 配置`);
 
       return tempAgent;
     } catch (error) {
@@ -520,7 +535,7 @@ export class SubAgentFactory {
   }
 
   /**
-   * 同步加载项目规则文件（XUANJI.md + .xuanji/rules.md + ~/.xuanji/rules.md）
+   * 同步加载项目规则文件（XUANJI.md + .xuanji/rules.md + .xuanji/rules.md）
    * 轻量版：不做文件索引，只注入规则文本
    */
   private loadProjectRules(): string {
@@ -619,6 +634,13 @@ export class SubAgentFactory {
     });
 
     // 3. 触发 SubAgentStart Hook（除非被禁用）
+    console.log('[SubAgentFactory] 准备触发 SubAgentStart Hook:', {
+      hasHookRegistry: !!this.hookRegistry,
+      skipSubAgentStartHook: options.skipSubAgentStartHook,
+      subAgentId,
+      parentAgentId: options.parentAgentId,
+    });
+
     if (this.hookRegistry && !options.skipSubAgentStartHook) {
       // 判断 Agent 类型
       const category = config.metadata?.category || 'custom';
@@ -631,6 +653,14 @@ export class SubAgentFactory {
         agentType = 'custom'; // 用户自定义 agent
       }
 
+      console.log('[SubAgentFactory] 触发 SubAgentStart Hook:', {
+        subAgentId,
+        role: config.id,
+        name: config.name,
+        agentType,
+        parentAgentId: options.parentAgentId || 'main',
+      });
+
       this.hookRegistry.emit('SubAgentStart', {
         subAgentId,
         data: {
@@ -642,7 +672,13 @@ export class SubAgentFactory {
           parentAgentId: options.parentAgentId || 'main',
         },
       }).catch((err) => {
+        console.error('[SubAgentFactory] SubAgentStart hook emit failed:', err);
         log.debug('SubAgentStart hook emit failed:', err);
+      });
+    } else {
+      console.log('[SubAgentFactory] 跳过 SubAgentStart Hook:', {
+        hasHookRegistry: !!this.hookRegistry,
+        skipSubAgentStartHook: options.skipSubAgentStartHook,
       });
     }
 

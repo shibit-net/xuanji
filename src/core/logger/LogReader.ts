@@ -37,7 +37,7 @@ export interface LogWatchCallback {
 /**
  * 日志读取器
  *
- * 从 ~/.xuanji/logs/ 读取持久化日志文件
+ * 从 .xuanji/logs/ 读取持久化日志文件
  */
 export class LogReader {
   private baseDir: string;

@@ -46,7 +46,7 @@ export class SessionFactory {
 
   async create(options: SessionOptions = {}): Promise<ChatSession> {
     const userId = options.userId || this.userId;
-    const agentId = options.agentId || 'xuanji';
+    const agentId = options.agentId || this.agentId;
 
     log.info(`Creating session for user: ${userId}, agent: ${agentId}`);
 
@@ -108,7 +108,7 @@ export class SessionFactory {
     registry.setPermissionController?.(permissionController);
 
     // 5. 注册高级工具
-    await this.registerAdvancedTools(config, options);
+    await this.registerAdvancedTools(config, options, agentId);
 
     // 6. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
     await this.container.resolve('layeredPromptBuilder');
@@ -158,7 +158,7 @@ export class SessionFactory {
     return mainAgent;
   }
 
-  private async registerAdvancedTools(config: AppConfig, options: SessionOptions): Promise<void> {
+  private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string): Promise<void> {
     const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
     const provider = await this.container.resolve<ILLMProvider>('provider');
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
@@ -176,6 +176,7 @@ export class SessionFactory {
         agentConfig: config.provider,
         parentProvider: provider,
         hookRegistry,
+        agentId, // 🔧 传递主 Agent ID（从配置读取，如 'xuanji'）
       });
     }
 

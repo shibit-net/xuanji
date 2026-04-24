@@ -53,7 +53,7 @@ export async function generateDiagnostics(ctx: DiagnosticsContext): Promise<stri
     }
   } else {
     lines.push('🔌 MCP 服务 (未初始化)');
-    lines.push('  配置文件: ~/.xuanji/mcp.json');
+    lines.push('  配置文件: .xuanji/mcp.json');
   }
 
   // ── Skills ──

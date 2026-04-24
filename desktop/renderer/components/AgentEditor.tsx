@@ -2,7 +2,7 @@
 // AgentEditor - Agent 编辑器组件（完整版）
 // ============================================================
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Plus, Trash2, AlertCircle, Loader2, Search, Download } from 'lucide-react';
 import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
@@ -101,6 +101,28 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   // 模型搜索状态
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 防抖搜索函数
+  const debouncedSearchModels = useCallback((searchQuery: string) => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      const currentAdapter = config.provider?.adapter || 'anthropic';
+      loadModels(currentAdapter, searchQuery.trim() || undefined);
+    }, 300); // 300ms 防抖
+  }, [config.provider?.adapter]);
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 动态加载的 Tools 列表
   const [availableTools, setAvailableTools] = useState<any[]>([]);
@@ -219,8 +241,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     loadTools();
   }, []);
 
-  // 加载模型列表（根据 adapter 动态加载）
-  const loadModels = async (adapter?: string) => {
+  // 加载模型列表（根据 adapter 和搜索关键词动态加载）
+  const loadModels = async (adapter?: string, searchName?: string) => {
     const currentAdapter = adapter || config.provider?.adapter || 'anthropic';
 
     // 本地模型不需要加载列表
@@ -231,10 +253,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
     setModelsLoading(true);
     try {
-      // 从 starship 获取模型列表，使用 vendor 参数
+      // 从 starship 获取模型列表，使用 vendor 和 name 参数
       const result = await window.electron.modelsListMarketplace({
         size: 200,
         vendor: currentAdapter,
+        name: searchName || undefined,
       });
 
       console.log('[AgentEditor] 模型列表加载结果:', result);
@@ -248,8 +271,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           model: item.model,
           adapter: item.adapter || item.vendor,
           vendor: item.vendor,
-          inputPrice: item.inputPrice || item.input_price || item.priceInput,
-          outputPrice: item.outputPrice || item.output_price || item.priceOutput,
+          inputPrice: item.unitPriceReminder || item.inputPrice || item.input_price || item.priceInput,
+          outputPrice: item.unitPriceComplete || item.outputPrice || item.output_price || item.priceOutput,
           priceUnit: item.priceUnit || item.price_unit || '¥/M tokens',
         }));
 
@@ -511,20 +534,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     const isModelSelect = field === 'model.primary';
     const currentOptions = isModelSelect ? models.map(m => m.model) : options;
 
-    // 模型搜索过滤
-    const filteredModels = isModelSelect && modelSearchQuery
-      ? models.filter(m =>
-          m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-          m.model.toLowerCase().includes(modelSearchQuery.toLowerCase())
-        )
-      : models;
+    // 后端已经处理了搜索，直接使用 models
+    const filteredModels = models;
 
     // 获取当前选中模型的显示名称（现在保存的就是 name，直接显示）
     const currentModelName = value;
 
     // 调试信息
     if (isModelSelect) {
-      console.log('[AgentEditor] renderFormField - models:', models.length, 'filteredModels:', filteredModels.length, 'searchQuery:', modelSearchQuery, 'currentValue:', value);
+      console.log('[AgentEditor] renderFormField - models:', models.length, 'searchQuery:', modelSearchQuery, 'currentValue:', value);
     }
 
     return (
@@ -558,12 +576,18 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   type="text"
                   value={showModelDropdown ? modelSearchQuery : (currentModelName || '')}
                   onChange={(e) => {
-                    setModelSearchQuery(e.target.value);
+                    const query = e.target.value;
+                    setModelSearchQuery(query);
                     setShowModelDropdown(true);
+                    // 触发防抖搜索
+                    debouncedSearchModels(query);
                   }}
                   onFocus={() => {
                     setModelSearchQuery('');
                     setShowModelDropdown(true);
+                    // 聚焦时加载全部模型
+                    const currentAdapter = config.provider?.adapter || 'anthropic';
+                    loadModels(currentAdapter, undefined);
                   }}
                   onBlur={() => {
                     // 延迟关闭，让点击事件先触发

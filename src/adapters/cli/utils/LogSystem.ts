@@ -10,7 +10,7 @@ import { formatShortTime } from '../../../shared/utils/time/formatters.js';
 
 type LogSource = LogEntry['source'];
 
-const LOGS_DIR = join(homedir(), '.xuanji', 'logs');
+const LOGS_DIR = join(process.cwd(), '.xuanji', 'logs');
 
 /**
  * CLI 日志系统
