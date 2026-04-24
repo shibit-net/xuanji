@@ -203,18 +203,6 @@ export class WorkspaceStore {
    * 处理事件
    */
   private handleEvent(event: WorkspaceEvent) {
-        eventType: 'ResultAggregationEnd',
-        timestamp: data.timestamp,
-        data,
-      });
-      this.updatePhase('result-aggregation', 'completed', data.timestamp, data);
-    });
-  }
-
-  /**
-   * 处理事件
-   */
-  private handleEvent(event: WorkspaceEvent) {
     this.events.push(event);
 
     // 更新 sessionId
