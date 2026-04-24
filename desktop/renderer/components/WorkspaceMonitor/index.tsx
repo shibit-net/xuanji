@@ -400,7 +400,7 @@ export default function WorkspaceMonitor() {
       )}
 
       {/* 🆕 主 Agent 执行状态（类似"正在回忆中"） */}
-      {/* <MainFlowVisualization /> */}
+      <MainFlowVisualization />
 
       {/* Canvas 区域 */}
       <div className="flex-1 w-full overflow-auto">
