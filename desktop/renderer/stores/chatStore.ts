@@ -2321,6 +2321,106 @@ if (typeof window !== 'undefined' && window.electron) {
     }, 500);
   });
 
+  // 意图分析事件
+  messageBus.on('workspace:intent-analysis-start', (data: any) => {
+    console.log('[chatStore] 意图分析开始:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '🎯',
+      label: '分析意图',
+      durationMs: 0,
+      status: 'running',
+    });
+  });
+
+  messageBus.on('workspace:intent-analysis-end', (data: any) => {
+    console.log('[chatStore] 意图分析结束:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '✅',
+      label: `意图: ${data.intent || 'unknown'}`,
+      durationMs: data.durationMs || 0,
+      status: 'success',
+    });
+  });
+
+  // 任务规划事件
+  messageBus.on('workspace:task-planning-start', (data: any) => {
+    console.log('[chatStore] 任务规划开始:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '📋',
+      label: '规划任务',
+      durationMs: 0,
+      status: 'running',
+    });
+  });
+
+  messageBus.on('workspace:task-planning-end', (data: any) => {
+    console.log('[chatStore] 任务规划结束:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '✅',
+      label: '规划完成',
+      durationMs: data.durationMs || 0,
+      status: 'success',
+    });
+  });
+
+  // 任务执行事件
+  messageBus.on('workspace:task-execution-start', (data: any) => {
+    console.log('[chatStore] 任务执行开始:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '⚙️',
+      label: '执行任务',
+      durationMs: 0,
+      status: 'running',
+    });
+  });
+
+  messageBus.on('workspace:task-execution-end', (data: any) => {
+    console.log('[chatStore] 任务执行结束:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '✅',
+      label: '执行完成',
+      durationMs: data.durationMs || 0,
+      status: 'success',
+    });
+  });
+
+  // 结果聚合事件
+  messageBus.on('workspace:result-aggregation-start', (data: any) => {
+    console.log('[chatStore] 结果聚合开始:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '📊',
+      label: '聚合结果',
+      durationMs: 0,
+      status: 'running',
+    });
+  });
+
+  messageBus.on('workspace:result-aggregation-end', (data: any) => {
+    console.log('[chatStore] 结果聚合结束:', data);
+    const agentId = 'main';
+    enqueueMoment(agentId, {
+      type: 'thinking',
+      icon: '✅',
+      label: '聚合完成',
+      durationMs: data.durationMs || 0,
+      status: 'success',
+    });
+  });
+
   // 监听项目信息事件
   messageBus.on('project:info', (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => {
     console.log('[chatStore] 收到 project:info:', data);
