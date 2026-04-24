@@ -103,8 +103,20 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg text-red-400">
-              {error}
+            <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-red-400 text-sm font-medium">{error}</p>
+                  {error.includes('网络') && (
+                    <p className="text-red-300/70 text-xs mt-1">
+                      提示：请检查您的网络连接是否正常，或稍后重试
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

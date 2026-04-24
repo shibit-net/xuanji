@@ -70,9 +70,36 @@ function registerAuthIpcHandlers() {
       }
     } catch (err) {
       console.error('登录请求失败:', err);
+
+      // 友好的错误提示
+      let errorMessage = '网络错误';
+
+      if (err instanceof Error) {
+        // 网络连接错误
+        if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
+          errorMessage = '无法连接到服务器，请检查网络连接';
+        }
+        // 超时错误
+        else if (err.message.includes('timeout') || err.message.includes('ETIMEDOUT')) {
+          errorMessage = '连接超时，请检查网络连接或稍后重试';
+        }
+        // 连接被拒绝
+        else if (err.message.includes('ECONNREFUSED')) {
+          errorMessage = '服务器拒绝连接，请稍后重试';
+        }
+        // SSL/TLS 错误
+        else if (err.message.includes('certificate') || err.message.includes('SSL')) {
+          errorMessage = '安全连接失败，请检查系统时间设置';
+        }
+        // 其他错误
+        else {
+          errorMessage = `网络错误: ${err.message}`;
+        }
+      }
+
       return {
         success: false,
-        message: err instanceof Error ? err.message : '网络错误'
+        message: errorMessage
       };
     }
   });

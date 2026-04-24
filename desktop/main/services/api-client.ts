@@ -70,7 +70,7 @@ class ApiClient {
       return config;
     });
 
-    // 响应拦截器：处理 Set-Cookie
+    // 响应拦截器：处理 Set-Cookie 和错误
     this.axiosInstance.interceptors.response.use(
       (response) => {
         console.log('[API Client] 收到响应，状态码:', response.status);
@@ -85,7 +85,28 @@ class ApiClient {
         return response;
       },
       (error) => {
-        console.error('[API Client] 请求失败:', error.message);
+        // 友好的错误提示
+        let errorMessage = '请求失败';
+
+        if (error.code === 'ENOTFOUND' || error.message.includes('getaddrinfo')) {
+          errorMessage = '无法连接到服务器，请检查网络连接';
+          console.error('[API Client] 网络连接失败:', error.message);
+        } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+          errorMessage = '连接超时，请检查网络连接或稍后重试';
+          console.error('[API Client] 连接超时:', error.message);
+        } else if (error.code === 'ECONNREFUSED') {
+          errorMessage = '服务器拒绝连接，请稍后重试';
+          console.error('[API Client] 连接被拒绝:', error.message);
+        } else if (error.response) {
+          // 服务器返回了错误状态码
+          errorMessage = `服务器错误 (${error.response.status})`;
+          console.error('[API Client] 服务器错误:', error.response.status, error.response.data);
+        } else {
+          console.error('[API Client] 请求失败:', error.message);
+        }
+
+        // 将友好的错误消息附加到错误对象
+        error.friendlyMessage = errorMessage;
         throw error;
       }
     );
