@@ -8,6 +8,7 @@ import type { WorkspaceState, SubAgentData } from './types';
 import { useRuntimeStore } from '../../stores/runtimeStore';
 import { useActiveAgentStore, type AgentState } from '../../stores/activeAgentStore';
 import { MainFlowVisualization } from './MainFlowVisualization';
+import { workspaceStore } from '../../stores/workspaceStore';
 
 // Agent 角色图标映射
 const ROLE_ICON_MAP: Record<string, string> = {
@@ -101,6 +102,10 @@ export default function WorkspaceMonitor() {
   const rendererRef = useRef<CanvasRenderer | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  // 从 workspaceStore 获取意图分析结果
+  const [intentAnalysis, setIntentAnalysis] = useState<any>(null);
+  const [promptBuild, setPromptBuild] = useState<any>(null);
+
   // 从 runtimeStore 获取数据
   const agentStatus = useRuntimeStore((state) => state.agentStatus);
   const isProcessing = useRuntimeStore((state) => state.isProcessing);
@@ -114,6 +119,20 @@ export default function WorkspaceMonitor() {
   // 计算所有 agent 的总 token 和迭代次数
   const totalTokens = calculateTotalTokens(activeMainAgent);
   const totalIterations = calculateTotalIterations(activeMainAgent);
+
+  // 监听 workspaceStore 的变化
+  useEffect(() => {
+    const unsubscribe = workspaceStore.subscribe(() => {
+      setIntentAnalysis(workspaceStore.getIntentAnalysisResult());
+      setPromptBuild(workspaceStore.getPromptBuildResult());
+    });
+
+    // 初始加载
+    setIntentAnalysis(workspaceStore.getIntentAnalysisResult());
+    setPromptBuild(workspaceStore.getPromptBuildResult());
+
+    return unsubscribe;
+  }, []);
 
   // 初始化渲染器
   useEffect(() => {
@@ -395,6 +414,74 @@ export default function WorkspaceMonitor() {
                 {contextInfo.projectInfo.rootPath}
               </span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 意图分析结果展示 */}
+      {intentAnalysis && (
+        <div className="bg-bg-secondary border-b border-bg-tertiary px-4 py-2">
+          <div className="flex flex-col gap-1">
+            {/* 标题 */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold text-text-primary">🎯 意图分析</span>
+            </div>
+
+            {/* 分析结果 */}
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              {/* 场景 */}
+              {intentAnalysis.scene && (
+                <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                  <span className="text-text-tertiary">场景:</span>
+                  <span className="text-text-primary font-semibold">{intentAnalysis.scene}</span>
+                </div>
+              )}
+
+              {/* Agent */}
+              {intentAnalysis.agent && (
+                <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                  <span className="text-text-tertiary">Agent:</span>
+                  <span className="text-text-primary font-semibold">{intentAnalysis.agent}</span>
+                </div>
+              )}
+
+              {/* 复杂度 */}
+              {intentAnalysis.complexity && (
+                <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                  <span className="text-text-tertiary">复杂度:</span>
+                  <span className="text-text-primary font-semibold">{intentAnalysis.complexity}</span>
+                </div>
+              )}
+
+              {/* 模型 */}
+              {intentAnalysis.model && (
+                <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                  <span className="text-text-tertiary">模型:</span>
+                  <span className="text-text-primary font-mono text-xs">{intentAnalysis.model}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Prompt构建结果 */}
+            {promptBuild && (
+              <div className="flex flex-wrap items-center gap-3 text-xs mt-1">
+                {/* 组件数量 */}
+                {promptBuild.components && promptBuild.components.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                    <span className="text-text-tertiary">Prompt组件:</span>
+                    <span className="text-text-primary font-semibold">{promptBuild.components.length}个</span>
+                  </div>
+                )}
+
+                {/* Token估算 */}
+                {promptBuild.estimatedTokens && (
+                  <div className="flex items-center gap-1.5 bg-bg-primary px-2 py-1 rounded">
+                    <span className="text-text-tertiary">预估Token:</span>
+                    <span className="text-text-primary font-mono text-xs">~{promptBuild.estimatedTokens}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
