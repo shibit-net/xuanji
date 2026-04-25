@@ -1357,6 +1357,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     console.log('[chatStore] teamId:', data.teamId);
     console.log('[chatStore] memberId:', data.memberId);
     console.log('[chatStore] name:', data.name);
+    console.log('[chatStore] agentType:', data.agentType); // 🔧 添加agentType日志
     console.log('[chatStore] _teamIdMap:', get()._teamIdMap);
 
     // ✅ 特殊处理 task 工具创建的子 agent（teamId: 'delegate'）
