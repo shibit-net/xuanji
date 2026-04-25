@@ -1779,8 +1779,8 @@ export class CanvasRenderer {
    */
   private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom' | 'temporary') {
     const labelConfig = {
-      preset: { text: '预置', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 预置 agent
-      builtin: { text: '内置', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
+      builtin: { text: '系统', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
+      preset: { text: '应用', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 应用级 agent
       custom: { text: '自定义', color: 'rgba(168, 85, 247, 0.9)', icon: '✨' }, // purple - 用户自定义
       temporary: { text: '临时', color: 'rgba(156, 163, 175, 0.9)', icon: '⏱' }, // gray - 临时 agent
     };
