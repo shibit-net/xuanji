@@ -1528,8 +1528,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
           status: 'thinking',
           currentTools: [],
           subAgents: [],
-          // 🔧 优先使用agentType字段，其次判断builtin，最后默认为temporary
-          agentType: data.agentType || (data.builtin ? 'builtin' : 'temporary'),
+          // 🔧 使用agentType字段区分agent类型，如果未指定则默认为temporary
+          agentType: data.agentType || 'temporary',
           stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
         });
         // 切换到子 agent
@@ -1892,19 +1892,8 @@ if (typeof window !== 'undefined' && window.electron) {
     // 添加子 Agent 到 activeAgentStore
     console.log('[chatStore] 调用 addSubAgent, parentId:', data.parentId); // 🔧 添加调用日志
 
-    // 🔧 智能判断agentType
-    let agentType: 'builtin' | 'preset' | 'custom' | 'temporary' = 'temporary';
-    if (data.agentType) {
-      // 后端明确指定了类型
-      agentType = data.agentType;
-    } else if ((data as any).builtin) {
-      // 兼容旧的builtin字段
-      agentType = 'builtin';
-    } else {
-      // 默认为临时agent
-      // 注意：如果需要区分custom和temporary，后端需要明确设置agentType
-      agentType = 'temporary';
-    }
+    // 🔧 使用agentType字段区分agent类型，如果未指定则默认为temporary
+    const agentType = data.agentType || 'temporary';
 
     activeAgentStore.addSubAgent(data.parentId, {
       id: data.subAgentId,
