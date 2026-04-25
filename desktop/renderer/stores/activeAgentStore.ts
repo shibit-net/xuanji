@@ -181,7 +181,7 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
       ...agent,
       status,
       // 当 agent 完成时，清空临时状态
-      ...(status === 'done' ? {
+      ...(status === 'done' || status === 'success' ? {
         currentThought: undefined,
         currentTools: [],
       } : {}),

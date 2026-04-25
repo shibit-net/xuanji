@@ -397,8 +397,9 @@ export class CanvasRenderer {
     if (!this.state) return;
 
     // 🔧 只显示运行中的子agent（执行完成后自动消失）
+    // 过滤掉 success、error、done 状态的agent
     const visibleAgents = this.state.subAgents.filter(
-      agent => agent.status !== 'success' && agent.status !== 'error'
+      agent => agent.status !== 'success' && agent.status !== 'error' && agent.status !== 'done'
     );
 
     visibleAgents.forEach((agent, index) => {

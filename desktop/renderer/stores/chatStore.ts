@@ -1567,7 +1567,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       // 标记 sub-agent 完成
       const activeAgentStore = useActiveAgentStore.getState();
-      const finalStatus = data.success !== false ? 'done' : 'error';
+      const finalStatus = data.success !== false ? 'success' : 'error';
 
       // 只更新状态，不移除 Agent（等待 TeamEnd 统一清理）
       activeAgentStore.setAgentStatus(subAgentId, finalStatus);
@@ -1594,7 +1594,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       // 标记 sub-agent 完成
       const activeAgentStore = useActiveAgentStore.getState();
-      const finalStatus = data.success !== false ? 'done' : 'error';
+      const finalStatus = data.success !== false ? 'success' : 'error';
 
       // 更新 Agent 状态
       activeAgentStore.setAgentStatus(subAgentId, finalStatus);
