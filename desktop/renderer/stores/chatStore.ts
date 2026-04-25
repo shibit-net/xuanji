@@ -1444,7 +1444,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
             status: 'thinking',
             currentTools: [],
             subAgents: [],
-            agentType: data.agentType || 'custom',
+            // 🔧 团队成员默认为临时agent，除非明确指定类型
+            agentType: data.agentType || 'temporary',
             stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
             // 添加 multiAgent 信息
             multiAgent: {
@@ -1527,7 +1528,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
           status: 'thinking',
           currentTools: [],
           subAgents: [],
-          agentType: data.agentType || (data.builtin ? 'builtin' : 'custom'), // 优先使用新字段，兼容旧逻辑
+          // 🔧 优先使用agentType字段，其次判断builtin，最后默认为temporary
+          agentType: data.agentType || (data.builtin ? 'builtin' : 'temporary'),
           stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
         });
         // 切换到子 agent
@@ -1897,7 +1899,8 @@ if (typeof window !== 'undefined' && window.electron) {
       currentTask: data.task,
       currentTools: [],
       subAgents: [],
-      agentType: data.agentType || (data.builtin ? 'builtin' : 'custom'), // 🔧 优先使用新字段，兼容旧逻辑
+      // 🔧 优先使用agentType字段，其次判断builtin，最后默认为temporary
+      agentType: data.agentType || (data.builtin ? 'builtin' : 'temporary'),
       stats: {
         tokenUsage: {
           input: 0,
