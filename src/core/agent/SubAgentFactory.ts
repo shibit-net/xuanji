@@ -491,6 +491,7 @@ export class SubAgentFactory {
         role,
         capabilities,
         taskDescription: systemPrompt, // 使用提供的 systemPrompt 作为任务描述
+        parentConfig: this.agentConfig, // 🔧 传递父agent配置以继承provider
       });
 
       log.info(`✓ 创建临时 Agent: ${tempAgent.id} (${tempAgent.name})，继承父 Agent 的 LLM 配置`);

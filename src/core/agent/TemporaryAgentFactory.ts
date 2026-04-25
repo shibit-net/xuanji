@@ -32,6 +32,8 @@ export interface TemporaryAgentOptions {
   taskDescription?: string;
   /** 使用的模型（可选，默认使用系统配置） */
   model?: string;
+  /** 父agent配置（用于继承provider配置） */
+  parentConfig?: ConfigurableAgentConfig;
 }
 
 /**
@@ -54,12 +56,32 @@ export class TemporaryAgentFactory {
    * 创建临时 Agent
    */
   createTemporaryAgent(options: TemporaryAgentOptions): ConfigurableAgentConfig {
-    const { role, capabilities, scene, taskDescription, model } = options;
+    const { role, capabilities, scene, taskDescription, model, parentConfig } = options;
 
     // 生成临时 ID
     const tempId = `temp-${role.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
 
     log.info(`创建临时 Agent: ${tempId} (${role})`);
+
+    // 生成 systemPrompt
+    const systemPrompt = this.generateSystemPrompt(role, capabilities, taskDescription);
+
+    // 🔧 从父agent继承provider配置
+    const provider = parentConfig?.provider
+      ? {
+          adapter: parentConfig.provider.adapter || 'anthropic',
+          apiKey: parentConfig.provider.apiKey,
+          baseURL: parentConfig.provider.baseURL,
+        }
+      : {
+          adapter: 'anthropic',
+        };
+
+    log.info(`临时 Agent provider 配置:`, {
+      adapter: provider.adapter,
+      hasApiKey: !!provider.apiKey,
+      hasBaseURL: !!provider.baseURL,
+    });
 
     // 生成 systemPrompt
     const systemPrompt = this.generateSystemPrompt(role, capabilities, taskDescription);
@@ -80,9 +102,7 @@ export class TemporaryAgentFactory {
           effort: 'medium',
         },
       },
-      provider: {
-        adapter: 'anthropic',
-      },
+      provider,  // 🔧 使用继承的provider配置
       systemPrompt,
       capabilities,
       tools: [
