@@ -86,13 +86,10 @@ export class TemporaryAgentFactory {
       systemPrompt,
       capabilities,
       tools: [
+        // 🔧 临时agent默认只有只读工具，危险工具需要父agent明确授予
         { name: 'read_file', required: true },
-        { name: 'write_file', required: true },
-        { name: 'edit_file', required: true },
-        { name: 'bash', required: true },
-        { name: 'glob', required: true },
         { name: 'grep', required: true },
-        { name: 'ask_user', required: true },
+        { name: 'glob', required: true },
       ],
       execution: {
         mode: 'react',
