@@ -1931,6 +1931,30 @@ if (typeof window !== 'undefined' && window.electron) {
 
     const activeAgentStore = useActiveAgentStore.getState();
 
+    // 🔧 如果执行失败，直接移除节点（不显示失败的agent）
+    if (!data.success) {
+      console.log('[chatStore] agent:subagent-end: 执行失败，移除节点');
+      // 找到父agent并移除这个子agent
+      const mainAgent = activeAgentStore.mainAgent;
+      if (mainAgent) {
+        const removeFromTree = (agent: any): boolean => {
+          if (!agent.subAgents) return false;
+          const index = agent.subAgents.findIndex((sub: any) => sub.id === data.subAgentId);
+          if (index !== -1) {
+            agent.subAgents.splice(index, 1);
+            return true;
+          }
+          for (const sub of agent.subAgents) {
+            if (removeFromTree(sub)) return true;
+          }
+          return false;
+        };
+        removeFromTree(mainAgent);
+        activeAgentStore.setMainAgent({ ...mainAgent });
+      }
+      return;
+    }
+
     // 更新子 Agent 状态
     activeAgentStore.updateSubAgent(data.subAgentId, {
       status: data.success ? 'success' : 'error',

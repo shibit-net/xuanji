@@ -66,15 +66,13 @@ export class TemporaryAgentFactory {
     // 生成 systemPrompt
     const systemPrompt = this.generateSystemPrompt(role, capabilities, taskDescription);
 
-    // 🔧 从父agent继承provider配置
+    // 🔧 从父agent继承完整的provider配置（支持所有类型：anthropic、openai、ollama等）
     const provider = parentConfig?.provider
       ? {
-          adapter: parentConfig.provider.adapter || 'anthropic',
-          apiKey: parentConfig.provider.apiKey,
-          baseURL: parentConfig.provider.baseURL,
+          ...parentConfig.provider, // 继承所有provider字段
         }
       : {
-          adapter: 'anthropic',
+          adapter: 'anthropic', // 默认使用anthropic
         };
 
     log.info(`临时 Agent provider 配置:`, {
@@ -82,9 +80,6 @@ export class TemporaryAgentFactory {
       hasApiKey: !!provider.apiKey,
       hasBaseURL: !!provider.baseURL,
     });
-
-    // 生成 systemPrompt
-    const systemPrompt = this.generateSystemPrompt(role, capabilities, taskDescription);
 
     // 创建临时 Agent 配置
     const tempAgent: ConfigurableAgentConfig = {

@@ -600,6 +600,7 @@ export class SubAgentFactory {
     // 2. 收集输出
     let outputText = '';
     let timedOut = false;
+    let hasError = false; // 🔧 跟踪是否有错误
 
     agentLoop.on({
       onText: (text) => {
@@ -722,6 +723,7 @@ export class SubAgentFactory {
         await runPromise;
       }
     } catch (error: any) {
+      hasError = true; // 🔧 标记有错误
       if (externalAborted) {
         log.warn(`[${subAgentId}] Aborted by user`);
         outputText += `\n\n[Aborted by user]`;
@@ -748,6 +750,7 @@ export class SubAgentFactory {
           depth: context.depth,
           duration,
           timedOut,
+          success: !hasError && !timedOut, // 🔧 添加success字段
           iterations: state.currentIteration,
         },
       }).catch(() => {});
