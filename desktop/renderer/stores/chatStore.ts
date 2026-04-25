@@ -1465,13 +1465,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
       // 为子 agent 初始化 WorkspaceMonitor activity
       const runtimeStore = useRuntimeStore.getState();
       console.log('[chatStore] _handleTeamMemberStart: 设置 WorkspaceMonitor activity');
-      runtimeStore.setAgentMoment(subAgentId, {
-        type: 'thinking',
-        icon: '💭',
-        label: 'Starting',
-        durationMs: 0,
-        status: 'running',
-      });
+      // 🔧 子agent不使用currentMoment，只使用timeline展示工具调用
+      // currentMoment只用于主agent的后台操作（如compress）
       runtimeStore.addRecentEvent({
         agentName: data.role || data.memberId,
         description: `Team member started: ${data.task?.slice(0, 50) || 'processing'}`,
@@ -1541,13 +1536,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       // 为子 agent 初始化 WorkspaceMonitor activity
       const runtimeStore = useRuntimeStore.getState();
-      runtimeStore.setAgentMoment(subAgentId, {
-        type: 'thinking',
-        icon: '💭',
-        label: 'Starting',
-        durationMs: 0,
-        status: 'running',
-      });
+      // 🔧 子agent不使用currentMoment，只使用timeline展示工具调用
+      // currentMoment只用于主agent的后台操作（如compress）
       runtimeStore.addRecentEvent({
         agentName: data.role || 'Sub-agent',
         description: `Task started: ${data.task?.slice(0, 50) || 'processing'}`,
