@@ -643,14 +643,21 @@ export class SubAgentFactory {
 
     if (this.hookRegistry && !options.skipSubAgentStartHook) {
       // 判断 Agent 类型
-      const category = config.metadata?.category || 'custom';
       let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
-      if (category === 'system') {
-        agentType = 'builtin'; // 系统内置 agent
-      } else if (category === 'app') {
-        agentType = 'preset'; // 应用 agent
+
+      // 🔧 优先检查是否是临时创建的agent
+      if (config.metadata?.isTemporary) {
+        agentType = 'temporary'; // 临时创建的agent
       } else {
-        agentType = 'custom'; // 用户自定义 agent
+        // 根据category判断已有agent的类型
+        const category = config.metadata?.category || 'custom';
+        if (category === 'system') {
+          agentType = 'builtin'; // 系统内置 agent
+        } else if (category === 'app') {
+          agentType = 'preset'; // 应用 agent
+        } else {
+          agentType = 'custom'; // 用户自定义 agent
+        }
       }
 
       console.log('[SubAgentFactory] 触发 SubAgentStart Hook:', {
@@ -658,6 +665,8 @@ export class SubAgentFactory {
         role: config.id,
         name: config.name,
         agentType,
+        isTemporary: config.metadata?.isTemporary,
+        category: config.metadata?.category,
         parentAgentId: options.parentAgentId || 'main',
       });
 
