@@ -1923,8 +1923,8 @@ if (typeof window !== 'undefined' && window.electron) {
     const runtimeStore = useRuntimeStore.getState();
     runtimeStore.addTimelineEvent(data.subAgentId, {
       id: `${data.subAgentId}-start`,
-      type: 'subagent',
-      name: data.name,
+      icon: '🤖',
+      label: data.name.slice(0, 12),
       status: 'running',
       startTime: Date.now(),
     });
