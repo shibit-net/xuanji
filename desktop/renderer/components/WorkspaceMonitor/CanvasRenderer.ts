@@ -396,9 +396,9 @@ export class CanvasRenderer {
   private drawSubAgents() {
     if (!this.state) return;
 
-    // 🔧 团队成员始终显示，非团队成员只显示运行中的
+    // 🔧 只显示运行中的子agent（执行完成后自动消失）
     const visibleAgents = this.state.subAgents.filter(
-      agent => agent.multiAgent?.teamName || (agent.status !== 'success' && agent.status !== 'error')
+      agent => agent.status !== 'success' && agent.status !== 'error'
     );
 
     visibleAgents.forEach((agent, index) => {

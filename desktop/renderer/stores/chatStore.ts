@@ -1909,15 +1909,7 @@ if (typeof window !== 'undefined' && window.electron) {
       },
     });
 
-    // 添加到 runtimeStore 的 timeline
-    const runtimeStore = useRuntimeStore.getState();
-    runtimeStore.addTimelineEvent(data.subAgentId, {
-      id: `${data.subAgentId}-start`,
-      icon: '🤖',
-      label: data.name.slice(0, 12),
-      status: 'running',
-      startTime: Date.now(),
-    });
+    // 🔧 子agent不需要timeline展示，只在activeAgentStore中记录状态
   });
 
   messageBus.on('agent:subagent-end', (data: {
