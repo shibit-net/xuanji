@@ -16,6 +16,32 @@ import type { ILogger, LogMetadata, LoggerConfig } from '../types';
 import type { FileWriter } from './FileWriter';
 
 /**
+ * 覆盖 debug 包的日期格式，使用可读的本地时间格式
+ * 格式: 2026-04-26 15:27:52.797
+ */
+function readableDate(): string {
+  const now = new Date();
+  const Y = now.getFullYear();
+  const M = String(now.getMonth() + 1).padStart(2, '0');
+  const D = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  return `${Y}-${M}-${D} ${h}:${m}:${s}.${ms} `;
+}
+
+const _origFormatArgs = (createDebug as any).formatArgs;
+(createDebug as any).formatArgs = function (this: any, args: any[]) {
+  const { useColors } = this;
+  if (useColors) {
+    _origFormatArgs.call(this, args);
+  } else {
+    args[0] = readableDate() + this.namespace + ' ' + args[0];
+  }
+};
+
+/**
  * 基于 debug 包的 Logger 实现
  *
  * 适用于开发环境调试：

@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Planner } from '@/core/planner/Planner';
+import { setRuntimeConfig } from '@/core/config/RuntimeConfig';
 import type { ILLMProvider } from '@/core/types';
 import type { PlanningContext, SubTask } from '@/core/planner/types';
 import type { ExecutionPlan } from '@/core/routing/types';
@@ -13,7 +14,10 @@ describe('Planner', () => {
   let planner: Planner;
 
   beforeEach(() => {
-    // Mock LLM Provider
+    setRuntimeConfig({
+      provider: { apiKey: 'test-key', baseURL: 'https://test.api.com' },
+    } as any);
+
     mockProvider = {
       stream: vi.fn(),
     } as any;

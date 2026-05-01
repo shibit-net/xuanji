@@ -22,7 +22,6 @@ export const DownloadQueue: React.FC = () => {
   useEffect(() => {
     // 监听下载事件（实时更新）
     const handleDownloadEvent = (event: { type: string; task: DownloadTask }) => {
-      console.log('[DownloadQueue] 收到下载事件:', event.type, event.task);
       setTasks((prevTasks) => {
         const existingIndex = prevTasks.findIndex((t) => t.id === event.task.id);
 
@@ -30,26 +29,21 @@ export const DownloadQueue: React.FC = () => {
           // 更新现有任务
           const newTasks = [...prevTasks];
           newTasks[existingIndex] = event.task;
-          console.log('[DownloadQueue] 更新任务:', event.task.id, event.task.status);
           return newTasks;
         } else {
           // 添加新任务
-          console.log('[DownloadQueue] 添加新任务:', event.task.id, event.task.name);
           return [...prevTasks, event.task];
         }
       });
     };
 
-    console.log('[DownloadQueue] 注册 download:event 监听器');
     window.electron.on('download:event', handleDownloadEvent);
 
     // 初始加载任务列表（在注册监听器后立即执行，确保不会错过任何任务）
     const loadTasks = async () => {
       try {
-        console.log('[DownloadQueue] 初始加载任务列表...');
         const result = await window.electron.downloadGetTasks();
         if (result.success && result.tasks) {
-          console.log('[DownloadQueue] 加载到', result.tasks.length, '个任务');
           setTasks(result.tasks);
         }
       } catch (err) {
@@ -87,7 +81,6 @@ export const DownloadQueue: React.FC = () => {
 
   const handleCancel = async (taskId: string) => {
     try {
-      console.log('[DownloadQueue] 取消下载:', taskId);
       await window.electron.downloadCancel(taskId);
     } catch (err) {
       console.error('Failed to cancel download:', err);

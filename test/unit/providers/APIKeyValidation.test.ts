@@ -21,7 +21,7 @@ describe('Provider API Key Validation', () => {
       const tools: ToolSchema[] = [];
 
       const stream = provider.stream(messages, tools, config);
-      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('API Key 未配置');
     });
 
     it('应在 API Key 为 undefined 时抛出异常', async () => {
@@ -35,10 +35,10 @@ describe('Provider API Key Validation', () => {
       const tools: ToolSchema[] = [];
 
       const stream = provider.stream(messages, tools, config);
-      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('API Key 未配置');
     });
 
-    it('错误信息应包含配置方式说明', async () => {
+    it('错误信息应包含 Provider 名称', async () => {
       const provider = new AnthropicProvider();
       const config: ProviderConfig = {
         model: 'claude-sonnet-4',
@@ -52,10 +52,8 @@ describe('Provider API Key Validation', () => {
         expect.fail('应该抛出异常');
       } catch (error) {
         const message = (error as Error).message;
-        expect(message).toContain('环境变量');
-        expect(message).toContain('全局配置');
-        expect(message).toContain('项目配置');
-        expect(message).toContain('XUANJI_API_KEY');
+        expect(message).toContain('Anthropic');
+        expect(message).toContain('API Key');
       }
     });
   });
@@ -70,7 +68,7 @@ describe('Provider API Key Validation', () => {
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const stream = provider.stream(messages, [], config);
-      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('API Key 未配置');
     });
 
     it('应在 API Key 为 undefined 时抛出异常', async () => {
@@ -82,10 +80,10 @@ describe('Provider API Key Validation', () => {
 
       const messages: Message[] = [{ role: 'user', content: 'test' }];
       const stream = provider.stream(messages, [], config);
-      await expect(consumeStream(stream)).rejects.toThrow('未配置 API Key');
+      await expect(consumeStream(stream)).rejects.toThrow('API Key 未配置');
     });
 
-    it('错误信息应包含配置方式说明', async () => {
+    it('错误信息应包含 Provider 名称', async () => {
       const provider = new OpenAIProvider();
       const config: ProviderConfig = {
         model: 'gpt-4o',
@@ -99,10 +97,8 @@ describe('Provider API Key Validation', () => {
         expect.fail('应该抛出异常');
       } catch (error) {
         const message = (error as Error).message;
-        expect(message).toContain('环境变量');
-        expect(message).toContain('全局配置');
-        expect(message).toContain('项目配置');
-        expect(message).toContain('XUANJI_API_KEY');
+        expect(message).toContain('OpenAI');
+        expect(message).toContain('API Key');
       }
     });
   });

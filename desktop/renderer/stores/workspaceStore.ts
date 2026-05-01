@@ -23,12 +23,18 @@ export interface IntentAnalysisResult {
   agent?: string;
   complexity?: string;
   model?: string;
+  matchMethod?: 'llm' | 'vector' | 'keyword' | 'default' | 'embedding';
+}
+
+export interface PromptComponentInfo {
+  name: string;
+  layer: string;
 }
 
 export interface PromptBuildResult {
   scene?: string;
   complexity?: string;
-  components?: string[];
+  components?: PromptComponentInfo[];
   estimatedTokens?: number;
 }
 
@@ -78,16 +84,13 @@ export class WorkspaceStore {
   private setupEventListeners() {
     // 防止重复设置
     if (this.listenersSetup) {
-      console.log('[WorkspaceStore] Event listeners already set up, skipping');
       return;
     }
 
-    console.log('[WorkspaceStore] Setting up event listeners via messageBus');
     this.listenersSetup = true;
 
     // 意图分析
     messageBus.on('workspace:intent-analysis-start', (data: any) => {
-      console.log('[WorkspaceStore] IntentAnalysisStart received:', data);
       this.handleEvent({
         eventType: 'IntentAnalysisStart',
         timestamp: data.timestamp || Date.now(),
@@ -112,6 +115,7 @@ export class WorkspaceStore {
         agent: data.agent,
         complexity: data.complexity,
         model: data.model,
+        matchMethod: data.matchMethod || this.intentAnalysisResult?.matchMethod,
       };
       this.notifyListeners();
     });
@@ -124,16 +128,16 @@ export class WorkspaceStore {
           scene: data.data?.scene,
           agent: data.data?.agent,
           complexity: data.data?.complexity,
+          matchMethod: data.data?.matchMethod,
           model: this.intentAnalysisResult?.model, // 保留之前的 model 信息
         };
-        console.log('[WorkspaceStore] Intent analyzed:', this.intentAnalysisResult);
         this.notifyListeners();
       } else if (data.type === 'build:complete') {
         this.promptBuildResult = {
           scene: data.data?.scene,
           complexity: data.data?.complexity,
           components: data.data?.layers?.flatMap((layer: any) =>
-            layer.components?.map((c: any) => c.name) || []
+            layer.components?.map((c: any) => ({ name: c.name, layer: `L${layer.layer}` })) || []
           ),
           estimatedTokens: data.data?.estimatedTokens,
         };
@@ -204,6 +208,10 @@ export class WorkspaceStore {
    */
   private handleEvent(event: WorkspaceEvent) {
     this.events.push(event);
+    // 防止内存泄漏：最多保留 500 条事件
+    if (this.events.length > 500) {
+      this.events = this.events.slice(-500);
+    }
 
     // 更新 sessionId
     if (event.data.sessionId) {
@@ -223,7 +231,6 @@ export class WorkspaceStore {
     timestamp: number,
     data?: any
   ) {
-    console.log(`[WorkspaceStore] updatePhase: ${phaseKey} -> ${status}`, { timestamp, data });
     const phase = this.phases.get(phaseKey);
     if (!phase) return;
 

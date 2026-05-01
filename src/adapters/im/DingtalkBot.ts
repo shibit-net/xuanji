@@ -156,6 +156,12 @@ export class DingtalkBot implements IMAdapter {
    */
   private async connect(): Promise<void> {
     try {
+      // 清理旧连接，防止 WebSocket 泄漏
+      if (this.ws) {
+        try { this.ws.close(); } catch { /* ignore */ }
+        this.ws = null;
+      }
+
       const { endpoint, ticket } = await this.getEndpoint();
       const url = `${endpoint}?ticket=${encodeURIComponent(ticket)}`;
 
@@ -332,8 +338,14 @@ export class DingtalkBot implements IMAdapter {
   private scheduleReconnect(): void {
     if (!this.running) return;
 
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     this.log('5 秒后重连...');
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect().catch((err) => {
         this.logError(`重连失败: ${err}`);
       });

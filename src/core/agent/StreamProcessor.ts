@@ -2,7 +2,7 @@
 // M2 Agent — 流处理器
 // ============================================================
 
-import type { StreamEvent, ToolCall, TokenUsage, StopReason, ContentBlock } from '@/core/types';
+import type { StreamEvent, ToolCall, TokenUsage, StopReason, ContentBlock, ToolResult } from '@/core/types';
 
 /**
  * 流处理结果
@@ -16,6 +16,15 @@ export interface ProcessResult {
   usage: TokenUsage;
   /** 收集到的 content blocks */
   contentBlocks: ContentBlock[];
+}
+
+/**
+ * 并发执行结果 — consumeWithExecution() 的返回值
+ */
+export interface ConcurrentProcessResult {
+  processResult: ProcessResult;
+  /** 工具执行结果（在流消费期间并发执行） */
+  executionResults: Map<string, ToolResult>;
 }
 
 /**
@@ -34,7 +43,10 @@ export class StreamProcessor {
   // 🆕 累积 buffer（用于 fallback 和手动 flush）
   private _currentText = '';
   private _currentThinking = '';
+  private _currentThinkingSignature = '';
   private _currentToolInputBuffer = '';
+
+  private _currentReasoning = '';
 
   onTextDelta(handler: (text: string) => void): void {
     this.textHandler = handler;
@@ -71,15 +83,20 @@ export class StreamProcessor {
   }
 
   /**
-   * 🆕 手动 flush 累积的内容（在关键节点调用，如用户追加输入时）
-   * 返回当前累积的所有内容，但不清空 buffer
+   * 手动 flush 累积的内容（在关键节点调用，如用户追加输入时）
+   * 返回当前累积的所有内容并清空 buffer
    */
   flush(): { text: string; thinking: string; toolInput: string } {
-    return {
+    const result = {
       text: this._currentText,
       thinking: this._currentThinking,
       toolInput: this._currentToolInputBuffer,
     };
+    this._currentText = '';
+    this._currentThinking = '';
+    this._currentThinkingSignature = '';
+    this._currentToolInputBuffer = '';
+    return result;
   }
 
   /**
@@ -88,6 +105,8 @@ export class StreamProcessor {
   reset(): void {
     this._currentText = '';
     this._currentThinking = '';
+    this._currentThinkingSignature = '';
+    this._currentReasoning = '';
     this._currentToolInputBuffer = '';
   }
 
@@ -100,6 +119,8 @@ export class StreamProcessor {
     // 🆕 使用实例变量存储累积内容（支持外部 flush）
     this._currentText = '';
     this._currentThinking = '';
+    this._currentThinkingSignature = '';
+    this._currentReasoning = '';
     let stopReason: StopReason = 'end_turn';
     let totalUsage: TokenUsage = { input: 0, output: 0 };
 
@@ -128,21 +149,31 @@ export class StreamProcessor {
           break;
         }
 
+        case 'thinking_start': {
+          if (event.signature) {
+            this._currentThinkingSignature = event.signature;
+          }
+          break;
+        }
+
         case 'thinking_delta': {
-          console.log('[StreamProcessor] thinking_delta 事件:', event.thinking?.length || 0, '前50字符:', event.thinking?.slice(0, 50) || '');
           if (event.thinking) {
-            this._currentThinking += event.thinking;  // 🆕 使用实例变量
-            console.log('[StreamProcessor] 调用 thinkingHandler，累计长度:', this._currentThinking.length);
+            this._currentThinking += event.thinking;
             this.thinkingHandler?.(event.thinking);
-          } else {
-            console.log('[StreamProcessor] thinking_delta 事件但 event.thinking 为空');
+          }
+          break;
+        }
+
+        case 'reasoning_delta': {
+          if (event.reasoning) {
+            this._currentReasoning += event.reasoning;
+            this.thinkingHandler?.(event.reasoning); // 🔧 DeepSeek reasoning 同步到思考气泡
           }
           break;
         }
 
         case 'tool_use_start': {
           // 工具调用开始：立即通知
-          console.log('[StreamProcessor] tool_use_start 事件:', event.toolCall);
           if (event.toolCall?.id && event.toolCall?.name) {
             currentToolId = event.toolCall.id;
             currentToolName = event.toolCall.name;
@@ -153,10 +184,8 @@ export class StreamProcessor {
               name: event.toolCall.name,
               input: event.toolCall.input ?? {},
             };
-            console.log('[StreamProcessor] 调用 toolStartHandler:', toolCall);
             this.toolStartHandler?.(toolCall);
           } else {
-            console.log('[StreamProcessor] tool_use_start 事件缺少 id 或 name');
           }
           break;
         }
@@ -216,8 +245,17 @@ export class StreamProcessor {
               this._currentText = '';
             }
             if (this._currentThinking) {
-              contentBlocks.push({ type: 'thinking', thinking: this._currentThinking });
+              contentBlocks.push({
+                type: 'thinking',
+                thinking: this._currentThinking,
+                ...(this._currentThinkingSignature ? { signature: this._currentThinkingSignature } : {}),
+              });
               this._currentThinking = '';
+              this._currentThinkingSignature = '';
+            }
+            if (this._currentReasoning) {
+              contentBlocks.push({ type: 'reasoning', reasoning: this._currentReasoning });
+              this._currentReasoning = '';
             }
             // 工具调用作为 content block
             contentBlocks.push({
@@ -272,9 +310,234 @@ export class StreamProcessor {
       contentBlocks.push({ type: 'text', text: this._currentText });
     }
     if (this._currentThinking) {
-      contentBlocks.push({ type: 'thinking', thinking: this._currentThinking });
+      contentBlocks.push({
+        type: 'thinking',
+        thinking: this._currentThinking,
+        ...(this._currentThinkingSignature ? { signature: this._currentThinkingSignature } : {}),
+      });
+    }
+    if (this._currentReasoning) {
+      contentBlocks.push({ type: 'reasoning', reasoning: this._currentReasoning });
     }
 
     return { stopReason, toolCalls, usage: totalUsage, contentBlocks };
+  }
+
+  /**
+   * 消费流式响应并在接收工具调用时并发执行
+   *
+   * 与 consume() 的区别：
+   * - consume() 等整个流结束后才执行工具
+   * - consumeWithExecution() 在 tool_use_end 事件到达时立即分发工具执行，
+   *   流消费与工具执行并行，减少端到端延迟。
+   *
+   * @param stream 流式事件源
+   * @param executor 工具执行器，接收 ToolCall 返回 ToolResult 的 Promise
+   * @returns 流处理结果 + 并发执行完成的工具结果
+   */
+  async consumeWithExecution(
+    stream: AsyncIterable<StreamEvent>,
+    executor: (toolCall: ToolCall) => Promise<ToolResult>,
+  ): Promise<ConcurrentProcessResult> {
+    const toolCalls: ToolCall[] = [];
+    const contentBlocks: ContentBlock[] = [];
+    const executionPromises = new Map<string, Promise<ToolResult>>();
+
+    this._currentText = '';
+    this._currentThinking = '';
+    this._currentThinkingSignature = '';
+    this._currentReasoning = '';
+    let stopReason: StopReason = 'end_turn';
+    let totalUsage: TokenUsage = { input: 0, output: 0 };
+
+    let currentToolId: string | undefined;
+    let currentToolName: string | undefined;
+    this._currentToolInputBuffer = '';
+    let lastDeltaNotifyTime = 0;
+    const DELTA_THROTTLE_MS = 500;
+
+    for await (const event of stream) {
+      if (this.interruptChecker?.()) {
+        break;
+      }
+
+      switch (event.type) {
+        case 'text_delta': {
+          if (event.text) {
+            this._currentText += event.text;
+            this.textHandler?.(event.text);
+          }
+          break;
+        }
+
+        case 'thinking_start': {
+          if (event.signature) {
+            this._currentThinkingSignature = event.signature;
+          }
+          break;
+        }
+
+        case 'thinking_delta': {
+          if (event.thinking) {
+            this._currentThinking += event.thinking;
+            this.thinkingHandler?.(event.thinking);
+          }
+          break;
+        }
+
+        case 'reasoning_delta': {
+          if (event.reasoning) {
+            this._currentReasoning += event.reasoning;
+            this.thinkingHandler?.(event.reasoning);
+          }
+          break;
+        }
+
+        case 'tool_use_start': {
+          if (event.toolCall?.id && event.toolCall?.name) {
+            currentToolId = event.toolCall.id;
+            currentToolName = event.toolCall.name;
+            this._currentToolInputBuffer = '';
+            const toolCall: ToolCall = {
+              id: event.toolCall.id,
+              name: event.toolCall.name,
+              input: event.toolCall.input ?? {},
+            };
+            this.toolStartHandler?.(toolCall);
+          }
+          break;
+        }
+
+        case 'tool_use_delta': {
+          const deltaText = event.text ?? '';
+          this._currentToolInputBuffer += deltaText;
+
+          if (this.toolDeltaHandler && currentToolId && currentToolName) {
+            const now = Date.now();
+            if (now - lastDeltaNotifyTime >= DELTA_THROTTLE_MS) {
+              lastDeltaNotifyTime = now;
+              this.toolDeltaHandler(currentToolId, currentToolName, this._currentToolInputBuffer.length);
+            }
+          }
+          break;
+        }
+
+        case 'tool_use_end': {
+          if (event.toolCall?.id && event.toolCall?.name) {
+            let parsedInput = event.toolCall.input;
+            if (!parsedInput && this._currentToolInputBuffer) {
+              try {
+                parsedInput = JSON.parse(this._currentToolInputBuffer);
+              } catch (parseErr) {
+                parsedInput = {
+                  _parse_error: true,
+                  _raw: this._currentToolInputBuffer.slice(0, 500),
+                  _error_message: parseErr instanceof Error ? parseErr.message : String(parseErr),
+                };
+              }
+            }
+
+            const toolCall: ToolCall = {
+              id: event.toolCall.id,
+              name: event.toolCall.name,
+              input: parsedInput ?? {},
+            };
+            toolCalls.push(toolCall);
+            this.toolUseHandler?.(toolCall);
+
+            // 🔑 关键优化：立即分发工具执行，不等待流结束
+            executionPromises.set(toolCall.id, executor(toolCall));
+
+            currentToolId = undefined;
+            currentToolName = undefined;
+            this._currentToolInputBuffer = '';
+
+            if (this._currentText) {
+              contentBlocks.push({ type: 'text', text: this._currentText });
+              this._currentText = '';
+            }
+            if (this._currentThinking) {
+              contentBlocks.push({
+                type: 'thinking',
+                thinking: this._currentThinking,
+                ...(this._currentThinkingSignature ? { signature: this._currentThinkingSignature } : {}),
+              });
+              this._currentThinking = '';
+              this._currentThinkingSignature = '';
+            }
+            if (this._currentReasoning) {
+              contentBlocks.push({ type: 'reasoning', reasoning: this._currentReasoning });
+              this._currentReasoning = '';
+            }
+            contentBlocks.push({
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.name,
+              input: toolCall.input,
+            });
+          }
+          break;
+        }
+
+        case 'usage': {
+          if (event.usage) {
+            totalUsage = {
+              input: totalUsage.input + event.usage.input,
+              output: totalUsage.output + event.usage.output,
+              cacheRead: (totalUsage.cacheRead ?? 0) + (event.usage.cacheRead ?? 0),
+              cacheWrite: (totalUsage.cacheWrite ?? 0) + (event.usage.cacheWrite ?? 0),
+            };
+            this.usageHandler?.(event.usage);
+          }
+          break;
+        }
+
+        case 'end': {
+          if (event.stopReason) {
+            stopReason = event.stopReason;
+          }
+          if (event.usage) {
+            totalUsage = {
+              input: totalUsage.input + event.usage.input,
+              output: totalUsage.output + event.usage.output,
+              cacheRead: (totalUsage.cacheRead ?? 0) + (event.usage.cacheRead ?? 0),
+              cacheWrite: (totalUsage.cacheWrite ?? 0) + (event.usage.cacheWrite ?? 0),
+            };
+            this.usageHandler?.(event.usage);
+          }
+          break;
+        }
+
+        case 'error': {
+          throw event.error ?? new Error('LLM 流处理出错');
+        }
+      }
+    }
+
+    // 处理剩余文本
+    if (this._currentText) {
+      contentBlocks.push({ type: 'text', text: this._currentText });
+    }
+    if (this._currentThinking) {
+      contentBlocks.push({
+        type: 'thinking',
+        thinking: this._currentThinking,
+        ...(this._currentThinkingSignature ? { signature: this._currentThinkingSignature } : {}),
+      });
+    }
+    if (this._currentReasoning) {
+      contentBlocks.push({ type: 'reasoning', reasoning: this._currentReasoning });
+    }
+
+    // 等待所有并发工具执行完成
+    const executionResults = new Map<string, ToolResult>();
+    for (const [id, promise] of executionPromises) {
+      executionResults.set(id, await promise);
+    }
+
+    return {
+      processResult: { stopReason, toolCalls, usage: totalUsage, contentBlocks },
+      executionResults,
+    };
   }
 }

@@ -2,7 +2,7 @@
 // M2 Agent — ReAct 循环核心
 // ============================================================
 
-import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
+import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message, ToolCall, ToolResult } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { MessageManager } from './MessageManager';
 import { StreamProcessor, type ProcessResult } from './StreamProcessor';
@@ -16,6 +16,7 @@ import { StreamRetryHandler } from './StreamRetryHandler';
 import { ResultProcessor } from './ResultProcessor';
 import { ToolExecutionCoordinator } from './ToolExecutionCoordinator';
 import { logger } from '@/core/logger';
+import { isContentTooLargeError } from '@/core/providers/RetryPolicy';
 import { SessionRecorder } from '@/core/telemetry';
 import { UsageStatsRecorder } from '@/core/telemetry';
 import { PerfCollector } from '@/core/telemetry';
@@ -92,15 +93,19 @@ export class AgentLoop {
   private _pendingAppendMessage: string | null = null;
   /** 🔧 全局 AbortController：用于级联终止所有子任务（工具、sub-agent、team） */
   private _abortController: AbortController | null = null;
+  /** 用户 ID，用于遥测数据用户维度隔离 */
+  private _userId?: string;
 
   constructor(
     provider: ILLMProvider,
     registry: IToolRegistry,
     config: AgentConfig,
+    userId?: string,
   ) {
     this.provider = provider;
     this.registry = registry;
     this.config = config;
+    this._userId = userId;
     this.messageManager = new MessageManager(config.systemPrompt);
     this.streamProcessor = new StreamProcessor();
     this.toolDispatcher = new ToolDispatcher(registry);
@@ -115,9 +120,9 @@ export class AgentLoop {
       temperature: config.temperature,
     });
     this.errorRecovery = new ErrorRecovery();
-    this.sessionRecorder = new SessionRecorder();
-    this.usageStatsRecorder = new UsageStatsRecorder();
-    this.perfCollector = new PerfCollector();
+    this.sessionRecorder = new SessionRecorder(undefined, userId);
+    this.usageStatsRecorder = new UsageStatsRecorder(undefined, userId);
+    this.perfCollector = new PerfCollector(undefined, userId);
 
     // 初始化辅助模块
     this.messagePreparationHandler = new MessagePreparationHandler(this.messageManager);
@@ -189,12 +194,17 @@ export class AgentLoop {
     const toolStatsMap = new Map<string, { count: number; durationMs: number; errorCount: number }>();
     const sessionToolCalls: Array<{ name: string; input: Record<string, unknown>; isError: boolean; resultSummary: string }> = [];
     // 🔧 创建新的 AbortController（用于级联终止所有子任务）
-    this._abortController = new AbortController();
+    // 保存本地引用，防止 stop() 中途将 this._abortController 置 null 导致 signal 丢失
+    const abortController = new AbortController();
+    this._abortController = abortController;
 
     // 🆕 初始化 AgentLoop 执行日志记录器
-    this.agentLoopLogger = new AgentLoopLogger(sessionId, this.config.model);
+    this.agentLoopLogger = new AgentLoopLogger(sessionId, this.config.model, undefined, this._userId);
 
     try {
+      // 清除上轮的子任务完成提示（新用户消息到来）
+      this.messageManager.setSystemPromptSuffix('', 'delegation-complete');
+
       // 🆕 注入任务状态提示到 system prompt
       await this.injectTodoContextHint(userMessage);
 
@@ -210,8 +220,9 @@ export class AgentLoop {
       // 使用构造函数中保存的原始 textHandler（避免 stop()+run() 循环时嵌套包装堆积）
       const originalTextHandler = this._originalTextHandler;
 
-      // ★ 消息历史快照（用于 API 失败时回滚） ★
-      let messageSnapshot: Message[] = [];
+      // 🔑 恢复状态标志（用于精细恢复点）
+      let aggressiveCompacted = false;  // 413 恢复：是否已触发激进压缩
+      let budgetCompacted = false;      // Token 预算：是否已触发预算压缩
 
       while (this.running && this.currentIteration < maxIterations) {
         this.currentIteration++;
@@ -252,6 +263,27 @@ export class AgentLoop {
         }
 
         // ── 消息上下文处理 ──
+
+        // 🔑 恢复点 1: Token 预算监控（接近上限时提前压缩，避免后续 413）
+        if (!budgetCompacted && messages.length > 10) {
+          const contextWindow = this.tokenManager.getMaxInputTokens();
+          const cumulativeInput = this.tokenManager.getTotalUsage().input;
+          // 累计输入超过 2.5x 上下文窗口 → 触发预算压缩
+          if (cumulativeInput > contextWindow * 2.5) {
+            this.callbacks.onInfo?.('💰 Token 用量较高，正在压缩早期上下文...');
+            const compactResult = await this.contextCompressor.compressAsync(messages, this.tokenManager);
+            if (compactResult.compressionRatio > 0) {
+              this.messageManager.replaceMessages(compactResult.compressed);
+              messages = compactResult.compressed;
+              budgetCompacted = true;
+              this.log.info(
+                `Budget compact: ${compactResult.originalTokens} → ${compactResult.compressedTokens} tokens ` +
+                `(${Math.round(compactResult.compressionRatio * 100)}%), cumulative=${cumulativeInput}`
+              );
+            }
+          }
+        }
+
         this.messageContextHandler.logIteration(
           this.currentIteration,
           maxIterations,
@@ -280,11 +312,10 @@ export class AgentLoop {
           );
         }
 
-        // ★ 保存消息历史快照（在 LLM 调用前，包含最新的工具结果） ★
-        // 如果 LLM 调用失败，可以回滚到这个完整状态，避免上下文不一致
-        messageSnapshot = this.messageManager.saveSnapshot();
+        // ★ 保存消息索引作快照（O(1)，LLM 失败时回滚用） ★
+        const snapshotIndex = this.messageManager.getHistoryLength();
 
-        // 调用 LLM（带重试）
+        // 调用 LLM（带重试 + 并发工具执行）
         const toolSchemas: ToolSchema[] = this.registry.getSchemas();
         const llmRequestStartTime = Date.now();
 
@@ -293,7 +324,7 @@ export class AgentLoop {
           this.currentIteration,
           messages.length,
           toolSchemas.length,
-          this.tokenManager.getTotalUsage().input,  // 使用 getTotalUsage()
+          this.tokenManager.getTotalUsage().input,
           this.config.maxTokens,
           {
             temperature: this.config.temperature,
@@ -301,10 +332,19 @@ export class AgentLoop {
           }
         );
 
-        const streamResult = await this.streamRetryHandler.executeWithRetry(
+        // 🔑 定义工具执行器：在流消费期间并发执行
+        const executor = async (toolCall: ToolCall): Promise<ToolResult> => {
+          this.callbacks.onToolStart?.(toolCall.id, toolCall.name, toolCall.input);
+          const toolResult = await this.toolDispatcher.execute(toolCall, abortController.signal);
+          this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError);
+          return toolResult;
+        };
+
+        const streamResult = await this.streamRetryHandler.executeWithRetryConcurrent(
           messages,
           toolSchemas,
           this.currentIteration,
+          executor,
           originalTextHandler,
           {
             onInfo: this.callbacks.onInfo,
@@ -314,8 +354,7 @@ export class AgentLoop {
             getCurrentStream: () => this._currentStream,
             setCurrentStream: (stream) => { this._currentStream = stream; },
           },
-          0,  // rateLimitRetryCount
-          this._abortController?.signal,  // 🔧 传递 AbortSignal
+          abortController.signal,
         );
 
         // 处理 Stream 结果
@@ -324,13 +363,35 @@ export class AgentLoop {
             this.log.debug('No result due to interrupt, continuing to process append message');
             continue;
           }
-          // ★ API 调用失败：回滚消息历史到工具执行前的快照状态 ★
-          this.messageManager.restoreSnapshot(messageSnapshot);
+
+          // 🔑 恢复点 2: 413 Content Too Large → 激进压缩 → 重试
+          if (isContentTooLargeError(streamResult.lastError) && !aggressiveCompacted) {
+            this.callbacks.onInfo?.('⚠️ 请求内容过大，正在压缩历史上下文后重试...');
+            const compacted = this.contextCompressor.aggressiveCompact(
+              this.messageManager.getMessages(),
+              this.tokenManager,
+            );
+            this.messageManager.replaceMessages(compacted);
+            aggressiveCompacted = true;
+            messages = this.messageManager.getMessages();
+            this.log.warn('413 recovered: aggressive compact applied, retrying loop iteration');
+            continue; // 回到循环顶部，用压缩后的上下文重试
+          }
+
+          // ★ API 调用失败：截断到快照索引（O(1)） ★
+          this.messageManager.truncateTo(snapshotIndex);
           this.log.warn('API call failed, message history rolled back to pre-tool state');
           throw streamResult.lastError ?? new Error('API call failed after retries');
         }
 
         const result = streamResult.result;
+        const concurrentResultsMap = streamResult.executionResults; // 流式期间并发执行的工具结果
+
+        // 🔑 成功获取结果：重置 413 恢复标志（允许后续再次触发恢复）
+        if (aggressiveCompacted) {
+          this.log.info('413 recovery succeeded, resetting aggressive compact flag');
+          aggressiveCompacted = false;
+        }
 
         // 🆕 记录 LLM 响应
         const llmDurationMs = Date.now() - llmRequestStartTime;
@@ -399,77 +460,94 @@ export class AgentLoop {
         }
 
         if (processResult.shouldContinue) {
+          // 检查用户是否已停止（避免浪费一次 API 调用）
+          if (!this.running) break;
           messages = processResult.messages!;
           continue;
         }
 
         // ── 工具执行 ──
-        const grouping = await this.toolExecutionCoordinator.groupAndPrepareTools(result);
+        let resultsMap: Map<string, ToolResult>;
+        let toolExecDurationMs: number;
+        const hasConcurrentResults = concurrentResultsMap && concurrentResultsMap.size > 0;
 
-        // 🆕 记录工具分组
-        await this.agentLoopLogger?.logToolGroup(
-          this.currentIteration,
-          grouping.parallelIds,
-          grouping.serialIds
-        );
+        if (hasConcurrentResults) {
+          // 🔑 工具已在流消费期间并发执行完毕，直接使用结果
+          resultsMap = concurrentResultsMap!;
+          toolExecDurationMs = 0; // 工具执行时间已分摊到流消费中
 
-        // 通知 UI 工具分组
-        if (grouping.parallelIds.length > 1) {
-          this.callbacks.onToolGrouped?.({
-            parallelIds: grouping.parallelIds,
-            serialIds: grouping.serialIds
-          });
-        }
+          // 通知 UI 工具分组（并发执行时所有工具视为并行组）
+          if (result.toolCalls.length > 1) {
+            this.callbacks.onToolGrouped?.({
+              parallelIds: result.toolCalls.map(tc => tc.id),
+              serialIds: []
+            });
+          }
 
-        // 执行工具
-        const toolExecStartTime = Date.now();
-        const toolStartTimes = new Map<string, number>();
-        const execResult = await this.toolExecutionCoordinator.executeTools(
-          result,
-          grouping,
-          {
-            onToolStart: async (id, name, input) => {
-              // 通知 UI
-              this.callbacks.onToolStart?.(id, name, input);
+          // 收集文件变更
+          const fileChanges: import('@/core/types').FileChange[] = [];
+          for (const toolResult of resultsMap.values()) {
+            if ((toolResult as any).fileChanges?.length > 0) {
+              fileChanges.push(...(toolResult as any).fileChanges);
+            }
+          }
+          if (fileChanges.length > 0) {
+            this.callbacks.onFileChanges?.(fileChanges);
+          }
 
-              // 🆕 记录工具执行开始
-              toolStartTimes.set(id, Date.now());
-              await this.agentLoopLogger?.logToolExecute(
-                this.currentIteration,
-                id,
-                name,
-                input,
-                grouping.parallelIds.includes(id)
-              );
+          this.log.debug(`Tools executed concurrently during streaming: ${resultsMap.size} results`);
+        } else {
+          // Fallback: 串行/分组执行（保留向后兼容，正常不应触发）
+          const grouping = await this.toolExecutionCoordinator.groupAndPrepareTools(result);
+
+          await this.agentLoopLogger?.logToolGroup(
+            this.currentIteration,
+            grouping.parallelIds,
+            grouping.serialIds
+          );
+
+          if (grouping.parallelIds.length > 1) {
+            this.callbacks.onToolGrouped?.({
+              parallelIds: grouping.parallelIds,
+              serialIds: grouping.serialIds
+            });
+          }
+
+          const toolExecStartTime = Date.now();
+          const toolStartTimes = new Map<string, number>();
+          const execResult = await this.toolExecutionCoordinator.executeTools(
+            result,
+            grouping,
+            {
+              onToolStart: async (id, name, input) => {
+                this.callbacks.onToolStart?.(id, name, input);
+                toolStartTimes.set(id, Date.now());
+                await this.agentLoopLogger?.logToolExecute(
+                  this.currentIteration, id, name, input,
+                  grouping.parallelIds.includes(id)
+                );
+              },
+              onToolDelta: this.callbacks.onToolDelta,
+              onToolEnd: async (id, name, resultContent, isError) => {
+                this.callbacks.onToolEnd?.(id, name, resultContent, isError);
+                const toolDuration = toolStartTimes.has(id)
+                  ? Date.now() - toolStartTimes.get(id)!
+                  : Date.now() - toolExecStartTime;
+                await this.agentLoopLogger?.logToolResult(
+                  this.currentIteration, id, name, !isError,
+                  resultContent?.length || 0, toolDuration,
+                  isError ? resultContent : undefined
+                );
+              },
             },
-            onToolDelta: this.callbacks.onToolDelta,
-            onToolEnd: async (id, name, resultContent, isError) => {
-              // 通知 UI
-              this.callbacks.onToolEnd?.(id, name, resultContent, isError);
+            abortController.signal,
+          );
+          toolExecDurationMs = Date.now() - toolExecStartTime;
+          resultsMap = execResult.resultsMap;
 
-              // 🆕 记录工具结果
-              const toolDuration = toolStartTimes.has(id)
-                ? Date.now() - toolStartTimes.get(id)!
-                : Date.now() - toolExecStartTime;
-              await this.agentLoopLogger?.logToolResult(
-                this.currentIteration,
-                id,
-                name,
-                !isError,
-                resultContent?.length || 0,
-                toolDuration,
-                isError ? resultContent : undefined
-              );
-            },
-          },
-          this._abortController?.signal, // 🔧 传递 AbortSignal
-        );
-        const toolExecDurationMs = Date.now() - toolExecStartTime;
-        const resultsMap = execResult.resultsMap;
-
-        // 🆕 通知 UI 文件变更
-        if (execResult.fileChanges.length > 0) {
-          this.callbacks.onFileChanges?.(execResult.fileChanges);
+          if (execResult.fileChanges.length > 0) {
+            this.callbacks.onFileChanges?.(execResult.fileChanges);
+          }
         }
 
         // 触发 PostToolUse Hook
@@ -484,11 +562,9 @@ export class AgentLoop {
           const toolResult = resultsMap.get(toolCall.id);
           const existing = toolStatsMap.get(toolCall.name) ?? { count: 0, durationMs: 0, errorCount: 0 };
           existing.count++;
-          existing.durationMs += Math.round(toolExecDurationMs / result.toolCalls.length);
           if (toolResult?.isError) existing.errorCount++;
           toolStatsMap.set(toolCall.name, existing);
 
-          // 记录工具调用详情（用于记忆系统）
           if (toolResult) {
             sessionToolCalls.push({
               name: toolCall.name,
@@ -501,6 +577,18 @@ export class AgentLoop {
 
         // 批量添加工具结果到消息历史
         this.messageManager.addToolResults(resultsMap);
+
+        // 检查是否有 task/agent_team 工具完成，提醒主 agent 更新 todo
+        const hasCompletedDelegation = result.toolCalls.some(
+          tc => (tc.name === 'task' || tc.name === 'agent_team') &&
+                 resultsMap.get(tc.id) && !resultsMap.get(tc.id)!.isError
+        );
+        if (hasCompletedDelegation) {
+          this.messageManager.setSystemPromptSuffix(
+            '\n[子任务已完成] 你委托给子 agent 或 agent team 的任务已经返回结果。请检查执行结果，并使用 todo_update 将对应任务标记为 completed。',
+            'delegation-complete'
+          );
+        }
 
         // ★ 边界检查：工具执行完毕，检查是否有排队的用户消息 ★
         // Claude Code 风格 Boundary-Aware Injection：
@@ -568,11 +656,12 @@ export class AgentLoop {
         return;
       }
 
-      // 用户主动停止（Ctrl+C 或 stop()）导致的 abort 不视为错误
+      // 用户主动停止（Ctrl+C 或 stop()）或 undici fetch 终止导致的 abort
       const isAbort = !this.running && (
         err.name === 'AbortError' ||
         err.message.includes('aborted') ||
-        err.message.includes('abort')
+        err.message.includes('abort') ||
+        err.message === 'terminated'
       );
 
       if (isAbort) {
@@ -673,10 +762,11 @@ export class AgentLoop {
     this._interrupted = false;
     this._pendingAppendMessage = null;
 
-    // 🔧 触发 AbortController，级联终止所有子任务
-    if (this._abortController) {
-      this._abortController.abort();
-      this._abortController = null;
+    // 🔧 先保存引用再 abort，避免竞态：run() 中正通过 signal 检查 abort 状态
+    const abortController = this._abortController;
+    this._abortController = null;
+    if (abortController) {
+      abortController.abort();
     }
 
     // 🆕 记录用户停止
@@ -685,7 +775,7 @@ export class AgentLoop {
       'user_stop',
       undefined,
       !!this._currentStream,
-      []  // 暂时使用空数组，因为 ToolDispatcher 没有 getActiveToolNames 方法
+      []
     ).catch(() => {
       // 忽略日志写入失败
     });
@@ -693,23 +783,22 @@ export class AgentLoop {
     // 中止所有正在执行的工具（Bash 进程、SubAgent 等）
     this.toolDispatcher.abortAll();
 
-    // 中止当前活跃的 stream
-    if (this._currentStream) {
+    // 中止当前活跃的 stream（先保存引用再操作）
+    const currentStream = this._currentStream;
+    this._currentStream = null;
+    if (currentStream) {
       try {
-        // 尝试 Anthropic/OpenAI SDK 的 controller.abort()
-        const streamAny = this._currentStream as unknown as Record<string, { abort?: () => void }>;
+        const streamAny = currentStream as unknown as Record<string, { abort?: () => void }>;
         if (streamAny.controller?.abort) {
           streamAny.controller.abort();
         }
-        // 尝试 AsyncIterator 标准的 return()
-        const iterator = (this._currentStream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+        const iterator = (currentStream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
         if (typeof iterator.return === 'function') {
           iterator.return(undefined);
         }
       } catch {
         // 中止失败不影响 stop 逻辑
       }
-      this._currentStream = null;
     }
   }
 
@@ -953,14 +1042,8 @@ export class AgentLoop {
    */
   setHookRegistry(hookRegistry: HookRegistry): void {
     this.hookRegistry = hookRegistry;
-    // 传递给 ContextCompressor 以触发 PreCompact/PostCompact 事件
     this.contextCompressor.setHookRegistry(hookRegistry);
-    // 更新 ToolExecutionCoordinator 的 hookRegistry
-    this.toolExecutionCoordinator = new ToolExecutionCoordinator(
-      this.registry,
-      this.toolDispatcher,
-      hookRegistry,
-    );
+    this.toolExecutionCoordinator.setHookRegistry(hookRegistry);
   }
 
   /**
@@ -968,14 +1051,33 @@ export class AgentLoop {
    */
   setThinking(thinkingConfig: import('@/core/types').ThinkingConfig | undefined): void {
     this.thinkingConfig = thinkingConfig;
-    // 更新 StreamRetryHandler 的 thinkingConfig
-    this.streamRetryHandler = new StreamRetryHandler(
-      this.provider,
-      this.streamProcessor,
-      this.errorRecovery,
-      this.perfCollector,
-      this.config,
-      thinkingConfig,
-    );
+    this.streamRetryHandler.setThinkingConfig(thinkingConfig);
+  }
+
+  /**
+   * 动态更新 Agent 配置（由 agent-bridge 在设置保存时调用）
+   * 无需重启 session 即可生效
+   */
+  updateConfig(partial: { maxIterations?: number }): void {
+    if (partial.maxIterations !== undefined) {
+      this.config.maxIterations = partial.maxIterations;
+      this.log.debug(`maxIterations 动态更新为: ${partial.maxIterations}`);
+    }
+  }
+
+  /**
+   * 动态更新 Provider（由 agent-bridge 在 provider 配置变更时调用）
+   */
+  updateProvider(provider: ILLMProvider): void {
+    this.provider = provider;
+    // 同步更新 ContextCompressor 的 provider 引用（用于 LLM 语义压缩）
+    this.contextCompressor.setProvider(provider, {
+      model: this.config.model,
+      apiKey: this.config.apiKey,
+      baseURL: this.config.baseURL,
+      maxTokens: this.config.maxTokens,
+      temperature: this.config.temperature,
+    });
+    this.log.debug('Provider 已动态更新（含 ContextCompressor）');
   }
 }

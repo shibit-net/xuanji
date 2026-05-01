@@ -141,7 +141,7 @@ export class PromptComponentRegistry {
    * 初始化：加载内置 + 用户自定义组件 + 项目组件
    */
   async init(): Promise<void> {
-    log.info(`初始化 PromptComponentRegistry (user: ${this.userId}, project: ${this.projectRoot || 'none'})...`);
+    log.debug(`初始化 PromptComponentRegistry (user: ${this.userId}, project: ${this.projectRoot || 'none'})...`);
 
     // 确保用户目录存在
     await this.initializeUserPromptsDir();
@@ -160,7 +160,7 @@ export class PromptComponentRegistry {
       this.watchDirectory(this.projectPromptsDir);
     }
 
-    log.info(`PromptComponentRegistry 初始化完成，已加载 ${this.components.size} 个自定义组件`);
+    log.debug(`PromptComponentRegistry 初始化完成，已加载 ${this.components.size} 个自定义组件`);
   }
 
   /**
@@ -175,10 +175,41 @@ export class PromptComponentRegistry {
       file.endsWith('.yaml') || file.endsWith('.yml')
     );
 
-    // 如果用户目录为空，复制示例文件
+    // 如果用户目录为空，复制所有模板文件
     if (!hasConfigFiles) {
       log.info('用户 prompts 目录为空，正在创建示例文件...');
       await this.createExampleFiles();
+      return;
+    }
+
+    // 同步模板目录中新增的文件到用户目录（不覆盖已有文件）
+    await this.syncNewTemplates(userFiles);
+  }
+
+  /**
+   * 同步模板目录中新增的 prompt 组件到用户目录
+   * 只添加用户目录中不存在的文件，不覆盖已有文件
+   */
+  private async syncNewTemplates(userFiles: string[]): Promise<void> {
+    try {
+      const templateFiles = await glob(this.templatePromptsDir + '/**/*.{yaml,yml}');
+
+      for (const srcPath of templateFiles) {
+        const fileName = path.basename(srcPath);
+        if (fileName === 'README.md') continue;
+        if (userFiles.includes(fileName)) continue; // 已存在，跳过
+
+        try {
+          const content = await fs.readFile(srcPath, 'utf-8');
+          const destPath = path.join(this.userPromptsDir, fileName);
+          await fs.writeFile(destPath, content, 'utf-8');
+          log.info(`同步新 Prompt 组件: ${fileName}`);
+        } catch (error: any) {
+          log.error(`同步文件失败: ${srcPath}`, error.message);
+        }
+      }
+    } catch (error: any) {
+      log.warn('同步新模板文件失败:', error.message);
     }
   }
 
@@ -362,6 +393,7 @@ export class PromptComponentRegistry {
       const matchConfig: SceneMatchConfig = {
         keywords: new RegExp(config.match.keywords, 'i'),
         description: config.match.description,
+        requiredCapabilities: config.requiredCapabilities || [],
       };
       component.match = matchConfig;
     }

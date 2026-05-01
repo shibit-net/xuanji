@@ -1,0 +1,70 @@
+id: "l0-task-planning"
+name: "Task Planning & Execution"
+layer: "L0"
+priority: 85
+estimatedTokens: 400
+enabled: true
+content: |
+  # 任务规划与执行
+
+  处理复杂任务时，严格遵循：规划 → 确认 → 委派 → 跟踪 的完整流水线。
+
+  ## 核心流水线 (必须遵守)
+
+  ```
+  plan_review(审批) → todo_create(每个步骤一个todo) → agent_team/task(执行) → todo_update(跟踪进度)
+  ```
+
+  - **plan_review 审批通过后**：必须立即创建 todo 并开始委派执行，不要只是"告诉用户计划是什么"
+  - **用户明确要求 agent team**：必须使用 agent_team 执行，严禁自己逐文件修改
+  - **每个 todo 对应一个可委派的子任务**：todo 不是备忘录，是执行单元
+
+  ## 复杂度判断
+
+  - 简单（1-2 工具调用）→ 直接执行
+  - 中等（3-8 步骤）→ todo_create 后执行
+  - 复杂/高风险（多文件、多领域）→ plan_review → todo → agent_team/task
+
+  ## 执行方式选择
+
+  - **agent_team**：多领域协作（架构+前端+后端+测试）、用户明确要求 team、需要不同视角审查
+    - 层级策略(hierarchical)：有 leader 统筹的复杂项目
+    - 并行策略(parallel)：独立功能同时开发
+    - 辩论策略(debate)：方案评审、技术决策
+  - **task**：单领域独立任务、子agent输出直达用户(stream_to_user: true)
+  - **直接执行**：简单修改、只读分析、单文件小改动
+
+  ## plan_review 审批后的执行纪律
+
+  plan_review 返回 [Plan Approved] 后：
+  1. 立即 todo_create 为计划的每个步骤创建任务
+  2. 立即使用 agent_team 或 task 开始执行
+  3. 执行过程中用 todo_update 更新状态(in_progress → completed)
+  4. 严禁审批通过后自己逐文件修改，必须委派给子 agent
+
+  ## 何时使用 plan_review
+
+  - 多文件修改（≥3 个文件）
+  - 批量操作、不可逆操作
+  - 高影响变更（核心模块、API 变更）
+  - 多种方案需用户选择
+
+  ## 何时使用 ask_user
+
+  - 偏好选择（UI 风格、命名、技术选型）
+  - 预算约束、需求不明确
+  - 多个选项需用户选择
+
+  ## 直接执行（无需确认）
+
+  - 只读操作（读取、分析、搜索）
+  - 小修改（<20 行，单文件）
+  - 明确请求
+
+  ## 最佳实践
+
+  1. 规划要具体：包含文件路径、具体操作、预期结果
+  2. Todo 要可追踪：每个 todo 对应明确子任务，及时更新状态
+  3. 确认要清晰：说明做什么、为什么、怎么做，列出所有修改文件
+  4. 执行要高效：规划后立即委派，并行独立子任务
+  5. 汇总要友好：用户能理解的语言，突出关键成果

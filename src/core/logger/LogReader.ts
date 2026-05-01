@@ -13,6 +13,9 @@ import { watch } from 'fs';
 import path from 'path';
 import type { LogLevel } from './types';
 
+/** 轮转日志文件名模式: <level>-YYYY-MM-DD.log */
+const ROTATED_LOG_PATTERN = /^(debug|info|warn|error)-\d{4}-\d{2}-\d{2}\.log$/;
+
 export interface LogRecord {
   timestamp: string;
   level: LogLevel;
@@ -65,27 +68,41 @@ export class LogReader {
   }
 
   /**
-   * 读取指定级别的日志文件
+   * 读取指定级别的日志文件（包括轮转文件）
    */
   async readLevel(level: LogLevel, query?: LogQuery): Promise<LogRecord[]> {
-    const filePath = path.join(this.baseDir, `${level}.log`);
-
     try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const lines = content.split('\n').filter(line => line.trim());
+      // 找到所有匹配的文件：<level>.log（活跃）和 <level>-YYYY-MM-DD.log（轮转）
+      const dirFiles = await fs.readdir(this.baseDir).catch(() => [] as string[]);
+      const logFiles = dirFiles
+        .filter(f => f === `${level}.log` || ROTATED_LOG_PATTERN.test(f))
+        .sort() // 按文件名排序（日期文件自然排序）
+        .map(f => path.join(this.baseDir, f));
 
-      let records = lines
-        .map(line => this.parseLine(line, level))
-        .filter((r): r is LogRecord => r !== null);
+      if (logFiles.length === 0) return [];
+
+      let allRecords: LogRecord[] = [];
+
+      for (const filePath of logFiles) {
+        try {
+          const content = await fs.readFile(filePath, 'utf-8');
+          const lines = content.split('\n').filter(line => line.trim());
+          const records = lines
+            .map(line => this.parseLine(line, level))
+            .filter((r): r is LogRecord => r !== null);
+          allRecords.push(...records);
+        } catch {
+          // 跳过无法读取的文件
+        }
+      }
 
       // 应用过滤
       if (query) {
-        records = this.applyFilters(records, query);
+        allRecords = this.applyFilters(allRecords, query);
       }
 
-      return records;
-    } catch (error) {
-      // 文件不存在或读取失败，返回空数组
+      return allRecords;
+    } catch {
       return [];
     }
   }

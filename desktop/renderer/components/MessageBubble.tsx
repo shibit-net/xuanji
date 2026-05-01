@@ -2,24 +2,92 @@
 // MessageBubble - 消息气泡组件
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { User, Bot, Loader2, Copy, Check } from 'lucide-react';
-import type { Message } from '../stores/chatStore';
+import { User, Bot, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import type { Message, SubAgentReference } from '../stores/chatStore';
+import { useChatStore } from '../stores/chatStore';
+import { useRuntimeStore } from '../stores/runtimeStore';
+import { remarkSubAgentReference } from '../utils/remarkSubAgentReference';
+
+// 耗时格式化：ms → 可读字符串
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+// Token 用量格式化
+function formatTokens(tokens: { input: number; output: number }): string {
+  const total = tokens.input + tokens.output;
+  if (total >= 1000) {
+    return `${(total / 1000).toFixed(1)}k tokens`;
+  }
+  return `${total} tokens`;
+}
+
+/**
+ * 规范化 markdown 行内标题
+ * LLM 输出 "文本：## 标题" 时 ## 不在行首，不会被解析为标题。
+ * 在 ReactMarkdown 解析前插入换行，确保 ##~###### 在行首。
+ * 跳过代码块内的内容。
+ */
+function normalizeMarkdownHeadings(text: string): string {
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // 代码块，跳过
+      return part.replace(/([^\n#])(#{2,6})\s/g, '$1\n\n$2 ');
+    })
+    .join('');
+}
+
+/** 流式输出时实时展示耗时和 Token */
+function StreamingStats({ timestamp }: { timestamp: number }) {
+  const [elapsed, setElapsed] = useState(Date.now() - timestamp);
+  const currentTokens = useRuntimeStore((s) => s.currentCallTokens);
+
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed(Date.now() - timestamp), 1000);
+    return () => clearInterval(timer);
+  }, [timestamp]);
+
+  const totalTokens = (currentTokens?.input || 0) + (currentTokens?.output || 0);
+
+  return (
+    <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border-primary/50 text-xs text-text-tertiary">
+      <span className="flex items-center gap-1">
+        ⏱ {formatDuration(elapsed)}
+      </span>
+      {totalTokens > 0 && (
+        <span className="flex items-center gap-1">
+          🎯 {formatTokens({ input: currentTokens.input, output: currentTokens.output })}
+        </span>
+      )}
+    </div>
+  );
+}
 
 interface MessageBubbleProps {
   message: Message;
+  /** 是否正在流式输出中，用于跳过入场动画和启用性能优化 */
+  isStreaming?: boolean;
+  /** 流式输出时的实时文本（避免从 messages 数组读取，减少渲染开销） */
+  streamingText?: string;
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubbleProps) {
+const MessageBubble = React.memo(function MessageBubble({ message, isStreaming = false, streamingText }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
-  const isThinking = message.role === 'assistant' && message.thinking;
   const isToolSummary = message.toolSummary === true;
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [expandedReferences, setExpandedReferences] = useState<Set<string>>(new Set());
+  const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
 
   const handleCopyCode = async (code: string, id: string) => {
     await navigator.clipboard.writeText(code);
@@ -27,10 +95,47 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
+  const toggleReference = (agentName: string) => {
+    setExpandedReferences((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentName)) {
+        next.delete(agentName);
+      } else {
+        next.add(agentName);
+      }
+      return next;
+    });
+  };
+
+  // 流式输出时使用实时文本，避免从 messages 数组读取导致不必要的重渲染
+  const displayContent = isStreaming && streamingText !== undefined ? streamingText : message.content;
+
+  const toggleCitation = (agentName: string) => {
+    setExpandedCitations((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentName)) {
+        next.delete(agentName);
+      } else {
+        next.add(agentName);
+      }
+      return next;
+    });
+  };
+
+  // 从 chatStore 查找 📎 引用输出
+  const getCitationOutput = (agentName: string): SubAgentReference | null => {
+    return useChatStore.getState().getCitationOutput(agentName);
+  };
+
+  // 从 message.subAgentReferences 中查找对应的引用
+  const getSubAgentReference = (agentName: string) => {
+    return message.subAgentReferences?.find((ref) => ref.agentName === agentName);
+  };
+
   // System 消息特殊样式
   if (isSystem) {
     return (
-      <div className="flex justify-center my-4 animate-fadeIn">
+      <div className={`flex justify-center my-4${isStreaming ? '' : ' animate-fadeIn'}`}>
         <div className="max-w-[80%] bg-bg-tertiary/30 border border-border-primary rounded-lg p-3 text-sm text-text-secondary text-center">
           {message.content}
         </div>
@@ -39,9 +144,9 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
   }
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}${isStreaming ? '' : ' animate-fadeIn'}`}>
       <div
-        className={`max-w-[80%] min-w-0 ${
+        className={`message-bubble max-w-[80%] min-w-0 ${
           isUser
             ? 'bg-primary text-white'
             : isToolSummary
@@ -69,20 +174,117 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
           )}
         </div>
 
-        {/* 状态提示（回忆中 / 思考中 / 编写中...） */}
-        {(message.statusHint || isThinking) && (
-          <div className="flex items-center gap-2 text-sm text-text-secondary mb-2">
-            <Loader2 size={14} className="animate-spin" />
-            <span>{message.statusHint || '思考中...'}</span>
+        {/* 状态提示（statusHint） */}
+        {!isUser && message.statusHint && (
+          <div className="mb-2 text-xs text-text-secondary animate-pulse">
+            {message.statusHint}
           </div>
         )}
 
         {/* 消息内容 */}
         <div className="max-w-none text-text-primary">
-          {typeof message.content === 'string' ? (
+          {typeof displayContent === 'string' ? (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkSubAgentReference]}
               components={{
+                // 🆕 自定义渲染引用（📎 [Name]："quote"）
+                'citation-reference': ({ agentName, quotedText }: any) => {
+                  const citation = getCitationOutput(agentName);
+                  const isExpanded = expandedCitations.has(agentName);
+
+                  if (!citation) {
+                    return (
+                      <span className="inline-flex items-center gap-1 text-sm text-text-secondary">
+                        <span className="citation-chip inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-tertiary/50 text-text-secondary cursor-default">
+                          📎 <span className="font-medium">{agentName}</span>
+                        </span>
+                        <span className="citation-quote text-text-tertiary">：{quotedText}</span>
+                      </span>
+                    );
+                  }
+
+                  return (
+                    <span className="inline-flex flex-col">
+                      <span className="inline-flex items-center gap-1 text-sm">
+                        <button
+                          onClick={() => toggleCitation(agentName)}
+                          className="citation-chip inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer border border-primary/20"
+                          title={`查看 ${agentName} 的完整输出`}
+                        >
+                          📎 <span className="font-medium underline decoration-dotted">{agentName}</span>
+                          {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                        <span className="citation-quote text-text-secondary">：{quotedText}</span>
+                      </span>
+                      {isExpanded && (
+                        <div className="mt-2 ml-2 border border-primary/20 rounded-lg overflow-hidden bg-bg-tertiary/10">
+                          <div className="flex items-center justify-between p-2 bg-bg-tertiary/20 border-b border-border-primary">
+                            <div className="flex items-center gap-2 text-xs text-text-secondary">
+                              <Bot size={12} className="text-primary" />
+                              <span className="font-medium text-text-primary">{citation.agentName}</span>
+                              <span>{(citation.duration / 1000).toFixed(1)}s</span>
+                              <span>{formatTokens(citation.tokensUsed)}</span>
+                            </div>
+                          </div>
+                          <div className="p-3 text-sm text-text-primary max-h-80 overflow-y-auto whitespace-pre-wrap">
+                            {citation.originalOutput}
+                          </div>
+                        </div>
+                      )}
+                    </span>
+                  );
+                },
+                // 🔧 自定义渲染子 agent 引用
+                'sub-agent-reference': ({ agentName }: any) => {
+                  const reference = getSubAgentReference(agentName);
+                  const isExpanded = expandedReferences.has(agentName);
+
+                  if (!reference) {
+                    // 如果找不到引用数据，显示一个占位符
+                    return (
+                      <div className="my-3 p-3 bg-bg-tertiary/30 border border-border-primary rounded-lg text-sm text-text-secondary">
+                        <span className="opacity-60">引用：{agentName}</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="my-3 border border-border-primary rounded-lg overflow-hidden bg-bg-tertiary/20">
+                      {/* 引用头部 - 可点击展开/收起 */}
+                      <button
+                        onClick={() => toggleReference(agentName)}
+                        className="w-full flex items-center justify-between p-3 hover:bg-bg-tertiary/30 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Bot size={14} className="text-primary" />
+                          <span className="text-sm font-medium text-text-primary">
+                            {reference.agentName}
+                          </span>
+                          <span className="text-xs text-text-secondary">
+                            {(reference.duration / 1000).toFixed(1)}s
+                          </span>
+                          <span className="text-xs text-text-tertiary">
+                            {reference.tokensUsed.input + reference.tokensUsed.output} tokens
+                          </span>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp size={16} className="text-text-secondary" />
+                        ) : (
+                          <ChevronDown size={16} className="text-text-secondary" />
+                        )}
+                      </button>
+
+                      {/* 引用内容 - 展开时显示 */}
+                      {isExpanded && (
+                        <div className="border-t border-border-primary p-4 bg-bg-secondary/50">
+                          <div className="text-sm text-text-primary whitespace-pre-wrap font-mono">
+                            {reference.originalOutput}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                },
                 code({ node, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
                   const codeString = String(children).replace(/\n$/, '');
@@ -273,7 +475,7 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
                 },
               }}
             >
-              {message.content}
+              {normalizeMarkdownHeadings(displayContent)}
             </ReactMarkdown>
           ) : (
             <div className="text-sm">
@@ -282,6 +484,27 @@ const MessageBubble = React.memo(function MessageBubble({ message }: MessageBubb
             </div>
           )}
         </div>
+
+        {/* 耗时 & Token 统计（仅 assistant 消息完成后展示） */}
+        {!isUser && !isSystem && (message.duration || message.tokensUsed) && (
+          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border-primary/50 text-xs text-text-tertiary">
+            {message.duration && (
+              <span className="flex items-center gap-1">
+                ⏱ {formatDuration(message.duration)}
+              </span>
+            )}
+            {message.tokensUsed && (
+              <span className="flex items-center gap-1">
+                🎯 {formatTokens(message.tokensUsed)}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* 流式过程中展示实时耗时和 Token */}
+        {!isUser && !isSystem && isStreaming && message.timestamp && (
+          <StreamingStats timestamp={message.timestamp} />
+        )}
       </div>
     </div>
   );

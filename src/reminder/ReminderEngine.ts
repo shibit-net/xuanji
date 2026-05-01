@@ -2,7 +2,6 @@
 // 提醒系统 — ReminderEngine 引擎
 // ============================================================
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { SimpleStorage } from '@/core/SimpleStorage';
 import type {
@@ -13,9 +12,11 @@ import type {
   RelationshipReminder,
   IReminderEngine,
   MemoryEntry,
+  ListRemindersFilter,
 } from './types';
 import { DEFAULT_REMINDER_CONFIG } from './types';
 import { logger } from '@/core/logger';
+import { getUserRemindersDir } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'reminder-engine' });
 
@@ -40,11 +41,16 @@ export class ReminderEngine implements IReminderEngine {
   /**
    * @param config 提醒配置
    * @param storage 可选：注入 SimpleStorage 实例（测试用）
+   * @param userId 可选：用户 ID，用于用户维度数据隔离
    */
-  constructor(config?: Partial<ReminderConfig>, storage?: SimpleStorage) {
+  constructor(config?: Partial<ReminderConfig>, storage?: SimpleStorage, userId?: string) {
     this.config = { ...DEFAULT_REMINDER_CONFIG, ...config };
     this.storage = storage ?? new SimpleStorage();
-    this.filePath = join(process.cwd(), '.xuanji', this.config.storageFile);
+    if (userId) {
+      this.filePath = join(getUserRemindersDir(userId), this.config.storageFile);
+    } else {
+      this.filePath = join(process.cwd(), '.xuanji', this.config.storageFile);
+    }
   }
 
   /** 初始化：加载已有提醒 */
@@ -212,6 +218,44 @@ export class ReminderEngine implements IReminderEngine {
    */
   getActiveReminders(): Reminder[] {
     return this.reminders.filter((r) => r.status === 'active');
+  }
+
+  /**
+   * 查询提醒列表，支持按状态和日期范围过滤
+   *
+   * @param filter 过滤条件（所有字段可选）
+   *   - status: 按状态过滤，不传则返回所有状态
+   *   - dateFrom: 日期下界（含），格式 YYYY-MM-DD
+   *   - dateTo: 日期上界（含），格式 YYYY-MM-DD
+   * @returns 匹配的提醒列表，按 triggerDate 降序、createdAt 降序排列
+   */
+  async listReminders(filter?: ListRemindersFilter): Promise<Reminder[]> {
+    if (!this.initialized) await this.init();
+
+    let results = [...this.reminders];
+
+    if (filter?.status) {
+      results = results.filter((r) => r.status === filter.status);
+    }
+
+    if (filter?.dateFrom) {
+      results = results.filter((r) => r.triggerDate >= filter.dateFrom!);
+    }
+
+    if (filter?.dateTo) {
+      results = results.filter((r) => r.triggerDate <= filter.dateTo!);
+    }
+
+    // 排序：triggerDate 降序，同日期按 createdAt 降序
+    results.sort((a, b) => {
+      const dateCmp = b.triggerDate.localeCompare(a.triggerDate);
+      if (dateCmp !== 0) return dateCmp;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    log.debug(`listReminders: ${results.length} results (filter: ${JSON.stringify(filter)})`);
+
+    return results;
   }
 
   /**

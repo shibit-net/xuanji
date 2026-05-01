@@ -81,6 +81,12 @@ export class PermissionController implements IPermissionController {
   /** 决策缓存最大容量 */
   private static readonly MAX_DECISION_CACHE = 500;
 
+  /** 确认超时时间（毫秒），超时后自动拒绝 */
+  private static readonly CONFIRMATION_TIMEOUT_MS = 60_000;
+
+  /** 计划审查超时时间（毫秒），超时后自动拒绝 */
+  private static readonly PLAN_REVIEW_TIMEOUT_MS = 300_000;
+
   /** 会话级决策缓存: cacheKey → allowed */
   private decisionCache: Map<string, boolean> = new Map();
 
@@ -102,7 +108,11 @@ export class PermissionController implements IPermissionController {
   /** 确认队列: 保证同一时刻只有一个确认框 */
   private confirmationQueue: Promise<void> = Promise.resolve();
 
-  constructor(config: PermissionConfig, eventBus?: EventBus) {
+  /** 当前登录用户 ID，用于决策记录的按用户隔离存储 */
+  private userId: string;
+
+  constructor(config: PermissionConfig, userId?: string, eventBus?: EventBus) {
+    this.userId = userId || 'default';
     this.config = config;
     this.fileGuard = new FileGuard();
     this.commandGuard = new CommandGuard();
@@ -134,7 +144,7 @@ export class PermissionController implements IPermissionController {
     try {
       const dbPath = this.config.decisionsFile
         ? resolve(this.config.decisionsFile)
-        : join(process.cwd(), '.xuanji', 'permission-decisions.db');
+        : join(process.cwd(), '.xuanji', this.userId, 'permission-decisions.db');
 
       this.decisionStore = new DecisionStore(dbPath);
       await this.decisionStore.init();
@@ -521,14 +531,23 @@ export class PermissionController implements IPermissionController {
     return new Promise<PermissionResult>((resolve) => {
       this.confirmationQueue = this.confirmationQueue.then(async () => {
         try {
-          // 直接 await handler，超时逻辑由 UI 层（App.tsx）负责
-          const confirmation = await this.confirmationHandler!(request, guardResult);
+          // 添加超时保护：60秒未响应则自动拒绝，防止 UI 崩溃导致永久阻塞
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Confirmation timeout')), PermissionController.CONFIRMATION_TIMEOUT_MS);
+          });
+          const confirmation = await Promise.race([
+            this.confirmationHandler!(request, guardResult),
+            timeoutPromise,
+          ]);
 
           // 更新缓存 (如果用户选择了 Always/Never)
           if (confirmation.remember) {
             if (this.decisionCache.size >= PermissionController.MAX_DECISION_CACHE) {
-              // 清空重建（与 PathMatcher 策略一致）
-              this.decisionCache.clear();
+              // 逐出最早的条目（FIFO），避免全量清空导致大量重新确认
+              const firstKey = this.decisionCache.keys().next().value;
+              if (firstKey !== undefined) {
+                this.decisionCache.delete(firstKey);
+              }
             }
             this.decisionCache.set(guardResult.cacheKey, confirmation.allowed);
             this.log.debug(`Session cache set: ${guardResult.cacheKey} → ${confirmation.allowed}`);
@@ -636,9 +655,18 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
-    // 直接 await handler，超时逻辑由 UI 层（App.tsx）负责
     try {
-      const result = await this.planReviewHandler(plan);
+      // 超时保护：PLAN_REVIEW_TIMEOUT_MS 内未响应则自动拒绝，防止 UI 崩溃/用户离开导致永久阻塞
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('Plan review timeout')),
+          PermissionController.PLAN_REVIEW_TIMEOUT_MS,
+        );
+      });
+      const result = await Promise.race([
+        this.planReviewHandler(plan),
+        timeoutPromise,
+      ]);
       this.eventBus.emit('plan:reviewed', {
         plan,
         result,
@@ -646,7 +674,7 @@ export class PermissionController implements IPermissionController {
       });
       return result;
     } catch (err) {
-      this.log.warn('Plan review handler error, rejecting:', err);
+      this.log.warn('Plan review timeout/error, auto-rejecting:', err);
       const result: PlanReviewResult = { decision: 'reject' };
       this.eventBus.emit('plan:reviewed', {
         plan,

@@ -36,6 +36,7 @@ import { SubAgentContext, type IsolationMode, type AgentRoleType } from './SubAg
 import { AgentLoop } from './AgentLoop';
 import { ProjectScanner } from '@/context/ProjectScanner';
 import { RulesLoader } from '@/core/config/RulesLoader';
+import { FilteredToolRegistry } from '@/core/tools/FilteredToolRegistry';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SubAgentFactory' });
@@ -88,6 +89,18 @@ export interface SubAgentFactoryOptions {
    * 如果不指定，子 agent 将继承父 agent 的工作目录
    */
   workingDir?: string;
+  /**
+   * 🆕 是否将子 agent 的输出流式展示给用户
+   * - true: 子 agent 的文本输出会实时发送到前端（适合单个子 agent 执行独立任务）
+   * - false: 子 agent 的输出只返回给主 agent（适合 agent_team 等需要主 agent 总结的场景）
+   * 默认：false
+   */
+  streamToUser?: boolean;
+  /**
+   * 🆕 预生成的子 agent ID（用于 TeamManager 等场景，确保 Timeline 事件 ID 一致）
+   * 如果不指定，createSubAgent 会自动生成
+   */
+  subAgentId?: string;
 }
 
 /**
@@ -105,78 +118,22 @@ export interface SubAgentInstance {
 }
 
 /**
- * 工具过滤的注册表代理
- *
- * 🆕 支持注入 agent 上下文信息到工具调用
- */
-class FilteredToolRegistry implements IToolRegistry {
-  private inner: IToolRegistry;
-  private allowedTools: Set<string>;
-  private agentContext?: { agentId: string; agentName: string };
-
-  constructor(inner: IToolRegistry, allowedTools: string[], isSystemAgent = false, agentContext?: { agentId: string; agentName: string }) {
-    this.inner = inner;
-    this.allowedTools = new Set(allowedTools);
-    this.agentContext = agentContext;
-  }
-
-  register(): void {
-    throw new Error('Sub-agent cannot register tools');
-  }
-
-  unregister(): void {
-    throw new Error('Sub-agent cannot unregister tools');
-  }
-
-  get(name: string): any | undefined {
-    if (!this.allowedTools.has(name)) return undefined;
-    return this.inner.get(name);
-  }
-
-  getAll(): any[] {
-    return this.inner.getAll().filter((t: any) => this.allowedTools.has(t.name));
-  }
-
-  getSchemas(): any[] {
-    return this.getAll().map((tool: any) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.input_schema,
-    }));
-  }
-
-  has(name: string): boolean {
-    return this.allowedTools.has(name) && this.inner.has(name);
-  }
-
-  async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-    if (!this.allowedTools.has(name)) {
-      return {
-        content: `Tool "${name}" is not available in this sub-agent.`,
-        isError: true,
-      };
-    }
-
-    // 🆕 为 ask_user 工具注入 agent 上下文
-    if (name === 'ask_user' && this.agentContext) {
-      input = {
-        ...input,
-        _agentId: this.agentContext.agentId,
-        _agentName: this.agentContext.agentName,
-      };
-    }
-
-    return this.inner.execute(name, input, signal);
-  }
-}
-
-/**
  * SubAgentFactory
  */
 export class SubAgentFactory {
   private promptBuilder: LayeredPromptBuilder | null = null;
   private parentProvider: ILLMProvider | null = null;
-  private parentProviderConfig: import('@/core/types').ProviderConfig | null = null;
+  private agentConfig: ConfigurableAgentConfig | null = null; // 🔧 父agent配置（用于继承provider）
+
+  // 缓存：项目规则在 session 内不变，避免每次创建子 agent 时重复读磁盘
+  private static projectRulesCache: string | null = null;
+  private static projectRulesLoaded = false;
+
+  // 缓存：L0 基础 prompt 按 agentId 缓存，避免重复调用 buildForSubAgent
+  private l0PromptCache = new Map<string, string>();
+
+  // 缓存：场景 prompt 按 scene 名称缓存，避免重复异步加载
+  private scenePromptCache = new Map<string, string>();
 
   constructor(
     public agentRegistry: AgentRegistry, // 改为 public，允许 TeamManager 访问
@@ -185,7 +142,7 @@ export class SubAgentFactory {
     private hookRegistry?: HookRegistry | null,
     memoryStore?: null,
     parentProvider?: ILLMProvider | null,
-    parentProviderConfig?: import('@/core/types').ProviderConfig | null,
+    parentAgentConfig?: ConfigurableAgentConfig | null, // 🔧 改为完整的agent配置
   ) {
     // 防御性检查：确保 agentRegistry 不是 undefined
     if (!agentRegistry) {
@@ -194,7 +151,7 @@ export class SubAgentFactory {
       throw error;
     }
     this.parentProvider = parentProvider ?? null;
-    this.parentProviderConfig = parentProviderConfig ?? null;
+    this.agentConfig = parentAgentConfig ?? null; // 🔧 保存父agent配置
 
     console.log('[SubAgentFactory] 构造函数调用，hookRegistry:', !!hookRegistry);
   }
@@ -224,6 +181,14 @@ export class SubAgentFactory {
 
     if (!agentConfig) {
       throw new Error(`Agent configuration not found: ${agentIdOrRole}`);
+    }
+
+    // 🔧 检查 Agent 是否被禁用
+    if (agentConfig.enabled === false) {
+      throw new Error(
+        `Agent "${agentConfig.name}" (${agentConfig.id}) is disabled. ` +
+        `Please enable it in Agent Manager or use a different agent.`
+      );
     }
 
     log.info(`[SubAgentFactory] createSubAgent: agentId=${agentConfig.id} name="${agentConfig.name}" model=${agentConfig.model.primary} tools=${agentConfig.tools.length} source=${agentConfig.metadata?.source ?? 'unknown'}`);
@@ -283,15 +248,19 @@ export class SubAgentFactory {
     }
 
     // 4. 创建过滤后的工具注册表
-    // 优先用参数指定的工具列表，其次用配置文件中的工具列表
-    const allowedTools = options.tools && options.tools.length > 0
-      ? options.tools
-      : agentConfig.tools.map((t) => t.name);
+    // LLM 指定的 member.tools 与 agent config 中 required: true 的工具做并集
+    // 避免 LLM 漏写关键工具导致子 agent 无法正常工作
+    let allowedTools: string[];
+    if (options.tools && options.tools.length > 0) {
+      const requiredTools = (agentConfig.tools as any[])
+        .filter((t: any) => t.required)
+        .map((t: any) => t.name);
+      allowedTools = [...new Set([...options.tools, ...requiredTools])];
+    } else {
+      allowedTools = (agentConfig.tools as any[]).map((t: any) => t.name);
+    }
 
     log.info(`[SubAgentFactory] tools agentId=${agentConfig.id} count=${allowedTools.length} list=[${allowedTools.slice(0, 8).join(', ')}${allowedTools.length > 8 ? '...' : ''}]`);
-
-    // 判断是否为系统内部 Agent
-    const isSystemAgent = agentConfig.metadata?.internal === true;
 
     // 🆕 准备 agent 上下文信息
     const agentContext = {
@@ -302,8 +271,8 @@ export class SubAgentFactory {
     const filteredRegistry = new FilteredToolRegistry(
       this.baseRegistry,
       allowedTools,
-      isSystemAgent,
-      agentContext  // 传递上下文
+      agentContext,
+      options.workingDir || process.cwd(),
     );
 
     // 5. 构建完整的 System Prompt
@@ -312,16 +281,22 @@ export class SubAgentFactory {
     let systemPrompt: string;
     const isInternalAgent = agentConfig.metadata?.internal === true;
 
-    // 🆕 使用 LayeredPromptBuilder 构建基础 prompt（L0）
+    // 🆕 使用 LayeredPromptBuilder 构建基础 prompt（L0），按 agentId 缓存
     if (this.promptBuilder && !isInternalAgent) {
       try {
-        // 1. 构建 L0 基础层
-        const buildResult = await this.promptBuilder.buildForSubAgent({
-          agentId: agentConfig.id,
-          agentConfig,
-          includeProjectContext: !isInternalAgent,
-        });
-        systemPrompt = buildResult.prompt;  // L0 基础层
+        // 1. 构建 L0 基础层（优先从缓存读取）
+        const l0CacheKey = agentConfig.id;
+        let l0Prompt = this.l0PromptCache.get(l0CacheKey);
+        if (!l0Prompt) {
+          const buildResult = await this.promptBuilder.buildForSubAgent({
+            agentId: agentConfig.id,
+            agentConfig,
+            includeProjectContext: !isInternalAgent,
+          });
+          l0Prompt = buildResult.prompt;
+          this.l0PromptCache.set(l0CacheKey, l0Prompt);
+        }
+        systemPrompt = l0Prompt;  // L0 基础层
 
         // 2. 追加 Agent 自身的 systemPrompt（agent 特性）
         if (agentConfig.systemPrompt && agentConfig.systemPrompt.trim()) {
@@ -346,7 +321,7 @@ export class SubAgentFactory {
 
         // 6. 追加子代理模式标记
         const depth = options.depth ?? 0;
-        systemPrompt += `\n\n---\n# SubAgent 模式\nDepth: ${depth}, Role: ${agentConfig.id}\n不要提出澄清问题，不要启动新的子任务。`;
+        systemPrompt += `\n\n---\n# SubAgent 模式\nDepth: ${depth}, Role: ${agentConfig.id}\n不要提出澄清问题。当子问题需要不同领域专长或可独立并行执行时，可以使用 task 工具委派给其他 agent。`;
 
         log.debug(`  Prompt built: L0 + Agent.systemPrompt + Scene.prompt`);
       } catch (err) {
@@ -381,17 +356,17 @@ export class SubAgentFactory {
     let baseURL = agentProvider?.baseURL;
 
     if (!hasIndependentProvider) {
-      // 使用 parentProvider 时，parentProviderConfig 必须存在
-      if (!this.parentProviderConfig) {
+      // 使用 parentProvider 时，agentConfig 必须存在
+      if (!this.agentConfig?.provider) {
         throw new Error(
-          `Cannot create sub-agent "${agentConfig.id}" without parentProviderConfig. ` +
-          `SubAgentFactory must be initialized with parent provider config.`
+          `Cannot create sub-agent "${agentConfig.id}" without parent agent config. ` +
+          `SubAgentFactory must be initialized with parent agent config containing provider info.`
         );
       }
 
       // 直接使用父 Agent 的配置
-      apiKey = apiKey ?? this.parentProviderConfig.apiKey;
-      baseURL = baseURL ?? this.parentProviderConfig.baseURL;
+      apiKey = apiKey ?? this.agentConfig.provider.apiKey;
+      baseURL = baseURL ?? this.agentConfig.provider.baseURL;
       log.debug(`  Using parent provider config: apiKey=${!!apiKey}, baseURL=${baseURL}`);
     }
 
@@ -421,7 +396,7 @@ export class SubAgentFactory {
       agentLoop.setHookRegistry(this.hookRegistry);
     }
 
-    const subAgentId = `subagent-${agentConfig.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const subAgentId = options.subAgentId || `subagent-${agentConfig.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     log.debug(`✓ Sub-agent created in ${Date.now() - startTime}ms: ${subAgentId}`);
 
@@ -470,8 +445,23 @@ export class SubAgentFactory {
     if (!systemPrompt || systemPrompt.trim() === '') {
       log.error(`创建临时 Agent 失败: agent_id="${agentIdOrRole}" 不存在，且未提供 system_prompt 参数`);
       throw new Error(
-        `Agent "${agentIdOrRole}" not found in registry. ` +
-        `To create a temporary agent, you must provide a "system_prompt" parameter that defines the agent's behavior and capabilities.`
+        `❌ 参数错误: 缺少必需参数 'system_prompt'\n\n` +
+        `原因：\n` +
+        `创建临时 agent "${agentIdOrRole}" 失败，因为该 agent 不在预置列表中。\n` +
+        `创建临时 agent 时必须提供 system_prompt 和 tools 参数。\n\n` +
+        `解决方案：\n` +
+        `1. 先调用 match_agent 查找合适的预置 agent（推荐）\n` +
+        `2. 如果没有合适的预置 agent（匹配分数 < 0.5），提供 system_prompt 和 tools 参数创建临时 agent\n\n` +
+        `示例：\n` +
+        `task({\n` +
+        `  description: "分析代码质量",\n` +
+        `  subagent_type: "${agentIdOrRole}",\n` +
+        `  system_prompt: "你是一个代码质量分析专家，负责检查代码规范、性能和安全问题。",\n` +
+        `  tools: ["read_file", "grep", "glob"]  // 只分配必要的工具\n` +
+        `})\n\n` +
+        `💡 提示：\n` +
+        `临时 agent 只应在没有合适的预置 agent 时使用（match_agent 分数 < 0.5）。\n` +
+        `使用 match_agent 工具可以查看所有可用的预置 agent。`
       );
     }
 
@@ -487,11 +477,20 @@ export class SubAgentFactory {
 
       const capabilities = [role]; // 简单推断，可以后续优化
 
+      // 🔧 调试日志：检查父agent配置
+      log.info(`[SubAgentFactory] 创建临时agent，父agent配置:`, {
+        hasAgentConfig: !!this.agentConfig,
+        hasProvider: !!this.agentConfig?.provider,
+        adapter: this.agentConfig?.provider?.adapter,
+        hasApiKey: !!this.agentConfig?.provider?.apiKey,
+        hasBaseURL: !!this.agentConfig?.provider?.baseURL,
+      });
+
       const tempAgent = factory.createTemporaryAgent({
         role,
         capabilities,
         taskDescription: systemPrompt, // 使用提供的 systemPrompt 作为任务描述
-        parentConfig: this.agentConfig, // 🔧 传递父agent配置以继承provider
+        parentConfig: this.agentConfig ?? undefined, // 🔧 传递父agent配置以继承provider
       });
 
       log.info(`✓ 创建临时 Agent: ${tempAgent.id} (${tempAgent.name})，继承父 Agent 的 LLM 配置`);
@@ -527,7 +526,7 @@ export class SubAgentFactory {
     const depth = options.depth ?? 0;
     const subAgentHeader = [
       `\n\n---\n[SubAgent Mode - Depth: ${depth}, Role: ${agentConfig.id}]`,
-      `Do NOT ask clarifying questions. Do NOT start new sub-tasks.`,
+      `Do NOT ask clarifying questions. You may use the task tool to delegate to other agents when appropriate.`,
     ].join('\n');
 
     prompt += subAgentHeader;
@@ -540,14 +539,19 @@ export class SubAgentFactory {
    * 轻量版：不做文件索引，只注入规则文本
    */
   private loadProjectRules(): string {
+    if (SubAgentFactory.projectRulesLoaded) {
+      return SubAgentFactory.projectRulesCache ?? '';
+    }
+    SubAgentFactory.projectRulesLoaded = true;
     try {
       const scanner = new ProjectScanner();
       const { rootPath } = scanner.scan();
       const loader = new RulesLoader();
-      return loader.loadAsTextSync(rootPath);
+      SubAgentFactory.projectRulesCache = loader.loadAsTextSync(rootPath);
     } catch {
-      return '';
+      SubAgentFactory.projectRulesCache = '';
     }
+    return SubAgentFactory.projectRulesCache ?? '';
   }
 
   /**
@@ -571,31 +575,64 @@ export class SubAgentFactory {
     duration: number;
     timedOut: boolean;
     iterations: number;
+    success: boolean;
   }> {
     log.info(`[SubAgentFactory] createAndRun start: agentId=${agentIdOrRole} task="${options.task.substring(0, 80)}" scene=${options.scene ?? 'none'} depth=${options.depth ?? 0} timeout=${options.timeout ?? 'default'}ms`);
     const startTime = Date.now();
+    let subAgentId: string | null = null; // 🔧 提前声明，用于错误处理
+    let config: ConfigurableAgentConfig | null = null; // 🔧 提前声明
+    let context: SubAgentContext | null = null; // 🔧 提前声明
 
-    // 🆕 如果指定了 scene 但没有 scenePrompt，从 PromptBuilder 加载
+    // 🆕 如果指定了 scene 但没有 scenePrompt，从缓存或 PromptBuilder 加载
     if (options.scene && !options.scenePrompt && this.promptBuilder) {
-      try {
-        const sceneComponent = await this.promptBuilder.getSceneComponent(options.scene);
-        if (sceneComponent) {
-          const config = await this.promptBuilder['userRegistry']?.getComponentConfig(`l1-${options.scene}`);
-          if (config?.content) {
-            options.scenePrompt = config.content;
-            log.info(`[SubAgentFactory] Loaded scene prompt for scene=${options.scene}`);
+      // 标准化 scene：去除可能的 l1-/l2- 前缀
+      const rawScene = options.scene;
+      const normalizedScene = rawScene.replace(/^l[12]-/, '');
+      const cachedScene = this.scenePromptCache.get(normalizedScene);
+      if (cachedScene !== undefined) {
+        options.scenePrompt = cachedScene || undefined;
+      } else {
+        try {
+          const sceneComponent = await this.promptBuilder.getSceneComponent(normalizedScene);
+          if (sceneComponent) {
+            const cfg = await this.promptBuilder['userRegistry']?.getComponentConfig(`l1-${normalizedScene}`);
+            const content = cfg?.content || '';
+            this.scenePromptCache.set(normalizedScene, content);
+            if (content) {
+              options.scenePrompt = content;
+              log.info(`[SubAgentFactory] Loaded scene prompt for scene=${normalizedScene} (raw=${rawScene})`);
+            }
+          } else {
+            this.scenePromptCache.set(normalizedScene, '');
           }
+        } catch (err) {
+          log.warn(`[SubAgentFactory] Failed to load scene prompt for scene=${normalizedScene}:`, err);
+          this.scenePromptCache.set(normalizedScene, '');
         }
-      } catch (err) {
-        log.warn(`[SubAgentFactory] Failed to load scene prompt for scene=${options.scene}:`, err);
       }
     }
 
-    // 1. 创建子代理实例
-    const { agentLoop, config, context, subAgentId } = await this.createSubAgent(
-      agentIdOrRole,
-      options,
-    );
+    // 1. 创建子代理实例（包裹在 try-catch 中）
+    let agentLoop: AgentLoop;
+    try {
+      const result = await this.createSubAgent(agentIdOrRole, options);
+      agentLoop = result.agentLoop;
+      config = result.config;
+      context = result.context;
+      subAgentId = result.subAgentId;
+    } catch (error: any) {
+      // 🔧 创建失败，直接返回错误（不发送任何 Hook，因为 agent 根本没创建成功）
+      log.error(`[SubAgentFactory] Failed to create sub-agent: ${agentIdOrRole}`, error);
+      const duration = Date.now() - startTime;
+      return {
+        result: `[Error] Failed to create sub-agent: ${error.message}`,
+        tokensUsed: { input: 0, output: 0 },
+        duration,
+        timedOut: false,
+        iterations: 0,
+        success: false,
+      };
+    }
 
     // 2. 收集输出
     let outputText = '';
@@ -605,6 +642,26 @@ export class SubAgentFactory {
     agentLoop.on({
       onText: (text) => {
         outputText += text;
+        // 🔧 如果启用了 streamToUser，将子 agent 的输出流式发送到前端
+        if (options.streamToUser && this.hookRegistry) {
+          this.hookRegistry.emit('SubAgentText', {
+            subAgentId,
+            text,
+          }).catch((err) => {
+            log.warn('SubAgentText Hook failed:', err);
+          });
+        }
+      },
+      onThinking: (thinking) => {
+        // 🔧 流式更新子 agent 的思考内容
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('AgentThinking', {
+            subAgentId,
+            thinkingContent: thinking,
+          }).catch((err) => {
+            log.warn('AgentThinking Hook failed:', err);
+          });
+        }
       },
       onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
         // 触发 ToolStart Hook，传递给前端（带 subAgentId）
@@ -681,6 +738,8 @@ export class SubAgentFactory {
           name: config.name,
           agentType,
           parentAgentId: options.parentAgentId || 'main',
+          streamToUser: options.streamToUser || false,
+          scene: options.scene,
         },
       }).catch((err) => {
         console.error('[SubAgentFactory] SubAgentStart hook emit failed:', err);
@@ -707,7 +766,11 @@ export class SubAgentFactory {
 
     try {
       const runPromise = agentLoop.run(options.task);
-      runPromise.catch(() => {});  // 防止 unhandled rejection
+      // 防止 unhandled rejection：如果超时已先触发，runPromise 的后续 reject 会被 Promise.race 忽略
+      // 这里捕获并记录，避免 unhandled rejection 警告
+      runPromise.catch((err) => {
+        log.debug(`[${subAgentId}] Run rejected (may have been superseded by timeout):`, err?.message);
+      });
 
       if (context.timeout > 0) {
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -750,21 +813,35 @@ export class SubAgentFactory {
           depth: context.depth,
           duration,
           timedOut,
-          success: !hasError && !timedOut, // 🔧 添加success字段
+          success: !hasError && !timedOut,
           iterations: state.currentIteration,
+          result: outputText,
+          tokensUsed: state.tokenUsage,
         },
       }).catch(() => {});
     }
 
     log.info(`[SubAgentFactory] createAndRun done: agentId=${agentIdOrRole} subAgentId=${subAgentId} duration=${duration}ms iterations=${state.currentIteration} timedOut=${timedOut} outputLen=${outputText.length}`);
 
-    // 6. 返回结果
+    // 6. 清理临时 Agent（防止内存泄漏）
+    if (config.metadata?.isTemporary) {
+      try {
+        const tempFactory = this.agentRegistry.getTemporaryAgentFactory();
+        tempFactory.cleanupTemporaryAgent(config.id);
+        log.info(`[SubAgentFactory] Cleaned up temporary agent: ${config.id}`);
+      } catch (err) {
+        log.warn(`[SubAgentFactory] Failed to cleanup temporary agent: ${config.id}`, err);
+      }
+    }
+
+    // 7. 返回结果
     return {
       result: outputText || (timedOut ? `Timed out after ${context.timeout}ms` : 'No output'),
       tokensUsed: state.tokenUsage,
       duration,
       timedOut,
       iterations: state.currentIteration,
+      success: !hasError && !timedOut,
     };
   }
 }

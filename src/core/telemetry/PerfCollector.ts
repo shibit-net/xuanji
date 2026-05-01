@@ -2,8 +2,9 @@
 // PerfCollector — LLM 性能指标采集器
 // ============================================================
 
-import { appendFile, mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { join, dirname, basename, extname } from 'node:path';
+import { getUserLogsDir } from '@/core/config/PathManager';
 
 /**
  * 单次 LLM 调用的性能指标
@@ -45,17 +46,47 @@ export interface PerfStats {
 
 const DEFAULT_PERF_PATH = join(process.cwd(), '.xuanji', 'logs', 'perf.jsonl');
 
+/** 日志保留天数 */
+const LOG_RETENTION_DAYS = 30;
+
 /**
  * 性能指标采集器
  *
- * 以 JSONL 格式记录每次 LLM 调用的性能指标，支持聚合查询。
+ * 以 JSONL 格式记录每次 LLM 调用的性能指标，
+ * 按日期自动轮转（perf-YYYY-MM-DD.jsonl），支持聚合查询。
  */
 export class PerfCollector {
-  private filePath: string;
+  private logDir: string;
+  private baseName: string;
   private initialized = false;
 
-  constructor(filePath?: string) {
-    this.filePath = filePath ?? DEFAULT_PERF_PATH;
+  constructor(filePath?: string, userId?: string) {
+    const defaultPath = userId ? join(getUserLogsDir(userId), 'perf.jsonl') : DEFAULT_PERF_PATH;
+    const fullPath = filePath ?? defaultPath;
+    this.logDir = dirname(fullPath);
+    const ext = extname(fullPath); // .jsonl
+    this.baseName = basename(fullPath, ext); // perf
+  }
+
+  /** 获取当天日志文件路径 */
+  private getCurrentLogPath(): string {
+    const today = new Date().toISOString().split('T')[0]!;
+    return join(this.logDir, `${this.baseName}-${today}.jsonl`);
+  }
+
+  /** 扫描目录下所有匹配的轮转日志文件 */
+  private static async findLogFiles(logDir: string, baseName: string): Promise<string[]> {
+    try {
+      const files = await readdir(logDir);
+      const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}(-\\d{4}-\\d{2}-\\d{2})?\\.jsonl$`);
+      return files
+        .filter(f => pattern.test(f))
+        .sort()
+        .map(f => join(logDir, f));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -64,10 +95,10 @@ export class PerfCollector {
   async record(record: PerfRecord): Promise<void> {
     try {
       if (!this.initialized) {
-        await mkdir(dirname(this.filePath), { recursive: true });
+        await mkdir(this.logDir, { recursive: true });
         this.initialized = true;
       }
-      await appendFile(this.filePath, JSON.stringify(record) + '\n', 'utf-8');
+      await appendFile(this.getCurrentLogPath(), JSON.stringify(record) + '\n', 'utf-8');
     } catch {
       // 静默失败，不影响主流程
     }
@@ -81,24 +112,67 @@ export class PerfCollector {
   }
 
   /**
-   * 读取最近 N 条记录
+   * 读取最近 N 条记录（扫描所有轮转文件）
    */
   async readRecords(limit = 100): Promise<PerfRecord[]> {
     try {
-      const { readFile } = await import('node:fs/promises');
-      const content = await readFile(this.filePath, 'utf-8');
-      const lines = content.trim().split('\n').filter(Boolean);
+      const logFiles = await PerfCollector.findLogFiles(this.logDir, this.baseName);
+      if (logFiles.length === 0) return [];
+
       const records: PerfRecord[] = [];
-      for (const line of lines) {
+      // 从最新的文件开始读取
+      for (let i = logFiles.length - 1; i >= 0; i--) {
         try {
-          records.push(JSON.parse(line));
+          const { readFile } = await import('node:fs/promises');
+          const content = await readFile(logFiles[i]!, 'utf-8');
+          const lines = content.trim().split('\n').filter(Boolean);
+          // 从后往前解析（最新记录在文件末尾）
+          for (let j = lines.length - 1; j >= 0; j--) {
+            try {
+              records.unshift(JSON.parse(lines[j]!));
+              if (records.length >= limit) return records;
+            } catch {
+              // 跳过格式错误的行
+            }
+          }
         } catch {
-          // 跳过格式错误的行
+          // 跳过无法读取的文件
         }
       }
-      return records.slice(-limit);
+      return records;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * 清理超过保留期的旧性能日志文件
+   */
+  async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+
+    try {
+      const logFiles = await PerfCollector.findLogFiles(this.logDir, this.baseName);
+      let deleted = 0;
+
+      for (const file of logFiles) {
+        const name = basename(file);
+        const match = name.match(/(\d{4}-\d{2}-\d{2})\.jsonl$/);
+        if (match && match[1]! < cutoffStr) {
+          try {
+            await unlink(file);
+            deleted++;
+          } catch {
+            // 删除失败跳过
+          }
+        }
+      }
+
+      return deleted;
+    } catch {
+      return 0;
     }
   }
 

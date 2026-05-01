@@ -33,8 +33,11 @@ interface FileEntry {
  */
 export class LSTool extends BaseTool {
   readonly name = 'list_directory';
-  readonly description =
-    '列出目录内容，支持过滤、排序、递归。优先使用此工具而非 bash ls 命令。';
+  readonly description = [
+    'List directory contents. Use this to explore directories — NOT read_file.',
+    'Supports filtering, sorting, and recursive listing.',
+    'Always use this tool (or glob) to browse directories, never read_file.',
+  ].join('\n');
   readonly readonly = true; // ✅ 只读工具，可并行执行
 
   readonly input_schema: JSONSchema = {
@@ -67,7 +70,7 @@ export class LSTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     try {
       const { path: dirPath, filter, sort, recursive, max_depth } = input as unknown as LSInput;
-      const targetPath = resolve(dirPath ?? process.cwd());
+      const targetPath = resolve(dirPath ?? ((input._cwd as string) || process.cwd()));
 
       // 检查路径是否存在且为目录
       try {

@@ -38,12 +38,12 @@ describe('PermissionController', () => {
   });
 
   describe('safe 级别 — 自动放行', () => {
-    it('读取普通文件应自动放行 (auto-safe-read)', async () => {
+    it('读取普通文件应自动放行 (policy-always)', async () => {
       const result = await controller.check(
         createRequest('read_file', { file_path: process.cwd() + '/src/index.ts' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-safe-read');
+      expect(result.checkedBy).toBe('policy-always');
       expect(mockHandler).not.toHaveBeenCalled();
     });
 
@@ -94,13 +94,13 @@ describe('PermissionController', () => {
       expect(mockHandler).toHaveBeenCalled();
     });
 
-    it('读取 .env 文件应触发确认 (user-confirmation)', async () => {
+    it('读取 .env 文件应自动放行 (policy-always)', async () => {
       const result = await controller.check(
         createRequest('read_file', { file_path: '/project/.env' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('user-confirmation');
-      expect(mockHandler).toHaveBeenCalled();
+      expect(result.checkedBy).toBe('policy-always');
+      expect(mockHandler).not.toHaveBeenCalled();
     });
   });
 
@@ -135,12 +135,12 @@ describe('PermissionController', () => {
       expect(result.checkedBy).toBe('auto-warn');
     });
 
-    it('读取 .env 文件应自动放行 (auto-warn)', async () => {
+    it('读取 .env 文件应自动放行 (policy-always)', async () => {
       const result = await autoAllowController.check(
         createRequest('read_file', { file_path: '/project/.env' }),
       );
       expect(result.allowed).toBe(true);
-      expect(result.checkedBy).toBe('auto-warn');
+      expect(result.checkedBy).toBe('policy-always');
     });
   });
 

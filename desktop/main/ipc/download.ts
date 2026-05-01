@@ -48,29 +48,32 @@ let mainEventsForwarded = false;
 
 
 export function registerDownloadHandlers() {
-  console.log('[IPC] Registering download handlers...');
 
   // 转发主进程 DownloadManager 事件到渲染进程（只注册一次）
   if (!mainEventsForwarded) {
     mainEventsForwarded = true;
 
-    const forwardMainEvent = (eventName: string) => {
+    // 所有下载事件类型
+    const downloadEvents = [
+      'task-created',
+      'task-started',
+      'task-progress',
+      'task-completed',
+      'task-failed',
+      'task-cancelled',
+    ];
+
+    // 转发主进程下载事件
+    downloadEvents.forEach((eventName) => {
       mainDownloadManager.on(eventName, (task) => {
         const allWindows = BrowserWindow.getAllWindows();
         allWindows.forEach((win) => {
           win.webContents.send('download:event', { type: eventName, task });
         });
       });
-    };
+    });
 
-    forwardMainEvent('task-created');
-    forwardMainEvent('task-started');
-    forwardMainEvent('task-progress');
-    forwardMainEvent('task-completed');
-    forwardMainEvent('task-failed');
-    forwardMainEvent('task-cancelled');
-
-    console.log('[IPC] Main process download events forwarding enabled');
+    // 注意：子进程的下载事件转发在 agent/index.ts 中的 agent channel 创建时注册
   }
 
   // 获取所有下载任务（聚合主进程和子进程）
@@ -100,6 +103,79 @@ export function registerDownloadHandlers() {
       ];
 
       return { success: true, tasks: allTasks };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 获取项目根目录
+  ipcMain.handle('download:get-project-root', async () => {
+    try {
+      return { success: true, projectRoot: PROJECT_ROOT };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 检查 embedding 模型是否已安装
+  ipcMain.handle('download:check-embedding-model', async (_event, modelId: string) => {
+    try {
+      const modelDir = path.join(PROJECT_ROOT, '.xuanji', 'embedding-models', modelId);
+
+      // 检查必需的文件是否存在
+      const requiredFiles = [
+        'config.json',
+        'tokenizer.json',
+        'tokenizer_config.json',
+      ];
+
+      // 检查基础文件
+      const baseFilesExist = requiredFiles.every(file => {
+        const filePath = path.join(modelDir, file);
+        return fs.existsSync(filePath);
+      });
+
+      // 检查模型文件（支持 model.onnx 或 model_quantized.onnx）
+      const modelFile1 = path.join(modelDir, 'onnx/model.onnx');
+      const modelFile2 = path.join(modelDir, 'onnx/model_quantized.onnx');
+      const modelFileExists = fs.existsSync(modelFile1) || fs.existsSync(modelFile2);
+
+      const allFilesExist = baseFilesExist && modelFileExists;
+
+      return { success: true, installed: allFilesExist };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 卸载 embedding 模型
+  ipcMain.handle('download:uninstall-embedding-model', async (_event, modelId: string) => {
+    try {
+      const modelDir = path.join(PROJECT_ROOT, '.xuanji', 'embedding-models', modelId);
+
+      if (!fs.existsSync(modelDir)) {
+        return { success: true, message: 'Model not found' };
+      }
+
+      // 递归删除模型目录
+      fs.rmSync(modelDir, { recursive: true, force: true });
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 创建下载任务（通用接口）
+  ipcMain.handle('download:create', async (_event, options: {
+    url: string;
+    dest: string;
+    name: string;
+    category?: string;
+  }) => {
+    try {
+      const taskId = await mainDownloadManager.download(options);
+      return { success: true, taskId };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -149,12 +225,8 @@ export function registerDownloadHandlers() {
 
   // 列出本地已下载模型
   ipcMain.handle('local-model:list', async () => {
-    console.log('[IPC] local-model:list called');
-    console.log('[IPC] MODEL_DIR:', MODEL_DIR);
-    console.log('[IPC] process.cwd():', process.cwd());
     try {
       if (!fs.existsSync(MODEL_DIR)) {
-        console.log('[IPC] MODEL_DIR does not exist');
         return { success: true, models: [] };
       }
 
@@ -171,7 +243,6 @@ export function registerDownloadHandlers() {
           };
         });
 
-      console.log('[IPC] Found', files.length, 'model files');
       return { success: true, models: files };
     } catch (error: any) {
       console.error('[IPC] local-model:list error:', error);
@@ -200,9 +271,6 @@ export function registerDownloadHandlers() {
 
   // 检查本地模型是否已安装
   ipcMain.handle('local-model:check', async (_event, modelId: string) => {
-    console.log('[IPC] local-model:check called for:', modelId);
-    console.log('[IPC] MODEL_DIR:', MODEL_DIR);
-    console.log('[IPC] process.cwd():', process.cwd());
     try {
       const modelUri = MODEL_IDS[modelId];
       if (!modelUri) {
@@ -211,7 +279,6 @@ export function registerDownloadHandlers() {
 
       const loader = new LocalModelLoader({ modelId: modelUri });
       const installed = loader.isDownloaded();
-      console.log('[IPC] Model', modelId, 'installed:', installed);
 
       return { success: true, installed };
     } catch (error: any) {
@@ -222,7 +289,6 @@ export function registerDownloadHandlers() {
 
   // 下载本地模型
   ipcMain.handle('local-model:download', async (_event, modelId: string) => {
-    console.log('[IPC] local-model:download called for:', modelId);
     try {
       const modelUri = MODEL_IDS[modelId];
       if (!modelUri) {
@@ -261,5 +327,4 @@ export function registerDownloadHandlers() {
     }
   });
 
-  console.log('[IPC] Download handlers registered successfully');
 }

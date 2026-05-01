@@ -11,8 +11,9 @@
 // - 支持按时间、工具名、风险级别过滤查询
 //
 
-import { join } from 'node:path';
-import { appendFile, readFile, mkdir, unlink } from 'node:fs/promises';
+import { join, basename, extname } from 'node:path';
+import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { getUserLogsDir } from '@/core/config/PathManager';
 import { existsSync } from 'node:fs';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '../../permission/types';
 
@@ -78,20 +79,50 @@ export interface AuditQueryFilter {
   limit?: number;
 }
 
-/** 脱敏截断最大长度 */
 const MAX_SANITIZE_LENGTH = 200;
+
+/** 默认日志目录 */
+const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+
+/** 日志保留天数 */
+const LOG_RETENTION_DAYS = 30;
 
 /**
  * AuditLogger — 审计日志记录器
  *
  * 将权限决策和计划审查事件持久化到 JSONL 文件，
- * 支持查询和过滤。
+ * 按日期自动轮转（audit-YYYY-MM-DD.log），支持查询和过滤。
  */
 export class AuditLogger {
-  private filePath: string;
+  private logDir: string;
+  private baseName: string;
 
-  constructor(filePath?: string) {
-    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'audit.log');
+  constructor(filePath?: string, userId?: string) {
+    const defaultPath = userId ? join(getUserLogsDir(userId), 'audit.log') : join(DEFAULT_LOG_DIR, 'audit.log');
+    const fullPath = filePath ?? defaultPath;
+    this.logDir = join(fullPath, '..');
+    this.baseName = basename(fullPath, '.log');
+  }
+
+  /** 获取当天日志文件路径 */
+  private getCurrentLogPath(): string {
+    const today = new Date().toISOString().split('T')[0]!;
+    return join(this.logDir, `${this.baseName}-${today}.log`);
+  }
+
+  /** 扫描目录下所有匹配的轮转日志文件 */
+  private static async findLogFiles(logDir: string, baseName: string): Promise<string[]> {
+    try {
+      const files = await readdir(logDir);
+      const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}(-\\d{4}-\\d{2}-\\d{2})?\\.log$`);
+      return files
+        .filter(f => pattern.test(f))
+        .sort()
+        .map(f => join(logDir, f));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -144,23 +175,28 @@ export class AuditLogger {
   }
 
   /**
-   * 查询审计记录
+   * 查询审计记录（扫描所有轮转文件）
    */
   async query(filter?: AuditQueryFilter): Promise<AuditRecord[]> {
     try {
-      if (!existsSync(this.filePath)) {
-        return [];
-      }
+      const logFiles = await AuditLogger.findLogFiles(this.logDir, this.baseName);
+      if (logFiles.length === 0) return [];
 
-      const text = await readFile(this.filePath, 'utf-8');
-      const lines = text.split('\n').filter((l) => l.trim());
       let records: AuditRecord[] = [];
 
-      for (const line of lines) {
+      for (const file of logFiles) {
         try {
-          records.push(JSON.parse(line) as AuditRecord);
+          const text = await readFile(file, 'utf-8');
+          const lines = text.split('\n').filter((l) => l.trim());
+          for (const line of lines) {
+            try {
+              records.push(JSON.parse(line) as AuditRecord);
+            } catch {
+              // 跳过格式错误的行
+            }
+          }
         } catch {
-          // 跳过格式错误的行
+          // 跳过无法读取的文件
         }
       }
 
@@ -176,27 +212,62 @@ export class AuditLogger {
   }
 
   /**
-   * 清空所有审计记录
+   * 清空所有审计记录（包括所有轮转文件）
    */
   async clear(): Promise<void> {
     try {
-      if (existsSync(this.filePath)) {
-        await unlink(this.filePath);
+      const logFiles = await AuditLogger.findLogFiles(this.logDir, this.baseName);
+      for (const file of logFiles) {
+        try {
+          await unlink(file);
+        } catch {
+          // 删除失败跳过
+        }
       }
     } catch {
       // 静默失败
     }
   }
 
+  /**
+   * 清理超过保留期的旧审计日志文件
+   */
+  async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+
+    try {
+      const logFiles = await AuditLogger.findLogFiles(this.logDir, this.baseName);
+      let deleted = 0;
+
+      for (const file of logFiles) {
+        const name = basename(file);
+        const match = name.match(/(\d{4}-\d{2}-\d{2})\.log$/);
+        if (match && match[1]! < cutoffStr) {
+          try {
+            await unlink(file);
+            deleted++;
+          } catch {
+            // 删除失败跳过
+          }
+        }
+      }
+
+      return deleted;
+    } catch {
+      return 0;
+    }
+  }
+
   // ── 私有方法 ──
 
-  /** 追加记录到 JSONL 文件 */
+  /** 追加记录到当天 JSONL 文件 */
   private async appendRecord(record: AuditRecord): Promise<void> {
     try {
-      const dir = join(this.filePath, '..');
-      await mkdir(dir, { recursive: true });
+      await mkdir(this.logDir, { recursive: true });
       const line = JSON.stringify(record) + '\n';
-      await appendFile(this.filePath, line, 'utf-8');
+      await appendFile(this.getCurrentLogPath(), line, 'utf-8');
     } catch {
       // 静默失败，不影响主流程
     }

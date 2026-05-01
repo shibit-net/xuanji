@@ -49,6 +49,19 @@
     @apply font-mono text-sm;
   }
 
+  /* diff 语法高亮：删除行（红色）和新增行（绿色） */
+  .token.deleted {
+    color: #f87171;
+  }
+
+  .token.inserted {
+    color: #4ade80;
+  }
+
+  .token.coord {
+    color: #94a3b8;
+  }
+
   /* 选中文本样式 */
   ::selection {
     @apply bg-primary/30;
@@ -97,4 +110,25 @@
 
 .hover-lift {
   @apply transition-transform duration-200 hover:translate-y-[-2px];
+}
+
+/* ============================================================
+   性能优化 — 流式输出抖动修复
+   ============================================================ */
+
+/* 消息气泡容器 — 隔离布局变化，阻止重排传播 */
+.message-bubble {
+  contain: layout style paint;
+}
+
+/* 流式输出中的消息气泡 — 更严格的隔离 */
+.message-bubble-streaming {
+  contain: layout style paint;
+  will-change: contents;
+}
+
+/* 聊天消息列表容器 — 创建独立的层叠上下文 */
+.chat-messages-container {
+  contain: layout style;
+  isolation: isolate;
 }

@@ -286,6 +286,8 @@ export class ToolRegistry implements IToolRegistry {
         toolTimeout = timeouts.bash;
       } else if (toolName === 'web_fetch' && timeouts.webFetch) {
         toolTimeout = timeouts.webFetch;
+      } else if (toolName === 'ask_user' || toolName === 'plan_review' || toolName === 'enter_plan_mode' || toolName === 'exit_plan_mode') {
+        toolTimeout = timeouts.interactive ?? 1800000; // 默认 30 分钟
       } else if (timeouts.default) {
         toolTimeout = timeouts.default;
       }
@@ -301,11 +303,17 @@ export class ToolRegistry implements IToolRegistry {
     };
 
     // 为此次执行创建临时的 pipeline，使用工具特定的超时
+    // agent_team 内部有自己的超时控制，工具级不再叠加
     const tempPipeline = new MiddlewarePipeline<ToolContext, ToolResult>();
     tempPipeline
       .use(new ErrorHandlingMiddleware())
-      .use(new LoggingMiddleware())
-      .use(new TimeoutMiddleware(toolTimeout))
+      .use(new LoggingMiddleware());
+
+    if (toolName !== 'agent_team') {
+      tempPipeline.use(new TimeoutMiddleware(toolTimeout));
+    }
+
+    tempPipeline
       .use(new AbortCheckMiddleware())
       .use(new PlanModeMiddleware());
 

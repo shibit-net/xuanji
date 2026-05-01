@@ -131,38 +131,37 @@ describe('GlobalConfig', () => {
 
   // ---- 路径相关 ----
 
-  it('getGlobalConfigPath() 应返回 .xuanji/config.json', () => {
-    const path = GlobalConfig.getGlobalConfigPath();
+  it('getProjectConfigPath() 默认路径应包含 .xuanji/config.json', () => {
+    const path = GlobalConfig.getProjectConfigPath();
     expect(path).toContain('.xuanji');
     expect(path).toContain('config.json');
   });
 
-  it('getProjectConfigPath() 应返回 .xuanji/config.json', () => {
+  it('getProjectConfigPath() 应使用 projectRoot 参数', () => {
     const path = GlobalConfig.getProjectConfigPath('/tmp/myproject');
     expect(path).toBe('/tmp/myproject/.xuanji/config.json');
   });
 
-  // ---- 读写全局配置 ----
+  // ---- 读写项目配置 ----
 
-  it('readGlobalConfig() 不存在时应返回空对象', async () => {
-    // Mock 全局路径到测试目录
+  it('readProjectConfig() 不存在时应返回空对象', async () => {
     const nonExistentPath = join(testGlobalDir, 'nonexistent', 'config.json');
-    vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(nonExistentPath);
+    vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(nonExistentPath);
 
-    const config = await GlobalConfig.readGlobalConfig();
+    const config = await GlobalConfig.readProjectConfig();
     expect(config).toEqual({});
   });
 
-  it('writeGlobalConfig() 和 readGlobalConfig() 应正常工作', async () => {
+  it('writeProjectConfig() 和 readProjectConfig() 应正常工作', async () => {
     const testConfigPath = join(testGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(testConfigPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(testConfigPath);
 
     const testConfig: Partial<AppConfig> = {
       provider: { model: 'test-model', apiKey: 'test-key' } as any,
     };
 
-    await GlobalConfig.writeGlobalConfig(testConfig);
-    const loaded = await GlobalConfig.readGlobalConfig();
+    await GlobalConfig.writeProjectConfig(testConfig);
+    const loaded = await GlobalConfig.readProjectConfig();
 
     expect(loaded.provider?.model).toBe('test-model');
     expect(loaded.provider?.apiKey).toBe('test-key');
@@ -170,12 +169,12 @@ describe('GlobalConfig', () => {
     spy.mockRestore();
   });
 
-  it('writeGlobalConfig() 应自动创建目录', async () => {
+  it('writeProjectConfig() 应自动创建目录', async () => {
     const deepPath = join(testGlobalDir, 'deep', 'nested', 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(deepPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(deepPath);
 
-    await GlobalConfig.writeGlobalConfig({ provider: { model: 'test' } as any });
-    const loaded = await GlobalConfig.readGlobalConfig();
+    await GlobalConfig.writeProjectConfig({ provider: { model: 'test' } as any });
+    const loaded = await GlobalConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('test');
 
     spy.mockRestore();
@@ -246,38 +245,31 @@ describe('GlobalConfig', () => {
 
   // ---- 多层配置合并 ----
 
-  it('load() 应按优先级合并配置（环境变量 > 项目 > 全局 > 默认）', async () => {
-    // 准备默认配置
+  it('load() 应按优先级合并配置（环境变量 > 项目配置 > 默认）', async () => {
     const defaults = {
       provider: { model: 'default-model', maxTokens: 8000 },
       ui: { theme: 'auto', language: 'en' },
     } as unknown as Record<string, unknown>;
 
-    // Mock 全局路径
     const globalPath = join(testGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(globalPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
 
-    // 全局配置
-    await GlobalConfig.writeGlobalConfig({
+    await GlobalConfig.writeProjectConfig({
       provider: { model: 'global-model' } as any,
       ui: { theme: 'light' } as any,
     });
 
-    // 项目配置
     await GlobalConfig.writeProjectConfig({
       provider: { model: 'project-model' } as any,
     }, testProjectDir);
 
-    // 环境变量（最高优先级）
     process.env.XUANJI_MODEL = 'env-model';
 
-    // 加载合并
     const merged = await GlobalConfig.load(testProjectDir, defaults);
 
-    // 验证优先级
-    expect(merged.provider?.model).toBe('env-model'); // 环境变量优先
-    expect(merged.ui?.theme).toBe('light'); // 全局配置覆盖默认
-    expect((merged.provider as any)?.maxTokens).toBe(8000); // 默认值保留
+    expect(merged.provider?.model).toBe('env-model');
+    expect(merged.ui?.theme).toBe('auto');
+    expect((merged.provider as any)?.maxTokens).toBe(8000);
 
     spy.mockRestore();
   });
@@ -290,7 +282,7 @@ describe('GlobalConfig', () => {
     await mkdir(isolatedProjectDir, { recursive: true });
 
     const globalPath = join(isolatedGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(globalPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
 
     const defaults = {
       provider: { model: 'default-model', apiKey: 'default-key' },
@@ -311,9 +303,9 @@ describe('GlobalConfig', () => {
     const isolatedDir = join(tmpdir(), `xuanji-version-${Date.now()}-${Math.random()}`);
     await mkdir(isolatedDir, { recursive: true });
     const configPath = join(isolatedDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(configPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(configPath);
 
-    await GlobalConfig.writeGlobalConfig({
+    await GlobalConfig.writeProjectConfig({
       provider: { model: 'versioned-model' } as any,
     });
 
@@ -324,7 +316,7 @@ describe('GlobalConfig', () => {
     expect(parsed.config.provider.model).toBe('versioned-model');
 
     // 验证 read 方法自动解包
-    const loaded = await GlobalConfig.readGlobalConfig();
+    const loaded = await GlobalConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('versioned-model');
 
     spy.mockRestore();
@@ -336,34 +328,18 @@ describe('GlobalConfig', () => {
     const isolatedDir = join(tmpdir(), `xuanji-legacy-${Date.now()}-${Math.random()}`);
     await mkdir(isolatedDir, { recursive: true });
     const configPath = join(isolatedDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(configPath);
+    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(configPath);
 
     // 手动写入旧格式
     await writeFile(configPath, JSON.stringify({
       provider: { model: 'legacy-model' },
     }), 'utf-8');
 
-    const loaded = await GlobalConfig.readGlobalConfig();
+    const loaded = await GlobalConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('legacy-model');
 
     spy.mockRestore();
     await rm(isolatedDir, { recursive: true, force: true }).catch(() => {});
-  });
-
-  // ---- ensureGlobalDir ----
-
-  it('ensureGlobalDir() 应创建目录', async () => {
-    const deepDir = join(testGlobalDir, 'deep', 'nested');
-    const configPath = join(deepDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getGlobalConfigPath').mockReturnValue(configPath);
-
-    await GlobalConfig.ensureGlobalDir();
-    // 验证目录是否存在（通过尝试写入文件）
-    await GlobalConfig.writeGlobalConfig({ provider: { model: 'test' } as any });
-    const loaded = await GlobalConfig.readGlobalConfig();
-    expect(loaded.provider?.model).toBe('test');
-
-    spy.mockRestore();
   });
 
   // ---- getEnvMappings ----

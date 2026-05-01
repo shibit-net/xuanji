@@ -172,6 +172,26 @@
               "type": "integer",
               "minimum": 1000,
               "default": 300000
+            },
+            "backgroundTask": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 3600000
+            },
+            "agent_team": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 1800000
+            },
+            "task": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 1800000
+            },
+            "interactive": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 1800000
             }
           }
         }

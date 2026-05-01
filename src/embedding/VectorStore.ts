@@ -105,7 +105,7 @@ export class VectorStore {
     `);
 
     const now = new Date().toISOString();
-    const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    const embeddingBuf = this.float32ToBuffer(embedding);
 
     const transaction = this.db!.transaction(() => {
       insertMemory.run(
@@ -156,7 +156,7 @@ export class VectorStore {
       for (let i = 0; i < memories.length; i++) {
         const memory = memories[i];
         const embedding = embeddings[i];
-        const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+        const embeddingBuf = this.float32ToBuffer(embedding);
 
         insertMemoryStmt.run(
           memory.id, memory.type, memory.content,
@@ -178,7 +178,7 @@ export class VectorStore {
   searchSimilar(queryEmbedding: Float32Array, topK: number = 50): VectorSearchResult[] {
     this.ensureReady();
 
-    const queryBuf = Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
+    const queryBuf = this.float32ToBuffer(queryEmbedding);
 
     // 尝试使用 sqlite-vec 的向量索引
     try {
@@ -209,7 +209,7 @@ export class VectorStore {
   upsertSkillEmbedding(skillId: string, skillName: string, embedding: Float32Array, description: string): void {
     this.ensureReady();
 
-    const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    const embeddingBuf = this.float32ToBuffer(embedding);
     const now = new Date().toISOString();
 
     this.db!.prepare(`
@@ -227,16 +227,12 @@ export class VectorStore {
       log.warn('Skill embeddings count exceeds 1000, results are truncated');
     }
     
-    return rows.map((row: any) => {
-      // 使用安全的 Buffer 转换，确保字节对齐（与 bruteForceSearch 一致）
-      const buf = Buffer.from(row.embedding);
-      return {
-        skillId: row.skill_id,
-        skillName: row.skill_name,
-        embedding: new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4),
-        description: row.description,
-      };
-    });
+    return rows.map((row: any) => ({
+      skillId: row.skill_id,
+      skillName: row.skill_name,
+      embedding: this.bufferToFloat32(row.embedding),
+      description: row.description,
+    }));
   }
 
   /** 获取已存储的记忆 ID 集合 */
@@ -263,7 +259,7 @@ export class VectorStore {
   /** 添加向量（仅存储 id + embedding，不依赖 memories 表） */
   async add(id: string, embedding: Float32Array): Promise<void> {
     this.ensureReady();
-    const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    const embeddingBuf = this.float32ToBuffer(embedding);
     const now = new Date().toISOString();
     this.db!.prepare(`
       INSERT OR REPLACE INTO memory_vectors (memory_id, embedding, updated_at)
@@ -299,6 +295,17 @@ export class VectorStore {
   }
 
   // ────────── 私有方法 ──────────
+
+  /** Float32Array → Buffer 安全转换（使用视图元数据确保字节对齐） */
+  private float32ToBuffer(embedding: Float32Array): Buffer {
+    return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+  }
+
+  /** Buffer → Float32Array 安全转换（复制副本确保字节对齐） */
+  private bufferToFloat32(buf: Buffer): Float32Array {
+    const alignedBuf = Buffer.from(buf);
+    return new Float32Array(alignedBuf.buffer, alignedBuf.byteOffset, alignedBuf.byteLength / 4);
+  }
 
   private createTables(): void {
     this.db!.exec(`
@@ -358,13 +365,7 @@ export class VectorStore {
       `).all(PAGE_SIZE, offset);
 
       for (const row of rows as any[]) {
-        // 使用 Buffer.from() 复制确保字节对齐（防止 Float32Array RangeError）
-        const alignedBuf = Buffer.from(row.vec_embedding);
-        const storedEmbedding = new Float32Array(
-          alignedBuf.buffer,
-          alignedBuf.byteOffset,
-          alignedBuf.byteLength / 4,
-        );
+        const storedEmbedding = this.bufferToFloat32(row.vec_embedding);
         const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);
         results.push({
           memory: this.rowToMemoryEntry(row),

@@ -4,42 +4,24 @@ layer: "L2"
 priority: 70
 estimatedTokens: 200
 enabled: true
-content: "# Extended Security Rules
+content: |
+  # Extended Security Rules
 
+  ## 需确认（执行前询问用户）
+  - 删除文件/目录（rm, git clean）
+  - 强制操作（git reset --hard, --force）
+  - 修改敏感文件（.env, config.json, secrets.*）
+  - 全局安装（npm install -g, pip install）
+  - 访问项目外网络资源
 
-  ## CONFIRM — Ask user before executing
+  ## 安全（无需确认）
+  - 读取文件、搜索（grep, glob, find）
+  - Git 只读操作（log, status, diff, branch）
+  - 运行测试和 linter
+  - 构建项目、本地包安装
 
-  - Deleting files or directories (`rm`, `git clean`)
-
-  - Force operations (`git reset --hard`, `--force` flags)
-
-  - Modifying sensitive files (`.env`, `config.json`, `secrets.*`)
-
-  - Installing global packages (`npm install -g`, `pip install`)
-
-  - Accessing network resources outside the project
-
-
-  ## SAFE — Execute without confirmation
-
-  - Reading any file
-
-  - Searching (grep, glob, find)
-
-  - Git read operations (log, status, diff, branch)
-
-  - Running tests and linters
-
-  - Building projects, local package installs
-
-
-  ## Data Protection
-
-
-  1. Before destructive operations: suggest `git stash` or backup
-
-  2. Before bulk changes: show what will be affected
-
-  3. After modifications: verify no data was lost
-
-  4. When uncertain: ask the user, don't guess"
+  ## 数据保护
+  1. 破坏性操作前：建议 git stash 或备份
+  2. 批量修改前：显示影响范围
+  3. 修改后：验证无数据丢失
+  4. 不确定时：询问用户，不要猜测

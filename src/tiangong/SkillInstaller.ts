@@ -4,10 +4,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { logger } from '@/core/logger';
 import type { SkillFilesConfig, InstalledPackage } from './types';
 import { RegistryClient } from './RegistryClient';
+import { getUserSkillsDir, getUserRoot } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'SkillInstaller' });
 
@@ -16,10 +16,15 @@ export class SkillInstaller {
   private skillsDir: string;
   private installedPath: string;
 
-  constructor(registryClient: RegistryClient) {
+  constructor(registryClient: RegistryClient, userId?: string) {
     this.registryClient = registryClient;
-    this.skillsDir = path.join(process.cwd(), '.xuanji', 'skills');
-    this.installedPath = path.join(process.cwd(), '.xuanji', 'tiangong-installed.json');
+    if (userId) {
+      this.skillsDir = getUserSkillsDir(userId);
+      this.installedPath = path.join(getUserRoot(userId), 'tiangong-installed.json');
+    } else {
+      this.skillsDir = path.join(process.cwd(), '.xuanji', 'skills');
+      this.installedPath = path.join(process.cwd(), '.xuanji', 'tiangong-installed.json');
+    }
   }
 
   /** 安装 Agent Skill */
@@ -30,7 +35,12 @@ export class SkillInstaller {
       throw new Error(`"${packageId}" 不是 Agent Skill 类型`);
     }
 
-    const skillConfig: SkillFilesConfig = JSON.parse(config.configTemplate);
+    let skillConfig: SkillFilesConfig;
+    try {
+      skillConfig = JSON.parse(config.configTemplate);
+    } catch {
+      throw new Error(`Skill "${packageId}" 配置模板格式错误`);
+    }
     const skillDirName = packageId.replace(/\//g, '-');
     const skillPath = path.join(this.skillsDir, skillDirName);
 
@@ -116,6 +126,11 @@ export class SkillInstaller {
     if (!fs.existsSync(this.installedPath)) {
       return [];
     }
-    return JSON.parse(fs.readFileSync(this.installedPath, 'utf-8'));
+    try {
+      return JSON.parse(fs.readFileSync(this.installedPath, 'utf-8'));
+    } catch {
+      log.warn('tiangong-installed.json 文件损坏，返回空列表');
+      return [];
+    }
   }
 }

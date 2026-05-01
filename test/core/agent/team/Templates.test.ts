@@ -148,19 +148,19 @@ describe('Team Templates', () => {
       it('成员应有合理的角色和能力', () => {
         const template = TEAM_TEMPLATES['code-review'];
         const members = template.members();
-        
+
         // Architect
-        expect(members[0].role).toBe('plan');
+        expect(members[0].agentId).toBe('plan');
         expect(members[0].capabilities).toContain('architecture analysis');
         expect(members[0].priority).toBe(3);
-        
+
         // Security
-        expect(members[1].role).toBe('explore');
+        expect(members[1].agentId).toBe('explore');
         expect(members[1].capabilities).toContain('security analysis');
         expect(members[1].priority).toBe(2);
-        
+
         // Performance
-        expect(members[2].role).toBe('explore');
+        expect(members[2].agentId).toBe('explore');
         expect(members[2].capabilities).toContain('performance analysis');
         expect(members[2].priority).toBe(1);
       });
@@ -201,8 +201,8 @@ describe('Team Templates', () => {
       it('成员应都是 explore 角色', () => {
         const template = TEAM_TEMPLATES['research'];
         const members = template.members();
-        
-        expect(members.every(m => m.role === 'explore')).toBe(true);
+
+        expect(members.every(m => m.agentId === 'explore')).toBe(true);
       });
 
       it('成员应有不同的研究方向', () => {
@@ -235,8 +235,8 @@ describe('Team Templates', () => {
       it('成员应都是 plan 角色', () => {
         const template = TEAM_TEMPLATES['architecture-debate'];
         const members = template.members();
-        
-        expect(members.every(m => m.role === 'plan')).toBe(true);
+
+        expect(members.every(m => m.agentId === 'plan')).toBe(true);
       });
 
       it('成员应代表不同的设计理念', () => {
@@ -280,11 +280,11 @@ describe('Team Templates', () => {
       it('成员应有合理的角色分配', () => {
         const template = TEAM_TEMPLATES['data-pipeline'];
         const members = template.members();
-        
-        expect(members[0].role).toBe('explore'); // extractor
-        expect(members[1].role).toBe('general-purpose'); // cleaner
-        expect(members[2].role).toBe('general-purpose'); // analyzer
-        expect(members[3].role).toBe('general-purpose'); // reporter
+
+        expect(members[0].agentId).toBe('explore'); // extractor
+        expect(members[1].agentId).toBe('general-purpose'); // cleaner
+        expect(members[2].agentId).toBe('general-purpose'); // analyzer
+        expect(members[3].agentId).toBe('general-purpose'); // reporter
       });
     });
 
@@ -309,18 +309,18 @@ describe('Team Templates', () => {
       it('tech-lead 应有最高优先级', () => {
         const template = TEAM_TEMPLATES['feature-development'];
         const members = template.members();
-        
+
         expect(members[0].priority).toBe(10);
-        expect(members[0].role).toBe('plan');
+        expect(members[0].agentId).toBe('plan');
       });
 
       it('开发人员应是 coder 角色', () => {
         const template = TEAM_TEMPLATES['feature-development'];
         const members = template.members();
-        
-        expect(members[1].role).toBe('coder'); // backend
-        expect(members[2].role).toBe('coder'); // frontend
-        expect(members[3].role).toBe('coder'); // qa
+
+        expect(members[1].agentId).toBe('coder'); // backend
+        expect(members[2].agentId).toBe('coder'); // frontend
+        expect(members[3].agentId).toBe('coder'); // qa
       });
 
       it('成员应有明确的职责分工', () => {

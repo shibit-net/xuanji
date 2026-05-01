@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +22,9 @@ function createWindow() {
     },
   });
 
+  // 🔧 设置 mainWindow 到 enhancedMessageBus，使其能够转发消息到 renderer
+  enhancedMessageBus.setMainWindow(mainWindow);
+
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
   if (isDev) {
@@ -33,6 +37,8 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // 🔧 窗口关闭时清除 mainWindow 引用
+    enhancedMessageBus.setMainWindow(null);
   });
 }
 

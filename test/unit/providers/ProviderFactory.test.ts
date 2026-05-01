@@ -16,38 +16,19 @@ function createMockProvider(name: string, supportedModels: string[]): ILLMProvid
 }
 
 describe('ProviderFactory', () => {
-  it('应默认注册 Anthropic Provider', () => {
+  it('懒加载模式下未注册 Provider 应返回 undefined', () => {
     const factory = new ProviderFactory();
-    const provider = factory.getByName('anthropic');
-    expect(provider).toBeDefined();
-    expect(provider?.name).toBe('anthropic');
+    expect(factory.getByName('anthropic')).toBeUndefined();
+    expect(factory.getByName('openai')).toBeUndefined();
   });
 
-  it('应默认注册 OpenAI Provider', () => {
+  it('register() 应注册新 Provider 并可通过 getByModel 查找', () => {
     const factory = new ProviderFactory();
-    const provider = factory.getByName('openai');
-    expect(provider).toBeDefined();
-    expect(provider?.name).toBe('openai');
-  });
+    const mockProvider = createMockProvider('anthropic', ['claude-']);
+    factory.register(mockProvider);
 
-  it('getByModel() 应根据 Claude 模型返回 Anthropic Provider', () => {
-    const factory = new ProviderFactory();
-    const provider = factory.getByModel('claude-sonnet-4');
-    expect(provider).toBeDefined();
-    expect(provider?.name).toBe('anthropic');
-  });
-
-  it('getByModel() 应根据 GPT 模型返回 OpenAI Provider', () => {
-    const factory = new ProviderFactory();
-    const provider = factory.getByModel('gpt-4o');
-    expect(provider).toBeDefined();
-    expect(provider?.name).toBe('openai');
-  });
-
-  it('getByModel() 未知模型应返回 undefined', () => {
-    const factory = new ProviderFactory();
-    const provider = factory.getByModel('llama-3');
-    expect(provider).toBeUndefined();
+    expect(factory.getByName('anthropic')).toBe(mockProvider);
+    expect(factory.getByModel('claude-sonnet-4')).toBe(mockProvider);
   });
 
   it('register() 应注册新 Provider', () => {
@@ -59,13 +40,12 @@ describe('ProviderFactory', () => {
     expect(factory.getByModel('llama-3')).toBe(mockProvider);
   });
 
-  it('getAll() 应返回所有 Provider', () => {
+  it('getAll() 应返回所有已注册 Provider', () => {
     const factory = new ProviderFactory();
-    const initial = factory.getAll();
-    expect(initial.length).toBe(2); // anthropic + openai
+    expect(factory.getAll().length).toBe(0); // 懒加载，初始为空
 
     factory.register(createMockProvider('ollama', ['llama-']));
-    expect(factory.getAll().length).toBe(3);
+    expect(factory.getAll().length).toBe(1);
   });
 
   it('getByName() 未注册名称应返回 undefined', () => {

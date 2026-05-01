@@ -59,7 +59,7 @@ export class MemoryCache<T = unknown> {
     const effectiveTTL = ttl ?? this.defaultTTL;
     const expiresAt = effectiveTTL > 0 ? Date.now() + effectiveTTL : Infinity;
 
-    // 检查容量限制（LRU 淘汰）
+    // 检查容量限制（LRU 淘汰：删除最久未访问的条目）
     if (this.maxSize > 0 && this.cache.size >= this.maxSize && !this.cache.has(key)) {
       const firstKey = this.cache.keys().next().value;
       if (firstKey !== undefined) {
@@ -71,7 +71,7 @@ export class MemoryCache<T = unknown> {
   }
 
   /**
-   * 获取缓存
+   * 获取缓存（同时更新为最近使用）
    * @param key 缓存键
    * @returns 缓存值，未找到或已过期返回 undefined
    */
@@ -87,6 +87,9 @@ export class MemoryCache<T = unknown> {
       return undefined;
     }
 
+    // 更新为最近使用（delete + re-set 使条目移到 Map 末尾）
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.value;
   }
 

@@ -28,9 +28,7 @@ app.on('before-quit', async (e) => {
   if (!getIsCleaningUp()) {
     e.preventDefault();
     setIsCleaningUp(true);
-    console.log('[main] before-quit: starting cleanup...');
     await cleanupAgentProcess();
-    console.log('[main] before-quit: cleanup finished, quitting app');
     setIsCleaningUp(false);
     app.quit();
   }

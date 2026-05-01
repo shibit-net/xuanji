@@ -11,6 +11,7 @@ export interface UserSettings {
   language: 'zh-CN' | 'en-US';
   theme: 'light' | 'dark' | 'auto';
   fontSize: number;
+  workspacePath: string;
   model: ModelConfig;
   api: APIConfig;
   permissions: PermissionConfig;
@@ -146,6 +147,9 @@ export interface MessageStreamState {
   thinking: string;
   toolCalls: ToolCallState[];
   finished: boolean;
+  /** 内部优化：文本块数组，避免 O(n²) 字符串拼接 */
+  _textChunks: string[];
+  _thinkingChunks: string[];
 }
 
 export interface TokenUsage {

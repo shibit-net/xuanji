@@ -17,6 +17,7 @@ export interface ToolContext {
   toolName: string;
   input: Record<string, any>;
   metadata?: Record<string, any>;
+  signal?: AbortSignal;
 }
 
 /**
@@ -100,17 +101,27 @@ export class TimeoutMiddleware implements IMiddleware<ToolContext, ToolResult> {
   constructor(private timeoutMs: number) {}
 
   async execute(context: ToolContext, next: () => Promise<ToolResult>): Promise<ToolResult> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       return await Promise.race([
         next(),
         new Promise<ToolResult>((_, reject) => {
-          setTimeout(() => {
+          timeoutId = setTimeout(() => {
             reject(new Error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms`));
           }, this.timeoutMs);
         })
       ]);
     } catch (error) {
-      log.error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms:`, error);
+      if (timeoutId) clearTimeout(timeoutId);
+
+      const isTimeout = error instanceof Error && error.message.includes('timeout after');
+      if (isTimeout) {
+        log.error(`Tool ${context.toolName} timeout after ${this.timeoutMs}ms`);
+      } else {
+        log.error(`Tool ${context.toolName} execution error:`, error);
+      }
+
       return {
         content: error instanceof Error ? error.message : String(error),
         isError: true
@@ -150,11 +161,23 @@ export class RetryMiddleware implements IMiddleware<ToolContext, ToolResult> {
 
 /**
  * 缓存中间件
+ * 带定期清理过期条目机制，防止长期运行内存无限增长
  */
 export class CacheMiddleware implements IMiddleware<ToolContext, ToolResult> {
   private cache = new Map<string, { result: ToolResult; expireAt: number }>();
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  // 最大缓存条目数，防止极端情况下内存溢出
+  private maxSize: number;
 
-  constructor(private ttl: number = 60000) {}
+  constructor(private ttl: number = 60000, maxSize: number = 500) {
+    this.maxSize = maxSize;
+    // 每分钟清理一次过期条目
+    this.cleanupTimer = setInterval(() => this.evictExpired(), 60_000);
+    // 允许进程退出（不阻止事件循环）
+    if (this.cleanupTimer && typeof this.cleanupTimer === 'object' && 'unref' in this.cleanupTimer) {
+      this.cleanupTimer.unref();
+    }
+  }
 
   async execute(context: ToolContext, next: () => Promise<ToolResult>): Promise<ToolResult> {
     const cacheKey = this.getCacheKey(context);
@@ -165,7 +188,18 @@ export class CacheMiddleware implements IMiddleware<ToolContext, ToolResult> {
       return cached.result;
     }
 
+    // 命中已过期的条目时顺便清理
+    if (cached) {
+      this.cache.delete(cacheKey);
+    }
+
     const result = await next();
+
+    // 超过最大条目数时，清理最旧的条目
+    if (this.cache.size >= this.maxSize) {
+      this.evictOldest();
+    }
+
     this.cache.set(cacheKey, {
       result,
       expireAt: Date.now() + this.ttl
@@ -178,7 +212,33 @@ export class CacheMiddleware implements IMiddleware<ToolContext, ToolResult> {
     return `${context.toolName}:${JSON.stringify(context.input)}`;
   }
 
+  /** 清理所有过期条目 */
+  private evictExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (now >= entry.expireAt) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /** 清理最旧的条目（FIFO） */
+  private evictOldest(): void {
+    const firstKey = this.cache.keys().next().value;
+    if (firstKey !== undefined) {
+      this.cache.delete(firstKey);
+    }
+  }
+
   clear(): void {
+    this.cache.clear();
+  }
+
+  /** 销毁中间件，清理定时器 */
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+    }
     this.cache.clear();
   }
 }

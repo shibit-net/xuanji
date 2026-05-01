@@ -156,6 +156,7 @@ export interface ElectronAPI {
 
   // 设置操作
   settingsGetConfig: () => Promise<any>;
+  settingsGetFullConfig: () => Promise<any>;
   settingsUpdateConfig: (data: any) => Promise<any>;
 
   // 会话管理
@@ -270,6 +271,7 @@ export interface ElectronAPI {
     content?: string;
     error?: string;
   }>;
+  onProjectInfo: (callback: (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => void) => void;
 
   // 高级功能
   compact: (data: any) => Promise<any>;
@@ -406,6 +408,31 @@ export interface ElectronAPI {
       };
       error?: string;
     }>;
+    error?: string;
+  }>;
+  downloadGetProjectRoot: () => Promise<{
+    success: boolean;
+    projectRoot?: string;
+    error?: string;
+  }>;
+  downloadCheckEmbeddingModel: (modelId: string) => Promise<{
+    success: boolean;
+    installed?: boolean;
+    error?: string;
+  }>;
+  downloadUninstallEmbeddingModel: (modelId: string) => Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }>;
+  downloadCreate: (options: {
+    url: string;
+    dest: string;
+    name: string;
+    category?: string;
+  }) => Promise<{
+    success: boolean;
+    taskId?: string;
     error?: string;
   }>;
   downloadCancel: (taskId: string) => Promise<{

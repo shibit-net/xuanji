@@ -52,6 +52,18 @@ export class DependencyContainer {
   }
 
   /**
+   * 更新已注册的单例实例（用于配置热重载）
+   * @param key 服务标识
+   * @param instance 新实例
+   */
+  updateSingleton<T>(key: string, instance: T): void {
+    if (!this.singletons.has(key)) {
+      throw new Error(`Singleton not found: ${key}`);
+    }
+    this.singletons.set(key, instance);
+  }
+
+  /**
    * 解析服务
    * @param key 服务标识
    * @returns 服务实例

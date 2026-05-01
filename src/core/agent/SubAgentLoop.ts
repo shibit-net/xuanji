@@ -18,6 +18,8 @@ export interface SubAgentResult {
   timedOut: boolean;
   /** 迭代次数 */
   iterations: number;
+  /** 是否成功 */
+  success: boolean;
   /** 是否发生了错误（非超时） */
   hasError?: boolean;
 }

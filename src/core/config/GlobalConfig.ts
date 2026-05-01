@@ -8,7 +8,7 @@
 //   3. 默认值
 //
 
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import type { AppConfig } from '@/core/types';
 import { logger } from '@/core/logger';
@@ -150,26 +150,6 @@ export function setByPath(obj: Record<string, unknown>, path: string, value: unk
 }
 
 // ============================================================
-// 兼容旧 API（保留原有导出，但使用项目配置）
-// ============================================================
-
-/**
- * 加载全局配置（兼容旧接口，实际读取项目配置）
- * @deprecated 使用 GlobalConfig.readProjectConfig() 代替
- */
-export async function loadGlobalConfig(): Promise<Record<string, unknown>> {
-  return GlobalConfig.readProjectConfig() as Promise<Record<string, unknown>>;
-}
-
-/**
- * 保存全局配置（兼容旧接口，实际写入项目配置）
- * @deprecated 使用 GlobalConfig.writeProjectConfig() 代替
- */
-export async function saveGlobalConfig(config: Record<string, unknown>): Promise<void> {
-  await GlobalConfig.writeProjectConfig(config as Partial<AppConfig>);
-}
-
-// ============================================================
 // GlobalConfig 类
 // ============================================================
 
@@ -212,14 +192,6 @@ export class GlobalConfig {
   }
 
   /**
-   * 获取全局配置文件路径
-   * @deprecated 全局配置已废弃，使用 getProjectConfigPath() 代替
-   */
-  static getGlobalConfigPath(): string {
-    return GlobalConfig.getProjectConfigPath();
-  }
-
-  /**
    * 获取项目配置文件路径
    */
   static getProjectConfigPath(projectRoot?: string): string {
@@ -228,31 +200,10 @@ export class GlobalConfig {
   }
 
   /**
-   * 读取全局配置（兼容旧接口，实际读取项目配置）
-   * @deprecated 使用 readProjectConfig() 代替
-   *
-   * 文件不存在时返回空对象 {}
-   * JSON 解析失败时打 warn 日志，返回空对象
-   */
-  static async readGlobalConfig(): Promise<Partial<AppConfig>> {
-    return GlobalConfig.readProjectConfig();
-  }
-
-  /**
-   * 写入全局配置（兼容旧接口，实际写入项目配置）
-   * @deprecated 使用 writeProjectConfig() 代替
-   *
-   * 自动确保 .xuanji/ 目录存在
-   * 使用带版本号的 ConfigFile 格式
-   */
-  static async writeGlobalConfig(config: Partial<AppConfig>): Promise<void> {
-    await GlobalConfig.writeProjectConfig(config);
-  }
-
-  /**
    * 读取项目配置（仅项目层，不合并）
    *
    * 文件不存在时返回空对象 {}
+   * JSON 解析失败时打 warn 日志，返回空对象
    */
   static async readProjectConfig(projectRoot?: string): Promise<Partial<AppConfig>> {
     const configPath = GlobalConfig.getProjectConfigPath(projectRoot);
@@ -279,26 +230,14 @@ export class GlobalConfig {
    * 自动确保项目 .xuanji/ 目录存在
    */
   static async writeProjectConfig(config: Partial<AppConfig>, projectRoot?: string): Promise<void> {
-    const base = projectRoot ?? process.cwd();
-    const dir = join(base, PROJECT_CONFIG_DIR_NAME);
-    await mkdir(dir, { recursive: true });
+    const configPath = GlobalConfig.getProjectConfigPath(projectRoot);
+    await mkdir(dirname(configPath), { recursive: true });
 
     const configFile: ConfigFile = {
       version: CONFIG_VERSION,
       config,
     };
-    const configPath = GlobalConfig.getProjectConfigPath(projectRoot);
     await writeFile(configPath, JSON.stringify(configFile, null, 2), 'utf-8');
-  }
-
-  /**
-   * 确保全局配置目录存在（兼容旧接口，实际确保项目目录）
-   * @deprecated 项目目录会在写入时自动创建
-   */
-  static async ensureGlobalDir(): Promise<void> {
-    const base = process.cwd();
-    const dir = join(base, PROJECT_CONFIG_DIR_NAME);
-    await mkdir(dir, { recursive: true });
   }
 
   /**

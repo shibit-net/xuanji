@@ -62,6 +62,8 @@ export interface SceneMatchConfig {
   keywords: RegExp;
   /** 场景描述文本（Embedding 匹配用，启动时自动向量化） */
   description: string;
+  /** 所需能力列表（用于 keyword 匹配时选择 agent） */
+  requiredCapabilities?: string[];
 }
 
 // ─── PromptComponent ─────────────────────────────────
@@ -90,7 +92,7 @@ export interface PromptComponent {
   /** 预估 token 数（用于统计和调试） */
   estimatedTokens: number;
 
-  /** 该组件需要的工具列表（给 DynamicToolFilter 用） */
+  /** 该组件需要的工具列表 */
   requiredTools?: string[];
 
   /** Extended Thinking 配置 */
@@ -115,6 +117,8 @@ export interface PromptComponent {
 export interface IntentAnalysis {
   /** 匹配的场景 */
   scene: SceneType | null;
+  /** 匹配的 agent */
+  agent: string | null;
   /** 复杂度 */
   complexity: IntentComplexity;
   /** 匹配方式 */
@@ -167,6 +171,8 @@ export interface LayeredPromptBuildOptions {
   complexity?: IntentComplexity;
   /** Agent 类型（从意图分析结果传入） */
   agent?: string;
+  /** 匹配方法（从意图分类结果传入） */
+  matchMethod?: 'keyword' | 'embedding' | 'default' | 'llm';
   /** 语言 */
   language?: string;
   /** 工具列表 */

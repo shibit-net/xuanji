@@ -82,9 +82,7 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
     try {
       setLoading(true);
       setError(null);
-      console.log('[ToolsPage] 开始加载工具列表...');
       const response = await window.electron.toolsList();
-      console.log('[ToolsPage] 收到响应:', JSON.stringify(response, null, 2));
 
       // 处理响应格式 { success: true, tools: [...] } 或 { success: false, error: '...' }
       if (response && typeof response === 'object') {
@@ -93,11 +91,9 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
           setError(response.error || '加载工具列表失败');
           setTools([]);
         } else if ('tools' in response) {
-          console.log('[ToolsPage] 工具数量:', response.tools?.length || 0);
           setTools(response.tools || []);
         } else {
           // 兼容直接返回数组的情况
-          console.log('[ToolsPage] 直接数组格式');
           setTools(Array.isArray(response) ? response : []);
         }
       } else {

@@ -2,7 +2,7 @@
 // ChatArea - 对话区组件
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
@@ -21,7 +21,6 @@ function generateMessageId(prefix = 'msg'): string {
 function TypingIndicator() {
   return (
     <div className="flex items-start gap-3 px-1">
-      {/* 与 MessageBubble 的 assistant 头像对齐 */}
       <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
         <span className="text-sm">🤖</span>
       </div>
@@ -51,26 +50,53 @@ export default function ChatArea() {
   const messages = useChatStore((state) => state.messages);
   const status = useChatStore((state) => state.status);
   const currentStreamingId = useChatStore((state) => state.currentStreamingId);
+  const currentStreamingText = useChatStore((state) => state.currentStreamingText);
   const toast = useToast();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
 
-  // 是否显示三点等待动画：LLM 收到请求后、第一个 token 到达前
+  // 是否显示三点等待动画
   const showTypingIndicator = status === 'thinking' && !currentStreamingId;
 
-  // 虚拟滚动配置
+  // 是否正在流式输出中
+  const isStreaming = currentStreamingId !== null;
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
+
+  // RAF ID 用于合并滚动操作
+  const scrollRafRef = useRef<number | null>(null);
+  const lastScrollTimeRef = useRef(0);
+
+  // ============================================================
+  // 核心优化：将流式消息从虚拟滚动器中分离
+  // 流式消息使用自然文档流渲染，虚拟滚动器只管理已稳定的消息
+  // ============================================================
+  const { stableMessages, streamingMessage } = useMemo(() => {
+    if (currentStreamingId && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.id === currentStreamingId) {
+        return {
+          stableMessages: messages.slice(0, -1),
+          streamingMessage: lastMsg,
+        };
+      }
+    }
+    return { stableMessages: messages, streamingMessage: null };
+  }, [messages, currentStreamingId]);
+
+  // 虚拟滚动器只管理稳定消息
+  const stableCount = stableMessages.length;
   const virtualizer = useVirtualizer({
-    count: messages.length,
+    count: stableCount > 0 ? stableCount : 1, // 至少 1 避免空数组导致 totalSize 为 0
     getScrollElement: () => containerRef.current,
-    estimateSize: () => 100, // 预估每条消息高度
-    overscan: 5, // 预渲染上下各 5 条
+    estimateSize: useCallback(() => 100, []),
+    overscan: 5,
   });
 
   // 监听归档通知
   useEffect(() => {
     const handleArchiveNotification = (data: { archivedCount: number; memoriesExtracted: number; summary?: string }) => {
-      // 在聊天区域添加一条系统提示消息，而不是弹出 toast
       const archiveMessage: Message = {
         id: generateMessageId('system-archive'),
         role: 'system',
@@ -81,7 +107,6 @@ export default function ChatArea() {
     };
 
     window.electron.on('session:archive-notification', handleArchiveNotification);
-
     return () => {
       window.electron.off('session:archive-notification', handleArchiveNotification);
     };
@@ -91,28 +116,74 @@ export default function ChatArea() {
   const checkIfAtBottom = useCallback(() => {
     if (!containerRef.current) return true;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const threshold = 100; // 距离底部 100px 内认为在底部
-    return scrollHeight - scrollTop - clientHeight < threshold;
+    return scrollHeight - scrollTop - clientHeight < 100;
   }, []);
 
-  // 滚动到底部
-  const scrollToBottom = useCallback(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      setShowNewMessageButton(false);
-    }
-  }, []);
-
-  // 虚拟滚动到最后一项
-  const scrollToLastItem = useCallback(() => {
-    if (messages.length > 0) {
-      // 使用 setTimeout 确保 DOM 已更新
-      setTimeout(() => {
-        virtualizer.scrollToIndex(messages.length - 1, { align: 'end', behavior: 'smooth' });
+  // 使用 RAF 滚动到底部
+  const scrollToBottomRaf = useCallback(() => {
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
         setShowNewMessageButton(false);
-      }, 0);
+      }
+    });
+  }, []);
+
+  // 消息变化时的自动滚动
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    if (isAtBottom) {
+      if (isStreamingRef.current) {
+        // 流式输出：节流到 16ms，使用 RAF 平滑跟随
+        const now = Date.now();
+        if (now - lastScrollTimeRef.current < 16) return;
+        lastScrollTimeRef.current = now;
+        scrollToBottomRaf();
+      } else {
+        // 非流式：直接滚动到底部
+        scrollToBottomRaf();
+      }
+    } else {
+      setShowNewMessageButton(true);
     }
-  }, [messages.length, virtualizer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isAtBottom]);
+
+  // typing indicator 出现时滚动到底部
+  useEffect(() => {
+    if (showTypingIndicator) {
+      const timer = setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [showTypingIndicator]);
+
+  // 初始化滚动
+  useEffect(() => {
+    if (messages.length > 0 && containerRef.current) {
+      const timer = setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length]);
+
+  // 清理 RAF
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
+  }, []);
 
   // 监听滚动事件
   const handleScroll = useCallback(() => {
@@ -122,43 +193,6 @@ export default function ChatArea() {
       setShowNewMessageButton(false);
     }
   }, [checkIfAtBottom]);
-
-  // 消息变化时的自动滚动逻辑
-  useEffect(() => {
-    if (isAtBottom) {
-      // 用户在底部，自动滚动
-      scrollToLastItem();
-    } else {
-      // 用户在上方查看历史，显示新消息提示
-      setShowNewMessageButton(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, isAtBottom]);
-
-  // typing indicator 出现时滚动到底部
-  useEffect(() => {
-    if (showTypingIndicator) {
-      // 延迟执行确保 TypingIndicator 已渲染
-      const timer = setTimeout(() => {
-        scrollToBottom();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showTypingIndicator, scrollToBottom]);
-
-  // 初始化滚动：等待虚拟滚动器和消息都准备好
-  useEffect(() => {
-    if (messages.length > 0 && containerRef.current) {
-      // 延迟执行确保虚拟滚动器已完成测量
-      const timer = setTimeout(() => {
-        if (containerRef.current) {
-          // 直接设置 scrollTop，最可靠
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [messages.length]);
 
   return (
     <div className="flex-1 min-h-0 relative">
@@ -180,35 +214,56 @@ export default function ChatArea() {
             </div>
           </div>
         ) : (
-          // 虚拟滚动消息列表
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {virtualizer.getVirtualItems().map((virtualItem) => {
-              const message = messages[virtualItem.index];
-              return (
-                <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                  className="pb-4"
-                >
-                  <MessageBubble message={message} />
-                </div>
-              );
-            })}
-          </div>
+          <>
+            {/* 虚拟滚动区域：只包含稳定消息 */}
+            {stableCount > 0 && (
+              <div
+                className="chat-messages-container"
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  if (virtualItem.index >= stableCount) return null;
+                  const message = stableMessages[virtualItem.index];
+                  if (!message) return null;
+
+                  return (
+                    <div
+                      key={virtualItem.key}
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      className="message-bubble"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <div className="pb-4">
+                        <MessageBubble message={message} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 流式消息：使用自然文档流渲染，不受虚拟滚动器干扰 */}
+            {streamingMessage && (
+              <div className="message-bubble-streaming pb-4">
+                <MessageBubble
+                  message={streamingMessage}
+                  isStreaming={true}
+                  streamingText={currentStreamingText}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* LLM 响应前的三点等待动画 */}
@@ -218,7 +273,12 @@ export default function ChatArea() {
       {/* 新消息提示按钮 */}
       {showNewMessageButton && (
         <button
-          onClick={scrollToLastItem}
+          onClick={() => {
+            if (containerRef.current) {
+              containerRef.current.scrollTop = containerRef.current.scrollHeight;
+              setShowNewMessageButton(false);
+            }
+          }}
           className="absolute bottom-4 right-6 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all animate-bounce"
         >
           <span className="text-sm">新消息</span>

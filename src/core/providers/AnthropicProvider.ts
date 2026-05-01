@@ -74,7 +74,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
     // 🆕 动态计算 max_tokens：基于输入内容和模型限制
     const estimatedInputTokens = this.estimateInputTokens(systemBlocks, chatMessages, tools);
-    const adjustedMaxTokens = this.calculateMaxTokens(config.model, config.maxTokens || 65536, estimatedInputTokens);
+    const adjustedMaxTokens = this.calculateMaxTokens(config.maxTokens || 65536, estimatedInputTokens);
 
     // 构造 Anthropic API 请求参数
     const params: Anthropic.MessageCreateParamsStreaming = {
@@ -122,9 +122,9 @@ export class AnthropicProvider extends BaseLLMProvider {
         ? { type: 'adaptive', effort: config.thinking.effort ?? 'medium' }
         : { type: 'enabled', budget_tokens: budgetTokens };
 
-      console.log('[AnthropicProvider] Thinking 参数:', JSON.stringify((params as any).thinking), 'isDirectAnthropic:', isDirectAnthropic, 'baseURL:', config.baseURL);
+      this.log.debug(`Thinking 参数: ${JSON.stringify((params as any).thinking)}, isDirectAnthropic: ${isDirectAnthropic}, baseURL: ${config.baseURL}`);
     } else {
-      console.log('[AnthropicProvider] config.thinking 未配置');
+      this.log.debug('config.thinking 未配置');
     }
 
     // 调试日志：统计缓存断点数量
@@ -140,8 +140,8 @@ export class AnthropicProvider extends BaseLLMProvider {
     // 🆕 打印完整请求体用于调试
     // 设置环境变量 DEBUG_FULL_REQUEST=1 可以查看完整请求体（包括 prompt 内容）
     if (process.env.DEBUG_FULL_REQUEST === '1') {
-      this.log.info('=== 完整请求体 ===');
-      this.log.info(JSON.stringify({
+      this.log.debug('=== 完整请求体 ===');
+      this.log.debug(JSON.stringify({
         model: params.model,
         max_tokens: params.max_tokens,
         stream: params.stream,
@@ -158,7 +158,7 @@ export class AnthropicProvider extends BaseLLMProvider {
           cache_control: (t as any).cache_control
         }))
       }, null, 2));
-      this.log.info('=== 请求体结束 ===');
+      this.log.debug('=== 请求体结束 ===');
     }
 
     // 打印请求结构摘要
@@ -205,6 +205,11 @@ export class AnthropicProvider extends BaseLLMProvider {
                   type: 'tool_use_start',
                   toolCall: { id: block.id, name: block.name, input: {} },
                 };
+              } else if (block.type === 'thinking') {
+                yield {
+                  type: 'thinking_start',
+                  signature: block.signature,
+                };
               }
               break;
             }
@@ -214,7 +219,6 @@ export class AnthropicProvider extends BaseLLMProvider {
               if (delta.type === 'text_delta') {
                 yield { type: 'text_delta', text: delta.text };
               } else if (delta.type === 'thinking_delta') {
-                console.log('[AnthropicProvider] 收到 thinking_delta:', delta.thinking?.length || 0, '前50字符:', delta.thinking?.slice(0, 50) || '');
                 yield { type: 'thinking_delta', thinking: delta.thinking };
               } else if (delta.type === 'input_json_delta') {
                 currentToolInput += delta.partial_json;
@@ -386,11 +390,12 @@ export class AnthropicProvider extends BaseLLMProvider {
           `4. API 服务暂时不可用（请稍后重试）`;
       }
 
-      // 保留原始错误的 status 属性（如 Anthropic SDK 的 429/500 等），
-      // 确保 RetryPolicy.shouldRetry() 能通过 status 码判断是否重试
+      // 保留原始错误的 name/status/code 属性，确保 RetryPolicy 能正确判断是否重试
       const wrappedError = new Error(errorMessage);
-      if (err instanceof Error && 'status' in err) {
-        (wrappedError as Error & { status: number }).status = (err as Error & { status: number }).status;
+      if (err instanceof Error) {
+        wrappedError.name = err.name;
+        if ('status' in err) (wrappedError as any).status = (err as any).status;
+        if ('code' in err) (wrappedError as any).code = (err as any).code;
       }
       throw wrappedError;
     }
@@ -482,47 +487,15 @@ export class AnthropicProvider extends BaseLLMProvider {
   }
 
   /**
-   * 根据模型限制和输入 tokens 动态计算 max_tokens
+   * 根据上下文窗口和输入 tokens 动态计算 max_tokens
    *
-   * 模型限制：
-   * - claude-opus-4: 总 200k，输出最大 16384
-   * - claude-sonnet-4/4.5: 总 200k，输出最大 64000
-   * - claude-haiku-4/4.5: 总 200k，输出最大 64000
-   * - claude-3.5-sonnet: 总 200k，输出最大 8192
-   * - claude-3.5-haiku: 总 200k，输出最大 8192
+   * max_tokens = min(用户配置, 上下文窗口 - 输入tokens - 安全边距)
    *
-   * 计算公式：
-   * max_tokens = min(
-   *   用户配置,
-   *   模型输出限制,
-   *   总上下文窗口 - 输入tokens - 安全边距
-   * )
+   * 遵从用户配置，不硬编码模型输出上限。
+   * 上下文窗口 200k 是物理限制，非策略选择。
    */
-  private calculateMaxTokens(modelName: string, requestedMaxTokens: number, estimatedInputTokens: number): number {
-    const normalizedModel = modelName.replace(/^\[.*?\]/, '').toLowerCase();
-
-    // 获取模型限制
-    let contextWindow: number;
-    let outputLimit: number;
-
-    if (normalizedModel.includes('opus-4')) {
-      contextWindow = 200000;
-      outputLimit = 16384;
-    } else if (normalizedModel.includes('sonnet-4') || normalizedModel.includes('haiku-4')) {
-      contextWindow = 200000;
-      outputLimit = 64000;
-    } else if (normalizedModel.includes('3.5') || normalizedModel.includes('3-5')) {
-      contextWindow = 200000;
-      outputLimit = 8192;
-    } else if (normalizedModel.includes('claude-3')) {
-      contextWindow = 200000;
-      outputLimit = 4096;
-    } else {
-      // 未知模型，使用保守值
-      contextWindow = 200000;
-      outputLimit = 8192;
-      this.log.warn(`Unknown model ${modelName}, using conservative limits`);
-    }
+  private calculateMaxTokens(requestedMaxTokens: number, estimatedInputTokens: number): number {
+    const contextWindow = 200_000;
 
     // 安全边距（预留给响应元数据等）
     const safetyMargin = 1000;
@@ -530,12 +503,12 @@ export class AnthropicProvider extends BaseLLMProvider {
     // 基于上下文窗口的最大输出
     const contextBasedMax = Math.max(0, contextWindow - estimatedInputTokens - safetyMargin);
 
-    // 取最小值
-    const finalMaxTokens = Math.min(requestedMaxTokens, outputLimit, contextBasedMax);
+    // 取用户配置与上下文限制的最小值
+    const finalMaxTokens = Math.min(requestedMaxTokens, contextBasedMax);
 
     // 日志记录
     if (finalMaxTokens < requestedMaxTokens) {
-      this.log.debug(`max_tokens adjusted: ${requestedMaxTokens} → ${finalMaxTokens} (input: ~${estimatedInputTokens}, context: ${contextWindow}, output_limit: ${outputLimit})`);
+      this.log.debug(`max_tokens adjusted: ${requestedMaxTokens} → ${finalMaxTokens} (input: ~${estimatedInputTokens}, context: ${contextWindow})`);
     }
 
     return Math.max(1024, finalMaxTokens); // 至少保证 1024 tokens 输出空间

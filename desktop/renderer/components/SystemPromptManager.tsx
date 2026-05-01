@@ -122,16 +122,20 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     }
   }, [activeTab]);
 
+  // 监听项目切换事件，自动刷新项目列表
+  useEffect(() => {
+    window.electron.onProjectInfo((data) => {
+      loadProjectsList();
+    });
+  }, []);
+
   // 加载项目列表
   const loadProjectsList = async () => {
-    console.log('[SystemPromptManager] 开始加载项目列表');
     setLoadingProjects(true);
     try {
       const result = await window.electron.projectsList();
-      console.log('[SystemPromptManager] 项目列表结果:', result);
       if (result.success) {
         setProjects(result.projects || []);
-        console.log('[SystemPromptManager] 项目列表已设置:', result.projects);
       } else {
         console.error('[SystemPromptManager] 加载项目列表失败:', result.error);
         toast.error(result.error || '加载项目列表失败');

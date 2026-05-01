@@ -77,7 +77,7 @@ export class ListScenesTool extends BaseTool {
 
     // 关键词搜索
     let filteredScenes = sceneComponents;
-    if (filter?.search) {
+    if (filter?.search && typeof filter.search === 'string') {
       const keyword = filter.search.toLowerCase();
       filteredScenes = sceneComponents.filter(scene =>
         scene.id.toLowerCase().includes(keyword) ||

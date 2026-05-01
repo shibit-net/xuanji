@@ -2,7 +2,7 @@
 // M6 工具系统 — ReadTool 读取文件
 // ============================================================
 
-import { readFile, access, stat } from 'node:fs/promises';
+import { readFile, stat, readdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
@@ -45,7 +45,9 @@ const MIME_MAP: Record<string, string> = {
 export class ReadTool extends BaseTool {
   readonly name = 'read_file';
   readonly description = [
-    'Read file content. Supports text, PDF, and image files.',
+    'Read a FILE. Only works on files, NOT on directories.',
+    'To browse a directory, use list_directory.',
+    'Supports text, PDF, and image files.',
     '',
     '# Supported File Types',
     '- Text files: Output with line numbers, supports offset/limit pagination for large files',
@@ -64,6 +66,7 @@ export class ReadTool extends BaseTool {
     '- Read PDF pages: read_file({ path: "doc.pdf", pages: "1-5" })',
     '',
     '# Important Notes',
+    '✗ Do NOT use on directories — use list_directory instead',
     '✗ Do NOT use bash cat (read_file has line numbers, formatting, truncation protection)',
     '✗ Do NOT re-read files already in conversation history',
   ].join('\n');
@@ -104,10 +107,23 @@ export class ReadTool extends BaseTool {
     try {
       // 检查文件是否存在
       try {
-        await access(filePath);
+        const fileStats = await stat(filePath);
+        if (fileStats.isDirectory()) {
+          // 目录：自动列出内容，帮助 agent 定位文件
+          return this.readDirectory(filePath);
+        }
       } catch {
         log.warn(`File not found: ${filePath}`);
-        return this.error(`文件不存在: ${filePath}`);
+        // 文件不存在：给出明确的搜索建议
+        const dirPath = path.dirname(filePath);
+        const baseName = path.basename(filePath);
+        return this.error(
+          `文件不存在: ${filePath}\n\n` +
+          `建议操作：\n` +
+          `1. 使用 glob 搜索相关文件: glob({ pattern: "**/${baseName}" })\n` +
+          `2. 查看父目录内容: read_file({ path: "${dirPath}" })\n` +
+          `3. 使用 list_directory 浏览项目结构`
+        );
       }
 
       const ext = path.extname(filePath).toLowerCase();
@@ -184,6 +200,49 @@ export class ReadTool extends BaseTool {
       truncated: needsTruncation || output.length < numbered.length,
       type: 'text',
     });
+  }
+
+  // ============================================================
+  // 目录读取（智能降级：read_file 传入目录时自动列出内容）
+  // ============================================================
+
+  private async readDirectory(dirPath: string): Promise<ToolResult> {
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true });
+      const dirs: string[] = [];
+      const files: string[] = [];
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          dirs.push(`📁 ${entry.name}/`);
+        } else if (entry.isSymbolicLink()) {
+          files.push(`🔗 ${entry.name}`);
+        } else {
+          files.push(`📄 ${entry.name}`);
+        }
+      }
+
+      const listing = [
+        `[目录] ${dirPath}`,
+        `共 ${entries.length} 项 (${dirs.length} 目录, ${files.length} 文件)`,
+        '',
+        ...dirs.sort(),
+        ...files.sort(),
+      ].join('\n');
+
+      const output = middleTruncate(listing, getMaxToolOutputLength());
+
+      return this.success(output, {
+        type: 'directory',
+        totalEntries: entries.length,
+        directoryCount: dirs.length,
+        fileCount: files.length,
+        path: dirPath,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return this.error(`读取目录失败: ${message}`);
+    }
   }
 
   /**

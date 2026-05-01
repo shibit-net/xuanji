@@ -62,8 +62,6 @@ async function saveAccountsList(data: AccountsData) {
     } else {
       fs.writeFileSync(ACCOUNTS_FILE_JSON, serialized);
     }
-
-    console.log('保存账号列表成功，共', data.accounts.length, '个账号');
   } catch (err) {
     console.error('保存账号列表失败:', err);
   }
@@ -91,30 +89,15 @@ async function loadAccountsList(): Promise<AccountsData> {
 // 保存当前登录状态
 async function saveCurrentAuth(data: CurrentAuthData) {
   ensureAuthDir();
-  console.log('[saveCurrentAuth] 准备保存:', {
-    email: data.email,
-    hasAccessToken: !!data.accessToken,
-    hasRefreshToken: !!data.refreshToken,
-    tokenExpiresAt: data.tokenExpiresAt,
-    accessTokenLength: data.accessToken?.length
-  });
-
   try {
     const serialized = JSON.stringify(data);
-    console.log('[saveCurrentAuth] 序列化后的数据长度:', serialized.length);
 
     if (safeStorage.isEncryptionAvailable()) {
-      console.log('[saveCurrentAuth] 使用加密存储');
       const encrypted = safeStorage.encryptString(serialized);
       fs.writeFileSync(CURRENT_AUTH_FILE, encrypted);
-      console.log('[saveCurrentAuth] 加密文件已写入:', CURRENT_AUTH_FILE);
     } else {
-      console.log('[saveCurrentAuth] 使用 JSON 存储（加密不可用）');
       fs.writeFileSync(CURRENT_AUTH_FILE_JSON, serialized);
-      console.log('[saveCurrentAuth] JSON 文件已写入:', CURRENT_AUTH_FILE_JSON);
     }
-
-    console.log('[saveCurrentAuth] 保存当前登录状态成功:', data.email);
   } catch (err) {
     console.error('[saveCurrentAuth] 保存当前登录状态失败:', err);
     throw err;
@@ -149,26 +132,13 @@ async function clearCurrentAuth() {
     if (fs.existsSync(CURRENT_AUTH_FILE_JSON)) {
       fs.unlinkSync(CURRENT_AUTH_FILE_JSON);
     }
-    console.log('清除当前登录状态成功');
   } catch (err) {
     console.error('清除当前登录状态失败:', err);
   }
 }
 
 async function saveAuthState() {
-  console.log('[saveAuthState] 开始保存认证状态...');
-  console.log('[saveAuthState] 当前 authState:', {
-    hasUser: !!authState.user,
-    userEmail: authState.user?.email,
-    hasAccessToken: !!authState.accessToken,
-    hasRefreshToken: !!authState.refreshToken,
-    tokenExpiresAt: authState.tokenExpiresAt,
-    accessTokenLength: authState.accessToken?.length,
-    refreshTokenLength: authState.refreshToken?.length
-  });
-
   if (!authState.user) {
-    console.log('[saveAuthState] 没有用户信息，不保存认证状态');
     return;
   }
 
@@ -177,8 +147,6 @@ async function saveAuthState() {
   }
 
   try {
-    // 保存当前登录状态
-    console.log('[saveAuthState] 调用 saveCurrentAuth...');
     await saveCurrentAuth({
       email: authState.user.email,
       accessToken: authState.accessToken || '',
@@ -186,7 +154,6 @@ async function saveAuthState() {
       tokenExpiresAt: authState.tokenExpiresAt || 0,
       user: authState.user
     });
-    console.log('[saveAuthState] saveCurrentAuth 完成');
 
     // 更新账号列表中的 lastLogin
     const accountsData = await loadAccountsList();
@@ -216,7 +183,6 @@ async function saveAuthState() {
     }
 
     await saveAccountsList(accountsData);
-    console.log('[saveAuthState] 认证状态保存完成');
   } catch (err) {
     console.error('[saveAuthState] 保存认证状态失败:', err);
   }
@@ -244,11 +210,10 @@ async function loadAuthState(): Promise<AuthState> {
     // 同步到 Electron Session Cookies
     await syncToElectronCookies();
 
-    console.log('加载认证状态成功:', { user: authState.user?.email });
     return authState;
   }
 
-  console.log('未找到当前登录状态');
+
   return {
     accessToken: null,
     refreshToken: null,
@@ -258,12 +223,10 @@ async function loadAuthState(): Promise<AuthState> {
 }
 
 async function removeAccount(email: string): Promise<boolean> {
-  console.log('开始删除账号:', email);
   const accountsData = await loadAccountsList();
   const initialLength = accountsData.accounts.length;
 
   accountsData.accounts = accountsData.accounts.filter(a => a.email !== email);
-  console.log('删除账号数量:', initialLength, '->', accountsData.accounts.length);
 
   await saveAccountsList(accountsData);
 
@@ -272,7 +235,6 @@ async function removeAccount(email: string): Promise<boolean> {
     await clearAuthState();
   }
 
-  console.log('删除账号成功:', email);
   return accountsData.accounts.length < initialLength;
 }
 
@@ -282,8 +244,6 @@ async function getSavedAccounts(): Promise<SavedAccount[]> {
 }
 
 async function clearAuthState() {
-  console.log('清除认证状态');
-
   // 清除当前登录状态文件
   await clearCurrentAuth();
 
@@ -309,30 +269,14 @@ function isTokenValid(): boolean {
 }
 
 async function syncCookiesFromClient() {
-  console.log('[syncCookiesFromClient] 开始同步 Cookie...');
   const accessToken = apiClient.getCookie('accessToken');
   const refreshToken = apiClient.getCookie('refreshToken');
   const expiresInStr = apiClient.getCookie('tokenExpiresIn');
-
-  console.log('[syncCookiesFromClient] 从 apiClient 获取的 Cookie:', {
-    hasAccessToken: !!accessToken,
-    hasRefreshToken: !!refreshToken,
-    expiresInStr,
-    accessTokenLength: accessToken?.length,
-    refreshTokenLength: refreshToken?.length
-  });
 
   authState.accessToken = accessToken || null;
   authState.refreshToken = refreshToken || null;
   const expiresIn = expiresInStr ? parseInt(expiresInStr, 10) : 3600;
   authState.tokenExpiresAt = Date.now() + (expiresIn * 1000);
-
-  console.log('[syncCookiesFromClient] 同步后的 authState:', {
-    hasAccessToken: !!authState.accessToken,
-    hasRefreshToken: !!authState.refreshToken,
-    tokenExpiresAt: authState.tokenExpiresAt,
-    expiresIn
-  });
 
   // 同步到 Electron Session Cookies
   try {
@@ -346,8 +290,6 @@ async function syncCookiesFromClient() {
 async function syncToElectronCookies() {
   const { session } = await import('electron');
   const baseUrl = process.env.STARSHIP_API_URL || 'https://shibit.net';
-
-  console.log('[syncToElectronCookies] 准备同步到 Electron Session, baseUrl:', baseUrl);
 
   // 从 URL 提取域名
   let domain: string;
@@ -365,8 +307,6 @@ async function syncToElectronCookies() {
     domain = '.shibit.net'; // 默认值
   }
 
-  console.log('[syncToElectronCookies] Cookie 域名:', domain);
-
   try {
     if (authState.accessToken) {
       await session.defaultSession.cookies.set({
@@ -380,7 +320,6 @@ async function syncToElectronCookies() {
         sameSite: 'lax',
         expirationDate: authState.tokenExpiresAt ? authState.tokenExpiresAt / 1000 : undefined
       });
-      console.log('[syncToElectronCookies] accessToken 已同步到 Electron Session');
     }
 
     if (authState.refreshToken) {
@@ -395,12 +334,9 @@ async function syncToElectronCookies() {
         sameSite: 'lax',
         expirationDate: authState.tokenExpiresAt ? (authState.tokenExpiresAt + 259200000) / 1000 : undefined
       });
-      console.log('[syncToElectronCookies] refreshToken 已同步到 Electron Session');
     }
 
-    // 验证 Cookie 是否设置成功
-    const cookies = await session.defaultSession.cookies.get({ url: baseUrl });
-    console.log('[syncToElectronCookies] 当前 Session Cookies:', cookies.map(c => ({ name: c.name, domain: c.domain, value: c.value.substring(0, 20) + '...' })));
+    await session.defaultSession.cookies.get({ url: baseUrl });
   } catch (err) {
     console.error('[syncToElectronCookies] 同步失败:', err);
   }
@@ -408,17 +344,12 @@ async function syncToElectronCookies() {
 
 async function refreshUserInfo(): Promise<User | null> {
   try {
-    console.log('调用 authService.getCurrentUser()...');
     const result = await authService.getCurrentUser();
-    console.log('getCurrentUser 响应:', { success: result.success, data: result.data });
 
     if (result.success && result.data) {
       authState.user = result.data;
       await saveAuthState();
-      console.log('用户信息刷新成功:', result.data.email);
       return result.data;
-    } else {
-      console.log('getCurrentUser 失败:', result.message);
     }
   } catch (err) {
     console.error('刷新用户信息失败:', err);

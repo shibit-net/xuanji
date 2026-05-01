@@ -6,6 +6,8 @@ export interface GenerateOptions {
   maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
+  /** 无状态模式：每次调用使用全新会话，不保留聊天历史。适用于分类器等不需要上下文的场景 */
+  stateless?: boolean;
 }
 
 export interface LLMProvider {

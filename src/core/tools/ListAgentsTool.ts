@@ -88,6 +88,9 @@ export class ListAgentsTool extends BaseTool {
       agents = agents.filter(a => a.enabled !== false);
     }
 
+    // 🔧 排除系统内置 agent（不应被 LLM 选为团队成员）
+    agents = agents.filter(a => a.metadata?.category !== 'system');
+
     // 过滤子代理（可选）
     if (!includeSubagents) {
       agents = agents.filter(a => !a.metadata?.internal);
@@ -96,12 +99,12 @@ export class ListAgentsTool extends BaseTool {
     // 标签过滤
     if (filter?.tags && filter.tags.length > 0) {
       agents = agents.filter(a =>
-        filter.tags!.some(tag => a.tags.includes(tag))
+        filter.tags!.some(tag => (a.tags ?? []).includes(tag))
       );
     }
 
     // 关键词搜索
-    if (filter?.search) {
+    if (filter?.search && typeof filter.search === 'string') {
       const keyword = filter.search.toLowerCase();
       agents = agents.filter(a =>
         a.id.toLowerCase().includes(keyword) ||

@@ -52,7 +52,7 @@ export class ChatSession {
       await this.mainAgent.run(input);
       await this.callbacks?.onAfterExecution?.();
     } catch (error) {
-      await this.callbacks?.onError?.(error as Error);
+      // onError 已在 AgentLoop 中调用，此处不再重复发送
       throw error;
     }
   }
@@ -181,7 +181,7 @@ export class ChatSession {
       const classifierAgent = agentRegistry?.get('scene-classifier');
       const modelType = classifierAgent?.model?.primary as any;
       const systemPrompt = classifierAgent?.systemPrompt;
-      this.modelClassifier = new ModelClassifier({
+      this.modelClassifier = new ModelClassifier(agentRegistry, {
         ...(modelType && { modelType }),
         ...(systemPrompt && { systemPrompt }),
       });
@@ -203,7 +203,7 @@ export class ChatSession {
   async saveSession(name?: string, options?: any): Promise<string> {
     const sessionManager = this.getSessionManager();
     const messages = this.mainAgent.getAgentLoop().getMessageManager().getMessages();
-    return sessionManager.save(messages, name, options);
+    return sessionManager.save(messages as any, name, options);
   }
 
   async resumeSession(sessionId: string): Promise<any> {
@@ -235,5 +235,11 @@ export class ChatSession {
     return { state: this.getState(), config: this.getConfig() };
   }
 
-  async cleanup(): Promise<void> {}
+  async cleanup(): Promise<void> {
+    log.debug('Cleaning up session');
+    // 停止 MainAgent 的执行
+    if (this.mainAgent) {
+      this.mainAgent.stop();
+    }
+  }
 }

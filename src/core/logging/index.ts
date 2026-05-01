@@ -32,17 +32,7 @@ export {
   type LokiClientConfig,
 } from './LokiClient';
 
-export {
-  AgentLoopLogAdapter,
-  getAgentLoopLogAdapter,
-  logAgentLoop,
-  logAgentLoopStart,
-  logAgentLoopEnd,
-  logAgentLoopToolCall,
-  logAgentLoopToolResult,
-  logAgentLoopError,
-  type AgentLoopEventType,
-} from './AgentLoopLogAdapter';
+// AgentLoopLogAdapter removed — was dead code (no external callers)
 
 // ============================================================
 // Quick Start - 快速开始

@@ -14,7 +14,10 @@ const log = logger.child({ module: 'PermissionAudit' });
  */
 export class PermissionAudit implements IPermissionAudit {
   private auditLogger: AuditLogger;
+  /** 环形缓冲区，避免 shift() O(n) 开销 */
   private events: PermissionEvent[] = [];
+  private writeIndex = 0;
+  private eventCount = 0;
   private maxEvents: number;
   private decisionStore: DecisionStore | null = null;
 
@@ -48,12 +51,11 @@ export class PermissionAudit implements IPermissionAudit {
       log.error('Failed to record permission check:', err);
     });
 
-    // 2. 保存到内存（用于查询）
-    this.events.push(event);
-
-    // 3. 限制内存大小
-    if (this.events.length > this.maxEvents) {
-      this.events.shift();
+    // 2. 保存到内存（环形缓冲区，O(1) 写入）
+    this.events[this.writeIndex] = event;
+    this.writeIndex = (this.writeIndex + 1) % this.maxEvents;
+    if (this.eventCount < this.maxEvents) {
+      this.eventCount++;
     }
 
     // 4. 持久化到数据库
@@ -77,8 +79,19 @@ export class PermissionAudit implements IPermissionAudit {
     }
   }
 
+  /** 获取环形缓冲区中所有有效事件（按时间顺序） */
+  private getOrderedEvents(): PermissionEvent[] {
+    if (this.eventCount === 0) return [];
+    const result: PermissionEvent[] = [];
+    const start = this.eventCount < this.maxEvents ? 0 : this.writeIndex;
+    for (let i = 0; i < this.eventCount; i++) {
+      result.push(this.events[(start + i) % this.maxEvents]!);
+    }
+    return result;
+  }
+
   async query(filter: AuditFilter): Promise<PermissionEvent[]> {
-    let results = [...this.events];
+    let results = this.getOrderedEvents();
 
     // 时间范围过滤
     if (filter.startTime) {
@@ -115,9 +128,10 @@ export class PermissionAudit implements IPermissionAudit {
     }
 
     // 回退到内存统计
-    const total = this.events.length;
-    const allowed = this.events.filter(e => e.result === 'allowed').length;
-    const denied = this.events.filter(e => e.result === 'denied').length;
+    const total = this.eventCount;
+    const orderedEvents = this.getOrderedEvents();
+    const allowed = orderedEvents.filter(e => e.result === 'allowed').length;
+    const denied = orderedEvents.filter(e => e.result === 'denied').length;
 
     return {
       totalChecks: total,
@@ -132,6 +146,8 @@ export class PermissionAudit implements IPermissionAudit {
    */
   clear(): void {
     this.events = [];
+    this.writeIndex = 0;
+    this.eventCount = 0;
 
     // 同时清空持久化存储
     if (this.decisionStore) {
@@ -171,7 +187,7 @@ export class PermissionAudit implements IPermissionAudit {
     if (event.reason?.includes('warn') || event.reason?.includes('警告')) {
       return 'warn';
     }
-    if (event.source === 'user-confirmation') {
+    if (event.source === 'user') {
       return 'danger'; // 需要用户确认的通常是危险操作
     }
     return 'safe';

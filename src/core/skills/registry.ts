@@ -110,7 +110,7 @@ export class SkillRegistry {
     }
 
     // 关键词搜索
-    if (filter.search) {
+    if (filter.search && typeof filter.search === 'string') {
       const keyword = filter.search.toLowerCase();
       results = results.filter(
         (s) =>

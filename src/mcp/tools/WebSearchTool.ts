@@ -130,6 +130,8 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
    * Tavily API 搜索
    */
   private async searchTavily(query: string, maxResults: number): Promise<SearchResult[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: {
@@ -142,7 +144,9 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
         search_depth: 'basic',
         include_answer: false,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);
@@ -174,6 +178,8 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
       count: String(maxResults),
     });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
       method: 'GET',
       headers: {
@@ -181,7 +187,9 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': this.config.apiKey,
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Brave Search API error: ${response.status} ${response.statusText}`);

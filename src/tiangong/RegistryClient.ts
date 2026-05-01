@@ -40,12 +40,20 @@ export class RegistryClient {
     return headers;
   }
 
-  /** 发送请求（优先使用 authFetch，降级到原生 fetch） */
+  /** 发送请求（优先使用 authFetch，降级到原生 fetch），默认 15 秒超时 */
   private async doFetch(url: string, options?: RequestInit): Promise<Response> {
-    if (this.authFetch) {
-      return this.authFetch.fetch(url, options);
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      if (this.authFetch) {
+        return await this.authFetch.fetch(url, { ...options, signal });
+      }
+      return await fetch(url, { ...options, signal });
+    } finally {
+      clearTimeout(timeout);
     }
-    return fetch(url, options);
   }
 
   /** 搜索包（带认证时返回自己的草稿 + 他人的上线包） */

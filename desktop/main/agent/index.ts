@@ -11,6 +11,25 @@ let sessionReady = false;
 let cachedConfig: any = null;
 let initializationInProgress: Promise<boolean> | null = null;
 let isCleaningUp = false;
+let restartAttempts = 0;
+let restartTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_RESTART_ATTEMPTS = 3;
+const RESTART_BASE_DELAY_MS = 2000;
+
+/** 计算指数退避延迟（带 30% 随机抖动） */
+function getRestartDelay(): number {
+  const baseDelay = RESTART_BASE_DELAY_MS * Math.pow(2, restartAttempts);
+  const jitter = baseDelay * 0.3 * Math.random();
+  return Math.min(baseDelay + jitter, 30_000); // 最大 30 秒
+}
+
+/** 取消待执行的自动重启 */
+function cancelAutoRestart() {
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+}
 
 // 🔧 使用增强的消息总线，支持自动转发到renderer
 // 获取 agent 消息通道
@@ -26,19 +45,19 @@ function findNodePath(): string {
 }
 
 function initChatSession(): Promise<boolean> {
+  // 取消任何待执行的自动重启，避免旧 timer 与新初始化竞态
+  cancelAutoRestart();
+
   if (initializationInProgress) {
-    console.log('⏳ ChatSession 初始化已在进行中，等待完成...');
     return initializationInProgress;
   }
 
   if (agentProcess && sessionReady) {
-    console.log('✅ ChatSession 已就绪，无需重新初始化');
     return Promise.resolve(true);
   }
 
   initializationInProgress = (async () => {
     try {
-      console.log('🚀 开始初始化 ChatSession 子进程...');
 
       // 1. 检查用户是否登录
       const { getAuthState } = await import('../config/auth.js');
@@ -51,10 +70,8 @@ function initChatSession(): Promise<boolean> {
       }
 
       const userId = authState.user.userId;
-      console.log(`👤 当前用户: ${userId}`);
 
       const nodePath = findNodePath();
-      console.log(`📍 使用 Node.js: ${nodePath}`);
 
       const isDev = process.env.NODE_ENV !== 'production';
       let scriptPath: string;
@@ -67,12 +84,10 @@ function initChatSession(): Promise<boolean> {
         const projectRoot = path.join(desktopRoot, '../');
         const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
         args = [tsxPath, scriptPath];
-        console.log(`📜 开发模式，使用 tsx 运行: ${scriptPath}`);
       } else {
         // 生产环境：运行构建后的文件
         scriptPath = path.join(__dirname, 'agent-bridge.js');
         args = [scriptPath];
-        console.log(`📜 生产模式，运行构建文件: ${scriptPath}`);
       }
 
       const { spawn } = require('child_process');
@@ -85,36 +100,44 @@ function initChatSession(): Promise<boolean> {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       });
 
-      // 统一处理子进程的所有输出
-      const handleOutput = (data: Buffer) => {
+      // 解析 debug 包的日志级别
+      // 格式: "2026-05-01 01:50:49.339 xuanji:DownloadManager:info message"
+      // debug 包同时输出到 stdout 和 stderr，需要识别级别再决定前缀
+      const extractLevel = (line: string): string | null => {
+        const match = line.match(/\s[\w:]+:(debug|info|warn|error|fatal)\s/);
+        return match ? match[1].toLowerCase() : null;
+      };
+
+      // 处理子进程 stdout 输出
+      const handleStdout = (data: Buffer) => {
         const lines = data.toString('utf8').trim().split('\n');
         lines.forEach(line => {
           if (line) {
-            // 改进错误检测逻辑：
-            // 1. 排除 "error: undefined" 这种情况
-            // 2. 排除 JSON 中的 error 字段（如果值为 undefined/null）
-            const lowerLine = line.toLowerCase();
-            const isError = (
-              (lowerLine.includes('error') && !lowerLine.includes('error: undefined') && !lowerLine.includes('error: null')) ||
-              lowerLine.includes('exception') ||
-              lowerLine.includes('failed') ||
-              lowerLine.includes('fatal')
-            ) && !lowerLine.includes('🚨'); // 避免重复标记
-
-            if (isError) {
+            const level = extractLevel(line);
+            if (level === 'error' || level === 'fatal') {
               console.error(`🚨 [Agent Error] ${line}`);
-            } else {
-              console.log(`📝 [Agent] ${line}`);
             }
           }
         });
       };
 
-      agentProcess!.stdout?.on('data', handleOutput);
-      agentProcess!.stderr?.on('data', handleOutput);
+      // 处理子进程 stderr 输出（debug 包默认写到 stderr，不只是错误）
+      const handleStderr = (data: Buffer) => {
+        const lines = data.toString('utf8').trim().split('\n');
+        lines.forEach(line => {
+          if (line) {
+            const level = extractLevel(line);
+            if (level === 'error' || level === 'fatal') {
+              console.error(`🚨 [Agent Error] ${line}`);
+            }
+          }
+        });
+      };
+
+      agentProcess!.stdout?.on('data', handleStdout);
+      agentProcess!.stderr?.on('data', handleStderr);
 
       agentProcess!.on('exit', (code: number, signal: string) => {
-        console.log(`❌ ChatSession 子进程已退出 (code: ${code}, signal: ${signal})`);
         if (agentProcess) {
           agentProcess.stdout?.removeAllListeners();
           agentProcess.stderr?.removeAllListeners();
@@ -122,6 +145,27 @@ function initChatSession(): Promise<boolean> {
         }
         agentProcess = null;
         sessionReady = false;
+
+        // 非清理状态下的意外退出 → 自动重启
+        if (!isCleaningUp && restartAttempts < MAX_RESTART_ATTEMPTS) {
+          restartAttempts++;
+          const delay = getRestartDelay();
+          restartTimer = setTimeout(() => {
+            restartTimer = null;
+            initChatSession().catch((err) => {
+              console.error('❌ Agent 子进程自动重启失败:', err);
+            });
+          }, delay);
+        } else if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+          console.error(`❌ Agent 子进程已重启 ${MAX_RESTART_ATTEMPTS} 次，放弃自动重启`);
+          // 通知 renderer 子进程无法恢复
+          const mainWindow = getMainWindow();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('agent:crash', {
+              message: 'Agent 子进程多次崩溃，已停止自动重启。请手动重新初始化。',
+            });
+          }
+        }
       });
 
       agentProcess!.on('error', (err: Error) => {
@@ -133,64 +177,34 @@ function initChatSession(): Promise<boolean> {
         timeout: 30000,
         maxRetries: 3,
         retryDelay: 1000,
-        enableLogging: true,
+        enableLogging: true, // 🔧 临时启用日志用于调试
       });
       agentChannel.attach(agentProcess!);
 
+      // 🔧 注册子进程下载事件转发
+      const { BrowserWindow } = require('electron');
+      agentChannel.on('download:event', (eventData: { type: string; task: any }) => {
+        const allWindows = BrowserWindow.getAllWindows();
+        allWindows.forEach((win: any) => {
+          win.webContents.send('download:event', eventData);
+        });
+      });
+
       // 监听子进程就绪
       agentChannel.once('child-ready', () => {
-        console.log('[Agent] 子进程已就绪');
       });
 
       // 监听初始化完成
       agentChannel.on('init-complete', (data) => {
         if (data.success) {
           sessionReady = true;
-          console.log('[Agent] Session 初始化完成');
         } else {
           console.error('[Agent] Session 初始化失败:', data.error);
         }
       });
 
-      // 转发消息到渲染进程
-      const forwardToRenderer = (type: string) => {
-        agentChannel.on(type, (data) => {
-          if (type === 'prompt:build-event' || type === 'download:event') {
-            console.log(`[agent/index] 收到 ${type}，准备转发到渲染进程:`, data);
-          }
-          const mainWindow = getMainWindow();
-          if (mainWindow && mainWindow.webContents) {
-            if (type === 'prompt:build-event' || type === 'download:event') {
-              console.log(`[agent/index] 转发 ${type} 到渲染进程`);
-            }
-            mainWindow.webContents.send(type, data);
-          } else {
-            if (type === 'prompt:build-event' || type === 'download:event') {
-              console.log(`[agent/index] mainWindow 不存在，无法转发 ${type}`);
-            }
-          }
-        });
-      };
-
-      // 需要转发的消息类型
-      const forwardTypes = [
-        'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
-        'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
-        'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
-        'agent:team-member-text', 'agent:team-member-thinking',
-        'agent:subagent-start', 'agent:subagent-end', // 🔧 添加 subagent 事件转发
-        'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
-        'ask-user:request', 'session:messages-restored', 'session:resume-notification',
-        'session:archive-notification', 'session:boot-thinking', 'session:boot-guide',
-        'prompt:build-event', 'project:info',
-        'download:event', // 添加下载事件转发
-        'workspace:intent-analysis-start', 'workspace:intent-analysis-end',
-        'workspace:model-classifier-start', 'workspace:model-classifier-end',
-        'workspace:task-planning-start', 'workspace:task-planning-end',
-        'workspace:task-execution-start', 'workspace:task-execution-end',
-        'workspace:result-aggregation-start', 'workspace:result-aggregation-end',
-      ];
-      forwardTypes.forEach(forwardToRenderer);
+      // 🔧 不再需要手动转发消息，EnhancedMessageBus 会自动转发所有消息到 renderer
+      // 创建并绑定 agent 消息通道时，已经启用了自动转发功能
 
       // 发送 init 消息触发子进程初始化，并传递 userId
       agentChannel.send('init', { userId });
@@ -216,7 +230,8 @@ function initChatSession(): Promise<boolean> {
         });
       });
 
-      console.log('🎉 ChatSession 子进程启动成功！');
+      // 成功后重置重启计数
+      restartAttempts = 0;
       return true;
     } catch (err) {
       console.error('❌ ChatSession 初始化失败:', err);
@@ -233,7 +248,10 @@ function initChatSession(): Promise<boolean> {
 async function cleanupAgentProcess() {
   if (!agentProcess) return;
 
-  console.log('[Agent] 正在清理子进程...');
+  // 取消任何待执行的自动重启
+  cancelAutoRestart();
+  restartAttempts = 0;
+
 
   // 先移除所有监听器，防止 EPIPE 错误
   agentProcess.stdout?.removeAllListeners();

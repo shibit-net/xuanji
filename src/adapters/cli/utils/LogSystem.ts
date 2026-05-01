@@ -4,7 +4,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import type { LogEntry } from '../types';
 import { formatShortTime } from '../../../shared/utils/time/formatters.js';
 
@@ -12,9 +12,12 @@ type LogSource = LogEntry['source'];
 
 const LOGS_DIR = join(process.cwd(), '.xuanji', 'logs');
 
+/** 日志文件保留天数 */
+const LOG_RETENTION_DAYS = 30;
+
 /**
  * CLI 日志系统
- * 支持 JSONL 格式文件存储和内存缓存
+ * 支持 JSONL 格式文件存储和内存缓存（环形缓冲区）
  */
 export class LogSystem {
   private static readonly LEVEL_ORDER: Record<string, number> = {
@@ -24,7 +27,10 @@ export class LogSystem {
     error: 3,
   };
 
-  private memoryCache: LogEntry[] = [];
+  /** 环形缓冲区，避免 shift() O(n) 开销 */
+  private memoryCache: (LogEntry | undefined)[];
+  private cacheWriteIndex = 0;
+  private cacheCount = 0;
   private maxCacheSize = 500;
   private logCallbacks: Array<(entry: LogEntry) => void> = [];
   private minLevel: string = 'debug';
@@ -35,6 +41,8 @@ export class LogSystem {
     if (envLevel && LogSystem.LEVEL_ORDER[envLevel] !== undefined) {
       this.minLevel = envLevel;
     }
+
+    this.memoryCache = new Array(this.maxCacheSize);
 
     // 初始化日志目录
     this.ensureLogsDir().catch(() => {
@@ -62,10 +70,11 @@ export class LogSystem {
     const minLevel = LogSystem.LEVEL_ORDER[this.minLevel] ?? 0;
     if (entryLevel < minLevel) return;
 
-    // 添加到内存缓存
-    this.memoryCache.push(entry);
-    if (this.memoryCache.length > this.maxCacheSize) {
-      this.memoryCache.shift();
+    // 添加到内存缓存（环形缓冲区，O(1) 写入）
+    this.memoryCache[this.cacheWriteIndex] = entry;
+    this.cacheWriteIndex = (this.cacheWriteIndex + 1) % this.maxCacheSize;
+    if (this.cacheCount < this.maxCacheSize) {
+      this.cacheCount++;
     }
 
     // 触发回调
@@ -188,14 +197,51 @@ export class LogSystem {
    * 清空内存缓存
    */
   clearMemoryCache(): void {
-    this.memoryCache = [];
+    this.memoryCache = new Array(this.maxCacheSize);
+    this.cacheWriteIndex = 0;
+    this.cacheCount = 0;
+  }
+
+  /** 从环形缓冲区获取有序日志 */
+  getMemoryCacheLogs(): LogEntry[] {
+    if (this.cacheCount === 0) return [];
+    const result: LogEntry[] = [];
+    const start = this.cacheCount < this.maxCacheSize ? 0 : this.cacheWriteIndex;
+    for (let i = 0; i < this.cacheCount; i++) {
+      const entry = this.memoryCache[(start + i) % this.maxCacheSize];
+      if (entry) result.push(entry);
+    }
+    return result;
   }
 
   /**
-   * 获取内存缓存中的日志
+   * 清理超过保留期的旧日志文件
    */
-  getMemoryCacheLogs(): LogEntry[] {
-    return [...this.memoryCache];
+  async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+
+    try {
+      const files = await readdir(LOGS_DIR);
+      let deleted = 0;
+
+      for (const file of files) {
+        const match = file.match(/^(\d{4}-\d{2}-\d{2})\.log$/);
+        if (match && match[1]! < cutoffStr) {
+          try {
+            await unlink(join(LOGS_DIR, file));
+            deleted++;
+          } catch {
+            // 删除失败跳过
+          }
+        }
+      }
+
+      return deleted;
+    } catch {
+      return 0;
+    }
   }
 
   private async writeToFile(entry: LogEntry): Promise<void> {
@@ -206,10 +252,9 @@ export class LogSystem {
 
     const line = JSON.stringify(entry) + '\n';
     try {
-      await writeFile(logPath, line, { flag: 'a' }); // 追加模式
-    } catch (error) {
-      // 写入失败，尝试创建文件
-      await writeFile(logPath, line, 'utf-8');
+      await writeFile(logPath, line, { flag: 'a' }); // 追加模式（自动创建文件）
+    } catch {
+      // 写入失败静默处理，避免日志系统自身错误影响主流程
     }
   }
 

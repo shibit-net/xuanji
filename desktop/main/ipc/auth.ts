@@ -17,41 +17,24 @@ import { initializeUserConfig } from '../../../src/core/config/UserConfigInitial
 
 function registerAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
-    console.log('收到登录请求:', email);
     try {
-      // 登录前先清除旧的 token 和 Session Cookies
-      console.log('清除旧的认证信息...');
       await clearAuthState();
 
-      // 清除 Electron Session 中的所有 Cookies
       const ses = session.defaultSession;
       await ses.clearStorageData({ storages: ['cookies'] });
-      console.log('旧的 Cookies 已清除');
 
       const result = await authService.login({ email, password });
-      console.log('登录 API 响应:', { success: result.success, message: result.message });
 
       if (result.success) {
-        console.log('登录成功，开始同步 Cookie...');
         await syncCookiesFromClient();
-        console.log('Cookie 同步完成，当前 authState:', {
-          hasAccessToken: !!getAuthState().accessToken,
-          hasRefreshToken: !!getAuthState().refreshToken,
-          tokenExpiresAt: getAuthState().tokenExpiresAt
-        });
 
         setAuthState({ user: result.data || null });
-        console.log('开始保存认证状态...');
         await saveAuthState();
-        console.log('认证状态保存完成');
-
-        console.log('登录成功，用户信息:', result.data);
 
         // 初始化用户配置
         if (result.data?.userId) {
           try {
             await initializeUserConfig(result.data.userId);
-            console.log('用户配置初始化完成:', result.data.userId);
           } catch (err) {
             console.error('初始化用户配置失败:', err);
           }
@@ -62,7 +45,6 @@ function registerAuthIpcHandlers() {
           data: getAuthState().user
         };
       } else {
-        console.log('登录失败:', result.message);
         return {
           success: false,
           message: result.message || '登录失败'
@@ -132,7 +114,6 @@ function registerAuthIpcHandlers() {
       }
 
       if (!isTokenValid()) {
-        console.log('Token 已过期，尝试刷新...');
         if (authState.refreshToken) {
           try {
             const refreshResult = await authService.refreshToken();
@@ -159,7 +140,6 @@ function registerAuthIpcHandlers() {
           }
         }
 
-        console.log('Token 过期且无法刷新，退出登录');
         await clearAuthState();
         return { success: false };
       }

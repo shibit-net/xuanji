@@ -90,7 +90,7 @@ export class TemporaryAgentFactory {
       color: 'from-gray-500 to-gray-600',
       category: 'custom',
       model: {
-        primary: model || 'claude-sonnet-4-6',
+        primary: model || parentConfig?.model?.primary || 'claude-sonnet-4-6',
         maxTokens: 64000,
         thinking: {
           type: 'adaptive',
@@ -102,9 +102,9 @@ export class TemporaryAgentFactory {
       capabilities,
       tools: [
         // 🔧 临时agent默认只有只读工具，危险工具需要父agent明确授予
-        { name: 'read_file', required: true },
-        { name: 'grep', required: true },
-        { name: 'glob', required: true },
+        { name: 'read_file' },
+        { name: 'grep' },
+        { name: 'glob' },
       ],
       execution: {
         mode: 'react',

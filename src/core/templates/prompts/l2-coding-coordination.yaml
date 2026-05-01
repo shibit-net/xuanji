@@ -2,7 +2,7 @@ id: "l2-coding-coordination"
 name: "Coding Coordination"
 layer: "L2"
 priority: 73
-estimatedTokens: 1200
+estimatedTokens: 800
 enabled: true
 scenes:
   - write_code
@@ -17,268 +17,66 @@ scenes:
 content: |
   # 编码场景的 Agent 协同策略
 
-  当任务涉及编码相关工作时，根据具体场景选择合适的协同方式。
+  ## 场景识别
 
-  ## 🎯 场景识别
+  根据用户意图识别场景后，选择最合适的协同方式和成员配置。
 
-  当前任务属于以下编码场景之一：
-  - **write_code**: 实现新功能、编写代码
-  - **debug**: 修复 bug、排查问题
-  - **refactor**: 重构代码、优化结构
-  - **test**: 编写测试、测试用例
-  - **review**: 代码审查、质量评估
-  - **explore**: 探索代码库、理解架构
-  - **plan**: 架构设计、技术方案
-  - **deploy**: 部署发布、环境配置
-  - **monitor**: 监控告警、性能分析
+  ## 场景化协同模式
 
-  ## 📋 场景化协同策略
+  ### 功能开发 (write_code)
+  **策略**: sequential
+  **成员角色**（每个角色调用 match_agent 匹配对应的 agent）:
+  1. 需求分析 → 需求文档、验收标准
+  2. 架构设计 (scene: plan) → 技术方案、接口定义
+  3. 代码实现 (scene: write_code) → 源代码
+  4. 测试编写 (scene: test) → 测试文件
+  5. 代码审查 (scene: review) → 审查意见
 
-  ### 1️⃣ 功能开发场景 (write_code)
+  ### Bug 修复 (debug)
+  **策略**: sequential
+  **成员角色**:
+  1. 问题定位 (scene: debug) → 根因分析报告
+  2. 代码修复 (scene: write_code) → 修复后代码
+  3. 验证测试 (scene: test) → 测试结果
 
-  **适用情况**: 用户要求"实现一个功能"、"添加新特性"
+  ### 代码重构 (refactor)
+  **策略**: sequential
+  **成员角色**:
+  1. 代码分析 (scene: review) → 问题清单、重构建议
+  2. 重构实施 (scene: refactor) → 重构后代码
+  3. 验证测试 (scene: test) → 回归测试结果
 
-  **协同方式**: Sequential（顺序执行）
+  ### 代码审查 (review)
+  **策略**: parallel（多视角并行审查）
+  **成员角色**（同一 agent + 不同 system_prompt）:
+  1. 质量审查 (scene: review) — 可维护性、可读性、代码规范
+  2. 安全审查 (scene: review) — 漏洞、注入风险、权限问题
+  3. 性能审查 (scene: review) — 复杂度、内存使用、I/O 优化
 
-  **成员配置**:
-  ```
-  1. 需求分析 (requirement agent)
-     - 分析功能需求
-     - 输出：需求文档、用户故事、验收标准
+  ### 架构设计 (plan)
+  **策略**: debate 或 hierarchical
+  - **debate**: 多方讨论达成共识，适合方案选型
+  - **hierarchical**: Leader 分解任务 + Workers 并行实施
 
-  2. 架构设计 (plan agent)
-     - 设计技术方案
-     - 输出：架构设计、文件结构、接口定义
+  ### 代码探索 (explore)
+  **策略**: parallel（多视角并行探索）
+  **成员角色**（同一 agent + 不同 system_prompt）:
+  1. 结构分析 (scene: explore) → 模块划分、目录结构
+  2. 依赖分析 (scene: explore) → 调用链路、依赖关系
+  3. 技术栈分析 (scene: explore) → 框架、库、工具链
 
-  3. 代码实现 (write_code agent)
-     - 实现功能代码
-     - 输出：源代码文件
+  ### 部署发布 (deploy)
+  **策略**: sequential
+  **成员角色**:
+  1. 环境检查 (scene: deploy) → 环境配置、依赖清单
+  2. 构建打包 (scene: deploy) → 构建产物
+  3. 部署上线 (scene: deploy) → 部署结果、健康检查
 
-  4. 测试编写 (test agent)
-     - 编写单元测试和集成测试
-     - 输出：测试文件
+  ## 通用规则
 
-  5. 代码审查 (review agent)
-     - 审查代码质量
-     - 输出：审查意见、优化建议
-  ```
-
-  **示例**:
-  ```json
-  {
-    "name": "feature-development",
-    "strategy": "sequential",
-    "goal": "实现用户登录功能，包括需求分析、设计、实现、测试、审查",
-    "members": [
-      {
-        "id": "requirement",
-        "agentId": "product-manager",
-        "capabilities": ["需求分析"],
-        "systemPrompt": "分析用户登录功能的需求，输出需求文档，包括用户故事、验收标准、约束条件。"
-      },
-      {
-        "id": "architect",
-        "agentId": "software-engineer",
-        "capabilities": ["架构设计"],
-        "systemPrompt": "基于需求文档，设计用户登录功能的技术方案，包括数据库设计、API 接口、安全策略。",
-        "scene": "plan"
-      },
-      {
-        "id": "developer",
-        "agentId": "software-engineer",
-        "capabilities": ["代码实现"],
-        "systemPrompt": "基于技术方案，实现用户登录功能的代码，包括后端 API、前端页面、数据库迁移。",
-        "scene": "write_code"
-      },
-      {
-        "id": "tester",
-        "agentId": "software-engineer",
-        "capabilities": ["测试编写"],
-        "systemPrompt": "基于实现的代码，编写全面的测试，包括单元测试、集成测试、边界情况测试。",
-        "scene": "test"
-      },
-      {
-        "id": "reviewer",
-        "agentId": "software-engineer",
-        "capabilities": ["代码审查"],
-        "systemPrompt": "审查登录功能的代码质量、安全性、性能，提供优化建议。",
-        "scene": "review"
-      }
-    ]
-  }
-  ```
-
-  ### 2️⃣ Bug 修复场景 (debug)
-
-  **适用情况**: 用户要求"修复 bug"、"解决问题"
-
-  **协同方式**: Sequential（顺序执行）
-
-  **成员配置**:
-  ```
-  1. 问题定位 (debug agent)
-     - 分析问题根源
-     - 输出：问题分析报告、根本原因
-
-  2. 代码修复 (write_code agent)
-     - 修复代码
-     - 输出：修复后的代码
-
-  3. 测试验证 (test agent)
-     - 验证修复效果
-     - 输出：测试结果、回归测试
-  ```
-
-  ### 3️⃣ 代码重构场景 (refactor)
-
-  **适用情况**: 用户要求"重构代码"、"优化结构"
-
-  **协同方式**: Sequential（顺序执行）
-
-  **成员配置**:
-  ```
-  1. 代码分析 (review agent)
-     - 分析现有代码问题
-     - 输出：代码问题清单、重构建议
-
-  2. 重构实施 (refactor agent)
-     - 重构代码
-     - 输出：重构后的代码
-
-  3. 测试验证 (test agent)
-     - 验证功能不变
-     - 输出：回归测试结果
-  ```
-
-  ### 4️⃣ 代码审查场景 (review)
-
-  **适用情况**: 用户要求"审查代码"、"代码评估"
-
-  **协同方式**: Parallel（并行执行）
-
-  **成员配置**:
-  ```
-  1. 质量审查 (review agent - quality focus)
-     - 代码质量、可维护性、可读性
-     - 输出：质量问题清单
-
-  2. 安全审查 (review agent - security focus)
-     - 安全漏洞、注入风险、权限问题
-     - 输出：安全问题清单
-
-  3. 性能审查 (review agent - performance focus)
-     - 时间复杂度、内存使用、I/O 优化
-     - 输出：性能优化建议
-  ```
-
-  ### 5️⃣ 架构设计场景 (plan)
-
-  **适用情况**: 用户要求"设计架构"、"技术方案"
-
-  **协同方式**: Debate（辩论模式）或 Hierarchical（层级执行）
-
-  **Debate 模式**（需要讨论决策）:
-  ```
-  1. 架构师 A (plan agent)
-     - 提出方案 A
-     - 输出：架构设计、技术选型、权衡分析
-
-  2. 架构师 B (plan agent)
-     - 评审方案 A，提出改进
-     - 输出：评审意见、替代方案
-
-  3. 架构师 C (plan agent)
-     - 综合评估，给出最终建议
-     - 输出：最终架构方案
-  ```
-
-  **Hierarchical 模式**（明确的设计-实现流程）:
-  ```
-  1. 总架构师 (plan agent, priority: 10)
-     - 设计整体架构
-     - 分解为子任务
-     - 输出：架构设计、子任务清单
-
-  2-N. 实施团队 (write_code agents, priority: 5)
-     - 并行实施各个子任务
-     - 输出：实现代码
-  ```
-
-  ### 6️⃣ 部署发布场景 (deploy)
-
-  **适用情况**: 用户要求"部署应用"、"配置环境"
-
-  **协同方式**: Sequential（顺序执行）
-
-  **成员配置**:
-  ```
-  1. 环境准备 (deploy agent)
-     - 配置环境、依赖安装
-     - 输出：环境配置文件
-
-  2. 构建打包 (deploy agent)
-     - 构建应用、打包镜像
-     - 输出：构建产物
-
-  3. 部署上线 (deploy agent)
-     - 部署到目标环境
-     - 输出：部署结果、健康检查
-
-  4. 监控验证 (monitor agent)
-     - 验证部署成功、监控指标
-     - 输出：监控报告
-  ```
-
-  ### 7️⃣ 代码探索场景 (explore)
-
-  **适用情况**: 用户要求"理解代码库"、"分析架构"
-
-  **协同方式**: Parallel（并行执行）
-
-  **成员配置**:
-  ```
-  1. 结构分析 (explore agent)
-     - 分析目录结构、模块划分
-     - 输出：项目结构报告
-
-  2. 依赖分析 (explore agent)
-     - 分析依赖关系、调用链路
-     - 输出：依赖关系图
-
-  3. 技术栈分析 (explore agent)
-     - 分析技术栈、框架使用
-     - 输出：技术栈清单
-  ```
-
-  ## 🎯 决策树
-
-  根据用户需求，快速决定使用哪种协同方式：
-
-  ```
-  用户需求是什么？
-    ├─ 实现新功能 → Sequential: 需求→设计→实现→测试→审查
-    ├─ 修复 bug → Sequential: 定位→修复→验证
-    ├─ 重构代码 → Sequential: 分析→重构→验证
-    ├─ 审查代码 → Parallel: 质量+安全+性能 并行审查
-    ├─ 设计架构 → Debate 或 Hierarchical
-    ├─ 部署应用 → Sequential: 准备→构建→部署→验证
-    └─ 探索代码 → Parallel: 结构+依赖+技术栈 并行分析
-  ```
-
-  ## ⚠️ 注意事项
-
-  1. **始终使用 match_agent 找到合适的 agent**
-     - 不要硬编码 agent ID
-     - 根据 match_agent 的结果决定使用预置 agent 还是临时 agent
-
-  2. **提供清晰的上下文**
-     - 每个成员的 systemPrompt 必须自包含
-     - 包含文件路径、约束条件、输出格式
-
-  3. **合理设置 timeout**
-     - 不要为单个成员设置 timeout（让系统自动分配）
-     - 只设置整个 team 的 timeout
-
-  4. **场景指定**
-     - 为子 agent 指定合适的 scene，加载对应的 L1 prompt
-     - 例如：实现代码时指定 scene: "write_code"
+  1. **所有 agent_id 来自 match_agent**：不为成员编造 agent ID
+  2. **同领域多视角用同一 agent**：不同 scene + system_prompt 区分视角
+  3. **临时 agent 是最后手段**：仅在 match_agent 分数 < 0.5 时创建
+  4. **每个成员 task 必须独特**：不能让多个成员做相同的事
+  5. **不完全照搬模式**：根据实际任务调整成员数量和角色
+  6. **场景指定**：为成员指定合适的 scene，加载对应的 L1 提示词

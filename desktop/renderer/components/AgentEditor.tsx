@@ -260,10 +260,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         name: searchName || undefined,
       });
 
-      console.log('[AgentEditor] 模型列表加载结果:', result);
 
       if (result.success && result.data?.list) {
-        console.log('[AgentEditor] 原始数据（前3个）:', result.data.list.slice(0, 3));
 
         const modelList: ModelOption[] = result.data.list.map((item: any) => ({
           id: item.id,
@@ -276,10 +274,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           priceUnit: item.priceUnit || item.price_unit || '¥/M tokens',
         }));
 
-        console.log('[AgentEditor] 处理后的模型列表（前3个）:', modelList.slice(0, 3));
         setModels(modelList);
       } else {
-        console.log('[AgentEditor] 接口返回失败或无数据');
         setModels([]);
       }
     } catch (err) {
@@ -542,7 +538,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
     // 调试信息
     if (isModelSelect) {
-      console.log('[AgentEditor] renderFormField - models:', models.length, 'searchQuery:', modelSearchQuery, 'currentValue:', value);
     }
 
     return (

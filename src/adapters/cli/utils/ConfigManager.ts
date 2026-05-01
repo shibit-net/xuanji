@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { t } from '@/core/i18n';
 import type { AppConfig } from '@/core/types';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
-import { loadGlobalConfig, saveGlobalConfig, deepMergeConfig, setByPath } from '@/core/config/GlobalConfig';
+import { GlobalConfig, deepMergeConfig, setByPath } from '@/core/config/GlobalConfig';
 
 /**
  * CLI 模式的配置管理器
@@ -69,7 +69,7 @@ export class ConfigManager {
     }
 
     // 读取当前全局配置
-    const globalConfig = (await loadGlobalConfig()) as Record<string, unknown>;
+    const globalConfig = (await GlobalConfig.readProjectConfig()) as Record<string, unknown>;
 
     // 深合并：新配置覆盖旧配置
     const merged = partialConfig
@@ -77,7 +77,7 @@ export class ConfigManager {
       : (this.currentConfig as unknown as Record<string, unknown>);
 
     // 保存到文件
-    await saveGlobalConfig(merged);
+    await GlobalConfig.writeProjectConfig(merged as Partial<AppConfig>);
 
     // 更新内存中的当前配置
     this.currentConfig = {
@@ -113,7 +113,7 @@ export class ConfigManager {
     const template = JSON.parse(content);
     const defaultConfig = template.config || template;
 
-    await saveGlobalConfig(defaultConfig as unknown as Record<string, unknown>);
+    await GlobalConfig.writeProjectConfig(defaultConfig as Partial<AppConfig>);
     // 重新加载
     await this.load();
   }

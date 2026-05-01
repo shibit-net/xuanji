@@ -16,10 +16,9 @@ import type { IPermissionController } from '@/permission/types';
 export class PlanReviewTool extends BaseTool {
   readonly name = 'plan_review';
   readonly description = [
-    'Submit an execution plan for user review before performing complex operations.',
-    'Use this tool when you are about to perform multiple file modifications, execute potentially impactful commands,',
-    'or carry out any complex multi-step task. The user can approve, reject, or provide additional instructions.',
-    'The plan should be a clear markdown document describing what you intend to do and why.',
+    '提交执行计划供用户审查。即将进行多文件修改、高风险命令或复杂多步骤操作时使用。',
+    '用户可审批(approve)、拒绝(reject)或补充(supplement)。被拒后应询问用户重新规划，被补充后应调整计划重新提交。',
+    '审批通过后必须：1) todo_create 为每个步骤创建任务 2) 使用 agent_team(多领域) 或 task(单领域) 执行 3) 及时更新 todo 状态。',
   ].join(' ');
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -53,21 +52,27 @@ export class PlanReviewTool extends BaseTool {
 
     if (!this.permissionController) {
       // 无权限控制器时直接通过
-      return this.success('[Plan Review] No review handler configured. Proceeding with execution.');
+      return this.success('[Plan Review] 无审批处理器，自动通过。请创建 todo 后使用 agent_team 或 task 执行。');
     }
 
     const result = await this.permissionController.reviewPlan(plan);
 
     switch (result.decision) {
       case 'approve':
-        return this.success('[Plan Approved] The user has approved your execution plan. Proceed with the planned operations.');
+        return this.success(
+          '[Plan Approved] 计划已审批通过。后续步骤：\n' +
+          '1. 使用 todo_create 为每个步骤创建待办任务\n' +
+          '2. 使用 agent_team（多领域协作）或 task（单领域执行）按计划执行\n' +
+          '3. 执行过程中用 todo_update 更新任务状态\n' +
+          '4. 全部完成后汇总结果回复用户',
+        );
 
       case 'reject':
-        return this.success('[Plan Rejected] The user has rejected your execution plan. Do NOT proceed with the planned operations. Ask the user what they would like to do instead.');
+        return this.success('[Plan Rejected] 用户已拒绝此执行计划。请询问用户希望如何调整，不要继续执行原计划。');
 
       case 'supplement':
         return this.success(
-          `[Plan Needs Revision] The user wants you to revise the plan with the following additional instructions:\n\n${result.supplementText}\n\nPlease revise your plan accordingly and submit a new plan_review, or proceed with the adjusted approach.`,
+          `[Plan Needs Revision] 用户要求按以下补充说明调整计划：\n\n${result.supplementText}\n\n请调整计划后重新提交 plan_review。`,
         );
 
       default:

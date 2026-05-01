@@ -258,6 +258,7 @@ export class UnifiedLogManager {
   private subscribers: Set<LogSubscriptionCallback> = new Set();
   private liveLogs: UnifiedLogRecord[] = [];
   private maxLiveLogs = 1000;
+  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(baseDir?: string, lokiConfig?: LokiClientConfig) {
     this.logDir = baseDir ?? join(process.cwd(), '.xuanji');
@@ -268,11 +269,56 @@ export class UnifiedLogManager {
     this.auditLogger = new AuditLogger();
     this.usageStatsRecorder = new UsageStatsRecorder();
     this.dailyUsageStats = new DailyUsageStats();
-    
+
     // 初始化 Loki 客户端
     if (lokiConfig) {
       this.lokiClient = new LokiClient(lokiConfig);
     }
+
+    // 启动定期日志清理（每 6 小时）
+    this.startPeriodicCleanup(6 * 60 * 60 * 1000);
+  }
+
+  /**
+   * 启动定期日志文件清理
+   */
+  startPeriodicCleanup(intervalMs: number): void {
+    this.stopPeriodicCleanup();
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupOldLogs().catch(() => {});
+    }, intervalMs);
+    this.cleanupTimer.unref();
+  }
+
+  /**
+   * 停止定期日志文件清理
+   */
+  stopPeriodicCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+  }
+
+  /**
+   * 清理所有日志源中超过保留期的旧文件
+   */
+  async cleanupOldLogs(): Promise<Record<string, number>> {
+    const results: Record<string, number> = {};
+
+    try { results.agentLoop = await AgentLoopLogger.cleanupOldFiles(); } catch { results.agentLoop = -1; }
+    try { results.audit = await this.auditLogger.cleanupOldFiles(); } catch { results.audit = -1; }
+    try { results.usage = await this.usageStatsRecorder.cleanupOldFiles(); } catch { results.usage = -1; }
+    try { results.session = await this.sessionRecorder.cleanupOldFiles(); } catch { results.session = -1; }
+
+    return results;
+  }
+
+  /**
+   * 销毁管理器，释放资源
+   */
+  destroy(): void {
+    this.stopPeriodicCleanup();
   }
 
   // ─────────────────────────────────────────────────────

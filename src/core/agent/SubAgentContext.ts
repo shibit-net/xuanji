@@ -21,7 +21,7 @@ export type IsolationMode = 'none' | 'worktree';
 /**
  * 子代理角色类型
  */
-export type AgentRoleType = 'general-purpose' | 'explore' | 'plan' | 'coder' | 'memory-extractor';
+export type AgentRoleType = 'software-engineer' | 'stock-analyst' | 'product-manager' | 'ui-designer' | 'scene-classifier' | string;
 
 /**
  * 子代理创建选项
@@ -66,9 +66,9 @@ export const DEFAULT_MAX_ITERATIONS = 30;
 export const MAX_CONCURRENT_SUBAGENTS = 3;
 
 /**
- * 始终排除的工具（防止递归）
+ * 始终排除的工具（保留为空，子 agent 可通过 task 工具递归委派）
  */
-export const ALWAYS_RESTRICTED_TOOLS = ['task'];
+export const ALWAYS_RESTRICTED_TOOLS: string[] = [];
 
 /**
  * 子代理上下文
@@ -138,7 +138,7 @@ export class SubAgentContext {
     const subAgentHeader = [
       `\n\n---\n[SubAgent Mode - Depth: ${this.depth}, Role: ${this.role}]`,
       roleSuffix,
-      `Do NOT ask clarifying questions. Do NOT start new sub-tasks.`,
+      `Do NOT ask clarifying questions. You may use the task tool to delegate to other agents when a sub-problem requires different expertise or independent execution.`,
     ].join('\n');
 
     systemPrompt += subAgentHeader;

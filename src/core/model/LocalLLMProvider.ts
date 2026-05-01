@@ -57,6 +57,7 @@ export class LocalLLMProvider implements LLMProvider {
     return this.modelLoader.generate(prompt, {
       maxTokens: options?.maxTokens ?? 128,
       temperature: options?.temperature ?? 0.3,
+      stateless: options?.stateless,
     });
   }
 

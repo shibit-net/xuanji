@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState } from 'react';
-import { Edit, Trash2, Play, Info, Copy, ChevronDown, ChevronRight } from 'lucide-react';
+import { Edit, Trash2, Play, Info, Copy, ChevronDown, ChevronRight, Power, PowerOff } from 'lucide-react';
 
 interface AgentDetailProps {
   agent: any;
@@ -11,12 +11,15 @@ interface AgentDetailProps {
   onDelete: () => void;
   onCopy: () => void;
   onTest: () => void;
+  onToggleEnabled?: (enabled: boolean) => void;
 }
 
-export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }: AgentDetailProps) {
+export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest, onToggleEnabled }: AgentDetailProps) {
   const category = agent.metadata?.category || 'custom';
   const canEdit = true;
   const canDelete = category === 'custom';
+  const isMainAgent = agent.metadata?.isMainAgent === true;
+  const canToggleEnabled = !isMainAgent; // 主agent不能被禁用
   const [showConfig, setShowConfig] = useState(false);
 
   const configJson = JSON.stringify(agent, null, 2);
@@ -122,6 +125,20 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest }:
         </div>
 
         <div className="flex gap-2">
+          {canToggleEnabled && onToggleEnabled && (
+            <button
+              onClick={() => onToggleEnabled(!agent.enabled)}
+              className={`px-4 py-2 border rounded transition-colors text-sm flex items-center gap-2 ${
+                agent.enabled === false
+                  ? 'border-green-500/20 text-green-500 hover:bg-green-500/10'
+                  : 'border-orange-500/20 text-orange-500 hover:bg-orange-500/10'
+              }`}
+              title={agent.enabled === false ? '启用 Agent' : '禁用 Agent'}
+            >
+              {agent.enabled === false ? <Power size={16} /> : <PowerOff size={16} />}
+              {agent.enabled === false ? '启用' : '禁用'}
+            </button>
+          )}
           <button
             onClick={onCopy}
             className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"

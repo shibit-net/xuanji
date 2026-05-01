@@ -507,6 +507,20 @@ export class MessageManager implements IMessageManager {
   }
 
   /**
+   * 截断消息历史到指定长度（O(1)，用于错误回滚）
+   */
+  truncateTo(length: number): void {
+    this.messages = this.messages.slice(0, length);
+  }
+
+  /**
+   * 获取当前消息历史长度（用于快照索引）
+   */
+  getHistoryLength(): number {
+    return this.messages.length;
+  }
+
+  /**
    * 保存消息历史快照（用于错误回滚）
    *
    * 使用场景：

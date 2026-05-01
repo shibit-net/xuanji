@@ -12,7 +12,15 @@ const log = logger.child({ module: 'ModelClassifier' });
 export interface ClassificationResult {
   scene: string;
   agent: string;
-  complexity: 'simple' | 'complex';
+  complexity: 'simple' | 'standard' | 'complex';
+  matchMethod?: 'keyword' | 'embedding' | 'default' | 'llm';
+}
+
+/** L1 组件提供的 scene 元数据，替代硬编码的 sceneKeywords */
+export interface SceneMetadata {
+  scene: string;
+  description: string;
+  keywords?: string;
 }
 
 export type ClassifierModelType = 'qwen2.5-0.5b-q4' | 'qwen2.5-1.5b-q4' | 'chatglm3-6b-q4' | 'chatglm3-6b-q3' | 'glm4-9b-q4';
@@ -46,6 +54,7 @@ export class ModelClassifier {
   private initPromise: Promise<void> | null = null;
   private agentRegistry: AgentRegistry | null;
   private agentConfig: any = null; // 存储 scene-classifier 的完整配置
+  private sceneMetadata: SceneMetadata[] = [];
 
   constructor(agentRegistry?: AgentRegistry, config?: ModelClassifierConfig) {
     this.agentRegistry = agentRegistry ?? null;
@@ -54,10 +63,16 @@ export class ModelClassifier {
     if (this.agentRegistry) {
       const classifierAgent = this.agentRegistry.get('scene-classifier');
       if (classifierAgent) {
-        this.agentConfig = classifierAgent;
-        log.info('[ModelClassifier] 从 AgentRegistry 加载 scene-classifier 配置');
-        log.info(`[ModelClassifier] Provider: ${classifierAgent.provider?.adapter}`);
-        log.info(`[ModelClassifier] Model: ${classifierAgent.model?.primary}`);
+        // 🔧 检查 agent 是否被禁用
+        if (classifierAgent.enabled === false) {
+          log.warn('[ModelClassifier] scene-classifier 已被禁用，将使用降级策略');
+          this.agentConfig = null;
+        } else {
+          this.agentConfig = classifierAgent;
+          log.info('[ModelClassifier] 从 AgentRegistry 加载 scene-classifier 配置');
+          log.info(`[ModelClassifier] Provider: ${classifierAgent.provider?.adapter}`);
+          log.info(`[ModelClassifier] Model: ${classifierAgent.model?.primary}`);
+        }
       } else {
         log.warn('[ModelClassifier] 未找到 scene-classifier 配置');
       }
@@ -75,6 +90,18 @@ export class ModelClassifier {
     if (this.agentRegistry) {
       const classifierAgent = this.agentRegistry.get('scene-classifier');
       if (classifierAgent) {
+        // 🔧 检查 agent 是否被禁用
+        if (classifierAgent.enabled === false) {
+          log.warn('[ModelClassifier] scene-classifier 已被禁用，跳过初始化');
+          // 卸载现有 provider
+          if (this.llmProvider) {
+            log.info('[ModelClassifier] 卸载现有 provider（agent 已禁用）');
+            await this.dispose();
+          }
+          this.agentConfig = null;
+          return;
+        }
+
         log.info('[ModelClassifier] Latest config from AgentRegistry:', {
           adapter: classifierAgent.provider?.adapter,
           model: classifierAgent.model?.primary,
@@ -107,6 +134,8 @@ export class ModelClassifier {
         } else {
           log.info('[ModelClassifier] 配置未变化');
         }
+      } else {
+        log.warn('[ModelClassifier] 未找到 scene-classifier 配置');
       }
     }
 
@@ -122,8 +151,10 @@ export class ModelClassifier {
       return;
     }
 
-    this.initPromise = this._init();
-    await this.initPromise;
+    // 原子性捕获：防止并发 init() 调用导致重复初始化
+    const promise = this._init();
+    this.initPromise = promise;
+    await promise;
     this.initPromise = null;
   }
 
@@ -215,76 +246,68 @@ ${agentList}
       return true;
     });
 
-    if (userAgents.length === 0) {
-      return '- general: 通用任务处理';
+    const lines: string[] = [];
+
+    // 始终首先列出 general 作为兜底选项，让 LLM 在无法匹配时有明确选择
+    lines.push('- general: 通用任务处理，适合闲聊、简单问答、或不匹配任何专业agent的任务');
+
+    for (const agent of userAgents) {
+      let desc = agent.description || '通用任务处理';
+      if (agent.capabilities && agent.capabilities.length > 0) {
+        const capList = agent.capabilities.slice(0, 3).join('、');
+        desc = `${desc}（能力：${capList}${agent.capabilities.length > 3 ? '等' : ''}）`;
+      }
+      lines.push(`- ${agent.id}: ${desc}`);
     }
 
-    return userAgents
-      .map(agent => {
-        // 优先使用 description，如果有 capabilities 则追加
-        let desc = agent.description || '通用任务处理';
-        if (agent.capabilities && agent.capabilities.length > 0) {
-          // 只显示前3个能力作为示例
-          const capList = agent.capabilities.slice(0, 3).join('、');
-          desc = `${desc}（能力：${capList}${agent.capabilities.length > 3 ? '等' : ''}）`;
-        }
-        return `- ${agent.id}: ${desc}`;
-      })
-      .join('\n');
+    return lines.join('\n');
+  }
+
+  /**
+   * 设置 scene 元数据（从 L1 Prompt 组件动态获取，替代硬编码）
+   */
+  setSceneMetadata(metadata: SceneMetadata[]): void {
+    this.sceneMetadata = metadata;
   }
 
   private buildSceneList(): string {
-    if (!this.agentRegistry) {
-      return '- general: 通用场景';
+    const allScenes = new Map<string, string>(); // scene → description
+
+    // 优先从 L1 组件元数据获取（动态、可配置）
+    if (this.sceneMetadata.length > 0) {
+      for (const { scene, description } of this.sceneMetadata) {
+        if (!allScenes.has(scene)) {
+          allScenes.set(scene, description);
+        }
+      }
     }
 
-    const enabledAgents = this.agentRegistry.getEnabled();
-    const allScenes = new Set<string>();
-
-    // 从 agent 的 tags 中收集场景
-    enabledAgents.forEach(agent => {
-      if (agent.tags && Array.isArray(agent.tags)) {
-        agent.tags.forEach(tag => allScenes.add(tag));
-      }
-    });
-
-    // 从 agent 的 systemPrompt 中提取场景关键词
-    const sceneKeywords = [
-      { keyword: '探索', scene: 'explore', desc: '探索代码库、搜索文件、分析项目结构' },
-      { keyword: '规划', scene: 'plan', desc: '规划设计、架构方案' },
-      { keyword: '编码', scene: 'write_code', desc: '编写新代码、实现新功能' },
-      { keyword: '编写代码', scene: 'write_code', desc: '编写新代码、实现新功能' },
-      { keyword: '调试', scene: 'debug', desc: '调试问题、修复 bug、排查错误' },
-      { keyword: '测试', scene: 'test', desc: '编写测试、测试用例' },
-      { keyword: '重构', scene: 'refactor', desc: '重构代码、优化结构' },
-      { keyword: '审查', scene: 'review', desc: '代码审查、质量检查' },
-      { keyword: '解释', scene: 'explain', desc: '解释代码、文档说明' },
-    ];
-
-    enabledAgents.forEach(agent => {
-      if (agent.systemPrompt) {
-        sceneKeywords.forEach(({ keyword, scene }) => {
-          if (agent.systemPrompt.includes(keyword)) {
-            allScenes.add(scene);
+    // 补充从 agent tags 中派生出的 scene（可能不在 L1 中）
+    if (this.agentRegistry) {
+      const enabledAgents = this.agentRegistry.getEnabled();
+      for (const agent of enabledAgents) {
+        if (agent.tags && Array.isArray(agent.tags)) {
+          for (const tag of agent.tags) {
+            // 过滤系统标签，只保留 scene 相关的标签
+            if (!['system', 'classifier', 'local-model', 'internal'].includes(tag) && !allScenes.has(tag)) {
+              allScenes.set(tag, tag);
+            }
           }
-        });
+        }
       }
-    });
+    }
 
-    // 如果没有场景，返回默认
+    // 兜底：确保 general 始终存在
+    if (!allScenes.has('general')) {
+      allScenes.set('general', '通用场景、问答、其他');
+    }
+
     if (allScenes.size === 0) {
       return '- general: 通用场景';
     }
 
-    // 构建场景列表，包含描述
-    const sceneDescMap = new Map(sceneKeywords.map(s => [s.scene, s.desc]));
-    sceneDescMap.set('general', '通用场景、问答、其他');
-
-    return Array.from(allScenes)
-      .map(scene => {
-        const desc = sceneDescMap.get(scene) || scene;
-        return `- ${scene}: ${desc}`;
-      })
+    return Array.from(allScenes.entries())
+      .map(([scene, desc]) => `- ${scene}: ${desc}`)
       .join('\n');
   }
 
@@ -296,23 +319,42 @@ ${agentList}
     }
 
     try {
-      log.info(`[ModelClassifier] 🚀 开始分类: ${userInput.substring(0, 50)}...`);
+      log.info(`[ModelClassifier] 开始分类: ${userInput.substring(0, 50)}...`);
 
-      const output = await this.llmProvider.generate(userInput, {
+      // 用 XML 标签包裹用户输入，防止模型将输入误认为对话并直接回答
+      const formattedInput = `<user_input>\n${userInput}\n</user_input>`;
+
+      const output = await this.llmProvider.generate(formattedInput, {
         maxTokens: this.agentConfig?.model?.maxTokens ?? 128,
         temperature: this.agentConfig?.model?.temperature ?? 0.3,
+        stateless: true, // 无状态模式：每次分类使用全新会话，不累积历史
       });
 
-      log.info(`[ModelClassifier] ✅ 模型输出: ${output.substring(0, 200)}`);
+      log.info(`[ModelClassifier] 模型输出: ${output.substring(0, 200)}`);
 
-      const result = this.parseClassificationResult(output);
+      let result = this.parseClassificationResult(output);
+
+      // 如果首次解析失败，用更强的提示重试一次
+      if (!result) {
+        log.warn('[ModelClassifier] 首次解析失败，尝试重试...');
+        const retryOutput = await this.llmProvider.generate(
+          '你的输出格式不正确。请只输出JSON，不要输出任何其他内容。\n\n' + formattedInput,
+          {
+            maxTokens: this.agentConfig?.model?.maxTokens ?? 128,
+            temperature: this.agentConfig?.model?.temperature ?? 0.1,
+            stateless: true,
+          },
+        );
+        log.info(`[ModelClassifier] 重试输出: ${retryOutput.substring(0, 200)}`);
+        result = this.parseClassificationResult(retryOutput);
+      }
 
       if (!result) {
         log.warn('[ModelClassifier] 解析失败，输出格式异常，will fallback to other strategies');
         return null;
       }
 
-      log.info(`[ModelClassifier] ✅ 分类成功: scene=${result.scene}, agent=${result.agent}, complexity=${result.complexity}`);
+      log.info(`[ModelClassifier] 分类成功: scene=${result.scene}, agent=${result.agent}, complexity=${result.complexity}`);
       return result;
     } catch (error: any) {
       log.error('[ModelClassifier] Classification failed:', error.message);
@@ -325,8 +367,16 @@ ${agentList}
     return this.llmProvider?.isAvailable() ?? false;
   }
 
+  getAgentRegistry(): AgentRegistry | null {
+    return this.agentRegistry;
+  }
+
   getCurrentModel(): string {
     return this.llmProvider?.getModelId() ?? 'unknown';
+  }
+
+  async switchModel(_modelType: ClassifierModelType): Promise<void> {
+    log.warn('[ModelClassifier] switchModel not implemented, runtime model switching not supported');
   }
 
   async dispose(): Promise<void> {
@@ -339,7 +389,14 @@ ${agentList}
   private parseClassificationResult(content: string): ClassificationResult | null {
     try {
       log.info(`[ModelClassifier] 解析模型输出: ${content}`);
-      const jsonMatch = content.match(/\{[\s\S]*?\}/);
+
+      // 去除 markdown 代码块包裹
+      let cleaned = content
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/g, '')
+        .trim();
+
+      const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
       if (!jsonMatch) {
         log.warn('[ModelClassifier] 未找到 JSON 格式');
         return null;

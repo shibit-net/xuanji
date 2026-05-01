@@ -12,7 +12,7 @@ export type MessageRole = 'system' | 'user' | 'assistant';
 /**
  * 内容块类型
  */
-export type ContentBlockType = 'text' | 'thinking' | 'tool_use' | 'tool_result';
+export type ContentBlockType = 'text' | 'thinking' | 'reasoning' | 'tool_use' | 'tool_result';
 
 /**
  * 内容块
@@ -21,6 +21,9 @@ export interface ContentBlock {
   type: ContentBlockType;
   text?: string;
   thinking?: string;
+  /** Anthropic thinking 块签名（API 要求传回） */
+  signature?: string;
+  reasoning?: string;
   name?: string;
   id?: string;
   input?: Record<string, unknown>;

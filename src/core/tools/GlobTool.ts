@@ -52,7 +52,7 @@ export class GlobTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     try {
       const { pattern, path: searchPath, ignore: userIgnore } = input as unknown as GlobInput;
-      const cwd = searchPath ? path.resolve(searchPath) : process.cwd();
+      const cwd = searchPath ? path.resolve(searchPath) : ((input._cwd as string) || process.cwd());
 
       // 默认排除常见目录
       const defaultIgnore = [

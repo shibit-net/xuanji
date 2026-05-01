@@ -78,6 +78,8 @@ export class SQLiteStorage<T> implements IFullStorage<T> {
   private db: Database;
   private serializer: ISerializer<T>;
 
+  private closed = false;
+
   constructor(
     dbPath: string,
     private tableName: string,
@@ -85,6 +87,10 @@ export class SQLiteStorage<T> implements IFullStorage<T> {
   ) {
     const BetterSqlite3 = require('better-sqlite3');
     this.db = new BetterSqlite3(dbPath);
+    // 启用 WAL 模式提升并发性能，避免 SQLITE_BUSY
+    this.db.pragma('journal_mode = WAL');
+    // 同步模式设为 NORMAL，平衡性能与安全性
+    this.db.pragma('synchronous = NORMAL');
     this.serializer = serializer || new JSONSerializer<T>();
     this.initTable();
   }
@@ -145,9 +151,7 @@ export class SQLiteStorage<T> implements IFullStorage<T> {
     return row !== undefined;
   }
 
-  async close(): Promise<void> {
-    this.db.close();
-  }
+  // close() 方法见下方（事务方法之后）
 
   // ============================================================
   // IBatchStorage 接口实现
@@ -195,17 +199,25 @@ export class SQLiteStorage<T> implements IFullStorage<T> {
   async transaction<R>(fn: (tx: ITransaction<T>) => Promise<R>): Promise<R> {
     const tx = new SQLiteTransaction(this.db, this.tableName, this.serializer);
 
-    this.db.prepare('BEGIN TRANSACTION').run();
     try {
       const result = await fn(tx);
-      await tx.commit();
-      this.db.prepare('COMMIT').run();
+      // 使用 better-sqlite3 原生事务包装所有收集的操作，保证原子性
+      this.db.transaction(() => {
+        for (const op of (tx as any).operations as Array<() => void>) {
+          op();
+        }
+      })();
       return result;
     } catch (error) {
-      await tx.rollback();
-      this.db.prepare('ROLLBACK').run();
+      // fn 抛出异常时操作未执行，无需回滚
       throw error;
     }
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    this.db.close();
   }
 
   // ============================================================

@@ -52,6 +52,10 @@ export class ToolDispatcher implements IToolDispatcher {
 
     try {
       const result = await this.registry.execute(toolCall.name, toolCall.input, controller.signal);
+      // 🔧 工具返回错误时（如超时），中止 controller 确保后台执行及时终止
+      if (result.isError) {
+        controller.abort();
+      }
       return result;
     } catch (err) {
       // 所有错误都转换为错误结果，不向上抛出

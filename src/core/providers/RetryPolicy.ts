@@ -65,7 +65,8 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
     }
 
     // SDK abort 错误（通常由超时或网络中断触发）
-    if (error.name === 'AbortError' || error.message.includes('aborted')) {
+    // "terminated" 是 undici fetch 在高并发下销毁连接时抛出的错误
+    if (error.name === 'AbortError' || error.message.includes('aborted') || error.message === 'terminated') {
       return true;
     }
 
@@ -79,6 +80,11 @@ export function shouldRetry(error: unknown, attempt: number, config: RetryConfig
     // SDK APIConnectionError（SSE error 事件或连接错误）
     // 代理层返回 event: error 时，SDK 将其转为 APIConnectionError
     if (error.name === 'APIConnectionError' || error.message.includes('SSE Error')) {
+      return true;
+    }
+
+    // OpenAI/Anthropic SDK 连接错误消息（兜底，防止 error.name 在上层被覆盖）
+    if (error.message === 'Connection error' || error.message.includes('Connection error')) {
       return true;
     }
 
@@ -142,6 +148,29 @@ export function isRateLimitError(error: unknown): boolean {
     // ValidationException 是不可恢复的参数校验错误，排除在速率限制之外
     if (error.message.includes('ValidationException')) return false;
     return error.message.includes('rate_limit') || error.message.includes('429');
+  }
+  return false;
+}
+
+/**
+ * 判断是否为内容过大错误（HTTP 413 / 400 context_length_exceeded）
+ *
+ * 触发场景：
+ * - HTTP 413 Payload Too Large
+ * - OpenAI/DeepSeek: context_length_exceeded
+ * - Anthropic: 400 请求体过大（prompt_too_long / 上下文超限）
+ *
+ * 这类错误可通过激进压缩上下文后重试恢复，不应直接终止。
+ */
+export function isContentTooLargeError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    // HTTP 413
+    if ('status' in error && (error as { status: number }).status === 413) return true;
+    // 消息级检测
+    if (msg.includes('413') || msg.includes('content too large') || msg.includes('payload too large')) return true;
+    if (msg.includes('context_length_exceeded') || msg.includes('maximum context length') || msg.includes('prompt too long')) return true;
+    if (msg.includes('too many tokens') || msg.includes('token limit') || msg.includes('too long')) return true;
   }
   return false;
 }

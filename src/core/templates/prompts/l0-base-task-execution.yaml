@@ -47,9 +47,10 @@ content: |
   ## Tool Usage Best Practices
 
   1. **Use specific tools** — prefer dedicated tools over bash commands
-     - Use `read_file` instead of `cat`
+     - Use `read_file` instead of `cat` (files only — use `list_directory` for directories)
      - Use `grep` instead of `bash grep`
      - Use `glob` instead of `find`
+     - Use `list_directory` instead of `ls`
 
   2. **Batch independent operations** — when multiple operations don't depend on each other, call tools in parallel
 

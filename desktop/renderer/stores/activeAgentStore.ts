@@ -11,7 +11,7 @@ import { create } from 'zustand';
 
 // ========== Agent 状态类型 ==========
 
-export type AgentStatus = 'idle' | 'thinking' | 'executing' | 'responding' | 'done';
+export type AgentStatus = 'idle' | 'pending' | 'thinking' | 'executing' | 'responding' | 'done';
 
 export interface ToolExecution {
   id: string;
@@ -48,12 +48,17 @@ export interface AgentState {
   // Agent 类型标识
   agentType?: 'builtin' | 'preset' | 'custom' | 'temporary';
 
+  // 🔧 输出模式：是否直接输出到用户对话框
+  streamToUser?: boolean;
+
   // Multi-Agent 扩展字段
   multiAgent?: {
     type: 'orchestrate' | 'pipeline' | 'quick_team' | 'agent_team' | 'delegate';
     strategy?: string;
     teamName?: string;
     parentId?: string;
+    /** 稳定的成员标识符（用于布局引擎位置缓存键） */
+    memberId?: string;
     stepIndex?: number;
     totalSteps?: number;
     subagentType?: string;
@@ -62,6 +67,8 @@ export interface AgentState {
     maxRounds?: number;
     /** 辩论角色：正方/反方/裁判 */
     debateRole?: 'affirmative' | 'negative' | 'judge';
+    /** 团队目标/辩论主题 */
+    goal?: string;
   };
 
   // 统计
@@ -93,14 +100,23 @@ interface ActiveAgentStore {
   // ========== 状态更新 ==========
   setAgentStatus: (agentId: string, status: AgentStatus) => void;
   setAgentThought: (agentId: string, thought: string) => void;
+  getAgentThought: (agentId: string) => string | undefined;
   setAgentTask: (agentId: string, task: string) => void; // 🔧 新增：设置任务
   addAgentTool: (agentId: string, tool: ToolExecution) => void;
   updateAgentTool: (agentId: string, toolId: string, updates: Partial<ToolExecution>) => void;
   setAgentResponse: (agentId: string, response: string) => void;
 
   // ========== SubAgent 管理 ==========
-  addSubAgent: (parentId: string, subAgent: AgentState) => void;
+  addSubAgent: (parentId: string, subAgent: AgentState, insertIndex?: number) => void;
   removeSubAgent: (parentId: string, subAgentId: string) => void;
+  /** 原子替换：删除旧节点 + 插入新节点，单次 set() 调用消除渲染间隙 */
+  replaceSubAgent: (parentId: string, staleSubAgentId: string | null, newSubAgent: AgentState, insertIndex?: number) => void;
+  /** 直接设置 mainAgent（用于直接操作树后的更新） */
+  setMainAgent: (agent: AgentState | null) => void;
+  /** 按 ID 递归查找并更新子 Agent */
+  updateSubAgent: (subAgentId: string, updates: Partial<AgentState>) => void;
+  /** 更新 Agent 的 agentType */
+  updateAgentType: (agentId: string, agentType: string) => void;
 
   // ========== 统计更新 ==========
   updateAgentStats: (agentId: string, stats: Partial<AgentState['stats']>) => void;
@@ -110,18 +126,27 @@ interface ActiveAgentStore {
 }
 
 // ========== 辅助函数：递归查找和更新 Agent ==========
-
+// 返回 null 表示「未找到目标」或「无任何变更」，调用方应跳过 set()
 function updateAgentInTree(agent: AgentState | null, agentId: string, updater: (agent: AgentState) => AgentState): AgentState | null {
   if (!agent) return null;
 
   if (agent.id === agentId) {
-    return updater(agent);
+    const updated = updater(agent);
+    // 如果 updater 返回了同一个引用，说明没有实际变更，返回 null 阻止向上传播
+    if (updated === agent) return null;
+    return updated;
   }
 
-  return {
-    ...agent,
-    subAgents: agent.subAgents.map(sub => updateAgentInTree(sub, agentId, updater) || sub),
-  };
+  let changed = false;
+  const newSubAgents = agent.subAgents.map(sub => {
+    const result = updateAgentInTree(sub, agentId, updater);
+    if (result === null) return sub; // 该分支无变更，保留原引用
+    changed = true;
+    return result;
+  });
+
+  if (!changed) return null; // 所有子分支均无变更，返回 null 阻止 set()
+  return { ...agent, subAgents: newSubAgents };
 }
 
 // ========== Store 实现 ==========
@@ -181,8 +206,9 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
       ...agent,
       status,
       // 当 agent 完成时，清空临时状态
+      // 辩论模式下保留 currentThought：思考气泡需要持续显示到下一轮辩论开始
       ...(status === 'done' || status === 'success' ? {
-        currentThought: undefined,
+        currentThought: agent.multiAgent?.strategy === 'debate' ? agent.currentThought : undefined,
         currentTools: [],
       } : {}),
     }));
@@ -204,6 +230,22 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     if (updated) {
       set({ mainAgent: updated });
     }
+  },
+
+  getAgentThought: (agentId: string) => {
+    const { mainAgent } = get();
+    const findThought = (agent: AgentState | null): string | undefined => {
+      if (!agent) return undefined;
+      if (agent.id === agentId) return agent.currentThought;
+      if (agent.subAgents) {
+        for (const sub of agent.subAgents) {
+          const found = findThought(sub);
+          if (found !== undefined) return found;
+        }
+      }
+      return undefined;
+    };
+    return findThought(mainAgent);
   },
 
   setAgentTask: (agentId: string, task: string) => {
@@ -296,26 +338,32 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
 
   // ========== SubAgent 管理 ==========
 
-  addSubAgent: (parentId: string, subAgent: AgentState) => {
+  addSubAgent: (parentId: string, subAgent: AgentState, insertIndex?: number) => {
     const { mainAgent } = get();
-    console.log('[activeAgentStore] addSubAgent 被调用:', {
-      parentId,
-      subAgentId: subAgent.id,
-      subAgentName: subAgent.name,
-      mainAgentId: mainAgent?.id,
-      mainAgentName: mainAgent?.name,
-    });
 
     const updated = updateAgentInTree(mainAgent, parentId, (agent) => {
-      console.log('[activeAgentStore] 找到父 agent:', agent.id, agent.name);
+
+      // 🔧 检查是否已存在相同 ID 的子 agent
+      const existingIndex = agent.subAgents.findIndex(sub => sub.id === subAgent.id);
+      if (existingIndex !== -1) {
+        return agent; // 不做修改
+      }
+
+      // 🔧 支持指定插入位置（替换旧节点时保持原位）
+      const newSubAgents = [...agent.subAgents];
+      if (insertIndex !== undefined && insertIndex >= 0 && insertIndex <= newSubAgents.length) {
+        newSubAgents.splice(insertIndex, 0, subAgent);
+      } else {
+        newSubAgents.push(subAgent);
+      }
+
       return {
         ...agent,
-        subAgents: [...agent.subAgents, subAgent],
+        subAgents: newSubAgents,
       };
     });
 
     if (updated) {
-      console.log('[activeAgentStore] 成功添加子 agent，更新 mainAgent');
       set({ mainAgent: updated });
     } else {
       console.warn('[activeAgentStore] ⚠️ 未找到父 agent，无法添加子 agent. parentId:', parentId, 'mainAgent.id:', mainAgent?.id);
@@ -325,16 +373,82 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
   removeSubAgent: (parentId: string, subAgentId: string) => {
     const { mainAgent } = get();
 
-    console.log('[activeAgentStore] removeSubAgent 被调用:', { parentId, subAgentId });
-
-    const updated = updateAgentInTree(mainAgent, parentId, (agent) => ({
-      ...agent,
-      subAgents: agent.subAgents.filter(sub => sub.id !== subAgentId),
-    }));
+    const updated = updateAgentInTree(mainAgent, parentId, (agent) => {
+      const filtered = agent.subAgents.filter(sub => sub.id !== subAgentId);
+      return {
+        ...agent,
+        subAgents: filtered,
+      };
+    });
 
     if (updated) {
       set({ mainAgent: updated });
-      console.log('[activeAgentStore] removeSubAgent 完成，剩余子 Agent:', updated.subAgents?.map(s => s.id));
+    } else {
+      console.warn('[activeAgentStore] ⚠️ removeSubAgent 失败：未找到父 agent');
+    }
+  },
+
+  /** 原子替换：删除旧节点 + 插入新节点，单次 set() 调用消除渲染间隙 */
+  replaceSubAgent: (parentId: string, staleSubAgentId: string | null, newSubAgent: AgentState, insertIndex?: number) => {
+    const { mainAgent } = get();
+
+    const updated = updateAgentInTree(mainAgent, parentId, (agent) => {
+      // 过滤掉旧的 subAgent（如果提供了 staleId）
+      let filtered = agent.subAgents;
+      if (staleSubAgentId) {
+        const staleIdx = filtered.findIndex(sub => sub.id === staleSubAgentId);
+        if (staleIdx !== -1) {
+          filtered = [...filtered.slice(0, staleIdx), ...filtered.slice(staleIdx + 1)];
+          // 保留原位：若未指定 insertIndex，使用旧节点位置
+          if (insertIndex === undefined) {
+            insertIndex = staleIdx;
+          }
+        }
+      }
+
+      // 避免重复添加
+      if (filtered.find(sub => sub.id === newSubAgent.id)) {
+        return { ...agent, subAgents: filtered };
+      }
+
+      // 在指定位置插入新节点
+      const newSubAgents = insertIndex !== undefined && insertIndex >= 0
+        ? [...filtered.slice(0, insertIndex), newSubAgent, ...filtered.slice(insertIndex)]
+        : [...filtered, newSubAgent];
+
+      return { ...agent, subAgents: newSubAgents };
+    });
+
+    if (updated) {
+      set({ mainAgent: updated });
+    } else {
+      console.warn('[activeAgentStore] ⚠️ replaceSubAgent 失败：未找到父 agent');
+    }
+  },
+
+  setMainAgent: (agent: AgentState | null) => {
+    set({ mainAgent: agent });
+  },
+
+  updateSubAgent: (subAgentId: string, updates: Partial<AgentState>) => {
+    const { mainAgent } = get();
+    const updated = updateAgentInTree(mainAgent, subAgentId, (agent) => ({
+      ...agent,
+      ...updates,
+    }));
+    if (updated) {
+      set({ mainAgent: updated });
+    }
+  },
+
+  updateAgentType: (agentId: string, agentType: string) => {
+    const { mainAgent } = get();
+    const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
+      ...agent,
+      agentType: agentType as AgentState['agentType'],
+    }));
+    if (updated) {
+      set({ mainAgent: updated });
     }
   },
 

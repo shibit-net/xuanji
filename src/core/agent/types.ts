@@ -261,6 +261,8 @@ export interface ConfigurableAgentConfig {
   id: string;
   /** Agent 名称 */
   name: string;
+  /** Agent 分类 */
+  category?: AgentCategory;
   /** 版本号 */
   version?: string;
   /** 作者 */
@@ -359,6 +361,19 @@ export interface ConfigurableAgentConfig {
     parallelTools?: boolean;
     /** 错误时重试 */
     retryOnError?: boolean;
+  };
+
+  // ========== 权限配置 ==========
+  /** 权限配置 */
+  permissions?: {
+    fileRead?: 'always' | 'ask' | 'deny';
+    fileWrite?: 'always' | 'ask' | 'deny';
+    bashExec?: 'always' | 'ask' | 'deny';
+    network?: 'always' | 'ask' | 'deny';
+    allowedPaths?: string[];
+    deniedPaths?: string[];
+    allowedCommands?: string[];
+    deniedCommands?: string[];
   };
 
   // ========== 成本控制 ==========

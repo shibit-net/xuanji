@@ -14,7 +14,7 @@ import { logger } from '@/core/logger';
  */
 export class OpenAIProvider extends BaseLLMProvider {
   readonly name = 'openai';
-  readonly models = ['gpt-', 'o1-', 'o3-'];
+  readonly models = ['gpt-', 'o1-', 'o3-', 'deepseek-'];
   private log = logger.child({ module: 'OpenAIProvider' });
 
   private getClient(config: ProviderConfig): OpenAI {
@@ -68,6 +68,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     // 按类型分组处理
     const textBlocks: ContentBlock[] = [];
     const thinkingBlocks: ContentBlock[] = [];
+    const reasoningBlocks: ContentBlock[] = [];
     const toolUseBlocks: ContentBlock[] = [];
     const toolResultBlocks: ContentBlock[] = [];
 
@@ -79,6 +80,9 @@ export class OpenAIProvider extends BaseLLMProvider {
         case 'thinking':
           thinkingBlocks.push(block);
           break;
+        case 'reasoning':
+          reasoningBlocks.push(block);
+          break;
         case 'tool_use':
           toolUseBlocks.push(block);
           break;
@@ -88,9 +92,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       }
     }
 
-    // === Assistant 消息处理 (text + thinking + tool_use) ===
-
-    // 合并 text 和 thinking 为文本内容
+    // === 合并 text 和 thinking 为文本内容 ===
     let combinedText = '';
     if (textBlocks.length > 0) {
       combinedText = textBlocks.map(b => b.text ?? '').join('\n');
@@ -98,18 +100,21 @@ export class OpenAIProvider extends BaseLLMProvider {
     if (thinkingBlocks.length > 0) {
       const thinkingText = thinkingBlocks.map(b => b.thinking ?? '').join('\n');
       if (thinkingText.trim()) {
-        // 将 thinking 追加到文本中（OpenAI 无原生 thinking 支持）
         const prefix = combinedText.trim() ? '\n' : '';
         combinedText += `${prefix}[思考过程]\n${thinkingText}`;
       }
     }
 
+    // DeepSeek thinking 模式：reasoning_content 必须在后续请求中原样回传
+    const reasoningText = reasoningBlocks.map(b => b.reasoning ?? '').join('');
+
+    // Step 1: Assistant 消息（含 tool_calls + reasoning_content）
+    // OpenAI 格式要求：如果有 tool_calls，content 可以为 string 或 null
     if (toolUseBlocks.length > 0) {
-      // text + tool_use 混合 → 单个 assistant message with content + tool_calls
-      // OpenAI 格式要求：如果有 tool_calls，content 可以为 string 或 null
-      result.push({
+      const assistantMsg: any = {
         role: 'assistant',
-        content: combinedText.trim() || null,
+        // reasoning_content 存在时避免 content 为 null（DeepSeek 兼容）
+        content: combinedText.trim() || (reasoningText ? '' : null),
         tool_calls: toolUseBlocks.map(block => ({
           id: block.id!,
           type: 'function' as const,
@@ -118,24 +123,34 @@ export class OpenAIProvider extends BaseLLMProvider {
             arguments: JSON.stringify(block.input ?? {}),
           },
         })),
-      });
-    } else if (combinedText.trim()) {
-      // 纯文本消息（无 tool_use）
-      result.push({
-        role: msg.role as 'user' | 'assistant',
-        content: combinedText,
-      });
+      };
+      if (reasoningText) {
+        assistantMsg.reasoning_content = reasoningText;
+      }
+      result.push(assistantMsg);
     }
 
-    // === Tool Result 消息处理 ===
-    // tool_result blocks → 转为独立的 tool messages
-    // 必须在 assistant tool_calls 消息之后
+    // Step 2: Tool 消息（tool_result blocks → role: 'tool'）
+    // 必须在 assistant tool_calls 之后、user 文本消息之前，确保 API 能正确配对
     for (const block of toolResultBlocks) {
       result.push({
         role: 'tool',
         tool_call_id: block.tool_use_id!,
         content: block.content ?? '',
       });
+    }
+
+    // Step 3: User/Assistant 文本消息（无 tool_use 时，含 reasoning_content）
+    // 放在 tool 消息之后，避免破坏 assistant(tool_calls) → tool 的紧邻关系
+    if (toolUseBlocks.length === 0 && (combinedText.trim() || reasoningText)) {
+      const textMsg: any = {
+        role: msg.role as 'user' | 'assistant',
+        content: combinedText.trim() || '',
+      };
+      if (reasoningText) {
+        textMsg.reasoning_content = reasoningText;
+      }
+      result.push(textMsg);
     }
 
     return result;
@@ -147,6 +162,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     config: ProviderConfig,
   ): AsyncIterable<StreamEvent> {
     const client = this.getClient(config);
+    let openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     try {
       // 分离 system 消息和对话消息
@@ -171,7 +187,7 @@ export class OpenAIProvider extends BaseLLMProvider {
         .join('\n');
 
       // 转换对话消息为 OpenAI 格式
-      const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+      openaiMessages = [];
       if (systemText) {
         openaiMessages.push({ role: 'system', content: systemText });
       }
@@ -207,11 +223,37 @@ export class OpenAIProvider extends BaseLLMProvider {
           parallel_tool_calls: true,             // 允许并行工具调用
         } : {}),
         ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
+        ...(config.thinking ? {
+          // DeepSeek / OpenAI 思考模式：显式传递 thinking 参数确保行为一致
+          // OpenAI SDK 类型未包含此字段，通过 any 传递
+          thinking: config.thinking as any,
+        } : {}),
       };
 
       // 调试日志：输出请求摘要（帮助排查工具调用问题）
       this.log.debug(`Request: model=${requestParams.model}, messages=${openaiMessages.length}, tools=${openaiTools?.length ?? 0}`);
-      this.log.debug(`Messages: ${JSON.stringify(openaiMessages.map(m => ({ role: m.role, contentType: typeof (m as unknown as Record<string, unknown>).content, hasToolCalls: !!(m as unknown as Record<string, unknown>).tool_calls })))}`);
+      this.log.debug(`Messages: ${JSON.stringify(openaiMessages.map(m => {
+        const msg = m as Record<string, unknown>;
+        return {
+          role: msg.role,
+          hasContent: !!msg.content,
+          hasToolCalls: !!(msg as any).tool_calls,
+          hasReasoning: !!(msg as any).reasoning_content,
+          reasoningLen: typeof (msg as any).reasoning_content === 'string' ? (msg as any).reasoning_content.length : 0,
+        };
+      }))}`);
+      // 诊断：检查是否有 assistant 消息在启用 thinking 时缺少 reasoning_content（DeepSeek V4 400 错误常见原因）
+      if (config.thinking) {
+        const assistantMsgs = openaiMessages.filter(m => m.role === 'assistant');
+        const withReasoning = assistantMsgs.filter(m => !!(m as any).reasoning_content);
+        const withoutReasoning = assistantMsgs.filter(m => !(m as any).reasoning_content);
+        if (withoutReasoning.length > 0 && withReasoning.length > 0) {
+          this.log.warn(`DeepSeek V4: ${withoutReasoning.length}/${assistantMsgs.length} assistant messages missing reasoning_content (mixed state, may cause 400 error)`);
+        }
+        if (withReasoning.length > 0) {
+          this.log.debug(`DeepSeek V4: ${withReasoning.length}/${assistantMsgs.length} assistant messages have reasoning_content`);
+        }
+      }
       if (openaiTools) {
         this.log.debug(`Tools: ${JSON.stringify(openaiTools.map(t => 'function' in t ? (t as { function: { name: string } }).function.name : 'unknown'))}`);
       }
@@ -227,11 +269,15 @@ export class OpenAIProvider extends BaseLLMProvider {
         name: string;
         arguments: string;
         emitted: boolean;  // 是否已发出 tool_use_end
+        garbageDetected: boolean;  // 模型将自然语言误输出为 tool arguments
       }> = new Map();
 
       let finishReason: string | null = null;
       let chunkCount = 0;
       let receivedEnd = false;
+
+      // 内联错误检测：某些 API（如 DeepSeek）可能将错误信息嵌入流式响应文本
+      let earlyTextBuffer = '';
 
       for await (const chunk of stream) {
         chunkCount++;
@@ -247,7 +293,26 @@ export class OpenAIProvider extends BaseLLMProvider {
 
           // 文本内容
           if (delta?.content) {
+            // 内联错误检测：检查前 500 字符是否包含 API 错误信息
+            if (earlyTextBuffer.length < 500) {
+              earlyTextBuffer += delta.content;
+              const detected = this.detectInlineApiError(earlyTextBuffer);
+              if (detected) {
+                throw new Error(detected);
+              }
+            }
             yield { type: 'text_delta', text: delta.content };
+          }
+
+          // DeepSeek thinking 模式：reasoning_content 必须在后续请求中回传
+          // 检查多个可能的位置（不同 API 兼容层可能放在不同地方）
+          const reasoningDelta = (delta as any)?.reasoning_content
+            || (choice as any)?.message?.reasoning_content
+            || (choice as any)?.reasoning_content
+            || (chunk as any)?.reasoning_content;
+          if (reasoningDelta) {
+            this.log.debug(`Captured reasoning_content (${typeof reasoningDelta === 'string' ? reasoningDelta.length + ' chars' : typeof reasoningDelta})`);
+            yield { type: 'reasoning_delta', reasoning: typeof reasoningDelta === 'string' ? reasoningDelta : JSON.stringify(reasoningDelta) };
           }
 
           // 工具调用
@@ -262,6 +327,7 @@ export class OpenAIProvider extends BaseLLMProvider {
                   name: tc.function?.name ?? '',
                   arguments: '',
                   emitted: false,
+                  garbageDetected: false,
                 });
 
                 if (tc.function?.name) {
@@ -283,7 +349,31 @@ export class OpenAIProvider extends BaseLLMProvider {
               }
               if (tc.function?.arguments) {
                 acc.arguments += tc.function.arguments;
-                yield { type: 'tool_use_delta', text: tc.function.arguments };
+
+                // 垃圾检测：累积超过 20 字符后检查是否像自然语言而非 JSON
+                // DeepSeek V4 可能在 tool_call 中输出中文自然语言（如"无全局 Error Boundary"）
+                if (!acc.garbageDetected && acc.arguments.length >= 20) {
+                  const trimmed = acc.arguments.trimStart();
+                  const isJsonLike = trimmed.length === 0
+                    || trimmed[0] === '{'
+                    || trimmed[0] === '['
+                    || trimmed[0] === '"'
+                    || trimmed[0] === '-' && /\d/.test(trimmed[1] || '')
+                    || /\d/.test(trimmed[0]);
+                  if (!isJsonLike) {
+                    acc.garbageDetected = true;
+                    this.log.warn(`ToolCall[${idx}] arguments 检测到自然语言而非 JSON，重定向为文本输出: "${acc.arguments.slice(0, 100)}"`);
+                    // 将已累积的垃圾内容作为文本输出
+                    yield { type: 'text_delta', text: acc.arguments };
+                  }
+                }
+
+                if (acc.garbageDetected) {
+                  // 继续将后续 arguments 作为文本输出
+                  yield { type: 'text_delta', text: tc.function.arguments };
+                } else {
+                  yield { type: 'tool_use_delta', text: tc.function.arguments };
+                }
               }
             }
           }
@@ -300,14 +390,22 @@ export class OpenAIProvider extends BaseLLMProvider {
                 if (acc.emitted) continue;
                 acc.emitted = true;
                 let input: Record<string, unknown> = {};
-                try {
-                  input = JSON.parse(acc.arguments || '{}');
-                } catch {
+                if (acc.garbageDetected) {
+                  // 模型幻觉：arguments 是自然语言，不是合法 JSON
                   input = {
-                    _parse_error: true,
-                    _raw_input: acc.arguments?.substring(0, 500) ?? '',
-                    _error_message: `工具参数 JSON 解析失败（已接收 ${acc.arguments?.length ?? 0} 字符），可能是流传输被截断`,
+                    _hallucinated: true,
+                    _raw_text: acc.arguments?.substring(0, 500) ?? '',
                   };
+                } else {
+                  try {
+                    input = JSON.parse(acc.arguments || '{}');
+                  } catch {
+                    input = {
+                      _parse_error: true,
+                      _raw_input: acc.arguments?.substring(0, 500) ?? '',
+                      _error_message: `工具参数 JSON 解析失败（已接收 ${acc.arguments?.length ?? 0} 字符），可能是流传输被截断`,
+                    };
+                  }
                 }
                 yield {
                   type: 'tool_use_end',
@@ -333,15 +431,21 @@ export class OpenAIProvider extends BaseLLMProvider {
         if (acc.emitted) continue; // 跳过已发出的
         acc.emitted = true;
         let input: Record<string, unknown> = {};
-        try {
-          input = JSON.parse(acc.arguments || '{}');
-        } catch {
-          // JSON 解析失败：将截断的原始 JSON 作为错误信息传递
+        if (acc.garbageDetected) {
           input = {
-            _parse_error: true,
-            _raw_input: acc.arguments?.substring(0, 500) ?? '',
-            _error_message: `工具参数 JSON 解析失败（已接收 ${acc.arguments?.length ?? 0} 字符），可能是流传输被截断`,
+            _hallucinated: true,
+            _raw_text: acc.arguments?.substring(0, 500) ?? '',
           };
+        } else {
+          try {
+            input = JSON.parse(acc.arguments || '{}');
+          } catch {
+            input = {
+              _parse_error: true,
+              _raw_input: acc.arguments?.substring(0, 500) ?? '',
+              _error_message: `工具参数 JSON 解析失败（已接收 ${acc.arguments?.length ?? 0} 字符），可能是流传输被截断`,
+            };
+          }
         }
         yield {
           type: 'tool_use_end',
@@ -378,8 +482,42 @@ export class OpenAIProvider extends BaseLLMProvider {
 
       let errorMessage = err instanceof Error ? err.message : String(err);
 
+      // 记录原始错误详情（SDK 错误对象包含 status、error body、code、param、type 等）
+      const errAny = err as any;
+      this.log.error(`API 调用失败: status=${errAny?.status}, code=${errAny?.code}, param=${errAny?.param}, type=${errAny?.type}`);
+      if (errAny?.error) {
+        this.log.error(`API 原始错误体: ${JSON.stringify(errAny.error)}`);
+      }
+
       // 增强错误信息
       if (errorMessage.includes('status code') || errorMessage.includes('Bad Request') || errorMessage.includes('400')) {
+        // 详细诊断日志：记录每条消息的 reasoning_content 状态
+        const msgDiag = openaiMessages.map((m, i) => {
+          const msg = m as Record<string, unknown>;
+          const hasReasoning = !!(msg as any).reasoning_content;
+          const reasoningLen = typeof (msg as any).reasoning_content === 'string' ? (msg as any).reasoning_content.length : 0;
+          const hasToolCalls = !!(msg as any).tool_calls;
+          const contentLen = typeof msg.content === 'string' ? msg.content.length : (msg.content ? JSON.stringify(msg.content).length : 0);
+          return `[${i}] role=${msg.role} contentLen=${contentLen} hasToolCalls=${hasToolCalls} hasReasoning=${hasReasoning} reasoningLen=${reasoningLen}`;
+        });
+        this.log.error(`400 错误消息诊断 (共 ${openaiMessages.length} 条):\n${msgDiag.join('\n')}`);
+
+        // 诊断：检查 reasoning_content 缺失情况
+        if (config.thinking) {
+          const assistantMsgs = openaiMessages
+            .map((m, i) => ({ msg: m as any, idx: i }))
+            .filter(({ msg }) => msg.role === 'assistant');
+          const withReasoning = assistantMsgs.filter(({ msg }) => !!msg.reasoning_content);
+          const withoutReasoning = assistantMsgs.filter(({ msg }) => !msg.reasoning_content);
+          this.log.error(`reasoning_content 诊断: ${assistantMsgs.length} 条 assistant 消息, ${withReasoning.length} 条有 reasoning_content, ${withoutReasoning.length} 条缺失`);
+          if (withoutReasoning.length > 0) {
+            this.log.error(`缺失 reasoning_content 的 assistant 消息索引: ${withoutReasoning.map(m => m.idx).join(', ')}`);
+          }
+          if (withReasoning.length > 0) {
+            this.log.error(`有 reasoning_content 的 assistant 消息索引: ${withReasoning.map(m => m.idx).join(', ')}`);
+          }
+        }
+
         errorMessage += `\n\n调试信息:\n` +
           `- Provider: ${errorDetails.provider}\n` +
           `- 模型: ${errorDetails.model}\n` +
@@ -393,7 +531,39 @@ export class OpenAIProvider extends BaseLLMProvider {
           `4. API 服务暂时不可用（请稍后重试）`;
       }
 
-      throw new Error(errorMessage);
+      const wrappedError = new Error(errorMessage);
+      if (err instanceof Error) {
+        wrappedError.name = err.name;
+        if ('status' in err) (wrappedError as any).status = (err as any).status;
+        if ('code' in err) (wrappedError as any).code = (err as any).code;
+      }
+      throw wrappedError;
     }
+  }
+
+  /**
+   * 检测 API 错误信息是否被嵌入到流式响应文本中
+   *
+   * 某些 OpenAI 兼容 API（如 DeepSeek）在遇到错误时可能返回 200 OK，
+   * 但将错误信息嵌入在 SSE 流中的第一个 text delta 里。
+   */
+  private detectInlineApiError(text: string): string | null {
+    if (text.includes('reasoning_content') && text.includes('thinking mode')) {
+      return `DeepSeek API 错误：reasoning_content 未正确回传。原始响应: ${text.slice(0, 200)}`;
+    }
+
+    const statusMatch = text.match(/^(\d{3})\s/);
+    if (statusMatch) {
+      const code = parseInt(statusMatch[1], 10);
+      if (code >= 400) {
+        return `API 返回错误 (${code}): ${text.slice(0, 300)}`;
+      }
+    }
+
+    if (/^(error|Error|ERROR)[\s:]+/.test(text)) {
+      return `API 返回错误: ${text.slice(0, 300)}`;
+    }
+
+    return null;
   }
 }

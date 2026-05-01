@@ -5,9 +5,6 @@
 // 将工具分为三个层次：
 // 1. 核心工具（CORE）：所有场景都需要的基础工具
 // 2. 元能力工具（META）：任务管理相关工具，始终可用
-// 3. 场景工具（SCENE）：按场景分组的专用工具
-
-import type { SceneType } from '@/core/prompt/types';
 
 /**
  * 工具分类常量
@@ -45,7 +42,6 @@ export const TOOL_CATEGORIES = {
    * - match_agent: 匹配最佳 Agent
    *
    * 系统管理:
-   * - butler_daemon: 智能管家守护进程
    * - enter_worktree: 进入 Git 工作树
    *
    * 调试/测试:
@@ -68,20 +64,11 @@ export const TOOL_CATEGORIES = {
     'list_agents',
     'match_agent',
     // 系统管理
-    'butler_daemon',
     'enter_worktree',
     // 调试/测试
     'sleep',
   ] as const,
 
-  /**
-   * 场景工具（按场景分组）
-   *
-   * @deprecated 场景不再控制工具可用性，此字段已废弃。
-   * 工具可用性现在完全由权限系统统一管控。
-   * 保留空对象以向后兼容，将在下一大版本移除。
-   */
-  SCENE: {} as Record<string, readonly string[]>,
 } as const;
 
 /**
@@ -131,7 +118,6 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermissionRequirement[]> = 
   'bash': ['bashExec'],
   'task_output': ['bashExec'],
   'enter_worktree': ['bashExec'],
-  'butler_daemon': ['bashExec'],
 
   // 网络操作
   'web_search': ['network'],
@@ -163,29 +149,3 @@ export function getToolPermissionRequirements(toolName: string): ToolPermissionR
   return TOOL_PERMISSION_MAP[toolName] ?? ['bashExec'];
 }
 
-/**
- * @deprecated 场景不再控制工具可用性，此函数已废弃，始终返回空数组。
- * 工具可用性现在完全由权限系统统一管控。
- */
-export function getSceneTools(_id: string, _requiredTools?: string[]): string[] {
-  return [];
-}
-
-/**
- * @deprecated 场景不再控制工具可用性，此函数已废弃。
- * 返回 CORE + META 工具集，不再按场景过滤。
- */
-export function computeAllowedTools(_skills?: Array<{ id: string; requiredTools?: string[] }>): Set<string> {
-  const allowed = new Set<string>();
-  TOOL_CATEGORIES.CORE.forEach(tool => allowed.add(tool));
-  TOOL_CATEGORIES.META.forEach(tool => allowed.add(tool));
-  return allowed;
-}
-
-/**
- * @deprecated 场景不再控制工具可用性，此函数已废弃。
- * 返回 CORE + META 工具集，不再按场景过滤。
- */
-export function computeAllowedToolsByScene(_scene?: SceneType, _extraTools?: string[]): Set<string> {
-  return computeAllowedTools();
-}

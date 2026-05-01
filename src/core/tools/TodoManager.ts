@@ -5,6 +5,7 @@
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
+import { getUserRoot } from '@/core/config/PathManager';
 
 /**
  * Todo 任务
@@ -40,11 +41,17 @@ export class TodoManager {
   private loaded = false;
   private nextId = 1;
 
-  constructor(storagePath?: string) {
-    this.storagePath = storagePath ?? join(process.cwd(), '.xuanji', 'todos.jsonl');
-    this.archivePath = storagePath
-      ? storagePath.replace('.jsonl', '-archive.jsonl')
-      : join(process.cwd(), '.xuanji', 'todos-archive.jsonl');
+  constructor(storagePath?: string, userId?: string) {
+    if (userId) {
+      const userRoot = getUserRoot(userId);
+      this.storagePath = join(userRoot, 'todos.jsonl');
+      this.archivePath = join(userRoot, 'todos-archive.jsonl');
+    } else {
+      this.storagePath = storagePath ?? join(process.cwd(), '.xuanji', 'todos.jsonl');
+      this.archivePath = storagePath
+        ? storagePath.replace('.jsonl', '-archive.jsonl')
+        : join(process.cwd(), '.xuanji', 'todos-archive.jsonl');
+    }
   }
 
   /**
@@ -109,7 +116,6 @@ export class TodoManager {
     const now = new Date().toISOString();
     const todoId = `todo-${String(this.nextId++).padStart(3, '0')}`;
 
-    console.log(`[TodoManager] 创建任务: id=${todoId}, title=${params.title}, 当前任务总数=${this.todos.size}`);
 
     const todo: Todo = {
       id: todoId,
@@ -151,11 +157,9 @@ export class TodoManager {
 
     const todo = this.todos.get(id);
     if (!todo) {
-      console.error(`[TodoManager] 任务不存在: ${id}, 当前任务列表:`, Array.from(this.todos.keys()));
       throw new Error(`任务不存在: ${id}`);
     }
 
-    console.log(`[TodoManager] 更新任务: id=${id}, 旧状态=${todo.status}, 新状态=${updates.status || '未变'}, title=${todo.title}`);
 
     if (updates.title !== undefined) todo.title = updates.title;
     if (updates.description !== undefined) todo.description = updates.description;
@@ -301,13 +305,10 @@ export class TodoManager {
    * 确保 TODO 列表只包含当前任务创建的 todo。
    */
   async startTurn(): Promise<void> {
-    console.log(`[TodoManager] startTurn() 被调用，清空前任务数=${this.todos.size}, nextId=${this.nextId}`);
-    console.log(`[TodoManager] 清空前的任务列表:`, Array.from(this.todos.values()).map(t => ({ id: t.id, title: t.title, status: t.status })));
     this.todos.clear();
     this.nextId = 1;
     this.loaded = true; // 标记已加载，避免从磁盘恢复旧数据
     await this.persist();
-    console.log(`[TodoManager] startTurn() 完成，任务已清空`);
   }
 
   /**
@@ -332,7 +333,6 @@ export class TodoManager {
     this.todos.delete(todoId);
     await this.persist();
 
-    console.log(`[TodoManager] 任务已归档: ${todoId}`);
     return true;
   }
 
@@ -355,7 +355,6 @@ export class TodoManager {
       await this.archiveTodo(todo.id);
     }
 
-    console.log(`[TodoManager] 自动归档完成: ${toArchive.length} 个任务`);
     return toArchive.length;
   }
 
@@ -374,7 +373,6 @@ export class TodoManager {
       await this.archiveTodo(todo.id);
     }
 
-    console.log(`[TodoManager] 已归档所有完成任务: ${completed.length} 个`);
     return completed.length;
   }
 
@@ -419,7 +417,6 @@ export class TodoManager {
     await this.persist();
     const cleared = before - this.todos.size;
 
-    console.log(`[TodoManager] 清空任务: status=${status || 'all'}, 数量=${cleared}`);
     return cleared;
   }
 
@@ -470,8 +467,14 @@ export class TodoManager {
 }
 
 let _todoManagerInstance: TodoManager | null = null;
+let _todoManagerUserId: string | undefined;
 
-export function getTodoManager(): TodoManager {
+export function getTodoManager(userId?: string): TodoManager {
+  // 如果传入了新的 userId，创建新实例（支持多用户切换）
+  if (userId && userId !== _todoManagerUserId) {
+    _todoManagerInstance = new TodoManager(undefined, userId);
+    _todoManagerUserId = userId;
+  }
   if (!_todoManagerInstance) {
     _todoManagerInstance = new TodoManager();
   }

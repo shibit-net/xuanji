@@ -82,7 +82,6 @@ export class LayeredPromptBuilder {
    * 发射事件
    */
   private emitEvent(event: PromptBuildEvent): void {
-    console.log('[LayeredPromptBuilder] 发射事件:', event.type, event);
     for (const listener of this.eventListeners) {
       try {
         listener(event);
@@ -205,7 +204,7 @@ export class LayeredPromptBuilder {
       complexity = options.complexity;
     }
 
-    let matchMethod: string | undefined;
+    let matchMethod: string | undefined = options.matchMethod;
     if (userMessage && (!scene || !options.complexity)) {
       // 转发 intentAnalyzer 的匹配过程事件
       this.intentAnalyzer.setEventCallback((evt) => {

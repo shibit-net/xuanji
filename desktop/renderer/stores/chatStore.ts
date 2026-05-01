@@ -44,6 +44,11 @@ function throttle<T extends (...args: any[]) => void>(
   return throttled;
 }
 
+// 格式化场景标签：去除 l{n}- 前缀，展示纯场景名
+function formatSceneLabel(raw: string): string {
+  return raw.replace(/^l\d+-/, '').slice(0, 12);
+}
+
 // ============================================================
 // 唯一 ID 生成器（解决 Date.now() 重复问题）
 // ============================================================
@@ -64,6 +69,10 @@ export interface Message {
   toolCalls?: ToolCall[];
   /** 标识为工具摘要消息（对话式展示文件操作等工具的执行结果） */
   toolSummary?: boolean;
+  /** 本次回复耗时（ms），assistant 消息完成后回填 */
+  duration?: number;
+  /** 本次回复 Token 消耗 */
+  tokensUsed?: { input: number; output: number };
 }
 
 // 工具调用
@@ -177,6 +186,8 @@ interface ChatStore {
   _teamParentMap: Record<string, string>;
   /** task 工具的 subAgentId → parentAgentId 的映射，用于确定 task 创建的子 Agent 应该挂在哪个父节点下 */
   _taskParentMap: Record<string, string>;
+  /** subAgentId → streamToUser 的映射，用于判断子 agent 是"编写中"还是"汇报中" */
+  _streamToUserMap: Record<string, boolean>;
 }
 
 // ============================================================
@@ -184,13 +195,37 @@ interface ChatStore {
 // ============================================================
 
 /**
+ * 提取可读的模型名（去除 file: 前缀、路径和扩展名）
+ */
+export function formatModelName(rawModel: string): string {
+  if (!rawModel) return 'unknown';
+  // file:/path/to/model.gguf → model
+  const cleaned = rawModel
+    .replace(/^file:.*\//, '')
+    .replace(/\.gguf$/, '')
+    .replace(/^hf:/, '');
+  return cleaned || rawModel;
+}
+
+/**
+ * 去除 ANSI 颜色码和行号前缀，保留纯 diff 内容
+ */
+function cleanDiffContent(raw: string): string {
+  return raw
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .split('\n')
+    .map(line => line.replace(/^\s*\d+\s*│\s*/, ''))
+    .join('\n')
+    .trim();
+}
+
+/**
  * 生成文件变更的对话式摘要
  */
 function generateFileChangeSummary(change: import('../global').FileChange): string {
   const { filePath, operation, stats, diffContent } = change;
 
-  // 去除 ANSI 颜色码
-  const cleanDiff = diffContent?.replace(/\x1b\[[0-9;]*m/g, '') || '';
+  const cleanDiff = diffContent ? cleanDiffContent(diffContent) : '';
 
   switch (operation) {
     case 'create':
@@ -225,7 +260,7 @@ function extractDiffStats(result: string): { added: number; removed: number } | 
 }
 
 /**
- * 从工具结果中提取 diff 内容（去除 ANSI 颜色码）
+ * 从工具结果中提取 diff 内容（去除 ANSI 颜色码和行号前缀）
  */
 function extractDiffContent(result: string): string | null {
   // 查找 diff 分隔线后的内容
@@ -234,12 +269,9 @@ function extractDiffContent(result: string): string | null {
 
   if (separatorIndex === -1) return null;
 
-  // 提取 diff 内容并去除 ANSI 颜色码
+  // 提取 diff 内容，去除 ANSI 颜色码和行号前缀
   const diffLines = lines.slice(separatorIndex + 2); // 跳过分隔线和表头
-  const cleanedDiff = diffLines
-    .map(line => line.replace(/\x1b\[[0-9;]*m/g, '')) // 去除 ANSI 颜色码
-    .join('\n')
-    .trim();
+  const cleanedDiff = cleanDiffContent(diffLines.join('\n'));
 
   return cleanedDiff || null;
 }
@@ -264,8 +296,6 @@ function generateToolSummaryMessage(
       const stats = extractDiffStats(result);
       const diffContent = extractDiffContent(result);
 
-      console.log('[generateToolSummaryMessage] write_file - stats:', stats);
-      console.log('[generateToolSummaryMessage] write_file - diffContent length:', diffContent?.length);
 
       // 如果有 diff（说明是覆盖已存在的文件）
       if (stats && diffContent) {
@@ -273,12 +303,10 @@ function generateToolSummaryMessage(
                `📊 变更：+${stats.added} 行，-${stats.removed} 行\n\n` +
                `\`\`\`diff\n${diffContent}\n\`\`\``;
         
-        console.log('[generateToolSummaryMessage] write_file - 生成更新摘要成功');
         return summary;
       }
 
       // 新建文件
-      console.log('[generateToolSummaryMessage] write_file - 新建文件');
       const content = input.content as string;
       const lines = content.split('\n').length;
       const preview = content.length > 200
@@ -295,9 +323,6 @@ function generateToolSummaryMessage(
       const stats = extractDiffStats(result);
       const diffContent = extractDiffContent(result);
 
-      console.log('[generateToolSummaryMessage] edit_file - stats:', stats);
-      console.log('[generateToolSummaryMessage] edit_file - diffContent length:', diffContent?.length);
-      console.log('[generateToolSummaryMessage] edit_file - diffContent preview:', diffContent?.slice(0, 100));
 
       if (stats && diffContent) {
         const replaceAll = input.replace_all as boolean;
@@ -307,12 +332,10 @@ function generateToolSummaryMessage(
                `📊 变更：+${stats.added} 行，-${stats.removed} 行\n\n` +
                `\`\`\`diff\n${diffContent}\n\`\`\``;
         
-        console.log('[generateToolSummaryMessage] edit_file - 生成摘要成功，长度:', summary.length);
         return summary;
       }
 
       // 降级方案：显示输入参数
-      console.log('[generateToolSummaryMessage] edit_file - 使用降级方案');
       const oldString = (input.old_string as string || '').slice(0, 100);
       const newString = (input.new_string as string || '').slice(0, 100);
 
@@ -593,7 +616,29 @@ export const useChatStore = create<ChatStore>((set, get) => {
   },
 
   _handleAgentThinking: (thinking) => {
-    console.log('[chatStore] _handleAgentThinking 触发，内容长度:', thinking.length, '前50字符:', thinking.slice(0, 50));
+    // processContext 在每个迭代开始时发送空字符串，表示新思考阶段
+    if (!thinking) {
+      const runtimeStore = useRuntimeStore.getState();
+      // 清除之前的思考内容，避免跨迭代累积
+      runtimeStore.updateAgentStatus({ status: 'thinking', currentThought: '' });
+      runtimeStore.setProcessing(true);
+      const activeAgentStore = useActiveAgentStore.getState();
+      if (activeAgentStore.mainAgent) {
+        activeAgentStore.setAgentThought(activeAgentStore.mainAgent.id, '');
+      }
+      const { currentStreamingId } = get();
+      if (currentStreamingId) {
+        set((state) => ({
+          status: 'thinking',
+          messages: state.messages.map((msg) =>
+            msg.id === currentStreamingId ? { ...msg, statusHint: '💭 思考中...' } : msg
+          ),
+        }));
+      } else {
+        set({ status: 'thinking' });
+      }
+      return;
+    }
 
     // 同步更新 runtimeStore - 累加 thinking 内容
     const runtimeStore = useRuntimeStore.getState();
@@ -601,8 +646,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
     // 手动计算累加后的完整 thinking 内容
     const currentThinking = runtimeStore.messageStream?.thinking || '';
     const fullThinking = currentThinking + thinking;
-
-    console.log('[chatStore] 累加后的完整 thinking 长度:', fullThinking.length, '前50字符:', fullThinking.slice(0, 50));
 
     // 累加到 messageStream
     runtimeStore.appendStreamThinking(thinking);
@@ -614,7 +657,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
     });
     runtimeStore.setProcessing(true);
 
-    console.log('[chatStore] 已更新 agentStatus.currentThought:', fullThinking.slice(0, 50));
 
     // 更新 activeAgentStore - 只更新主 Agent 的思考
     // Sub-agent 的思考通过 agent:thinking-start 事件单独更新
@@ -810,11 +852,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       }
       const agentName = activeAgentStore.mainAgent?.name || 'Xuanji';
 
-      console.log('[chatStore] _handleAgentToolStart - data.agentId:', data.agentId);
-      console.log('[chatStore] _handleAgentToolStart - currentActiveAgentId:', activeAgentStore.currentActiveAgentId);
-      console.log('[chatStore] _handleAgentToolStart - 最终 agentId:', currentAgentId);
-      console.log('[chatStore] _handleAgentToolStart - 工具名称:', data.name);
-      console.log('[chatStore] _handleAgentToolStart - 工具 ID:', data.id);
 
       const momentType = (() => {
         const n = data.name;
@@ -825,13 +862,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
         return { type: 'bash' as const, icon: '⚙️' };
       })();
 
-      console.log('[chatStore] _handleAgentToolStart - momentType:', momentType);
 
       // 如果是 agent_team 或 task 工具，记录调用者（用于后续确定子 Agent 的父节点）
       if (data.name === 'agent_team' || data.name === 'task') {
         // 使用 toolCallId 作为 key，因为后续 _handleTeamStart 会建立 teamId → toolCallId 的映射
         get()._teamParentMap[data.id] = currentAgentId;
-        console.log('[chatStore] _handleAgentToolStart - 记录工具调用者:', data.name, data.id, '→', currentAgentId);
       }
 
       // 🔧 工具调用统一使用 timelineEvents 展示，不再使用 currentMoment
@@ -848,15 +883,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
         description: `${data.name}: ${JSON.stringify(data.input).slice(0, 40)}`,
         icon: momentType.icon,
       });
+
+      // 🔧 子 agent 流式输出到用户由 agent:subagent-text 事件驱动（设置 writing）
+      // 这里不设置 writing，避免工具执行时过早显示"编写中"
     }
   },
 
   _handleAgentToolEnd: (data) => {
-    console.log('[chatStore] ===== _handleAgentToolEnd 触发 =====');
-    console.log('[chatStore] 工具 ID:', data.id);
-    console.log('[chatStore] 工具名称:', data.name);
-    console.log('[chatStore] 是否错误:', data.isError);
-    console.log('[chatStore] data.agentId:', data.agentId);
 
     const { activeToolCalls, currentStreamingId } = get();
 
@@ -874,12 +907,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       newToolCalls.set(data.id, toolCall);
 
       // 同步更新 runtimeStore
-      console.log('[chatStore] 准备调用 runtimeStore.updateToolCall');
-      console.log('[chatStore] 更新参数:', {
-        id: data.id,
-        status: data.isError ? 'error' : 'success',
-        duration: toolCall.duration,
-      });
 
       useRuntimeStore.getState().updateToolCall(data.id, {
         status: data.isError ? 'error' : 'success',
@@ -900,7 +927,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
         currentAgentId = isMainAgent ? 'main' : rawAgentId;
       }
 
-      console.log('[chatStore] _handleAgentToolEnd - 最终 agentId:', currentAgentId);
 
       if (currentAgentId) {
         activeAgentStore.updateAgentTool(currentAgentId, data.id, {
@@ -933,17 +959,14 @@ export const useChatStore = create<ChatStore>((set, get) => {
           if (endIndex !== -1) {
             // 提取标记之间的内容
             const jsonStr = data.result.substring(jsonStart, endIndex).trim();
-            console.log('[chatStore] 提取的 JSON 字符串:', jsonStr.substring(0, 200));
             try {
               const progressData = JSON.parse(jsonStr);
               // progressData = { completed: 1, total: 3, items: [{ id, title, description, status, activeForm }] }
 
-              console.log('[chatStore] 收到 TODO_PROGRESS，原始数据:', JSON.stringify(progressData, null, 2));
 
               // 🆕 原子性地更新所有任务，避免中间状态导致的 UI 闪烁
               if (progressData.items && Array.isArray(progressData.items)) {
                 const newTodos = progressData.items.map((item: any) => {
-                  console.log(`[chatStore] 处理任务: id=${item.id}, title=${item.title}, status=${item.status}`);
                   return {
                     id: item.id,
                     subject: item.title,
@@ -956,12 +979,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
                   };
                 });
 
-                console.log('[chatStore] 即将更新 todos，新任务列表:', newTodos.map(t => ({ id: t.id, status: t.status, subject: t.subject })));
 
                 // 一次性替换所有任务，避免多次 setState 导致的竞态条件
                 useExecutionStore.setState({ todos: newTodos });
 
-                console.log('[chatStore] todos 更新完成');
               }
             } catch (err) {
               console.error('[chatStore] 解析 TODO_PROGRESS 失败:', err);
@@ -1042,17 +1063,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
     const FILE_OPERATION_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit']);
 
     if (FILE_OPERATION_TOOLS.has(data.name) && !data.isError) {
-      console.log('[chatStore] 检测到文件操作工具:', data.name);
       const toolCall = newToolCalls.get(data.id);
       if (toolCall && toolCall.input) {
-        console.log('[chatStore] 生成工具摘要，工具名称:', data.name);
-        console.log('[chatStore] 工具输入:', toolCall.input);
-        console.log('[chatStore] 工具结果（前200字符）:', data.result.slice(0, 200));
         
         const summary = generateToolSummaryMessage(data.name, toolCall.input, data.result);
 
         if (summary) {
-          console.log('[chatStore] 生成的摘要内容（前200字符）:', summary.slice(0, 200));
           const summaryMessage: Message = {
             id: generateMessageId('tool-summary'),
             role: 'assistant',
@@ -1064,12 +1080,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
           set((state) => ({
             messages: [...state.messages, summaryMessage],
           }));
-          console.log('[chatStore] 已添加工具摘要消息到对话中');
         } else {
-          console.log('[chatStore] 摘要内容为空，未添加消息');
         }
       } else {
-        console.log('[chatStore] 未找到工具调用信息或输入参数');
       }
     }
   },
@@ -1113,7 +1126,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
   },
 
   _handleAgentError: (error) => {
-    console.log('[chatStore] _handleAgentError: 收到错误', error);
 
     // 标记 agent 已结束
     isAgentEnded = true;
@@ -1154,7 +1166,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
   },
 
   _handleAgentEnd: (state) => {
-    console.log('[chatStore] _handleAgentEnd: 收到 agent:end 事件，准备结束当前消息气泡');
 
     // 标记 agent 已结束，防止后续的 flushStreamText 设置 statusHint
     isAgentEnded = true;
@@ -1178,7 +1189,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // 将所有仍在 pending 的工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
     const { activeToolCalls, currentStreamingId } = get();
-    console.log('[chatStore] _handleAgentEnd: currentStreamingId =', currentStreamingId);
     const finalizedToolCalls = Array.from(activeToolCalls.values()).map((tc) => {
       if (tc.status === 'pending') {
         return {
@@ -1208,9 +1218,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
     // 完成主 Agent（activeAgentStore）
     useActiveAgentStore.getState().finishMainAgent();
 
-    // 完成主 Agent（activeAgentStore）
-    useActiveAgentStore.getState().finishMainAgent();
-
     set((prevState) => ({
       status: 'idle',
       currentStreamingId: null,
@@ -1219,8 +1226,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
       // 清除所有消息的 statusHint + 写入最终工具状态
       messages: prevState.messages.map((msg) => {
         if (msg.id === currentStreamingId) {
-          // 当前流式消息：清除 statusHint + 写入最终工具状态
-          return { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls };
+          // 当前流式消息：清除 statusHint + 写入最终工具状态 + 回填耗时和 Token
+          const duration = msg.timestamp ? Date.now() - msg.timestamp : undefined;
+          const tokensUsed = state.tokenUsage || prevState.stats.tokenUsage;
+          return { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls, duration, tokensUsed };
         } else if (msg.statusHint) {
           // 其他有 statusHint 的消息：清除 statusHint
           return { ...msg, statusHint: undefined };
@@ -1240,26 +1249,22 @@ export const useChatStore = create<ChatStore>((set, get) => {
       } : prevState.currentSkill,
     }));
     
-    console.log('[chatStore] _handleAgentEnd: 已清空流式状态，下一条回复将在新气泡中显示');
   },
 
   // ── Multi-Agent 成员状态动态更新 ──────────────────────────
   _teamIdMap: {},
   _teamParentMap: {},
   _taskParentMap: {},
+  _streamToUserMap: {},
 
   _handleTeamStart: (data) => {
-    console.log('[chatStore] _handleTeamStart 被调用');
-    console.log('[chatStore] 当前 messageStream:', useRuntimeStore.getState().messageStream);
 
     // 通过 teamName 找到对应的 toolCall，建立 teamId → toolCallId 映射
     const stream = useRuntimeStore.getState().messageStream;
     if (!stream) {
-      console.log('[chatStore] _handleTeamStart: messageStream 为空，无法建立映射');
       return;
     }
 
-    console.log('[chatStore] _handleTeamStart: toolCalls 数量:', stream.toolCalls.length);
 
     // 尝试多种匹配策略：
     // 1. 通过 teamName 精确匹配
@@ -1269,7 +1274,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // 2. 如果没找到，尝试通过 strategy 匹配
     if (!toolCall && data.strategy) {
-      console.log('[chatStore] _handleTeamStart: teamName 未匹配，尝试通过 strategy 匹配:', data.strategy);
       toolCall = stream.toolCalls.find(
         (tc) => tc.status === 'running' && tc.name === 'agent_team' && tc.multiAgent?.strategy === data.strategy
       );
@@ -1277,7 +1281,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // 3. 如果还没找到，使用最近的 running 状态的 agent_team 工具
     if (!toolCall) {
-      console.log('[chatStore] _handleTeamStart: strategy 未匹配，使用最近的 agent_team 工具');
       const agentTeamCalls = stream.toolCalls.filter(
         (tc) => tc.status === 'running' && tc.name === 'agent_team'
       );
@@ -1287,45 +1290,58 @@ export const useChatStore = create<ChatStore>((set, get) => {
     }
 
     if (toolCall) {
-      console.log('[chatStore] _handleTeamStart: 找到匹配的 toolCall:', toolCall.id);
-      console.log('[chatStore] _handleTeamStart: toolCall.multiAgent:', toolCall.multiAgent);
-      console.log('[chatStore] _handleTeamStart: 建立映射 teamId -> toolCallId:', data.teamId, '->', toolCall.id);
       set((state) => ({
         _teamIdMap: { ...state._teamIdMap, [data.teamId]: toolCall.id },
       }));
-      console.log('[chatStore] _handleTeamStart: 映射建立完成，当前 _teamIdMap:', { ...get()._teamIdMap, [data.teamId]: toolCall.id });
 
       // 🆕 预先创建所有团队成员的占位符
       if (data.members && Array.isArray(data.members)) {
-        console.log('[chatStore] _handleTeamStart: 预先创建', data.members.length, '个团队成员占位符');
 
         const activeAgentStore = useActiveAgentStore.getState();
         const mainAgent = activeAgentStore.mainAgent;
         const parentAgentId = mainAgent?.id;
 
-        console.log('[chatStore] _handleTeamStart: 创建前 mainAgent:', mainAgent);
-        console.log('[chatStore] _handleTeamStart: 创建前 mainAgent.subAgents:', mainAgent?.subAgents);
 
         if (parentAgentId) {
           data.members.forEach((member: any) => {
-            const subAgentId = member.id;
-            console.log('[chatStore] _handleTeamStart: 创建占位符 ->', subAgentId, member.name);
+            // 🔧 使用后端预生成的 subAgentId（与工具事件的 agentId 一致）
+            const subAgentId = member.subAgentId || member.id;
+
+            // 🔧 解析辩论角色和轮次（后端已在 TeamStart 中解析，直接使用）
+            const debateRole = member.debateRole;
 
             activeAgentStore.addSubAgent(parentAgentId, {
               id: subAgentId,
               name: member.name || member.role || member.id,
               status: 'idle', // 初始状态为 idle
+              currentTask: member.task, // 🔧 父 agent 分配的任务，用于思考气泡展示
               currentTools: [],
               subAgents: [],
-              agentType: 'temporary',
+              agentType: member.agentType || 'temporary',
               stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
               multiAgent: {
                 type: 'agent_team',
                 strategy: data.strategy,
                 teamName: data.name,
+                memberId: member.id, // 稳定标识，确保布局引擎排序一致
                 stepIndex: member.stepIndex,
                 totalSteps: data.members.length,
+                // 🔧 辩论角色和轮次在创建时即设置，前端可立即展示
+                debateRole,
+                currentRound: 1,
+                maxRounds: data.maxRounds,
               },
+            });
+
+            // 🔧 在创建时即设置 currentMoment，展示父 agent 分配的 scene
+            const runtimeStore = useRuntimeStore.getState();
+            const sceneLabel = formatSceneLabel(member.scene || member.role || member.name || member.id);
+            runtimeStore.setAgentMoment(subAgentId, {
+              type: 'thinking',
+              icon: '🎯',
+              label: sceneLabel,
+              durationMs: 0,
+              status: 'running',
             });
           });
 
@@ -1336,29 +1352,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
           // 🔧 添加调试日志：检查创建后的状态
           const updatedMainAgent = activeAgentStore.mainAgent;
-          console.log('[chatStore] _handleTeamStart: 创建后 mainAgent:', updatedMainAgent);
-          console.log('[chatStore] _handleTeamStart: 创建后 mainAgent.subAgents:', updatedMainAgent?.subAgents);
-          console.log('[chatStore] _handleTeamStart: 创建后 subAgents 数量:', updatedMainAgent?.subAgents?.length);
         }
       }
-    } else {
-      console.log('[chatStore] _handleTeamStart: 未找到匹配的 toolCall');
-      console.log('[chatStore] _handleTeamStart: 所有 toolCalls:', stream.toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        status: tc.status,
-        multiAgent: tc.multiAgent,
-      })));
     }
   },
 
   _handleTeamMemberStart: (data) => {
-    console.log('[chatStore] _handleTeamMemberStart 被调用');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] memberId:', data.memberId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] agentType:', data.agentType); // 🔧 添加agentType日志
-    console.log('[chatStore] _teamIdMap:', get()._teamIdMap);
 
     // ✅ 特殊处理 task 工具创建的子 agent（teamId: 'delegate'）
     // task 工具不需要复合 ID，直接使用 memberId 即可
@@ -1368,23 +1367,19 @@ export const useChatStore = create<ChatStore>((set, get) => {
       // agent_team 工具：直接使用 memberId（即后端的 subAgentId）
       const toolCallId = get()._teamIdMap[data.teamId];
       if (!toolCallId) {
-        console.log('[chatStore] _handleTeamMemberStart: 未找到 toolCallId，teamId:', data.teamId);
         return;
       }
 
-      console.log('[chatStore] _handleTeamMemberStart: 找到 toolCallId:', toolCallId);
 
       // 从 _teamParentMap 中获取父 Agent ID
       const parentAgentId = get()._teamParentMap[toolCallId];
-      console.log('[chatStore] _handleTeamMemberStart: 父 Agent ID:', parentAgentId);
 
       useRuntimeStore.getState().updateToolCallMember(toolCallId, data.memberId, {
         status: 'running',
       });
 
-      // 直接使用 memberId（即后端的 subAgentId），不再构建复合 ID
-      const subAgentId = data.memberId;
-      console.log('[chatStore] _handleTeamMemberStart: 使用 subAgentId:', subAgentId);
+      // 🔧 使用后端预生成的 subAgentId（与工具事件的 agentId 一致）
+      const subAgentId = (data as any).subAgentId || data.memberId;
 
       // 检查 sub-agent 是否已存在（TeamStart 时预先创建的占位符）
       const activeAgentStore = useActiveAgentStore.getState();
@@ -1411,9 +1406,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       const agentExists = findAgent(mainAgent, subAgentId);
 
-      // 🔧 解析 debateRole（从 systemPromptHint 中提取 [debate_role:xxx] 标签）
+      // 🔧 解析 debateRole（优先使用桥接层转发的值，兜底解析 systemPromptHint）
       let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
-      if (data.systemPromptHint) {
+      if ((data as any).debateRole) {
+        debateRole = (data as any).debateRole;
+      } else if (data.systemPromptHint) {
         const match = data.systemPromptHint.match(/\[debate_role:(affirmative|negative|judge)\]/i);
         if (match) {
           debateRole = match[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
@@ -1422,21 +1419,26 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       if (agentExists) {
         // Agent 已存在（TeamStart 时创建的占位符），只更新状态
-        console.log('[chatStore] _handleTeamMemberStart: Agent 已存在，更新状态 ->', subAgentId);
         activeAgentStore.setAgentStatus(subAgentId, 'thinking');
+        // 🔧 更新 currentActiveAgentId，确保后续工具事件能正确路由到此子 Agent
+        activeAgentStore.setCurrentActiveAgent(subAgentId);
         // 保存任务信息
         if (data.task) {
           activeAgentStore.setAgentTask(subAgentId, data.task);
         }
-        // 更新 multiAgent 信息（轮次 + debateRole）
+        // 更新 agentType（后端已从 registry 解析出准确类型）
+        if (data.agentType) {
+          activeAgentStore.updateAgentType(subAgentId, data.agentType);
+        }
+        // 更新 multiAgent 信息（轮次 + debateRole + memberId）
         activeAgentStore.updateAgentMultiAgent(subAgentId, {
           currentRound: data.currentRound,
           maxRounds: data.maxRounds,
           debateRole,
+          memberId: data.memberId,
         });
       } else {
         // Agent 不存在，创建新的（兼容旧逻辑）
-        console.log('[chatStore] _handleTeamMemberStart: Agent 不存在，创建新的 ->', subAgentId);
 
         if (mainAgent && targetParentId) {
           activeAgentStore.addSubAgent(targetParentId, {
@@ -1453,6 +1455,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
               type: 'agent_team',
               strategy: data.strategy,
               teamName: data.teamName,
+              memberId: data.memberId, // 稳定标识，确保布局引擎排序一致
               stepIndex: data.stepIndex,
               totalSteps: data.totalSteps,
               // 辩论信息
@@ -1461,14 +1464,23 @@ export const useChatStore = create<ChatStore>((set, get) => {
               debateRole,
             },
           });
+          // 🔧 更新 currentActiveAgentId，确保后续工具事件能正确路由到此子 Agent
+          activeAgentStore.setCurrentActiveAgent(subAgentId);
         }
       }
 
       // 为子 agent 初始化 WorkspaceMonitor activity
       const runtimeStore = useRuntimeStore.getState();
-      console.log('[chatStore] _handleTeamMemberStart: 设置 WorkspaceMonitor activity');
-      // 🔧 子agent不使用currentMoment，只使用timeline展示工具调用
-      // currentMoment只用于主agent的后台操作（如compress）
+      const sceneLabel = formatSceneLabel((data as any).scene || data.role || data.name || data.memberId);
+      // 先展示被分配的 scene（至少 1.5s），之后 agent:thinking-start 再切换为"思考中"
+      runtimeStore.setAgentMoment(subAgentId, {
+        type: 'thinking',
+        icon: '🎯',
+        label: sceneLabel,
+        durationMs: 0,
+        status: 'running',
+      });
+      // timeline 只展示工具调用，不展示 start 事件
       runtimeStore.addRecentEvent({
         agentName: data.role || data.memberId,
         description: `Team member started: ${data.task?.slice(0, 50) || 'processing'}`,
@@ -1477,7 +1489,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
     } else {
       // ✅ task 工具：直接使用 memberId（subAgentId）
       const subAgentId = data.memberId;
-      console.log('[chatStore] _handleTeamMemberStart (task): 使用 subAgentId:', subAgentId);
 
       // 添加 sub-agent（使用 subAgentId）
       const activeAgentStore = useActiveAgentStore.getState();
@@ -1496,7 +1507,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       };
 
       if (findAgent(mainAgent, subAgentId)) {
-        console.log('[chatStore] _handleTeamMemberStart (task): 子 Agent 已存在，跳过:', subAgentId);
         return;
       }
 
@@ -1513,20 +1523,18 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (taskToolCalls.length > 0) {
         // 使用最近的一个（最后一个）
         parentAgentId = taskToolCalls[taskToolCalls.length - 1][1];
-        console.log('[chatStore] _handleTeamMemberStart (task): 从 _teamParentMap 获取父 Agent:', parentAgentId);
       } else {
         // 如果没有找到，使用 currentActiveAgentId 或 mainAgent
         parentAgentId = activeAgentStore.currentActiveAgentId || mainAgent?.id;
-        console.log('[chatStore] _handleTeamMemberStart (task): 使用 currentActiveAgentId:', parentAgentId);
       }
 
       if (mainAgent && parentAgentId) {
-        console.log('[chatStore] _handleTeamMemberStart (task): 添加到父 Agent:', parentAgentId);
 
         activeAgentStore.addSubAgent(parentAgentId, {
           id: subAgentId,
           name: data.name || data.role || 'Sub-agent', // 优先使用 name，其次 role
           status: 'thinking',
+          currentTask: data.task, // 🔧 父 agent 分配的任务，用于思考气泡展示
           currentTools: [],
           subAgents: [],
           // 🔧 使用agentType字段区分agent类型，如果未指定则默认为temporary
@@ -1539,8 +1547,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       // 为子 agent 初始化 WorkspaceMonitor activity
       const runtimeStore = useRuntimeStore.getState();
-      // 🔧 子agent不使用currentMoment，只使用timeline展示工具调用
-      // currentMoment只用于主agent的后台操作（如compress）
+      const sceneLabel = formatSceneLabel((data as any).scene || data.role || data.name || 'Task');
+      // 先展示被分配的 scene（至少 1.5s），之后 agent:thinking-start 再切换为"思考中"
+      runtimeStore.setAgentMoment(subAgentId, {
+        type: 'thinking',
+        icon: '🎯',
+        label: sceneLabel,
+        durationMs: 0,
+        status: 'running',
+      });
       runtimeStore.addRecentEvent({
         agentName: data.role || 'Sub-agent',
         description: `Task started: ${data.task?.slice(0, 50) || 'processing'}`,
@@ -1563,8 +1578,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
         duration: data.duration,
       });
 
-      // 直接使用 memberId（与 _handleTeamMemberStart 保持一致）
-      const subAgentId = data.memberId;
+      // 🔧 使用后端预生成的 subAgentId（与工具事件 agentId 一致）
+      const subAgentId = (data as any).subAgentId || data.memberId;
 
       // 标记 sub-agent 完成
       const activeAgentStore = useActiveAgentStore.getState();
@@ -1578,12 +1593,44 @@ export const useChatStore = create<ChatStore>((set, get) => {
         activeAgentStore.setAgentTask(subAgentId, data.resultSummary);
       }
 
-      console.log('[chatStore] _handleTeamMemberEnd: 成员完成，状态更新为:', finalStatus, 'Agent ID:', subAgentId);
 
       // 完成子 agent 的 WorkspaceMonitor activity
       const runtimeStore = useRuntimeStore.getState();
       const status = data.success !== false ? 'success' : 'error';
-      runtimeStore.finishAgentMoment(subAgentId, status);
+
+      // 查找 agent 的策略类型，区分"汇报中"与"发言中"
+      const agentMultiAgent = (() => {
+        const findAgent = (agent: any): any => {
+          if (!agent) return null;
+          if (agent.id === subAgentId) return agent.multiAgent;
+          if (agent.subAgents) {
+            for (const sub of agent.subAgents) {
+              const found = findAgent(sub);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        return findAgent(activeAgentStore.mainAgent);
+      })();
+      const debateRole = agentMultiAgent?.debateRole;
+      const isDebater = agentMultiAgent?.strategy === 'debate' && (debateRole === 'affirmative' || debateRole === 'negative');
+
+      // debate 辩手（正方/反方）→ "发言中"，其他（leader/judge/普通成员）→ "汇报中"
+      runtimeStore.setAgentMoment(subAgentId, {
+        type: 'reporting',
+        icon: isDebater ? '💬' : '📤',
+        label: isDebater ? '发言中' : '汇报中',
+        durationMs: 0,
+        status: 'running',
+      });
+      // 500ms 后标记完成，给用户时间看到状态
+      const finishMoment = () => {
+        const store = useRuntimeStore.getState();
+        store.finishAgentMoment(subAgentId, status);
+      };
+      setTimeout(finishMoment, 500);
+
       runtimeStore.addRecentEvent({
         agentName: data.memberId,
         description: `Team member ${status === 'success' ? 'completed' : 'failed'} (${data.duration}ms)`,
@@ -1616,39 +1663,42 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       const parentAgentId = findParentId(activeAgentStore.mainAgent, subAgentId);
 
-      // 移除已完成的子 Agent（让它消失）
-      if (parentAgentId) {
-        console.log('[chatStore] _handleTeamMemberEnd (task): 移除子 Agent:', subAgentId, '从父节点:', parentAgentId);
-        activeAgentStore.removeSubAgent(parentAgentId, subAgentId);
-      }
-
-      // 切回父 Agent
-      if (parentAgentId) {
-        activeAgentStore.setCurrentActiveAgent(parentAgentId);
-      }
-
-      // 完成子 agent 的 WorkspaceMonitor activity
+      // 先设置 reporting 状态，延迟移除 agent（让用户看到"汇报中"）
       const runtimeStore = useRuntimeStore.getState();
       const status = data.success !== false ? 'success' : 'error';
-      runtimeStore.finishAgentMoment(subAgentId, status);
+      runtimeStore.setAgentMoment(subAgentId, {
+        type: 'reporting',
+        icon: '📤',
+        label: '汇报中',
+        durationMs: 0,
+        status: 'running',
+      });
       runtimeStore.addRecentEvent({
         agentName: 'Sub-agent',
         description: `Task ${status === 'success' ? 'completed' : 'failed'} (${data.duration}ms)`,
         icon: status === 'success' ? '✅' : '❌',
       });
+
+      // 延迟 500ms 后移除 agent + 清除 moment + 清理历史数据
+      setTimeout(() => {
+        const store = useRuntimeStore.getState();
+        store.finishAgentMoment(subAgentId, status);
+        store.clearAgentActivity(subAgentId); // 清理 timelineEvents / momentHistories，阻止数据累积
+
+        // 移除已完成的子 Agent（让它消失）
+        if (parentAgentId) {
+          activeAgentStore.removeSubAgent(parentAgentId, subAgentId);
+          // 切回父 Agent
+          activeAgentStore.setCurrentActiveAgent(parentAgentId);
+        }
+      }, 500);
     }
   },
 
   _handleTeamEnd: (data) => {
-    console.log('[chatStore] _handleTeamEnd 被调用');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] success:', data.success);
-    console.log('[chatStore] error:', data.error);
 
     const toolCallId = get()._teamIdMap[data.teamId];
     if (!toolCallId) {
-      console.log('[chatStore] _handleTeamEnd: 未找到 toolCallId，teamId:', data.teamId);
       return;
     }
 
@@ -1657,7 +1707,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // 🔧 延迟清理团队成员，让虚线框保持可见 3 秒
     if (parentAgentId) {
-      console.log('[chatStore] _handleTeamEnd: 团队结束，3秒后清理所有成员');
 
       // 递归查找所有属于该团队的子 Agent
       const findTeamMembers = (agent: any): string[] => {
@@ -1676,7 +1725,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       };
 
       const teamMemberIds = findTeamMembers(activeAgentStore.mainAgent);
-      console.log('[chatStore] _handleTeamEnd: 找到团队成员:', teamMemberIds);
 
       // 如果失败，立即标记所有成员为 error 状态
       if (!data.success) {
@@ -1685,17 +1733,16 @@ export const useChatStore = create<ChatStore>((set, get) => {
         });
       }
 
-      // 延迟 3 秒后移除所有团队成员
+      // 延迟 3 秒后移除所有团队成员 + 清理历史数据
       setTimeout(() => {
-        console.log('[chatStore] _handleTeamEnd: 延迟清理开始');
         teamMemberIds.forEach(memberId => {
           // 从父节点移除
-          console.log('[chatStore] _handleTeamEnd: 移除团队成员:', memberId);
           activeAgentStore.removeSubAgent(parentAgentId, memberId);
 
-          // 清理 WorkspaceMonitor activity
+          // 清理 WorkspaceMonitor activity（moment + timeline + history）
           const runtimeStore = useRuntimeStore.getState();
           runtimeStore.finishAgentMoment(memberId, data.success ? 'success' : 'error');
+          runtimeStore.clearAgentActivity(memberId);
         });
       }, 3000);
 
@@ -1721,7 +1768,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       _teamParentMap: newTeamParentMap,
     });
 
-    console.log('[chatStore] _handleTeamEnd: 清理完成');
   },
 };
 });
@@ -1748,7 +1794,7 @@ if (typeof window !== 'undefined' && window.electron) {
     'agent:subagent-start', 'agent:subagent-end', // 🔧 添加 subagent 事件
     'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
     'ask-user:request', 'session:messages-restored', 'session:resume-notification',
-    'session:archive-notification', 'prompt:build-event', 'project:info',
+    'session:archive-notification', 'prompt:build-event', 'project:info', 'init-complete',
   ];
   // 🔧 使用 MessageBus 统一订阅所有事件（不再需要 removeAllListeners）
 
@@ -1770,7 +1816,6 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   messageBus.on('agent:file-changes', (data: { changes: any[] }) => {
-    console.log('[chatStore] 收到文件变更事件，变更数量:', data.changes.length);
     // 为每个文件变更生成一条对话式摘要消息
     data.changes.forEach((change) => {
       const summary = generateFileChangeSummary(change);
@@ -1813,12 +1858,6 @@ if (typeof window !== 'undefined' && window.electron) {
       stepIndex?: number;
     }>;
   }) => {
-    console.log('[chatStore] ===== agent:team-start 事件接收 =====');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] strategy:', data.strategy);
-    console.log('[chatStore] memberCount:', data.memberCount);
-    console.log('[chatStore] members:', data.members);
     useChatStore.getState()._handleTeamStart(data);
   });
 
@@ -1837,40 +1876,18 @@ if (typeof window !== 'undefined' && window.electron) {
     maxRounds?: number;
     systemPromptHint?: string;
   }) => {
-    console.log('[chatStore] ===== agent:team-member-start 事件接收 =====');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] memberId:', data.memberId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] role:', data.role);
-    console.log('[chatStore] task:', data.task);
-    console.log('[chatStore] strategy:', data.strategy);
-    console.log('[chatStore] teamName:', data.teamName);
-    console.log('[chatStore] stepIndex:', data.stepIndex);
-    console.log('[chatStore] totalSteps:', data.totalSteps);
     useChatStore.getState()._handleTeamMemberStart(data);
   });
 
   messageBus.on('agent:team-member-end', (data: { teamId: string; memberId: string; success?: boolean; duration?: number; resultSummary?: string }) => {
-    console.log('[chatStore] ===== agent:team-member-end 事件接收 =====');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] memberId:', data.memberId);
-    console.log('[chatStore] success:', data.success);
-    console.log('[chatStore] duration:', data.duration);
     useChatStore.getState()._handleTeamMemberEnd(data);
   });
 
   messageBus.on('agent:team-end', (data: { teamId: string; name: string; success: boolean; duration?: number; error?: string }) => {
-    console.log('[chatStore] ===== agent:team-end 事件接收 =====');
-    console.log('[chatStore] teamId:', data.teamId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] success:', data.success);
-    console.log('[chatStore] duration:', data.duration);
-    console.log('[chatStore] error:', data.error);
     useChatStore.getState()._handleTeamEnd(data);
   });
 
   // 🔧 内置系统 SubAgent 事件（如 memory-extractor）
-  console.log('[chatStore] 注册 agent:subagent-start 监听器');
   messageBus.on('agent:subagent-start', (data: {
     subAgentId: string;
     name: string;
@@ -1879,19 +1896,10 @@ if (typeof window !== 'undefined' && window.electron) {
     agentType?: 'preset' | 'builtin' | 'custom' | 'temporary';
     parentId: string;
   }) => {
-    console.log('[chatStore] ===== agent:subagent-start 事件接收 =====');
-    console.log('[chatStore] subAgentId:', data.subAgentId);
-    console.log('[chatStore] name:', data.name);
-    console.log('[chatStore] role:', data.role);
-    console.log('[chatStore] parentId:', data.parentId); // 🔧 添加 parentId 日志
-    console.log('[chatStore] agentType:', data.agentType);
 
     const activeAgentStore = useActiveAgentStore.getState();
-    console.log('[chatStore] mainAgent:', activeAgentStore.mainAgent); // 🔧 检查 mainAgent 状态
-    console.log('[chatStore] mainAgent.id:', activeAgentStore.mainAgent?.id); // 🔧 检查 mainAgent.id
 
     // 添加子 Agent 到 activeAgentStore
-    console.log('[chatStore] 调用 addSubAgent, parentId:', data.parentId); // 🔧 添加调用日志
 
     // 🔧 使用agentType字段区分agent类型，如果未指定则默认为temporary
     const agentType = data.agentType || 'temporary';
@@ -1916,7 +1924,55 @@ if (typeof window !== 'undefined' && window.electron) {
       },
     });
 
-    // 🔧 子agent不需要timeline展示，只在activeAgentStore中记录状态
+    // 🔧 记录 streamToUser，用于判断子 agent 是"编写中"还是"汇报中"
+    if ((data as any).streamToUser) {
+      useChatStore.setState((s) => ({
+        _streamToUserMap: { ...s._streamToUserMap, [data.subAgentId]: true },
+      }));
+    }
+
+    // 先展示被分配的 scene（至少 1.5s），之后 agent:thinking-start 再切换为"思考中"
+    const runtimeStore = useRuntimeStore.getState();
+    const sceneLabel = formatSceneLabel((data as any).scene || data.role || data.name);
+    runtimeStore.setAgentMoment(data.subAgentId, {
+      type: 'thinking',
+      icon: '🎯',
+      label: sceneLabel,
+      durationMs: 0,
+      status: 'running',
+    });
+
+    // timeline 只展示工具调用，不展示 start 事件
+  });
+
+  // 🔧 子 agent 流式输出到用户（streamToUser=true 时触发）
+  messageBus.on('agent:subagent-text', (data: { agentId: string; text: string }) => {
+    const runtimeStore = useRuntimeStore.getState();
+    // 子 agent 正在流式输出到对话框 → 设置 writing 状态
+    runtimeStore.setAgentMoment(data.agentId, {
+      type: 'writing',
+      icon: '✍️',
+      label: '编写中',
+      durationMs: 0,
+      status: 'running',
+    });
+
+    // 🔧 同时更新子 agent 的 currentThought（流式文本）
+    const activeAgentStore = useActiveAgentStore.getState();
+    // 查找父 agent 并更新子 agent 的 currentThought
+    const updateThought = (agent: any): boolean => {
+      if (!agent || !agent.subAgents) return false;
+      for (const sub of agent.subAgents) {
+        if (sub.id === data.agentId) {
+          const current = sub.currentThought || '';
+          activeAgentStore.setAgentThought(data.agentId, current + data.text);
+          return true;
+        }
+        if (updateThought(sub)) return true;
+      }
+      return false;
+    };
+    updateThought(activeAgentStore.mainAgent);
   });
 
   messageBus.on('agent:subagent-end', (data: {
@@ -1924,33 +1980,34 @@ if (typeof window !== 'undefined' && window.electron) {
     success: boolean;
     duration?: number;
   }) => {
-    console.log('[chatStore] ===== agent:subagent-end 事件接收 =====');
-    console.log('[chatStore] subAgentId:', data.subAgentId);
-    console.log('[chatStore] success:', data.success);
-    console.log('[chatStore] duration:', data.duration);
 
     const activeAgentStore = useActiveAgentStore.getState();
 
     // 🔧 如果执行失败，直接移除节点（不显示失败的agent）
     if (!data.success) {
-      console.log('[chatStore] agent:subagent-end: 执行失败，移除节点');
-      // 找到父agent并移除这个子agent
+      // 清理 streamToUser 映射
+      useChatStore.setState((s) => {
+        const newMap = { ...s._streamToUserMap };
+        delete newMap[data.subAgentId];
+        return { _streamToUserMap: newMap };
+      });
+
+      // 找到父agent并移除这个子agent（使用不可变方式，避免直接 mutate 状态树）
       const mainAgent = activeAgentStore.mainAgent;
       if (mainAgent) {
-        const removeFromTree = (agent: any): boolean => {
-          if (!agent.subAgents) return false;
-          const index = agent.subAgents.findIndex((sub: any) => sub.id === data.subAgentId);
-          if (index !== -1) {
-            agent.subAgents.splice(index, 1);
-            return true;
-          }
+        const findParentId = (agent: any, targetId: string): string | null => {
+          if (!agent || !agent.subAgents) return null;
           for (const sub of agent.subAgents) {
-            if (removeFromTree(sub)) return true;
+            if (sub.id === targetId) return agent.id;
+            const found = findParentId(sub, targetId);
+            if (found) return found;
           }
-          return false;
+          return null;
         };
-        removeFromTree(mainAgent);
-        activeAgentStore.setMainAgent({ ...mainAgent });
+        const parentId = findParentId(mainAgent, data.subAgentId);
+        if (parentId) {
+          activeAgentStore.removeSubAgent(parentId, data.subAgentId);
+        }
       }
       return;
     }
@@ -1962,23 +2019,64 @@ if (typeof window !== 'undefined' && window.electron) {
       duration: data.duration,
     });
 
+    // 清理 streamToUser 映射
+    useChatStore.setState((s) => {
+      const newMap = { ...s._streamToUserMap };
+      delete newMap[data.subAgentId];
+      return { _streamToUserMap: newMap };
+    });
+
     // 完成 timeline 事件
     const runtimeStore = useRuntimeStore.getState();
-    runtimeStore.finishTimelineEvent(
-      data.subAgentId,
-      `${data.subAgentId}-start`,
-      data.duration || 0,
-      data.success ? 'success' : 'error'
-    );
+
+    // 先切换到 reporting 状态（短暂展示"汇报中"），再完成 moment
+    runtimeStore.setAgentMoment(data.subAgentId, {
+      type: 'reporting',
+      icon: '📤',
+      label: '汇报中',
+      durationMs: 0,
+      status: 'running',
+    });
+    setTimeout(() => {
+      const store = useRuntimeStore.getState();
+      store.finishAgentMoment(data.subAgentId, data.success ? 'success' : 'error');
+    }, 500);
+
   });
 
   // ─── 可视化监控新事件监听 ──────────────────────────────────
   messageBus.on('agent:thinking-start', (data: { agentId: string; content: string }) => {
-    // 🔧 思考状态只展示在思考气泡中，不需要 currentMoment
-    // 更新 activeAgentStore 的 currentThought（支持 sub-agent）
+    const store = useRuntimeStore.getState();
+
+    // 🔧 先更新思考气泡内容（累加流式展示，不延迟）
     const activeAgentStore = useActiveAgentStore.getState();
     if (data.agentId && data.content) {
-      activeAgentStore.setAgentThought(data.agentId, data.content);
+      // 累加 thinking 增量（data.content 是 delta，不是全量）
+      const currentThought = activeAgentStore.getAgentThought(data.agentId) || '';
+      activeAgentStore.setAgentThought(data.agentId, currentThought + data.content);
+    }
+
+    // 🔧 scene 至少展示 1.5s，之后才切换为"思考中"
+    const SCENE_MIN_DISPLAY_MS = 3000;
+    const currentMoment = store.agentActivity.currentMoments[data.agentId];
+    const sceneElapsed = currentMoment?.startTime ? Date.now() - currentMoment.startTime : SCENE_MIN_DISPLAY_MS;
+    const remaining = SCENE_MIN_DISPLAY_MS - sceneElapsed;
+
+    const setThinkingMoment = () => {
+      const s = useRuntimeStore.getState();
+      s.setAgentMoment(data.agentId, {
+        type: 'thinking',
+        icon: '💭',
+        label: '思考中',
+        durationMs: 0,
+        status: 'running',
+      });
+    };
+
+    if (remaining > 0) {
+      setTimeout(setThinkingMoment, remaining);
+    } else {
+      setThinkingMoment();
     }
   });
 
@@ -2119,7 +2217,6 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 监听 prompt 构建事件，更新 runtimeStore 和 WorkspaceMonitor
-  console.log('[chatStore] 正在注册 prompt:build-event 监听器');
 
   // 每个 moment 至少展示 500ms 的队列机制
   const momentQueue: Array<{ agentId: string; moment: Parameters<ReturnType<typeof useRuntimeStore>['setAgentMoment']>[1] }> = [];
@@ -2145,11 +2242,9 @@ if (typeof window !== 'undefined' && window.electron) {
   }
 
   messageBus.on('prompt:build-event', (event: { type: string; timestamp: number; agentId: string; data?: any }) => {
-    console.log('[chatStore] 收到 prompt:build-event:', event);
     const runtimeStore = useRuntimeStore.getState();
     // 主 agent (xuanji) 在 WorkspaceMonitor 中的 id 是 'main'
     const agentId = (event.agentId === 'xuanji' || !event.agentId) ? 'main' : event.agentId;
-    console.log('[chatStore] 映射后的 agentId:', agentId);
 
     switch (event.type) {
       case 'build:start':
@@ -2158,12 +2253,10 @@ if (typeof window !== 'undefined' && window.electron) {
         break;
       case 'intent:match':
         // 处理意图匹配过程事件（关键词/Embedding 策略尝试）
-        console.log('[chatStore] intent:match - event.data:', event.data);
         const matchData = event.data;
         if (matchData.type === 'match:trying') {
           const methodLabel = matchData.method === 'keyword' ? '关键词' :
                               matchData.method === 'embedding' ? 'Embedding' : matchData.method;
-          console.log('[chatStore] intent:match - match:trying, 设置 moment label:', methodLabel);
           enqueueMoment(agentId, {
             type: 'thinking',
             icon: '🔍',
@@ -2174,7 +2267,6 @@ if (typeof window !== 'undefined' && window.electron) {
         } else if (matchData.type === 'match:success') {
           const methodLabel = matchData.method === 'keyword' ? '关键词' :
                               matchData.method === 'embedding' ? 'Embedding' : matchData.method;
-          console.log('[chatStore] intent:match - match:success, 设置 moment label:', methodLabel);
           enqueueMoment(agentId, {
             type: 'thinking',
             icon: '✅',
@@ -2185,7 +2277,6 @@ if (typeof window !== 'undefined' && window.electron) {
         } else if (matchData.type === 'match:failed') {
           const methodLabel = matchData.method === 'keyword' ? '关键词' :
                               matchData.method === 'embedding' ? 'Embedding' : matchData.method;
-          console.log('[chatStore] intent:match - match:failed, 设置 moment label:', methodLabel);
           enqueueMoment(agentId, {
             type: 'thinking',
             icon: '❌',
@@ -2206,15 +2297,13 @@ if (typeof window !== 'undefined' && window.electron) {
         });
         break;
       case 'intent:analyzed':
-        console.log('[chatStore] intent:analyzed - event.data:', event.data);
         runtimeStore.setPromptIntent({
           scene: event.data?.scene || 'coding',
           complexity: event.data?.complexity || 'standard',
           confidence: event.data?.confidence || 1,
         });
         // 显示场景
-        const sceneLabel = event.data?.scene || 'coding';
-        console.log('[chatStore] intent:analyzed - 设置 moment label:', sceneLabel);
+        const sceneLabel = formatSceneLabel(event.data?.scene || 'coding');
         enqueueMoment(agentId, {
           type: 'thinking',
           icon: '🎯',
@@ -2224,7 +2313,6 @@ if (typeof window !== 'undefined' && window.electron) {
         });
         break;
       case 'components:selected':
-        console.log('[chatStore] components:selected - event.data:', event.data);
         if (event.data?.components) {
           for (const c of event.data.components) {
             runtimeStore.addPromptComponent({
@@ -2239,7 +2327,6 @@ if (typeof window !== 'undefined' && window.electron) {
           const componentNames = event.data.components.map((c: any) => c.name).slice(0, 3);
           const displayText = componentNames.join('\n') +
             (event.data.components.length > 3 ? '\n...' : '');
-          console.log('[chatStore] components:selected - 设置 moment label:', displayText);
 
           enqueueMoment(agentId, {
             type: 'thinking',
@@ -2264,16 +2351,14 @@ if (typeof window !== 'undefined' && window.electron) {
 
   // 监听 ModelClassifier 事件（IntentClassifier 内部触发）
   messageBus.on('workspace:model-classifier-start', (data: any) => {
-    console.log('[chatStore] ModelClassifier 开始:', data);
     const activeAgentStore = useActiveAgentStore.getState();
-    console.log('[chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
 
     if (activeAgentStore.mainAgent) {
       const classifierAgent: import('./activeAgentStore').AgentState = {
         id: 'intent-classifier',
         name: '意图分析',
         status: 'executing',
-        currentThought: `正在使用 ${data.model} 分析意图...`,
+        currentThought: `🎯 ${formatModelName(data.model)}`,
         currentTools: [],
         subAgents: [],
         agentType: 'builtin',
@@ -2283,31 +2368,23 @@ if (typeof window !== 'undefined' && window.electron) {
           toolCount: 0,
         },
       };
-      console.log('[chatStore] 准备添加 intent-classifier 子 Agent');
       activeAgentStore.addSubAgent(activeAgentStore.mainAgent.id, classifierAgent);
-      console.log('[chatStore] 添加完成，当前 subAgents:', activeAgentStore.mainAgent.subAgents);
     }
   });
 
   messageBus.on('workspace:model-classifier-end', (data: any) => {
-    console.log('[chatStore] ModelClassifier 结束:', data);
 
     // 延迟 0.5s 后移除 intent-classifier 子 Agent
     setTimeout(() => {
-      console.log('[chatStore] 延迟后准备移除 intent-classifier');
       const activeAgentStore = useActiveAgentStore.getState();
-      console.log('[chatStore] activeAgentStore.mainAgent:', activeAgentStore.mainAgent);
       if (activeAgentStore.mainAgent) {
-        console.log('[chatStore] 当前 subAgents:', activeAgentStore.mainAgent.subAgents);
         activeAgentStore.removeSubAgent(activeAgentStore.mainAgent.id, 'intent-classifier');
-        console.log('[chatStore] 移除完成，剩余 subAgents:', activeAgentStore.mainAgent.subAgents);
       }
     }, 500);
   });
 
   // 监听项目信息事件
   messageBus.on('project:info', (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => {
-    console.log('[chatStore] 收到 project:info:', data);
     const runtimeStore = useRuntimeStore.getState();
 
     // 提取项目名称（从路径最后一段）
@@ -2324,6 +2401,25 @@ if (typeof window !== 'undefined' && window.electron) {
       },
     });
 
-    console.log('[chatStore] 项目信息已更新:', projectName, data.type, data.gitBranch ? `(${data.gitBranch})` : '');
+  // 监听初始化完成事件，设置初始 workspace 上下文
+  messageBus.on('init-complete', (data: { success: boolean; agentId?: string; workspacePath?: string }) => {
+    if (data.success && data.workspacePath) {
+      const runtimeStore = useRuntimeStore.getState();
+      // 仅在尚未设置上下文时设置初始 workspace
+      if (!runtimeStore.contextInfo?.workingDirectory) {
+        const projectName = data.workspacePath.split('/').pop() || data.workspacePath;
+        runtimeStore.setContextInfo({
+          workingDirectory: data.workspacePath,
+          projectInfo: {
+            name: projectName,
+            type: 'workspace',
+            hasGit: false,
+            rootPath: data.workspacePath,
+          },
+        });
+      }
+    }
+  });
+
   });
 };

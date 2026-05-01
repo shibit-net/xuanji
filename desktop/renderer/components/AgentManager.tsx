@@ -205,6 +205,32 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     }
   };
 
+  const handleToggleEnabled = async (enabled: boolean) => {
+    if (!selectedAgent) return;
+
+    try {
+      const updatedConfig = {
+        ...selectedAgent,
+        enabled,
+      };
+
+      const result = await updateAgent(selectedAgent.id, updatedConfig);
+      if (result.success) {
+        toast.success(enabled ? 'Agent 已启用' : 'Agent 已禁用');
+
+        // 主动拉取最新 Agent 详情
+        const latest = await window.electron.agentGet({ agentId: selectedAgent.id });
+        if (latest.success && latest.agent) {
+          setSelectedAgent(latest.agent);
+        }
+      } else {
+        toast.error(result.error || '操作失败');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败');
+    }
+  };
+
   const handleCopyAgent = () => {
     if (!selectedAgent) return;
 
@@ -559,6 +585,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               onDelete={handleDeleteAgent}
               onCopy={handleCopyAgent}
               onTest={() => toast.info('测试功能开发中...')}
+              onToggleEnabled={handleToggleEnabled}
             />
           ) : viewType === 'editor' ? (
             <AgentEditor
