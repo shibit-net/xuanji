@@ -96,6 +96,10 @@ class RendererMessageBus {
    * 分发事件
    */
   private dispatch(eventType: string, data: any): void {
+    // 只记录关键事件，减少日志噪音
+    if (eventType.startsWith('agent:') && (eventType === 'agent:end' || eventType === 'agent:auto-summarize-start' || eventType === 'agent:thinking')) {
+      console.log(`[MessageBus] dispatch: ${eventType}`);
+    }
 
     const handlers = this.handlers.get(eventType);
     if (handlers && handlers.size > 0) {

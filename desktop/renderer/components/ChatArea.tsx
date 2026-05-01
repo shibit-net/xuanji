@@ -2,7 +2,7 @@
 // ChatArea - 对话区组件
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
@@ -46,6 +46,95 @@ function TypingIndicator() {
   );
 }
 
+// ============================================================
+// 独立的虚拟消息列表组件
+// 将 useVirtualizer 隔离到子组件中，避免其内部 flushSync
+// 在父组件 render 阶段触发导致 React 警告
+// ============================================================
+const VirtualMessageList = memo(function VirtualMessageList({
+  stableMessages,
+  streamingMessage,
+  currentStreamingText,
+  scrollElementRef,
+}: {
+  stableMessages: Message[];
+  streamingMessage: Message | null;
+  currentStreamingText: string;
+  scrollElementRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
+
+  const stableCount = stableMessages.length;
+  const getScrollElement = useCallback(() => scrollElementRef.current, [scrollElementRef]);
+  const estimateSize = useCallback(() => 100, []);
+
+  const virtualizer = useVirtualizer({
+    count: stableCount > 0 ? stableCount : 1,
+    getScrollElement,
+    estimateSize,
+    overscan: 5,
+  });
+
+  if (!ready) {
+    // 延迟一帧挂载虚拟滚动器，避免 measureElement ref 回调
+    // 在 React commit 阶段触发 flushSync
+    return null;
+  }
+
+  return (
+    <>
+      {stableCount > 0 && (
+        <div
+          className="chat-messages-container"
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            if (virtualItem.index >= stableCount) return null;
+            const message = stableMessages[virtualItem.index];
+            if (!message) return null;
+
+            return (
+              <div
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                className="message-bubble"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                <div className="pb-4">
+                  <MessageBubble message={message} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 流式消息：使用自然文档流渲染，不受虚拟滚动器干扰 */}
+      {streamingMessage && (
+        <div className="message-bubble-streaming pb-4">
+          <MessageBubble
+            message={streamingMessage}
+            isStreaming={true}
+            streamingText={currentStreamingText}
+          />
+        </div>
+      )}
+    </>
+  );
+});
+
 export default function ChatArea() {
   const messages = useChatStore((state) => state.messages);
   const status = useChatStore((state) => state.status);
@@ -84,15 +173,6 @@ export default function ChatArea() {
     }
     return { stableMessages: messages, streamingMessage: null };
   }, [messages, currentStreamingId]);
-
-  // 虚拟滚动器只管理稳定消息
-  const stableCount = stableMessages.length;
-  const virtualizer = useVirtualizer({
-    count: stableCount > 0 ? stableCount : 1, // 至少 1 避免空数组导致 totalSize 为 0
-    getScrollElement: () => containerRef.current,
-    estimateSize: useCallback(() => 100, []),
-    overscan: 5,
-  });
 
   // 监听归档通知
   useEffect(() => {
@@ -214,56 +294,12 @@ export default function ChatArea() {
             </div>
           </div>
         ) : (
-          <>
-            {/* 虚拟滚动区域：只包含稳定消息 */}
-            {stableCount > 0 && (
-              <div
-                className="chat-messages-container"
-                style={{
-                  height: `${virtualizer.getTotalSize()}px`,
-                  width: '100%',
-                  position: 'relative',
-                }}
-              >
-                {virtualizer.getVirtualItems().map((virtualItem) => {
-                  if (virtualItem.index >= stableCount) return null;
-                  const message = stableMessages[virtualItem.index];
-                  if (!message) return null;
-
-                  return (
-                    <div
-                      key={virtualItem.key}
-                      data-index={virtualItem.index}
-                      ref={virtualizer.measureElement}
-                      className="message-bubble"
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                    >
-                      <div className="pb-4">
-                        <MessageBubble message={message} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* 流式消息：使用自然文档流渲染，不受虚拟滚动器干扰 */}
-            {streamingMessage && (
-              <div className="message-bubble-streaming pb-4">
-                <MessageBubble
-                  message={streamingMessage}
-                  isStreaming={true}
-                  streamingText={currentStreamingText}
-                />
-              </div>
-            )}
-          </>
+          <VirtualMessageList
+            stableMessages={stableMessages}
+            streamingMessage={streamingMessage}
+            currentStreamingText={currentStreamingText}
+            scrollElementRef={containerRef}
+          />
         )}
 
         {/* LLM 响应前的三点等待动画 */}

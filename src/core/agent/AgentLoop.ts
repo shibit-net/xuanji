@@ -21,6 +21,8 @@ import { SessionRecorder } from '@/core/telemetry';
 import { UsageStatsRecorder } from '@/core/telemetry';
 import { PerfCollector } from '@/core/telemetry';
 import { AgentLoopLogger } from '@/core/telemetry';
+import { AsyncAgentTaskManager } from '@/core/agent/async';
+import type { AgentTaskCompletionResult } from '@/core/agent/async';
 
 /**
  * Agent 事件回调
@@ -30,7 +32,7 @@ export interface AgentCallbacks {
   onThinking?: (thinking: string) => void;
   onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
   onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
-  onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
+  onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => void;
   /** 工具执行分组通知（在执行前触发，通知 UI 哪些工具将并行执行） */
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
   /** 文件变更通知（在工具执行后触发，批量通知所有文件变更） */
@@ -40,6 +42,10 @@ export interface AgentCallbacks {
   onInfo?: (message: string) => void;
   onError?: (error: Error) => void;
   onEnd?: (state: AgentState) => void;
+  /** 后台任务完成，agent 空闲时自动触发汇总 */
+  onAutoSummarize?: () => void;
+  /** 引用原文数据推送（task/team 工具结果），供前端 citation 组件使用 */
+  onCitationData?: (citations: Array<{ agentName: string; originalOutput: string; duration: number; tokensUsed: { input: number; output: number } }>) => void;
 }
 
 /**
@@ -95,6 +101,10 @@ export class AgentLoop {
   private _abortController: AbortController | null = null;
   /** 用户 ID，用于遥测数据用户维度隔离 */
   private _userId?: string;
+  /** 待处理的后台任务完成通知（groupIds 列表） */
+  private _pendingTaskCompletions: AgentTaskCompletionResult[] = [];
+  /** 是否为自动汇总运行（后台任务结果汇总），区别于用户触发的普通运行 */
+  private _isAutoSummarizeRun = false;
 
   constructor(
     provider: ILLMProvider,
@@ -185,6 +195,12 @@ export class AgentLoop {
    * 运行一轮对话
    */
   async run(userMessage: string): Promise<void> {
+    // 防止并发调用
+    if (this.running) {
+      this.log.warn('run() called while already running, queuing as append');
+      this.appendMessage(userMessage);
+      return;
+    }
     this.running = true;
     this._interrupted = false;  // 每次新运行前重置中断标志
     this.currentIteration = 0;
@@ -204,6 +220,10 @@ export class AgentLoop {
     try {
       // 清除上轮的子任务完成提示（新用户消息到来）
       this.messageManager.setSystemPromptSuffix('', 'delegation-complete');
+      this.messageManager.setSystemPromptSuffix('', 'async-task-completion');
+
+      // 注册后台任务完成回调
+      this.registerAsyncTaskCompletionCallback();
 
       // 🆕 注入任务状态提示到 system prompt
       await this.injectTodoContextHint(userMessage);
@@ -260,6 +280,35 @@ export class AgentLoop {
           );
 
           await this.messagePreparationHandler.applyDelay(result.delayMs);
+        }
+
+        // ── 后台任务完成通知 ──
+        // 仅在自动汇总运行时注入（避免在用户触发的运行中拉长运行时间）
+        if (this._isAutoSummarizeRun && this._pendingTaskCompletions.length > 0) {
+          const completions = this._pendingTaskCompletions.splice(0);
+          for (const completion of completions) {
+            const statusText = completion.status === 'completed' ? '✅ 已完成' :
+              completion.status === 'failed' ? '❌ 失败' :
+              completion.status === 'cancelled' ? '🚫 已取消' : completion.status;
+            const output = completion.result?.content ?? '';
+            const hint = [
+              `\n[后台任务完成通知] 任务组 ${completion.groupId} ${statusText}`,
+              completion.status === 'completed'
+                ? '请直接将以下结果汇总后告知用户，不要再次调用 task_control 查询。'
+                : completion.status === 'failed'
+                ? `失败原因: ${completion.error ?? '未知'}。请告知用户并询问是否需要重试。`
+                : '任务已取消。请告知用户。',
+              completion.status === 'completed' && output
+                ? `\n--- 任务输出 ---\n${output}\n--- 输出结束 ---`
+                : '',
+            ].filter(Boolean).join('\n');
+            this.messageManager.setSystemPromptSuffix(hint, 'async-task-completion');
+            this.log.info(`Async task completion: ${completion.groupId} ${completion.status}`);
+          }
+          // 重建消息数组以包含注入的 completion suffix
+          // setSystemPromptSuffix 只修改内部状态，必须重建 message[0] 才能生效
+          const updatedMessages = this.messageManager.getMessages();
+          messages[0] = updatedMessages[0];
         }
 
         // ── 消息上下文处理 ──
@@ -336,7 +385,7 @@ export class AgentLoop {
         const executor = async (toolCall: ToolCall): Promise<ToolResult> => {
           this.callbacks.onToolStart?.(toolCall.id, toolCall.name, toolCall.input);
           const toolResult = await this.toolDispatcher.execute(toolCall, abortController.signal);
-          this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError);
+          this.callbacks.onToolEnd?.(toolCall.id, toolCall.name, toolResult.content, toolResult.isError, toolResult.metadata);
           return toolResult;
         };
 
@@ -528,8 +577,8 @@ export class AgentLoop {
                 );
               },
               onToolDelta: this.callbacks.onToolDelta,
-              onToolEnd: async (id, name, resultContent, isError) => {
-                this.callbacks.onToolEnd?.(id, name, resultContent, isError);
+              onToolEnd: async (id, name, resultContent, isError, metadata) => {
+                this.callbacks.onToolEnd?.(id, name, resultContent, isError, metadata);
                 const toolDuration = toolStartTimes.has(id)
                   ? Date.now() - toolStartTimes.get(id)!
                   : Date.now() - toolExecStartTime;
@@ -751,6 +800,14 @@ export class AgentLoop {
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         });
       }
+    }
+
+    // 主循环结束后，检查是否有后台任务完成通知待处理
+    if (this._pendingTaskCompletions.length > 0) {
+      this.log.info(`run() finished, found ${this._pendingTaskCompletions.length} pending task completions`);
+      this.autoSummarizeTaskCompletion().catch((err) => {
+        this.log.error(`Post-run auto-summarize failed: ${err}`);
+      });
     }
   }
 
@@ -988,6 +1045,64 @@ export class AgentLoop {
    */
   getMessageHistory(): Message[] {
     return this.messageManager.getHistory();
+  }
+
+  /**
+   * 注册后台任务完成回调
+   *
+   * 运行中完成 → 推入 _pendingTaskCompletions，下个迭代注入 system_prompt_suffix
+   * 空闲时完成 → 主动触发 run() 将结果汇总给用户
+   */
+  private registerAsyncTaskCompletionCallback(): void {
+    const manager = AsyncAgentTaskManager.getInstance();
+    manager.onTaskCompleted((result) => {
+      this._pendingTaskCompletions.push(result);
+      this.log.info(`Async task completion queued: ${result.groupId} ${result.status} (running=${this.running})`);
+
+      // 🔧 从异步任务结果中提取引用原文数据，推送至前端
+      if (result.result?.metadata) {
+        const meta = result.result.metadata;
+        const citations: Array<{ agentName: string; originalOutput: string; duration: number; tokensUsed: { input: number; output: number } }> = [];
+        if (Array.isArray(meta.citations)) {
+          citations.push(...(meta.citations as any[]));
+        } else if (meta.originalOutput) {
+          citations.push({
+            agentName: (meta.agentName as string) || 'unknown-agent',
+            originalOutput: meta.originalOutput as string,
+            duration: (meta.duration as number) || 0,
+            tokensUsed: (meta.tokensUsed as { input: number; output: number }) || { input: 0, output: 0 },
+          });
+        }
+        if (citations.length > 0) {
+          this.callbacks?.onCitationData?.(citations);
+        }
+      }
+
+      if (!this.running) {
+        this.log.info(`Agent idle, auto-summarizing async task: ${result.groupId}`);
+        this.autoSummarizeTaskCompletion().catch((err) => {
+          this.log.error(`Auto-summarize failed: ${err}`);
+        });
+      }
+    });
+  }
+
+  /**
+   * 后台任务完成时 agent 空闲 → 通知 renderer 并触发 run()
+   */
+  private async autoSummarizeTaskCompletion(): Promise<void> {
+    this.log.info(`autoSummarizeTaskCompletion called, completions count: ${this._pendingTaskCompletions.length}`);
+    // 通知 renderer 这是自动汇总，不是用户触发的执行
+    this.callbacks?.onAutoSummarize?.();
+
+    this._isAutoSummarizeRun = true;
+    try {
+      await this.run('[系统通知] 后台任务已完成，请汇总结果告知用户');
+    } catch (err) {
+      this.log.error(`Auto-run after task completion failed: ${err}`);
+    } finally {
+      this._isAutoSummarizeRun = false;
+    }
   }
 
   /**

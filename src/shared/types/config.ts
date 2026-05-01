@@ -57,6 +57,16 @@ export interface AgentTuningConfig {
     /** 最大迭代次数 (默认 30) */
     maxIterations?: number;
   };
+
+  /** 异步 Agent 任务配置 */
+  asyncAgentTasks?: {
+    /** 最大并发后台任务数 (默认 3) */
+    maxConcurrent?: number;
+    /** 后台任务最大生存时间 (ms, 默认 14400000 = 4小时) */
+    maxLifetimeMs?: number;
+    /** 保留的已完成任务数上限 (默认 20) */
+    maxCompletedTasks?: number;
+  };
 }
 
 /**

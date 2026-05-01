@@ -17,6 +17,7 @@ import { BaseTool } from './BaseTool';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
 import type { SubAgentResult } from '@/core/agent/SubAgentLoop';
 import { SubAgentFactory } from '@/core/agent/SubAgentFactory';
+import { AsyncAgentTaskManager } from '@/core/agent/async';
 
 export class TaskTool extends BaseTool {
   readonly name = 'task';
@@ -61,6 +62,10 @@ export class TaskTool extends BaseTool {
       stream_to_user: {
         type: 'boolean',
         description: '子 agent 输出是否直送用户。true=独立任务输出直达用户，false=多 agent 协作由主 agent 整合',
+      },
+      async: {
+        type: 'boolean',
+        description: '异步执行模式。true=立即返回 groupId，任务在后台运行；false=等待完成（默认）。长时间任务推荐 true，用户可通过 task_control 查询进度和取消。',
       },
     },
     required: ['description', 'subagent_type'],
@@ -182,11 +187,25 @@ export class TaskTool extends BaseTool {
       );
     }
 
-    // 并发限制
-    if (this.activeCount >= MAX_CONCURRENT_SUBAGENTS) {
+    // 并发限制（仅同步模式检查，异步模式互不影响）
+    const asyncMode = input.async === true;
+    if (!asyncMode && this.activeCount >= MAX_CONCURRENT_SUBAGENTS) {
       return this.error(
         `Maximum concurrent sub-agents (${MAX_CONCURRENT_SUBAGENTS}) reached. Wait for current tasks to complete.`,
       );
+    }
+
+    // 异步执行模式
+    if (asyncMode) {
+      return this.executeAsync(description, role, {
+        timeout,
+        isolation,
+        systemPrompt,
+        scene,
+        tools,
+        streamToUser,
+        cwd: input._cwd as string | undefined,
+      }, signal);
     }
 
     // 执行子代理（使用统一架构）
@@ -224,6 +243,96 @@ export class TaskTool extends BaseTool {
   }
 
   // ─── 私有方法 ─────────────────────────────────────────
+
+  /**
+   * 异步执行子代理任务（后台运行）
+   */
+  private async executeAsync(
+    description: string,
+    role: string,
+    opts: {
+      timeout?: number;
+      isolation: IsolationMode;
+      systemPrompt?: string;
+      scene?: string;
+      tools?: string[];
+      streamToUser?: boolean;
+      cwd?: string;
+    },
+    _signal?: AbortSignal,
+  ): Promise<ToolResult> {
+    if (!this.subAgentFactory) {
+      return this.error('TaskTool not initialized.');
+    }
+
+    const manager = AsyncAgentTaskManager.getInstance();
+    const agentConfig = this.agentConfig!;
+    const currentDepth = this.currentDepth;
+    const subAgentFactory = this.subAgentFactory;
+    const parentAgentId = this.currentAgentId;
+    const self = this;
+
+    const result = manager.startTask({
+      type: 'task',
+      goal: description.slice(0, 120),
+      members: [{ id: role, name: this.getAgentName(role), status: 'pending' }],
+      workingDir: opts.cwd,
+      isolation: opts.isolation === 'worktree' ? 'worktree' : 'none',
+      executor: async (abortSignal, onProgress, groupId) => {
+        onProgress({ phase: 'executing', currentMember: role, currentMemberStatus: '执行中...' });
+        manager.updateMemberStatus(groupId, role, 'running');
+
+        const savedCwd = opts.cwd || process.cwd();
+
+        // 异步模式不流式输出到用户（后台运行，用户可能在做其他事）
+        const execResult = await subAgentFactory.createAndRun(role, {
+          task: description,
+          timeout: opts.timeout,
+          depth: currentDepth + 1,
+          isolation: opts.isolation,
+          parentConfig: agentConfig,
+          systemPrompt: opts.systemPrompt,
+          scene: opts.scene,
+          tools: opts.tools,
+          parentAgentId,
+          streamToUser: false,
+          workingDir: savedCwd,
+        }, abortSignal);
+
+        try { process.chdir(savedCwd); } catch (e) { /* ignore */ }
+
+        manager.updateMemberStatus(groupId, role, execResult.timedOut ? 'failed' : 'completed');
+        onProgress({ phase: 'synthesizing', completedMembers: 1 });
+
+        return self.formatResult(execResult, false, role);
+      },
+    });
+
+    if (result.error) {
+      return this.error(result.error);
+    }
+
+    return this.success(
+      [
+        `[Task 已启动 - 后台运行]`,
+        `任务组 ID: ${result.groupId}`,
+        `Agent: ${this.getAgentName(role)}`,
+        `任务: ${description.slice(0, 200)}`,
+        '',
+        '---',
+        '用户可以：',
+        `- 查询进度: 使用 task_control({ action: "status", groupId: "${result.groupId}" })`,
+        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${result.groupId}" })`,
+        `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
+        '完成后系统会通知你汇总结果。',
+      ].join('\n'),
+      {
+        taskAsync: true,
+        groupId: result.groupId,
+        agentType: role,
+      },
+    );
+  }
 
   /**
    * 格式化子代理执行结果
@@ -264,6 +373,7 @@ export class TaskTool extends BaseTool {
 
     return this.success(content, {
       subAgent: true,
+      agentName,
       duration: result.duration,
       tokensUsed: result.tokensUsed,
       timedOut: result.timedOut,

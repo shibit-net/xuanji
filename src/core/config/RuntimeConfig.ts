@@ -98,3 +98,10 @@ export function getGlobConfig() {
 export function getSubAgentConfig() {
   return _config?.agent?.subAgent;
 }
+
+/**
+ * 获取异步 Agent 任务配置
+ */
+export function getAsyncAgentConfig() {
+  return _config?.agent?.asyncAgentTasks;
+}

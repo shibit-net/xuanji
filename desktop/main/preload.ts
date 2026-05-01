@@ -43,6 +43,7 @@
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
   agentSendSupplment: (content: string) => ipcRenderer.invoke('agent:send-supplement', content),
+  agentAppendMessage: (message: string) => ipcRenderer.invoke('agent:append-message', message),
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
 
   // 流式事件监听

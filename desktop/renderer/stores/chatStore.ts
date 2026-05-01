@@ -75,6 +75,14 @@ export interface Message {
   tokensUsed?: { input: number; output: number };
 }
 
+// 子Agent引用（用于 citation 功能）
+export interface SubAgentReference {
+  agentName: string;
+  originalOutput: string;
+  duration: number;
+  tokensUsed: { input: number; output: number };
+}
+
 // 工具调用
 export interface ToolCall {
   id: string;
@@ -186,8 +194,17 @@ interface ChatStore {
   _teamParentMap: Record<string, string>;
   /** task 工具的 subAgentId → parentAgentId 的映射，用于确定 task 创建的子 Agent 应该挂在哪个父节点下 */
   _taskParentMap: Record<string, string>;
-  /** subAgentId → streamToUser 的映射，用于判断子 agent 是"编写中"还是"汇报中" */
-  _streamToUserMap: Record<string, boolean>;
+  /** subAgentId → agent 名称的映射，streamToUser 的子 agent 用于 statusHint */
+  _streamToUserMap: Record<string, string>;
+  /** subAgentId → 流式消息 ID 的映射，每个子 agent 独立的聊天气泡 */
+  _subAgentStreams: Record<string, string>;
+  /** 引用原文存储（agentName → SubAgentReference），供 citation-reference 组件查询 */
+  citationOutputs: Record<string, SubAgentReference>;
+  /** 根据 agent 名查询引用原文 */
+  getCitationOutput: (agentName: string) => SubAgentReference | null;
+  /** 后台任务完成自动汇总是否进行中（与用户触发的执行区分，InputArea 据此显示正常发送模式） */
+  _autoSummarizeActive: boolean;
+  _handleSubAgentText: (agentId: string, agentName: string, text: string) => void;
 }
 
 // ============================================================
@@ -368,6 +385,10 @@ function generateToolSummaryMessage(
   }
 }
 
+// 子 agent 流式输出：每个子 agent 独立的消息气泡
+// 模块级作用域，同时供 create 内部方法和外部 messageBus.on 处理器访问
+const subAgentStreamState: Record<string, { messageId: string; agentName: string; buffer: string }> = {};
+
 export const useChatStore = create<ChatStore>((set, get) => {
   // 流式文本更新的节流版本（150ms）
   let streamTextBuffer = '';
@@ -397,6 +418,24 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
   const throttledFlushStreamText = throttle(flushStreamText, 150);
 
+  const flushSubAgentStreams = () => {
+    const entries = Object.entries(subAgentStreamState);
+    if (entries.length === 0) return;
+
+    set((state) => ({
+      messages: state.messages.map((msg) => {
+        for (const [agentId, st] of entries) {
+          if (msg.id === st.messageId && st.buffer) {
+            return { ...msg, content: st.buffer, statusHint: '✍️ ' + st.agentName + ' 编写中...' };
+          }
+        }
+        return msg;
+      }),
+    }));
+  };
+
+  const throttledFlushSubAgentStreams = throttle(flushSubAgentStreams, 150);
+
   return {
   // 初始状态
   messages: [],
@@ -414,6 +453,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
   currentStreamingId: null,
   currentStreamingText: '',
   activeToolCalls: new Map(),
+
+  // 引用原文存储
+  citationOutputs: {},
 
   // 权限交互状态
   permissionRequest: null,
@@ -433,6 +475,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
     isAgentEnded = false;
     streamTextBuffer = '';
     streamingMessageId = null;
+    // 清空子 agent 流式状态
+    for (const key of Object.keys(subAgentStreamState)) {
+      delete subAgentStreamState[key];
+    }
 
     // 添加用户消息
     const userMessage: Message = {
@@ -524,7 +570,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
   clearMessages: () => {
     streamTextBuffer = '';
     streamingMessageId = null;
-    set({ messages: [], status: 'idle' });
+    for (const key of Object.keys(subAgentStreamState)) delete subAgentStreamState[key];
+    set({ messages: [], status: 'idle', _subAgentStreams: {} });
   },
 
   reset: async () => {
@@ -533,6 +580,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     // 清空流式缓冲区
     streamTextBuffer = '';
     streamingMessageId = null;
+    for (const key of Object.keys(subAgentStreamState)) delete subAgentStreamState[key];
 
     // 清空前端 todos 显示状态（不清空后端持久化任务）
     // xuanji 是记忆驱动的 agent，任务是工作状态，不应随会话重置而清空
@@ -544,7 +592,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
       currentStreamingId: null,
       currentStreamingText: '',
       activeToolCalls: new Map(),
+      citationOutputs: {},
     });
+  },
+
+  getCitationOutput: (agentName: string): SubAgentReference | null => {
+    return get().citationOutputs[agentName] || null;
   },
 
   // ============================================================
@@ -615,6 +668,35 @@ export const useChatStore = create<ChatStore>((set, get) => {
     }
   },
 
+  _handleSubAgentText: (agentId, agentName, text) => {
+    const existing = subAgentStreamState[agentId];
+
+    if (!existing) {
+      // 为该子 agent 创建独立的聊天气泡
+      const msgId = generateMessageId(`assistant-${agentId}`);
+      const newMessage: Message = {
+        id: msgId,
+        role: 'assistant',
+        content: text,
+        timestamp: Date.now(),
+        statusHint: '✍️ ' + agentName + ' 编写中...',
+        toolCalls: [],
+      };
+
+      subAgentStreamState[agentId] = { messageId: msgId, agentName, buffer: text };
+
+      set((state) => ({
+        messages: [...state.messages, newMessage],
+        _subAgentStreams: { ...state._subAgentStreams, [agentId]: msgId },
+      }));
+    } else {
+      // 追加文本到该子 agent 的气泡
+      existing.buffer += text;
+      existing.agentName = agentName;
+      throttledFlushSubAgentStreams();
+    }
+  },
+
   _handleAgentThinking: (thinking) => {
     // processContext 在每个迭代开始时发送空字符串，表示新思考阶段
     if (!thinking) {
@@ -635,6 +717,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           ),
         }));
       } else {
+        console.log('[chatStore] agent:thinking(empty) → status = thinking, autoSummarizeActive =', get()._autoSummarizeActive);
         set({ status: 'thinking' });
       }
       return;
@@ -830,6 +913,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
         status: 'executing',
       }));
     } else {
+      console.log('[chatStore] agent:tool-start → status = executing, autoSummarizeActive =', get()._autoSummarizeActive);
       set({ activeToolCalls: newToolCalls, status: 'executing' });
     }
 
@@ -892,6 +976,37 @@ export const useChatStore = create<ChatStore>((set, get) => {
   _handleAgentToolEnd: (data) => {
 
     const { activeToolCalls, currentStreamingId } = get();
+
+    // 🔧 从 task / agent_team 工具结果中提取引用原文数据
+    const metadata = (data as any).metadata as Record<string, unknown> | undefined;
+    if (metadata && !data.isError) {
+      if (data.name === 'task' && metadata.originalOutput) {
+        const agentName = (metadata.agentName as string) || 'unknown-agent';
+        const citation: SubAgentReference = {
+          agentName,
+          originalOutput: metadata.originalOutput as string,
+          duration: (metadata.duration as number) || 0,
+          tokensUsed: (metadata.tokensUsed as { input: number; output: number }) || { input: 0, output: 0 },
+        };
+        set((s) => ({ citationOutputs: { ...s.citationOutputs, [agentName]: citation } }));
+      }
+      if (data.name === 'agent_team' && Array.isArray(metadata.citations)) {
+        const additions: Record<string, SubAgentReference> = {};
+        for (const c of metadata.citations as Array<{
+          agentName: string;
+          originalOutput: string;
+          duration: number;
+          tokensUsed: { input: number; output: number };
+        }>) {
+          if (c.agentName && c.originalOutput) {
+            additions[c.agentName] = c;
+          }
+        }
+        if (Object.keys(additions).length > 0) {
+          set((s) => ({ citationOutputs: { ...s.citationOutputs, ...additions } }));
+        }
+      }
+    }
 
     // 更新工具状态
     const newToolCalls = new Map(activeToolCalls);
@@ -1176,6 +1291,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
     // 刷新流式文本缓冲区，确保最后的内容显示（此时 isAgentEnded = true，不会设置 statusHint）
     flushStreamText();
 
+    // 最终刷新所有子 agent 的流式气泡并清理状态
+    throttledFlushSubAgentStreams.cancel();
+    flushSubAgentStreams();
+    for (const key of Object.keys(subAgentStreamState)) delete subAgentStreamState[key];
+    console.log('[chatStore] agent:end → _autoSummarizeActive = false');
+    set({ _subAgentStreams: {}, _autoSummarizeActive: false });
+
     // 同步更新 runtimeStore
     useRuntimeStore.getState().finishMessageStream();
     useRuntimeStore.getState().setProcessing(false);
@@ -1218,6 +1340,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     // 完成主 Agent（activeAgentStore）
     useActiveAgentStore.getState().finishMainAgent();
 
+    console.log('[chatStore] _handleAgentEnd: status → idle, autoSummarizeActive was =', get()._autoSummarizeActive);
     set((prevState) => ({
       status: 'idle',
       currentStreamingId: null,
@@ -1256,6 +1379,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
   _teamParentMap: {},
   _taskParentMap: {},
   _streamToUserMap: {},
+  _subAgentStreams: {},
+  _autoSummarizeActive: false,
 
   _handleTeamStart: (data) => {
 
@@ -1791,7 +1916,7 @@ if (typeof window !== 'undefined' && window.electron) {
     'agent:text', 'agent:thinking', 'agent:tool-start', 'agent:tool-end',
     'agent:file-changes', 'agent:usage', 'agent:error', 'agent:end',
     'agent:team-start', 'agent:team-member-start', 'agent:team-member-end',
-    'agent:subagent-start', 'agent:subagent-end', // 🔧 添加 subagent 事件
+    'agent:subagent-start', 'agent:subagent-end', 'agent:auto-summarize-start',
     'permission:request', 'plan-review:request', 'plan-mode:enter', 'plan-mode:exit',
     'ask-user:request', 'session:messages-restored', 'session:resume-notification',
     'session:archive-notification', 'prompt:build-event', 'project:info', 'init-complete',
@@ -1927,7 +2052,7 @@ if (typeof window !== 'undefined' && window.electron) {
     // 🔧 记录 streamToUser，用于判断子 agent 是"编写中"还是"汇报中"
     if ((data as any).streamToUser) {
       useChatStore.setState((s) => ({
-        _streamToUserMap: { ...s._streamToUserMap, [data.subAgentId]: true },
+        _streamToUserMap: { ...s._streamToUserMap, [data.subAgentId]: data.name },
       }));
     }
 
@@ -1973,6 +2098,36 @@ if (typeof window !== 'undefined' && window.electron) {
       return false;
     };
     updateThought(activeAgentStore.mainAgent);
+
+    // 如果子 agent 配置了 streamToUser，输出到独立的聊天气泡
+    const { _streamToUserMap } = useChatStore.getState();
+    const agentName = _streamToUserMap[data.agentId];
+    if (agentName) {
+      useChatStore.getState()._handleSubAgentText(data.agentId, agentName, data.text);
+    }
+  });
+
+  // 🔧 引用原文数据推送（异步任务完成后端主动推送）
+  messageBus.on('agent:citation-data', (citations: SubAgentReference[]) => {
+    if (Array.isArray(citations)) {
+      const additions: Record<string, SubAgentReference> = {};
+      for (const c of citations) {
+        if (c.agentName && c.originalOutput) {
+          additions[c.agentName] = c;
+        }
+      }
+      if (Object.keys(additions).length > 0) {
+        useChatStore.setState((s) => ({
+          citationOutputs: { ...s.citationOutputs, ...additions },
+        }));
+      }
+    }
+  });
+
+  // 后台任务完成自动汇总：标记为自动触发，InputArea 不显示中断模式
+  messageBus.on('agent:auto-summarize-start', () => {
+    console.log('[chatStore] agent:auto-summarize-start → _autoSummarizeActive = true');
+    useChatStore.setState({ _autoSummarizeActive: true });
   });
 
   messageBus.on('agent:subagent-end', (data: {
@@ -1985,12 +2140,16 @@ if (typeof window !== 'undefined' && window.electron) {
 
     // 🔧 如果执行失败，直接移除节点（不显示失败的agent）
     if (!data.success) {
-      // 清理 streamToUser 映射
+      // 清理 streamToUser 映射和流式气泡
       useChatStore.setState((s) => {
         const newMap = { ...s._streamToUserMap };
         delete newMap[data.subAgentId];
-        return { _streamToUserMap: newMap };
+        const newStreams = { ...s._subAgentStreams };
+        delete newStreams[data.subAgentId];
+        return { _streamToUserMap: newMap, _subAgentStreams: newStreams };
       });
+      // 清理子 agent 流式状态
+      delete subAgentStreamState[data.subAgentId];
 
       // 找到父agent并移除这个子agent（使用不可变方式，避免直接 mutate 状态树）
       const mainAgent = activeAgentStore.mainAgent;
@@ -2019,12 +2178,27 @@ if (typeof window !== 'undefined' && window.electron) {
       duration: data.duration,
     });
 
-    // 清理 streamToUser 映射
+    // 清理 streamToUser 映射和流式气泡
     useChatStore.setState((s) => {
       const newMap = { ...s._streamToUserMap };
       delete newMap[data.subAgentId];
-      return { _streamToUserMap: newMap };
+      const newStreams = { ...s._subAgentStreams };
+      delete newStreams[data.subAgentId];
+      return { _streamToUserMap: newMap, _subAgentStreams: newStreams };
     });
+    // 清理子 agent 流式状态并最终刷新气泡
+    const subStream = subAgentStreamState[data.subAgentId];
+    if (subStream) {
+      // 最终刷新
+      const msgId = subStream.messageId;
+      const finalContent = subStream.buffer;
+      delete subAgentStreamState[data.subAgentId];
+      useChatStore.setState((s) => ({
+        messages: s.messages.map((msg) =>
+          msg.id === msgId ? { ...msg, content: finalContent, statusHint: undefined } : msg
+        ),
+      }));
+    }
 
     // 完成 timeline 事件
     const runtimeStore = useRuntimeStore.getState();

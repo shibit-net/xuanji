@@ -10,6 +10,7 @@ import { BaseTool } from './BaseTool';
 import { TeamManager } from '@/core/agent/team/TeamManager';
 import type { TeamConfig, TeamMember, TeamStrategy } from '@/core/agent/team/types';
 import type { AgentRoleType } from '@/core/agent/SubAgentContext';
+import { AsyncAgentTaskManager } from '@/core/agent/async';
 
 export class TeamTool extends BaseTool {
   readonly name = 'agent_team';
@@ -119,6 +120,10 @@ export class TeamTool extends BaseTool {
           '建议值：代码审查 30-60分钟、辩论共识 1.5小时+、大型重构 2-3小时。',
           '超时后可用更大的 timeout 值重试。',
         ].join(' '),
+      },
+      async: {
+        type: 'boolean',
+        description: '异步执行模式。true=立即返回 groupId，团队在后台运行；false=等待完成（默认）。长时间任务推荐 true，用户可通过 task_control 查询进度和取消。',
       },
     },
     required: ['team_name', 'goal', 'strategy', 'members'],
@@ -267,6 +272,12 @@ export class TeamTool extends BaseTool {
       // memberTimeoutMs 不设置，让策略计算生效
     };
 
+    // 异步执行模式
+    const asyncMode = input.async === true;
+    if (asyncMode) {
+      return this.executeAsync(teamConfig, teamName, goal, strategy, membersInput, input);
+    }
+
     try {
       // 创建团队管理器
       const teamManager = new TeamManager(
@@ -293,6 +304,121 @@ export class TeamTool extends BaseTool {
       const errMsg = error instanceof Error ? error.message : String(error);
       return this.error(`Team execution failed: ${errMsg}`);
     }
+  }
+
+  /**
+   * 异步执行团队任务（后台运行）
+   */
+  private executeAsync(
+    teamConfig: TeamConfig,
+    teamName: string,
+    goal: string,
+    strategy: TeamStrategy,
+    membersInput: Array<{ id: string; name?: string }>,
+    input: Record<string, unknown>,
+  ): ToolResult {
+    const manager = AsyncAgentTaskManager.getInstance();
+    const memberNames = membersInput.map((m) => ({
+      id: m.id,
+      name: m.name ?? m.id,
+      status: 'pending' as const,
+    }));
+
+    // 保存闭包需要的引用
+    const mainProvider = this.mainProvider!;
+    const registry = this.registry!;
+    const agentConfig = this.agentConfig!;
+    const hookRegistry = this.hookRegistry;
+    const currentDepth = this.currentDepth;
+    const agentRegistry = this.agentRegistry!;
+    const providerManager = this.providerManager!;
+    const cwd = input._cwd as string | undefined;
+
+    const result = manager.startTask({
+      type: 'team',
+      goal: goal.slice(0, 120),
+      members: memberNames,
+      workingDir: cwd,
+      executor: async (abortSignal, onProgress, groupId) => {
+        onProgress({ phase: 'setup', currentMember: '创建团队...' });
+
+        const teamManager = new TeamManager(
+          mainProvider,
+          registry,
+          agentConfig,
+          hookRegistry,
+          null,
+          currentDepth,
+          agentRegistry,
+          providerManager,
+          cwd,
+        );
+
+        await teamManager.createTeam(teamConfig);
+
+        onProgress({
+          phase: 'executing',
+          totalMembers: memberNames.length,
+          completedMembers: 0,
+        });
+
+        // 更新成员状态为 running
+        for (const m of memberNames) {
+          manager.updateMemberStatus(groupId, m.id, 'running');
+        }
+
+        const execResult = await teamManager.execute(goal, abortSignal);
+
+        onProgress({
+          phase: 'synthesizing',
+          completedMembers: memberNames.length,
+        });
+
+        // 更新成员状态
+        for (const mr of execResult.memberResults) {
+          manager.updateMemberStatus(
+            groupId,
+            mr.memberId,
+            mr.success ? 'completed' : 'failed',
+          );
+        }
+
+        return this.formatResult(execResult, teamName, strategy);
+      },
+    });
+
+    if (result.error) {
+      return this.error(result.error);
+    }
+
+    const elapsed = manager.getProgress(result.groupId).progress;
+    const totalMembers = memberNames.length;
+    const memberList = memberNames.map((m) => m.name).join(', ');
+
+    return this.success(
+      [
+        `[Agent Team 已启动 - 后台运行]`,
+        `任务组 ID: ${result.groupId}`,
+        `团队: ${teamName}`,
+        `策略: ${strategy}`,
+        `成员 (${totalMembers}): ${memberList}`,
+        `目标: ${goal.slice(0, 150)}`,
+        '',
+        '---',
+        '用户可以：',
+        `- 查询进度: 使用 task_control({ action: "status", groupId: "${result.groupId}" })`,
+        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${result.groupId}" })`,
+        `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
+        '完成后系统会通知你汇总结果。',
+      ].join('\n'),
+      {
+        teamAsync: true,
+        groupId: result.groupId,
+        teamName,
+        strategy,
+        memberCount: totalMembers,
+      },
+    );
   }
 
   /**
@@ -382,6 +508,13 @@ export class TeamTool extends BaseTool {
       '引用名称必须与上方成员摘要中显示的名称完全一致，否则用户无法点击查看完整输出。',
     ].join('\n');
 
+    const citations = result.memberResults.map((r) => ({
+      agentName: r.memberName || r.memberId,
+      originalOutput: r.result,
+      duration: r.duration,
+      tokensUsed: r.tokensUsed,
+    }));
+
     return this.success(content, {
       teamExecution: true,
       teamName,
@@ -392,6 +525,7 @@ export class TeamTool extends BaseTool {
       memberCount: result.memberResults.length,
       success: result.success,
       timedOut: result.timedOut,
+      citations,
     });
   }
 }

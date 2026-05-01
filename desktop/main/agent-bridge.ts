@@ -70,6 +70,18 @@ channel.handle('interrupt', (data) => {
   return { success: true };
 });
 
+// 追加消息（不中断，Boundary-Aware 注入）
+channel.handle('append-message', (data) => {
+  handleAppendMessage(data);
+  return { success: true };
+});
+
+// 补充说明（前端向后兼容，等同 append-message）
+channel.handle('supplement', (data) => {
+  handleAppendMessage(data);
+  return { success: true };
+});
+
 // 重置会话
 channel.handle('reset', () => {
   return handleReset();
@@ -658,8 +670,8 @@ async function handleInit(userId?: string) {
           // 从工具调用中提取文件路径，自动检测项目
           detectProjectFromToolCall(name, input);
         },
-        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
+        onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
+          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
 
           // 如果是 change_directory 工具且执行成功，立即检测项目信息
           if (name === 'change_directory' && !isError) {
@@ -684,6 +696,13 @@ async function handleInit(userId?: string) {
               currentIteration: state.currentIteration,
             },
           });
+        },
+        onAutoSummarize: () => {
+          console.log('[agent-bridge] onAutoSummarize called, sending agent:auto-summarize-start');
+          safeSend({ type: 'agent:auto-summarize-start' });
+        },
+        onCitationData: (citations) => {
+          safeSend({ type: 'agent:citation-data', data: citations });
         },
         onArchiveNotification: (result) => {
           safeSend({ type: 'session:archive-notification', data: result });
@@ -791,6 +810,29 @@ function handleInterrupt(message: string) {
   } else {
     safeSend({
       type: 'interrupt-result',
+      data: { success: false, error: '会话未初始化' },
+    });
+  }
+}
+
+/**
+ * 追加消息（不中断当前执行，在自然边界点注入）
+ * Claude Code 风格 Boundary-Aware Injection
+ */
+function handleAppendMessage(data: { message?: string; content?: string }) {
+  const message = data?.message || data?.content || '';
+  if (!message) return;
+
+  if (session) {
+    const agentLoop = session.getAgentLoop();
+    agentLoop.appendMessage(message);
+    safeSend({
+      type: 'append-result',
+      data: { success: true },
+    });
+  } else {
+    safeSend({
+      type: 'append-result',
       data: { success: false, error: '会话未初始化' },
     });
   }
@@ -1025,8 +1067,8 @@ async function handleUpdateConfig(data: any) {
           // 从工具调用中提取文件路径，自动检测项目
           detectProjectFromToolCall(name, input);
         },
-        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
-          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError } });
+        onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
+          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
 
           // 如果是 change_directory 工具且执行成功，立即检测项目信息
           if (name === 'change_directory' && !isError) {
@@ -1051,6 +1093,9 @@ async function handleUpdateConfig(data: any) {
               currentIteration: state.currentIteration,
             },
           });
+        },
+        onAutoSummarize: () => {
+          safeSend({ type: 'agent:auto-summarize-start' });
         },
         onArchiveNotification: (result) => {
           safeSend({ type: 'session:archive-notification', data: result });

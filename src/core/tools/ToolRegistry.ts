@@ -36,6 +36,7 @@ import { MultiEditTool } from './MultiEditTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
 import { ListScenesTool } from './ListScenesTool';
+import { TaskControlTool } from './TaskControlTool';
 import { ChangeDirectoryTool } from './ChangeDirectoryTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
@@ -355,6 +356,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WorktreeTool());
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
+  registry.register(new TaskControlTool());
   // TODO: MemoryUpdateTool 和 MemoryDeleteTool 已移除
   // registry.register(new MemoryUpdateTool());
   // registry.register(new MemoryDeleteTool());

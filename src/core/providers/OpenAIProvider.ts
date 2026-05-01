@@ -242,15 +242,31 @@ export class OpenAIProvider extends BaseLLMProvider {
           reasoningLen: typeof (msg as any).reasoning_content === 'string' ? (msg as any).reasoning_content.length : 0,
         };
       }))}`);
-      // 诊断：检查是否有 assistant 消息在启用 thinking 时缺少 reasoning_content（DeepSeek V4 400 错误常见原因）
+      // 诊断 + 自动修复：检查 assistant 消息的 reasoning_content 状态（DeepSeek V4 400 错误防护）
       if (config.thinking) {
         const assistantMsgs = openaiMessages.filter(m => m.role === 'assistant');
         const withReasoning = assistantMsgs.filter(m => !!(m as any).reasoning_content);
         const withoutReasoning = assistantMsgs.filter(m => !(m as any).reasoning_content);
         if (withoutReasoning.length > 0 && withReasoning.length > 0) {
-          this.log.warn(`DeepSeek V4: ${withoutReasoning.length}/${assistantMsgs.length} assistant messages missing reasoning_content (mixed state, may cause 400 error)`);
-        }
-        if (withReasoning.length > 0) {
+          // 混合状态：部分 assistant 消息有 reasoning_content，部分缺失。
+          // 这是 DeepSeek V4 400 错误的确定原因，必须修复后才能发送请求。
+          // 自动降级：剥离所有 reasoning_content 并禁用 thinking mode。
+          const missingIndices: number[] = [];
+          openaiMessages.forEach((m, i) => {
+            if (m.role === 'assistant' && !(m as any).reasoning_content) {
+              missingIndices.push(i);
+            }
+            if ((m as any).reasoning_content) {
+              delete (m as any).reasoning_content;
+            }
+          });
+          delete (requestParams as any).thinking;
+          this.log.warn(
+            `DeepSeek V4 reasoning_content 混合状态，自动降级：` +
+            `${withReasoning.length} 条有 reasoning、${withoutReasoning.length} 条缺失（索引: ${missingIndices.join(',')}），` +
+            `已剥离所有 reasoning_content 并禁用 thinking mode`
+          );
+        } else if (withReasoning.length > 0) {
           this.log.debug(`DeepSeek V4: ${withReasoning.length}/${assistantMsgs.length} assistant messages have reasoning_content`);
         }
       }

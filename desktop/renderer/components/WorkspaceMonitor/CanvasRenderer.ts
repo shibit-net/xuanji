@@ -109,37 +109,43 @@ export class CanvasRenderer {
   }
 
   /**
-   * 更新状态
+   * 更新状态（增量优化：仅在 agent ID/status/strategy 变化时重算布局）
    */
   updateState(state: WorkspaceState) {
     this.state = state;
-    // 立即计算树形布局位置
-    if (this.state.subAgents.length > 0) {
-      this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
-    }
-    // 计算团队边界框（每次 state 更新时重新计算，因为成员位置可能随轮次变化）
-    if (this.state.subAgents.length > 0) {
-      const boundaries = this.layoutEngine.computeTeamBoundaries(this.state.subAgents, this.treePositions);
-      this.state.teamBoundaries = boundaries;
-      // 更新团队连接（移除旧的团队连接，保留非团队连接）
-      const nonTeamConnections = this.state.collaborations.filter(c => !c.isTeamConnection);
-      const mainId = this.state.mainAgent.id;
-      const teamConnections = boundaries.map((team) => ({
-        from: mainId,
-        to: team.teamId,
-        type: 'team' as any,
-        active: true,
-        isTeamConnection: true,
-        teamBounds: team.bounds,
-      }));
-      this.state.collaborations = [...nonTeamConnections, ...teamConnections];
-    }
-    // 裁剪位置缓存，防止长时间任务中无限增长
-    const activeIds = new Set(this.state.subAgents.map(a => a.id));
-    activeIds.add(this.state.mainAgent.id);
-    this.layoutEngine.prunePositionCache(activeIds);
 
-    this.occupiedDirty = true;
+    const prevSnapshot = this.subAgentSnapshot;
+    const newSnapshot = this.buildSubAgentSnapshot();
+
+    if (newSnapshot !== prevSnapshot) {
+      // 结构性变化（agent 增删/状态变更/策略切换）→ 重新计算布局
+      this.subAgentSnapshot = newSnapshot;
+      if (this.state.subAgents.length > 0) {
+        this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
+      }
+      if (this.state.subAgents.length > 0) {
+        const boundaries = this.layoutEngine.computeTeamBoundaries(this.state.subAgents, this.treePositions);
+        this.state.teamBoundaries = boundaries;
+        const nonTeamConnections = this.state.collaborations.filter(c => !c.isTeamConnection);
+        const mainId = this.state.mainAgent.id;
+        const teamConnections = boundaries.map((team) => ({
+          from: mainId,
+          to: team.teamId,
+          type: 'team' as any,
+          active: true,
+          isTeamConnection: true,
+          teamBounds: team.bounds,
+        }));
+        this.state.collaborations = [...nonTeamConnections, ...teamConnections];
+      }
+      // 裁剪位置缓存
+      const activeIds = new Set(this.state.subAgents.map(a => a.id));
+      activeIds.add(this.state.mainAgent.id);
+      this.layoutEngine.prunePositionCache(activeIds);
+      this.occupiedDirty = true;
+    }
+    // 非结构性变化（moment/timeline/thinkingText）→ 仅更新动画，跳过布局重算
+
     this.updateAnimations();
   }
 
@@ -270,18 +276,10 @@ export class CanvasRenderer {
       // 每帧实时计算耗时（避免主线程 100ms 定时器触发 JSON.stringify 序列化开销）
       this.computeLiveDurations(this.state);
 
-      // 缓存优化：只在 subAgents 变化时重新计算布局和碰撞检测
-      const snapshot = this.buildSubAgentSnapshot();
-      if (snapshot !== this.subAgentSnapshot || this.occupiedDirty) {
-        this.subAgentSnapshot = snapshot;
-        this.occupiedDirty = false;
-        this.layoutEngine.resetOccupied();
-        this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
-        this.registerNodeOccupiedAreas();
-      } else {
-        this.layoutEngine.resetOccupied();
-        this.registerNodeOccupiedAreas();
-      }
+      // 每帧重置占用区域并注册节点（布局由 updateState 在结构变化时更新）
+      this.occupiedDirty = false;
+      this.layoutEngine.resetOccupied();
+      this.registerNodeOccupiedAreas();
 
       // 更新出场动画进度
       this.updateExitAnimations(deltaTime);

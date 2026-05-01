@@ -106,11 +106,21 @@ content: |
 
   Token 节省效果：文件读取量从 角色数×轮次×文件数 → 1次（Judge）+ 摘要引用
 
+  ## 异步执行
+
+  按 l0-task-planning 中的「同步 vs 异步委派」决策流程判断是否使用 async: true。
+
+  长时间任务（debate/hierarchical 策略、大型重构等）强烈推荐异步，避免阻塞用户交互。
+
+  启动后返回 groupId，使用 task_control 管理：status / cancel / list。
+  完成后系统自动通知，你必须汇总结果给用户。
+
   ## 异常处理
 
   - **超时**：重试并增大 timeout，不要改用 task 逐个重试
   - **成员失败**：查看该成员的错误信息和输出，调整 task/system_prompt 后重试整个团队
   - **策略不匹配**：如果执行结果不符合预期，考虑切换到其他策略重试
+  - **后台任务失败**：使用 task_control status 查看详情，根据需要重试或调整方向
 
   ## 结果汇总
 

@@ -61,6 +61,20 @@ content: |
   - 单个子 agent：stream_to_user: true，输出直达用户，你不再转述
   - 多 agent 协作：不设 stream_to_user，整合结果后统一回复
 
+  ## 异步委派与任务管理
+
+  委派 task/agent_team 时必须按 l0-task-planning 中的「同步 vs 异步委派」决策流程选择 async 参数。
+
+  - agent_team({ ..., async: true }) — 团队后台运行
+  - task({ ..., async: true }) — 单任务后台运行
+  - task_control({ action: "status" | "cancel" | "list", groupId? }) — 管理后台任务
+
+  使用规则：
+  - 异步启动后告知用户 groupId 和预计耗时
+  - 用户询问进度 → task_control status
+  - 用户要求停止 → task_control cancel
+  - 收到完成通知 → 汇总结果给用户
+
   ## 原则
 
   1. 先查询可用资源（list_agents / list_scenes / match_agent），不要假设有哪些

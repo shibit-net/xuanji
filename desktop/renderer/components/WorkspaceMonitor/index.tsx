@@ -2,12 +2,30 @@
 // Workspace Monitor - 主组件（OffscreenCanvas + Web Worker）
 // ============================================================
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { WorkspaceState, SubAgentData } from './types';
 import { useRuntimeStore } from '../../stores/runtimeStore';
 import { useActiveAgentStore, type AgentState } from '../../stores/activeAgentStore';
 import { workspaceStore } from '../../stores/workspaceStore';
 import { formatModelName } from '../../stores/chatStore';
+
+/**
+ * 快速结构哈希：仅对影响布局/渲染的关键字段计算摘要，避免 JSON.stringify 全量序列化。
+ * 当并行 task 运行时新 agent 节点加入，只有 agent ID/status 变化才触发 Worker 重布局。
+ */
+function fastStructuralHash(state: WorkspaceState): string {
+  const parts: string[] = [];
+  parts.push(`m:${state.mainAgent.status}:${state.mainAgent.currentMoment?.type || ''}:${state.mainAgent.currentMoment?.status || ''}`);
+  parts.push(`t:${state.stats.totalTokens}:${state.stats.iteration}:${state.stats.currentCallTokens}`);
+  for (const a of state.subAgents) {
+    parts.push(`s:${a.id}:${a.status}:${a.multiAgent?.strategy || ''}:${a.multiAgent?.currentRound ?? ''}:${a.thinkingText?.slice(0, 40) || ''}:${a.currentMoment?.type || ''}:${a.currentMoment?.status || ''}`);
+  }
+  for (const c of state.collaborations) {
+    parts.push(`c:${c.from}:${c.to}:${c.active}:${c.type}`);
+  }
+  parts.push(`ev:${state.recentEvents.length}:${state.recentEvents[0]?.id || ''}`);
+  return parts.join('|');
+}
 
 // Agent 角色图标映射
 const ROLE_ICON_MAP: Record<string, string> = {
@@ -113,8 +131,8 @@ export default function WorkspaceMonitor() {
     return unsubscribe;
   }, []);
 
-  const totalTokens = calculateTotalTokens(activeMainAgent);
-  const totalIterations = calculateTotalIterations(activeMainAgent);
+  const totalTokens = useMemo(() => calculateTotalTokens(activeMainAgent), [activeMainAgent]);
+  const totalIterations = useMemo(() => calculateTotalIterations(activeMainAgent), [activeMainAgent]);
 
   // ─── Worker 初始化 ───────────────────────────────────────────
   useEffect(() => {
@@ -237,7 +255,7 @@ export default function WorkspaceMonitor() {
     };
   }, []);
 
-  // ─── 构建并发送 WorkspaceState（diff + 50ms 节流）─────────────
+  // ─── 构建并发送 WorkspaceState（快速哈希 diff + 16ms 节流）─────────────
   useEffect(() => {
     const worker = workerRef.current;
     if (!worker || !isReady) return;
@@ -305,7 +323,10 @@ export default function WorkspaceMonitor() {
         if (isIntentAgent) {
           const intentResult = workspaceStore.getIntentAnalysisResult();
           const modelName = intentResult?.model || '';
-          thinkingText = modelName ? `🎯 ${formatModelName(modelName)}` : '🎯 意图识别中...';
+          // 仅当 workspaceStore 中有模型名称时才覆盖，否则保留 currentThought 中的模型名称
+          if (modelName) {
+            thinkingText = `🎯 ${formatModelName(modelName)}`;
+          }
         }
 
         result.push({
@@ -370,14 +391,14 @@ export default function WorkspaceMonitor() {
       teamBoundaries: [],
     };
 
-    // diff + 16ms 节流：仅当 state 变化时发送，最快一帧一次
-    const stateKey = JSON.stringify(state);
-    if (stateKey === lastStateRef.current) return;
+    // 快速哈希 diff：仅关键字段变化时发送，避免 JSON.stringify 全量序列化
+    const stateHash = fastStructuralHash(state);
+    if (stateHash === lastStateRef.current) return;
 
-    lastStateRef.current = stateKey;
+    lastStateRef.current = stateHash;
     pendingStateRef.current = state;
 
-    if (throttleRef.current !== null) return; // 已有定时器等待中，只更新 pending
+    if (throttleRef.current !== null) return;
 
     throttleRef.current = window.setTimeout(() => {
       throttleRef.current = null;

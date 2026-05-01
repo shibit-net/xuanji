@@ -161,7 +161,7 @@ export class ToolExecutionCoordinator {
     callbacks: {
       onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
       onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
-      onToolEnd?: (id: string, name: string, result: string, isError: boolean) => void;
+      onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => void;
     },
     signal?: AbortSignal, // 🔧 添加 AbortSignal 参数
   ): Promise<ToolExecutionResult> {
@@ -238,7 +238,7 @@ export class ToolExecutionCoordinator {
         resultsMap.set(id, { content: toolResult.content, isError: toolResult.isError });
         const tc = result.toolCalls.find(t => t.id === id);
         if (tc) {
-          callbacks.onToolEnd?.(id, tc.name, toolResult.content, toolResult.isError);
+          callbacks.onToolEnd?.(id, tc.name, toolResult.content, toolResult.isError, toolResult.metadata);
         }
       }
     }

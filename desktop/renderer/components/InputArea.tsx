@@ -1,35 +1,59 @@
 // ============================================================
-// InputArea - 输入区组件（含意图分析功能）
+// InputArea - 输入区组件（适配异步 Agent 任务模式）
+// ============================================================
+//
+// 发送策略（根据主 agent 状态自动选择）：
+//   主 agent 空闲 → 直接发送
+//   主 agent 执行工具中 → 中断当前执行 + 注入新消息
+//   主 agent 流式输出中 → 追加消息，等待流式完成后处理
+//   后台异步任务运行中（主 agent 空闲）→ 直接发送
 // ============================================================
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, StopCircle, Archive, Brain } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, StopCircle, Archive, Brain, Loader2 } from 'lucide-react';
 import { useChatStore, Message } from '../stores/chatStore';
 import { useToast } from './Toast';
-import IntentDialog from './IntentDialog';
-import { intentAnalyzer, IntentAnalysis, UserIntent } from '../services/messageIntentAnalyzer';
 
 export default function InputArea() {
   const [input, setInput] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
-  // 意图分析相关状态
-  const [showIntentDialog, setShowIntentDialog] = useState(false);
-  const [pendingMessage, setPendingMessage] = useState('');
-  const [analysisResult, setAnalysisResult] = useState<IntentAnalysis | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const sendMessage = useChatStore((state) => state.sendMessage);
   const addMessage = useChatStore((state) => state.addMessage);
   const status = useChatStore((state) => state.status);
+  const currentStreamingId = useChatStore((state) => state.currentStreamingId);
   const messages = useChatStore((state) => state.messages);
+  const autoSummarizeActive = useChatStore((state) => state._autoSummarizeActive);
   const toast = useToast();
 
-  const isRunning = status === 'thinking' || status === 'executing';
+  // ─── 状态判定 ───────────────────────────────────────
+  const isIdle = status === 'idle';
+  const isRunning = !isIdle;
+  const isStreaming = isRunning && currentStreamingId !== null;
+  const isExecutingTools = isRunning && currentStreamingId === null;
+  // 后台任务完成自动汇总：用户可正常发送消息，不阻塞交互
+  const isAutoSummarizing = isRunning && autoSummarizeActive;
 
+  // ─── 后台任务追踪 ───────────────────────────────────
+  const backgroundTaskIds = React.useMemo(() => {
+    const ids: string[] = [];
+    for (const msg of messages) {
+      if (msg.role !== 'assistant' || !msg.toolCalls) continue;
+      for (const tc of msg.toolCalls) {
+        if ((tc.name === 'agent_team' || tc.name === 'task') && tc.output) {
+          const m = tc.output.match(/任务组 ID: (at-[a-f0-9]+)/);
+          if (m) ids.push(m[1]);
+        }
+      }
+    }
+    return [...new Set(ids)];
+  }, [messages]);
+
+  // ─── 自动调整 textarea 高度 ─────────────────────────
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -37,102 +61,54 @@ export default function InputArea() {
     }
   }, [input]);
 
-  const handleSubmit = async () => {
-    if (!input.trim()) return;
-
-    if (!isRunning) {
-      sendMessage(input.trim());
-      setInput('');
-      return;
-    }
-
-    setPendingMessage(input.trim());
-    setIsAnalyzing(true);
+  // ─── 发送入口 ───────────────────────────────────────
+  const handleSubmit = useCallback(async () => {
+    if (!input.trim() || isSending) return;
+    const content = input.trim();
+    setInput('');
+    setIsSending(true);
 
     try {
-      const result = await intentAnalyzer.analyze(input.trim(), messages);
-      setAnalysisResult(result);
-
-      if (result.confidence >= 0.85) {
-        executeIntent(result.type, input.trim());
-      } else {
-        setShowIntentDialog(true);
+      if (isIdle || isAutoSummarizing) {
+        // 主 agent 空闲 / 后台任务完成自动汇总中 → 直接发送
+        sendMessage(content);
+      } else if (isExecutingTools) {
+        // 正在执行工具 → 中断当前执行 + 注入新消息
+        const msg: Message = {
+          id: `interrupt-${Date.now()}`,
+          role: 'user',
+          content,
+          timestamp: Date.now(),
+        };
+        addMessage(msg);
+        await window.electron.agentInterrupt(content);
+        toast.success('已中断并发送新消息');
+      } else if (isStreaming) {
+        // 正在流式输出 → 追加消息，等待流式完成后处理
+        const msg: Message = {
+          id: `append-${Date.now()}`,
+          role: 'user',
+          content,
+          timestamp: Date.now(),
+        };
+        addMessage(msg);
+        await window.electron.agentAppendMessage(content);
+        toast.info('消息将在流式输出完成后处理');
       }
     } catch (error) {
-      console.error('分析意图失败:', error);
-      setAnalysisResult(null);
-      setShowIntentDialog(true);
+      toast.error('发送失败');
     } finally {
-      setIsAnalyzing(false);
-      setInput('');
+      setIsSending(false);
     }
-  };
+  }, [input, isSending, isIdle, isExecutingTools, isStreaming, sendMessage, addMessage, toast]);
 
-  const executeIntent = async (intent: UserIntent, content: string) => {
-    switch (intent) {
-      case 'interrupt_replace':
-        await interruptAndRestart(content);
-        break;
-      case 'supplement':
-        await appendAsSupplment(content);
-        break;
-      case 'new_task':
-        await queueMessage(content);
-        break;
-      case 'unknown':
-        setShowIntentDialog(true);
-        break;
-    }
-    setShowIntentDialog(false);
-  };
-
-  const interruptAndRestart = async (content: string) => {
-    try {
-      await (window as any).electron.agentInterrupt({
-        mode: 'abandon',
-        reason: 'user_replace'
-      });
-      await new Promise(r => setTimeout(r, 300));
-      sendMessage(content);
-      toast.success('已中断并重新开始');
-    } catch (error) {
-      toast.error('中断失败，请重试');
-    }
-  };
-
-  const appendAsSupplment = async (content: string) => {
-    const supplMsg: Message = {
-      id: `supplement-${Date.now()}`,
-      role: 'system',
-      content: `补充说明：${content}`,
-      timestamp: Date.now()
-    };
-    addMessage(supplMsg);
-
-    try {
-      await (window as any).electron.agentSendSupplment?.(content);
-      toast.success('补充说明已发送');
-    } catch (error) {
-      toast.error('发送补充说明失败');
-    }
-  };
-
-  const queueMessage = async (content: string) => {
-    const queuedMsg: Message = {
-      id: `queued-${Date.now()}`,
-      role: 'user',
-      content,
-      timestamp: Date.now()
-    };
-    addMessage(queuedMsg);
-    toast.info('已加入队列，将在当前任务完成后执行');
-  };
-
-  const handleInterrupt = () => {
+  // ─── 纯停止（无输入时） ────────────────────────────
+  const handleStop = useCallback(() => {
     window.electron.agentInterrupt();
-  };
+  }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  // ─── 键盘事件 ───────────────────────────────────────
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
       handleSubmit();
@@ -141,46 +117,70 @@ export default function InputArea() {
       setInput('');
       textareaRef.current?.blur();
     }
-  };
+  }, [handleSubmit, isComposing]);
 
-  const handleCompact = async () => {
+  // ─── 工具栏 ─────────────────────────────────────────
+  const handleCompact = useCallback(async () => {
     if (isCompacting || isRunning) return;
-
     setIsCompacting(true);
     try {
       const result = await window.electron.compact({});
-      if (result.success) {
-        toast.success('消息压缩完成');
-      } else {
-        toast.error(`压缩失败: ${result.error || '未知错误'}`);
-      }
+      toast[result.success ? 'success' : 'error'](
+        result.success ? '消息压缩完成' : `压缩失败: ${result.error}`
+      );
     } catch (error) {
       toast.error(`压缩失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsCompacting(false);
     }
-  };
+  }, [isCompacting, isRunning, toast]);
 
-  const handleMemoryFlush = async () => {
+  const handleMemoryFlush = useCallback(async () => {
     if (isFlushing || isRunning) return;
-
     setIsFlushing(true);
     try {
       const result = await window.electron.manualMemoryFlush();
-      if (result.success) {
-        toast.success('记忆提取完成');
-      } else {
-        toast.error(`记忆提取失败: ${result.error || '未知错误'}`);
-      }
+      toast[result.success ? 'success' : 'error'](
+        result.success ? '记忆提取完成' : `记忆提取失败: ${result.error}`
+      );
     } catch (error) {
       toast.error(`记忆提取失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsFlushing(false);
     }
-  };
+  }, [isFlushing, isRunning, toast]);
+
+  // ─── 文案 ───────────────────────────────────────────
+  const placeholder = isAutoSummarizing
+    ? '输入你的问题... (后台任务结果汇总中，可直接发送)'
+    : isExecutingTools
+    ? '正在执行工具，输入内容将中断并替换当前任务...'
+    : isStreaming
+    ? '正在生成回复，输入内容将在输出完成后处理...'
+    : backgroundTaskIds.length > 0
+    ? '输入你的问题... (后台任务运行中，可直接发送新任务)'
+    : '输入你的问题... (支持 Markdown)';
+
+  const isSendDisabled = !input.trim() || isSending;
 
   return (
     <div className="flex-shrink-0 border-t border-bg-tertiary bg-bg-secondary">
+      {/* 后台任务提示栏 */}
+      {(backgroundTaskIds.length > 0 || isAutoSummarizing) && (isIdle || isAutoSummarizing) && (
+        <div className="flex items-center gap-2 px-4 py-1 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-900/30">
+          <Loader2 size={12} className="animate-spin text-blue-600 flex-shrink-0" />
+          <span className="text-xs text-blue-700 dark:text-blue-300 truncate">
+            {isAutoSummarizing
+              ? '后台任务结果汇总中...'
+              : `${backgroundTaskIds.length} 个后台任务运行中 (${backgroundTaskIds.join(', ')})`}
+          </span>
+          <span className="text-xs text-blue-400 ml-auto flex-shrink-0">
+            可直接发送新任务
+          </span>
+        </div>
+      )}
+
+      {/* 工具栏 */}
       <div className="flex items-center gap-2 px-4 pt-3">
         <button
           onClick={handleCompact}
@@ -202,6 +202,7 @@ export default function InputArea() {
         </button>
       </div>
 
+      {/* 输入区域 */}
       <div className="flex items-end gap-2 p-4">
         <textarea
           ref={textareaRef}
@@ -210,22 +211,18 @@ export default function InputArea() {
           onKeyDown={handleKeyDown}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
-          placeholder={isRunning ? '输入补充内容，AI 会分析你的意图...' : '输入你的问题... (支持 Markdown)'}
-          className="flex-1 bg-bg-primary border border-bg-tertiary rounded-lg px-4 py-2 resize-none focus:outline-none focus:border-primary transition-colors"
+          placeholder={placeholder}
+          disabled={isSending}
+          className="flex-1 bg-bg-primary border border-bg-tertiary rounded-lg px-4 py-2 resize-none focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
           rows={1}
           style={{ maxHeight: '150px' }}
         />
-        
-        {isAnalyzing && (
-          <div className="px-2 text-sm text-text-secondary">
-            🤔 分析中...
-          </div>
-        )}
-        
-        {isRunning && !input.trim() && !isAnalyzing ? (
+
+        {/* 停止 / 发送按钮 */}
+        {isRunning && !isAutoSummarizing && !input.trim() && !isSending ? (
           <button
-            onClick={handleInterrupt}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+            onClick={handleStop}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 flex-shrink-0"
           >
             <StopCircle size={16} />
             <span>停止</span>
@@ -233,35 +230,37 @@ export default function InputArea() {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={!input.trim() || isAnalyzing}
-            className={`px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-              isRunning && input.trim() && !isAnalyzing
+            disabled={isSendDisabled}
+            className={`px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isAutoSummarizing
+                ? 'bg-primary hover:bg-primary/90'
+                : isExecutingTools
+                ? 'bg-red-600 hover:bg-red-700'
+                : isStreaming
                 ? 'bg-orange-600 hover:bg-orange-700'
                 : 'bg-primary hover:bg-primary/90'
             }`}
           >
-            <Send size={16} />
-            <span>{isRunning && input.trim() ? '发送' : '发送'}</span>
+            {isSending ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Send size={16} />
+            )}
+            <span>{isSending ? '发送中...' : '发送'}</span>
           </button>
         )}
       </div>
 
+      {/* 底部提示 */}
       <div className="px-4 pb-2 text-xs text-text-secondary">
         Enter 发送 · Shift+Enter 换行 · Esc 清空
-        {isRunning && <span className="ml-2 text-yellow-500">· AI 会智能判断你的意图</span>}
+        {isAutoSummarizing && <span className="ml-2 text-blue-500">· 后台任务结果汇总中</span>}
+        {!isAutoSummarizing && isExecutingTools && <span className="ml-2 text-red-500">· 输入将中断当前工具执行</span>}
+        {!isAutoSummarizing && isStreaming && <span className="ml-2 text-orange-500">· 输入将在输出完成后处理</span>}
+        {isIdle && backgroundTaskIds.length > 0 && (
+          <span className="ml-2 text-blue-500">· 后台任务运行中</span>
+        )}
       </div>
-
-      {showIntentDialog && (
-        <IntentDialog
-          pendingMessage={pendingMessage}
-          analysisResult={analysisResult}
-          onSelect={executeIntent}
-          onCancel={() => {
-            setShowIntentDialog(false);
-            setInput(pendingMessage);
-          }}
-        />
-      )}
     </div>
   );
 }

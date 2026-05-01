@@ -126,6 +126,8 @@ export interface ElectronAPI {
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
   agentSendMessage: (message: string) => Promise<{ success: boolean }>;
   agentInterrupt: (message?: string) => Promise<{ success: boolean }>;
+  agentAppendMessage: (message: string) => Promise<{ success: boolean }>;
+  agentSendSupplment: (content: string) => Promise<{ success: boolean }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
 
