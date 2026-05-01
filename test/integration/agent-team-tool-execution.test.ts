@@ -129,8 +129,8 @@ describe('Integration: TeamTool agent_team execution', () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Strategy: debate');
-    expect(result.content).toContain('[Team Consensus]');
-    expect(result.content.toLowerCase()).toContain('consensus');
+    expect(result.content).toContain('[Debate Summary');
+    expect(result.content.toLowerCase()).toContain('debate');
     expect(((result.metadata as any)?.rounds ?? 0)).toBeGreaterThan(0);
     expect(((result.metadata as any)?.rounds ?? 0)).toBeLessThanOrEqual(3);
   });

@@ -110,6 +110,7 @@
 
   // 设置操作
   settingsGetConfig: () => ipcRenderer.invoke('settings:get-config'),
+  settingsGetFullConfig: () => ipcRenderer.invoke('settings:get-full-config'),
   settingsUpdateConfig: (data: any) => ipcRenderer.invoke('settings:update-config', data),
 
   // ============ 会话管理 ============
@@ -163,6 +164,9 @@
     ipcRenderer.invoke('projects-get-docs', data),
   projectsReadDoc: (data: { filePath: string }) =>
     ipcRenderer.invoke('projects-read-doc', data),
+  onProjectInfo: (callback: (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => void) => {
+    ipcRenderer.on('project:info', (_event, data) => callback(data));
+  },
 
   // ============ Todo 管理 ============
   todoArchiveCompleted: () => ipcRenderer.invoke('todo:archive-completed'),
@@ -232,6 +236,11 @@
 
   // ============ 下载管理 ============
   downloadGetTasks: () => ipcRenderer.invoke('download:get-tasks'),
+  downloadGetProjectRoot: () => ipcRenderer.invoke('download:get-project-root'),
+  downloadCheckEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:check-embedding-model', modelId),
+  downloadUninstallEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:uninstall-embedding-model', modelId),
+  downloadCreate: (options: { url: string; dest: string; name: string; category?: string }) =>
+    ipcRenderer.invoke('download:create', options),
   downloadCancel: (taskId: string) => ipcRenderer.invoke('download:cancel', taskId),
   downloadClearFinished: () => ipcRenderer.invoke('download:clear-finished'),
 
@@ -244,7 +253,9 @@
 
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {
-    const handler = (_event: any, ...args: any[]) => callback(...args);
+    const handler = (_event: any, ...args: any[]) => {
+      callback(...args);
+    };
     (callback as any).__ipcHandler = handler;
     ipcRenderer.on(channel, handler);
   },

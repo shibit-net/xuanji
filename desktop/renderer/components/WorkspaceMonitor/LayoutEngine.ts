@@ -4,10 +4,18 @@
 
 import type { Point, Path, Rect, LayoutConfig, SubAgentData, TeamBoundary, TeamStrategy } from './types';
 
+const VIRTUAL_WIDTH = 5000;
+const VIRTUAL_HEIGHT = 4000;
+const VIRTUAL_PADDING = 400;
+
 export class LayoutEngine {
   private config: LayoutConfig;
   /** 当前帧已占用的矩形区域，用于碰撞避让 */
   private occupiedRects: Rect[] = [];
+  /** 虚拟画布内容边界（根据实际内容动态扩展） */
+  private contentBounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
+  /** 成员位置缓存（key: memberId 或 agentId，确保多轮后位置稳定） */
+  private positionCache: Map<string, Point> = new Map();
 
   constructor(canvasWidth: number, canvasHeight: number) {
     this.config = {
@@ -16,9 +24,47 @@ export class LayoutEngine {
       mainRadius: 40,
       subRadius: 25,
       orbitRadius: 150,
-      canvasWidth,
-      canvasHeight,
+      canvasWidth: Math.max(canvasWidth, VIRTUAL_WIDTH),
+      canvasHeight: Math.max(canvasHeight, VIRTUAL_HEIGHT),
     };
+  }
+
+  // ─── 位置缓存辅助 ─────────────────────────────────────────
+
+  /** 获取 agent 的稳定标识键（优先 memberId，回退 id） */
+  private getStableKey(agent: SubAgentData): string {
+    return agent.multiAgent?.memberId || agent.id;
+  }
+
+  /** 清除位置缓存（workspace 重置时调用） */
+  clearPositionCache(): void {
+    this.positionCache.clear();
+  }
+
+  /** 按保留的 agent ID 集合裁剪缓存，防止长时间任务中缓存无限增长 */
+  prunePositionCache(activeAgentIds: Set<string>): void {
+    for (const [key] of this.positionCache) {
+      // 保留活跃 agent 的位置，以及 lookup key 在活跃集合中的
+      if (!activeAgentIds.has(key)) {
+        this.positionCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 获取 agent 的稳定位置（优先使用树形布局位置，fallback 时用缓存避免位置跳动）
+   */
+  getStableAgentPosition(agent: SubAgentData, treePositions: Map<string, Point>, index: number, total: number): Point {
+    const treePos = treePositions.get(agent.id);
+    if (treePos) return treePos;
+
+    const key = this.getStableKey(agent);
+    const cached = this.positionCache.get(key);
+    if (cached) return cached;
+
+    const pos = this.getSubAgentPosition(index, total);
+    this.positionCache.set(key, pos);
+    return pos;
   }
 
   // ─── 碰撞检测 ─────────────────────────────────────────────
@@ -48,9 +94,9 @@ export class LayoutEngine {
     return false;
   }
 
-  /** 检查矩形是否在 canvas 边界内 */
+  /** 检查矩形是否在虚拟画布边界内 */
   private isInBounds(rect: Rect): boolean {
-    const pad = 4;
+    const pad = VIRTUAL_PADDING;
     return (
       rect.x >= pad &&
       rect.y >= pad &&
@@ -59,9 +105,9 @@ export class LayoutEngine {
     );
   }
 
-  /** 将矩形 clamp 到 canvas 内 */
+  /** 将矩形 clamp 到虚拟画布内 */
   private clampRect(rect: Rect): Rect {
-    const pad = 4;
+    const pad = VIRTUAL_PADDING;
     let { x, y, width, height } = rect;
     if (x < pad) x = pad;
     if (y < pad) y = pad;
@@ -72,11 +118,42 @@ export class LayoutEngine {
 
   // ─── 尺寸 ─────────────────────────────────────────────────
 
+  /** 更新虚拟画布尺寸并动态扩展布局中心 */
   updateSize(width: number, height: number) {
     this.config.centerX = width / 2;
     this.config.centerY = height / 2;
-    this.config.canvasWidth = width;
-    this.config.canvasHeight = height;
+    this.config.canvasWidth = Math.max(width, this.config.canvasWidth);
+    this.config.canvasHeight = Math.max(height, this.config.canvasHeight);
+  }
+
+  /** 获取虚拟画布尺寸 */
+  getVirtualSize(): { width: number; height: number } {
+    return {
+      width: this.config.canvasWidth,
+      height: this.config.canvasHeight,
+    };
+  }
+
+  /** 获取内容边界（用于自动适配视图） */
+  getContentBounds(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    return this.contentBounds;
+  }
+
+  /** 更新内容边界 */
+  private updateContentBounds(x: number, y: number, margin: number = 200) {
+    if (!this.contentBounds) {
+      this.contentBounds = {
+        minX: x - margin,
+        minY: y - margin,
+        maxX: x + margin,
+        maxY: y + margin,
+      };
+    } else {
+      this.contentBounds.minX = Math.min(this.contentBounds.minX, x - margin);
+      this.contentBounds.minY = Math.min(this.contentBounds.minY, y - margin);
+      this.contentBounds.maxX = Math.max(this.contentBounds.maxX, x + margin);
+      this.contentBounds.maxY = Math.max(this.contentBounds.maxY, y + margin);
+    }
   }
 
   getMainAgentRadius(): number {
@@ -90,46 +167,39 @@ export class LayoutEngine {
   // ─── 主 Agent 位置 ────────────────────────────────────────
 
   getMainAgentPosition(): Point {
-    return {
+    const pos = {
       x: this.config.centerX,
-      y: Math.min(180, this.config.canvasHeight * 0.25),
+      y: this.config.canvasHeight * 0.2,
     };
+    this.updateContentBounds(pos.x, pos.y, 300);
+    return pos;
   }
 
   // ─── 子 Agent 位置（多行自适应）───────────────────────────
 
   getSubAgentPosition(index: number, total: number): Point {
     if (total === 0) {
-      return { x: this.config.centerX, y: 400 };
+      return { x: this.config.centerX, y: this.config.centerY + 320 };
     }
 
-    const subRadius = this.getSubAgentRadius();
-    const padding = 80; // 左右边距（包含附件空间）
     const mainY = this.getMainAgentPosition().y;
-    const verticalGap = 180; // 主→子垂直间距
+    const verticalGap = 320;
 
-    // 计算每行容量
-    const cellWidth = 160; // 每个节点占用宽度（节点+附件+间距）
-    const usableWidth = this.config.canvasWidth - padding * 2;
+    const cellWidth = 160;
+    const usableWidth = this.config.canvasWidth - VIRTUAL_PADDING * 2;
     const perRow = Math.max(1, Math.floor(usableWidth / cellWidth));
 
-    // 行列计算
     const row = Math.floor(index / perRow);
     const col = index % perRow;
-    const colsInRow = Math.min(perRow, total - row * perRow); // 这一行的实际列数
+    const colsInRow = Math.min(perRow, total - row * perRow);
 
-    // 居中排列
     const rowWidth = (colsInRow - 1) * cellWidth;
     const startX = this.config.centerX - rowWidth / 2;
 
     const x = startX + col * cellWidth;
-    const y = mainY + verticalGap + row * 140; // 行间距 140
+    const y = mainY + verticalGap + row * 160;
 
-    // clamp 到 canvas 内
-    return {
-      x: Math.max(padding, Math.min(x, this.config.canvasWidth - padding)),
-      y: Math.max(subRadius + 10, Math.min(y, this.config.canvasHeight - subRadius - 60)),
-    };
+    return { x, y };
   }
 
   // ─── 连接线 ───────────────────────────────────────────────
@@ -158,19 +228,45 @@ export class LayoutEngine {
     agentRadius: number,
     bubbleWidth: number,
     bubbleHeight: number,
+    preferTop: boolean = false,
   ): Point {
-    const gap = 30; // 🔧 增大基础间距，避免气泡遮挡其他节点
+    const gap = 30;
 
-    // 🔧 候选位置优先级：上 → 左 → 右 → 下 → 对角线 → 更远位置
-    const candidates: Point[] = [
-      // 🔧 第一优先级：上方（水平居中）- 优先向上，避免遮挡下方节点
+    // 候选位置：团队并行模式优先上方（避免与左侧邻居的工具堆栈重叠），独立 agent 优先左侧
+    const topFirst = preferTop;
+    const candidates: Point[] = topFirst ? [
+      // 第一优先级：上方（水平居中）
       { x: agentPos.x - bubbleWidth / 2, y: agentPos.y - agentRadius - gap - bubbleHeight },
-
-      // 第二优先级：左右两侧（垂直居中）
+      // 第二优先级：左侧（垂直居中）
       { x: agentPos.x - agentRadius - gap - bubbleWidth, y: agentPos.y - bubbleHeight / 2 },
+      // 第三优先级：右侧（垂直居中）
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y - bubbleHeight / 2 },
+      // 第四优先级：下方（水平居中）
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y + agentRadius + gap },
+      // 对角线
+      { x: agentPos.x - agentRadius - gap - bubbleWidth, y: agentPos.y - agentRadius - gap - bubbleHeight },
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y - agentRadius - gap - bubbleHeight },
+      { x: agentPos.x - agentRadius - gap - bubbleWidth, y: agentPos.y + agentRadius + gap },
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y + agentRadius + gap },
+      // 更远位置
+      { x: agentPos.x - agentRadius - gap * 2 - bubbleWidth, y: agentPos.y - bubbleHeight / 2 },
+      { x: agentPos.x + agentRadius + gap * 2, y: agentPos.y - bubbleHeight / 2 },
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y - agentRadius - gap * 2 - bubbleHeight },
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y + agentRadius + gap * 2 },
+      // 极远位置
+      { x: agentPos.x - agentRadius - gap * 3 - bubbleWidth, y: agentPos.y - bubbleHeight / 2 },
+      { x: agentPos.x + agentRadius + gap * 3, y: agentPos.y - bubbleHeight / 2 },
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y - agentRadius - gap * 3 - bubbleHeight },
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y + agentRadius + gap * 3 },
+    ] : [
+      // 第一优先级：左侧（垂直居中）
+      { x: agentPos.x - agentRadius - gap - bubbleWidth, y: agentPos.y - bubbleHeight / 2 },
+      // 第二优先级：上方（水平居中）
+      { x: agentPos.x - bubbleWidth / 2, y: agentPos.y - agentRadius - gap - bubbleHeight },
+      // 第三优先级：右侧（垂直居中）
       { x: agentPos.x + agentRadius + gap, y: agentPos.y - bubbleHeight / 2 },
 
-      // 第三优先级：下方（水平居中）
+      // 第四优先级：下方（水平居中）
       { x: agentPos.x - bubbleWidth / 2, y: agentPos.y + agentRadius + gap },
 
       // 第三优先级：四个对角线位置
@@ -286,8 +382,10 @@ export class LayoutEngine {
     const gap = 12;
     const verticalOffset = agentRadius + gap;
 
-    // 候选位置优先级：右侧 → 上方 → 下方 → 左侧
+    // 候选位置优先级：右上（避免与 timeline 重叠）→ 右侧 → 上方 → 下方 → 左侧
     const candidates: Point[] = [
+      // 右上（currentMoment 在上，timeline 在下）
+      { x: agentPos.x + agentRadius + gap, y: agentPos.y - verticalOffset - tagHeight },
       // 右侧（水平居中）
       { x: agentPos.x + agentRadius + gap, y: agentPos.y - tagHeight / 2 },
       // 上方（水平居中）
@@ -296,8 +394,6 @@ export class LayoutEngine {
       { x: agentPos.x - tagWidth / 2, y: agentPos.y + verticalOffset },
       // 左侧（水平居中）
       { x: agentPos.x - agentRadius - gap - tagWidth, y: agentPos.y - tagHeight / 2 },
-      // 右上角
-      { x: agentPos.x + agentRadius + gap, y: agentPos.y - verticalOffset - tagHeight },
       // 右下角
       { x: agentPos.x + agentRadius + gap, y: agentPos.y + verticalOffset },
     ];
@@ -328,16 +424,8 @@ export class LayoutEngine {
     const gap = 10;
     const dotSpacing = 10;
     const totalHeight = (dotCount - 1) * dotSpacing;
-    let x = agentPos.x - agentRadius - gap - 4;
-    let y = agentPos.y - totalHeight / 2;
-
-    // clamp
-    if (x < 10) x = 10;
-    if (y < 10) y = 10;
-    if (y + totalHeight > this.config.canvasHeight - 10) {
-      y = this.config.canvasHeight - 10 - totalHeight;
-    }
-
+    const x = agentPos.x - agentRadius - gap - 4;
+    const y = agentPos.y - totalHeight / 2;
     return { x, y };
   }
 
@@ -346,19 +434,8 @@ export class LayoutEngine {
   getTimelineOrigin(agentPos: Point, agentRadius: number): Point {
     const gap = 12;
     const timelineWidth = agentRadius * 6;
-    let x = agentPos.x - timelineWidth / 2;
-    let y = agentPos.y + agentRadius + gap;
-
-    // clamp 水平
-    if (x < 10) x = 10;
-    if (x + timelineWidth > this.config.canvasWidth - 10) {
-      x = this.config.canvasWidth - 10 - timelineWidth;
-    }
-    // clamp 垂直
-    if (y + 24 > this.config.canvasHeight - 10) {
-      y = this.config.canvasHeight - 34;
-    }
-
+    const x = agentPos.x - timelineWidth / 2;
+    const y = agentPos.y + agentRadius + gap;
     return { x, y };
   }
 
@@ -407,135 +484,92 @@ export class LayoutEngine {
   /**
    * 根据 subAgents 的 parentAgentId 和 strategy 构建策略感知布局
    * 返回每个 agent ID → 位置的映射
+   *
+   * 布局顺序：
+   * 1. team 容器节点 → 树形布局（像普通子Agent一样获得位置）
+   * 2. 团队成员 → 以容器节点位置为中心，在边界框内布局
+   * 3. 普通子Agent → 在所有团队下方布局
    */
   computeTreePositions(subAgents: SubAgentData[]): Map<string, Point> {
     const positions = new Map<string, Point>();
     if (subAgents.length === 0) return positions;
 
-    console.log('[LayoutEngine] computeTreePositions: 开始计算布局，共', subAgents.length, '个 agent');
-
     const mainPos = this.getMainAgentPosition();
 
-    // 按团队分组（同一个 teamName 的成员）
-    const teamGroups = this.groupByTeam(subAgents);
+    // Step 1: 分离不同类型的 agent
+    const teamContainerNodes = subAgents.filter(a => a.id.startsWith('team-'));
+    const teamMembers = subAgents.filter(a => a.multiAgent?.teamName && !a.id.startsWith('team-'));
+    const regularAgents = subAgents.filter(a => !a.multiAgent?.teamName && !a.id.startsWith('team-'));
 
-    console.log('[LayoutEngine] 团队分组完成，共', teamGroups.size, '个团队');
+    // Step 2: team 容器节点 → 树形布局（获取 X 坐标，Y 将在 Step 3 按策略动态计算）
+    if (teamContainerNodes.length > 0) {
+      // 使用临时 Y 坐标获取 X 位置，真正的 Y 将在团队循环中按策略重新计算
+      this.layoutNonTeamAgents(teamContainerNodes, mainPos, positions, mainPos.y + 300);
+    }
 
-    // 🔧 改进：计算每个团队需要的空间，避免重叠
-    const teamBounds: Array<{ teamName: string; members: SubAgentData[]; minX: number; maxX: number; minY: number; maxY: number }> = [];
+    // Step 3: 按 teamName 分组团队成员
+    const teamGroups = this.groupByTeam(teamMembers);
+    const teamBoundsData: Array<{ teamName: string; members: SubAgentData[]; minX: number; maxX: number; minY: number; maxY: number }> = [];
 
-    // 为每个团队应用策略布局
-    let teamIndex = 0;
+    // 为团队计算默认 Y 偏移（所有团队从同一个起始 Y 开始）
+    let teamYOffset = mainPos.y + this.config.mainRadius + 80;
 
-    teamGroups.forEach((team, teamName) => {
-      const strategy = team[0].multiAgent?.strategy as TeamStrategy | undefined;
+    teamGroups.forEach((members, teamName) => {
+      // 找到对应的 team 容器节点（通过 multiAgent.teamName 匹配）
+      const containerNode = teamContainerNodes.find(
+        a => a.multiAgent?.teamName === teamName
+      );
 
-      // 根据策略估算团队所需空间（考虑节点大小 + 标签 + padding）
-      let teamWidth = 0;
-      let teamHeight = 0;
+      const strategy = members[0].multiAgent?.strategy as TeamStrategy | undefined;
+      const centerToTop = this.getTeamCenterToTopDistance(strategy || 'parallel', members.length);
 
-      const nodeWidth = 80; // 节点宽度
-      const nodeHeight = 60; // 节点高度（包含标签）
+      let teamCenter: Point;
 
-      switch (strategy) {
-        case 'sequential':
-          teamWidth = nodeWidth + 100; // 垂直排列，宽度固定 + padding
-          teamHeight = team.length * 120 + 100; // 每个成员 120px（增大间距）+ padding
-          break;
-        case 'debate':
-          // 🔧 根据成员数量动态计算所需空间
-          const baseRadius = 180; // 与 layoutDebate 保持一致
-          const radiusPerMember = 15;
-          const debateRadius = baseRadius + Math.max(0, team.length - 3) * radiusPerMember;
-          // 需要的空间 = (半径 + 节点半径 + 气泡宽度) * 2
-          const spaceNeeded = (debateRadius + 25 + 220) * 2; // 25是节点半径，220是气泡宽度
-          teamWidth = spaceNeeded;
-          teamHeight = spaceNeeded;
-          break;
-        case 'hierarchical':
-          teamWidth = Math.max(250, (team.length - 1) * 140 + nodeWidth + 100);
-          teamHeight = 250; // Leader + Workers 两层，增大垂直间距
-          break;
-        case 'pipeline':
-          teamWidth = team.length * 160 + nodeWidth + 100; // 增大水平间距
-          teamHeight = nodeHeight + 100;
-          break;
-        case 'parallel':
-        default:
-          teamWidth = team.length * 140 + nodeWidth + 100; // 增大水平间距
-          teamHeight = nodeHeight + 100;
-          break;
-      }
-
-      // 🔧 根据团队数量决定布局策略
-      let teamCenterX: number;
-      let teamCenterY: number;
-
-      // 计算主 agent 占用的安全区域（包括名称标签）
-      const mainRadius = this.getMainAgentRadius();
-      const mainSafeZoneBottom = mainPos.y + mainRadius + 50; // 主agent底部 + 名称标签高度 + 安全间距
-
-      if (teamGroups.size === 1) {
-        // 单个团队：在主 agent 正下方居中，距离更远
-        teamCenterX = mainPos.x;
-        // 🔧 增大团队与主 agent 的距离
-        teamCenterY = mainSafeZoneBottom + teamHeight / 2 + 80; // 从40增加到80
-      } else if (teamGroups.size === 2) {
-        // 两个团队：在主 agent 左右两侧，距离更远
-        const spacing = 350; // 🔧 从250增加到350
-        teamCenterX = teamIndex === 0 ? mainPos.x - spacing : mainPos.x + spacing;
-        teamCenterY = mainSafeZoneBottom + teamHeight / 2 + 80; // 从40增加到80
+      if (containerNode) {
+        const containerPos = positions.get(containerNode.id);
+        if (containerPos) {
+          containerPos.y = teamYOffset + centerToTop;
+          positions.set(containerNode.id, containerPos);
+          teamCenter = containerPos;
+        } else {
+          // 容器节点在树布局中没有位置，基于主 agent 计算中心
+          teamCenter = { x: mainPos.x, y: teamYOffset + centerToTop };
+        }
       } else {
-        // 3+ 个团队：围绕主 agent 排布（圆形布局），半径更大
-        const radius = 450; // 🔧 从350增加到450
-        const angleStep = (2 * Math.PI) / teamGroups.size;
-        const angle = teamIndex * angleStep - Math.PI / 2; // 从顶部开始（-90度）
-        teamCenterX = mainPos.x + radius * Math.cos(angle);
-        // 确保所有团队都在安全区域下方
-        const calculatedY = mainPos.y + 250 + radius * Math.sin(angle);
-        teamCenterY = Math.max(calculatedY, mainSafeZoneBottom + teamHeight / 2 + 80);
+        // 无容器节点时，直接基于主 agent 计算团队中心位置
+        teamCenter = { x: mainPos.x, y: teamYOffset + centerToTop };
       }
 
-      console.log('[LayoutEngine] 团队', teamName, '中心位置:', { x: teamCenterX, y: teamCenterY }, '尺寸:', { width: teamWidth, height: teamHeight });
-
-      const teamPositions = this.layoutTeam(team, { x: teamCenterX, y: teamCenterY }, teamIndex, teamGroups.size);
+      // 在边界框内布局团队成员
+      const teamPositions = this.layoutTeam(members, teamCenter, 0, 1);
       teamPositions.forEach((pos, agentId) => {
         positions.set(agentId, pos);
       });
 
-      // 记录团队边界
-      teamBounds.push({
+      // 估算边界框尺寸
+      const { width: teamWidth, height: teamHeight } = this.estimateTeamSize(members.length, strategy);
+
+      teamBoundsData.push({
         teamName,
-        members: team,
-        minX: teamCenterX - teamWidth / 2,
-        maxX: teamCenterX + teamWidth / 2,
-        minY: teamCenterY - teamHeight / 2,
-        maxY: teamCenterY + teamHeight / 2,
+        members,
+        minX: teamCenter.x - teamWidth / 2,
+        maxX: teamCenter.x + teamWidth / 2,
+        minY: teamCenter.y - teamHeight / 2,
+        maxY: teamCenter.y + teamHeight / 2,
       });
 
-      // 移动到下一个团队索引
-      teamIndex++;
+      // 累加 Y 偏移，防止多个团队重叠
+      teamYOffset += teamHeight + 60; // 团队高度 + 间距
     });
 
-    // 处理非团队成员（没有 multiAgent 信息的普通子 agent）
-    const nonTeamAgents = subAgents.filter(a => !a.multiAgent?.teamName);
-    console.log('[LayoutEngine] 非团队成员数量:', nonTeamAgents.length);
-
-    if (nonTeamAgents.length > 0) {
-      // 🔧 改进：支持混合布局（团队 + 独立agent）
-      // 如果有团队，非团队成员放在所有团队下方
-      // 如果没有团队，非团队成员直接在主agent下方居中排列
-      const maxTeamY = teamBounds.length > 0
-        ? Math.max(...teamBounds.map(b => b.maxY))
+    // Step 4: 普通子Agent → 在所有团队下方布局
+    if (regularAgents.length > 0) {
+      const maxTeamY = teamBoundsData.length > 0
+        ? Math.max(...teamBoundsData.map(b => b.maxY))
         : mainPos.y + 150;
-
-      // 🔧 如果既有团队又有独立agent，给它们之间留出足够间距
-      const startY = teamBounds.length > 0 ? maxTeamY + 80 : mainPos.y + 200;
-
-      this.layoutNonTeamAgents(nonTeamAgents, mainPos, positions, startY);
+      const startY = maxTeamY + 80;
+      this.layoutNonTeamAgents(regularAgents, mainPos, positions, startY);
     }
-
-    console.log('[LayoutEngine] computeTreePositions: 布局完成，共', positions.size, '个位置');
 
     return positions;
   }
@@ -546,33 +580,89 @@ export class LayoutEngine {
   private groupByTeam(subAgents: SubAgentData[]): Map<string, SubAgentData[]> {
     const teams = new Map<string, SubAgentData[]>();
 
-    console.log('[LayoutEngine] groupByTeam: 开始分组，总共', subAgents.length, '个 agent');
 
     subAgents.forEach(agent => {
-      console.log('[LayoutEngine] 检查 agent:', {
-        id: agent.id,
-        name: agent.name,
-        hasMultiAgent: !!agent.multiAgent,
-        teamName: agent.multiAgent?.teamName,
-        strategy: agent.multiAgent?.strategy,
-      });
-
-      if (agent.multiAgent?.teamName) {
+      // 🔧 排除 team 容器节点（id 以 "team-" 开头），避免团队边界框将容器节点自身也包裹进去
+      // team 容器节点应由 WorkspaceMonitor 作为团队标题栏渲染，而非作为团队成员参与布局
+      if (agent.multiAgent?.teamName && !agent.id.startsWith('team-')) {
         const teamKey = agent.multiAgent.teamName;
         if (!teams.has(teamKey)) {
           teams.set(teamKey, []);
         }
         teams.get(teamKey)!.push(agent);
-        console.log('[LayoutEngine] 添加到团队:', teamKey);
       }
     });
 
-    console.log('[LayoutEngine] groupByTeam: 分组完成，共', teams.size, '个团队');
     teams.forEach((members, teamName) => {
-      console.log('[LayoutEngine] 团队:', teamName, '成员数:', members.length, '策略:', members[0]?.multiAgent?.strategy);
     });
 
     return teams;
+  }
+
+  /**
+   * 估算团队边界框尺寸（根据成员数量和策略）
+   * 考虑 timeline 和 tool stack 的宽度，防止右侧元素溢出遮挡
+   */
+  private estimateTeamSize(memberCount: number, strategy?: TeamStrategy): { width: number; height: number } {
+    const nodeWidth = 80;
+    const nodeHeight = 60;
+    const minGap = 210; // 与 layoutParallel/layoutPipeline/layoutHierarchical 保持一致
+
+    switch (strategy) {
+      case 'sequential':
+        return { width: Math.max(nodeWidth + 100, 300), height: memberCount * 170 + 50 };
+      case 'debate': {
+        const baseRadius = 180;
+        const radiusPerMember = 15;
+        const debateRadius = baseRadius + Math.max(0, memberCount - 3) * radiusPerMember;
+        const spaceNeeded = (debateRadius + 25 + 220) * 2;
+        return { width: spaceNeeded, height: spaceNeeded };
+      }
+      case 'hierarchical':
+        // Workers 水平排列，间距 = max(200 + toolStackExtra, 250)，这里用 250 下限估算
+        return { width: Math.max(300, (memberCount - 1) * 250 + nodeWidth + 120), height: 280 };
+      case 'pipeline':
+        return { width: memberCount * minGap + nodeWidth + 80, height: nodeHeight + 100 };
+      case 'parallel':
+      default:
+        return { width: memberCount * minGap + nodeWidth + 80, height: nodeHeight + 100 };
+    }
+  }
+
+  /**
+   * 计算团队中心到边界框顶部的距离（含 paddingTop）
+   * 不同策略的成员布局方式不同，因此该距离因策略而异。
+   */
+  private getTeamCenterToTopDistance(strategy: TeamStrategy, memberCount: number): number {
+    const paddingTop = 60;
+    const nodeRadius = this.config.subRadius; // 25
+
+    switch (strategy) {
+      case 'debate': {
+        const baseRadius = 180;
+        const radiusPerMember = 15;
+        const debateRadius = baseRadius + Math.max(0, memberCount - 3) * radiusPerMember;
+        // 成员环形布局：圆心到顶部成员的距离 = debateRadius
+        return debateRadius + paddingTop;
+      }
+      case 'sequential': {
+        // 垂直排列：间距 170px，半高 = (memberCount - 1) * 85
+        return (memberCount - 1) * 85 + paddingTop;
+      }
+      case 'hierarchical': {
+        // Leader 在上方垂直间距 100px
+        return 100 + nodeRadius + paddingTop;
+      }
+      case 'pipeline': {
+        // 水平排列
+        return nodeRadius + paddingTop;
+      }
+      case 'parallel':
+      default: {
+        // 水平排列：所有成员同一行
+        return nodeRadius + paddingTop;
+      }
+    }
   }
 
   /**
@@ -589,34 +679,19 @@ export class LayoutEngine {
 
     const strategy = members[0].multiAgent?.strategy as TeamStrategy | undefined;
 
-    console.log('[LayoutEngine] layoutTeam: 布局团队', {
-      teamIndex,
-      totalTeams,
-      memberCount: members.length,
-      strategy,
-      teamName: members[0].multiAgent?.teamName,
-      center,
-    });
-
     // 🔧 直接使用传入的 center，不再重新计算
     switch (strategy) {
       case 'sequential':
-        console.log('[LayoutEngine] 使用 Sequential 布局');
         return this.layoutSequential(members, center);
       case 'debate':
-        console.log('[LayoutEngine] 使用 Debate 布局');
         return this.layoutDebate(members, center);
       case 'hierarchical':
-        console.log('[LayoutEngine] 使用 Hierarchical 布局');
         return this.layoutHierarchical(members, center);
       case 'pipeline':
-        console.log('[LayoutEngine] 使用 Pipeline 布局');
         return this.layoutPipeline(members, center);
       case 'parallel':
-        console.log('[LayoutEngine] 使用 Parallel 布局');
         return this.layoutParallel(members, center);
       default:
-        console.log('[LayoutEngine] 使用默认 Parallel 布局（策略未识别）');
         // 默认水平布局
         return this.layoutParallel(members, center);
     }
@@ -624,17 +699,28 @@ export class LayoutEngine {
 
   /**
    * Sequential 布局：垂直排列，带序号
+   * 固定间距，预留 timeline + currentMoment 空间，避免执行时跳动
    */
   private layoutSequential(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
-    const verticalGap = 120; // 增大间距，避免标签重叠
-    const startY = center.y - ((members.length - 1) * verticalGap) / 2;
 
-    members.forEach((agent, index) => {
-      positions.set(agent.id, {
-        x: center.x,
-        y: startY + index * verticalGap,
-      });
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...members].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
+
+    // 垂直间距需容纳 agent 圆 + timeline strip + tool stack + 安全间距
+    const verticalGap = 170;
+    const startY = center.y - ((sorted.length - 1) * verticalGap) / 2;
+
+    sorted.forEach((agent, index) => {
+      const key = this.getStableKey(agent);
+      const cached = this.positionCache.get(key);
+      if (cached) {
+        positions.set(agent.id, cached);
+      } else {
+        const pos = { x: center.x, y: startY + index * verticalGap };
+        this.positionCache.set(key, pos);
+        positions.set(agent.id, pos);
+      }
     });
 
     return positions;
@@ -646,20 +732,29 @@ export class LayoutEngine {
    */
   private layoutDebate(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
-    // 🔧 增大半径，避免 agent 标签遮挡中心圆
-    // 中心圆半径为 50px，agent 半径为 25px，标签高度约 40px（名称15px + 类型标签20px + 间距）
-    // 需要确保 agent 到中心的距离 > 50 + 25 + 40 = 115px
-    const baseRadius = 180; // 基础半径从 160 增加到 180
-    const radiusPerMember = 15; // 每增加一个成员，半径增加 15px
-    const radius = baseRadius + Math.max(0, members.length - 3) * radiusPerMember;
-    const angleStep = (2 * Math.PI) / members.length;
 
-    members.forEach((agent, index) => {
-      const angle = index * angleStep - Math.PI / 2; // 从顶部开始
-      positions.set(agent.id, {
-        x: center.x + radius * Math.cos(angle),
-        y: center.y + radius * Math.sin(angle),
-      });
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...members].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
+
+    const baseRadius = 180;
+    const radiusPerMember = 15;
+    const radius = baseRadius + Math.max(0, sorted.length - 3) * radiusPerMember;
+    const angleStep = (2 * Math.PI) / sorted.length;
+
+    sorted.forEach((agent, index) => {
+      const key = this.getStableKey(agent);
+      const cached = this.positionCache.get(key);
+      if (cached) {
+        positions.set(agent.id, cached);
+      } else {
+        const angle = index * angleStep - Math.PI / 2;
+        const pos = {
+          x: center.x + radius * Math.cos(angle),
+          y: center.y + radius * Math.sin(angle),
+        };
+        this.positionCache.set(key, pos);
+        positions.set(agent.id, pos);
+      }
     });
 
     return positions;
@@ -667,31 +762,53 @@ export class LayoutEngine {
 
   /**
    * Hierarchical 布局：Leader 在上，Workers 在下水平排列
+   *
+   * 间距需容纳 agent 节点 + timeline (150px 宽) + currentMoment 标签 (~100px)，
+   * 确保 timeline 不被相邻成员的节点遮挡，又不预留过多空白。
+   * 最小间距 = agentRadius*2 + timeline半宽 + tagWidth + margin ≈ 50 + 75 + 100 + 25 = 250
    */
   private layoutHierarchical(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
 
-    // 找到 Leader（priority 最高或第一个）
-    const leader = members[0];
-    const workers = members.slice(1);
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...members].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
+
+    const leader = sorted[0];
+    const workers = sorted.slice(1);
 
     // Leader 位置
-    positions.set(leader.id, {
-      x: center.x,
-      y: center.y - 80, // 增大垂直间距
-    });
+    const leaderKey = this.getStableKey(leader);
+    const cachedLeader = this.positionCache.get(leaderKey);
+    if (cachedLeader) {
+      positions.set(leader.id, cachedLeader);
+    } else {
+      const pos = { x: center.x, y: center.y - 80 };
+      this.positionCache.set(leaderKey, pos);
+      positions.set(leader.id, pos);
+    }
 
-    // Workers 水平排列
+    // Workers 水平排列 — 间距需足够容纳 timeline 不遮挡相邻节点
     if (workers.length > 0) {
-      const workerSpacing = 140; // 增大水平间距
+      const maxTimelineCount = Math.max(0, ...workers.map(a => a.timelineEvents?.length || 0));
+      const toolStackExtra = Math.min(maxTimelineCount, 4) * 30;
+      // timeline 总占用 = agent 半径(25) * 6 = 150px，居中于节点
+      // currentMoment 标签在节点右侧 ~137px
+      // 最小间距确保 timeline + tag 不侵入相邻节点的 agent 圆形区域
+      const timelineReserve = 250;
+      const workerSpacing = Math.max(200 + toolStackExtra, timelineReserve);
       const totalWidth = (workers.length - 1) * workerSpacing;
       const startX = center.x - totalWidth / 2;
 
       workers.forEach((agent, index) => {
-        positions.set(agent.id, {
-          x: startX + index * workerSpacing,
-          y: center.y + 80, // 增大垂直间距
-        });
+        const key = this.getStableKey(agent);
+        const cached = this.positionCache.get(key);
+        if (cached) {
+          positions.set(agent.id, cached);
+        } else {
+          const pos = { x: startX + index * workerSpacing, y: center.y + 80 };
+          this.positionCache.set(key, pos);
+          positions.set(agent.id, pos);
+        }
       });
     }
 
@@ -700,17 +817,30 @@ export class LayoutEngine {
 
   /**
    * Pipeline 布局：水平流程图
+   * 间距与 Parallel 保持一致
    */
   private layoutPipeline(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
-    const horizontalGap = 160; // 增大间距，为箭头留空间
-    const startX = center.x - ((members.length - 1) * horizontalGap) / 2;
 
-    members.forEach((agent, index) => {
-      positions.set(agent.id, {
-        x: startX + index * horizontalGap,
-        y: center.y,
-      });
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...members].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
+
+    const maxTimelineCount = Math.max(0, ...sorted.map(a => a.timelineEvents?.length || 0));
+    const toolStackExtra = Math.min(maxTimelineCount, 4) * 30;
+    const minTimelineGap = 210;
+    const horizontalGap = Math.max(180 + toolStackExtra, minTimelineGap);
+    const startX = center.x - ((sorted.length - 1) * horizontalGap) / 2;
+
+    sorted.forEach((agent, index) => {
+      const key = this.getStableKey(agent);
+      const cached = this.positionCache.get(key);
+      if (cached) {
+        positions.set(agent.id, cached);
+      } else {
+        const pos = { x: startX + index * horizontalGap, y: center.y };
+        this.positionCache.set(key, pos);
+        positions.set(agent.id, pos);
+      }
     });
 
     return positions;
@@ -718,18 +848,37 @@ export class LayoutEngine {
 
   /**
    * Parallel 布局：水平排列
+   *
+   * 间距恰好容纳 timeline + currentMoment 标签，不预留多余空白。
+   * timeline 半宽 = agentRadius * 3 = 75px，tag 最右点 ≈ agentRadius + gap + tagWidth = 137px
+   * 最小间距 = tagRight + agentRadius + margin ≈ 137 + 25 + 15 = 177 → 取 190 确保不拥挤
    */
   private layoutParallel(members: SubAgentData[], center: Point): Map<string, Point> {
     const positions = new Map<string, Point>();
-    const horizontalGap = 140; // 增大间距
-    const totalWidth = (members.length - 1) * horizontalGap;
+
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...members].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
+
+    const maxTimelineCount = Math.max(0, ...sorted.map(a => a.timelineEvents?.length || 0));
+    const toolStackExtra = Math.min(maxTimelineCount, 4) * 30;
+    // timeline 总宽 150px 居中于节点 + currentMoment 标签在右侧
+    // 最小间距确保所有元素不被相邻节点遮挡
+    const minTimelineGap = 210;
+    const horizontalGap = Math.max(180 + toolStackExtra, minTimelineGap);
+
+    const totalWidth = (sorted.length - 1) * horizontalGap;
     const startX = center.x - totalWidth / 2;
 
-    members.forEach((agent, index) => {
-      positions.set(agent.id, {
-        x: startX + index * horizontalGap,
-        y: center.y,
-      });
+    sorted.forEach((agent, index) => {
+      const key = this.getStableKey(agent);
+      const cached = this.positionCache.get(key);
+      if (cached) {
+        positions.set(agent.id, cached);
+      } else {
+        const pos = { x: startX + index * horizontalGap, y: center.y };
+        this.positionCache.set(key, pos);
+        positions.set(agent.id, pos);
+      }
     });
 
     return positions;
@@ -744,23 +893,27 @@ export class LayoutEngine {
     existingPositions: Map<string, Point>,
     startY: number
   ): void {
-    const padding = 80;
-    const cellWidth = 140;
+    // 按稳定键排序，确保多轮后位置不变
+    const sorted = [...agents].sort((a, b) => this.getStableKey(a).localeCompare(this.getStableKey(b)));
 
-    console.log('[LayoutEngine] layoutNonTeamAgents: 布局非团队成员，startY:', startY);
+    const baseCellWidth = 150;
+    const maxTimelineCount = Math.max(0, ...sorted.map(a => a.timelineEvents?.length || 0));
+    const toolStackExtra = Math.min(maxTimelineCount, 4) * 30;
+    const cellWidth = baseCellWidth + toolStackExtra;
 
-    // 简单水平布局
-    const totalWidth = (agents.length - 1) * cellWidth;
+    const totalWidth = (sorted.length - 1) * cellWidth;
     const startX = mainPos.x - totalWidth / 2;
 
-    agents.forEach((agent, index) => {
-      const x = startX + index * cellWidth;
-      const pos = {
-        x: Math.max(padding, Math.min(x, this.config.canvasWidth - padding)),
-        y: startY,
-      };
-      existingPositions.set(agent.id, pos);
-      console.log('[LayoutEngine] 非团队成员位置:', agent.id, pos);
+    sorted.forEach((agent, index) => {
+      const key = this.getStableKey(agent);
+      const cached = this.positionCache.get(key);
+      if (cached) {
+        existingPositions.set(agent.id, cached);
+      } else {
+        const pos = { x: startX + index * cellWidth, y: startY };
+        this.positionCache.set(key, pos);
+        existingPositions.set(agent.id, pos);
+      }
     });
   }
 
@@ -793,25 +946,17 @@ export class LayoutEngine {
 
       const paddingX = 70;
       const paddingTop = 60;
-      const paddingBottom = 100; // 🔧 增加底部 padding，确保包含 agent 类型标签
+      const paddingBottom = 100;
 
-      const canvasMargin = 40;
-
-      let minX = Math.min(...memberPositions.map(p => p.x)) - paddingX;
-      let maxX = Math.max(...memberPositions.map(p => p.x)) + paddingX;
+      const minX = Math.min(...memberPositions.map(p => p.x)) - paddingX;
+      const maxX = Math.max(...memberPositions.map(p => p.x)) + paddingX;
       let minY = Math.min(...memberPositions.map(p => p.y)) - paddingTop;
-      let maxY = Math.max(...memberPositions.map(p => p.y)) + paddingBottom;
+      const maxY = Math.max(...memberPositions.map(p => p.y)) + paddingBottom;
 
-      // 🔧 确保团队边界框顶部不会侵入主 agent 区域
+      // 确保团队边界框顶部不会侵入主 agent 区域
       if (minY < mainOccupiedBottom) {
         minY = mainOccupiedBottom;
       }
-
-      // 确保不超出 canvas 边界
-      minX = Math.max(canvasMargin, minX);
-      maxX = Math.min(this.config.canvasWidth - canvasMargin, maxX);
-      minY = Math.max(canvasMargin, minY);
-      maxY = Math.min(this.config.canvasHeight - canvasMargin, maxY);
 
       // 找到 Leader（Hierarchical 专用）
       let leaderId: string | undefined;
@@ -829,20 +974,22 @@ export class LayoutEngine {
         currentRound = firstMember.multiAgent?.currentRound;
         maxRounds = firstMember.multiAgent?.maxRounds;
 
-        console.log('[LayoutEngine] Debate 轮次信息:', { currentRound, maxRounds });
       }
 
-      // 🔧 获取团队目标（从第一个成员的 task 中提取）
+      // 🔧 获取团队目标（优先从 multiAgent.goal，其次从第一个成员的 task 中提取）
       let goal: string | undefined;
-      if (members.length > 0 && members[0].task) {
-        goal = members[0].task;
+      if (members.length > 0) {
+        goal = members[0].multiAgent?.goal || members[0].task;
       }
 
       // 🔧 为团队标题预留空间（标题在虚线上方）
       const titleHeight = 32;
 
+      // 🔧 使用成员的 parentAgentId 作为 teamId，确保与 team 容器节点 ID 一致
+      const parentTeamNodeId = members[0]?.parentAgentId || `team-${teamName}`;
+
       boundaries.push({
-        teamId: `team-${teamName}`,
+        teamId: parentTeamNodeId,
         teamName,
         strategy: strategy || 'parallel',
         memberIds,

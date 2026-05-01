@@ -74,6 +74,8 @@ export class BraveAdapter implements SearchEngineAdapter {
       params.set('safesearch', safeSearchMap[options.safeSearch]!);
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
       method: 'GET',
       headers: {
@@ -81,7 +83,9 @@ export class BraveAdapter implements SearchEngineAdapter {
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': this.apiKey,
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Brave Search API error: ${response.status} ${response.statusText}`);

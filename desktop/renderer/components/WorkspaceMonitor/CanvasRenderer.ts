@@ -9,40 +9,64 @@ import type {
   SubAgentState,
   SubAgentData,
   AgentMoment,
-  MomentType,
-  HistoryDot,
   TimelineEvent,
-  RecentEvent,
 } from './types';
 import { LayoutEngine } from './LayoutEngine';
 import { AnimationEngine } from './AnimationEngine';
 
+export interface CanvasRendererConfig {
+  dpr: number;
+  containerWidth: number;
+  containerHeight: number;
+}
+
 export class CanvasRenderer {
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
-  private layoutEngine: LayoutEngine;
-  private animationEngine: AnimationEngine;
-  private animationFrame: number | null = null;
+  private canvas: OffscreenCanvas;
+  private ctx: OffscreenCanvasRenderingContext2D;
+  private layoutEngine!: LayoutEngine;
+  private animationEngine!: AnimationEngine;
   private lastFrameTime: number = 0;
   private state: WorkspaceState | null = null;
   private hoveredAgent: string | null = null;
-  /** 树形布局：agent ID → 位置映射 */
   private treePositions: Map<string, Point> = new Map();
+  private exitProgressMap: Map<string, number> = new Map();
+  private prevAgentIds: Set<string> = new Set();
 
-  constructor(canvas: HTMLCanvasElement) {
+  private viewScale = 1.0;
+  private viewOffsetX = 0;
+  private viewOffsetY = 0;
+  private targetViewScale = 1.0;
+  private targetViewOffsetX = 0;
+  private targetViewOffsetY = 0;
+  private readonly MIN_ZOOM = 0.1;
+  private readonly MAX_ZOOM = 5.0;
+  private containerWidth = 0;
+  private containerHeight = 0;
+  private dpr = 1;
+
+  private subAgentSnapshot = '';
+  private occupiedDirty = true;
+  /** wrapText 结果缓存，避免相同文本每帧重复 measureText */
+  private wrapCache = new Map<string, string[]>();
+
+  constructor(canvas: OffscreenCanvas, config: CanvasRendererConfig) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('无法获取 Canvas 2D 上下文');
-    }
+    if (!ctx) throw new Error('无法获取 Canvas 2D 上下文');
     this.ctx = ctx;
 
-    // 初始化引擎
-    this.layoutEngine = new LayoutEngine(canvas.width, canvas.height);
-    this.animationEngine = new AnimationEngine(this.layoutEngine);
+    this.dpr = config.dpr;
+    this.containerWidth = config.containerWidth;
+    this.containerHeight = config.containerHeight;
+    this.canvas.width = this.containerWidth * this.dpr;
+    this.canvas.height = this.containerHeight * this.dpr;
 
-    // 设置高 DPI 支持
-    this.setupHighDPI();
+    this.layoutEngine = new LayoutEngine(
+      Math.max(this.containerWidth, 5000),
+      Math.max(this.containerHeight, 4000),
+    );
+    this.animationEngine = new AnimationEngine();
+    this.resetView();
   }
 
   /**
@@ -66,26 +90,22 @@ export class CanvasRenderer {
     }
   }
 
-  /**
-   * 设置高 DPI 支持
-   */
-  private setupHighDPI() {
-    const dpr = window.devicePixelRatio || 1;
-    // 从父容器获取尺寸，而不是从 canvas 自身
-    const container = this.canvas.parentElement;
-    if (!container) return;
+  /** 更新画布尺寸（由主线程通过消息触发） */
+  updateCanvasSize(width: number, height: number, dpr: number) {
+    this.containerWidth = width;
+    this.containerHeight = height;
+    this.dpr = dpr;
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    this.layoutEngine.updateSize(
+      Math.max(width, 5000),
+      Math.max(height, 4000),
+    );
+  }
 
-    const rect = container.getBoundingClientRect();
-
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-
-    this.ctx.scale(dpr, dpr);
-
-    this.canvas.style.width = `${rect.width}px`;
-    this.canvas.style.height = `${rect.height}px`;
-
-    this.layoutEngine.updateSize(rect.width, rect.height);
+  /** 获取容器 CSS 尺寸 */
+  getContainerSize(): { width: number; height: number } {
+    return { width: this.containerWidth, height: this.containerHeight };
   }
 
   /**
@@ -93,10 +113,33 @@ export class CanvasRenderer {
    */
   updateState(state: WorkspaceState) {
     this.state = state;
-    // 🔧 立即计算树形布局位置，确保团队边界框能在第一帧就正确显示
+    // 立即计算树形布局位置
     if (this.state.subAgents.length > 0) {
       this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
     }
+    // 计算团队边界框（每次 state 更新时重新计算，因为成员位置可能随轮次变化）
+    if (this.state.subAgents.length > 0) {
+      const boundaries = this.layoutEngine.computeTeamBoundaries(this.state.subAgents, this.treePositions);
+      this.state.teamBoundaries = boundaries;
+      // 更新团队连接（移除旧的团队连接，保留非团队连接）
+      const nonTeamConnections = this.state.collaborations.filter(c => !c.isTeamConnection);
+      const mainId = this.state.mainAgent.id;
+      const teamConnections = boundaries.map((team) => ({
+        from: mainId,
+        to: team.teamId,
+        type: 'team' as any,
+        active: true,
+        isTeamConnection: true,
+        teamBounds: team.bounds,
+      }));
+      this.state.collaborations = [...nonTeamConnections, ...teamConnections];
+    }
+    // 裁剪位置缓存，防止长时间任务中无限增长
+    const activeIds = new Set(this.state.subAgents.map(a => a.id));
+    activeIds.add(this.state.mainAgent.id);
+    this.layoutEngine.prunePositionCache(activeIds);
+
+    this.occupiedDirty = true;
     this.updateAnimations();
   }
 
@@ -115,64 +158,60 @@ export class CanvasRenderer {
   }
 
   /**
-   * 更新动画（根据状态）
+   * 增量更新动画（不再全部 clear 后重建，保留粒子流动等持续动画）
    */
   private updateAnimations() {
     if (!this.state) return;
 
     const mainPos = this.layoutEngine.getMainAgentPosition();
     const mainRadius = this.layoutEngine.getMainAgentRadius();
+    const keepIds = new Set<string>();
 
-    // 清理旧动画
-    this.animationEngine.clear();
-
-    // 根据主 Agent 状态创建动画
-    switch (this.state.mainAgent.status) {
-      case 'thinking':
-        this.animationEngine.register(
-          this.animationEngine.createPulseAnimation('main', mainPos, mainRadius)
-        );
-        break;
-      case 'executing':
-        this.animationEngine.register(
-          this.animationEngine.createRotateAnimation('main', mainPos, mainRadius)
-        );
-        break;
-      case 'waiting':
-        this.animationEngine.register(
-          this.animationEngine.createBlinkAnimation('main', mainPos, mainRadius)
-        );
-        break;
-      case 'error':
-        this.animationEngine.register(
-          this.animationEngine.createShakeAnimation('main', mainPos, 500)
-        );
-        break;
+    // 主 Agent 动画
+    const statusAnimMap: Record<string, string> = {
+      thinking: 'pulse', executing: 'rotate', waiting: 'blink', error: 'shake',
+    };
+    const animType = statusAnimMap[this.state.mainAgent.status];
+    if (animType) {
+      const mainAnimId = `${animType}-main`;
+      keepIds.add(mainAnimId);
+      if (!this.animationEngine.has(mainAnimId)) {
+        let anim;
+        switch (animType) {
+          case 'pulse': anim = this.animationEngine.createPulseAnimation('main', mainPos, mainRadius); break;
+          case 'rotate': anim = this.animationEngine.createRotateAnimation('main', mainPos, mainRadius); break;
+          case 'blink': anim = this.animationEngine.createBlinkAnimation('main', mainPos, mainRadius); break;
+          case 'shake': anim = this.animationEngine.createShakeAnimation('main', mainPos); break;
+        }
+        if (anim) this.animationEngine.register(anim);
+      }
     }
 
-    // 为活跃的协作关系创建粒子流动动画
+    // 协作关系粒子动画
     this.state.collaborations.forEach((collab) => {
-      if (collab.active) {
-        const fromPos = this.getAgentPosition(collab.from);
-        const toPos = this.getAgentPosition(collab.to);
-        if (fromPos && toPos) {
-          const path = this.layoutEngine.getConnectionPath(fromPos, toPos);
-          const color = collab.type === 'task' ? '#34D399' : '#7C8CF5'; // success : primary
-          this.animationEngine.register(
-            this.animationEngine.createParticleFlowAnimation(
-              `${collab.from}-${collab.to}`,
-              path,
-              color,
-              3
-            )
-          );
-        }
+      if (!collab.active) return;
+      const particleId = `particle-${collab.from}-${collab.to}`;
+      keepIds.add(particleId);
+      if (this.animationEngine.has(particleId)) return;
+
+      const fromPos = this.getAgentPosition(collab.from);
+      const toPos = this.getAgentPosition(collab.to);
+      if (fromPos && toPos) {
+        const path = this.layoutEngine.getConnectionPath(fromPos, toPos);
+        const color = collab.type === 'task' ? '#34D399' : '#7C8CF5';
+        const anim = this.animationEngine.createParticleFlowAnimation(
+          `${collab.from}-${collab.to}`, path, color, 3
+        );
+        this.animationEngine.register(anim);
       }
     });
+
+    // 移除不再需要的动画
+    this.animationEngine.removeExcept(keepIds);
   }
 
   /**
-   * 获取 Agent 位置
+   * 获取 Agent 或团队边界框的位置
    */
   private getAgentPosition(agentId: string): Point | null {
     if (!this.state) return null;
@@ -181,7 +220,19 @@ export class CanvasRenderer {
       return this.layoutEngine.getMainAgentPosition();
     }
 
-    // 优先使用树形布局位置
+    // 团队边界框位置
+    if (agentId.startsWith('team-') && this.state.teamBoundaries) {
+      const teamName = agentId.slice(5);
+      const team = this.state.teamBoundaries.find(t => t.teamId === agentId);
+      if (team?.bounds) {
+        return {
+          x: team.bounds.x + team.bounds.width / 2,
+          y: team.bounds.y,
+        };
+      }
+    }
+
+    // 树形布局位置
     const treePos = this.treePositions.get(agentId);
     if (treePos) return treePos;
 
@@ -189,160 +240,420 @@ export class CanvasRenderer {
   }
 
   /**
-   * 开始渲染循环
+   * 渲染单帧（由主线程 rAF 通过 Worker 消息驱动）
    */
-  start() {
-    if (this.animationFrame !== null) return;
+  renderFrame(timestamp: number) {
+    // 限制 deltaTime 上下限（处理首帧、卡顿恢复、系统时钟调整）
+    const rawDelta = timestamp - this.lastFrameTime;
+    const deltaTime = Math.max(0, Math.min(rawDelta, 100));
+    this.lastFrameTime = timestamp;
 
-    this.lastFrameTime = performance.now();
-    this.renderLoop();
-  }
+    // 平滑视图动画（缓动到目标）
+    this.smoothViewAnimation(deltaTime);
 
-  /**
-   * 停止渲染循环
-   */
-  stop() {
-    if (this.animationFrame !== null) {
-      cancelAnimationFrame(this.animationFrame);
-      this.animationFrame = null;
-    }
-  }
+    // 更新动画（传入 currentTime）
+    this.animationEngine.update(timestamp, deltaTime);
 
-  /**
-   * 渲染循环
-   */
-  private renderLoop = () => {
-    const currentTime = performance.now();
-    const deltaTime = currentTime - this.lastFrameTime;
-    this.lastFrameTime = currentTime;
+    // 清空视口
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.clearViewport();
 
-    // 更新动画
-    this.animationEngine.update(currentTime, deltaTime);
-
-    // 清空画布
-    this.clear();
+    // 应用视图变换
+    this.ctx.setTransform(
+      this.viewScale * this.dpr, 0,
+      0, this.viewScale * this.dpr,
+      this.viewOffsetX * this.dpr, this.viewOffsetY * this.dpr,
+    );
 
     // 绘制内容
     if (this.state) {
-      // 每帧重置碰撞检测
-      this.layoutEngine.resetOccupied();
+      // 每帧实时计算耗时（避免主线程 100ms 定时器触发 JSON.stringify 序列化开销）
+      this.computeLiveDurations(this.state);
 
-      // 计算树形布局位置
-      this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
+      // 缓存优化：只在 subAgents 变化时重新计算布局和碰撞检测
+      const snapshot = this.buildSubAgentSnapshot();
+      if (snapshot !== this.subAgentSnapshot || this.occupiedDirty) {
+        this.subAgentSnapshot = snapshot;
+        this.occupiedDirty = false;
+        this.layoutEngine.resetOccupied();
+        this.treePositions = this.layoutEngine.computeTreePositions(this.state.subAgents);
+        this.registerNodeOccupiedAreas();
+      } else {
+        this.layoutEngine.resetOccupied();
+        this.registerNodeOccupiedAreas();
+      }
 
-      // 预注册所有节点的占用区域
-      this.registerNodeOccupiedAreas();
+      // 更新出场动画进度
+      this.updateExitAnimations(deltaTime);
 
-      // 🔧 绘制顺序优化：思考气泡单独绘制在最上层
-      // 绘制团队边界框（在节点和连接线之前）
       this.drawTeamBoundaries();
-
       this.drawConnections();
-      this.drawSubAgents();
-      this.drawMainAgent();
-
-      // 🔧 最后绘制思考气泡，确保在最上层且不被团队边界遮挡
+      this.drawSubAgents(timestamp);
+      this.drawMainAgent(timestamp);
       this.drawAllThinkingBubbles();
-      // ★ 统计信息已移至组件底部，不再在 Canvas 中绘制 ★
-      // this.drawStats();
-      // ★ 移除底部事件列表：工具调用历史不应该在 workspace 中展示 ★
-      // this.drawEventFeed(this.state.recentEvents);
     } else {
       this.drawEmptyState();
     }
 
-    // 绘制动画
-    this.animationEngine.draw(this.ctx);
-
-    // 继续循环
-    this.animationFrame = requestAnimationFrame(this.renderLoop);
-  };
-
-  /**
-   * 清空画布
-   */
-  private clear() {
-    const rect = this.canvas.getBoundingClientRect();
-    this.ctx.clearRect(0, 0, rect.width, rect.height);
-
-    // 绘制背景（使用璇玑的背景色）
-    this.ctx.fillStyle = '#2D2D2D'; // bg-secondary
-    this.ctx.fillRect(0, 0, rect.width, rect.height);
+    // 绘制动画叠加层
+    this.animationEngine.draw(this.ctx, timestamp);
   }
 
   /**
-   * 绘制空状态
+   * 每帧实时计算 running moment 的耗时（消除主线程 100ms 定时器）
+   * worker 端使用 Date.now() 计算，与主线程可能有微小偏差但不影响展示
+   */
+  private computeLiveDurations(state: WorkspaceState): void {
+    const now = Date.now();
+
+    // 主 agent
+    const mainMoment = state.mainAgent.currentMoment;
+    if (mainMoment?.status === 'running' && mainMoment.startTime) {
+      mainMoment.durationMs = now - mainMoment.startTime;
+    }
+
+    // 所有子 agent
+    for (const agent of state.subAgents) {
+      const moment = agent.currentMoment;
+      if (moment?.status === 'running' && moment.startTime) {
+        moment.durationMs = now - moment.startTime;
+      }
+    }
+
+    // 全局统计
+    if (state.stats.startTime) {
+      state.stats.duration = now - state.stats.startTime;
+    }
+  }
+
+  /**
+   * 构建 subAgents 快照字符串，用于检测布局是否需要更新
+   */
+  private buildSubAgentSnapshot(): string {
+    if (!this.state) return '';
+    return this.state.subAgents.map(a => `${a.id}:${a.status}:${a.multiAgent?.strategy || ''}`).sort().join(',');
+  }
+
+  /**
+   * 清空视口
+   */
+  private clearViewport() {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillStyle = '#2D2D2D';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  // ─── 视图变换控制（无限画布 + 缩放/平移）─────────────────
+
+  /** 平滑视图动画（线性插值到目标，90% 在 ~130ms 内完成） */
+  private smoothViewAnimation(deltaTime: number) {
+    const lerpFactor = Math.min(1, deltaTime * 0.015);
+    if (Math.abs(this.targetViewScale - this.viewScale) > 0.001) {
+      this.viewScale += (this.targetViewScale - this.viewScale) * lerpFactor;
+    } else {
+      this.viewScale = this.targetViewScale;
+    }
+    if (Math.abs(this.targetViewOffsetX - this.viewOffsetX) > 0.5) {
+      this.viewOffsetX += (this.targetViewOffsetX - this.viewOffsetX) * lerpFactor;
+    } else {
+      this.viewOffsetX = this.targetViewOffsetX;
+    }
+    if (Math.abs(this.targetViewOffsetY - this.viewOffsetY) > 0.5) {
+      this.viewOffsetY += (this.targetViewOffsetY - this.viewOffsetY) * lerpFactor;
+    } else {
+      this.viewOffsetY = this.targetViewOffsetY;
+    }
+  }
+
+  /**
+   * 缩放画布（以屏幕坐标的某点为中心）
+   * @param factor 缩放因子 (> 1 放大, < 1 缩小)
+   * @param screenX 缩放中心屏幕 X（CSS 像素，相对于 canvas 左上角）
+   * @param screenY 缩放中心屏幕 Y
+   */
+  zoom(factor: number, screenX: number, screenY: number) {
+    const newScale = Math.max(this.MIN_ZOOM, Math.min(this.MAX_ZOOM, this.targetViewScale * factor));
+    const virtualX = (screenX - this.viewOffsetX) / this.viewScale;
+    const virtualY = (screenY - this.viewOffsetY) / this.viewScale;
+    // 交互式缩放即时生效，不做平滑过渡（平滑过渡会导致鼠标滚轮/按钮缩放感延迟）
+    this.targetViewScale = newScale;
+    this.targetViewOffsetX = screenX - virtualX * newScale;
+    this.targetViewOffsetY = screenY - virtualY * newScale;
+    this.viewScale = this.targetViewScale;
+    this.viewOffsetX = this.targetViewOffsetX;
+    this.viewOffsetY = this.targetViewOffsetY;
+  }
+
+  /** 平移画布 */
+  pan(deltaX: number, deltaY: number) {
+    this.targetViewOffsetX += deltaX;
+    this.targetViewOffsetY += deltaY;
+    this.viewOffsetX = this.targetViewOffsetX;
+    this.viewOffsetY = this.targetViewOffsetY;
+  }
+
+  /** 重置视图：居中显示主 agent（平滑过渡） */
+  resetView() {
+    const mainPos = this.layoutEngine.getMainAgentPosition();
+    this.targetViewScale = 1.0;
+    this.targetViewOffsetX = this.containerWidth / 2 - mainPos.x;
+    this.targetViewOffsetY = this.containerHeight * 0.3 - mainPos.y;
+  }
+
+  /** 适配全部内容到视口 */
+  zoomToFit() {
+    const bounds = this.layoutEngine.getContentBounds();
+    if (!bounds) {
+      this.resetView();
+      return;
+    }
+    const contentW = bounds.maxX - bounds.minX;
+    const contentH = bounds.maxY - bounds.minY;
+    const pad = 100;
+    const scaleX = (this.containerWidth - pad * 2) / (contentW || 1);
+    const scaleY = (this.containerHeight - pad * 2) / (contentH || 1);
+    const fitScale = Math.min(scaleX, scaleY, 1.5);
+
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+
+    this.targetViewScale = Math.max(this.MIN_ZOOM, fitScale);
+    this.targetViewOffsetX = this.containerWidth / 2 - centerX * this.targetViewScale;
+    this.targetViewOffsetY = this.containerHeight / 2 - centerY * this.targetViewScale;
+  }
+
+  /** 获取当前视图状态 */
+  getViewState(): { scale: number; offsetX: number; offsetY: number } {
+    return {
+      scale: this.viewScale,
+      offsetX: this.viewOffsetX,
+      offsetY: this.viewOffsetY,
+    };
+  }
+
+  /** 将屏幕坐标转换为虚拟坐标 */
+  screenToVirtual(screenX: number, screenY: number): Point {
+    return {
+      x: (screenX - this.viewOffsetX) / this.viewScale,
+      y: (screenY - this.viewOffsetY) / this.viewScale,
+    };
+  }
+
+  // ─── 出场动画（原子级淡入/淡出）─────────────────────────
+
+  private readonly ENTER_DURATION = 300; // 淡入 300ms
+  private readonly EXIT_DURATION = 500;  // 淡出 500ms
+
+  /** 存储已知的团队成员 agent ID，用于跳过出场动画 */
+  private teamMemberIds = new Set<string>();
+  /** 记录团队成员从 subAgents 中消失的时间戳（用于延迟淡出） */
+  private teamMemberAbsentSince = new Map<string, number>();
+  /** 团队成员淡出宽限期：1 秒内不淡出（覆盖轮次切换的短暂缺失） */
+  private readonly TEAM_MEMBER_EXIT_GRACE = 1000;
+
+  /** 更新所有 agent 的出场动画进度 */
+  private updateExitAnimations(deltaTime: number) {
+    if (!this.state) return;
+
+    const currentIds = new Set(this.state.subAgents.map(a => a.id));
+    const now = performance.now();
+
+    // 检测新出现的 agent → 开始淡入，同时记录团队成员
+    for (const agent of this.state.subAgents) {
+      if (agent.multiAgent?.type === 'agent_team') {
+        this.teamMemberIds.add(agent.id);
+        this.teamMemberAbsentSince.delete(agent.id); // 清空缺席记录
+      }
+      if (!this.prevAgentIds.has(agent.id)) {
+        // 团队成员跳过淡入动画，直接显示（避免多轮辩论/任务切换时的闪烁）
+        const isTeamMember = agent.multiAgent?.type === 'agent_team';
+        this.exitProgressMap.set(agent.id, isTeamMember ? 1.0 : 0.01);
+      }
+    }
+
+    // 更新所有进度
+    for (const [id, progress] of this.exitProgressMap) {
+      const agent = this.state.subAgents.find(a => a.id === id);
+      if (agent) {
+        // agent 仍存在：向 1.0 淡入
+        if (progress < 1.0) {
+          const newProgress = Math.min(1.0, progress + deltaTime / this.ENTER_DURATION);
+          this.exitProgressMap.set(id, newProgress);
+        }
+      } else if (this.teamMemberIds.has(id)) {
+        // 团队成员不在 subAgents 中，记录首次缺席时间
+        if (!this.teamMemberAbsentSince.has(id)) {
+          this.teamMemberAbsentSince.set(id, now);
+        }
+        const absentDuration = now - (this.teamMemberAbsentSince.get(id) || now);
+        if (absentDuration < this.TEAM_MEMBER_EXIT_GRACE) {
+          // 宽限期内保持可见（处理轮次切换的短暂缺失）
+        } else {
+          // 超过宽限期 → 减速淡出（比普通 agent 慢，等待 TeamEnd 后的视觉过渡）
+          const newProgress = Math.max(0, progress - deltaTime / (this.EXIT_DURATION * 3));
+          if (newProgress <= 0.01) {
+            this.exitProgressMap.delete(id);
+            this.teamMemberIds.delete(id);
+            this.teamMemberAbsentSince.delete(id);
+          } else {
+            this.exitProgressMap.set(id, newProgress);
+          }
+        }
+      } else {
+        // agent 已不在列表中：向 0.0 淡出
+        if (progress > 0) {
+          const newProgress = Math.max(0, progress - deltaTime / this.EXIT_DURATION);
+          if (newProgress <= 0.01) {
+            this.exitProgressMap.delete(id);
+          } else {
+            this.exitProgressMap.set(id, newProgress);
+          }
+        }
+      }
+    }
+
+    this.prevAgentIds = currentIds;
+  }
+
+  /** 获取 agent 的当前 alpha 值（包含出场动画） */
+  private getAgentAlpha(agentId: string): number {
+    return this.exitProgressMap.get(agentId) ?? 1.0;
+  }
+
+  /**
+   * 绘制空状态（在屏幕坐标中绘制，需要先重置变换）
    */
   private drawEmptyState() {
-    const rect = this.canvas.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
+    // 空状态在虚拟空间中心绘制，受视图变换影响
+    const virtualCenter = this.screenToVirtual(
+      this.containerWidth / 2,
+      this.containerHeight / 2,
+    );
 
-    // 绘制图标
-    this.ctx.fillStyle = '#8A8A8A'; // text-secondary
+    this.ctx.fillStyle = '#8A8A8A';
     this.ctx.font = '48px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText('🤖', centerX, centerY - 20);
+    this.ctx.fillText('🤖', virtualCenter.x, virtualCenter.y - 20);
 
-    // 绘制文本
-    this.ctx.fillStyle = '#8A8A8A'; // text-secondary
+    this.ctx.fillStyle = '#8A8A8A';
     this.ctx.font = '14px sans-serif';
-    this.ctx.fillText('Agent 空闲中', centerX, centerY + 30);
+    this.ctx.fillText('Agent 空闲中', virtualCenter.x, virtualCenter.y + 30);
   }
 
   /**
-   * 预注册所有节点的占用区域（圆形节点 + 名称标签 + 安全边距）
+   * 预注册所有节点的占用区域（圆形节点 + 名称标签 + 类型标签 + 安全边距）
+   * 确保后续放置的元素（气泡、moment标签）不会与节点区域重叠
    */
   private registerNodeOccupiedAreas() {
     if (!this.state) return;
-    const safeGap = 30; // 🔧 增大安全边距，确保气泡不会遮挡其他节点
+    const safeGap = 40;
 
-    // 主 Agent 节点
+    // 主 Agent 节点区域
     const mainPos = this.layoutEngine.getMainAgentPosition();
     const mainR = this.layoutEngine.getMainAgentRadius();
     this.layoutEngine.addOccupied({
       x: mainPos.x - mainR - safeGap,
-      y: mainPos.y - mainR - safeGap,
+      y: mainPos.y - mainR - 20,
       width: (mainR + safeGap) * 2,
-      height: (mainR + safeGap) * 2 + 30,
+      height: mainR * 2 + 40 + 30 + 24, // 圆形 + 名称 + 类型标签 + moment 标签区域
     });
 
-    // 子 Agent 节点（使用树形位置）
+    // 子 Agent 节点区域（包含名称、类型标签、moment 标签空间 + 右侧工具堆栈）
     this.state.subAgents.forEach((agent) => {
       const pos = this.treePositions.get(agent.id);
       if (!pos) return;
       const r = this.layoutEngine.getSubAgentRadius();
+      // 扩占右侧：工具堆栈（agent 右侧 200px）+ moment 标签可能的位置
+      const hasTimeline = (agent.timelineEvents?.length || 0) > 0;
+      const rightExt = hasTimeline ? r + 8 + 200 : r + safeGap;
       this.layoutEngine.addOccupied({
         x: pos.x - r - safeGap,
-        y: pos.y - r - safeGap,
-        width: (r + safeGap) * 2,
-        height: (r + safeGap) * 2 + 25,
+        y: pos.y - r - 32,
+        width: r + safeGap + rightExt, // 非对称：右侧覆盖工具堆栈区域
+        height: r * 2 + 32 + 30 + 24 + 10,
       });
     });
 
-    // 🔧 团队边界框标题（避免气泡遮挡团队名称）
+    // 主 Agent 的 timeline 和工具堆栈区域（扩展占用）
+    if (this.state.mainAgent.timelineEvents?.length > 0) {
+      const timelineOrigin = this.layoutEngine.getTimelineOrigin(mainPos, mainR);
+      this.layoutEngine.addOccupied({
+        x: timelineOrigin.x - 10,
+        y: timelineOrigin.y - 10,
+        width: mainR * 6 + 20,
+        height: 44,
+      });
+    }
+
+    // 团队边界框区域（宽度至少 200px 容纳标题栏，与 drawTeamBoundaries 保持一致）
     if (this.state.teamBoundaries) {
       this.state.teamBoundaries.forEach((team) => {
         if (!team.bounds) return;
-        const { x, y } = team.bounds;
-        const titleHeight = 28;
-        const titleWidth = 200; // 预估标题宽度
-
+        const minWidth = Math.max(team.bounds.width, 200);
+        const dx = (team.bounds.width - minWidth) / 2;
         this.layoutEngine.addOccupied({
-          x: x + 8,
-          y: y,
-          width: titleWidth,
-          height: titleHeight,
+          x: team.bounds.x + dx,
+          y: team.bounds.y - 4,
+          width: minWidth,
+          height: team.bounds.height + 8,
         });
       });
     }
   }
 
   /**
+   * 绘制状态环（agent 圆圈外围，显示运行状态）
+   */
+  private drawStatusRing(center: Point, radius: number, status: string, currentTime: number, isDebateSpeaker: boolean = false) {
+    const ringRadius = radius + 6;
+
+    if (isDebateSpeaker) {
+      this.ctx.strokeStyle = 'rgba(52, 211, 153, 1)';
+      this.ctx.lineWidth = 4;
+      this.ctx.shadowColor = 'rgba(52, 211, 153, 0.6)';
+      this.ctx.shadowBlur = 15;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, ringRadius, 0, 2 * Math.PI);
+      this.ctx.stroke();
+      this.ctx.shadowBlur = 0;
+      return;
+    }
+
+    if (status === 'running' || status === 'thinking' || status === 'executing') {
+      const pulse = Math.sin(currentTime / 500) * 0.3 + 0.7;
+      this.ctx.strokeStyle = `rgba(124, 140, 245, ${pulse})`;
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, ringRadius, 0, 2 * Math.PI);
+      this.ctx.stroke();
+    } else if (status === 'success' || status === 'done') {
+      this.ctx.strokeStyle = 'rgba(52, 211, 153, 0.8)';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, ringRadius, 0, 2 * Math.PI);
+      this.ctx.stroke();
+    } else if (status === 'error') {
+      const shake = Math.sin(currentTime * 0.02) * 2;
+      this.ctx.strokeStyle = 'rgba(248, 113, 113, 0.8)';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x + shake, center.y, ringRadius, 0, 2 * Math.PI);
+      this.ctx.stroke();
+    } else {
+      // idle / waiting / 默认
+      this.ctx.strokeStyle = 'rgba(138, 138, 138, 0.3)';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, ringRadius, 0, 2 * Math.PI);
+      this.ctx.stroke();
+    }
+  }
+
+  /**
    * 绘制主 Agent
    */
-  private drawMainAgent() {
+  private drawMainAgent(currentTime: number) {
     if (!this.state) return;
 
     const pos = this.layoutEngine.getMainAgentPosition();
@@ -360,50 +671,82 @@ export class CanvasRenderer {
     this.ctx.lineWidth = 3;
     this.ctx.stroke();
 
-    // 绘制图标（优先使用 roleIcon）
-    this.ctx.fillStyle = '#fff';
-    this.ctx.font = '32px sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.textBaseline = 'middle';
-    this.ctx.fillText(agent.roleIcon || '🤖', pos.x, pos.y - 2);
+    // 绘制状态环
+    this.drawStatusRing(pos, radius, agent.status, currentTime);
+
+    // 🔧 辩论模式：中心圆显示辩题，否则显示图标
+    if (agent.debateGoal) {
+      this.ctx.fillStyle = '#fff';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      const maxWidth = radius * 1.6;
+      const lines = this.wrapText(agent.debateGoal, maxWidth, 2);
+      const fontSize = lines.length > 2 ? 10 : 11;
+      this.ctx.font = `${fontSize}px sans-serif`;
+      const lineHeight = fontSize + 3;
+      const startY = pos.y - ((lines.length - 1) * lineHeight) / 2;
+      lines.forEach((line, i) => {
+        this.ctx.fillText(line, pos.x, startY + i * lineHeight);
+      });
+    } else {
+      this.ctx.fillStyle = '#fff';
+      this.ctx.font = '32px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(agent.roleIcon || '🤖', pos.x, pos.y - 2);
+    }
 
     // 绘制名称
     this.ctx.fillStyle = '#E4E4E4';
     this.ctx.font = '14px sans-serif';
     this.ctx.fillText(agent.name, pos.x, pos.y + radius + 20);
 
-    // 🔧 思考气泡已移至 drawAllThinkingBubbles() 统一绘制，确保在最上层
-
-    // 区域3：右侧动作标签（AgentMoment）
+    // currentMoment 先渲染（右上位置），避免与 timeline 重叠
     if (agent.currentMoment) {
       this.drawMomentTag(pos, radius, agent.currentMoment);
     }
 
-    // 区域3：右侧工具调用列表（最近 5 个）
-    if (agent.timelineEvents && agent.timelineEvents.length > 0) {
+    // 工具调用堆栈（currentMoment 下方）
+    const hasTimelineEvents = agent.timelineEvents && agent.timelineEvents.length > 0;
+    if (hasTimelineEvents) {
       const recent5 = agent.timelineEvents.slice(-5);
-      this.drawToolCallStack(pos, radius, recent5);
+      this.drawToolCallStack(pos, radius, recent5, currentTime);
     }
   }
 
   /**
-   * 绘制子 Agent
-   * 非团队成员：只显示正在运行的 Agent
-   * 团队成员：始终显示（跟随团队边界框一起出现/消失）
+   * 绘制子 Agent（带原子级淡入/淡出动画）
+   * 所有内容（节点、气泡、标签、timeline）统一透明度
    */
-  private drawSubAgents() {
+  private drawSubAgents(currentTime: number) {
     if (!this.state) return;
 
-    // 🔧 团队成员始终显示，非团队成员只显示运行中的
+    // 只过滤掉已完全淡出的 agent（exitProgress = 0）
     const visibleAgents = this.state.subAgents.filter(
-      agent => agent.multiAgent?.teamName || (agent.status !== 'success' && agent.status !== 'error')
+      agent => this.getAgentAlpha(agent.id) > 0.01
     );
 
     visibleAgents.forEach((agent, index) => {
-      // 使用树形布局位置
-      const pos = this.treePositions.get(agent.id)
-        || this.layoutEngine.getSubAgentPosition(index, visibleAgents.length);
+      const alpha = this.getAgentAlpha(agent.id);
+      if (alpha <= 0.01) return;
+
+      // 🔧 Team 容器节点由 drawTeamBoundaries 渲染为边界框，跳过普通渲染
+      if (agent.id.startsWith('team-')) {
+        const boundary = this.state?.teamBoundaries?.find(t => t.teamId === agent.id);
+        if (boundary) {
+          return; // 有对应边界框，跳过（由边界框表示）
+        }
+        // 没有边界框（团队刚启动），继续渲染为普通节点
+      }
+
+      // 使用树形布局位置（fallback 走位置缓存，避免按 index 跳动）
+      const pos = this.layoutEngine.getStableAgentPosition(agent, this.treePositions, index, visibleAgents.length);
+
       const radius = this.layoutEngine.getSubAgentRadius();
+
+      // 保存上下文，应用该 agent 的统一透明度
+      this.ctx.save();
+      this.ctx.globalAlpha = alpha;
 
       // 🔧 辩论模式特殊处理
       const isDebateAgent = agent.multiAgent?.strategy === 'debate';
@@ -416,40 +759,13 @@ export class CanvasRenderer {
       this.ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
       this.ctx.fill();
 
-      // 🔧 绘制边框（running 状态使用高亮边框）
-      if (isCurrentSpeaker) {
-        // 辩论模式当前发言者：绿色高亮边框
-        this.ctx.strokeStyle = 'rgba(52, 211, 153, 1)';
-        this.ctx.lineWidth = 4;
-        this.ctx.stroke();
+      // 绘制边框
+      this.ctx.strokeStyle = this.getSubAgentBorderColor(agent.status);
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
 
-        // 添加外发光效果
-        this.ctx.shadowColor = 'rgba(52, 211, 153, 0.6)';
-        this.ctx.shadowBlur = 15;
-        this.ctx.beginPath();
-        this.ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
-        this.ctx.stroke();
-        this.ctx.shadowBlur = 0;
-      } else if (isRunning) {
-        // 普通 running 状态：蓝色高亮边框
-        this.ctx.strokeStyle = 'rgba(124, 140, 245, 1)';
-        this.ctx.lineWidth = 3;
-        this.ctx.stroke();
-
-        // 添加脉动效果（使用动画时间）
-        const pulseIntensity = Math.sin(Date.now() / 500) * 0.3 + 0.7; // 0.4 - 1.0
-        this.ctx.shadowColor = `rgba(124, 140, 245, ${pulseIntensity})`;
-        this.ctx.shadowBlur = 12;
-        this.ctx.beginPath();
-        this.ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
-        this.ctx.stroke();
-        this.ctx.shadowBlur = 0;
-      } else {
-        // 普通边框
-        this.ctx.strokeStyle = this.getSubAgentBorderColor(agent.status);
-        this.ctx.lineWidth = 2;
-        this.ctx.stroke();
-      }
+      // 绘制状态环（辩论发言者用高亮环）
+      this.drawStatusRing(pos, radius, agent.status, currentTime, isCurrentSpeaker);
 
       // 绘制图标（优先使用 roleIcon）
       this.ctx.fillStyle = '#fff';
@@ -459,34 +775,17 @@ export class CanvasRenderer {
       const icon = agent.roleIcon || this.getToolIcon(agent.name);
       this.ctx.fillText(icon, pos.x, pos.y - 1);
 
-      // 🔧 绘制名称（辩论模式显示角色标签）
+      // 🔧 绘制名称（辩论模式用角色颜色，角色标签由徽章单独展示）
       if (isDebateAgent && agent.multiAgent?.debateRole) {
-        // 辩论模式：显示角色 + 名称
-        const roleLabels = {
-          affirmative: '正方',
-          negative: '反方',
-          judge: '裁判',
+        const roleColors: Record<string, string> = {
+          affirmative: '#34D399',
+          negative: '#F87171',
+          judge: '#FBBF24',
         };
-        const roleLabel = roleLabels[agent.multiAgent.debateRole];
+        // 去掉可能的角色前缀，徽章已标识角色
+        const displayName = agent.name.replace(/^(正方|反方|裁判)·/, '');
 
-        // 🔧 检查 agent.name 是否已包含角色前缀，避免重复
-        let displayName = agent.name;
-        if (displayName.startsWith(roleLabel + '·')) {
-          // 名称已包含角色前缀，直接使用
-          displayName = agent.name;
-        } else {
-          // 名称不包含角色前缀，添加前缀
-          displayName = `${roleLabel}·${agent.name}`;
-        }
-
-        // 角色标签颜色
-        const roleColors = {
-          affirmative: '#34D399', // 绿色
-          negative: '#F87171',    // 红色
-          judge: '#FBBF24',       // 黄色
-        };
-
-        this.ctx.fillStyle = roleColors[agent.multiAgent.debateRole];
+        this.ctx.fillStyle = roleColors[agent.multiAgent.debateRole] || '#8A8A8A';
         this.ctx.font = 'bold 12px sans-serif';
         this.ctx.fillText(displayName, pos.x, pos.y + radius + 15);
       } else {
@@ -497,16 +796,28 @@ export class CanvasRenderer {
       }
 
       // 绘制耗时（如果有）
-      if (agent.duration !== undefined && agent.duration > 0) {
+      const hasDuration = agent.duration !== undefined && agent.duration > 0;
+      if (hasDuration) {
         this.ctx.fillStyle = '#7C8CF5'; // primary color
         this.ctx.font = '10px monospace';
         const durationText = `${(agent.duration / 1000).toFixed(1)}s`;
         this.ctx.fillText(durationText, pos.x, pos.y + radius + 28);
       }
 
-      // 绘制 Agent 类型标签
+      // 绘制 Agent 类型标签（在耗时下方，避免重叠）
       if (agent.agentType) {
-        this.drawAgentTypeLabel(pos, radius, agent.agentType);
+        const labelWidth = 60;
+        const labelHeight = 20;
+        const labelX = pos.x - labelWidth / 2;
+        // 如果有耗时，标签放在耗时下方；否则直接放在名称下方
+        const labelY = pos.y + radius + 28 + (hasDuration ? 14 : 0);
+        this.layoutEngine.addOccupied({
+          x: labelX - 8,
+          y: labelY - 4,
+          width: labelWidth + 16,
+          height: labelHeight + 8,
+        });
+        this.drawAgentTypeLabel(pos, radius, agent.agentType, hasDuration ? 14 : 0);
       }
 
       // 绘制 Leader 徽章（Hierarchical 策略）
@@ -526,29 +837,36 @@ export class CanvasRenderer {
         if (agent.multiAgent.debateRole) {
           this.drawDebateRoleBadge(pos, radius, agent.multiAgent.debateRole);
         }
-        // 轮次徽章（右上角）
-        if (agent.multiAgent.currentRound) {
-          this.drawDebateRoundBadge(pos, radius, agent.multiAgent.currentRound);
+        // 轮次徽章（右上角），maxRounds 存在即展示
+        if (agent.multiAgent.maxRounds) {
+          this.drawDebateRoundBadge(pos, radius, agent.multiAgent.currentRound || 1);
         }
       }
 
       // 如果正在执行，绘制进度环
       if (agent.status === 'running' && agent.progress !== undefined) {
-        this.drawProgressRing(pos, radius, agent.progress);
+        this.drawProgressRing(pos, radius, agent.progress, currentTime);
       }
 
       // 🔧 思考气泡已移至 drawAllThinkingBubbles() 统一绘制，确保在最上层
 
-      // 区域3：右侧工具调用列表（最近 5 个）
+      // currentMoment 先渲染（右上位置），避免与 timeline 重叠
+      if (agent.currentMoment) {
+        this.drawMomentTag(pos, radius, agent.currentMoment);
+      }
+
+      // 区域3：右侧工具调用列表（currentMoment 下方，最近 5 个）
       if (agent.timelineEvents && agent.timelineEvents.length > 0) {
         const recent5 = agent.timelineEvents.slice(-5);
-        this.drawToolCallStack(pos, radius, recent5);
+        this.drawToolCallStack(pos, radius, recent5, currentTime);
       }
 
       // 悬停时显示详情卡片
       if (this.hoveredAgent === agent.id) {
         this.drawAgentCard(pos, radius, agent);
       }
+
+      this.ctx.restore();
     });
   }
 
@@ -563,139 +881,114 @@ export class CanvasRenderer {
 
       const { x, y, width, height } = team.bounds;
 
-      // 策略图标映射
       const strategyIcons: Record<string, string> = {
-        sequential: '📋',
-        debate: '💬',
-        hierarchical: '👑',
-        pipeline: '🔗',
-        parallel: '⚡',
+        sequential: '\u{1F4CB}', debate: '\u{1F4AC}', hierarchical: '\u{1F451}',
+        pipeline: '\u{1F517}', parallel: '\u26A1',
       };
 
-      // 策略颜色映射
       const strategyColors: Record<string, string> = {
-        sequential: 'rgba(124, 140, 245, 0.2)',
-        debate: 'rgba(52, 211, 153, 0.2)',
-        hierarchical: 'rgba(251, 191, 36, 0.2)',
-        pipeline: 'rgba(139, 92, 246, 0.2)',
+        sequential: 'rgba(124, 140, 245, 0.2)', debate: 'rgba(52, 211, 153, 0.2)',
+        hierarchical: 'rgba(251, 191, 36, 0.2)', pipeline: 'rgba(139, 92, 246, 0.2)',
         parallel: 'rgba(236, 72, 153, 0.2)',
       };
 
       const borderColors: Record<string, string> = {
-        sequential: 'rgba(124, 140, 245, 0.6)',
-        debate: 'rgba(52, 211, 153, 0.6)',
-        hierarchical: 'rgba(251, 191, 36, 0.6)',
-        pipeline: 'rgba(139, 92, 246, 0.6)',
+        sequential: 'rgba(124, 140, 245, 0.6)', debate: 'rgba(52, 211, 153, 0.6)',
+        hierarchical: 'rgba(251, 191, 36, 0.6)', pipeline: 'rgba(139, 92, 246, 0.6)',
         parallel: 'rgba(236, 72, 153, 0.6)',
       };
 
-      // 🔧 团队标题高度（在虚线上方）
-      const titleHeight = 32;
-
-      // 绘制边界框背景（从 y + titleHeight 开始，为标题留出空间）
-      this.ctx.fillStyle = strategyColors[team.strategy] || 'rgba(124, 140, 245, 0.1)';
-      this.ctx.strokeStyle = borderColors[team.strategy] || 'rgba(124, 140, 245, 0.4)';
-      this.ctx.lineWidth = 2;
-      this.ctx.setLineDash([8, 4]);
-      this.ctx.beginPath();
-      this.roundRect(x, y + titleHeight, width, height - titleHeight, 12);
-      this.ctx.fill();
-      this.ctx.stroke();
-      this.ctx.setLineDash([]);
-
-      // 🔧 绘制团队标题（在虚线上方，完全在边界框外）
+      const titleAreaHeight = 32;
       const titleBgHeight = 28;
+      const titleLeftPadding = 8;
 
-      // 🔧 计算标题实际需要的宽度
+      // ── 计算标题内容宽度 ──────────────────────────────
+      const strategyLabel = team.strategy.charAt(0).toUpperCase() + team.strategy.slice(1);
+      const icon = strategyIcons[team.strategy] || '\u{1F465}';
+
       this.ctx.font = 'bold 12px sans-serif';
       const teamNameWidth = this.ctx.measureText(team.teamName).width;
       this.ctx.font = '10px sans-serif';
-      const strategyLabel = team.strategy.charAt(0).toUpperCase() + team.strategy.slice(1);
-      const strategyWidth = this.ctx.measureText(`(${strategyLabel})`).width;
+      const strategyText = `(${strategyLabel})`;
+      const strategyWidth = this.ctx.measureText(strategyText).width;
 
-      // 🔧 计算右侧额外内容宽度（Debate 轮次或 Parallel 状态）
-      let rightContentWidth = 0;
+      // 右侧迭代信息（debate 轮次 / parallel 进度）
+      let rightText = '';
       if (team.strategy === 'debate' && team.currentRound !== undefined && team.maxRounds !== undefined) {
-        this.ctx.font = 'bold 11px monospace';
-        rightContentWidth = this.ctx.measureText(`Round ${team.currentRound}/${team.maxRounds}`).width + 24; // 加上左右边距
+        rightText = `Round ${team.currentRound}/${team.maxRounds}`;
       } else if (team.strategy === 'parallel') {
         const runningCount = team.memberIds.filter((memberId: string) => {
           const agent = this.state?.subAgents.find(a => a.id === memberId);
           return agent && agent.status === 'running';
         }).length;
         if (runningCount > 0) {
-          this.ctx.font = 'bold 11px monospace';
-          rightContentWidth = this.ctx.measureText(`⚡ ${runningCount}/${team.memberIds.length} Running`).width + 24;
+          rightText = `\u26A1 ${runningCount}/${team.memberIds.length} Running`;
         }
       }
+      this.ctx.font = 'bold 11px monospace';
+      const rightTextWidth = rightText ? this.ctx.measureText(rightText).width + 16 : 0;
 
-      // 图标宽度(16) + 左边距(14) + 团队名称 + 间距(4) + 策略名称 + 右边距(14) + 右侧内容 + 额外空间(20)
-      const calculatedWidth = 16 + 14 + teamNameWidth + 4 + strategyWidth + 14 + rightContentWidth + 20;
-      const titleBgWidth = Math.min(Math.max(calculatedWidth, 150), width - 16); // 最小150px，最大不超过边界框
+      // 标题栏总宽度 = 左边距 + 图标 + 间距 + 名称 + 间距 + 策略标签 + 间距 + 右侧信息 + 右边距
+      const titleBarWidth = titleLeftPadding + 16 + 4 + teamNameWidth + 6 + strategyWidth + (rightText ? 8 + rightTextWidth : 0) + titleLeftPadding;
 
-      // 🔧 如果团队名称过长，需要截断
-      const maxTeamNameWidth = titleBgWidth - 16 - 14 - 4 - strategyWidth - 14 - rightContentWidth - 20;
-      let displayTeamName = team.teamName;
-      if (teamNameWidth > maxTeamNameWidth) {
-        // 截断团队名称
-        this.ctx.font = 'bold 12px sans-serif';
-        while (this.ctx.measureText(displayTeamName + '…').width > maxTeamNameWidth && displayTeamName.length > 1) {
-          displayTeamName = displayTeamName.slice(0, -1);
-        }
-        displayTeamName += '…';
-      }
+      // ── 虚线框宽度至少不小于标题栏 ─────────────────────
+      const effectiveWidth = Math.max(width, titleBarWidth + 16);
+      const effectiveX = x + (width - effectiveWidth) / 2; // 居中扩展
 
+      // 绘制虚线边界框
+      this.ctx.fillStyle = strategyColors[team.strategy] || 'rgba(124, 140, 245, 0.1)';
+      this.ctx.strokeStyle = borderColors[team.strategy] || 'rgba(124, 140, 245, 0.4)';
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([8, 4]);
+      this.ctx.beginPath();
+      this.roundRect(effectiveX, y + titleAreaHeight, effectiveWidth, height - titleAreaHeight, 12);
+      this.ctx.fill();
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+
+      // ── 绘制标题栏背景 ───────────────────────────────
+      const titleBarX = effectiveX + (effectiveWidth - titleBarWidth) / 2;
       this.ctx.fillStyle = borderColors[team.strategy] || 'rgba(124, 140, 245, 0.8)';
       this.ctx.beginPath();
-      this.roundRect(x + 8, y, titleBgWidth, titleBgHeight, 6);
+      this.roundRect(titleBarX, y, titleBarWidth, titleBgHeight, 6);
       this.ctx.fill();
 
-      // 策略图标
-      this.ctx.fillStyle = '#fff';
-      this.ctx.font = '16px sans-serif';
+      // ── 绘制标题内容 ─────────────────────────────────
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
-      const icon = strategyIcons[team.strategy] || '👥';
-      this.ctx.fillText(icon, x + 14, y + titleBgHeight / 2);
+      const textY = y + titleBgHeight / 2;
+      let cursorX = titleBarX + titleLeftPadding;
 
-      // 团队名称（使用截断后的名称）
+      // 图标
+      this.ctx.font = '16px sans-serif';
       this.ctx.fillStyle = '#fff';
+      this.ctx.fillText(icon, cursorX, textY);
+      cursorX += 20;
+
+      // 团队名称
       this.ctx.font = 'bold 12px sans-serif';
-      this.ctx.fillText(displayTeamName, x + 36, y + titleBgHeight / 2);
+      this.ctx.fillStyle = '#fff';
+      this.ctx.fillText(team.teamName, cursorX, textY);
+      cursorX += teamNameWidth + 6;
 
-      // 🔧 测量截断后的团队名称宽度（使用正确的字体）
-      const displayTeamNameWidth = this.ctx.measureText(displayTeamName).width;
-
-      // 策略名称（小字）
+      // 策略标签
       this.ctx.font = '10px sans-serif';
       this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      this.ctx.fillText(`(${strategyLabel})`, x + 36 + displayTeamNameWidth + 4, y + titleBgHeight / 2);
+      this.ctx.fillText(strategyText, cursorX, textY);
 
-      // Debate 策略：显示轮次
-      if (team.strategy === 'debate' && team.currentRound !== undefined && team.maxRounds !== undefined) {
-        this.ctx.fillStyle = 'rgba(52, 211, 153, 0.9)';
+      // 右侧迭代信息
+      if (rightText) {
         this.ctx.font = 'bold 11px monospace';
+        this.ctx.fillStyle = team.strategy === 'debate'
+          ? 'rgba(52, 211, 153, 0.95)'
+          : 'rgba(236, 72, 153, 1)';
         this.ctx.textAlign = 'right';
-        this.ctx.fillText(`Round ${team.currentRound}/${team.maxRounds}`, x + width - 12, y + titleBgHeight / 2);
+        this.ctx.fillText(rightText, titleBarX + titleBarWidth - titleLeftPadding, textY);
       }
 
-      // 🔧 Parallel 策略：显示并行执行指示器
-      if (team.strategy === 'parallel') {
-        // 统计正在运行的成员数量
-        const runningCount = team.memberIds.filter((memberId: string) => {
-          const agent = this.state?.subAgents.find(a => a.id === memberId);
-          return agent && agent.status === 'running';
-        }).length;
+      this.ctx.textAlign = 'left';
 
-        if (runningCount > 0) {
-          this.ctx.fillStyle = 'rgba(236, 72, 153, 1)';
-          this.ctx.font = 'bold 11px monospace';
-          this.ctx.textAlign = 'right';
-          this.ctx.fillText(`⚡ ${runningCount}/${team.memberIds.length} Running`, x + width - 12, y + titleBgHeight / 2);
-        }
-      }
-
-      // 🔧 Debate 策略：绘制中心圆（辩论主题圆）
+      // Debate 中心圆
       if (team.strategy === 'debate') {
         this.drawDebateCenterCircle(team);
       }
@@ -948,7 +1241,7 @@ export class CanvasRenderer {
 
     // 🔧 计算连接点：主 agent 底部中心 → 团队边界框顶部中心
     const fromX = mainPos.x;
-    const fromY = mainPos.y + mainRadius + 20; // 主 agent 底部（圆形半径 + 名称标签高度）
+    const fromY = mainPos.y + mainRadius + 65; // 主 agent 底部（圆形半径 + 名称标签 + 时间线条）
 
     const toX = bounds.x + bounds.width / 2; // 团队边界框顶部中心
     const toY = bounds.y; // 团队边界框顶部
@@ -1009,57 +1302,6 @@ export class CanvasRenderer {
     this.ctx.fillText(text, pos.x, pos.y);
   }
 
-  /**
-   * 绘制连接线（旧版本，保留向后兼容）
-   */
-  private drawConnectionsOld() {
-    if (!this.state) return;
-
-    try {
-      this.state.collaborations.forEach((collab) => {
-        const fromPos = this.getAgentPosition(collab.from);
-        const toPos = this.getAgentPosition(collab.to);
-
-        if (fromPos && toPos) {
-          const path = this.layoutEngine.getConnectionPath(fromPos, toPos);
-
-          if (!path.points || !Array.isArray(path.points) || path.points.length === 0) {
-            return;
-          }
-
-          // 连线颜色语义
-          let lineColor = '#3A3A3A';
-          if (collab.active) {
-            lineColor = collab.type === 'task' ? '#7C8CF5' : '#34D399';
-          }
-
-          this.ctx.strokeStyle = lineColor;
-          this.ctx.lineWidth = collab.active ? 2 : 1;
-          this.ctx.setLineDash(collab.type === 'data' ? [5, 5] : []);
-          this.ctx.beginPath();
-
-          path.points.forEach((point, index) => {
-            if (index === 0) {
-              this.ctx.moveTo(point.x, point.y);
-            } else {
-              this.ctx.lineTo(point.x, point.y);
-            }
-          });
-
-          this.ctx.stroke();
-          this.ctx.setLineDash([]);
-
-          // 连线中点标签
-          if (collab.label && collab.active) {
-            this.drawConnectionLabel(fromPos, toPos, collab.label.text, collab.label.opacity);
-          }
-        }
-      });
-    } catch (err) {
-      console.error('[CanvasRenderer] drawConnections 错误:', err);
-    }
-  }
-
   // ─── 区域2：思考气泡 ────────────────────────────────────────
 
   /**
@@ -1072,80 +1314,77 @@ export class CanvasRenderer {
     const mainRadius = this.layoutEngine.getMainAgentRadius();
 
     // 主 Agent 的思考气泡
-    const mainThinkText = (this.state.mainAgent as any).thinkingText || this.state.mainAgent.currentThought;
+    const mainThinkText = this.state.mainAgent.thinkingText;
     if (mainThinkText) {
       this.drawThinkingBubble(mainPos, mainRadius, mainThinkText);
     }
 
-    // 子 Agent 的思考气泡
-    const visibleAgents = this.state.subAgents.filter(a => a.status !== 'idle');
+    // 子 Agent 的思考气泡（尊重出场动画 alpha）
+    const visibleAgents = this.state.subAgents.filter(a => {
+      const isTeamPlaceholder = a.status === 'idle' && a.multiAgent?.type === 'agent_team';
+      return (a.status !== 'idle' || isTeamPlaceholder) && this.getAgentAlpha(a.id) > 0.01;
+    });
     visibleAgents.forEach((agent, index) => {
-      const pos = this.treePositions.get(agent.id)
-        || this.layoutEngine.getSubAgentPosition(index, visibleAgents.length);
+      const pos = this.layoutEngine.getStableAgentPosition(agent, this.treePositions, index, visibleAgents.length);
       const radius = this.layoutEngine.getSubAgentRadius();
+      const alpha = this.getAgentAlpha(agent.id);
 
-      // 🔧 辩论模式特殊处理
-      const isDebateAgent = agent.multiAgent?.strategy === 'debate';
-      const isCurrentSpeaker = isDebateAgent && agent.status === 'running';
-
-      // 🔧 辩论模式：只显示当前发言者的气泡
       if (agent.thinkingText) {
-        if (isDebateAgent) {
-          // 辩论模式：只有当前发言者显示气泡
-          if (isCurrentSpeaker) {
-            this.drawThinkingBubble(pos, radius, agent.thinkingText);
-          }
-        } else {
-          // 非辩论模式：正常显示
-          this.drawThinkingBubble(pos, radius, agent.thinkingText);
-        }
+        this.ctx.save();
+        this.ctx.globalAlpha = alpha;
+
+        // 思考流入前显示任务文本（紫色调），思考流入后显示思考内容（蓝色调）
+        const isTaskText = agent.thinkingText === agent.task;
+
+        // 团队并行模式下优先上方位置（避免与左侧邻居的工具堆栈重叠）
+        const isTeamParallel = agent.multiAgent?.type === 'agent_team' &&
+          (agent.multiAgent?.strategy === 'parallel' || agent.multiAgent?.strategy === 'debate');
+        this.drawThinkingBubble(pos, radius, agent.thinkingText, isTaskText, isTeamParallel);
+
+        this.ctx.restore();
       }
     });
   }
 
   /**
-   * 绘制思考气泡（节点正上方，淡紫色）
+   * 绘制思考气泡（节点正上方）
+   * @param isTaskText 显示任务文本（紫色调），否则为思考内容（蓝色调）
    */
-  private drawThinkingBubble(agentPos: Point, agentRadius: number, text: string) {
-    const maxWidth = 220; // 气泡宽度
+  private drawThinkingBubble(agentPos: Point, agentRadius: number, text: string, isTaskText: boolean = false, preferTop: boolean = false) {
+    const maxWidth = 220;
+    const minWidth = 100;
     const padding = 12;
     const lineHeight = 16;
-    const maxLines = 5; // 固定最大行数，保持气泡高度稳定
+    const maxLines = 5;
 
-    // 🔧 流式展示优化：固定气泡高度，内容向上滚动
-    // 1. 先将文本按行分割
     this.ctx.font = '11px sans-serif';
-    const allLines = this.wrapText(text, maxWidth - padding * 2, 999); // 先获取所有行
-
-    // 2. 只显示最后 maxLines 行（模拟向上滚动效果）
+    const allLines = this.wrapText(text, maxWidth - padding * 2, 999);
     const displayLines = allLines.slice(-maxLines);
 
-    // 3. 气泡尺寸固定（基于 maxLines）
-    const bubbleWidth = maxWidth;
-    const bubbleHeight = maxLines * lineHeight + padding * 2;
+    // 自适应气泡尺寸：根据实际文本宽度和行数计算
+    const maxLineWidth = Math.max(...displayLines.map(l => this.ctx.measureText(l).width));
+    const bubbleWidth = Math.max(minWidth, Math.min(maxWidth, Math.ceil(maxLineWidth) + padding * 2 + 8));
+    const bubbleHeight = displayLines.length * lineHeight + padding * 2;
 
     const bubblePos = this.layoutEngine.getThinkingBubblePosition(
-      agentPos, agentRadius, bubbleWidth, bubbleHeight
+      agentPos, agentRadius, bubbleWidth, bubbleHeight, preferTop,
     );
 
-    // 🔧 判断气泡位置（左侧、右侧、上方或下方）
-    const isLeft = bubblePos.x + bubbleWidth < agentPos.x - agentRadius;
-    const isRight = bubblePos.x > agentPos.x + agentRadius;
-    const isAbove = !isLeft && !isRight && bubblePos.y + bubbleHeight < agentPos.y;
-    const isBelow = !isLeft && !isRight && bubblePos.y > agentPos.y;
+    // 背景色：任务文本用紫色调，思考文本用天蓝色调
+    const bgFill = isTaskText ? 'rgba(139,92,246,0.2)' : 'rgba(96,165,250,0.13)';
+    const bgStroke = isTaskText ? 'rgba(139,92,246,0.65)' : 'rgba(96,165,250,0.55)';
 
-    // 淡紫色背景
-    this.ctx.fillStyle = 'rgba(124,140,245,0.15)';
-    this.ctx.strokeStyle = 'rgba(124,140,245,0.6)';
+    this.ctx.fillStyle = bgFill;
+    this.ctx.strokeStyle = bgStroke;
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
     this.roundRect(bubblePos.x, bubblePos.y, bubbleWidth, bubbleHeight, 8);
     this.ctx.fill();
     this.ctx.stroke();
 
-    // 🔧 小三角尾巴（动态计算最佳连接点）
-    this.ctx.fillStyle = 'rgba(124,140,245,0.15)';
-    this.ctx.strokeStyle = 'rgba(124,140,245,0.6)';
+    // 小三角尾巴
+    this.ctx.fillStyle = bgFill;
+    this.ctx.strokeStyle = bgStroke;
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
 
@@ -1223,20 +1462,42 @@ export class CanvasRenderer {
     const padding = { x: 8, y: 5 };
     const iconWidth = 16;
     const lineHeight = 14;
+    const labelDurationGap = 14; // 标签文案与耗时之间的间距，防止重叠
 
     // 支持多行文本（用 \n 分隔）
     const lines = moment.label.split('\n');
 
     this.ctx.font = '11px sans-serif';
     const maxLineWidth = Math.max(...lines.map(line => this.ctx.measureText(line).width));
-    const tagWidth = iconWidth + maxLineWidth + padding.x * 3;
+
+    // 耗时文本（右侧独立区域，与标签文案之间用 labelDurationGap 分隔）
+    let durationText = '';
+    if (moment.status === 'running') {
+      const elapsed = Math.max(0, moment.durationMs);
+      durationText = `↻${(elapsed / 1000).toFixed(1)}s`;
+    } else if (moment.status === 'success') {
+      durationText = `✓${(moment.durationMs / 1000).toFixed(1)}s`;
+    } else if (moment.status === 'error') {
+      const elapsed = Math.max(0, moment.durationMs);
+      durationText = elapsed > 0 ? `✗${(elapsed / 1000).toFixed(1)}s` : '✗';
+    }
+
+    this.ctx.font = '10px monospace';
+    const durationTextWidth = durationText ? this.ctx.measureText(durationText).width : 0;
+    // 耗时区域宽度：文本宽度 + 两侧留白
+    const durationAreaWidth = durationText ? durationTextWidth + padding.x : 0;
+
+    // tag 宽度 = 左padding + icon + label + gap + 耗时区域 + 右padding
+    const tagWidth = padding.x + iconWidth + maxLineWidth + labelDurationGap + durationAreaWidth + padding.x;
     const tagHeight = Math.max(24, lines.length * lineHeight + padding.y * 2);
 
     // 传入实际尺寸，让 LayoutEngine 做碰撞避让
     const tagPos = this.layoutEngine.getMomentTagPosition(agentPos, agentRadius, tagWidth, tagHeight);
 
     // 背景色按类型
-    this.ctx.fillStyle = this.getMomentBgColor(moment.type, moment.status);
+    const bgColor = this.getMomentBgColor(moment.type, moment.status);
+
+    this.ctx.fillStyle = bgColor;
     this.ctx.beginPath();
     this.roundRect(tagPos.x, tagPos.y, tagWidth, tagHeight, 12);
     this.ctx.fill();
@@ -1248,7 +1509,7 @@ export class CanvasRenderer {
     this.ctx.fillStyle = '#fff';
     this.ctx.fillText(moment.icon, tagPos.x + padding.x, tagPos.y + tagHeight / 2);
 
-    // 标签文字（多行）
+    // 标签文字（多行，左对齐）
     this.ctx.font = '11px sans-serif';
     const textStartY = tagPos.y + padding.y + lineHeight / 2;
     lines.forEach((line, i) => {
@@ -1259,14 +1520,14 @@ export class CanvasRenderer {
       );
     });
 
-    // 右下角状态/耗时
-    const durationText = moment.status === 'running'
-      ? '↻'
-      : `✓${(moment.durationMs / 1000).toFixed(1)}s`;
-    this.ctx.font = '9px monospace';
-    this.ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    this.ctx.textAlign = 'right';
-    this.ctx.fillText(durationText, tagPos.x + tagWidth - 4, tagPos.y + tagHeight - 4);
+    // 耗时文本（右对齐，与标签文案之间保证 labelDurationGap 间距）
+    if (durationText) {
+      this.ctx.font = '10px monospace';
+      this.ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      this.ctx.textAlign = 'right';
+      this.ctx.fillText(durationText, tagPos.x + tagWidth - padding.x, tagPos.y + tagHeight / 2);
+    }
+
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'alphabetic';
   }
@@ -1274,106 +1535,17 @@ export class CanvasRenderer {
   private getMomentBgColor(type: string, status: string): string {
     if (status === 'error') return 'rgba(239,68,68,0.85)';
     const map: Record<string, string> = {
+      idle: 'rgba(75,85,99,0.6)',
       file: 'rgba(59,130,246,0.8)',
       bash: 'rgba(75,85,99,0.9)',
       skill: 'rgba(139,92,246,0.8)',
       memory_read: 'rgba(16,185,129,0.8)',
       memory_write: 'rgba(16,185,129,0.8)',
       thinking: 'rgba(124,140,245,0.6)',
+      writing: 'rgba(52,211,153,0.8)',
+      reporting: 'rgba(59,130,246,0.8)',
     };
     return map[type] || 'rgba(75,85,99,0.8)';
-  }
-
-  // ─── 区域4：左侧历史点阵 ────────────────────────────────────
-
-  /**
-   * 绘制左侧历史点阵
-   */
-  private drawHistoryDots(agentPos: Point, agentRadius: number, dots: HistoryDot[]) {
-    const dotRadius = 4;
-    const dotSpacing = 10;
-    const visible = dots.slice(-8); // 最多8个
-    const origin = this.layoutEngine.getHistoryDotsOrigin(agentPos, agentRadius, visible.length);
-
-    visible.forEach((dot, i) => {
-      const cx = origin.x;
-      const cy = origin.y + i * dotSpacing;
-
-      this.ctx.beginPath();
-      this.ctx.arc(cx, cy, dotRadius, 0, 2 * Math.PI);
-
-      if (dot.status === 'running') {
-        this.ctx.strokeStyle = '#8A8A8A';
-        this.ctx.lineWidth = 1.5;
-        this.ctx.fillStyle = 'transparent';
-        this.ctx.fill();
-        this.ctx.stroke();
-      } else {
-        this.ctx.fillStyle = dot.status === 'success' ? '#34D399' : '#F87171';
-        this.ctx.fill();
-      }
-    });
-  }
-
-  // ─── 区域5：下方时间条 ──────────────────────────────────────
-
-  /**
-   * 绘制下方时间条
-   */
-  private drawTimelineStrip(agentPos: Point, agentRadius: number, events: TimelineEvent[]) {
-    const origin = this.layoutEngine.getTimelineOrigin(agentPos, agentRadius);
-    const stripHeight = 22;
-    const pillPadding = { x: 6, y: 3 };
-    const gap = 4;
-    const visible = events.slice(-5);
-
-    let curX = origin.x;
-
-    visible.forEach((evt) => {
-      this.ctx.font = '10px sans-serif';
-      const labelText = `${evt.icon} ${evt.label}`;
-      const textWidth = this.ctx.measureText(labelText).width;
-      const pillWidth = textWidth + pillPadding.x * 2;
-      const pillY = origin.y;
-
-      // 背景
-      const bgColor = evt.status === 'success'
-        ? 'rgba(52,211,153,0.2)'
-        : evt.status === 'error'
-          ? 'rgba(248,113,113,0.2)'
-          : 'rgba(124,140,245,0.2)';
-      this.ctx.fillStyle = bgColor;
-      this.ctx.beginPath();
-      this.roundRect(curX, pillY, pillWidth, stripHeight, stripHeight / 2);
-      this.ctx.fill();
-
-      // 文字
-      this.ctx.fillStyle = evt.status === 'success'
-        ? '#34D399'
-        : evt.status === 'error'
-          ? '#F87171'
-          : '#C4CAFF';
-      this.ctx.textAlign = 'left';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(labelText, curX + pillPadding.x, pillY + stripHeight / 2);
-
-      // 耗时
-      if (evt.duration !== undefined) {
-        const durText = `${(evt.duration / 1000).toFixed(1)}s`;
-        this.ctx.font = '9px monospace';
-        this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        this.ctx.fillText(durText, curX + pillWidth - this.ctx.measureText(durText).width - 2, pillY + stripHeight - 4);
-      } else if (evt.status === 'running') {
-        // 旋转点动画（简单用 ↻ 代替）
-        this.ctx.font = '9px monospace';
-        this.ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        this.ctx.fillText('↻', curX + pillWidth - 10, pillY + stripHeight - 4);
-      }
-
-      curX += pillWidth + gap;
-    });
-
-    this.ctx.textBaseline = 'alphabetic';
   }
 
   // ─── 右侧工具调用堆栈 ─────────────────────────────────────────
@@ -1385,21 +1557,21 @@ export class CanvasRenderer {
   private drawToolCallStack(
     agentPos: Point,
     agentRadius: number,
-    events: TimelineEvent[]
+    events: TimelineEvent[],
+    currentTime: number
   ) {
     const gap = 8;
     const itemHeight = 26;
     const itemSpacing = 4;
-    const maxVisible = 4; // 🔧 最多显示 4 个
+    const maxVisible = 4;
 
-    // 🔧 显示正在运行的工具 + 最近完成的工具（3秒内）
-    const now = Date.now();
-    const recentThreshold = 3000; // 3秒
+    // 显示正在运行的工具 + 最近完成的工具（1秒内自动消失）
+    const recentThreshold = 1000;
     const visibleEvents = events.filter(evt => {
       if (evt.status === 'running') return true;
       // 已完成的工具：如果在 3 秒内完成，则显示
       if ((evt.status === 'success' || evt.status === 'error') && evt.startTime) {
-        const elapsed = now - evt.startTime;
+        const elapsed = currentTime - evt.startTime;
         return elapsed < recentThreshold;
       }
       return false;
@@ -1409,6 +1581,8 @@ export class CanvasRenderer {
     const displayEvents = visibleEvents.slice(-maxVisible);
     const hiddenCount = Math.max(0, visibleEvents.length - maxVisible);
 
+    if (displayEvents.length === 0) return;
+
     // 如果有隐藏的工具，先绘制省略号
     if (hiddenCount > 0) {
       this.drawEllipsisIndicator(agentPos, agentRadius, gap, itemHeight, hiddenCount);
@@ -1417,10 +1591,68 @@ export class CanvasRenderer {
     // 🔧 从 agent 图标顶部开始向下排列
     const startY = agentPos.y - agentRadius; // agent 顶部
 
-    // 绘制可见的工具
-    displayEvents.forEach((evt, index) => {
-      const verticalOffset = (hiddenCount > 0 ? 1 : 0) * (itemHeight + itemSpacing) + index * (itemHeight + itemSpacing);
-      this.drawToolCallItem(agentPos, agentRadius, evt, verticalOffset, gap, itemHeight, startY);
+    // 🔧 注册工具堆栈的占用区域（用于碰撞避让）
+    const stackHeight = (displayEvents.length + (hiddenCount > 0 ? 1 : 0)) * (itemHeight + itemSpacing);
+    const stackWidth = 200; // 估算宽度
+    this.layoutEngine.addOccupied({
+      x: agentPos.x + agentRadius + gap,
+      y: startY,
+      width: stackWidth,
+      height: stackHeight,
+    });
+
+    // 按并行组分组连续的事件
+    const parallelGroups: TimelineEvent[][] = [];
+    let currentGroup: TimelineEvent[] = [];
+    for (let i = 0; i < displayEvents.length; i++) {
+      const evt = displayEvents[i];
+      const prev = i > 0 ? displayEvents[i - 1] : null;
+      if (prev && evt.parallelGroupId && prev.parallelGroupId === evt.parallelGroupId) {
+        currentGroup.push(evt);
+      } else {
+        if (currentGroup.length > 0) parallelGroups.push(currentGroup);
+        currentGroup = [evt];
+      }
+    }
+    if (currentGroup.length > 0) parallelGroups.push(currentGroup);
+
+    // 绘制工具（组内并排标记，组间纵向排列）
+    let groupOffsetY = 0;
+    const hiddenOffset = hiddenCount > 0 ? itemHeight + itemSpacing : 0;
+    parallelGroups.forEach((group) => {
+      const isParallel = group.length > 1;
+      const yBase = startY + hiddenOffset + groupOffsetY;
+
+      // 并行组：绘制左侧并行标识符 ∥
+      if (isParallel) {
+        const indicatorX = agentPos.x + agentRadius + gap - 14;
+        const groupTop = yBase;
+        const groupBottom = yBase + (group.length - 1) * (itemHeight + itemSpacing) + itemHeight;
+        const groupMidY = (groupTop + groupBottom) / 2;
+
+        // 竖线连接
+        this.ctx.strokeStyle = 'rgba(124, 140, 245, 0.5)';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.beginPath();
+        this.ctx.moveTo(indicatorX + 6, groupTop + itemHeight / 2);
+        this.ctx.lineTo(indicatorX + 6, groupBottom - itemHeight / 2);
+        this.ctx.stroke();
+
+        // 并行符号 ∥
+        this.ctx.fillStyle = 'rgba(124, 140, 245, 0.8)';
+        this.ctx.font = '10px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('∥', indicatorX + 6, groupMidY);
+        this.ctx.textAlign = 'left';
+      }
+
+      group.forEach((evt, idx) => {
+        const verticalOffset = groupOffsetY + idx * (itemHeight + itemSpacing);
+        this.drawToolCallItem(agentPos, agentRadius, evt, verticalOffset, gap, itemHeight, startY, currentTime);
+      });
+
+      groupOffsetY += group.length * (itemHeight + itemSpacing);
     });
   }
 
@@ -1455,6 +1687,11 @@ export class CanvasRenderer {
     this.ctx.fillText(`... +${hiddenCount} more`, tagPos.x + 8, tagPos.y + itemHeight / 2);
   }
 
+  /** 格式化工具名：write_file → Write File */
+  private formatToolName(name: string): string {
+    return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
   /**
    * 绘制单个工具调用项（右侧，从 agent 顶部开始向下排列）
    */
@@ -1465,13 +1702,16 @@ export class CanvasRenderer {
     verticalOffset: number,
     gap: number,
     itemHeight: number,
-    startY: number // 🔧 新增参数：起始 Y 坐标
+    startY: number,
+    currentTime: number
   ) {
     const padding = { x: 8, y: 5 };
     const iconWidth = 16;
 
+    const displayLabel = this.formatToolName(event.label);
+
     this.ctx.font = '11px sans-serif';
-    const labelWidth = this.ctx.measureText(event.label).width;
+    const labelWidth = this.ctx.measureText(displayLabel).width;
     const tagWidth = iconWidth + labelWidth + padding.x * 3 + 45; // +45 为计时区域预留
 
     // 🔧 从 agent 顶部开始向下排列
@@ -1495,17 +1735,19 @@ export class CanvasRenderer {
 
     // 工具名称
     this.ctx.font = '11px sans-serif';
-    this.ctx.fillText(event.label, tagPos.x + padding.x + iconWidth, tagPos.y + itemHeight / 2);
+    this.ctx.fillText(displayLabel, tagPos.x + padding.x + iconWidth, tagPos.y + itemHeight / 2);
 
     // ✅ 右侧显示计时或状态
     let timeText = '';
     if (event.status === 'running' && event.startTime) {
-      const elapsed = Date.now() - event.startTime;
-      timeText = `${(elapsed / 1000).toFixed(1)}s`;
-    } else if (event.status === 'success' && event.duration) {
-      timeText = `✓${(event.duration / 1000).toFixed(1)}s`;
+      const elapsed = currentTime - event.startTime;
+      timeText = `${Math.max(0, elapsed / 1000).toFixed(1)}s`;
+    } else if (event.status === 'success') {
+      const dur = event.duration || (event.startTime && event.endTime ? event.endTime - event.startTime : 0);
+      timeText = dur > 0 ? `✓${(dur / 1000).toFixed(1)}s` : '✓';
     } else if (event.status === 'error') {
-      timeText = '✗';
+      const dur = event.duration || (event.startTime && event.endTime ? event.endTime - event.startTime : 0);
+      timeText = dur > 0 ? `✗${(dur / 1000).toFixed(1)}s` : '✗';
     }
 
     if (timeText) {
@@ -1534,24 +1776,6 @@ export class CanvasRenderer {
       default:
         return 'rgba(75,85,99,0.8)'; // 灰色 - 默认
     }
-  }
-
-  /**
-   * 根据图标推断工具类型（用于配色）
-   */
-  private inferToolType(icon: string): MomentType {
-    const typeMap: Record<string, MomentType> = {
-      '🗂': 'file',  // read
-      '📝': 'file',  // write
-      '✏️': 'file',  // edit
-      '⚡': 'bash',  // bash
-      '🔍': 'file',  // glob
-      '🔎': 'file',  // grep
-      '🧠': 'memory_read',
-      '💾': 'memory_write',
-      '✨': 'skill',
-    };
-    return typeMap[icon] || 'idle';
   }
 
   // ─── 连线中点标签 ────────────────────────────────────────────
@@ -1590,91 +1814,57 @@ export class CanvasRenderer {
     this.ctx.textBaseline = 'alphabetic';
   }
 
-  // ─── 左下角事件流 ────────────────────────────────────────────
-
-  /**
-   * 绘制左下角事件流（最近5条）
-   */
-  private drawEventFeed(events: RecentEvent[]) {
-    if (!events || events.length === 0) return;
-
-    const rect = this.canvas.getBoundingClientRect();
-    const feedWidth = 260;
-    const itemHeight = 22;
-    const padding = 8;
-    const visible = events.slice(-5);
-    const feedHeight = visible.length * itemHeight + padding * 2;
-    const feedX = 12;
-    const feedY = rect.height - feedHeight - 12;
-
-    // 背景
-    this.ctx.fillStyle = 'rgba(30,30,30,0.85)';
-    this.ctx.strokeStyle = 'rgba(58,58,58,0.8)';
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.roundRect(feedX, feedY, feedWidth, feedHeight, 8);
-    this.ctx.fill();
-    this.ctx.stroke();
-
-    visible.forEach((evt, i) => {
-      const y = feedY + padding + i * itemHeight + itemHeight / 2;
-      const timeStr = new Date(evt.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      // 图标
-      this.ctx.font = '12px sans-serif';
-      this.ctx.textAlign = 'left';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillStyle = '#8A8A8A';
-      this.ctx.fillText(evt.icon, feedX + padding, y);
-
-      // 时间
-      this.ctx.font = '10px monospace';
-      this.ctx.fillStyle = '#5A5A5A';
-      this.ctx.fillText(timeStr, feedX + padding + 18, y);
-
-      // Agent 名
-      this.ctx.font = 'bold 10px sans-serif';
-      this.ctx.fillStyle = '#7C8CF5';
-      this.ctx.fillText(evt.agentName, feedX + padding + 70, y);
-
-      // 描述
-      this.ctx.font = '10px sans-serif';
-      this.ctx.fillStyle = '#C4C4C4';
-      const descX = feedX + padding + 70 + this.ctx.measureText(evt.agentName).width + 4;
-      const maxDescWidth = feedWidth - (descX - feedX) - padding;
-      const desc = this.truncateText(evt.description, maxDescWidth);
-      this.ctx.fillText(desc, descX, y);
-    });
-
-    this.ctx.textBaseline = 'alphabetic';
-  }
-
   // ─── 文本辅助 ────────────────────────────────────────────────
 
-  /** 自动换行，返回不超过 maxLines 行的数组 */
+  /** 自动换行（优化版：用平均字符宽度估算断点，减少 measureText 调用 + 缓存） */
   private wrapText(text: string, maxWidth: number, maxLines: number): string[] {
-    const words = text.split('');
-    const lines: string[] = [];
-    let current = '';
+    const cacheKey = `${text}|${maxWidth}|${maxLines}`;
+    const cached = this.wrapCache.get(cacheKey);
+    if (cached) return cached;
 
-    for (const ch of words) {
-      const test = current + ch;
-      if (this.ctx.measureText(test).width > maxWidth) {
-        if (current) lines.push(current);
-        current = ch;
-        if (lines.length >= maxLines - 1) break;
-      } else {
-        current = test;
+    const lines: string[] = [];
+    let remaining = text;
+
+    for (let lineIdx = 0; lineIdx < maxLines && remaining.length > 0; lineIdx++) {
+      // 快速路径：整个剩余文本适合一行
+      if (this.ctx.measureText(remaining).width <= maxWidth) {
+        lines.push(remaining);
+        if (this.wrapCache.size > 500) { this.wrapCache.clear(); } else { this.wrapCache.set(cacheKey, lines); }
+        return lines;
       }
-    }
-    if (current) {
-      if (lines.length >= maxLines) {
-        lines[maxLines - 1] = lines[maxLines - 1].slice(0, -1) + '…';
-      } else {
-        lines.push(current);
+
+      // 用平均字符宽度估算断点位置
+      const avgWidth = this.ctx.measureText(remaining).width / remaining.length;
+      let breakIdx = Math.floor(maxWidth / avgWidth);
+      breakIdx = Math.max(1, Math.min(breakIdx, remaining.length - 1));
+
+      // 微调：向前移动直到适合宽度
+      while (breakIdx > 0 && this.ctx.measureText(remaining.slice(0, breakIdx)).width > maxWidth) {
+        breakIdx--;
       }
+      if (breakIdx === 0) breakIdx = 1; // 至少一个字符
+
+      // 最后一行加省略号
+      if (lineIdx === maxLines - 1 && breakIdx < remaining.length) {
+        let truncated = remaining.slice(0, breakIdx);
+        while (truncated.length > 1 && this.ctx.measureText(truncated + '…').width > maxWidth) {
+          truncated = truncated.slice(0, -1);
+        }
+        lines.push(truncated + '…');
+        if (this.wrapCache.size > 500) { this.wrapCache.clear(); } else { this.wrapCache.set(cacheKey, lines); }
+        return lines;
+      }
+
+      lines.push(remaining.slice(0, breakIdx));
+      remaining = remaining.slice(breakIdx);
     }
-    return lines.slice(0, maxLines);
+    // 缓存上限保护：超过 500 条则清理（流式文本变化时缓存会累积旧版本）
+    if (this.wrapCache.size > 500) {
+      this.wrapCache.clear();
+    } else {
+      this.wrapCache.set(cacheKey, lines);
+    }
+    return lines;
   }
 
   /** 截断文本到指定像素宽度 */
@@ -1688,94 +1878,21 @@ export class CanvasRenderer {
   }
 
   /**
-   * 绘制统计信息
-   */
-  private drawStats() {
-    if (!this.state) return;
-
-    const pos = this.layoutEngine.getStatsPosition();
-    const stats = this.state.stats;
-    const rect = this.canvas.getBoundingClientRect();
-    const boxWidth = Math.min(200, rect.width - 20);
-    const boxHeight = stats.currentCallTokens > 0 ? 68 : 52;
-
-    // 背景（使用璇玑的背景色）
-    this.ctx.fillStyle = 'rgba(45, 45, 45, 0.9)'; // bg-secondary with opacity
-    this.ctx.beginPath();
-    this.roundRect(pos.x, pos.y, boxWidth, boxHeight, 8);
-    this.ctx.fill();
-
-    // 边框
-    this.ctx.strokeStyle = 'rgba(58, 58, 58, 0.8)';
-    this.ctx.lineWidth = 1;
-    this.ctx.stroke();
-
-    this.ctx.font = '12px monospace';
-    this.ctx.textAlign = 'left';
-
-    // 第一行：累计 Token（使用璇玑的 warning 色）
-    this.ctx.fillStyle = '#FBBF24'; // warning
-    this.ctx.fillText(`Tokens: ${stats.totalTokens.toLocaleString()}`, pos.x + 10, pos.y + 18);
-
-    // 第二行：轮次（左）+ 耗时（右）
-    this.ctx.fillStyle = '#34D399'; // success
-    this.ctx.fillText(`迭代: ${stats.iteration}`, pos.x + 10, pos.y + 38);
-
-    this.ctx.fillStyle = '#7C8CF5'; // primary
-    this.ctx.textAlign = 'right';
-    this.ctx.fillText(`0.0s`, pos.x + boxWidth - 10, pos.y + 38);
-    this.ctx.textAlign = 'left'; // 还原
-
-    // 第三行：本次 LLM call 的 token 增量（仅当有数据时显示）
-    if (stats.currentCallTokens > 0) {
-      this.ctx.fillStyle = '#8A8A8A'; // text-secondary
-      this.ctx.fillText(`本次: +${stats.currentCallTokens.toLocaleString()}`, pos.x + 10, pos.y + 58);
-    }
-  }
-
-  /**
-   * 绘制工具提示
-   */
-  private drawToolTip(agentPos: Point, agentRadius: number, toolName: string) {
-    const tipWidth = 120;
-    const tipHeight = 30;
-    const tipPos = this.layoutEngine.getBubblePosition(
-      agentPos,
-      agentRadius,
-      tipWidth,
-      tipHeight,
-      'right'
-    );
-
-    // 背景（使用璇玑的 success 色）
-    this.ctx.fillStyle = 'rgba(52, 211, 153, 0.9)'; // success with opacity
-    this.ctx.beginPath();
-    this.roundRect(tipPos.x, tipPos.y, tipWidth, tipHeight, 6);
-    this.ctx.fill();
-
-    // 文本
-    this.ctx.fillStyle = '#E4E4E4'; // text-primary
-    this.ctx.font = '12px monospace';
-    this.ctx.textAlign = 'left';
-    this.ctx.fillText(`🔧 ${toolName}`, tipPos.x + 8, tipPos.y + 19);
-  }
-
-  /**
    * 绘制 Agent 类型标签
    */
-  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom' | 'temporary') {
+  private drawAgentTypeLabel(agentPos: Point, agentRadius: number, agentType: 'builtin' | 'preset' | 'custom' | 'temporary', durationOffset: number = 0) {
     const labelConfig = {
-      preset: { text: '预置', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 预置 agent
-      builtin: { text: '内置', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
+      builtin: { text: '系统', color: 'rgba(59, 130, 246, 0.9)', icon: '⚡' }, // blue - 系统内置
+      preset: { text: '应用', color: 'rgba(52, 211, 153, 0.9)', icon: '📦' }, // green - 应用级 agent
       custom: { text: '自定义', color: 'rgba(168, 85, 247, 0.9)', icon: '✨' }, // purple - 用户自定义
       temporary: { text: '临时', color: 'rgba(156, 163, 175, 0.9)', icon: '⏱' }, // gray - 临时 agent
     };
 
-    const config = labelConfig[agentType] || labelConfig.builtin; // 默认使用 builtin
+    const config = labelConfig[agentType] || labelConfig.builtin;
     const labelWidth = 60;
     const labelHeight = 20;
     const labelX = agentPos.x - labelWidth / 2;
-    const labelY = agentPos.y + agentRadius + 28; // 在名称下方
+    const labelY = agentPos.y + agentRadius + 28 + durationOffset; // 在名称/耗时下方
 
     // 背景
     this.ctx.fillStyle = config.color;
@@ -1910,16 +2027,30 @@ export class CanvasRenderer {
 
   /**
    * 绘制进度环
+   * - progress > 0: 显示固定进度弧线
+   * - progress = 0: 显示不确定进度动画（旋转弧线）
    */
-  private drawProgressRing(center: Point, radius: number, progress: number) {
-    const startAngle = -Math.PI / 2;
-    const endAngle = startAngle + 2 * Math.PI * progress;
-
-    this.ctx.strokeStyle = '#34D399'; // success
-    this.ctx.lineWidth = 3;
-    this.ctx.beginPath();
-    this.ctx.arc(center.x, center.y, radius + 5, startAngle, endAngle);
-    this.ctx.stroke();
+  private drawProgressRing(center: Point, radius: number, progress: number, currentTime: number = 0) {
+    if (progress > 0) {
+      const startAngle = -Math.PI / 2;
+      const endAngle = startAngle + 2 * Math.PI * progress;
+      this.ctx.strokeStyle = '#34D399';
+      this.ctx.lineWidth = 3;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, radius + 5, startAngle, endAngle);
+      this.ctx.stroke();
+    } else {
+      // 不确定进度：旋转的短弧线
+      const rotation = (currentTime / 800) * 2 * Math.PI; // 每 800ms 转一圈
+      const arcLength = Math.PI / 2; // 90° 弧线
+      const startAngle = rotation;
+      const endAngle = rotation + arcLength;
+      this.ctx.strokeStyle = 'rgba(52, 211, 153, 0.6)';
+      this.ctx.lineWidth = 3;
+      this.ctx.beginPath();
+      this.ctx.arc(center.x, center.y, radius + 5, startAngle, endAngle);
+      this.ctx.stroke();
+    }
   }
 
   /**
@@ -1965,29 +2096,32 @@ export class CanvasRenderer {
   /**
    * 获取 Agent 颜色（使用璇玑主题色）
    */
-  private getAgentColor(status: AgentState): string {
+  private getAgentColor(status: AgentState | 'success' | 'running'): string {
     switch (status) {
       case 'thinking':
-        return '#5B6FD8'; // 蓝色（稍微调暗）
+      case 'running':
+        return '#5B6FD8'; // 蓝色
       case 'executing':
-        return '#2BA76F'; // 绿色（稍微调暗）
-      case 'waiting':
-        return '#D4A017'; // 黄色（稍微调暗）
-      case 'error':
-        return '#D85B5B'; // 红色（稍微调暗）
-      case 'done':
         return '#2BA76F'; // 绿色
+      case 'waiting':
+        return '#D4A017'; // 黄色
+      case 'error':
+        return '#D85B5B'; // 红色
+      case 'done':
+      case 'success':
+        return '#2BA76F'; // 绿色（完成）
       default:
         return '#3A3A3A'; // bg-tertiary
     }
   }
 
   /**
-   * 获取 Agent 边框颜色（使用璇玑主题色）
+   * 获取 Agent 边框颜色
    */
-  private getAgentBorderColor(status: AgentState): string {
+  private getAgentBorderColor(status: AgentState | 'success' | 'running'): string {
     switch (status) {
       case 'thinking':
+      case 'running':
         return '#7C8CF5'; // primary
       case 'executing':
         return '#34D399'; // success
@@ -1996,7 +2130,8 @@ export class CanvasRenderer {
       case 'error':
         return '#F87171'; // error
       case 'done':
-        return '#34D399'; // success
+      case 'success':
+        return '#34D399'; // success（完成）
       default:
         return '#8A8A8A'; // text-secondary
     }
@@ -2008,13 +2143,19 @@ export class CanvasRenderer {
   private getSubAgentColor(status: SubAgentState): string {
     switch (status) {
       case 'running':
-        return '#5B6FD8'; // 蓝色
+        return '#5B6FD8'; // 蓝色（运行中）
+      case 'thinking':
+        return '#5B6FD8'; // 蓝色（思考中）
+      case 'executing':
+        return '#2BA76F'; // 绿色（执行中）
+      case 'done':
+        return '#2BA76F'; // 绿色（完成）
       case 'success':
-        return '#2BA76F'; // 绿色
+        return '#2BA76F'; // 绿色（成功）
       case 'error':
-        return '#D85B5B'; // 红色
+        return '#D85B5B'; // 红色（失败）
       default:
-        return '#3A3A3A'; // bg-tertiary
+        return '#3A3A3A'; // bg-tertiary（空闲）
     }
   }
 
@@ -2024,13 +2165,19 @@ export class CanvasRenderer {
   private getSubAgentBorderColor(status: SubAgentState): string {
     switch (status) {
       case 'running':
-        return '#7C8CF5'; // primary
+        return '#7C8CF5'; // primary（运行中）
+      case 'thinking':
+        return '#7C8CF5'; // primary（思考中）
+      case 'executing':
+        return '#34D399'; // success（执行中）
+      case 'done':
+        return '#34D399'; // success（完成）
       case 'success':
-        return '#34D399'; // success
+        return '#34D399'; // success（成功）
       case 'error':
-        return '#F87171'; // error
+        return '#F87171'; // error（失败）
       default:
-        return '#8A8A8A'; // text-secondary
+        return '#8A8A8A'; // text-secondary（空闲）
     }
   }
 
@@ -2057,7 +2204,13 @@ export class CanvasRenderer {
   private getStatusLabel(status: SubAgentState): string {
     switch (status) {
       case 'running':
+        return '运行中';
+      case 'thinking':
+        return '思考中';
+      case 'executing':
         return '执行中';
+      case 'done':
+        return '完成';
       case 'success':
         return '成功';
       case 'error':
@@ -2074,112 +2227,20 @@ export class CanvasRenderer {
     this.hoveredAgent = agentId;
   }
 
-  /**
-   * 根据 Agent 数量和团队边界框动态更新画布尺寸
-   */
-  updateCanvasSize(subAgents: SubAgentData[]) {
-    // 获取容器的实际尺寸（从父元素获取）
-    const container = this.canvas.parentElement;
-    if (!container) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const containerWidth = containerRect.width;
-    const containerHeight = containerRect.height;
-
-    // 如果没有子 Agent，使用容器尺寸
-    if (subAgents.length === 0) {
-      this.setCanvasSize(containerWidth, containerHeight);
-      return;
-    }
-
-    // 🔧 计算所有内容的边界（包括团队边界框）
-    const padding = 80; // 边距
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
-    // 主 agent 位置
-    const mainPos = this.layoutEngine.getMainAgentPosition();
-    minX = Math.min(minX, mainPos.x - 50);
-    maxX = Math.max(maxX, mainPos.x + 50);
-    minY = Math.min(minY, mainPos.y - 50);
-    maxY = Math.max(maxY, mainPos.y + 50);
-
-    // 所有子 agent 位置
-    this.treePositions.forEach((pos) => {
-      minX = Math.min(minX, pos.x - 50);
-      maxX = Math.max(maxX, pos.x + 50);
-      minY = Math.min(minY, pos.y - 50);
-      maxY = Math.max(maxY, pos.y + 50);
-    });
-
-    // 团队边界框
-    if (this.state?.teamBoundaries) {
-      this.state.teamBoundaries.forEach((team) => {
-        if (team.bounds) {
-          minX = Math.min(minX, team.bounds.x);
-          maxX = Math.max(maxX, team.bounds.x + team.bounds.width);
-          minY = Math.min(minY, team.bounds.y);
-          maxY = Math.max(maxY, team.bounds.y + team.bounds.height);
-        }
-      });
-    }
-
-    // 计算所需尺寸（加上 padding）
-    const requiredWidth = maxX - minX + padding * 2;
-    const requiredHeight = maxY - minY + padding * 2;
-
-    // 🔧 使用计算尺寸和容器尺寸的较大值
-    const newWidth = Math.max(containerWidth, requiredWidth);
-    const newHeight = Math.max(containerHeight, requiredHeight);
-
-    console.log('[CanvasRenderer] updateCanvasSize:', {
-      containerWidth,
-      containerHeight,
-      requiredWidth,
-      requiredHeight,
-      newWidth,
-      newHeight,
-    });
-
-    this.setCanvasSize(newWidth, newHeight);
+  /** 获取 OffscreenCanvas（Worker 用于生成 ImageBitmap） */
+  getCanvas(): OffscreenCanvas {
+    return this.canvas;
   }
 
-  /**
-   * 设置画布尺寸（内部方法）
-   */
-  private setCanvasSize(width: number, height: number) {
-    const dpr = window.devicePixelRatio || 1;
-    const currentWidth = this.canvas.width / dpr;
-    const currentHeight = this.canvas.height / dpr;
-
-    // 只在尺寸变化时更新（避免不必要的重绘）
-    if (Math.abs(currentWidth - width) > 1 || Math.abs(currentHeight - height) > 1) {
-      this.canvas.width = width * dpr;
-      this.canvas.height = height * dpr;
-      this.canvas.style.width = `${width}px`;
-      this.canvas.style.height = `${height}px`;
-
-      this.ctx.scale(dpr, dpr);
-
-      // 更新布局引擎配置
-      this.layoutEngine.updateSize(width, height);
-    }
-  }
-
-  /**
-   * 调整画布尺寸
-   */
-  resize() {
-    this.setupHighDPI();
+  /** 获取当前视图缩放比例 */
+  getViewScale(): number {
+    return this.viewScale;
   }
 
   /**
    * 销毁
    */
   destroy() {
-    this.stop();
     this.animationEngine.clear();
   }
 }

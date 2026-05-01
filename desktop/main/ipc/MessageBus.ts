@@ -182,9 +182,14 @@ export class MessageChannel extends EventEmitter {
 
       // 发送请求的内部函数
       const sendRequest = (retryCount: number) => {
+        // 每次重试使用新的 requestId，避免竞态
+        const currentRequestId = retryCount > 0
+          ? this.generateRequestId()
+          : requestId;
+
         // 设置超时
         const timer = setTimeout(() => {
-          const pending = this.pendingRequests.get(requestId);
+          const pending = this.pendingRequests.get(currentRequestId);
           if (!pending) return;
 
           // 如果还有重试次数，进行重试
@@ -195,13 +200,13 @@ export class MessageChannel extends EventEmitter {
             }, this.retryDelay);
           } else {
             // 没有重试次数了，拒绝请求
-            this.pendingRequests.delete(requestId);
+            this.pendingRequests.delete(currentRequestId);
             reject(new Error(`请求超时（已重试 ${retries} 次）: ${type} (${timeoutMs}ms)`));
           }
         }, timeoutMs);
 
         // 保存请求
-        this.pendingRequests.set(requestId, {
+        this.pendingRequests.set(currentRequestId, {
           resolve,
           reject,
           timer,
@@ -217,19 +222,19 @@ export class MessageChannel extends EventEmitter {
           if (this.process && this.process.connected) {
             const message: Message = {
               type,
-              requestId,
+              requestId: currentRequestId,
               data,
               timestamp: Date.now(),
             };
             this.process.send(message);
-            this.log(`发送请求: ${type}`, { requestId, data });
+            this.log(`发送请求: ${type}`, { requestId: currentRequestId, data });
           } else {
-            this.pendingRequests.delete(requestId);
+            this.pendingRequests.delete(currentRequestId);
             clearTimeout(timer);
             reject(new Error('子进程已断开连接'));
           }
         } catch (err) {
-          this.pendingRequests.delete(requestId);
+          this.pendingRequests.delete(currentRequestId);
           clearTimeout(timer);
           reject(err);
         }
@@ -244,7 +249,10 @@ export class MessageChannel extends EventEmitter {
    * 处理接收到的消息
    */
   private async handleMessage(msg: Message): Promise<void> {
-    this.log(`收到消息: ${msg.type}`, msg);
+    // 只为 download:event 打印日志
+    if (msg.type === 'download:event') {
+      this.log(`收到消息: ${msg.type}`, msg);
+    }
 
     // 如果是响应消息（有 requestId）
     if (msg.requestId) {
@@ -280,6 +288,9 @@ export class MessageChannel extends EventEmitter {
     }
 
     // 触发事件（兼容旧代码）
+    if (msg.type === 'download:event') {
+      this.log(`触发事件: ${msg.type}`, msg.data);
+    }
     this.emit(msg.type, msg.data);
     this.emit('message', msg);
   }
@@ -592,6 +603,15 @@ export class MessageBus {
     const channel = new MessageChannel({ ...options, name });
     this.channels.set(name, channel);
     return channel;
+  }
+
+  /**
+   * 创建增强的消息通道（支持自动转发到renderer）
+   * 注意：这个方法需要在EnhancedMessageBus.ts中实现
+   */
+  createEnhancedChannel(name: string, options?: any): MessageChannel {
+    // 暂时返回普通通道，实际实现在EnhancedMessageBus中
+    return this.createChannel(name, options);
   }
 
   /**

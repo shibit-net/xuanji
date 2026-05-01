@@ -66,13 +66,17 @@ export class TavilyAdapter implements SearchEngineAdapter {
       requestBody.days = timeRangeMap[options.timeRange];
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);

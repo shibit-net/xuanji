@@ -28,6 +28,7 @@ function parseArgs(argv: string[]): {
   version: boolean;
   model?: string;
   prompt?: string;
+  cwd?: string;
   // IM 机器人
   bot: boolean;
   dingtalk: boolean;
@@ -45,6 +46,7 @@ function parseArgs(argv: string[]): {
     version: false,
     model: undefined as string | undefined,
     prompt: undefined as string | undefined,
+    cwd: undefined as string | undefined,
     bot: false,
     dingtalk: false,
     feishu: false,
@@ -95,6 +97,10 @@ function parseArgs(argv: string[]): {
       case '--feishu':
         result.feishu = true;
         break;
+      case '-C':
+      case '--cwd':
+        result.cwd = args[++i];
+        break;
       case '--wecom':
         result.wecom = true;
         break;
@@ -134,6 +140,7 @@ function printHelp(): void {
     -v, --version        显示版本号
     -m, --model <model>  指定模型
     -p, --prompt <text>  直接提问 (非交互模式)
+    -C, --cwd <path>     指定工作目录（自动 chdir）
 
   IM 机器人选项:
     bot                  启动 IM 机器人模式
@@ -163,6 +170,7 @@ function printHelp(): void {
     /lang       切换语言
     /init       初始化配置
     /doctor     系统诊断
+    /reminders  查看提醒统计
     /exit       退出
 
   环境变量:
@@ -183,7 +191,7 @@ function printHelp(): void {
 
   文档: https://github.com/shibit/xuanji
 
-  配置文件 (~/.xuanji/config.json) 示例:
+  配置文件 (.xuanji/config.json) 示例:
     {
       "bots": {
         "dingtalk": { "enabled": true, "appKey": "...", "appSecret": "..." },
@@ -201,7 +209,7 @@ function printHelp(): void {
  * 启动 IM 机器人模式（支持后台运行）
  *
  * 配置优先级: 命令行参数 > config.json bots 字段 > 环境变量
- * 日志输出:   console + ~/.xuanji/logs/YYYY-MM-DD.log (JSONL)
+ * 日志输出:   console + .xuanji/logs/YYYY-MM-DD.log (JSONL)
  * 后台运行:   pm2 start xuanji -- bot --dingtalk
  *             或 systemd 服务
  */
@@ -259,7 +267,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   if (adapters.length === 0) {
     const msg = '未找到要启动的机器人。\n'
       + '  方式 1: xuanji bot --dingtalk (命令行指定)\n'
-      + '  方式 2: 在 ~/.xuanji/config.json 中配置 bots.dingtalk.enabled = true';
+      + '  方式 2: 在 .xuanji/config.json 中配置 bots.dingtalk.enabled = true';
     log.error(msg);
     await logSystem.error('System', msg);
     process.exit(1);
@@ -281,7 +289,7 @@ async function startBot(args: ReturnType<typeof parseArgs>): Promise<void> {
   }
 
   log.info(`璇玑 Bot 模式运行中 (${adapters.length} 个机器人)`);
-  log.info(`日志文件: ~/.xuanji/logs/`);
+  log.info(`日志文件: .xuanji/logs/`);
   log.info(`Ctrl+C 或 SIGTERM 停止`);
 
   // 5. 优雅退出
@@ -345,6 +353,18 @@ async function startGui(): Promise<void> {
  */
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
+
+  // 自动切换工作目录（优先级：命令行 > 环境变量）
+  const targetCwd = args.cwd || process.env.XUANJI_CWD;
+  if (targetCwd) {
+    try {
+      process.chdir(targetCwd);
+      log.info(`工作目录已切换至: ${process.cwd()}`);
+    } catch (err) {
+      log.error(`无法切换工作目录到 ${targetCwd}: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
 
   // 版本号
   if (args.version) {
@@ -470,7 +490,7 @@ async function main(): Promise<void> {
         return '❌ 记忆系统已移除';
       },
       onAgentQuery: async (_args: string) => {
-        return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (~/.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
+        return '❌ /agent 命令已移除\n提示: Agent 管理已迁移到配置文件 (.xuanji/agents/*.json5)\n详见: doc/tad/xuanji/05-architecture-refactoring-proposal.md';
       },
       onTemplateQuery: async (args: string) => {
         // TODO: 实现模板查询
@@ -512,6 +532,72 @@ async function main(): Promise<void> {
       onDoctorQuery: async () => {
         // TODO: 实现系统诊断
         return '系统诊断功能开发中';
+      },
+      // ─── 提醒统计查询回调 ──────────────────────────────
+      onReminderStatsQuery: async (args: string) => {
+        try {
+          const { ReminderEngine } = await import('./reminder/ReminderEngine');
+          const { ReminderStatsService } = await import('./reminder/ReminderStatsService');
+          const { formatReminderStats } = await import('./reminder/ReminderStatsFormatter');
+          const engine = new ReminderEngine(undefined, undefined, 'cli-user');
+          await engine.init();
+          const statsService = new ReminderStatsService(engine);
+
+          const trimmed = args.trim().toLowerCase();
+
+          // 未指定子命令时：显示今日统计
+          if (trimmed === '') {
+            const today = new Date().toISOString().split('T')[0]!;
+            const stats = await statsService.getStats({ dateFrom: today, dateTo: today });
+            return formatReminderStats(stats);
+          }
+
+          // 解析子命令
+          const parts = trimmed.split(/\s+/);
+          const subCmd = parts[0];
+          const subFilter = parts[1];
+
+          if (subCmd === 'stats') {
+            const options: import('./reminder/types').StatsQueryOptions = {};
+
+            if (subFilter === 'active') {
+              options.status = 'active';
+            } else if (subFilter === 'week') {
+              const d = new Date();
+              d.setDate(d.getDate() - 6);
+              options.dateFrom = d.toISOString().split('T')[0]!;
+              options.dateTo = new Date().toISOString().split('T')[0]!;
+            } else if (subFilter === 'month') {
+              const d = new Date();
+              d.setDate(d.getDate() - 29);
+              options.dateFrom = d.toISOString().split('T')[0]!;
+              options.dateTo = new Date().toISOString().split('T')[0]!;
+            } else if (subFilter && subFilter !== '') {
+              return [
+                '未知筛选条件。用法:',
+                '  /reminders stats            查看全量统计',
+                '  /reminders stats active      仅统计活跃提醒',
+                '  /reminders stats week        最近 7 天统计',
+                '  /reminders stats month       最近 30 天统计',
+              ].join('\n');
+            }
+
+            const stats = await statsService.getStats(options);
+            return formatReminderStats(stats);
+          }
+
+          return [
+            '未知子命令。用法:',
+            '  /reminders                   查看今日提醒统计',
+            '  /reminders stats             查看全量提醒统计',
+            '  /reminders stats active      仅统计活跃提醒',
+            '  /reminders stats week        最近 7 天统计',
+            '  /reminders stats month       最近 30 天统计',
+          ].join('\n');
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          return `📋 提醒统计查询失败: ${errMsg}`;
+        }
       },
       // ─── SubAgent 进度事件绑定 ──────────────────────────
       onSubAgentSetup: (callbacks: any) => {

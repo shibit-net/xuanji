@@ -33,7 +33,7 @@ export interface AuthState {
 }
 
 // 移除 persist 中间件，认证状态完全由后端 token 管理
-// 后端已实现加密 token 存储（~/.xuanji/auth/current-auth.enc）
+// 后端已实现加密 token 存储（.xuanji/auth/current-auth.enc）
 export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
   isLoading: false,

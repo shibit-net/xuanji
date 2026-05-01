@@ -2,7 +2,7 @@
  * MatchAgentTool — 智能 Agent 匹配
  *
  * 根据任务描述自动推荐最合适的 Agent。
- * 使用向量相似度、关键词匹配、标签匹配等多维度评分。
+ * 使用向量相似度、能力匹配、关键词匹配等多维度评分。
  */
 
 import type { JSONSchema, ToolResult } from '@/core/types';
@@ -20,7 +20,6 @@ interface AgentMatch {
   breakdown: {
     vector?: number;
     keyword?: number;
-    tag?: number;
     capability?: number;
   };
   reason: string;
@@ -29,28 +28,9 @@ interface AgentMatch {
 export class MatchAgentTool extends BaseTool {
   readonly name = 'match_agent';
   readonly description = [
-    '🎯 Find the best preset agent for a specific task.',
-    '',
-    '⚡ WHEN TO USE:',
-    'ALWAYS call this BEFORE using task or agent_team tools to find the most suitable preset agent.',
-    'This ensures you leverage specialized agents (coder, explore, test-writer, etc.) instead of generic ones.',
-    '',
-    'The system analyzes the task description and recommends the most suitable agent using:',
-    '✓ Semantic similarity (vector matching)',
-    '✓ Keyword matching',
-    '✓ Capability matching',
-    '✓ Domain/tag matching',
-    '',
-    'Workflow:',
-    '1. Call match_agent with task description',
-    '2. Review top recommendations and scores',
-    '3. If score >= 0.5 (50%), use that agent ID in task/agent_team',
-    '4. If score < 0.5, use general-purpose or create custom agent',
-    '',
-    'Returns:',
-    '- Top 3 agent recommendations',
-    '- Match scores (0-1) and reasoning',
-    '- Agent capabilities and descriptions',
+    '根据任务描述匹配合适的预置 agent。使用 task 或 agent_team 前必须先调用。',
+    '返回 top 3 推荐结果及匹配分数（0-1）。',
+    '分数 >= 0.5：使用推荐 agent ID。分数 < 0.5：无合适预置 agent，创建临时 agent（需 system_prompt + tools）。',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -60,9 +40,9 @@ export class MatchAgentTool extends BaseTool {
         type: 'string',
         description: 'Description of the task you need an agent for',
       },
-      domain_hint: {
+      preferred_agent: {
         type: 'string',
-        description: 'Optional domain hint (e.g., "finance", "coding", "data-analysis")',
+        description: '意图分析推荐的 agent ID。传入后优先验证该 agent 是否匹配，匹配则直接返回（分数加成），不匹配再全局搜索。',
       },
       top_k: {
         type: 'number',
@@ -90,24 +70,101 @@ export class MatchAgentTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     if (!this.agentRegistry) {
-      return this.error('AgentRegistry not available.');
+      return this.formatError({
+        type: '系统错误',
+        message: 'AgentRegistry 未初始化',
+        reason: 'match_agent 工具依赖 AgentRegistry，但该服务未正确初始化。这通常是系统配置问题。',
+        solutions: [
+          '重启应用程序',
+          '检查系统配置是否正确',
+          '联系系统管理员',
+        ],
+        tip: '这是一个内部错误，不是你的调用问题。',
+      });
     }
 
     const taskDescription = input.task_description as string;
-    const domainHint = input.domain_hint as string | undefined;
+    const preferredAgentId = input.preferred_agent as string | undefined;
     const topK = Math.min((input.top_k as number) || 3, 5);
 
-    // 获取所有启用的 Agent
+    if (!taskDescription || taskDescription.trim() === '') {
+      return this.formatError({
+        type: '参数错误',
+        message: '缺少必需参数 task_description',
+        reason: 'match_agent 需要任务描述来匹配合适的 agent。',
+        solutions: [
+          '提供详细的任务描述，包括任务类型、目标和要求',
+        ],
+        example: `match_agent({
+  task_description: "分析代码质量，检查代码规范、性能和安全问题"
+})`,
+        tip: '任务描述越详细，匹配结果越准确。',
+      });
+    }
+
+    // 获取所有启用的 Agent（排除系统 agent）
     const agents = this.agentRegistry.getAllIds()
       .map(id => this.agentRegistry!.get(id)!)
-      .filter(a => a.enabled !== false);
+      .filter(a => {
+        // 过滤条件：
+        // 1. 必须启用
+        // 2. 不是主 agent（isMainAgent）
+        // 3. 不是系统内部 agent（category: "system" 或 internal: true）
+        if (a.enabled === false) return false;
+        if (a.metadata?.isMainAgent === true) return false;
+        if (a.metadata?.category === 'system') return false;
+        if (a.metadata?.internal === true) return false;
+        return true;
+      });
 
     if (agents.length === 0) {
-      return this.error('No agents available.');
+      return this.formatError({
+        type: '资源错误',
+        message: '没有可用的 agent',
+        reason: '系统中没有启用的 agent，无法进行匹配。',
+        solutions: [
+          '检查 agent 配置文件是否正确',
+          '确保至少有一个 agent 的 enabled 字段为 true',
+          '使用 list_agents 工具查看所有 agent 的状态',
+        ],
+        tip: '这通常是系统配置问题，请联系管理员。',
+      });
     }
 
     // 计算匹配分数
-    const matches = await this.scoreAgents(agents, taskDescription, domainHint);
+    const matches = await this.scoreAgents(agents, taskDescription);
+
+    // 如果指定了 preferred_agent，优先验证该 agent
+    if (preferredAgentId) {
+      const preferredConfig = this.agentRegistry.get(preferredAgentId);
+      if (!preferredConfig || preferredConfig.enabled === false) {
+        // 推荐的 agent 不存在：直接返回错误，让 LLM 创建临时 agent
+        return this.formatError({
+          type: '资源错误',
+          message: `推荐的 agent "${preferredAgentId}" 不存在或已被禁用`,
+          reason: `意图分析推荐了 "${preferredAgentId}"，但该 agent 不在可用列表中。`,
+          solutions: [
+            `使用 match_agent 重新搜索合适的 agent（不带 preferred_agent 参数）`,
+            `或创建临时 agent：task({ subagent_type: "custom-id", system_prompt: "...", tools: [...] })`,
+          ],
+        });
+      }
+
+      // 对推荐的 agent 单独评分
+      const preferredMatch = await this.scoreSingleAgent(
+        preferredConfig, taskDescription
+      );
+      // 推荐 agent 获得 1.5x 加权（存在即加成本应被优先使用）
+      preferredMatch.score = Math.min(1.0, preferredMatch.score * 1.5);
+
+      // 插入匹配列表并重新排序
+      const existingIdx = matches.findIndex(m => m.agentId === preferredAgentId);
+      if (existingIdx >= 0) {
+        matches[existingIdx] = preferredMatch;
+      } else {
+        matches.push(preferredMatch);
+      }
+    }
 
     // 排序并取 top K
     const topMatches = matches
@@ -115,9 +172,51 @@ export class MatchAgentTool extends BaseTool {
       .slice(0, topK);
 
     // 格式化输出
-    const output = this.formatMatches(topMatches, taskDescription);
+    const output = this.formatMatches(topMatches, taskDescription, preferredAgentId);
 
     return this.success(output);
+  }
+
+  /**
+   * 对单个 Agent 评分（用于 preferred_agent 验证）
+   */
+  private async scoreSingleAgent(
+    agent: any,
+    taskDescription: string,
+  ): Promise<AgentMatch> {
+    const breakdown: AgentMatch['breakdown'] = {};
+    let totalScore = 0;
+
+    if (this.embeddingProvider) {
+      try {
+        const vectorScore = await this.calculateVectorSimilarity(
+          taskDescription,
+          agent.capabilities.join(' ') + ' ' + agent.description
+        );
+        breakdown.vector = vectorScore;
+        totalScore += vectorScore * 0.5;
+      } catch (err) {
+        log.debug(`Vector matching failed for ${agent.id}:`, err);
+      }
+    }
+
+    const capabilityScore = this.calculateCapabilityMatch(taskDescription, agent.capabilities);
+    breakdown.capability = capabilityScore;
+    totalScore += this.embeddingProvider ? capabilityScore * 0.3 : capabilityScore * 0.5;
+
+    const keywordScore = this.calculateKeywordMatch(taskDescription, agent);
+    breakdown.keyword = keywordScore;
+    totalScore += this.embeddingProvider ? keywordScore * 0.2 : keywordScore * 0.5;
+
+    const reason = this.generateReason(agent, breakdown);
+
+    return {
+      agentId: agent.id,
+      agentName: agent.name,
+      score: totalScore,
+      breakdown,
+      reason,
+    };
   }
 
   /**
@@ -126,7 +225,6 @@ export class MatchAgentTool extends BaseTool {
   private async scoreAgents(
     agents: any[],
     taskDescription: string,
-    domainHint?: string,
   ): Promise<AgentMatch[]> {
     const matches: AgentMatch[] = [];
 
@@ -134,7 +232,6 @@ export class MatchAgentTool extends BaseTool {
       const breakdown: AgentMatch['breakdown'] = {};
       let totalScore = 0;
 
-      // 1. 向量相似度（如果可用）
       if (this.embeddingProvider) {
         try {
           const vectorScore = await this.calculateVectorSimilarity(
@@ -142,30 +239,20 @@ export class MatchAgentTool extends BaseTool {
             agent.capabilities.join(' ') + ' ' + agent.description
           );
           breakdown.vector = vectorScore;
-          totalScore += vectorScore * 0.4; // 40% 权重
+          totalScore += vectorScore * 0.5;
         } catch (err) {
           log.debug(`Vector matching failed for ${agent.id}:`, err);
         }
       }
 
-      // 2. 能力匹配（最重要）
       const capabilityScore = this.calculateCapabilityMatch(taskDescription, agent.capabilities);
       breakdown.capability = capabilityScore;
-      totalScore += capabilityScore * 0.4; // 40% 权重
+      totalScore += this.embeddingProvider ? capabilityScore * 0.3 : capabilityScore * 0.5;
 
-      // 3. 关键词匹配
       const keywordScore = this.calculateKeywordMatch(taskDescription, agent);
       breakdown.keyword = keywordScore;
-      totalScore += keywordScore * 0.2; // 20% 权重
+      totalScore += this.embeddingProvider ? keywordScore * 0.2 : keywordScore * 0.5;
 
-      // 4. 标签匹配（如果有 domain hint，权重较低，向后兼容）
-      if (domainHint && agent.tags && agent.tags.length > 0) {
-        const tagScore = this.calculateTagMatch(domainHint, agent.tags);
-        breakdown.tag = tagScore;
-        totalScore += tagScore * 0.1; // 10% 权重（降低）
-      }
-
-      // 生成推荐理由
       const reason = this.generateReason(agent, breakdown);
 
       matches.push({
@@ -204,8 +291,7 @@ export class MatchAgentTool extends BaseTool {
       agent.id + ' ' +
       agent.name + ' ' +
       agent.description + ' ' +
-      agent.capabilities.join(' ') +
-      (agent.tags ? ' ' + agent.tags.join(' ') : '') // 向后兼容，tags可选
+      agent.capabilities.join(' ')
     ).toLowerCase();
 
     const matchedWords = taskWords.filter(word =>
@@ -216,27 +302,34 @@ export class MatchAgentTool extends BaseTool {
   }
 
   /**
-   * 计算标签匹配分数
-   */
-  private calculateTagMatch(domainHint: string, agentTags: string[]): number {
-    const hint = domainHint.toLowerCase();
-    const matchingTags = agentTags.filter(tag =>
-      tag.toLowerCase().includes(hint) || hint.includes(tag.toLowerCase())
-    );
-
-    return matchingTags.length > 0 ? 1 : 0;
-  }
-
-  /**
    * 计算能力匹配分数
    */
   private calculateCapabilityMatch(taskDescription: string, capabilities: string[]): number {
     const taskLower = taskDescription.toLowerCase();
-    const matchingCaps = capabilities.filter(cap =>
-      taskLower.includes(cap.toLowerCase()) || cap.toLowerCase().includes(taskLower.substring(0, 20))
-    );
+    const taskWords = taskLower.split(/\s+/).filter(w => w.length > 2);
 
-    return capabilities.length > 0 ? matchingCaps.length / capabilities.length : 0;
+    let matchScore = 0;
+    for (const cap of capabilities) {
+      const capLower = cap.toLowerCase();
+      const capWords = capLower.split(/\s+/).filter(w => w.length > 2);
+
+      // 检查任务描述中的词是否出现在能力中
+      const matchedWords = taskWords.filter(word => capLower.includes(word));
+      if (matchedWords.length > 0) {
+        // 匹配度 = 匹配的词数 / 任务词数
+        matchScore += matchedWords.length / taskWords.length;
+      }
+
+      // 检查能力中的词是否出现在任务描述中
+      const reverseMatchedWords = capWords.filter(word => taskLower.includes(word));
+      if (reverseMatchedWords.length > 0) {
+        // 匹配度 = 匹配的词数 / 能力词数
+        matchScore += reverseMatchedWords.length / capWords.length;
+      }
+    }
+
+    // 归一化：平均匹配分数
+    return capabilities.length > 0 ? matchScore / (capabilities.length * 2) : 0;
   }
 
   /**
@@ -250,9 +343,6 @@ export class MatchAgentTool extends BaseTool {
     }
     if (breakdown.keyword && breakdown.keyword > 0.3) {
       reasons.push('Strong keyword match');
-    }
-    if (breakdown.tag && breakdown.tag > 0) {
-      reasons.push('Domain match');
     }
     if (breakdown.capability && breakdown.capability > 0.3) {
       reasons.push('Relevant capabilities');
@@ -268,32 +358,42 @@ export class MatchAgentTool extends BaseTool {
   /**
    * 格式化匹配结果
    */
-  private formatMatches(matches: AgentMatch[], taskDescription: string): string {
+  private formatMatches(matches: AgentMatch[], taskDescription: string, preferredAgentId?: string): string {
     const lines: string[] = [
       `Task: "${taskDescription}"`,
       '',
-      `Top ${matches.length} recommended agents:`,
-      '',
     ];
+
+    // 如果指定了 preferred_agent，首先给出验证结论
+    if (preferredAgentId) {
+      const preferredMatch = matches.find(m => m.agentId === preferredAgentId);
+      if (preferredMatch && preferredMatch.score >= 0.5) {
+        lines.push(`✅ 推荐的 agent "${preferredAgentId}" 存在且匹配 (score: ${(preferredMatch.score * 100).toFixed(0)}%)，直接使用 task({ subagent_type: "${preferredAgentId}", ... })`);
+        lines.push('');
+      } else if (preferredMatch) {
+        lines.push(`⚠️ 推荐的 agent "${preferredAgentId}" 匹配度不足 (score: ${(preferredMatch.score * 100).toFixed(0)}%)，建议创建临时 agent`);
+        lines.push('');
+      }
+    }
+
+    lines.push(`Top ${matches.length} recommended agents:`, '');
 
     matches.forEach((match, idx) => {
       const scorePercent = (match.score * 100).toFixed(0);
       const stars = '★'.repeat(Math.ceil(match.score * 5));
+      const isPreferred = match.agentId === preferredAgentId;
 
-      lines.push(`${idx + 1}. **${match.agentName}** (${match.agentId})`);
+      const prefix = isPreferred ? '👉 ' : '';
+      lines.push(`${prefix}${idx + 1}. **${match.agentName}** (${match.agentId})${isPreferred ? ' ← 推荐' : ''}`);
       lines.push(`   Match: ${stars} ${scorePercent}%`);
       lines.push(`   Reason: ${match.reason}`);
 
-      // 详细评分
       const details: string[] = [];
       if (match.breakdown.vector) {
         details.push(`Semantic: ${(match.breakdown.vector * 100).toFixed(0)}%`);
       }
       if (match.breakdown.keyword) {
         details.push(`Keyword: ${(match.breakdown.keyword * 100).toFixed(0)}%`);
-      }
-      if (match.breakdown.tag) {
-        details.push(`Domain: ${(match.breakdown.tag * 100).toFixed(0)}%`);
       }
       if (match.breakdown.capability) {
         details.push(`Capability: ${(match.breakdown.capability * 100).toFixed(0)}%`);
@@ -307,8 +407,17 @@ export class MatchAgentTool extends BaseTool {
 
     lines.push('---');
     lines.push('');
-    lines.push('💡 Recommendation: Use the top-ranked agent for best results.');
-    lines.push('You can also use `list_agents` to explore all available agents.');
+    if (preferredAgentId) {
+      const preferredMatch = matches.find(m => m.agentId === preferredAgentId);
+      if (preferredMatch && preferredMatch.score >= 0.5) {
+        lines.push(`💡 Decision: 直接使用推荐的 agent "${preferredAgentId}"，调用 task({ subagent_type: "${preferredAgentId}", scene: "<scene>", description: "<任务描述>", stream_to_user: true })`);
+      } else {
+        lines.push(`💡 Decision: 没有合适的预置 agent，创建临时 agent：task({ subagent_type: "custom-id", system_prompt: "...", tools: [...] })`);
+      }
+    } else {
+      lines.push('💡 Recommendation: Use the top-ranked agent for best results.');
+      lines.push('You can also use `list_agents` to explore all available agents.');
+    }
 
     return lines.join('\n');
   }

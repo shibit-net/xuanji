@@ -32,6 +32,8 @@ export interface TemporaryAgentOptions {
   taskDescription?: string;
   /** 使用的模型（可选，默认使用系统配置） */
   model?: string;
+  /** 父agent配置（用于继承provider配置） */
+  parentConfig?: ConfigurableAgentConfig;
 }
 
 /**
@@ -54,7 +56,7 @@ export class TemporaryAgentFactory {
    * 创建临时 Agent
    */
   createTemporaryAgent(options: TemporaryAgentOptions): ConfigurableAgentConfig {
-    const { role, capabilities, scene, taskDescription, model } = options;
+    const { role, capabilities, scene, taskDescription, model, parentConfig } = options;
 
     // 生成临时 ID
     const tempId = `temp-${role.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
@@ -63,6 +65,21 @@ export class TemporaryAgentFactory {
 
     // 生成 systemPrompt
     const systemPrompt = this.generateSystemPrompt(role, capabilities, taskDescription);
+
+    // 🔧 从父agent继承完整的provider配置（支持所有类型：anthropic、openai、ollama等）
+    const provider = parentConfig?.provider
+      ? {
+          ...parentConfig.provider, // 继承所有provider字段
+        }
+      : {
+          adapter: 'anthropic', // 默认使用anthropic
+        };
+
+    log.info(`临时 Agent provider 配置:`, {
+      adapter: provider.adapter,
+      hasApiKey: !!provider.apiKey,
+      hasBaseURL: !!provider.baseURL,
+    });
 
     // 创建临时 Agent 配置
     const tempAgent: ConfigurableAgentConfig = {
@@ -73,26 +90,21 @@ export class TemporaryAgentFactory {
       color: 'from-gray-500 to-gray-600',
       category: 'custom',
       model: {
-        primary: model || 'claude-sonnet-4-6',
+        primary: model || parentConfig?.model?.primary || 'claude-sonnet-4-6',
         maxTokens: 64000,
         thinking: {
           type: 'adaptive',
           effort: 'medium',
         },
       },
-      provider: {
-        adapter: 'anthropic',
-      },
+      provider,  // 🔧 使用继承的provider配置
       systemPrompt,
       capabilities,
       tools: [
-        { name: 'read_file', required: true },
-        { name: 'write_file', required: true },
-        { name: 'edit_file', required: true },
-        { name: 'bash', required: true },
-        { name: 'glob', required: true },
-        { name: 'grep', required: true },
-        { name: 'ask_user', required: true },
+        // 🔧 临时agent默认只有只读工具，危险工具需要父agent明确授予
+        { name: 'read_file' },
+        { name: 'grep' },
+        { name: 'glob' },
       ],
       execution: {
         mode: 'react',

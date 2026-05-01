@@ -21,7 +21,7 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SessionStorage' });
 
-const DEFAULT_BASE_DIR = path.join(os.homedir(), '.xuanji', 'sessions');
+const DEFAULT_BASE_DIR = path.join(process.cwd(), '.xuanji', 'sessions');
 
 export class SessionStorage {
   private baseDir: string;
@@ -250,13 +250,20 @@ export class SessionStorage {
     sessionId: string,
     updater: (meta: SessionMetadata) => SessionMetadata
   ): Promise<void> {
-    // 使用 Promise 链实现简单互斥锁
+    // 使用 Promise 链实现简单互斥锁，带超时保护防止死锁
     const release = this._writeLock;
     let resolve!: () => void;
     this._writeLock = new Promise<void>(r => { resolve = r; });
 
-    await release;
+    // 安全锁释放：即使 await release 因异常未完成，30 秒后强制释放
+    const lockTimeout = setTimeout(() => {
+      log.warn('updateMetadata 锁超时，强制释放');
+      resolve();
+    }, 30_000);
+
     try {
+      await release;
+      clearTimeout(lockTimeout);
       const paths = this.getSessionPaths(sessionId);
       const metaContent = await fs.readFile(paths.meta, 'utf-8');
       const metadata: SessionMetadata = JSON.parse(metaContent);
@@ -266,6 +273,7 @@ export class SessionStorage {
       await fs.writeFile(tmpPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
       await fs.rename(tmpPath, paths.meta);
     } finally {
+      clearTimeout(lockTimeout);
       resolve();
     }
   }

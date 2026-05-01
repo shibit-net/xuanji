@@ -8,7 +8,6 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { logger } from '@/core/logger';
-import { getUserPermissionPath } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'DecisionStore' });
 
@@ -112,8 +111,8 @@ export class DecisionStore {
   private dbPath: string;
   private ready: boolean = false;
 
-  constructor(userId: string) {
-    this.dbPath = getUserPermissionPath(userId);
+  constructor(dbPath: string) {
+    this.dbPath = dbPath;
   }
 
   /**

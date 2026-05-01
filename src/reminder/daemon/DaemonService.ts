@@ -32,7 +32,7 @@ export class DaemonService {
   constructor(config: DaemonConfig) {
     this.config = config;
     this.reminderEngine = new ReminderEngine();
-    this.pidFilePath = join(homedir(), '.xuanji', 'daemon.pid');
+    this.pidFilePath = join(process.cwd(), '.xuanji', 'daemon.pid');
   }
 
   /**

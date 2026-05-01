@@ -28,6 +28,8 @@ export interface TeamMember {
   priority?: number;
   /** 成员特定的系统提示（会追加到角色默认提示后） */
   systemPrompt?: string;
+  /** 🆕 成员具体任务（WHAT to do，区别于 systemPrompt 的 HOW to behave） */
+  task?: string;
   /** 🆕 场景类型（write_code / debug / review 等） */
   scene?: string;
   /** 🆕 场景专用 prompt（L1 层，会与 agent.systemPrompt 组合） */
@@ -135,6 +137,8 @@ export interface TeamConfig {
   enableDynamicTimeout?: boolean;
   /** 单个成员的最小超时时间（毫秒，默认 30000 即 30s） */
   minMemberTimeout?: number;
+  /** Debate 论点新颖度收敛阈值（0-1，默认 0.7。连续两轮相似度超过此值则提前收敛） */
+  debateConvergenceThreshold?: number;
 }
 
 /**
@@ -174,6 +178,27 @@ export interface TaskAssignment {
 }
 
 /**
+ * 失败分类
+ */
+export type FailureCategory =
+  | 'timeout'            // 超时失败
+  | 'stage_disconnect'   // Pipeline/Sequential 阶段衔接失败
+  | 'output_truncated'   // 输出截断导致不完整
+  | 'general_failure';   // 一般性失败
+
+/**
+ * 输出产物（成员产出的文件引用）
+ */
+export interface OutputArtifact {
+  /** 文件路径 */
+  filePath: string;
+  /** 来源成员 ID */
+  memberId: string;
+  /** 引用块 ID */
+  refId: string;
+}
+
+/**
  * 任务执行结果
  */
 export interface TaskExecutionResult {
@@ -181,6 +206,8 @@ export interface TaskExecutionResult {
   taskId: string;
   /** 执行的成员 ID */
   memberId: string;
+  /** 成员显示名称（用于引用） */
+  memberName?: string;
   /** 执行结果 */
   result: string;
   /** 是否成功 */
@@ -191,6 +218,12 @@ export interface TaskExecutionResult {
   tokensUsed: { input: number; output: number };
   /** 错误信息（如果失败） */
   error?: string;
+  /** 失败分类（失败时填充） */
+  failureCategory?: FailureCategory;
+  /** 产出的文件路径列表 */
+  outputFiles?: string[];
+  /** checkpoint 保存时间戳（内部使用） */
+  savedAt?: number;
 }
 
 /**
@@ -227,7 +260,7 @@ export interface ITeamManager {
   /**
    * 执行团队任务
    */
-  execute(goal: string): Promise<TeamExecutionResult>;
+  execute(goal: string, externalSignal?: AbortSignal): Promise<TeamExecutionResult>;
 
   /**
    * 发送消息
@@ -249,16 +282,17 @@ export interface ITeamManager {
  * 默认团队配置
  */
 export const DEFAULT_TEAM_CONFIG = {
-  maxRounds: 5,                    // 🔧 默认 5 轮（辩论模式推荐：开场 → 2-3轮交锋 → 总结）
-  teamTotalTimeout: 600_000,       // 🆕 基准超时 10 分钟（辩论模式会根据轮次自动计算总超时）
-  defaultMemberTimeout: 600_000,   // 🆕 成员基准超时 10 分钟（会被策略调整）
+  maxRounds: 3,                    // P1 优化：默认 3 轮（超过 3 轮 Token 爆炸，审计数据证实）
+  teamTotalTimeout: 3_600_000,     // 团队总超时 60 分钟（上层 TeamTool 会根据策略动态覆盖）
+  defaultMemberTimeout: 600_000,   // P2 优化：成员基准超时 10 分钟（基于审计数据，300k→600k）
   enableSharedKnowledge: true,
   recordHistory: true,
 
   // 超时分配策略默认值
   hierarchicalLeaderRatio: 1.5,    // Leader 超时倍率（1.5x）
-  debateFirstRoundRatio: 1.5,      // 首轮超时倍率（1.5x，开场陈述需要更多时间）
+  debateFirstRoundRatio: 1.5,      // P2 优化：首轮超时倍率（2.0→1.5，Judge 预读已覆盖初始开销）
   debateLaterRoundRatio: 1.0,      // 后续轮超时倍率（1.0x，正常辩论时间）
   enableDynamicTimeout: true,       // 启用动态调整
-  minMemberTimeout: 30_000,         // 最小 30s
+  minMemberTimeout: 60_000,         // P2 优化：最小 60s（30s→60s，给子 agent 更充裕的初始化时间）
+  debateConvergenceThreshold: 0.7, // 论点新颖度阈值
 } as const;

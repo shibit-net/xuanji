@@ -14,18 +14,25 @@ import type { AgentRoleType } from '@/core/agent/SubAgentContext';
 export class TeamTool extends BaseTool {
   readonly name = 'agent_team';
   readonly description = [
-    'Create a team of AI agents to collaborate on complex tasks.',
+    '创建 AI agent 团队协作完成复杂任务。',
     '',
-    'CRITICAL: Use match_agent FIRST to find suitable preset agents for each role.',
-    'Use EXACT agentId from match_agent (e.g., "coder", "explore", "plan").',
-    'Only use custom names if match_agent score < 0.5 for all preset agents.',
+    '使用流程：',
+    '1. 为每个不同领域调用 match_agent 查找合适的 agent',
+    '2. 分数 >= 0.5 使用返回的 agent ID，分数 < 0.5 创建临时 agent（需提供 system_prompt）',
+    '3. 同领域多视角：使用同一 agent ID + 不同 scene/system_prompt',
     '',
-    'Members parameter MUST be an array: [{ id: "m1", ... }, { id: "m2", ... }]',
+    '异常处理：',
+    '- 超时：重试并增大 timeout 参数',
+    '- 失败：调整成员配置或任务描述后重试，不要用 task 逐个替代',
     '',
-    'Strategies: parallel (independent tasks), sequential (dependent steps),',
-    'hierarchical (leader + workers), debate (pros/cons), pipeline (data flow).',
+    '策略选择：parallel(独立并行) | sequential(依赖串行) | hierarchical(leader协调) | debate(辩论共识) | pipeline(数据流)',
     '',
-    'Detailed usage guide is available in l2-team-coordination prompt (loaded for complex tasks).',
+    '快速推荐：',
+    '- 架构设计+分工实现 → hierarchical',
+    '- 独立功能并行开发/代码审查 → parallel',
+    '- 有明确依赖链/构建部署 → sequential',
+    '- 方案评审/技术决策 → debate',
+    '- 数据ETL/处理管道 → pipeline（大数据量建议改用 sequential）',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -37,12 +44,7 @@ export class TeamTool extends BaseTool {
       },
       goal: {
         type: 'string',
-        description: [
-          'The overall goal the team should accomplish.',
-          'Team members have NO access to the parent conversation history.',
-          'You MUST include all necessary context inline: relevant findings, constraints, file paths, decisions, and expected output format.',
-          'Think of this as a self-contained brief — everything the team needs to succeed must be here.',
-        ].join('\n'),
+        description: '团队总目标。子 agent 无法访问父对话历史，必须包含所有必要的上下文：文件路径、约束条件、输出格式',
       },
       strategy: {
         type: 'string',
@@ -51,100 +53,56 @@ export class TeamTool extends BaseTool {
       },
       members: {
         type: 'array',
-        description: [
-          '⚠️ CRITICAL: This MUST be an array of team member objects.',
-          'Team members definition - each member represents one agent in the team.',
-          '',
-          'Example:',
-          '  members: [',
-          '    { id: "m1", role: "coder", capabilities: ["code review"] },',
-          '    { id: "m2", role: "explore", capabilities: ["security analysis"] }',
-          '  ]',
-        ].join('\n'),
+        description: '团队成员数组。每个成员是执行具体子任务的工作 agent，需有明确分工',
         items: {
           type: 'object',
           properties: {
             id: {
               type: 'string',
-              description: 'Unique identifier (e.g., "analyst", "coder", "reviewer")',
+              description: '成员唯一标识，使用短小的角色名（如 "quality"、"security"）',
             },
             agent_id: {
               type: 'string',
               description: [
-                '⚠️ CRITICAL: This field MUST contain the EXACT agentId returned by match_agent.',
-                '',
-                '🚫 FORBIDDEN: Do NOT invent custom names like "code-reviewer", "security-analyst", "结构扫描器".',
-                '✅ REQUIRED: Use the exact string from match_agent result: "coder", "explore", "plan", etc.',
-                '',
-                '⚡ MANDATORY WORKFLOW:',
-                '1. Call match_agent({ task_description: "..." })',
-                '2. Look at the result: { agentId: "coder", score: 0.85 }',
-                '3. Copy "coder" EXACTLY to this field',
-                '',
-                'Example - CORRECT:',
-                '  match_agent({ task_description: "review code quality" })',
-                '  → Returns: { agentId: "coder", score: 0.85 }',
-                '  → agent_id: "coder"  ✅ Copied exactly',
-                '',
-                'Example - WRONG:',
-                '  match_agent({ task_description: "review code quality" })',
-                '  → Returns: { agentId: "coder", score: 0.85 }',
-                '  → agent_id: "code-reviewer"  ❌ Custom name - DO NOT DO THIS',
-                '  → agent_id: "代码审查员"  ❌ Custom name - DO NOT DO THIS',
-                '',
-                'Valid preset agent IDs (use these EXACTLY):',
-                '- "coder" — Code writing, refactoring, debugging',
-                '- "explore" — Code exploration, analysis, research',
-                '- "test-writer" — Test creation and validation',
-                '- "doc-writer" — Documentation writing',
-                '- "plan" — Planning and design',
-                '- "general-purpose" — Default versatile agent',
-                '',
-                'Only use custom names if match_agent returns score < 0.5 for ALL preset agents.',
+                '必须来自 match_agent 的结果。不能自行编造。',
+                '- 分数 >= 0.5：直接使用 match_agent 返回的 agent ID',
+                '- 分数 < 0.5：使用自定义 ID 并必须提供 system_prompt（创建临时 agent）',
+                '- 同领域多视角：使用同一 agent ID + 不同 scene/system_prompt',
               ].join('\n'),
             },
             name: {
               type: 'string',
-              description: 'Display name (optional, e.g., "Security Analyst")',
+              description: '成员显示名（可选），如 "Security Reviewer"',
             },
             capabilities: {
               type: 'array',
               items: { type: 'string' },
-              description: [
-                'List of this member\'s capabilities (e.g., ["code analysis", "security review"]).',
-                'Optional - if omitted, will be auto-derived from system_prompt or role.',
-              ].join('\n'),
+              description: '成员能力列表（可选），省略则从 agent 配置推断',
             },
             priority: {
               type: 'number',
-              description: 'Priority level (higher = more important). Required for hierarchical strategy.',
+              description: '优先级（hierarchical 策略需要，leader 设 >= 8）',
+            },
+            task: {
+              type: 'string',
+              description: '成员的具体工作任务（WHAT to do）。区别于 system_prompt（HOW to behave）。每个成员必须有独特、可执行的任务',
+            },
+            scene: {
+              type: 'string',
+              description: '场景类型，决定加载哪组 L1 prompt。**必须为每个成员指定**。通过 list_scenes 查询可用场景后选择合适的分配，无合适场景时使用 "general"',
             },
             system_prompt: {
               type: 'string',
-              description: 'Custom system prompt for this member. Overrides preset agent config when provided.',
+              description: '角色行为引导（HOW to behave）。临时 agent 必需，预置 agent 可选（覆盖默认配置）。辩论策略必须包含元数据标记：[debate_role:affirmative]（正方）或 [debate_role:negative]（反方）或 [debate_role:judge]（裁判），放在 system_prompt 末尾便于解析',
             },
             tools: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Custom tool list for this member. Overrides preset agent config tools when provided.',
+              description: '成员可用工具列表（可选），覆盖预置 agent 的默认工具',
             },
             timeout: {
               type: 'number',
-              description: [
-                'Per-member timeout in milliseconds (optional).',
-                '',
-                '⚠️ WARNING: Explicitly setting this value will OVERRIDE auto-calculated timeouts.',
-                'The system automatically allocates timeout based on strategy:',
-                '  - parallel: each member gets full team timeout',
-                '  - sequential: members share with progressive allocation',
-                '  - hierarchical: leader gets 50%, workers share remaining',
-                '',
-                '❌ Common mistake: Setting member.timeout = 60000 when team.timeout = 300000',
-                '   → Member only gets 60s instead of auto-allocated 300s (parallel)',
-                '',
-                '✅ Best practice: DO NOT set this field unless you have a specific reason.',
-                'Let the system auto-calculate based on strategy and team timeout.',
-              ].join('\n'),
+              description: '成员超时（毫秒）。不推荐设置，系统会根据策略自动分配合理的超时时间',
             },
           },
           required: ['id'],
@@ -152,45 +110,15 @@ export class TeamTool extends BaseTool {
       },
       max_rounds: {
         type: 'number',
-        description: 'Maximum number of collaboration rounds (default: 10)',
+        description: '最大协作轮次（默认 5）',
       },
       timeout: {
         type: 'number',
         description: [
-          '🆕 Team total timeout in milliseconds (default: 1200000 = 20 minutes).',
-          '',
-          '⚡ This is a HARD LIMIT for the entire team execution.',
-          'The system will automatically calculate member timeouts based on:',
-          '  - Team total timeout',
-          '  - Strategy (parallel/sequential/hierarchical/debate/pipeline)',
-          '  - Number of members',
-          '',
-          '📊 Recommended timeouts by strategy and complexity:',
-          '',
-          'Simple tasks (2-3 members):',
-          '  - parallel: 600000ms (10 min)',
-          '  - sequential: 900000ms (15 min)',
-          '',
-          'Medium tasks (3-4 members):',
-          '  - parallel: 1200000ms (20 min) — default',
-          '  - sequential: 1800000ms (30 min)',
-          '  - hierarchical: 1800000ms (30 min)',
-          '',
-          'Complex/Large analysis tasks (4-5 members):',
-          '  - parallel: 2400000ms (40 min)',
-          '  - sequential: 3600000ms (60 min)',
-          '  - hierarchical: 3000000ms (50 min)',
-          '  - debate (3 rounds): 2400000ms (40 min)',
-          '',
-          '⚠️ For large analysis tasks, use 40-60 minutes to ensure completion.',
-          '',
-          '💡 How it works:',
-          '  - parallel: each member gets ~full timeout (concurrent)',
-          '  - sequential: members share timeout progressively',
-          '  - hierarchical: leader gets 50%, workers share remaining',
-          '',
-          '✅ Best practice: Set generous timeout, let strategy auto-allocate to members.',
-        ].join('\n'),
+          '团队总超时（毫秒），硬限制。不设置时自动计算：成员数 × 轮次 × 600000ms（最少30分钟，最多4小时）。',
+          '建议值：代码审查 30-60分钟、辩论共识 1.5小时+、大型重构 2-3小时。',
+          '超时后可用更大的 timeout 值重试。',
+        ].join(' '),
       },
     },
     required: ['team_name', 'goal', 'strategy', 'members'],
@@ -248,8 +176,10 @@ export class TeamTool extends BaseTool {
       agent_id?: string;
       role?: AgentRoleType; // 向后兼容，已废弃
       name?: string;
+      task?: string;          // 🆕 成员具体任务（WHAT to do）
       capabilities?: string[];
       priority?: number;
+      scene?: string;         // 🆕 场景类型
       system_prompt?: string;
       tools?: string[];
       timeout?: number;
@@ -269,50 +199,61 @@ export class TeamTool extends BaseTool {
     // 构建团队成员
     const members: TeamMember[] = membersInput.map(m => ({
       id: m.id,
-      agentId: m.agent_id || m.role || 'general-purpose', // 优先使用 agent_id，向后兼容 role
+      agentId: m.agent_id || m.role || '', // 优先使用 agent_id，向后兼容 role
       name: m.name,
+      task: m.task,             // 🆕 成员具体任务
       capabilities: m.capabilities ?? [],
       priority: m.priority,
+      scene: m.scene,           // 🆕 场景类型
       systemPrompt: m.system_prompt,
       tools: m.tools,
       timeout: m.timeout,
     }));
 
-    // 🆕 计算超时配置
-    const teamTotalTimeout = timeout ?? 1_200_000; // 默认 20 分钟（更充足，适合大型分析任务）
+    // 🆕 计算超时配置 — 基于审计数据的优化公式
+    const rounds = maxRounds ?? 3; // 默认 3 轮（超过 3 轮 Token 爆炸）
+
+    // 策略基础超时（ms）
+    const baseTimeouts: Record<string, number> = {
+      debate:       1_800_000, // 30min（含多轮辩论）
+      hierarchical: 600_000 + 300_000 * Math.max(0, members.length - 1), // leader + workers
+      parallel:     600_000 + 200_000 * Math.max(0, members.length - 1),
+      sequential:   300_000 + 100_000 * Math.max(0, members.length - 1),
+      pipeline:     300_000 + 150_000 * Math.max(0, members.length - 1),
+    };
+
+    const baseTimeout = baseTimeouts[strategy] ?? 600_000;
+
+    // 辩论轮次因子
+    const roundFactors: Record<number, number> = { 2: 1.0, 3: 1.5, 4: 2.0, 5: 3.0 };
+    const roundFactor = strategy === 'debate' ? (roundFactors[rounds] ?? 1.5) : 1.0;
+
+    const teamTotalTimeout = timeout ?? Math.floor(baseTimeout * roundFactor);
     let defaultMemberTimeout: number;
 
-    // 根据策略和成员数量自动计算 defaultMemberTimeout
+    // 根据策略分配成员基准超时
     switch (strategy) {
       case 'parallel':
-        // 并行：每个成员可以用接近全部时间（留 10% 缓冲）
-        defaultMemberTimeout = Math.floor(teamTotalTimeout * 0.9);
+        defaultMemberTimeout = Math.floor(teamTotalTimeout * 0.85);
         break;
       case 'sequential':
-        // 串行：平均分配，前面成员会得到更多（通过权重调整）
         defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
         break;
       case 'hierarchical':
-        // 层级：leader + workers，按 1.5:1 比例分配
-        // 假设 1 个 leader + N 个 workers
-        // total = leader * 1.5 + workers * 1.0 = 1.5 + (N-1) = N + 0.5
-        // defaultMemberTimeout = total / (N + 0.5)
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / (members.length + 0.5));
+        defaultMemberTimeout = Math.floor(teamTotalTimeout / (1 + members.length * 0.7));
         break;
       case 'debate':
-        // 辩论：多轮，每轮所有成员发言
-        const rounds = maxRounds ?? 10;
-        // 首轮 1.0x，后续轮 0.6x，平均约 0.7x
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / (members.length * rounds * 0.7));
+        defaultMemberTimeout = Math.floor(teamTotalTimeout / (members.length * rounds));
         break;
       case 'pipeline':
-        // 流水线：串行，但各阶段权重不同（1.3x, 1.0x, 0.7x）
-        // 平均约 1.0x
         defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
         break;
       default:
         defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
     }
+
+    // 每成员最低 2 分钟保障
+    defaultMemberTimeout = Math.max(defaultMemberTimeout, 120_000);
 
     // 创建团队配置
     const teamConfig: TeamConfig = {
@@ -337,6 +278,7 @@ export class TeamTool extends BaseTool {
         this.currentDepth,
         this.agentRegistry,
         this.providerManager,
+        input._cwd as string | undefined,
       );
 
       // 创建团队
@@ -375,7 +317,8 @@ export class TeamTool extends BaseTool {
       .map(r => {
         const status = r.success ? '✅' : '❌';
         const duration = (r.duration / 1000).toFixed(1);
-        return `${status} ${r.memberId}: ${duration}s, ${r.tokensUsed.input + r.tokensUsed.output} tokens`;
+        const name = r.memberName || r.memberId;
+        return `${status} ${name}: ${duration}s, ${r.tokensUsed.input + r.tokensUsed.output} tokens`;
       })
       .join('\n');
 
@@ -387,6 +330,56 @@ export class TeamTool extends BaseTool {
       '',
       '[Team Output]',
       result.output,
+      '',
+      '---',
+      (() => {
+        if (result.timedOut) {
+          const successCount = result.memberResults.filter(r => r.success).length;
+          const checkpointInfo = successCount > 0
+            ? [`     - ${successCount}/${result.memberResults.length} 位成员成功完成，结果已保存至 checkpoint，重试时可恢复`]
+            : [];
+          return [
+            '⏱️ 团队执行超时。建议重试策略：',
+            '  1. 优先：再次调用 agent_team 并增大 timeout 参数（建议至少翻倍）',
+            `     - 当前耗时: ${Math.floor((result.duration || 0) / 1000)}s`,
+            `     - 建议设置 timeout: ${Math.floor((result.duration || 60_000) / 1000) * 2 * 1000} 或更大`,
+            ...checkpointInfo,
+            '  2. 备选：如果超时由某个特定阶段导致，可用 task 工具单独重试该阶段，然后将结果传回 agent_team',
+            '',
+          ].join('\n');
+        }
+        if (!result.success) {
+          // Bug 5: 根据失败分类提供不同的重试建议
+          const failedMembers = result.memberResults.filter(r => !r.success);
+          const categories = new Set(failedMembers.map(r => r.failureCategory).filter(Boolean));
+
+          if (categories.has('stage_disconnect') || categories.has('output_truncated')) {
+            const failedIds = failedMembers.map(r => r.memberName || r.memberId).join(', ');
+            return [
+              '⚠️ 团队执行失败（阶段衔接/输出截断）。建议重试策略：',
+              '  1. 优先：用 task 工具单独重新执行失败的阶段',
+              `     - 失败成员: ${failedIds}`,
+              '     - 提供更明确的任务描述和完整的文件路径',
+              '     - 单阶段成功后再考虑重新运行完整 pipeline',
+              '  2. 备选：再次调用 agent_team，但增加各成员的 timeout',
+              '',
+            ].join('\n');
+          }
+
+          return [
+            '⚠️ 团队执行失败。建议重试策略：',
+            '  1. 优先：再次调用 agent_team，调整成员配置或任务描述后重试',
+            '  2. 备选：如果仅个别成员失败且问题明确（如输出截断），可用 task 工具单独重试该成员的任务',
+            `     - 失败成员: ${failedMembers.map(r => r.memberName || r.memberId).join(', ')}`,
+            '',
+          ].join('\n');
+        }
+        return '';
+      })(),
+      '⚠️ 当你向用户总结团队执行结果时，必须为每位成员的关键发现附带可点击引用。引用格式（直接写在正文中，不要放在代码块或引用块里）：',
+      '📎 [成员名称]："从该成员输出中逐字复制一句原话"',
+      '',
+      '引用名称必须与上方成员摘要中显示的名称完全一致，否则用户无法点击查看完整输出。',
     ].join('\n');
 
     return this.success(content, {

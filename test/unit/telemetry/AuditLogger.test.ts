@@ -10,6 +10,11 @@ import { existsSync } from 'node:fs';
 import { AuditLogger, type AuditRecord } from '@/core/telemetry/AuditLogger';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '@/permission/types';
 
+function todayFile(base: string, name: string, ext: string): string {
+  const today = new Date().toISOString().split('T')[0];
+  return join(base, `${name}-${today}.${ext}`);
+}
+
 describe('AuditLogger', () => {
   let tempDir: string;
   let testFilePath: string;
@@ -17,8 +22,8 @@ describe('AuditLogger', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-audit-test-'));
-    testFilePath = join(tempDir, 'audit.log');
-    auditLogger = new AuditLogger(testFilePath);
+    testFilePath = todayFile(tempDir, 'audit', 'log');
+    auditLogger = new AuditLogger(join(tempDir, 'audit.log'));
   });
 
   afterEach(async () => {

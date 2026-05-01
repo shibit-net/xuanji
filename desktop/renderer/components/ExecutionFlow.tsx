@@ -116,7 +116,6 @@ const ExecutionFlow: React.FC = () => {
 
   // 处理节点点击
   const onNodeClick = useCallback((_event: React.MouseEvent, node: AgentNode) => {
-    console.log('Node clicked:', node);
     // 这里可以添加查看节点详情的逻辑
   }, []);
 

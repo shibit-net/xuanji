@@ -62,20 +62,9 @@ interface QueueItem {
 export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
   readonly description = [
-    'Ask the user a question and wait for their response.',
-    'Use this tool when you need to:',
-    '- Clarify ambiguous requirements',
-    '- Let user choose between multiple options',
-    '- Confirm parameters before critical operations',
-    'Do NOT use for small talk or unnecessary confirmations.',
-    '',
-    'Supports structured options:',
-    '- Provide options array for predefined choices',
-    '- Set multiSelect: true to allow multiple selections',
-    '',
-    'Advanced features:',
-    '- priority: Set question priority (1-10, default 5)',
-    '- timeout: Set timeout in milliseconds (default 300000)',
+    '向用户提问并等待回复。用于澄清需求、选择方案、确认关键操作。',
+    '不要用于闲聊或不必要的确认。',
+    '支持选项列表（单选/多选）、优先级（1-10）、超时设置。',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

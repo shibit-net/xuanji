@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TeamTool } from '@/core/tools/TeamTool';
 import type { ILLMProvider, AgentConfig, IToolRegistry } from '@/core/types';
+import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { ProviderManager } from '@/core/providers/ProviderManager';
 
 // Mock dependencies
 const createMockProvider = (): ILLMProvider => ({
@@ -21,6 +23,21 @@ const createMockToolRegistry = (): IToolRegistry => ({
   has: vi.fn(() => false),
   execute: vi.fn(async () => ({ content: 'mock result', isError: false })),
 } as any);
+
+const createMockAgentRegistry = (): AgentRegistry =>
+  ({
+    register: vi.fn(),
+    get: vi.fn(() => ({ id: 'test-agent', name: 'Test', systemPrompt: '', model: {}, execution: {}, tools: [] })),
+    has: vi.fn(() => true),
+    getAll: vi.fn(() => []),
+  } as any);
+
+const createMockProviderManager = (): ProviderManager =>
+  ({
+    getProvider: vi.fn(() => createMockProvider()),
+    hasProvider: vi.fn(() => true),
+    registerProvider: vi.fn(),
+  } as any);
 
 const createMockAgentConfig = (): AgentConfig => ({
   model: 'claude-sonnet-4',
@@ -45,6 +62,8 @@ describe('TeamTool', () => {
       registry: mockToolRegistry,
       agentConfig: mockAgentConfig,
       depth: 0,
+      agentRegistry: createMockAgentRegistry(),
+      providerManager: createMockProviderManager(),
     });
   });
 
@@ -109,16 +128,11 @@ describe('TeamTool', () => {
   it('成员 schema 应包含所有必需字段', () => {
     const memberSchema = (tool.input_schema.properties?.members as any).items;
     expect(memberSchema.required).toContain('id');
-    expect(memberSchema.required).toContain('role');
-    expect(memberSchema.required).toContain('capabilities');
   });
 
   it('应支持成员角色类型', () => {
     const memberSchema = (tool.input_schema.properties?.members as any).items;
-    const roleEnum = memberSchema.properties.role.enum;
-    expect(roleEnum).toContain('general-purpose');
-    expect(roleEnum).toContain('explore');
-    expect(roleEnum).toContain('plan');
-    expect(roleEnum).toContain('coder');
+    expect(memberSchema.properties.agent_id).toBeDefined();
+    expect(memberSchema.properties.agent_id.type).toBe('string');
   });
 });

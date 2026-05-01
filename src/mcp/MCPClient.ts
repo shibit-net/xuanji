@@ -36,6 +36,9 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 /** 最大重连延迟（毫秒） */
 const MAX_RECONNECT_DELAY = 30_000;
 
+/** 输出缓冲区最大字节数，防止恶意服务器撑爆内存 */
+const MAX_OUTPUT_BUFFER_SIZE = 1024 * 1024; // 1MB
+
 /** MCP 协议版本 */
 const MCP_PROTOCOL_VERSION = '2024-11-05';
 
@@ -187,6 +190,16 @@ export class MCPClient extends EventEmitter {
     } catch (error) {
       this.state = 'error';
       this.log(`Failed to start: ${error}`, 'error');
+      // 清理失败的进程，防止僵尸进程
+      if (this.process) {
+        try {
+          this.process.stdout?.removeAllListeners();
+          this.process.stderr?.removeAllListeners();
+          this.process.removeAllListeners();
+          this.process.kill('SIGKILL');
+        } catch { /* 忽略关闭错误 */ }
+        this.process = undefined;
+      }
       throw error;
     }
   }
@@ -269,6 +282,17 @@ export class MCPClient extends EventEmitter {
     if (this.intentionalClose) {
       this.reconnecting = false;
       return;
+    }
+
+    // 清理旧进程（防止僵尸进程累积）
+    if (this.process) {
+      try {
+        this.process.stdout?.removeAllListeners();
+        this.process.stderr?.removeAllListeners();
+        this.process.removeAllListeners();
+        this.process.kill('SIGKILL');
+      } catch { /* 忽略旧进程清理错误 */ }
+      this.process = undefined;
     }
 
     // 清理状态
@@ -409,6 +433,12 @@ export class MCPClient extends EventEmitter {
    */
   private handleOutput(chunk: string): void {
     this.outputBuffer += chunk;
+
+    // 防止恶意服务器发送无换行符的超大数据包
+    if (this.outputBuffer.length > MAX_OUTPUT_BUFFER_SIZE) {
+      this.log(`Output buffer exceeded ${MAX_OUTPUT_BUFFER_SIZE} bytes, resetting`, 'warn');
+      this.outputBuffer = '';
+    }
 
     // 尝试解析完整的 JSON 行
     const lines = this.outputBuffer.split('\n');

@@ -9,20 +9,23 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { SessionRecorder, type SessionRecord } from '@/core/telemetry/SessionRecorder';
 
+function todayFile(base: string, name: string): string {
+  const today = new Date().toISOString().split('T')[0];
+  return join(base, `${name}-${today}.jsonl`);
+}
+
 describe('SessionRecorder', () => {
   let tempDir: string;
   let testFilePath: string;
   let recorder: SessionRecorder;
 
   beforeEach(async () => {
-    // 创建临时目录
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-test-'));
-    testFilePath = join(tempDir, 'sessions.jsonl');
-    recorder = new SessionRecorder(testFilePath);
+    testFilePath = todayFile(tempDir, 'sessions');
+    recorder = new SessionRecorder(join(tempDir, 'sessions.jsonl'));
   });
 
   afterEach(async () => {
-    // 清理临时目录
     if (existsSync(tempDir)) {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -39,7 +42,6 @@ describe('SessionRecorder', () => {
 
     await recorder.record(record);
 
-    // 验证文件内容
     const content = await readFile(testFilePath, 'utf-8');
     const lines = content.trim().split('\n');
     expect(lines).toHaveLength(1);
@@ -69,10 +71,8 @@ describe('SessionRecorder', () => {
       durationMs: i * 1000,
     }));
 
-    // 并发写入
     await Promise.all(records.map((r) => recorder.record(r)));
 
-    // 验证所有记录都写入
     const content = await readFile(testFilePath, 'utf-8');
     const lines = content.trim().split('\n');
     expect(lines).toHaveLength(10);
@@ -110,25 +110,6 @@ describe('SessionRecorder', () => {
     });
 
     // 手动追加格式错误的行
-    const content = await readFile(testFilePath, 'utf-8');
-    await rm(testFilePath);
-    await recorder.record({
-      timestamp: new Date().toISOString(),
-      model: 'test',
-      input: 100,
-      output: 50,
-      durationMs: 1000,
-    });
-    const newContent = await readFile(testFilePath, 'utf-8');
-    await rm(testFilePath);
-    await readFile(testFilePath, 'utf-8').catch(() => {});
-    await recorder.record({
-      timestamp: new Date().toISOString(),
-      model: 'test',
-      input: 100,
-      output: 50,
-      durationMs: 1000,
-    });
     const fs = await import('node:fs/promises');
     await fs.appendFile(testFilePath, 'invalid json\n', 'utf-8');
     await recorder.record({

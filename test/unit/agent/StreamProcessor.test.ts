@@ -127,9 +127,9 @@ describe('StreamProcessor', () => {
       expect(flushed.toolInput).toBe('');
     });
 
-    it('应在 flush 后不清空 buffer（非破坏性读取）', async () => {
+    it('flush 后应清空 buffer（可重复读取但清空内部状态）', async () => {
       processor.onTextDelta(() => {});
-      
+
       const events: StreamEvent[] = [
         { type: 'text_delta', text: 'test' },
       ];
@@ -139,9 +139,9 @@ describe('StreamProcessor', () => {
       const flushed1 = processor.flush();
       expect(flushed1.text).toBe('test');
 
-      // 再次 flush，内容应该还在
+      // 再次 flush，内容应已清空
       const flushed2 = processor.flush();
-      expect(flushed2.text).toBe('test');
+      expect(flushed2.text).toBe('');
     });
   });
 

@@ -108,6 +108,7 @@ export class ContextCompressor {
    * @param customInstruction 用户自定义保留指令（如 "特别保留文件路径和错误信息"）
    */
   async compressAsync(messages: Message[], tokenManager: TokenManager, customInstruction?: string): Promise<CompressionResult> {
+    const startTime = Date.now();
     const originalTokens = tokenManager.estimateTokens(messages);
 
     if (!this.shouldCompress(messages, tokenManager)) {
@@ -180,13 +181,15 @@ export class ContextCompressor {
       `(${originalTokens} → ${compressedTokens} tokens, ${Math.round(compressionRatio * 100)}%)`,
     );
 
+    const duration = Date.now() - startTime;
+
     // 触发 PostCompact Hook
     if (this.hookRegistry) {
       this.hookRegistry.emit('PostCompact', {
         originalTokens,
         compressedTokens,
         compressionRatio,
-        duration: Date.now() - Date.now(), // 实际 duration 需要在调用处计算
+        duration,
       }).catch(() => {});
     }
 
@@ -661,5 +664,44 @@ export class ContextCompressor {
     if (convGroups.length > 0) parts.push(`${convGroups.length} 组对话`);
     if (toolGroups.length > 0) parts.push(`${toolGroups.length} 组工具调用`);
     return parts.join(', ');
+  }
+
+  /**
+   * 激进压缩 — 用于 413 Content Too Large 恢复
+   *
+   * 只保留 system prompt + 最近 2 轮用户对话（最多 3 条消息），
+   * 丢弃其余所有中间消息，目标是将上下文减少 60-80%。
+   *
+   * 调用方应在压缩后重试 LLM 调用。此方法不调用 LLM 语义压缩，
+   * 因为 413 场景下上下文已经过大，不能再用 LLM 处理。
+   */
+  aggressiveCompact(messages: Message[], tokenManager: TokenManager): Message[] {
+    const originalTokens = tokenManager.estimateTokens(messages);
+    const systemMsg = messages[0];
+    if (!systemMsg) return messages;
+
+    const rest = messages.slice(1);
+    // 只保留最近 2 轮用户对话
+    const boundary = this.findRecentBoundary(rest, 2);
+    const recentMessages = rest.slice(boundary);
+
+    // 丢弃的旧消息数量
+    const droppedCount = boundary;
+
+    const compacted = boundary > 0
+      ? [systemMsg, ...recentMessages]
+      : messages; // 消息不足 2 轮，不做压缩
+
+    const compactedTokens = tokenManager.estimateTokens(compacted);
+    const ratio = originalTokens > 0
+      ? Math.round((1 - compactedTokens / originalTokens) * 100)
+      : 0;
+
+    this.log.warn(
+      `Aggressive compact: ${originalTokens} → ${compactedTokens} tokens ` +
+      `(${ratio}% reduction, dropped ${droppedCount} older messages, kept last 2 rounds)`
+    );
+
+    return compacted;
   }
 }

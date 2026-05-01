@@ -18,6 +18,8 @@ export default defineConfig({
       'test/integration/electron-integration.test.ts',
       // learning 模块已删除（src/learning/ 在生产代码中无引用）
       'test/integration/lesson-system-e2e.test.ts',
+      // 手动测试脚本，不使用 vitest API（require.main === module 模式）
+      'test/jarvis-architecture.test.ts',
     ],
     coverage: {
       provider: 'v8',

@@ -17,41 +17,24 @@ import { initializeUserConfig } from '../../../src/core/config/UserConfigInitial
 
 function registerAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
-    console.log('收到登录请求:', email);
     try {
-      // 登录前先清除旧的 token 和 Session Cookies
-      console.log('清除旧的认证信息...');
       await clearAuthState();
 
-      // 清除 Electron Session 中的所有 Cookies
       const ses = session.defaultSession;
       await ses.clearStorageData({ storages: ['cookies'] });
-      console.log('旧的 Cookies 已清除');
 
       const result = await authService.login({ email, password });
-      console.log('登录 API 响应:', { success: result.success, message: result.message });
 
       if (result.success) {
-        console.log('登录成功，开始同步 Cookie...');
         await syncCookiesFromClient();
-        console.log('Cookie 同步完成，当前 authState:', {
-          hasAccessToken: !!getAuthState().accessToken,
-          hasRefreshToken: !!getAuthState().refreshToken,
-          tokenExpiresAt: getAuthState().tokenExpiresAt
-        });
 
         setAuthState({ user: result.data || null });
-        console.log('开始保存认证状态...');
         await saveAuthState();
-        console.log('认证状态保存完成');
-
-        console.log('登录成功，用户信息:', result.data);
 
         // 初始化用户配置
         if (result.data?.userId) {
           try {
             await initializeUserConfig(result.data.userId);
-            console.log('用户配置初始化完成:', result.data.userId);
           } catch (err) {
             console.error('初始化用户配置失败:', err);
           }
@@ -62,7 +45,6 @@ function registerAuthIpcHandlers() {
           data: getAuthState().user
         };
       } else {
-        console.log('登录失败:', result.message);
         return {
           success: false,
           message: result.message || '登录失败'
@@ -70,9 +52,36 @@ function registerAuthIpcHandlers() {
       }
     } catch (err) {
       console.error('登录请求失败:', err);
+
+      // 友好的错误提示
+      let errorMessage = '网络错误';
+
+      if (err instanceof Error) {
+        // 网络连接错误
+        if (err.message.includes('ENOTFOUND') || err.message.includes('getaddrinfo')) {
+          errorMessage = '无法连接到服务器，请检查网络连接';
+        }
+        // 超时错误
+        else if (err.message.includes('timeout') || err.message.includes('ETIMEDOUT')) {
+          errorMessage = '连接超时，请检查网络连接或稍后重试';
+        }
+        // 连接被拒绝
+        else if (err.message.includes('ECONNREFUSED')) {
+          errorMessage = '服务器拒绝连接，请稍后重试';
+        }
+        // SSL/TLS 错误
+        else if (err.message.includes('certificate') || err.message.includes('SSL')) {
+          errorMessage = '安全连接失败，请检查系统时间设置';
+        }
+        // 其他错误
+        else {
+          errorMessage = `网络错误: ${err.message}`;
+        }
+      }
+
       return {
         success: false,
-        message: err instanceof Error ? err.message : '网络错误'
+        message: errorMessage
       };
     }
   });
@@ -105,7 +114,6 @@ function registerAuthIpcHandlers() {
       }
 
       if (!isTokenValid()) {
-        console.log('Token 已过期，尝试刷新...');
         if (authState.refreshToken) {
           try {
             const refreshResult = await authService.refreshToken();
@@ -132,7 +140,6 @@ function registerAuthIpcHandlers() {
           }
         }
 
-        console.log('Token 过期且无法刷新，退出登录');
         await clearAuthState();
         return { success: false };
       }

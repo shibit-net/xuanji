@@ -19,6 +19,7 @@ export type HookEvent =
   | 'ErrorOccurred'
   | 'SubAgentStart'
   | 'SubAgentEnd'
+  | 'SubAgentText'
   | 'SubAgentToolUse'
   | 'TeamStart'
   | 'TeamEnd'
@@ -39,6 +40,8 @@ export type HookEvent =
   // ─── 🆕 MainAgent 流程事件 ────────────────────────────────────
   | 'IntentAnalysisStart'      // 意图分析开始
   | 'IntentAnalysisEnd'        // 意图分析结束
+  | 'ModelClassifierStart'     // 模型分类开始（WorkspaceMonitor 节点创建）
+  | 'ModelClassifierEnd'       // 模型分类结束（WorkspaceMonitor 节点移除）
   | 'TaskPlanningStart'        // 任务规划开始
   | 'TaskPlanningEnd'          // 任务规划结束
   | 'TaskExecutionStart'       // 任务执行开始
@@ -71,6 +74,7 @@ export const ALL_EVENTS: HookEvent[] = [
   'ErrorOccurred',
   'SubAgentStart',
   'SubAgentEnd',
+  'SubAgentText',
   'SubAgentToolUse',
   'TeamStart',
   'TeamEnd',
@@ -90,6 +94,8 @@ export const ALL_EVENTS: HookEvent[] = [
   // 🆕 MainAgent 流程事件
   'IntentAnalysisStart',
   'IntentAnalysisEnd',
+  'ModelClassifierStart',
+  'ModelClassifierEnd',
   'TaskPlanningStart',
   'TaskPlanningEnd',
   'TaskExecutionStart',
@@ -220,6 +226,8 @@ export interface HookEventContext {
   /** AbortSignal，Hook 超时时会触发 abort（供 Hook 实现者检测取消） */
   signal?: AbortSignal;
   // ─── 新增事件字段 ────────────────────────────────────────────
+  /** 子代理文本输出（SubAgentText） */
+  text?: string;
   /** 思考内容（AgentThinking） */
   thinkingContent?: string;
   /** Skill 名称（SkillStart/SkillEnd） */

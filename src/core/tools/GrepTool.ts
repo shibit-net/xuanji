@@ -120,17 +120,18 @@ export class GrepTool extends BaseTool {
       const resolvedPath = path.resolve(searchPath);
       const grepCfg = getGrepConfig();
       const contextLines = Math.min(context, grepCfg?.maxContextLines ?? MAX_CONTEXT_LINES);
+      const cwd = (input._cwd as string) || process.cwd();
 
       // 优先使用 ripgrep
       if (isRipgrepAvailable()) {
         return await this.searchWithRipgrep(
-          pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines,
+          pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines, cwd,
         );
       }
 
       // 降级到 JS 搜索
       return await this.searchWithJS(
-        pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines,
+        pattern, resolvedPath, globPattern, case_insensitive, output_mode, contextLines, cwd,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -149,6 +150,7 @@ export class GrepTool extends BaseTool {
     caseInsensitive: boolean,
     outputMode: OutputMode,
     context: number,
+    cwd: string,
   ): Promise<ToolResult> {
     const grepCfg = getGrepConfig();
     const args: string[] = [];
@@ -179,7 +181,7 @@ export class GrepTool extends BaseTool {
 
     return new Promise<ToolResult>((resolve) => {
       const proc = spawn('rg', args, {
-        cwd: process.cwd(),
+        cwd,
         env: { ...process.env },
       });
 
@@ -327,6 +329,7 @@ export class GrepTool extends BaseTool {
     caseInsensitive: boolean,
     outputMode: OutputMode,
     contextLines: number,
+    _cwd: string,
   ): Promise<ToolResult> {
     const stats = await stat(resolvedPath);
     const flags = caseInsensitive ? 'gi' : 'g';

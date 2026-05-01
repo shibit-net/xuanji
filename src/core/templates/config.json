@@ -2,6 +2,7 @@
   "version": "1.0",
   "isTemplate": true,
   "config": {
+    "workspacePath": "",
     "ui": {
       "theme": "auto",
       "language": "en",
@@ -36,6 +37,7 @@
         "webFetch": 30000,
         "agent_team": 1800000,
         "task": 600000,
+        "interactive": 1800000,
         "backgroundTask": 3600000
       },
       "permissions": {

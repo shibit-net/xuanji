@@ -35,7 +35,7 @@ export class AgentConfigManager {
   }
 
   async init(): Promise<void> {
-    log.info('初始化 Agent Config Manager (user: ' + this.userId + ')...');
+    log.debug('初始化 Agent Config Manager (user: ' + this.userId + ')...');
     await fs.mkdir(this.overrideConfigDir, { recursive: true });
     const files = await fs.readdir(this.overrideConfigDir).catch(() => []);
     for (const file of files) {
@@ -43,7 +43,7 @@ export class AgentConfigManager {
         await this.loadOverrideConfig(path.join(this.overrideConfigDir, file));
       }
     }
-    log.info('Agent Config Manager 初始化完成，已加载 ' + this.overrideConfigs.size + ' 个配置覆盖');
+    log.debug('Agent Config Manager 初始化完成，已加载 ' + this.overrideConfigs.size + ' 个配置覆盖');
   }
 
   private async loadOverrideConfig(filePath: string): Promise<void> {

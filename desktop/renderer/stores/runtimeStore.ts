@@ -23,6 +23,9 @@ import type {
 } from '../types/models';
 import type { AgentMoment, HistoryDot, TimelineEvent, RecentEvent } from '../components/WorkspaceMonitor/types';
 
+// Worker 端每帧实时计算 duration（renderFrame 中的 computeLiveDurations），
+// 主线程不再需要 100ms 定时器更新 durationMs，消除高频 Zustand setState → React re-render → JSON.stringify 链
+
 // ─── 活动事件（供 WorkspaceMonitor 消费）─────────────────────
 
 export interface ActivityEvent {
@@ -106,6 +109,8 @@ interface RuntimeStoreState extends RuntimeState {
   setRunStartTime: (t: number | null) => void;
   /** 清空 activity 状态 */
   resetActivity: () => void;
+  /** 清除单个 agent 的 activity 状态（重试前清理旧状态） */
+  clearAgentActivity: (agentId: string) => void;
 
   // ========== Prompt 构建状态操作 ==========
   setPromptBuildState: (state: PromptBuildState | null) => void;
@@ -148,6 +153,8 @@ const initialMessageStream: MessageStreamState = {
   thinking: '',
   toolCalls: [],
   finished: false,
+  _textChunks: [],
+  _thinkingChunks: [],
 };
 
 export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
@@ -169,25 +176,31 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
     })),
 
   appendStreamText: (text) =>
-    set((state) => ({
-      messageStream: state.messageStream
-        ? { ...state.messageStream, text: state.messageStream.text + text }
-        : { ...initialMessageStream, text },
-    })),
+    set((state) => {
+      if (!state.messageStream) {
+        return { messageStream: { ...initialMessageStream, _textChunks: [text], text } };
+      }
+      // 只追加到 chunks 数组（O(1)），延迟 join 到 finishMessageStream
+      const chunks = [...state.messageStream._textChunks, text];
+      return {
+        messageStream: { ...state.messageStream, _textChunks: chunks },
+      };
+    }),
 
   appendStreamThinking: (thinking) =>
-    set((state) => ({
-      messageStream: state.messageStream
-        ? { ...state.messageStream, thinking: state.messageStream.thinking + thinking }
-        : { ...initialMessageStream, thinking },
-    })),
+    set((state) => {
+      if (!state.messageStream) {
+        return { messageStream: { ...initialMessageStream, _thinkingChunks: [thinking], thinking } };
+      }
+      // 追加到 chunks 数组（O(1)），同时更新 thinking 为完整累积文本
+      const chunks = [...state.messageStream._thinkingChunks, thinking];
+      return {
+        messageStream: { ...state.messageStream, _thinkingChunks: chunks, thinking: chunks.join('') },
+      };
+    }),
 
   addToolCall: (toolCall) =>
     set((state) => {
-      console.log('[runtimeStore] ===== addToolCall 被调用 =====');
-      console.log('[runtimeStore] 工具:', toolCall.name, '(', toolCall.id, ')');
-      console.log('[runtimeStore] messageStream 存在:', !!state.messageStream);
-
       const currentStream = state.messageStream || initialMessageStream;
 
       // 检查是否已存在相同 ID 的工具调用
@@ -206,7 +219,6 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
                                    existing.multiAgent.members.length === 0;
 
         if (hasMoreData && existingHasLessData) {
-          console.log('[runtimeStore] 工具调用已存在但新数据更完整，更新:', toolCall.id);
           const newToolCalls = [...currentStream.toolCalls];
           newToolCalls[existingIndex] = { ...existing, ...toolCall };
           return {
@@ -215,17 +227,11 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
               toolCalls: newToolCalls,
             },
           };
-        } else {
-          console.warn('[runtimeStore] 工具调用 ID 已存在且无需更新，跳过:', toolCall.id);
-          return {};
         }
+        return {};
       }
 
-      console.log('[runtimeStore] 添加工具到 toolCalls 数组');
-      console.log('[runtimeStore] 添加前 toolCalls 数量:', currentStream.toolCalls.length);
-
       const newToolCalls = [...currentStream.toolCalls, toolCall];
-      console.log('[runtimeStore] 添加后 toolCalls 数量:', newToolCalls.length);
 
       return {
         messageStream: {
@@ -237,32 +243,10 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
 
   updateToolCall: (id, updates) =>
     set((state) => {
-      console.log('[runtimeStore] ===== updateToolCall 被调用 =====');
-      console.log('[runtimeStore] 工具 ID:', id);
-      console.log('[runtimeStore] 更新内容:', updates);
-      console.log('[runtimeStore] messageStream 存在:', !!state.messageStream);
-
-      if (!state.messageStream) {
-        console.log('[runtimeStore] messageStream 为 null，跳过更新');
-        return {};
-      }
-
-      console.log('[runtimeStore] 更新前的 toolCalls:', state.messageStream.toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        status: tc.status,
-      })));
-
+      if (!state.messageStream) return {};
       const toolCalls = state.messageStream.toolCalls.map((tc) =>
         tc.id === id ? { ...tc, ...updates } : tc
       );
-
-      console.log('[runtimeStore] 更新后的 toolCalls:', toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        status: tc.status,
-      })));
-
       return {
         messageStream: {
           ...state.messageStream,
@@ -273,18 +257,8 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
 
   removeToolCall: (id) =>
     set((state) => {
-      console.log('[runtimeStore] ===== removeToolCall 被调用 =====');
-      console.log('[runtimeStore] 工具 ID:', id);
-
-      if (!state.messageStream) {
-        console.log('[runtimeStore] messageStream 为 null，跳过移除');
-        return {};
-      }
-
+      if (!state.messageStream) return {};
       const toolCalls = state.messageStream.toolCalls.filter((tc) => tc.id !== id);
-
-      console.log('[runtimeStore] 移除后的 toolCalls 数量:', toolCalls.length);
-
       return {
         messageStream: {
           ...state.messageStream,
@@ -320,8 +294,15 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
           ? { ...tc, status: 'success' as const, duration: tc.startTime ? Date.now() - tc.startTime : undefined }
           : tc
       );
+      // 一次性 join 所有文本块，输出最终字符串
       return {
-        messageStream: { ...state.messageStream, toolCalls, finished: true },
+        messageStream: {
+          ...state.messageStream,
+          text: state.messageStream._textChunks.join(''),
+          thinking: state.messageStream._thinkingChunks.join(''),
+          toolCalls,
+          finished: true,
+        },
       };
     }),
 
@@ -367,7 +348,7 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
     set((state) => {
       const newLog: LogEntry = {
         ...log,
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: crypto.randomUUID(),
         timestamp: Date.now(),
       };
       // 保留最新 1000 条日志
@@ -382,49 +363,74 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
   resetCurrentCallTokens: () => set({ currentCallTokens: { input: 0, output: 0, cached: 0 } }),
 
   // ========== Agent 活动状态 ==========
-  setAgentMoment: (agentId, moment) =>
-    set((state) => {
-      console.log('[runtimeStore] setAgentMoment 被调用:', { agentId, moment });
-      console.log('[runtimeStore] setAgentMoment 之前的 currentMoments:', state.agentActivity.currentMoments);
-      const newState = {
-        agentActivity: {
-          ...state.agentActivity,
-          currentMoments: { ...state.agentActivity.currentMoments, [agentId]: moment },
-        },
-      };
-      console.log('[runtimeStore] setAgentMoment 之后的 currentMoments:', newState.agentActivity.currentMoments);
-      return newState;
-    }),
+  setAgentMoment: (agentId, moment) => {
+    // 自动为 running 状态的 moment 记录开始时间
+    const momentWithTime: AgentMoment = moment.status === 'running'
+      ? { ...moment, startTime: moment.startTime || Date.now(), durationMs: 0 }
+      : moment;
+
+    set((state) => ({
+      agentActivity: {
+        ...state.agentActivity,
+        currentMoments: { ...state.agentActivity.currentMoments, [agentId]: momentWithTime },
+      },
+    }));
+
+    // 耗时由 worker 端 computeLiveDurations 每帧实时计算
+  },
 
   finishAgentMoment: (agentId, status) =>
     set((state) => {
-      console.log('[runtimeStore] finishAgentMoment 被调用:', { agentId, status });
-      console.log('[runtimeStore] finishAgentMoment 之前的 currentMoments:', state.agentActivity.currentMoments);
       const current = state.agentActivity.currentMoments[agentId];
-      if (!current) {
-        console.log('[runtimeStore] finishAgentMoment: 没有找到 currentMoment，跳过');
-        return {};
-      }
+      if (!current) return {};
 
-      // 清除 currentMoment（不需要历史记录）
+      // 计算最终耗时
+      const finalDuration = current.startTime
+        ? Date.now() - current.startTime
+        : current.durationMs;
+
+      // 将完成的 moment 记入历史点阵
+      const prevHistory = state.agentActivity.momentHistories[agentId] || [];
+      const historyDot: HistoryDot = {
+        id: `${agentId}-${Date.now()}`,
+        status: status || 'success',
+        tooltip: `${current.icon} ${current.label} (${(finalDuration / 1000).toFixed(1)}s)`,
+      };
+      const newHistory = [...prevHistory, historyDot].slice(-8);
+
       const newMoments = { ...state.agentActivity.currentMoments };
       delete newMoments[agentId];
-      console.log('[runtimeStore] finishAgentMoment 之后的 currentMoments:', newMoments);
 
       return {
         agentActivity: {
           ...state.agentActivity,
           currentMoments: newMoments,
+          momentHistories: { ...state.agentActivity.momentHistories, [agentId]: newHistory },
         },
       };
     }),
 
   addTimelineEvent: (agentId, event) =>
     set((state) => {
-      console.log('[runtimeStore] addTimelineEvent 被调用:', { agentId, event });
       const prev = state.agentActivity.timelineEvents[agentId] || [];
-      const newEvents = [...prev, event].slice(-5);
-      console.log('[runtimeStore] 更新后的 timelineEvents:', newEvents);
+
+      // 防御性检查：避免重复添加相同 ID 的事件
+      const exists = prev.some(e => e.id === event.id);
+      if (exists) return state;
+
+      // 自动检测并行组：与上一个事件开始时间在 100ms 内则为同一并行组
+      const PARALLEL_WINDOW_MS = 100;
+      const now = Date.now();
+      const lastEvent = prev[prev.length - 1];
+      let parallelGroupId: string | undefined;
+      if (lastEvent && lastEvent.startTime && (now - lastEvent.startTime) < PARALLEL_WINDOW_MS) {
+        parallelGroupId = lastEvent.parallelGroupId || `parallel-${lastEvent.startTime}`;
+      } else {
+        parallelGroupId = `parallel-${now}`;
+      }
+
+      const eventWithGroup = { ...event, parallelGroupId, startTime: event.startTime || now };
+      const newEvents = [...prev, eventWithGroup].slice(-5);
       return {
         agentActivity: {
           ...state.agentActivity,
@@ -439,17 +445,11 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
   finishTimelineEvent: (agentId, eventId, duration, status) =>
     set((state) => {
       const prev = state.agentActivity.timelineEvents[agentId] || [];
-      console.log('[runtimeStore] finishTimelineEvent called:', { agentId, eventId, duration, status });
-      console.log('[runtimeStore] Current timeline events for agent:', prev);
-
-      // 更新事件状态，而不是删除
       const updated = prev.map((e) =>
         e.id === eventId
           ? { ...e, status, duration, endTime: Date.now() }
           : e
       );
-      console.log('[runtimeStore] After updating:', updated);
-
       return {
         agentActivity: {
           ...state.agentActivity,
@@ -465,7 +465,7 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
     set((state) => {
       const newEvt: RecentEvent = {
         ...evt,
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: crypto.randomUUID(),
         timestamp: Date.now(),
       };
       return {
@@ -481,8 +481,27 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
       agentActivity: { ...state.agentActivity, runStartTime: t },
     })),
 
-  resetActivity: () =>
-    set({ agentActivity: initialActivityState }),
+  resetActivity: () => {
+    set({ agentActivity: initialActivityState });
+  },
+
+  clearAgentActivity: (agentId) =>
+    set((state) => {
+      const newMoments = { ...state.agentActivity.currentMoments };
+      delete newMoments[agentId];
+      const newHistories = { ...state.agentActivity.momentHistories };
+      delete newHistories[agentId];
+      const newTimelines = { ...state.agentActivity.timelineEvents };
+      delete newTimelines[agentId];
+      return {
+        agentActivity: {
+          ...state.agentActivity,
+          currentMoments: newMoments,
+          momentHistories: newHistories,
+          timelineEvents: newTimelines,
+        },
+      };
+    }),
 
   // ========== Prompt 构建状态操作 ==========
   setPromptBuildState: (state) => set({ promptBuildState: state }),

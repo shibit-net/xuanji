@@ -17,8 +17,9 @@
 // - 支持按 sessionId/迭代/事件类型查询
 //
 
-import { join } from 'node:path';
-import { appendFile, readFile, mkdir } from 'node:fs/promises';
+import { join, basename, extname } from 'node:path';
+import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { getUserLogsDir } from '@/core/config/PathManager';
 import { existsSync } from 'node:fs';
 import type { TokenUsage, ToolCall, Message } from '../types';
 
@@ -339,14 +340,21 @@ export interface AgentLoopLogFilter {
 /** 脱敏截断最大长度 */
 const MAX_SANITIZE_LENGTH = 500;
 
+/** 日志文件保留天数 */
+const LOG_RETENTION_DAYS = 30;
+
+/** 日志文件目录 */
+const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+
 /**
  * AgentLoopLogger — AgentLoop 执行日志记录器
  *
  * 将 AgentLoop 执行过程中的所有关键事件持久化到 JSONL 文件，
- * 支持查询、分析和调试。
+ * 按日期自动轮转（agent-loop-YYYY-MM-DD.log），支持查询、分析和调试。
  */
 export class AgentLoopLogger {
-  private filePath: string;
+  private logDir: string;
+  private baseName: string;
   private sessionId: string;
   private model: string;
   private startTime: number;
@@ -355,11 +363,79 @@ export class AgentLoopLogger {
     sessionId: string,
     model: string,
     filePath?: string,
+    userId?: string,
   ) {
     this.sessionId = sessionId;
     this.model = model;
     this.startTime = Date.now();
-    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'agent-loop.log');
+
+    const defaultPath = userId ? join(getUserLogsDir(userId), 'agent-loop.log') : join(DEFAULT_LOG_DIR, 'agent-loop.log');
+    const fullPath = filePath ?? defaultPath;
+    this.logDir = join(fullPath, '..');
+    const ext = extname(fullPath); // .log
+    const name = basename(fullPath, ext); // agent-loop
+    this.baseName = name;
+  }
+
+  /** 获取当天日志文件路径 */
+  private getCurrentLogPath(): string {
+    const today = new Date().toISOString().split('T')[0]!; // YYYY-MM-DD
+    return join(this.logDir, `${this.baseName}-${today}.log`);
+  }
+
+  /** 扫描目录下所有匹配的轮转日志文件（按文件名排序，含旧版单文件兼容） */
+  private static async findLogFiles(logDir: string, baseName: string): Promise<string[]> {
+    try {
+      const files = await readdir(logDir);
+      const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // 匹配: agent-loop-2026-04-27.log（新格式）和 agent-loop.log（旧格式）
+      const pattern = new RegExp(`^${escaped}(-\\d{4}-\\d{2}-\\d{2})?\\.log$`);
+      return files
+        .filter(f => pattern.test(f))
+        .sort()
+        .map(f => join(logDir, f));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 清理超过保留期的旧日志文件
+   * @param retentionDays 保留天数，默认 30
+   * @param filePath 可选，日志文件路径（用于定位目录和基础名）
+   */
+  static async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS, filePath?: string): Promise<number> {
+    const fullPath = filePath ?? join(DEFAULT_LOG_DIR, 'agent-loop.log');
+    const logDir = join(fullPath, '..');
+    const ext = extname(fullPath);
+    const baseName = basename(fullPath, ext);
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+
+    try {
+      const logFiles = await this.findLogFiles(logDir, baseName);
+      let deleted = 0;
+
+      for (const file of logFiles) {
+        const name = basename(file);
+        // 提取文件名中的日期: agent-loop-2026-04-27.log → 2026-04-27
+        const match = name.match(/(\d{4}-\d{2}-\d{2})\.log$/);
+        if (match && match[1]! < cutoffStr) {
+          try {
+            await unlink(file);
+            deleted++;
+          } catch {
+            // 删除失败跳过
+          }
+        }
+      }
+
+      return deleted;
+    } catch {
+      return 0;
+    }
   }
 
   // ── 日志记录方法 ──
@@ -744,25 +820,33 @@ export class AgentLoopLogger {
   // ── 查询方法 ──
 
   /**
-   * 查询日志记录
+   * 查询日志记录（扫描所有轮转文件）
    */
   static async query(filter?: AgentLoopLogFilter, filePath?: string): Promise<AgentLoopLog[]> {
-    const path = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'agent-loop.log');
+    const fullPath = filePath ?? join(DEFAULT_LOG_DIR, 'agent-loop.log');
+    const logDir = join(fullPath, '..');
+    const ext = extname(fullPath);
+    const baseName = basename(fullPath, ext);
 
     try {
-      if (!existsSync(path)) {
-        return [];
-      }
+      const logFiles = await this.findLogFiles(logDir, baseName);
+      if (logFiles.length === 0) return [];
 
-      const text = await readFile(path, 'utf-8');
-      const lines = text.split('\n').filter((l) => l.trim());
       let logs: AgentLoopLog[] = [];
 
-      for (const line of lines) {
+      for (const file of logFiles) {
         try {
-          logs.push(JSON.parse(line) as AgentLoopLog);
+          const text = await readFile(file, 'utf-8');
+          const lines = text.split('\n').filter((l) => l.trim());
+          for (const line of lines) {
+            try {
+              logs.push(JSON.parse(line) as AgentLoopLog);
+            } catch {
+              // 跳过格式错误的行
+            }
+          }
         } catch {
-          // 跳过格式错误的行
+          // 跳过无法读取的文件
         }
       }
 
@@ -841,13 +925,12 @@ export class AgentLoopLogger {
 
   // ── 私有方法 ──
 
-  /** 追加日志到 JSONL 文件 */
+  /** 追加日志到当天 JSONL 文件 */
   private async append(log: AgentLoopLog): Promise<void> {
     try {
-      const dir = join(this.filePath, '..');
-      await mkdir(dir, { recursive: true });
+      await mkdir(this.logDir, { recursive: true });
       const line = JSON.stringify(log) + '\n';
-      await appendFile(this.filePath, line, 'utf-8');
+      await appendFile(this.getCurrentLogPath(), line, 'utf-8');
     } catch {
       // 静默失败，不影响主流程
     }

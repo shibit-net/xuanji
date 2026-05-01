@@ -8,7 +8,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('save-session', data);
+      return await sendRequest('session-save', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -21,7 +21,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('resume-session', data);
+      return await sendRequest('session-resume', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -34,7 +34,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('list-sessions');
+      return await sendRequest('session-list');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -47,7 +47,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('delete-session', data);
+      return await sendRequest('session-delete', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -60,7 +60,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('create-checkpoint', data);
+      return await sendRequest('checkpoint-create', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -73,7 +73,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('list-checkpoints');
+      return await sendRequest('checkpoint-list');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -86,7 +86,7 @@ function registerSessionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('rewind-checkpoint', data);
+      return await sendRequest('checkpoint-rewind', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };

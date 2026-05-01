@@ -3,7 +3,8 @@
 // ============================================================
 //
 // 提供全局配置访问，避免每个工具都需要注入依赖。
-// 由 ChatSession.init() 在加载配置后调用 setConfig() 初始化。
+// 由 ChatSession.init() 在加载配置后调用 setRuntimeConfig() 初始化。
+// 配置更新时调用 updateRuntimeConfig() 实现动态生效。
 //
 
 import type { AppConfig } from '@/core/types';
@@ -11,23 +12,42 @@ import type { AppConfig } from '@/core/types';
 let _config: AppConfig | null = null;
 
 /**
- * 深冻结对象及其所有嵌套属性
+ * 设置运行时配置（由 SessionFactory.create() 调用）
  */
-function deepFreeze<T extends object>(obj: T): T {
-  Object.freeze(obj);
-  for (const value of Object.values(obj)) {
-    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-      deepFreeze(value);
-    }
-  }
-  return obj;
+export function setRuntimeConfig(config: AppConfig): void {
+  _config = config;
 }
 
 /**
- * 设置运行时配置（由 ChatSession.init() 调用）
+ * 增量更新运行时配置（由 agent-bridge 配置更新时调用）
+ * 深度合并 partial 到现有配置中
  */
-export function setRuntimeConfig(config: AppConfig): void {
-  _config = deepFreeze(config) as AppConfig;
+export function updateRuntimeConfig(partial: Partial<AppConfig>): void {
+  if (!_config) {
+    _config = partial as unknown as AppConfig;
+    return;
+  }
+  _config = deepMergeRuntime(_config as unknown as Record<string, unknown>, partial as unknown as Record<string, unknown>) as unknown as AppConfig;
+}
+
+/**
+ * 浅层深度合并（仅合并一层嵌套对象）
+ */
+function deepMergeRuntime(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = result[key];
+    if (
+      srcVal !== null && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+      tgtVal !== null && tgtVal !== undefined && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+    ) {
+      result[key] = { ...tgtVal as Record<string, unknown>, ...srcVal as Record<string, unknown> };
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
 }
 
 /**

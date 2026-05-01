@@ -5,8 +5,32 @@
 import { logger } from '@/core/logger';
 import { createHash } from 'node:crypto';
 import type { EmbeddingConfig } from '@/shared/types/config';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 const log = logger.child({ module: 'embedding-service' });
+
+// 向上查找 xuanji 项目根目录（包含 package.json 且 name 为 xuanji）
+function findProjectRoot(startDir: string): string {
+  let current = startDir;
+  while (current !== path.dirname(current)) {
+    const pkgPath = path.join(current, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.name === 'xuanji') {
+          return current;
+        }
+      } catch {}
+    }
+    current = path.dirname(current);
+  }
+  // 回退方案：使用 process.cwd()
+  return process.cwd();
+}
+
+const PROJECT_ROOT = findProjectRoot(process.cwd());
+const EMBEDDING_MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'embedding-models');
 
 /** 默认 Embedding 配置 */
 const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {
@@ -72,19 +96,36 @@ export class EmbeddingService {
   private async doInit(): Promise<void> {
     try {
       log.info(`Loading embedding model: ${this.config.model} ...`);
-      // @ts-ignore - Optional dependency
-      const transformers = await import('@xenova/transformers');
 
-      // 设置 HuggingFace 镜像：优先环境变量，其次配置，最后默认镜像
-      const remoteHost = process.env.HF_ENDPOINT || this.config.hfMirror;
-      if (transformers.env && remoteHost) {
-        (transformers.env as any).remoteHost = remoteHost;
+      // 尝试导入 @xenova/transformers（optional dependency）
+      let transformers;
+      try {
+        // @ts-ignore - Optional dependency
+        transformers = await import('@xenova/transformers');
+      } catch (importErr) {
+        const msg = importErr instanceof Error ? importErr.message : String(importErr);
+        log.warn(`@xenova/transformers not available: ${msg}`);
+        throw new Error('Embedding service requires @xenova/transformers package. Please install it with: npm install @xenova/transformers');
       }
-      log.debug(`HuggingFace remote host: ${remoteHost}`);
 
+      // 设置 transformers 使用本地缓存目录和镜像源
+      if (transformers.env) {
+        (transformers.env as any).cacheDir = EMBEDDING_MODEL_DIR;
+        // 使用 HuggingFace 镜像源
+        const mirrorHost = this.config.hfMirror || 'https://hf-mirror.com';
+        (transformers.env as any).remoteHost = mirrorHost;
+        (transformers.env as any).remotePathTemplate = '{model}/resolve/{revision}/';
+        log.info(`[EmbeddingService] Set transformers cacheDir to: ${EMBEDDING_MODEL_DIR}`);
+        log.info(`[EmbeddingService] Set transformers remoteHost to: ${mirrorHost}`);
+      }
+
+      // 使用 transformers 自带的下载功能
+      // 设置 local_files_only: false，允许自动下载
       this.pipeline = await transformers.pipeline('feature-extraction', this.config.model, {
-        quantized: false, // FP32 保证精度
+        quantized: false,
+        local_files_only: false, // 允许 transformers 自动下载模型
       });
+
       this.ready = true;
       this.currentModel = this.config.model;
       log.info('Embedding model loaded successfully');

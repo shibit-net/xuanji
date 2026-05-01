@@ -8,6 +8,9 @@
  * 4. 聚合执行结果
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import type {
   TeamConfig,
   TeamContext,
@@ -19,6 +22,7 @@ import type {
   TeamExecutionResult,
   ITeamManager,
   TeamStrategy,
+  FailureCategory,
 } from './types';
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
@@ -27,6 +31,7 @@ import type { ProviderManager } from '@/core/providers/ProviderManager';
 import { DEFAULT_TEAM_CONFIG } from './types';
 import type { SubAgentResult } from '../SubAgentLoop';
 import { SubAgentFactory } from '../SubAgentFactory';
+import { WorktreeManager, type WorktreeInfo } from '../WorktreeManager';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'TeamManager' });
@@ -44,9 +49,15 @@ export class TeamManager implements ITeamManager {
   private taskQueue: TaskAssignment[] = [];
   private completedTasks: Map<string, TaskExecutionResult> = new Map();
   private depth: number;
+  private teamAbortController: AbortController | null = null; // 保存引用以便 stop() 能中止
   public subAgentFactory: SubAgentFactory;  // 🆕 改为 public，允许外部注入 promptBuilder
   private teamId: string; // 团队唯一标识，在构造时生成
   private agentRegistry: AgentRegistry; // 保存 agentRegistry 引用
+  private memberSubAgentIds: Map<string, string> = new Map(); // 预生成的 subAgentId 映射 (memberId → subAgentId)
+  private workingDir: string; // 团队工作目录（从 TeamTool._cwd 传入，避免依赖全局 process.cwd()）
+  private worktreeManager: WorktreeManager; // P1-2: 工作区隔离管理
+  private activeWorktrees: Map<string, WorktreeInfo> = new Map(); // P1-2: 活跃的 worktree 映射 (memberId → WorktreeInfo)
+  private recoveredCheckpoints: Map<string, TaskExecutionResult> = new Map(); // P1-1: 从历史 checkpoint 恢复的成员结果
 
   constructor(
     mainProvider: ILLMProvider,
@@ -57,6 +68,7 @@ export class TeamManager implements ITeamManager {
     depth = 0,
     agentRegistry?: AgentRegistry,
     providerManager?: ProviderManager,
+    workingDir?: string,
   ) {
     this.mainProvider = mainProvider;
     this.registry = registry;
@@ -64,12 +76,28 @@ export class TeamManager implements ITeamManager {
     this.hookRegistry = hookRegistry ?? null;
     this.depth = depth;
     this.teamId = `team-${Date.now()}`; // 在构造时生成唯一 ID
+    this.workingDir = workingDir || process.cwd();
+    this.worktreeManager = new WorktreeManager(path.join(this.workingDir, '.xuanji', 'worktrees'));
 
     if (!agentRegistry || !providerManager) {
       throw new Error('TeamManager requires agentRegistry and providerManager');
     }
 
     this.agentRegistry = agentRegistry; // 保存引用
+
+    // 🔧 将 AgentConfig 转换为 ConfigurableAgentConfig 格式
+    // AgentConfig 的 apiKey/baseURL 是顶层字段，需要转换为 provider 对象
+    const parentAgentConfig: any = agentConfig ? {
+      id: 'main',
+      name: 'Parent Agent',
+      model: {
+        primary: agentConfig.model, // 🔧 继承父agent的模型名，避免回退到硬编码默认值
+      },
+      provider: {
+        apiKey: agentConfig.apiKey,
+        baseURL: agentConfig.baseURL,
+      },
+    } : null;
 
     this.subAgentFactory = new SubAgentFactory(
       agentRegistry,
@@ -78,7 +106,7 @@ export class TeamManager implements ITeamManager {
       hookRegistry,
       null,
       mainProvider,  // 传递父 provider
-      agentConfig,  // 🔧 传递父 agent 的完整配置（包含 provider 信息）
+      parentAgentConfig,  // 🔧 传递转换后的配置
     );
   }
 
@@ -164,6 +192,7 @@ export class TeamManager implements ITeamManager {
     // 🆕 团队级超时控制 - 根据策略和轮次动态计算
     const teamTimeout = this.calculateTeamTimeout();
     const teamAbortController = new AbortController();
+    this.teamAbortController = teamAbortController;
     const teamTimer = setTimeout(() => {
       teamAbortController.abort();
       timedOut = true;
@@ -176,6 +205,26 @@ export class TeamManager implements ITeamManager {
       log.warn(`Team "${this.context!.config.name}" aborted by external signal`);
     };
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
+    // 🆕 预生成所有成员的 subAgentId，使前端可以在 TeamStart 时一次性展示所有成员
+    this.memberSubAgentIds.clear();
+    for (const member of this.context.config.members) {
+      const normalizedAgentId = this.normalizeAgentId(member.agentId, member.id);
+      const subAgentId = `subagent-${normalizedAgentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      this.memberSubAgentIds.set(member.id, subAgentId);
+    }
+
+    // P1-1: 加载历史 checkpoint，恢复已完成成员的结果
+    this.recoveredCheckpoints = this.loadCheckpoints();
+    const recoveredMemberIds: string[] = [];
+    if (this.recoveredCheckpoints.size > 0) {
+      for (const [memberId, cp] of this.recoveredCheckpoints) {
+        if (cp.success && this.context.config.members.some(m => m.id === memberId)) {
+          recoveredMemberIds.push(memberId);
+          log.info(`Recovered checkpoint for ${memberId} (duration: ${(cp.duration / 1000).toFixed(1)}s)`);
+        }
+      }
+    }
 
     // 触发 TeamStart Hook
     if (this.hookRegistry) {
@@ -194,14 +243,47 @@ export class TeamManager implements ITeamManager {
           goal,
           strategy: this.context.config.strategy,
           memberCount: this.context.config.members.length,
-          // 添加完整的成员列表（用于 UI 预先显示团队结构）
-          members: this.context.config.members.map((member, index) => ({
-            id: member.id,
-            name: member.name || member.id,
-            role: member.agentId, // 使用 agentId
-            capabilities: member.capabilities,
-            stepIndex: index,
-          })),
+          maxRounds: this.context.config.maxRounds,
+          recoveredMembers: recoveredMemberIds, // P1-1: 从 checkpoint 恢复的成员列表
+          // 添加完整的成员列表（含预生成的 subAgentId，用于前端一次性展示所有成员）
+          members: this.context.config.members.map((member, index) => {
+            const agentConfig = this.agentRegistry.get(member.agentId);
+            const displayName = agentConfig?.name || member.name || member.id;
+            const category = agentConfig?.metadata?.category || 'custom';
+            let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+            if (agentConfig) {
+              if (category === 'system') agentType = 'builtin';
+              else if (category === 'app') agentType = 'preset';
+              else agentType = 'custom';
+            } else {
+              agentType = 'temporary';
+            }
+
+            // 解析辩论角色（正方/反方/裁判），使前端在团队创建时即可展示
+            let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
+            if (member.systemPrompt) {
+              const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+              if (roleMatch) {
+                debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
+              }
+            }
+
+            return {
+              id: member.id,
+              name: displayName,
+              role: member.agentId,
+              capabilities: member.capabilities,
+              stepIndex: index,
+              totalSteps: this.context!.config.members.length,
+              subAgentId: this.memberSubAgentIds.get(member.id) || '',
+              agentType,
+              strategy: this.context!.config.strategy,
+              teamName: this.context!.config.name,
+              task: (member.task || goal).substring(0, 200),
+              debateRole,
+              scene: member.scene,
+            };
+          }),
         },
       }).catch((err) => {
         log.debug('TeamStart hook emit failed:', err);
@@ -272,10 +354,16 @@ export class TeamManager implements ITeamManager {
             duration,
             success: result.success,
             timedOut,
+            checkpointCount: memberResults.filter(r => r.success).length,
           },
         }).catch((err) => {
           log.debug('TeamEnd hook emit failed:', err);
         });
+      }
+
+      // P1-1: 成功完成时清理 checkpoint
+      if (result.success) {
+        this.clearCheckpoints();
       }
 
       return result;
@@ -298,6 +386,8 @@ export class TeamManager implements ITeamManager {
             success: false,
             timedOut,
             error: errMsg,
+            checkpointCount: memberResults.filter(r => r.success).length,
+            checkpointDir: this.checkpointDir,
           },
         }).catch((err) => {
           log.debug('TeamEnd hook emit failed:', err);
@@ -318,6 +408,7 @@ export class TeamManager implements ITeamManager {
       clearTimeout(teamTimer);
       externalSignal?.removeEventListener('abort', onExternalAbort);
       this.running = false;
+      this.teamAbortController = null;
     }
   }
 
@@ -351,7 +442,10 @@ export class TeamManager implements ITeamManager {
    */
   stop(): void {
     this.running = false;
-    log.info('Team execution stopped');
+    if (this.teamAbortController) {
+      this.teamAbortController.abort();
+    }
+    log.info('Team execution stopped (aborted)');
   }
 
   // ─── 私有方法 ─────────────────────────────────────────
@@ -424,6 +518,40 @@ export class TeamManager implements ITeamManager {
       }
     }
 
+    // P2-7: 并行策略验证 — 确保每个成员有足够信息创建子 agent
+    if (config.strategy === 'parallel') {
+      const problemMembers: string[] = [];
+      for (const m of config.members) {
+        const isRegistered = this.agentRegistry.get(m.agentId);
+        const hasSystemPrompt = m.systemPrompt && m.systemPrompt.trim().length > 10;
+        const hasTools = m.tools && m.tools.length > 0;
+        // 未注册 + 缺少 system_prompt 或 tools → 无法创建
+        if (!isRegistered && !hasSystemPrompt) {
+          problemMembers.push(
+            `  - "${m.id}" (agent_id="${m.agentId}"): ` +
+            `未在注册表中找到，且缺少 system_prompt。请提供 system_prompt 描述该临时 agent 的行为。`
+          );
+        } else if (!isRegistered && !hasTools) {
+          problemMembers.push(
+            `  - "${m.id}" (agent_id="${m.agentId}"): ` +
+            `未在注册表中找到，且未指定 tools。请提供 tools 参数（如 ["read_file", "write_file", "grep"]）。`
+          );
+        }
+      }
+      if (problemMembers.length > 0) {
+        throw new Error(
+          `Parallel strategy: ${problemMembers.length} 个成员无法创建子 agent，缺少必要参数：\n\n` +
+          `${problemMembers.join('\n')}\n\n` +
+          `解决方案：\n` +
+          `1. 推荐：为每个成员使用 match_agent 查找合适的预置 agent\n` +
+          `2. 备选：为临时 agent 提供 system_prompt + tools 参数\n` +
+          `示例：\n` +
+          `{ id: "${problemMembers[0]?.split('"')[1] || 'member'}", agent_id: "custom-analyst", ` +
+          `system_prompt: "你是一个代码分析专家...", tools: ["read_file", "grep", "glob"] }`
+        );
+      }
+    }
+
     // 检查策略特定要求
     if (config.strategy === 'hierarchical') {
       const leaders = config.members.filter(m => m.priority && m.priority > 0);
@@ -431,6 +559,83 @@ export class TeamManager implements ITeamManager {
         throw new Error('Hierarchical strategy requires at least one member with priority > 0');
       }
     }
+
+    // P2-5: 策略推荐 — 分析 goal 特征，提示最佳策略
+    const suggested = this.suggestStrategy(config);
+    if (suggested && suggested !== config.strategy) {
+      log.info(
+        `Strategy hint: task looks like "${suggested}" pattern. ` +
+        `Current strategy is "${config.strategy}". If execution fails, consider switching to "${suggested}".`
+      );
+    }
+  }
+
+  /**
+   * P1 优化 — 基于任务特征自动推荐策略（决策树）
+   *
+   * 决策树逻辑：
+   *   if has_known_conflict → debate
+   *   elif needs_design_first → hierarchical
+   *   elif has_data_pipeline → pipeline
+   *   elif has_dependency → sequential
+   *   else → parallel
+   *
+   * 前置门槛：至少满足 2 条使用条件才推荐 agent_team
+   */
+  private suggestStrategy(config: TeamConfig): TeamStrategy | null {
+    const { goal, strategy, members } = config;
+    const goalLower = goal.toLowerCase();
+    const memberTasks = members.map(m => (m.task || m.systemPrompt || '').toLowerCase()).join(' ');
+    const allText = `${goalLower} ${memberTasks}`;
+
+    // ── 特征提取（关键词匹配识别 4 个维度） ──────────────
+    // 1. has_known_conflict：已知决策分歧
+    const conflictKeywords = /争议|分歧|辩论|选型|方案.*对比|方案.*选择|技术.*选|哪个.*好|比较|权衡|取舍|vs\.?|versus|debate|pros?\s*(?:and|&)\s*cons?|choose\s*between|decide\s*between|评审.*方案/i;
+    const hasKnownConflict = conflictKeywords.test(allText);
+
+    // 2. needs_design_first：需要先设计再实现
+    const designFirstKeywords = /架构.*设计|设计.*架构|先.*规划|规划.*再|系统.*设计|重构.*方案|架构.*重构|技术方案|从零.*搭建|整体.*设计|architect.*first|design.*before|plan.*then|decompose.*assign|拆分为.*子任务|分解.*分配/i;
+    const needsDesignFirst = designFirstKeywords.test(allText);
+
+    // 3. has_data_pipeline：数据流转链
+    const pipelineKeywords = /数据.*处理|ETL|数据流|提取.*转换|转换.*加载|采集.*清洗.*分析|收集.*分析.*报告|数据处理管道|pipeline|extract.*transform|data.*flow|数据.*可视化|看板|报表.*生成/i;
+    const hasDataPipeline = pipelineKeywords.test(allText);
+
+    // 4. has_dependency：子任务有依赖
+    const dependencyKeywords = /依赖|先后|步骤|阶段|第一步.*第二步|然后|接着|之后|基于.*结果|前一步|上一个.*输出|上一个.*结果|depends?\s*on|sequential|step\s*by\s*step|typecheck.*build|lint.*test.*build/i;
+    const hasDependency = dependencyKeywords.test(allText);
+
+    // ── 决策树 ──────────────────────────────────────────
+    let recommended: TeamStrategy | null = null;
+    let reason = '';
+
+    if (hasKnownConflict) {
+      recommended = 'debate';
+      reason = '检测到决策分歧/方案选型特征 → debate';
+    } else if (needsDesignFirst) {
+      recommended = 'hierarchical';
+      reason = '检测到架构设计+分工实现特征 → hierarchical';
+    } else if (hasDataPipeline) {
+      recommended = 'pipeline';
+      reason = '检测到数据流转/ETL特征 → pipeline';
+    } else if (hasDependency) {
+      recommended = 'sequential';
+      reason = '检测到步骤依赖特征 → sequential';
+    } else {
+      recommended = 'parallel';
+      reason = '无特殊依赖特征 → parallel（默认最快）';
+    }
+
+    if (recommended && recommended !== strategy) {
+      log.info(
+        `Strategy hint: ${reason}. ` +
+        `Current strategy is "${strategy}". If execution fails, consider switching to "${recommended}".`
+      );
+    } else if (recommended === strategy) {
+      log.info(`Strategy confirmed: ${reason}`);
+    }
+
+    return recommended !== strategy ? recommended : null;
   }
 
   /**
@@ -458,71 +663,346 @@ export class TeamManager implements ITeamManager {
 
   /**
    * 并行执行策略（最多 3 个子代理并发）
+   *
+   * P1-2: 为每个并行成员创建独立 worktree，避免 Worker 间文件冲突
    */
   private async executeParallel(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const members = this.context!.config.members;
     const MAX_CONCURRENT = 3;
 
-    if (members.length <= MAX_CONCURRENT) {
-      // 成员数不超过并发上限，直接全部并行
-      return Promise.all(members.map((member, index) => this.executeMemberTask(member, goal, [], undefined, index, signal)));
+    // P1-2: 为每个成员创建 worktree（顺序创建避免 git 冲突）
+    const worktreePaths: Map<string, string> = new Map();
+    const useWorktreeIsolation = this.worktreeManager.isGitRepo(this.workingDir) && members.length > 1;
+
+    if (useWorktreeIsolation) {
+      log.info(`Creating ${members.length} worktree(s) for parallel isolation`);
+      for (const member of members) {
+        if (signal?.aborted) break;
+        try {
+          const info = await this.worktreeManager.create(`team-${this.teamId}-${member.id}`);
+          worktreePaths.set(member.id, info.path);
+          this.activeWorktrees.set(member.id, info);
+          log.info(`Worktree created for ${member.id}: ${info.path}`);
+        } catch (err) {
+          log.warn(`Failed to create worktree for ${member.id}, falling back to shared workspace:`, err);
+        }
+      }
     }
 
-    // 分批并行，每批最多 MAX_CONCURRENT 个，避免资源耗尽
-    const results: TaskExecutionResult[] = [];
-    for (let i = 0; i < members.length; i += MAX_CONCURRENT) {
-      if (!this.running || signal?.aborted) break;
-      const batch = members.slice(i, i + MAX_CONCURRENT);
-      const batchResults = await Promise.all(
-        batch.map((member, batchIndex) => this.executeMemberTask(member, goal, [], undefined, i + batchIndex, signal))
-      );
-      results.push(...batchResults);
+    const executeWithWorktree = (member: TeamMember, index: number): Promise<TaskExecutionResult> => {
+      const wtPath = worktreePaths.get(member.id);
+      return this.executeMemberTask(member, goal, [], undefined, index, signal, 0, wtPath);
+    };
+
+    try {
+      // 滑动窗口：最多 MAX_CONCURRENT 个并行，任一完成即补入下一个
+      const results: TaskExecutionResult[] = new Array(members.length);
+      const running = new Map<number, Promise<number>>(); // index → Promise<index>
+      let nextIndex = 0;
+
+      const startMember = () => {
+        if (nextIndex >= members.length || running.size >= MAX_CONCURRENT) return;
+        const index = nextIndex++;
+        const member = members[index];
+        const p = executeWithWorktree(member, index).then((result) => {
+          results[index] = result;
+          return index;
+        });
+        running.set(index, p);
+      };
+
+      // 启动初始窗口
+      for (let i = 0; i < Math.min(MAX_CONCURRENT, members.length); i++) {
+        startMember();
+      }
+
+      // 任一完成 → 立即补入下一个
+      while (running.size > 0) {
+        if (!this.running || signal?.aborted) break;
+        const completedIndex = await Promise.race(running.values());
+        running.delete(completedIndex);
+        startMember();
+      }
+
+      // P1-2: 合并 worktree 变更回主仓库
+      if (worktreePaths.size > 0) {
+        await this.mergeWorktrees();
+      }
+
+      return results.filter((r): r is TaskExecutionResult => r !== undefined);
+    } finally {
+      // P1-2: 清理所有 worktree
+      if (worktreePaths.size > 0) {
+        await this.cleanupWorktrees();
+      }
     }
-    return results;
+  }
+
+  /**
+   * P1-2: 合并所有活跃 worktree 的变更回主仓库
+   */
+  private async mergeWorktrees(): Promise<void> {
+    for (const [memberId, info] of this.activeWorktrees) {
+      try {
+        const hasChanges = await this.worktreeManager.hasChanges(info.path);
+        if (hasChanges) {
+          // 在 worktree 中提交变更
+          const { execFileSync } = await import('node:child_process');
+          execFileSync('git', ['add', '-A'], { cwd: info.path, stdio: 'pipe' });
+          execFileSync('git', ['commit', '-m', `[team] ${memberId} worktree changes`], {
+            cwd: info.path, stdio: 'pipe',
+          });
+          // 合并 worktree 分支到当前分支
+          execFileSync('git', ['merge', info.branch, '--strategy=ort', '--no-edit'], {
+            cwd: this.workingDir, stdio: 'pipe',
+          });
+          log.info(`Merged worktree changes from ${memberId} (branch: ${info.branch})`);
+        }
+      } catch (err) {
+        log.warn(`Failed to merge worktree for ${memberId}:`, err);
+      }
+    }
+  }
+
+  /**
+   * P1-2: 清理所有活跃 worktree
+   */
+  private async cleanupWorktrees(): Promise<void> {
+    for (const [memberId, info] of this.activeWorktrees) {
+      try {
+        await this.worktreeManager.remove(info.path);
+        log.info(`Cleaned up worktree for ${memberId}`);
+      } catch (err) {
+        log.warn(`Failed to cleanup worktree for ${memberId}:`, err);
+      }
+    }
+    this.activeWorktrees.clear();
   }
 
   /**
    * 层级执行策略
+   *
+   * Leader 收到团队组成信息后自行分解任务，Worker 各自拿到 Leader 分配的独立子任务。
+   * 主 agent 只负责 Leader 的初始目标，不预分配 Worker 任务。
    */
   private async executeHierarchical(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.getSortedMembers();
 
-    // 主 agent（优先级最高）
     const leader = members[0];
-    const leaderResult = await this.executeMemberTask(leader, goal, [], undefined, 0, signal);
+    const workers = members.slice(1);
+
+    // ── 构建团队组成描述，供 Leader 分解任务 ──────────────────
+    const teamRoster = workers.map((w, i) =>
+      `  ${i + 1}. ${w.name || w.id} (id: ${w.id})` +
+      (w.capabilities.length > 0 ? ` — 能力: ${w.capabilities.join(', ')}` : '')
+    ).join('\n');
+
+    const leaderTask = [
+      `团队目标：${goal}`,
+      '',
+      `你的团队有 ${workers.length} 名成员：`,
+      teamRoster,
+      '',
+      '你的职责：分析目标，为每名成员分配具体的子任务，形成执行计划。',
+      '输出格式要求（必须严格遵守，否则成员收不到任务）：',
+      '',
+      '[PLAN]',
+      '（在此撰写总体分析和执行策略）',
+      '[/PLAN]',
+      '',
+      '[ASSIGN:<成员id>]',
+      '（分配给该成员的具体任务描述）',
+      '[/ASSIGN]',
+      '',
+      '每个成员必须有一个对应的 [ASSIGN] 块。未被分配任务的成员将收到默认目标。',
+    ].join('\n');
+
+    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 开始分析团队组成并分解任务`);
+    const leaderResult = await this.executeMemberTask(leader, leaderTask, [], undefined, 0, signal);
     results.push(leaderResult);
 
     if (!leaderResult.success || signal?.aborted) {
       return results;
     }
 
-    // 根据主 agent 的输出，分配给其他成员
-    const workers = members.slice(1);
-    const workerPromises = workers.map((worker, workerIndex) =>
-      this.executeMemberTask(
+    // Bug 7: 等待 Leader 产出的文件就绪，再启动 Workers
+    await this.waitForLeaderFiles(leaderResult.result);
+
+    // ── 解析 Leader 输出，提取每个 Worker 的独立任务 ──────────
+    const assignments = this.parseHierarchicalAssignments(leaderResult.result, workers);
+    log.info(`Hierarchical: Leader 分解完成，解析到 ${assignments.size} 个 Worker 任务`);
+
+    // ── Worker 并行执行各自的任务 ────────────────────────────
+    const workerPromises = workers.map((worker, workerIndex) => {
+      const assignedTask = assignments.get(worker.id);
+      const task = assignedTask
+        ? [
+            `Leader 分析概要：${leaderResult.result.substring(0, 300)}…`,
+            '',
+            '---',
+            '',
+            `你的具体任务：${assignedTask}`,
+          ].join('\n')
+        : [
+            `基于 Leader 的分析：\n${leaderResult.result}`,
+            '',
+            `你的任务：${goal}`,
+          ].join('\n');
+
+      return this.executeMemberTask(
         worker,
-        `Based on the leader's analysis:\n${leaderResult.result}\n\nYour task: ${goal}`,
+        task,
         results,
         undefined,
-        workerIndex + 1, // Workers 从索引 1 开始
+        workerIndex + 1,
         signal,
-      )
-    );
+        0,
+        undefined,
+        true, // preferGoal: Leader 已分配独立任务，优先使用
+      );
+    });
 
     const workerResults = await Promise.all(workerPromises);
     results.push(...workerResults);
+
+    // Leader 合成阶段：审查所有产出并写入最终文件
+    const synthesisTask = [
+      '你已完成任务分解，所有团队成员已完成各自的工作。',
+      '现在作为团队负责人，请审查所有成员的工作产出，完成最终集成：',
+      '',
+      '1. 总结各成员的关键产出',
+      '2. 检查成员产出之间是否有冲突或遗漏',
+      '3. 如有文件产出需求（目标中提到文件路径），使用 write_file 写入最终文件',
+      '4. 指出任何未完成的工作或需要主 agent 后续跟进的事项',
+      '',
+      '你的分析概要：',
+      leaderResult.result.substring(0, 500),
+      '',
+      '--- 成员产出 ---',
+      workerResults.map((r, i) =>
+        `[${workers[i].name || workers[i].id}]: ${r.result.substring(0, 2000)}`
+      ).join('\n\n'),
+      '',
+      '请开始你的最终集成工作。',
+    ].join('\n');
+
+    const synthResult = await this.executeMemberTask(
+      leader, synthesisTask, results, 'hierarchical-synthesis', 0, signal,
+    );
+    results.push(synthResult);
 
     return results;
   }
 
   /**
+   * 解析 Leader 输出中的任务分配
+   * 格式：[ASSIGN:<memberId>]\n<task>\n[/ASSIGN]
+   */
+  private parseHierarchicalAssignments(
+    leaderOutput: string,
+    workers: TeamMember[],
+  ): Map<string, string> {
+    const assignments = new Map<string, string>();
+    const workerIds = new Set(workers.map(w => w.id));
+
+    // 匹配 [ASSIGN:id] ... [/ASSIGN] 块
+    const assignRegex = /\[ASSIGN:\s*([^\]]+)\]\s*([\s\S]*?)\s*\[\/ASSIGN\]/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = assignRegex.exec(leaderOutput)) !== null) {
+      const rawId = match[1].trim();
+      const task = match[2].trim();
+
+      // 尝试精确匹配 worker ID
+      if (workerIds.has(rawId)) {
+        assignments.set(rawId, task);
+      } else {
+        // 模糊匹配：按名称或部分 ID
+        const matchedWorker = workers.find(w =>
+          w.id === rawId ||
+          (w.name && w.name.toLowerCase() === rawId.toLowerCase()) ||
+          (w.name && rawId.toLowerCase().includes(w.name.toLowerCase()))
+        );
+        if (matchedWorker) {
+          assignments.set(matchedWorker.id, task);
+        }
+      }
+    }
+
+    return assignments;
+  }
+
+  /**
    * 辩论执行策略
+   *
+   * P1 优化 — Judge 预读模式：
+   * 1. 预读阶段：Judge 读取关键源码 → 输出「事实摘要」（关键函数行号、分支条件、边界值）
+   * 2. 辩论阶段：PM/Engineer 引用摘要而非重复读取文件
+   * 3. 仅在事实争议时才重新读取具体行
+   *
+   * Token 节省：文件读取量从 角色数×轮次×文件数 → 1次（Judge）+ 摘要引用
    */
   private async executeDebate(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.context!.config.members;
     const maxRounds = this.context!.config.maxRounds!;
+    const convergenceThreshold = this.context!.config.debateConvergenceThreshold
+      ?? DEFAULT_TEAM_CONFIG.debateConvergenceThreshold;
+
+    // 查找 Judge 角色
+    const judgeIndex = members.findIndex(m =>
+      m.systemPrompt && /\[debate_role:\s*judge\]/i.test(m.systemPrompt)
+    );
+    const judge = judgeIndex >= 0 ? members[judgeIndex] : null;
+
+    // ─── P1: Judge 预读阶段 ───────────────────────────────
+    let factSummary = '';
+    if (judge) {
+      log.info('Debate: Judge pre-reading phase — collecting key facts before debate');
+
+      const preReadTask = [
+        '⚖️ 预读阶段（仅你执行，正反方暂不参与）：',
+        '',
+        `辩论议题：${goal}`,
+        '',
+        '你的任务：',
+        '1. 读取辩论涉及的所有关键源码文件',
+        '2. 提取关键事实：函数签名、核心分支条件、边界值、重要常量',
+        '3. 输出一份「事实摘要」，包含：',
+        '   - 涉及的关键文件路径',
+        '   - 核心函数/方法及行号',
+        '   - 关键分支条件和边界值',
+        '   - 不涉及观点判断的纯事实数据',
+        '',
+        '要求：',
+        '- 只陈述事实，不做价值判断',
+        '- 标注精确行号以便后续引用（如 L42-L58）',
+        '- 摘要长度不超过 1500 字',
+        '- 格式：[文件路径] → 关键行号 + 事实描述',
+        '',
+        '此摘要将共享给正反方，避免他们重复读取相同文件。',
+      ].join('\n');
+
+      const judgePreReadResult = await this.executeMemberTask(
+        judge,
+        preReadTask,
+        [],
+        'debate-preread-judge',
+        judgeIndex,
+        signal,
+      );
+      results.push(judgePreReadResult);
+
+      if (judgePreReadResult.success) {
+        factSummary = judgePreReadResult.result;
+        log.info(`Debate: Judge pre-read complete, fact summary: ${factSummary.length} chars`);
+      }
+    }
+
+    // ─── 辩论轮次 ─────────────────────────────────────────
+    // Bug 6: 追踪连续低新颖度轮次
+    let consecutiveLowNoveltyRounds = 0;
 
     for (let round = 0; round < maxRounds && this.running; round++) {
       if (signal?.aborted) break;
@@ -530,15 +1010,51 @@ export class TeamManager implements ITeamManager {
       this.context!.currentRound = round + 1;
       log.info(`Debate round ${round + 1}/${maxRounds}`);
 
+      const roundStartIndex = results.length;
+
       // 每轮所有成员发言
       for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
         if (signal?.aborted) break;
 
         const member = members[memberIndex];
-        const previousResults = results.filter(r => r.taskId.startsWith(`debate-round-${round}`));
-        const context = previousResults.length > 0
-          ? `Previous opinions:\n${previousResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`
-          : '';
+
+        // 跳过 Judge（仅在预读和最终裁决时发言）
+        const isJudge = member.systemPrompt && /\[debate_role:\s*judge\]/i.test(member.systemPrompt);
+        if (isJudge) continue;
+
+        // 区分：当前轮已发言的成员（本轮上下文）+ 之前轮次的完整讨论
+        const thisRoundResults = results.filter(r => r.taskId.startsWith(`debate-round-${round + 1}`));
+        const priorRoundResults = results.filter(r =>
+          !r.taskId.startsWith(`debate-round-${round + 1}`) &&
+          !r.taskId.startsWith('debate-preread')
+        );
+        const contextParts: string[] = [];
+
+        // P1: 注入 Judge 事实摘要
+        if (factSummary && round === 0) {
+          contextParts.push(`[Judge 事实摘要 — 辩论引用基础]:\n${factSummary}\n\n📌 引用代码时请使用摘要中的行号，避免重复读取文件。仅当事摘要不足时再读取具体文件。`);
+        }
+
+        if (priorRoundResults.length > 0) {
+          const priorRounds = this.groupResultsByRound(priorRoundResults);
+          const roundSummaries = priorRounds.map((roundRes, i) => {
+            const compressed = roundRes.map(r =>
+              `${r.memberId}: ${this.smartTruncate(r.result, 600)}`
+            ).join(' | ');
+            return `[Round ${i + 1} summary]: ${compressed}`;
+          });
+          contextParts.push(`Earlier rounds (compressed):\n${roundSummaries.join('\n')}`);
+        }
+
+        // P1: 后续轮次添加压缩指令
+        if (round >= 1) {
+          contextParts.push('⚠️ 本轮仅回应对方论点 + 补充新证据。禁止重复已陈述的论点。引用 Judge 摘要中的行号即可，不要重新读取文件。');
+        }
+
+        if (thisRoundResults.length > 0) {
+          contextParts.push(`This round so far:\n${thisRoundResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`);
+        }
+        const context = contextParts.join('\n\n---\n\n');
 
         const taskDescription = context
           ? `${goal}\n\n${context}\n\nYour turn to respond:`
@@ -549,17 +1065,84 @@ export class TeamManager implements ITeamManager {
           taskDescription,
           results,
           `debate-round-${round + 1}-${member.id}`,
-          memberIndex, // 传入成员索引
+          memberIndex,
           signal,
         );
         results.push(result);
       }
 
-      // 检查是否达成共识（简化版：所有成员都认为任务完成）
-      const roundResults = results.slice(-members.length);
-      const allAgree = roundResults.every(r =>
-        r.result.toLowerCase().includes('agree') || r.result.toLowerCase().includes('consensus')
-      );
+      // Bug 6: 检查本轮论点新颖度（从第 2 轮开始）
+      if (round >= 1) {
+        const currentRoundResults = results.slice(roundStartIndex);
+        const prevRoundStartIndex = results.findIndex(r =>
+          r.taskId.startsWith(`debate-round-${round}`)
+        );
+        if (prevRoundStartIndex >= 0) {
+          const prevRoundResults = results.slice(prevRoundStartIndex, roundStartIndex);
+          const novelty = this.detectArgumentNovelty(prevRoundResults, currentRoundResults);
+
+          log.info(`Debate round ${round + 1} novelty: ${(novelty * 100).toFixed(0)}%`);
+
+          if (novelty < (1.0 - convergenceThreshold)) {
+            consecutiveLowNoveltyRounds++;
+            log.info(`Low novelty detected (${consecutiveLowNoveltyRounds} consecutive rounds)`);
+          } else {
+            consecutiveLowNoveltyRounds = 0;
+          }
+
+          const noveltyExtremelyLow = novelty < 0.10;
+          const noveltyLowAndDeep = novelty < 0.30 && round >= 2;
+          const shouldConverge =
+            consecutiveLowNoveltyRounds >= 2 ||
+            noveltyExtremelyLow ||
+            noveltyLowAndDeep;
+
+          if (shouldConverge) {
+            const reason = noveltyExtremelyLow
+              ? `extremely low novelty (${(novelty * 100).toFixed(0)}%)`
+              : noveltyLowAndDeep
+                ? `low novelty in late round (${(novelty * 100).toFixed(0)}%, round ${round + 1})`
+                : 'no new arguments for 2 consecutive rounds';
+            log.info(`Arguments converged — ${reason}. Triggering early conclusion.`);
+
+            // 找到裁判成员做最终裁决
+            if (judge) {
+              const debateSummary = results.map(r =>
+                `[${r.memberId} R${r.taskId.match(/round-(\d+)/)?.[1] || '?'}]: ${r.result.substring(0, 500)}`
+              ).join('\n\n');
+
+              const judgeTask = [
+                `辩论已自然收敛——${reason}。`,
+                factSummary ? `\n事实摘要（已在辩论前确认）：\n${factSummary}\n` : '',
+                `作为裁判，请基于以下辩论记录做出最终裁决：`,
+                '',
+                debateSummary,
+                '',
+                '请给出：1) 裁决结论 2) 关键论据摘要 3) 建议的后续行动',
+              ].join('\n');
+
+              const judgeResult = await this.executeMemberTask(
+                judge,
+                judgeTask,
+                results,
+                `debate-round-${round + 1}-judge-final`,
+                members.indexOf(judge),
+                signal,
+              );
+              results.push(judgeResult);
+            }
+
+            break;
+          }
+        }
+      }
+
+      // 检查是否达成共识
+      const roundResults = results.slice(-members.filter(m =>
+        !m.systemPrompt || !/\[debate_role:\s*judge\]/i.test(m.systemPrompt)
+      ).length);
+      const agreePattern = /(?:^|\s)(agree|consensus|concur|一致|同意|达成共识)(?:\s|[.,!?:;]|$)/i;
+      const allAgree = roundResults.length > 0 && roundResults.every(r => agreePattern.test(r.result));
 
       if (allAgree) {
         log.info('Consensus reached, ending debate');
@@ -567,7 +1150,67 @@ export class TeamManager implements ITeamManager {
       }
     }
 
+    // 辩论结束后自动写入共识文件
+    const writeResult = await this.finalizeDebateWithFileWrite(goal, results, members, signal);
+    if (writeResult) results.push(writeResult);
     return results;
+  }
+
+  /**
+   * 辩论结束后自动将共识写入目标文件
+   * 提取 goal 中的文件路径，选择 writer（judge 或首成员），执行 write_file
+   */
+  private async finalizeDebateWithFileWrite(
+    goal: string,
+    results: TaskExecutionResult[],
+    members: TeamMember[],
+    signal?: AbortSignal,
+  ): Promise<TaskExecutionResult | null> {
+    // 检测目标文件路径
+    const targetFiles = this.extractFilePathsFromOutput(goal);
+    if (targetFiles.length === 0) return null;
+
+    // 选择 writer：优先 judge，其次第一个成员
+    const judge = members.find(m =>
+      m.systemPrompt && /\[debate_role:\s*judge\]/i.test(m.systemPrompt)
+    );
+    const writer = judge || members[0];
+
+    // 构建最终合成任务
+    const debateSummary = results.map(r =>
+      `[${r.memberId} R${r.taskId.match(/round-(\d+)/)?.[1] || '?'}]: ${r.result.substring(0, 600)}`
+    ).join('\n\n');
+
+    const writeTask = [
+      '辩论已结束，现在作为最终撰稿人，请将达成共识的结论写入以下文件：',
+      targetFiles.map(f => `  - ${f}`).join('\n'),
+      '',
+      '请基于以下辩论记录撰写共识结论：',
+      '',
+      debateSummary,
+      '',
+      '要求：',
+      '1. 综合各方观点，提炼共识结论',
+      '2. 如有分歧，明确指出并给出建议',
+      '3. 使用 write_file 将最终结论写入上述文件',
+    ].join('\n');
+
+    // 确保 writer 有写文件工具
+    const writerWithTools: TeamMember = {
+      ...writer,
+      tools: writer.tools && writer.tools.length > 0
+        ? [...new Set([...writer.tools, 'write_file', 'edit_file'])]
+        : ['write_file', 'edit_file'],
+    };
+
+    return this.executeMemberTask(
+      writerWithTools,
+      writeTask,
+      results,
+      'debate-final-write',
+      members.indexOf(writer),
+      signal,
+    );
   }
 
   /**
@@ -576,10 +1219,17 @@ export class TeamManager implements ITeamManager {
    * ⚠️ Pipeline 保持用户定义的原始顺序（不按 priority 排序）
    * 因为流水线的语义是「前一个成员的输出 → 下一个成员的输入」，
    * 用户定义数组的顺序即为流水线阶段顺序。
+   *
+   * P0-2: 阶段间通过文件传递数据，替代 stdout 字符串拼接，避免大文本导致超时
    */
   private async executePipeline(goal: string, signal?: AbortSignal): Promise<TaskExecutionResult[]> {
     const results: TaskExecutionResult[] = [];
     const members = this.context!.config.members;
+    const cwd = this.workingDir;
+
+    // 创建 pipeline 临时目录
+    const pipelineDir = path.join(cwd, '.team_pipeline');
+    try { fs.mkdirSync(pipelineDir, { recursive: true }); } catch { /* ignore */ }
 
     let currentInput = goal;
 
@@ -588,6 +1238,18 @@ export class TeamManager implements ITeamManager {
       const member = members[i];
 
       const result = await this.executeMemberTask(member, currentInput, results, undefined, i, signal);
+
+      // 提取产出文件路径，仅在磁盘验证通过的路径才传播给下游
+      if (result.success && result.result) {
+        const candidateFiles = this.extractFilePathsFromOutput(result.result);
+        const verifiedFiles = candidateFiles.filter(f => {
+          try { return fs.existsSync(f); } catch { return false; }
+        });
+        if (verifiedFiles.length > 0) {
+          result.outputFiles = verifiedFiles;
+        }
+      }
+
       results.push(result);
 
       if (!result.success) {
@@ -595,9 +1257,41 @@ export class TeamManager implements ITeamManager {
         break;
       }
 
-      // 下一个成员的输入是当前成员的输出
-      currentInput = result.result;
+      // P0-2: 将当前阶段输出写入临时文件，下游通过读取文件获取数据
+      const nextMember = members[i + 1];
+      if (nextMember) {
+        const stageFile = path.join(pipelineDir, `stage_${i}_${member.id}.txt`);
+        try {
+          fs.writeFileSync(stageFile, result.result, 'utf-8');
+          log.info(`Pipeline stage ${i} output written to ${stageFile} (${result.result.length} chars)`);
+        } catch (err) {
+          log.warn(`Failed to write pipeline stage output to ${stageFile}:`, err);
+        }
+
+        const outputFiles = result.outputFiles || [];
+        const fileListParts: string[] = [stageFile, ...outputFiles];
+        const fileList = fileListParts.map(f => `  - ${f}`).join('\n');
+
+        // 仅传递简短指令 + 文件路径，下游自行读取文件获取完整数据
+        currentInput = [
+          `你处于流水线的第 ${i + 2}/${members.length} 阶段。`,
+          `前一阶段 "${member.name || member.id}" 已完成工作，产出数据已写入以下文件：`,
+          '',
+          fileList,
+          '',
+          `请使用 read_file 工具读取上述文件获取完整数据，然后继续你的工作。`,
+          '',
+          `原始任务目标：${goal}`,
+        ].join('\n');
+      } else {
+        currentInput = result.result;
+      }
     }
+
+    // 清理临时目录
+    try {
+      fs.rmSync(pipelineDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
 
     return results;
   }
@@ -612,7 +1306,11 @@ export class TeamManager implements ITeamManager {
     taskId?: string,
     memberIndex?: number, // 成员索引（用于超时计算）
     signal?: AbortSignal, // 🆕 团队级超时信号
+    retryCount: number = 0, // 🔧 重试计数（内部使用）
+    worktreePath?: string, // P1-2: 工作区隔离路径（Parallel 策略使用）
+    preferGoal: boolean = false, // 层级模式：goal 即 Leader 分配的独立任务
   ): Promise<TaskExecutionResult> {
+    const maxRetries = 1; // 失败后最多重试 1 次
     const tid = taskId ?? `task-${member.id}-${Date.now()}`;
     const startTime = Date.now();
 
@@ -626,40 +1324,112 @@ export class TeamManager implements ITeamManager {
         duration: 0,
         tokensUsed: { input: 0, output: 0 },
         error: 'Team timeout before member execution started',
+        failureCategory: 'timeout',
       };
+    }
+
+    // P1-1: Checkpoint 快速恢复 — 如果该成员已有成功的 checkpoint，直接复用
+    const recoveredCp = this.recoveredCheckpoints.get(member.id);
+    if (recoveredCp?.success && retryCount === 0) {
+      log.info(`Recovering ${member.id} from checkpoint (saved at ${new Date(recoveredCp.savedAt || 0).toISOString()})`);
+      // 触发 TeamMemberStart → TeamMemberEnd（前端感知一致性）
+      const shortResult = recoveredCp.result.substring(0, 200);
+      if (this.hookRegistry) {
+        const displayName = recoveredCp.memberName || member.id;
+        const subAgentId = this.memberSubAgentIds.get(member.id) || `subagent-recovered-${member.id}`;
+        this.hookRegistry.emit('TeamMemberStart', {
+          teamId: this.teamId,
+          data: {
+            memberId: member.id,
+            subAgentId,
+            name: displayName,
+            role: member.agentId,
+            task: (member.task || task).substring(0, 200),
+            agentType: 'temporary',
+            strategy: this.context!.config.strategy,
+            teamName: this.context!.config.name,
+            stepIndex: memberIndex,
+            totalSteps: this.context!.config.members.length,
+            recovered: true,
+          },
+        }).catch(() => {});
+        this.hookRegistry.emit('TeamMemberEnd', {
+          teamId: this.teamId,
+          data: {
+            memberId: member.id,
+            subAgentId,
+            memberName: displayName,
+            success: true,
+            duration: recoveredCp.duration,
+            resultSummary: shortResult,
+            result: recoveredCp.result,
+            tokensUsed: recoveredCp.tokensUsed,
+            strategy: this.context!.config.strategy,
+            recovered: true,
+          },
+        }).catch(() => {});
+      }
+      return { ...recoveredCp, taskId: tid };
     }
 
     // 标准化 agent ID（自动修正，只调用一次）
     const normalizedAgentId = this.normalizeAgentId(member.agentId, member.id);
 
+    // 从 AgentRegistry 获取 Agent 配置
+    const agentConfig = this.agentRegistry.get(normalizedAgentId);
+    // 显示名称：预设 agent 优先用注册表名称，临时 agent 用 LLM 提供的名称
+    const displayName = agentConfig?.name || member.name || member.id;
+
+    // 使用 TeamStart 时预生成的 subAgentId，确保前后端 ID 一致
+    const subAgentId = this.memberSubAgentIds.get(member.id) || `subagent-${normalizedAgentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
     // 触发 TeamMemberStart Hook
     if (this.hookRegistry) {
-      // 从 AgentRegistry 获取 Agent 配置，判断 Agent 类型
-      const agentConfig = this.agentRegistry.get(normalizedAgentId);
       const category = agentConfig?.metadata?.category || 'custom';
 
       // 判断 Agent 类型
       let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
       if (agentConfig) {
         if (category === 'system') {
-          agentType = 'builtin'; // 系统内置 agent
+          agentType = 'builtin';
         } else if (category === 'app') {
-          agentType = 'preset'; // 应用 agent
+          agentType = 'preset';
         } else {
-          agentType = 'custom'; // 用户自定义 agent
+          agentType = 'custom';
         }
       } else {
         agentType = 'temporary'; // 临时 agent（未注册）
       }
 
+      // 解析辩论角色（正方/反方/裁判）
+      let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
+      if (member.systemPrompt) {
+        const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+        if (roleMatch) {
+          debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
+        }
+      }
+
+      // 辩论模式：在 task 中标注角色，使前端思考气泡能区分正反方
+      const roleLabels: Record<string, string> = { affirmative: '正方', negative: '反方', judge: '裁判' };
+      const displayTask = (() => {
+        const base = (member.task || task).substring(0, 200);
+        if (debateRole && roleLabels[debateRole]) {
+          return `${roleLabels[debateRole]}·${base}`;
+        }
+        return base;
+      })();
+
       this.hookRegistry.emit('TeamMemberStart', {
         teamId: this.teamId,
         data: {
           memberId: member.id,
-          name: member.name,
+          subAgentId,  // 🆕 预生成的 subAgentId，前端用于创建 agent 节点和匹配 timeline 事件
+          name: displayName,
           role: normalizedAgentId, // 使用标准化后的 agent ID
-          task: task.substring(0, 200),
+          task: displayTask,  // 🆕 辩论模式带角色前缀，便于前端区分正反方
           agentType, // 新增：详细的 agent 类型
+          scene: member.scene,    // 🆕 场景类型
           // 策略和团队信息
           strategy: this.context!.config.strategy,
           teamName: this.context!.config.name,
@@ -668,7 +1438,9 @@ export class TeamManager implements ITeamManager {
           // 辩论轮次信息（Debate 策略专用）
           currentRound: this.context!.currentRound,
           maxRounds: this.context!.config.maxRounds,
-          // systemPrompt 前 100 字符（用于 GUI 解析 debate_role 标签）
+          // 辩论角色（后端解析，前端直接使用）
+          debateRole,
+          // systemPrompt 前 100 字符（用于 GUI 调试）
           systemPromptHint: member.systemPrompt?.substring(0, 100),
         },
       }).catch((err) => {
@@ -678,26 +1450,44 @@ export class TeamManager implements ITeamManager {
 
     try {
       // 构建成员特定的任务描述
-      const enrichedTask = this.enrichTaskForMember(member, task, previousResults);
+      const enrichedTask = this.enrichTaskForMember(member, task, previousResults, preferGoal);
 
       let result: SubAgentResult;
 
       // 执行子代理（使用 calculateMemberTimeout 计算超时）
       const memberTimeout = this.calculateMemberTimeout(member, memberIndex);
 
+      // 保存当前 cwd，成员执行完毕后恢复（防止 change_directory 全局副作用）
+      // P1-2: 如果有 worktree，让成员在隔离的工作区执行
+      const savedCwd = worktreePath || this.workingDir;
+
+      // 确保 team member 拥有基本文件编辑工具（不注入 todo 工具，避免子 agent 创建重复 todo）
+      const coreTools = ['write_file', 'edit_file'];
+      const effectiveTools = member.tools && member.tools.length > 0
+        ? [...new Set([...member.tools, ...coreTools])]
+        : coreTools;
+
       const factoryResult = await this.subAgentFactory.createAndRun(normalizedAgentId, {
         task: enrichedTask,
         depth: this.depth + 1,
         timeout: memberTimeout,
         parentConfig: this.agentConfig,
-        systemPrompt: member.systemPrompt,  // Agent 特定的 prompt（可选）
-        scene: member.scene,                // 🆕 场景类型
-        scenePrompt: member.scenePrompt,    // 🆕 场景专用 prompt（L1）
-        tools: member.tools,
+        systemPrompt: member.systemPrompt,
+        scene: member.scene,
+        scenePrompt: member.scenePrompt,
+        tools: effectiveTools,
         skipSubAgentStartHook: true,
         parentAgentId: this.teamId,
-        workingDir: process.cwd(),
+        workingDir: savedCwd,
+        subAgentId,  // 🆕 传入预生成的 subAgentId，确保与 TeamMemberStart 一致
       }, signal);
+
+      // 恢复 cwd，避免成员间的全局副作用
+      try {
+        process.chdir(savedCwd);
+      } catch (e) {
+        log.warn(`Failed to restore cwd to ${savedCwd}:`, e);
+      }
 
       result = {
         result: factoryResult.result,
@@ -705,13 +1495,15 @@ export class TeamManager implements ITeamManager {
         duration: factoryResult.duration,
         timedOut: factoryResult.timedOut,
         iterations: factoryResult.iterations,
+        success: factoryResult.success,
       };
 
       const executionResult: TaskExecutionResult = {
         taskId: tid,
         memberId: member.id,
+        memberName: displayName,
         result: result.result,
-        success: !result.timedOut && !('hasError' in result && result.hasError),
+        success: result.success,
         duration: result.duration,
         tokensUsed: result.tokensUsed,
       };
@@ -722,13 +1514,37 @@ export class TeamManager implements ITeamManager {
           teamId: this.teamId,
           data: {
             memberId: member.id,
+            subAgentId,  // 🆕 与 TeamMemberStart 使用相同的 subAgentId
+            memberName: displayName,
             success: executionResult.success,
             duration: executionResult.duration,
             resultSummary: executionResult.result.substring(0, 200),
+            result: executionResult.result,
+            tokensUsed: executionResult.tokensUsed,
+            strategy: this.context!.config.strategy, // 🆕 便于前端区分辩论模式
           },
         }).catch((err) => {
           log.debug('TeamMemberEnd hook emit failed:', err);
         });
+      }
+
+      // P1-1: 保存 checkpoint — 成功或失败都保存，防止超时丢失已完成工作
+      this.saveCheckpoint(member.id, executionResult);
+
+      // 🔧 失败重试：在团队内部对失败成员重试一次，避免整个 agent_team 重建
+      if (!executionResult.success && retryCount < maxRetries && !signal?.aborted) {
+        log.warn(
+          `Team member "${displayName}" failed (attempt ${retryCount + 1}), ` +
+          `retrying within team (${retryCount + 1}/${maxRetries})...`
+        );
+        return this.executeMemberTask(
+          member, task, previousResults, taskId, memberIndex, signal, retryCount + 1, worktreePath
+        );
+      }
+
+      // Bug 5: 为失败结果添加分类
+      if (!executionResult.success && !executionResult.failureCategory) {
+        executionResult.failureCategory = this.classifyFailure(executionResult, this.context!.config.strategy);
       }
 
       return executionResult;
@@ -736,7 +1552,37 @@ export class TeamManager implements ITeamManager {
       const duration = Date.now() - startTime;
       const errMsg = error instanceof Error ? error.message : String(error);
 
-      return {
+      // 🔧 异常重试：捕获异常后重试一次
+      if (retryCount < maxRetries && !signal?.aborted) {
+        log.warn(
+          `Team member "${displayName}" threw exception (attempt ${retryCount + 1}): ${errMsg}, ` +
+          `retrying within team (${retryCount + 1}/${maxRetries})...`
+        );
+        // 发射失败事件的 hook（前端感知到第一次失败）
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('TeamMemberEnd', {
+            teamId: this.teamId,
+            data: {
+              subAgentId,
+              memberId: member.id,
+              memberName: displayName,
+              success: false,
+              duration,
+              resultSummary: errMsg.substring(0, 200),
+              result: '',
+              tokensUsed: { input: 0, output: 0 },
+              strategy: this.context!.config.strategy,
+            },
+          }).catch((hookErr) => {
+            log.debug('TeamMemberEnd hook emit failed:', hookErr);
+          });
+        }
+        return this.executeMemberTask(
+          member, task, previousResults, taskId, memberIndex, signal, retryCount + 1, worktreePath
+        );
+      }
+
+      const failureResult: TaskExecutionResult = {
         taskId: tid,
         memberId: member.id,
         result: '',
@@ -745,21 +1591,37 @@ export class TeamManager implements ITeamManager {
         tokensUsed: { input: 0, output: 0 },
         error: errMsg,
       };
+      failureResult.failureCategory = this.classifyFailure(failureResult, this.context!.config.strategy);
+      return failureResult;
     }
   }
 
   /**
    * 为成员增强任务描述
+   * @param preferGoal 为 true 时 goal 优先（层级模式 Leader 已分配独立任务），否则 member.task 优先
    */
   private enrichTaskForMember(
     member: TeamMember,
-    task: string,
+    goal: string,
     previousResults: TaskExecutionResult[],
+    preferGoal: boolean = false,
   ): string {
-    let enriched = task;
+    const strategy = this.context!.config.strategy;
+    const memberCount = this.context!.config.members.length;
+    const memberIndex = previousResults.length; // 已完成的成员数 = 当前成员的序号
+
+    // 层级模式：Leader 已为每个成员分配独立任务（goal 即独立任务），member.task 仅作角色参考
+    let enriched: string;
+    if (member.task && !preferGoal) {
+      enriched = `${member.task}\n\n团队目标上下文：${goal}`;
+    } else if (member.task && preferGoal) {
+      enriched = `${goal}\n\n团队成员角色：${member.task}`;
+    } else {
+      enriched = goal;
+    }
 
     // 🔧 强制使用绝对路径（彻底解决相对路径问题）
-    const cwd = process.cwd();
+    const cwd = this.workingDir;
     enriched = `⚠️ CRITICAL - Working Directory Context:
 You are working in: ${cwd}
 
@@ -777,6 +1639,66 @@ Example conversions:
 ---
 
 ${enriched}`;
+
+    // 🔧 注入前序成员的结果，实现团队内数据传递（Sequential/Pipeline/Hierarchical）
+    const successResults = previousResults.filter(r => r.success);
+    if (successResults.length > 0) {
+      const strategyLabel = strategy === 'pipeline'
+        ? 'Pipeline — the previous stage output is your input. You MUST process it and produce the next stage result.'
+        : strategy === 'sequential'
+          ? `Sequential (Step ${memberIndex + 1}/${memberCount}) — the previous members have completed their work. You MUST build on their outputs.`
+          : 'The following outputs from previous team members provide context for your work.';
+
+      // Bug 2: 对 pipeline/sequential 使用更大的截断上限并智能截断
+      const truncateLimit = (strategy === 'pipeline' || strategy === 'sequential') ? 8000 : 5000;
+
+      const prevContext = successResults
+        .map((r, resultIdx) => {
+          const name = r.memberName || r.memberId;
+          const truncated = this.smartTruncate(r.result, truncateLimit);
+
+          // Bug 4: 为大型输出添加块引用 ID
+          if (r.result.length > 2000) {
+            const chunks: string[] = [];
+            for (let ci = 0; ci < r.result.length; ci += 2000) {
+              const chunk = r.result.substring(ci, ci + 2000);
+              chunks.push(`[ref:${r.memberId}_p${Math.floor(ci / 2000)}]\n${chunk}`);
+            }
+            return `[${name}]:\n${chunks.join('\n---\n')}${r.result.length > truncateLimit ? `\n...[total ${r.result.length} chars, ${chunks.length} ref blocks]` : ''}`;
+          }
+
+          return `[${name}]:\n${truncated}${r.result.length > truncateLimit ? `\n...[truncated, total ${r.result.length} chars]` : ''}`;
+        })
+        .join('\n\n---\n\n');
+
+      // Bug 4: 添加引用说明
+      const quotingNote = successResults.some(r => r.result.length > 2000)
+        ? '\n💡 引用队友输出时请使用 ref ID（如 "如 [ref:architect_p2] 所述"）进行精确引用。\n'
+        : '';
+
+      // Bug 8: 提取前序成员产出的文件路径，仅传播磁盘上实际存在的路径
+      const existingFiles: string[] = [];
+      for (const r of successResults) {
+        const files = r.outputFiles || this.extractFilePathsFromOutput(r.result);
+        for (const f of files) {
+          if (existingFiles.includes(f)) continue;
+          try {
+            if (fs.existsSync(f)) {
+              existingFiles.push(f);
+            }
+          } catch {
+            // 权限错误等，跳过
+          }
+        }
+      }
+
+      let fileContextSection = '';
+      if (existingFiles.length > 0) {
+        fileContextSection = `\n[前序成员产出的文件]:\n${existingFiles.map(f => `  - ${f}`).join('\n')}\n`;
+      }
+
+      enriched += `\n\n========================================\nIMPORTANT — Previous Team Members' Outputs\n========================================\n${strategyLabel}\n${quotingNote}${fileContextSection}\n${prevContext}\n========================================\n\nBased on the above outputs, continue your work. Do NOT repeat work already done by previous members.`;
+    }
 
     // 添加成员能力说明（帮助成员理解自己的职责范围）
     if (member.capabilities.length > 0) {
@@ -828,13 +1750,22 @@ ${enriched}`;
           ...workerResults.map(r => `- ${r.memberId}: ${r.result}`),
         ].join('\n');
 
-      case 'debate':
-        // 返回最后一轮的总结
-        const lastRound = results.slice(-this.context!.config.members.length);
+      case 'debate': {
+        // 按轮次分组，返回所有轮次的完整辩论记录
+        const memberCount = this.context!.config.members.length;
+        const rounds: string[] = [];
+        for (let i = 0; i < results.length; i += memberCount) {
+          const roundNum = Math.floor(i / memberCount) + 1;
+          const roundResults = results.slice(i, i + memberCount);
+          rounds.push(
+            `[Round ${roundNum}]\n${roundResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`
+          );
+        }
         return [
-          `[Team Consensus]`,
-          ...lastRound.map(r => `${r.memberId}: ${r.result}`),
-        ].join('\n\n');
+          `[Debate Summary — ${rounds.length} rounds]`,
+          ...rounds,
+        ].join('\n\n---\n\n');
+      }
 
       default:
         return results.map(r => r.result).join('\n\n');
@@ -845,96 +1776,66 @@ ${enriched}`;
    * 为团队计算合适的总超时时间
    * 🔧 根据策略和轮次动态调整
    */
+  /**
+   * 为团队计算合适的总超时时间
+   *
+   * 🔧 P2 优化：基于审计数据的策略特定公式
+   * Debate       = 1,800,000ms × roundFactor（固定，因为有轮次）
+   * Hierarchical = 600,000ms + 300,000ms × Worker数
+   * Parallel     = 600,000ms + 200,000ms × (成员数-1)
+   * Sequential   = 300,000ms + 100,000ms × (阶段数-1)
+   * Pipeline     = 300,000ms + 150,000ms × (阶段数-1)
+   */
   private calculateTeamTimeout(): number {
     const config = this.context!.config;
 
-    // 优先级 1: 显式设置的团队超时
-    if (config.teamTotalTimeout) {
-      return config.teamTotalTimeout;
-    }
-
-    // 优先级 2: 根据策略动态计算
-    const baseTimeout = DEFAULT_TEAM_CONFIG.teamTotalTimeout;
     const strategy = config.strategy;
     const memberCount = config.members.length;
 
-    let teamTimeout: number;
+    // 策略基础超时（ms）
+    const baseTimeouts: Record<string, number> = {
+      debate:       1_800_000,
+      hierarchical: 600_000 + 300_000 * Math.max(0, memberCount - 1),
+      parallel:     600_000 + 200_000 * Math.max(0, memberCount - 1),
+      sequential:   300_000 + 100_000 * Math.max(0, memberCount - 1),
+      pipeline:     300_000 + 150_000 * Math.max(0, memberCount - 1),
+    };
 
-    switch (strategy) {
-      case 'parallel':
-        // 并行：团队总时长 = 单个成员时长（因为是并发）
-        teamTimeout = baseTimeout;
-        break;
+    let dynamicTimeout = baseTimeouts[strategy] ?? 600_000;
 
-      case 'sequential':
-      case 'pipeline':
-        // 串行/流水线：团队总时长 = 成员数量 × 基准时长
-        teamTimeout = baseTimeout * memberCount;
-        break;
-
-      case 'hierarchical':
-        // 层级：Leader + Workers 并行，总时长 = Leader时长 + Worker时长
-        // Leader 1.5x，Workers 并行执行
-        teamTimeout = baseTimeout * 2.5;
-        break;
-
-      case 'debate': {
-        // 🔧 辩论：根据总轮次和成员数量动态计算总超时时间
-        const maxRounds = config.maxRounds || 3;
-        const memberCount = config.members.length;
-        const firstRoundRatio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
-        const laterRoundRatio = config.debateLaterRoundRatio ?? DEFAULT_TEAM_CONFIG.debateLaterRoundRatio;
-        const defaultMemberTimeout = config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout;
-
-        // 计算所有轮次的总超时时间
-        let totalTimeout = 0;
-
-        for (let round = 1; round <= maxRounds; round++) {
-          let roundRatio: number;
-
-          if (round === 1) {
-            // 第1轮：开场陈述，需要更多时间
-            roundRatio = firstRoundRatio; // 默认 1.5x
-          } else if (round === maxRounds) {
-            // 最后一轮：总结陈词 + 裁判判决，需要最多时间
-            roundRatio = firstRoundRatio * 1.2; // 1.8x
-          } else {
-            // 中间轮次：辩论交锋，正常时间
-            roundRatio = laterRoundRatio; // 默认 1.0x
-          }
-
-          // 🔧 每轮的超时 = 单个成员基准超时 × 轮次倍率 × 成员数量（串行发言）
-          // 例如：3个成员，首轮 1.5x，每人 10 分钟 → 10min × 1.5 × 3 = 45min
-          const roundTimeout = defaultMemberTimeout * roundRatio * memberCount;
-          totalTimeout += roundTimeout;
-        }
-
-        // 添加 20% 的缓冲时间，避免边界超时
-        teamTimeout = Math.floor(totalTimeout * 1.2);
-        break;
-      }
-
-      default:
-        teamTimeout = baseTimeout;
+    // 辩论轮次因子
+    if (strategy === 'debate') {
+      const maxRounds = config.maxRounds || 3;
+      const roundFactors: Record<number, number> = { 2: 1.0, 3: 1.5, 4: 2.0, 5: 3.0 };
+      const roundFactor = roundFactors[maxRounds] ?? 1.5;
+      dynamicTimeout = Math.floor(dynamicTimeout * roundFactor);
     }
 
-    return teamTimeout;
+    // 复杂度因子（基于 goal 内容估算）
+    const complexity = this.estimateTaskComplexity(config.goal, []);
+    dynamicTimeout = Math.floor(dynamicTimeout * complexity);
+
+    // 显式设置的 teamTotalTimeout 优先
+    if (config.teamTotalTimeout && config.teamTotalTimeout > dynamicTimeout) {
+      return config.teamTotalTimeout;
+    }
+
+    return dynamicTimeout;
   }
 
   /**
    * 为成员计算合适的子代理超时
    *
-   * 🆕 优先级（已修复）：
+   * 优先级：
    * 1. member.timeout（成员显式设置）
-   * 2. 基于 defaultMemberTimeout 和策略权重的自动计算 ← 提升优先级
-   * 3. config.memberTimeoutMs（团队级统一超时，作为兜底） ← 降低优先级
+   * 2. 基于策略权重 + 任务复杂度自动计算
+   * 3. config.memberTimeoutMs（团队级统一超时兜底）
    *
-   * 策略说明：
-   * - parallel: 每人 defaultMemberTimeout（并行不叠加）
-   * - sequential: 基于 defaultMemberTimeout，前面成员适当放宽（1.2x → 0.8x）
-   * - hierarchical: Leader = defaultMemberTimeout × leaderRatio，Worker = defaultMemberTimeout
-   * - debate: 首轮 = defaultMemberTimeout × firstRoundRatio，后续 = defaultMemberTimeout × laterRoundRatio
-   * - pipeline: 输入阶段 1.3x，中间 1.0x，输出 0.7x
+   * P2 优化 — 复杂度因子：
+   *   简单任务（纯函数测试）= 1.0
+   *   中等任务（含 mock）= 1.5
+   *   复杂任务（页面测试含交互）= 2.0
+   *   极复杂（含 fakeTimers/异步）= 2.5
    */
   private calculateMemberTimeout(member: TeamMember, memberIndex?: number): number {
     const config = this.context!.config;
@@ -951,7 +1852,15 @@ ${enriched}`;
 
     // 获取配置或使用默认值
     const MIN_TIMEOUT = config.minMemberTimeout ?? DEFAULT_TEAM_CONFIG.minMemberTimeout;
-    const MIN_DEBATE_TIMEOUT = 60_000; // Debate 每轮至少 60s
+
+    // Bug 3: pipeline/sequential 最小超时从 30s 提升到 60s
+    const effectiveMinTimeout = (strategy === 'pipeline' || strategy === 'sequential')
+      ? Math.max(MIN_TIMEOUT, 60_000)
+      : MIN_TIMEOUT;
+
+    // Bug 3: 估算任务复杂度
+    const taskForEstimation = member.task || this.context!.config.goal;
+    const complexity = this.estimateTaskComplexity(taskForEstimation, member.capabilities);
 
     let perMemberTimeout: number;
 
@@ -962,26 +1871,27 @@ ${enriched}`;
         break;
 
       case 'sequential': {
-        // 顺序执行：前松后紧，前面成员稍宽裕，后面成员稍紧凑
+        // 顺序执行：后续成员需要更多时间（需处理前序输出），权重递增
         if (memberIndex !== undefined) {
-          // 渐进式调整：第 1 个成员 1.2x，最后 0.8x
-          const weight = 1.2 - (memberIndex / Math.max(memberCount - 1, 1)) * 0.4;
-          perMemberTimeout = Math.floor(baseTimeout * weight);
+          // 第 1 个成员 0.9x（无前序上下文），最后 1.4x（处理所有前序输出）
+          const weight = 0.9 + (memberIndex / Math.max(memberCount - 1, 1)) * 0.5;
+          perMemberTimeout = Math.floor(baseTimeout * weight * complexity);
         } else {
-          perMemberTimeout = baseTimeout;
+          perMemberTimeout = Math.floor(baseTimeout * complexity);
         }
         break;
       }
 
       case 'hierarchical': {
-        // 🔧 层级执行：根据角色和任务复杂度动态分配时长
-        const isLeader = member.priority && member.priority >= 8;
+        // 🔧 层级执行：按优先级排序后，第一个是 Leader
+        // 与 validateTeamConfig 对齐：priority > 0 即为 leader
+        const isLeader = member.priority != null && member.priority > 0;
         const leaderRatio = config.hierarchicalLeaderRatio ?? DEFAULT_TEAM_CONFIG.hierarchicalLeaderRatio;
 
         if (isLeader) {
           // Leader 获得 leaderRatio 倍的基准超时（默认 1.5x）
           // Leader 需要规划和协调，需要更多时间
-          perMemberTimeout = Math.floor(baseTimeout * leaderRatio);
+          perMemberTimeout = Math.floor(baseTimeout * leaderRatio * complexity);
         } else {
           // 🔧 Workers 根据 capabilities 和 agentId 动态调整超时
           let workerRatio = 1.0;
@@ -1015,48 +1925,47 @@ ${enriched}`;
             workerRatio += capabilityBonus;
           }
 
-          perMemberTimeout = Math.floor(baseTimeout * workerRatio);
+          perMemberTimeout = Math.floor(baseTimeout * workerRatio * complexity);
         }
         break;
       }
 
       case 'debate': {
-        // 🔧 辩论模式：根据轮次和角色动态分配时长
+        // 🔧 辩论：根据轮次、成员数和角色动态计算超时
         const currentRound = this.context!.currentRound || 1;
-        const maxRounds = config.maxRounds || 3;
+        const maxRounds = config.maxRounds || 5;
+        const memberCount = config.members.length;
         const firstRoundRatio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
         const laterRoundRatio = config.debateLaterRoundRatio ?? DEFAULT_TEAM_CONFIG.debateLaterRoundRatio;
 
-        // 🔧 根据轮次调整时长
+        // 🔧 成员数缩放因子：人数越多，每人分配的时间越少
+        // 2人→1.0, 3人→0.67, 4人→0.5, 5人→0.4
+        const memberScaleFactor = Math.max(0.4, 2.0 / Math.max(memberCount, 2));
+        const basePerMember = Math.floor(baseTimeout * memberScaleFactor);
+
+        // 🔧 轮次阶段倍率
         let roundRatio: number;
         if (currentRound === 1) {
-          // 第1轮：开场陈述，需要更多时间
-          roundRatio = firstRoundRatio; // 默认 1.5x
+          roundRatio = firstRoundRatio; // 首轮开场陈述 1.5x
         } else if (currentRound === maxRounds) {
-          // 最后一轮：总结陈词，需要充足时间
-          roundRatio = firstRoundRatio * 1.2; // 1.8x
+          roundRatio = firstRoundRatio * 1.2; // 末轮总结陈词 1.8x
         } else {
-          // 中间轮次：辩论交锋，正常时间
-          roundRatio = laterRoundRatio; // 默认 1.0x
+          roundRatio = laterRoundRatio; // 中间轮辩论交锋 1.0x
         }
 
-        // 🔧 根据角色调整时长（从 systemPrompt 中解析）
+        // 🔧 角色倍率（裁判需要更多时间评估）
         let roleRatio = 1.0;
         if (member.systemPrompt) {
           const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
-          if (roleMatch) {
-            const role = roleMatch[1].toLowerCase();
-            if (role === 'judge') {
-              // 裁判需要更多时间评估和判决
-              roleRatio = 1.3;
-            }
+          if (roleMatch && roleMatch[1].toLowerCase() === 'judge') {
+            roleRatio = 1.3;
           }
         }
 
-        perMemberTimeout = Math.floor(baseTimeout * roundRatio * roleRatio);
+        perMemberTimeout = Math.floor(basePerMember * roundRatio * roleRatio * complexity);
 
-        // 保证最小值
-        perMemberTimeout = Math.max(perMemberTimeout, MIN_DEBATE_TIMEOUT);
+        // 辩论发言至少 minMemberTimeout（默认 30s），辩论需要足够思考时间
+        perMemberTimeout = Math.max(perMemberTimeout, MIN_TIMEOUT * 2);
         break;
       }
 
@@ -1069,21 +1978,23 @@ ${enriched}`;
           if (memberIndex === 0) {
             weight = 1.3;
           }
-          // 最后一个阶段（输出）：0.7x
+          // 最后一个阶段（输出）：检测到报告/文档生成时 1.3x，否则 1.0x
           else if (memberIndex === memberCount - 1) {
-            weight = 0.7;
+            const isReportGeneration = /report|报告|html|document|chart|visualization|图表|看板|dashboard/i
+              .test(taskForEstimation);
+            weight = isReportGeneration ? 1.3 : 1.0;
           }
           // 中间阶段（处理）：1.0x
 
-          perMemberTimeout = Math.floor(baseTimeout * weight);
+          perMemberTimeout = Math.floor(baseTimeout * weight * complexity);
         } else {
-          perMemberTimeout = baseTimeout;
+          perMemberTimeout = Math.floor(baseTimeout * complexity);
         }
         break;
       }
 
       default:
-        perMemberTimeout = baseTimeout;
+        perMemberTimeout = Math.floor(baseTimeout * complexity);
     }
 
     // 🆕 优先级 3: 团队级统一超时（作为兜底或上限）
@@ -1092,10 +2003,10 @@ ${enriched}`;
       perMemberTimeout = Math.min(perMemberTimeout, config.memberTimeoutMs);
     }
 
-    const result = Math.max(perMemberTimeout, MIN_TIMEOUT);
+    const result = Math.max(perMemberTimeout, effectiveMinTimeout);
     log.debug(
       `[${member.id}] calculated timeout: ${result}ms ` +
-      `(strategy=${strategy}, baseTimeout=${baseTimeout}ms, members=${memberCount}, index=${memberIndex ?? 'N/A'})`
+      `(strategy=${strategy}, baseTimeout=${baseTimeout}ms, members=${memberCount}, index=${memberIndex ?? 'N/A'}, complexity=${complexity.toFixed(2)})`
     );
     return result;
   }
@@ -1117,11 +2028,11 @@ ${enriched}`;
     const strategy = config.strategy;
     const members = config.members;
 
-    log.info(`[Team Timeout Allocation]`);
-    log.info(`  Strategy: ${strategy}`);
-    log.info(`  Members: ${members.length}`);
-    log.info(`  🆕 Team Total Timeout: ${config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout}ms (${((config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout) / 1000).toFixed(0)}s)`);
-    log.info(`  Default Member Timeout: ${config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout}ms`);
+    log.debug(`[Team Timeout Allocation]`);
+    log.debug(`  Strategy: ${strategy}`);
+    log.debug(`  Members: ${members.length}`);
+    log.debug(`  🆕 Team Total Timeout: ${config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout}ms (${((config.teamTotalTimeout ?? DEFAULT_TEAM_CONFIG.teamTotalTimeout) / 1000).toFixed(0)}s)`);
+    log.debug(`  Default Member Timeout: ${config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout}ms`);
 
     // 计算并显示每个成员的超时
     let estimatedTotal = 0;
@@ -1135,7 +2046,7 @@ ${enriched}`;
       const timeoutSource = member.timeout ? ' [explicit]' : ' [auto]';
       const warningMark = member.timeout && member.timeout < calculatedTimeout ? ' ⚠️' : '';
 
-      log.info(`    - ${label}${priorityInfo}: ${timeout}ms (${(timeout / 1000).toFixed(0)}s)${timeoutSource}${warningMark}`);
+      log.debug(`    - ${label}${priorityInfo}: ${timeout}ms (${(timeout / 1000).toFixed(0)}s)${timeoutSource}${warningMark}`);
 
       // 累计预估总超时（根据策略）
       if (strategy === 'parallel') {
@@ -1146,17 +2057,382 @@ ${enriched}`;
     });
 
     // 显示预估总超时
-    log.info(`  Estimated Total: ${estimatedTotal}ms (${(estimatedTotal / 1000).toFixed(0)}s)`);
+    log.debug(`  Estimated Total: ${estimatedTotal}ms (${(estimatedTotal / 1000).toFixed(0)}s)`);
 
     // 策略特定的额外信息
     if (strategy === 'hierarchical') {
       const ratio = config.hierarchicalLeaderRatio ?? DEFAULT_TEAM_CONFIG.hierarchicalLeaderRatio;
-      log.info(`  Hierarchical Leader Ratio: ${(ratio * 100).toFixed(0)}%`);
+      log.debug(`  Hierarchical Leader Ratio: ${(ratio * 100).toFixed(0)}%`);
     } else if (strategy === 'debate') {
-      const ratio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
-      const maxRounds = config.maxRounds ?? DEFAULT_TEAM_CONFIG.maxRounds;
-      log.info(`  Debate First Round Ratio: ${(ratio * 100).toFixed(0)}%`);
-      log.info(`  Max Rounds: ${maxRounds}`);
+      // 辩论策略：展示完整的超时分配方案
+      const maxRounds = config.maxRounds ?? 5;
+      const memberCount = config.members.length;
+      const firstRoundRatio = config.debateFirstRoundRatio ?? DEFAULT_TEAM_CONFIG.debateFirstRoundRatio;
+      const laterRoundRatio = config.debateLaterRoundRatio ?? DEFAULT_TEAM_CONFIG.debateLaterRoundRatio;
+      const memberScaleFactor = Math.max(0.4, 2.0 / Math.max(memberCount, 2));
+      const defaultMemberTimeout = config.defaultMemberTimeout ?? DEFAULT_TEAM_CONFIG.defaultMemberTimeout;
+      const basePerMember = Math.floor(defaultMemberTimeout * memberScaleFactor);
+
+      log.debug(`  Debate Timeout Plan:`);
+      log.debug(`    Members: ${memberCount}, Max Rounds: ${maxRounds}`);
+      log.debug(`    Member Scale Factor: ${(memberScaleFactor * 100).toFixed(0)}% (${(basePerMember / 1000).toFixed(0)}s base per member)`);
+
+      let planTotal = 0;
+      for (let round = 1; round <= maxRounds; round++) {
+        let roundRatio: number;
+        let phaseLabel: string;
+        if (round === 1) {
+          roundRatio = firstRoundRatio;
+          phaseLabel = '开场陈述';
+        } else if (round === maxRounds) {
+          roundRatio = firstRoundRatio * 1.2;
+          phaseLabel = '总结陈词';
+        } else {
+          roundRatio = laterRoundRatio;
+          phaseLabel = '辩论交锋';
+        }
+        const perMemberMs = Math.floor(basePerMember * roundRatio);
+        const roundTotal = perMemberMs * memberCount;
+        planTotal += roundTotal;
+        log.debug(`    Round ${round}/${maxRounds} [${phaseLabel}]: ${(perMemberMs / 1000).toFixed(0)}s/人 × ${memberCount}人 = ${(roundTotal / 1000).toFixed(0)}s`);
+      }
+      log.debug(`    Plan Total: ${(planTotal / 1000).toFixed(0)}s, With Buffer: ${(planTotal * 1.2 / 1000).toFixed(0)}s`);
     }
+  }
+
+  // ─── Bug 修复：新增工具方法 ─────────────────────────────
+
+  /**
+   * 从成员输出中提取文件路径（Bug 1 & Bug 8）
+   * 匹配绝对路径、write_file 调用、Created/Writing to 模式
+   */
+  private extractFilePathsFromOutput(output: string): string[] {
+    const paths = new Set<string>();
+    const cwd = this.workingDir;
+
+    // 1. 绝对路径（以 cwd 开头）
+    const absPathRegex = new RegExp(
+      `${cwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[^\\s"'\`)*]+`,
+      'g'
+    );
+    for (const match of output.matchAll(absPathRegex)) {
+      paths.add(match[0]);
+    }
+
+    // 2. write_file / Write / Edit 工具调用中的路径
+    const toolPathRegex = /(?:write_file|Write|Edit|Bash)\s*[：(]\s*["'`]?([^\s"'`\n)]+)/gi;
+    for (const match of output.matchAll(toolPathRegex)) {
+      let p = match[1];
+      // 相对路径 → 转为绝对路径
+      if (!path.isAbsolute(p)) {
+        p = path.resolve(cwd, p);
+      }
+      paths.add(p);
+    }
+
+    // 3. "Created file" / "Writing to" / "输出到" 等模式
+    const createdRegex = /(?:Created|Writing to|输出到|写入|saved to)\s+["'`]?([^\s"'`\n]+)/gi;
+    for (const match of output.matchAll(createdRegex)) {
+      let p = match[1];
+      if (!path.isAbsolute(p)) {
+        p = path.resolve(cwd, p);
+      }
+      paths.add(p);
+    }
+
+    return Array.from(paths);
+  }
+
+  /**
+   * 智能截断：保留摘要 + 工具调用 + 结论（Bug 2）
+   */
+  private smartTruncate(output: string, maxLen: number): string {
+    if (output.length <= maxLen) return output;
+
+    const introLen = Math.min(800, Math.floor(maxLen * 0.3));
+    const conclusionLen = Math.min(500, Math.floor(maxLen * 0.2));
+    const middleLen = maxLen - introLen - conclusionLen - 100; // 100 给分隔符
+
+    const intro = output.substring(0, introLen);
+
+    // 提取工具调用行（write_file, Edit, Bash 等）
+    const toolLines: string[] = [];
+    const toolPattern = /^.*?\b(?:write_file|Write|Edit|Bash|Glob|Grep|Read)\s*[：(].*$/gm;
+    for (const match of output.matchAll(toolPattern)) {
+      if (toolLines.join('\n').length + match[0].length < middleLen) {
+        toolLines.push(match[0].trim());
+      }
+    }
+
+    const conclusion = output.substring(output.length - conclusionLen);
+
+    const parts = [intro];
+    if (toolLines.length > 0) {
+      parts.push(`\n\n...[${toolLines.length} tool calls preserved]...\n`);
+      parts.push(toolLines.join('\n'));
+    } else {
+      parts.push(`\n\n...[${output.length - introLen - conclusionLen} chars omitted]...\n`);
+    }
+    parts.push(`\n\n...[conclusion]...\n`);
+    parts.push(conclusion);
+
+    return parts.join('');
+  }
+
+  /**
+   * 按轮次分组辩论结果（Fix 2b）
+   * 将平铺的结果数组按 taskId 中的 debate-round-N 分组为二维数组
+   */
+  private groupResultsByRound(results: TaskExecutionResult[]): TaskExecutionResult[][] {
+    const rounds: TaskExecutionResult[][] = [];
+    for (const r of results) {
+      const match = r.taskId.match(/debate-round-(\d+)/);
+      if (match) {
+        const roundIdx = parseInt(match[1]) - 1;
+        if (!rounds[roundIdx]) rounds[roundIdx] = [];
+        rounds[roundIdx].push(r);
+      }
+    }
+    return rounds.filter(Boolean);
+  }
+
+  /**
+   * 估算任务复杂度（Bug 3 / P2-6 增强）
+   * 返回 0.8x - 1.8x 的倍率，更细粒度地反映任务实际成本
+   */
+  private estimateTaskComplexity(task: string, capabilities: string[]): number {
+    let complexity = 1.0;
+
+    // 任务长度（分段更细）
+    if (task.length > 2000) complexity += 0.25;
+    else if (task.length > 1000) complexity += 0.2;
+    else if (task.length > 500) complexity += 0.1;
+
+    // 高复杂度关键词（需要大量代码生成/重构）
+    const criticalComplexityWords = /full.*(?:app|application|project|system)|整套|完整.*(?:系统|应用|项目)|from scratch|all.*(?:endpoints?|routes?|components?|pages?)/i;
+    const highComplexityWords = /implement|create|refactor|build|develop|rewrite|migrate|重构|实现|创建|开发|迁移|搭建/i;
+    const mediumComplexityWords = /write|generate|produce|test|debug|fix|optimize|编写|生成|测试|调试|修复|优化/i;
+    const analysisWords = /analyze|review|audit|inspect|check|examine|分析|审查|审计|检查|评估|探索/i;
+
+    // V3: 辩论/裁决/多轮讨论 — 涉及深度代码级分析和多轮论证
+    const debateWords = /debate|辩论|裁决|judge|verdict|ruling|正方|反方|裁判|多轮|共识|consensus|argument|argue|rebut|反驳|裁定|终审/i;
+    // V3: 代码级验证 — 逐行审查、跨文件追踪、引用验证
+    const deepAnalysisWords = /逐行|逐文件|代码级|code.level|跨文件|cross.file|引用.*验证|fact.check|事实核查|源码.*验证|track.*down|trace/i;
+
+    if (criticalComplexityWords.test(task)) complexity += 0.4;
+    else if (highComplexityWords.test(task)) complexity += 0.2;
+    else if (mediumComplexityWords.test(task)) complexity += 0.1;
+    else if (analysisWords.test(task)) complexity += 0.05;
+
+    // V3: 辩论场景 — 涉及多轮论证和角色扮演，与上述分支叠加
+    if (debateWords.test(task)) complexity += 0.25;
+    if (deepAnalysisWords.test(task)) complexity += 0.15;
+
+    // 检测 debate_role 标记（affirmative/negative/judge）— 辩论必涉及深度分析
+    if (/\[debate_role:/i.test(task)) complexity += 0.15;
+
+    // 能力数量（细化上限）
+    if (capabilities.length > 0) {
+      complexity += Math.min(capabilities.length * 0.06, 0.25);
+    }
+
+    // 文件引用计数（按扩展名分组，更准确反映工作量）
+    const fileRefs = (task.match(/\/[^\s"'`]*\.[a-zA-Z]+/g) || []).length;
+    if (fileRefs > 10) complexity += 0.25;
+    else if (fileRefs > 5) complexity += 0.15;
+    else if (fileRefs > 2) complexity += 0.08;
+
+    // 输出格式要求（报告、文档等需要更长思考）
+    if (/report|报告|document|文档|visualization|图表|chart/i.test(task)) {
+      complexity += 0.1;
+    }
+
+    // 涉及外部 API / 数据库操作
+    if (/api|fetch|axios|http|database|db|sql|数据库|接口/i.test(task)) {
+      complexity += 0.1;
+    }
+
+    return Math.max(0.8, Math.min(1.8, complexity));
+  }
+
+  /**
+   * 检测论点新颖度（Bug 6）
+   * 返回 0-1 之间的值，1 表示完全新颖，0 表示完全重复
+   */
+  private detectArgumentNovelty(
+    prevRound: TaskExecutionResult[],
+    currentRound: TaskExecutionResult[],
+  ): number {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+      'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+      'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
+      'before', 'after', 'above', 'below', 'between', 'under', 'again',
+      'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why',
+      'how', 'all', 'both', 'each', 'few', 'more', 'most', 'other', 'some',
+      'such', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+      'because', 'but', 'and', 'or', 'if', 'while', 'although', 'though',
+      'this', 'that', 'these', 'those', 'it', 'its', 'we', 'you', 'they',
+      'i', 'my', 'your', 'our', 'their', 'not', 'also', 'about', 'what',
+      'which', 'who', '使用', '可以', '通过', '一个', '这个', '需要', '我们',
+      '应该', '能够', '进行', '以及', '并且', '或者', '但是', '因为', '所以',
+    ]);
+
+    const getSignificantWords = (text: string): Set<string> => {
+      const words = text.toLowerCase().split(/[\s,.;:!?()\[\]{}"'`\n\r\t]+/);
+      return new Set(
+        words.filter(w => w.length > 2 && !stopWords.has(w))
+      );
+    };
+
+    const prevWords = getSignificantWords(prevRound.map(r => r.result).join(' '));
+    const currWords = getSignificantWords(currentRound.map(r => r.result).join(' '));
+
+    if (prevWords.size === 0 && currWords.size === 0) return 1.0;
+
+    const intersection = new Set([...prevWords].filter(w => currWords.has(w)));
+    const union = new Set([...prevWords, ...currWords]);
+
+    const jaccard = intersection.size / union.size;
+    return 1.0 - jaccard; // 新颖度 = 1 - 相似度
+  }
+
+  /**
+   * 等待 Leader 产出的文件就绪（Bug 7）
+   */
+  private async waitForLeaderFiles(output: string): Promise<void> {
+    const filePaths = this.extractFilePathsFromOutput(output);
+
+    if (filePaths.length === 0) {
+      // 无文件产出，给予 500ms 缓冲确保 fsync
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return;
+    }
+
+    log.info(`Hierarchical: Waiting for ${filePaths.length} leader-produced files to be ready...`);
+
+    const MAX_WAIT_MS = 5000;
+    const CHECK_INTERVAL_MS = 200;
+    const startTime = Date.now();
+
+    for (const filePath of filePaths) {
+      while (Date.now() - startTime < MAX_WAIT_MS) {
+        try {
+          if (fs.existsSync(filePath)) {
+            log.info(`  ✓ File ready: ${filePath}`);
+            break;
+          }
+        } catch {
+          // 权限错误等，继续等待
+        }
+        await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS));
+      }
+
+      if (Date.now() - startTime >= MAX_WAIT_MS) {
+        log.warn(`  ⚠️ File not ready after ${MAX_WAIT_MS}ms: ${filePath}. Workers will proceed anyway.`);
+      }
+    }
+
+    // 额外 500ms 缓冲确保文件系统同步
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  /**
+   * 获取 checkpoint 目录路径
+   * 使用团队名称（非 teamId）实现跨次运行的 checkpoint 恢复
+   */
+  private get checkpointDir(): string {
+    const safeName = (this.context?.config.name || 'unknown').replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_').substring(0, 50);
+    return path.join(this.workingDir, '.xuanji', 'checkpoints', safeName);
+  }
+
+  /**
+   * 保存成员执行 checkpoint，防止超时丢失已完成工作
+   * 文件名格式：<memberId>.json，同一 teamName 下最新 checkpoint 覆盖旧文件
+   */
+  private saveCheckpoint(memberId: string, result: TaskExecutionResult): void {
+    try {
+      if (!fs.existsSync(this.checkpointDir)) {
+        fs.mkdirSync(this.checkpointDir, { recursive: true });
+      }
+      const checkpointFile = path.join(this.checkpointDir, `${memberId}.json`);
+      const checkpoint: TaskExecutionResult & { savedAt: number } = {
+        ...result,
+        savedAt: Date.now(),
+      };
+      fs.writeFileSync(checkpointFile, JSON.stringify(checkpoint, null, 2), 'utf-8');
+      log.info(`Checkpoint saved: ${memberId} (success: ${result.success})`);
+    } catch (err) {
+      log.warn(`Failed to save checkpoint for ${memberId}:`, err);
+    }
+  }
+
+  /**
+   * 加载所有已保存的 checkpoint
+   */
+  loadCheckpoints(): Map<string, TaskExecutionResult> {
+    const checkpoints = new Map<string, TaskExecutionResult>();
+    try {
+      if (!fs.existsSync(this.checkpointDir)) return checkpoints;
+      const files = fs.readdirSync(this.checkpointDir).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(this.checkpointDir, file), 'utf-8');
+          const checkpoint = JSON.parse(content) as TaskExecutionResult;
+          const memberId = file.replace('.json', '');
+          checkpoints.set(memberId, checkpoint);
+        } catch {
+          // 损坏的 checkpoint 跳过
+        }
+      }
+    } catch (err) {
+      log.warn('Failed to load checkpoints:', err);
+    }
+    return checkpoints;
+  }
+
+  /**
+   * 清除所有 checkpoint
+   */
+  clearCheckpoints(): void {
+    try {
+      if (fs.existsSync(this.checkpointDir)) {
+        fs.rmSync(this.checkpointDir, { recursive: true, force: true });
+        log.info('Checkpoints cleared');
+      }
+    } catch (err) {
+      log.warn('Failed to clear checkpoints:', err);
+    }
+  }
+
+  /**
+   * 分类失败原因（Bug 5）
+   */
+  private classifyFailure(result: TaskExecutionResult, strategy?: TeamStrategy): FailureCategory {
+    const errorMsg = (result.error || '').toLowerCase();
+    const output = (result.result || '');
+
+    if (errorMsg.includes('timeout') || errorMsg.includes('timed out')) {
+      return 'timeout';
+    }
+
+    // 检测截断：输出以不完整的代码片段结尾
+    if (output.length > 2000 && (
+      output.endsWith('...') ||
+      output.endsWith('…') ||
+      /[{};]\s*$/.test(output.trim()) === false && output.trim().length > 3000
+    )) {
+      return 'output_truncated';
+    }
+
+    // Pipeline/Sequential 中间阶段失败
+    if (strategy === 'pipeline' || strategy === 'sequential') {
+      if (!result.success && result.error) {
+        return 'stage_disconnect';
+      }
+    }
+
+    return 'general_failure';
   }
 }

@@ -4,14 +4,18 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
 import type { IStatsStorage, UsageRecord } from '../../types/stats.js';
+import { getUserStatsDir } from '../config/PathManager.js';
 
 export class StatsStorage implements IStatsStorage {
   private readonly statsDir: string;
 
-  constructor(baseDir?: string) {
-    this.statsDir = baseDir || path.join(os.homedir(), '.xuanji', 'stats');
+  constructor(baseDir?: string, userId?: string) {
+    if (userId) {
+      this.statsDir = getUserStatsDir(userId);
+    } else {
+      this.statsDir = baseDir || path.join(process.cwd(), '.xuanji', 'stats');
+    }
   }
 
   async saveRecord(record: UsageRecord): Promise<void> {

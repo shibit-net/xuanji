@@ -6,8 +6,34 @@ import { LLMProvider } from './LLMProvider';
 import { LocalLLMProvider } from './LocalLLMProvider';
 import { AnthropicLLMProvider } from './AnthropicLLMProvider';
 import { logger } from '@/core/logger';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const log = logger.child({ module: 'LLMFactory' });
+
+// 向上查找 xuanji 项目根目录
+function findProjectRoot(startDir: string): string {
+  let current = startDir;
+  while (current !== path.dirname(current)) {
+    const pkgPath = path.join(current, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.name === 'xuanji') {
+          return current;
+        }
+      } catch {}
+    }
+    current = path.dirname(current);
+  }
+  return process.cwd();
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = findProjectRoot(__dirname);
+const MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'models');
 
 export interface LLMConfig {
   provider: {
@@ -62,9 +88,21 @@ export class LLMFactory {
         let fullModelId = modelId;
 
         if (LOCAL_MODEL_FILES[modelId]) {
-          // 优先尝试使用本地文件
-          fullModelId = `file:${LOCAL_MODEL_FILES[modelId]}`;
-          log.info(`[LLMFactory] Using local model file: ${fullModelId}`);
+          // 检查本地文件是否真的存在
+          const filename = LOCAL_MODEL_FILES[modelId];
+          const localPath = path.join(MODEL_DIR, filename);
+
+          if (fs.existsSync(localPath)) {
+            // 文件存在，使用 file: 前缀
+            fullModelId = `file:${filename}`;
+            log.info(`[LLMFactory] Using local model file: ${fullModelId}`);
+          } else if (LOCAL_MODEL_URIS[modelId]) {
+            // 文件不存在，使用 HF URI（会自动下载）
+            fullModelId = LOCAL_MODEL_URIS[modelId];
+            log.info(`[LLMFactory] Local file not found, using HF model URI: ${fullModelId}`);
+          } else {
+            throw new Error(`Model file not found and no HF URI available: ${modelId}`);
+          }
         } else if (LOCAL_MODEL_URIS[modelId]) {
           // 如果本地没有，使用 HF URI（会自动下载）
           fullModelId = LOCAL_MODEL_URIS[modelId];

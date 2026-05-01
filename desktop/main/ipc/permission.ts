@@ -8,7 +8,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('permission-respond', data);
+      return await sendRequest('permission-response', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -21,7 +21,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('plan-review-respond', data);
+      return await sendRequest('plan-review-response', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -34,7 +34,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('ask-user-respond', data);
+      return await sendRequest('ask-user-response', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -47,7 +47,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('list-permission-rules');
+      return await sendRequest('permission-list');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -60,7 +60,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('delete-permission-rule', data);
+      return await sendRequest('permission-delete', data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -73,7 +73,7 @@ function registerPermissionIpcHandlers() {
     }
 
     try {
-      return await sendRequest('clear-permission-rules');
+      return await sendRequest('permission-clear');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };

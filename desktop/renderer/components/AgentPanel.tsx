@@ -52,7 +52,7 @@ export default function AgentPanel({ onToggle }: AgentPanelProps) {
     if (lastMsg) {
       if (lastMsg.role === 'assistant' && !lastMsg.content) {
         mainAgent.status = 'thinking';
-        mainAgent.currentThought = '正在思考...';
+        mainAgent.currentThought = '';
       } else if (lastMsg.toolCalls) {
         const runningTools = lastMsg.toolCalls.filter(tc => !tc.status || tc.status === 'pending');
         const successTools = lastMsg.toolCalls.filter(tc => tc.status === 'success');

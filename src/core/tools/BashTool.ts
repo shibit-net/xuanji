@@ -142,7 +142,8 @@ export class BashTool extends BaseTool {
       // 前台同步执行：优先使用沙箱，降级到持久化 Shell
       if (this.sandboxExecutor) {
         try {
-          const result = await this.sandboxExecutor.execute(command, process.cwd(), timeout);
+          const cwd = (input._cwd as string) || process.cwd();
+          const result = await this.sandboxExecutor.execute(command, cwd, timeout);
 
           let output = '';
           if (result.stdout) output += result.stdout;
@@ -161,7 +162,8 @@ export class BashTool extends BaseTool {
 
       // 降级：使用持久化 Shell（无沙箱）
       const shell = getSharedShell();
-      const result = await shell.execute(command, timeout);
+      const cwd = (input._cwd as string) || undefined;
+      const result = await shell.execute(command, timeout, cwd);
 
       // 合并 stdout 和 stderr
       let output = '';
@@ -268,6 +270,16 @@ export class BashTool extends BaseTool {
     { pattern: /\bexport\s+\w+=.*\$\(/, description: '环境变量注入命令替换' },
     { pattern: />\s*\/dev\/[hs]d/, description: '写入裸设备' },
     { pattern: /\bnc\s+(-[a-zA-Z]*l|-[a-zA-Z]*p)/, description: '网络监听 (nc -l)' },
+    // 新增：命令绕过检测
+    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+-[a-zA-Z]*[rf]/, description: '变量名替换执行高危命令（如 $RM -rf 等）' },
+    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+\//, description: '变量名替换路径操作' },
+    { pattern: /\bdd\s+if=.*of=\/dev\//, description: 'dd 写入裸设备' },
+    { pattern: /\bmkfs\b/, description: '格式化文件系统 (mkfs)' },
+    { pattern: /\|\s*(ba)?sh\b/, description: '管道到 shell 执行，可能绕过权限检测' },
+    { pattern: /\|\s*zsh\b/, description: '管道到 zsh 执行，可能绕过权限检测' },
+    { pattern: /\bxargs\s+.*\brm\b/, description: 'xargs 管道删除操作' },
+    { pattern: /`[^`]*\brm\b[^`]*`/, description: '反引号命令替换中包含 rm' },
+    { pattern: /\$\([^)]*\brm\b[^)]*\)/, description: '$() 命令替换中包含 rm' },
   ];
 
   /**

@@ -15,6 +15,8 @@ export type EventHandler<T = any> = (data: T) => void | Promise<void>;
  */
 class RendererMessageBus {
   private handlers = new Map<string, Set<EventHandler>>();
+  /** 存储 IPC 监听器引用，用于正确移除 */
+  private ipcListeners = new Map<string, (...args: any[]) => void>();
   private initialized = false;
 
   constructor() {
@@ -28,10 +30,6 @@ class RendererMessageBus {
     if (this.initialized) {
       return;
     }
-
-    // 监听所有来自主进程的消息
-    // 注意：这里需要为每个事件类型单独注册监听器
-    // 因为Electron的IPC是基于事件名称的
     this.initialized = true;
   }
 
@@ -71,12 +69,12 @@ class RendererMessageBus {
       return;
     }
 
-    // 使用通用的on方法注册监听器
-    window.electron.on(eventType, (data: any) => {
+    const listener = (data: any) => {
       this.dispatch(eventType, data);
-    });
+    };
+    this.ipcListeners.set(eventType, listener);
+    window.electron.on(eventType, listener);
 
-    console.log('[RendererMessageBus] 注册IPC监听器:', eventType);
   }
 
   /**
@@ -87,16 +85,17 @@ class RendererMessageBus {
       return;
     }
 
-    // 注意：这里需要保存handler引用才能正确移除
-    // 暂时不实现，因为大多数监听器是长期存在的
-    console.log('[RendererMessageBus] 移除IPC监听器:', eventType);
+    const listener = this.ipcListeners.get(eventType);
+    if (listener) {
+      window.electron.off(eventType, listener);
+      this.ipcListeners.delete(eventType);
+    }
   }
 
   /**
    * 分发事件
    */
   private dispatch(eventType: string, data: any): void {
-    console.log('[RendererMessageBus] 分发事件:', eventType, data);
 
     const handlers = this.handlers.get(eventType);
     if (handlers && handlers.size > 0) {
@@ -143,6 +142,13 @@ class RendererMessageBus {
       this.unregisterIpcListener(eventType);
     });
     this.handlers.clear();
+    // 清理可能残留的 IPC 监听器
+    this.ipcListeners.forEach((listener, eventType) => {
+      if (window.electron) {
+        window.electron.off(eventType, listener);
+      }
+    });
+    this.ipcListeners.clear();
   }
 }
 

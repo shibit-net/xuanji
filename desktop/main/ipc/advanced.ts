@@ -1,5 +1,29 @@
 import { ipcMain } from 'electron';
 import { sendRequest, isSessionReady } from '../agent/index.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+
+/** 当 session 未就绪时，直接从文件系统读取项目列表 */
+async function readProjectsListDirect(): Promise<{ success: boolean; projects?: any[]; error?: string }> {
+  try {
+    const { getAuthState } = await import('../config/auth.js');
+    const authState = getAuthState();
+    const userId = authState?.user?.userId;
+    if (!userId) {
+      return { success: false, error: '用户未登录' };
+    }
+    const registryPath = join(homedir(), '.xuanji', 'users', userId, 'projects.json');
+    if (!existsSync(registryPath)) {
+      return { success: true, projects: [] };
+    }
+    const content = readFileSync(registryPath, 'utf-8');
+    const projects = JSON.parse(content);
+    return { success: true, projects };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : '读取项目列表失败' };
+  }
+}
 
 function registerAdvancedIpcHandlers() {
   ipcMain.handle('core-rules:get-all', async () => {
@@ -162,7 +186,7 @@ function registerAdvancedIpcHandlers() {
   // ============ 项目管理 ============
   ipcMain.handle('projects-list', async () => {
     if (!isSessionReady()) {
-      return { success: false, error: '会话未初始化' };
+      return await readProjectsListDirect();
     }
 
     try {

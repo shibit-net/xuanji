@@ -119,7 +119,7 @@ export type LogDirMode = 'home' | 'project' | 'custom';
  * 日志配置
  */
 export interface LoggingConfig {
-  /** 日志目录模式（默认: home，使用 ~/.xuanji/logs） */
+  /** 日志目录模式（默认: home，使用 .xuanji/logs） */
   mode?: LogDirMode;
   /** 自定义日志目录（仅在 mode: custom 时使用） */
   dir?: string;
@@ -148,15 +148,29 @@ export interface EmbeddingConfig {
 }
 
 /**
+ * 下载配置
+ */
+export interface DownloadConfig {
+  /** HuggingFace 镜像地址（默认 https://hf-mirror.com） */
+  hfMirror?: string;
+  /** 代理地址（可选） */
+  proxy?: string;
+}
+
+/**
  * 应用总配置
  */
 export interface AppConfig {
   /** 项目根目录（可选） */
   projectRoot?: string;
+  /** 默认工作目录路径（默认 ~/xuanji-workspace/） */
+  workspacePath?: string;
   /** LLM Provider 配置 */
   provider: ProviderConfig;
   /** Embedding 配置 */
   embedding?: EmbeddingConfig;
+  /** 下载配置 */
+  download?: DownloadConfig;
   /** Prompt 配置 */
   prompt?: {
     /** 默认场景 */
@@ -323,8 +337,10 @@ export interface ToolTimeoutConfig {
   backgroundTask?: number;
   /** agent_team 工具超时 (ms, 默认 1800000 = 30分钟) */
   agent_team?: number;
-  /** task 工具超时 (ms, 默认 600000 = 10分钟) */
+  /** task 工具超时 (ms, 默认 1800000 = 30分钟) */
   task?: number;
+  /** 用户交互工具超时 (ms, 默认 1800000 = 30分钟)，影响 ask_user、plan_review、enter_plan_mode、exit_plan_mode */
+  interactive?: number;
 }
 
 /**

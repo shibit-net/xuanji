@@ -30,15 +30,15 @@ describe('MessageFormatter', () => {
   // ---- 工具调用 ----
 
   it('应格式化成功的工具调用', () => {
-    formatter.toolStart('read_file', { path: '/tmp/test.txt' });
-    formatter.toolEnd('read_file', 'file content', false);
+    formatter.toolStart('bash', { command: 'ls -la' });
+    formatter.toolEnd('bash', 'file list', false);
     formatter.appendText('文件内容已读取');
 
     const result = formatter.format();
     expect(result).toContain('**工具调用:**');
     expect(result).toContain('✅');
-    expect(result).toContain('`read_file`');
-    expect(result).toContain('path=/tmp/test.txt');
+    expect(result).toContain('`bash`');
+    expect(result).toContain('command=ls -la');
     expect(result).toContain('文件内容已读取');
   });
 
@@ -52,14 +52,14 @@ describe('MessageFormatter', () => {
   });
 
   it('应格式化多个工具调用', () => {
-    formatter.toolStart('read_file', { path: 'a.txt' });
-    formatter.toolEnd('read_file', 'ok', false);
+    formatter.toolStart('bash', { command: 'ls' });
+    formatter.toolEnd('bash', 'ok', false);
     formatter.toolStart('edit_file', { path: 'a.txt', old_string: 'x', new_string: 'y' });
     formatter.toolEnd('edit_file', 'ok', false);
     formatter.appendText('完成');
 
     const result = formatter.format();
-    expect(result).toContain('`read_file`');
+    expect(result).toContain('`bash`');
     expect(result).toContain('`edit_file`');
     expect(result).toContain('完成');
   });
@@ -95,12 +95,12 @@ describe('MessageFormatter', () => {
   // ---- 仅工具调用无文本 ----
 
   it('仅工具调用无文本应也能输出', () => {
-    formatter.toolStart('read_file', { path: 'test.txt' });
-    formatter.toolEnd('read_file', 'ok', false);
+    formatter.toolStart('bash', { command: 'cat test.txt' });
+    formatter.toolEnd('bash', 'ok', false);
 
     const result = formatter.format();
     expect(result).toContain('**工具调用:**');
-    expect(result).toContain('`read_file`');
+    expect(result).toContain('`bash`');
   });
 
   // ---- 工具输入为非字符串 ----

@@ -9,8 +9,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { homedir } from 'node:os';
 import { logger } from '@/core/logger';
-import { ensureDirExists, getUserRoot } from '@/core/config/PathManager';
+import { ensureDirExists } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'ProjectRegistry' });
 
@@ -28,7 +29,8 @@ export class ProjectRegistry {
   private loaded = false;
 
   constructor(userId: string) {
-    const userRoot = getUserRoot(userId);
+    // 使用固定的 home 目录路径，避免 CWD 变化导致数据分散
+    const userRoot = join(homedir(), '.xuanji', 'users', userId);
     this.registryPath = join(userRoot, 'projects.json');
   }
 

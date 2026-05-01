@@ -27,8 +27,8 @@ export interface Path {
 }
 
 export type AgentState = 'idle' | 'thinking' | 'executing' | 'waiting' | 'error' | 'done';
-export type SubAgentState = 'idle' | 'running' | 'success' | 'error';
-export type CollaborationType = 'task' | 'data' | 'sequential' | 'debate' | 'pipeline' | 'hierarchical';
+export type SubAgentState = 'idle' | 'running' | 'thinking' | 'executing' | 'done' | 'success' | 'error';
+export type CollaborationType = 'task' | 'data' | 'sequential' | 'debate' | 'pipeline' | 'hierarchical' | 'parallel' | 'team';
 
 // ─── Team 策略类型 ──────────────────────────────────────────
 
@@ -65,15 +65,27 @@ export interface TeamBoundary {
 
 /**
  * 动作类型，决定区域3动作标签的图标和颜色
+ *
+ * 说明：
+ * - thinking: 表示 agent 正在运行（不是具体的思考内容）
+ * - writing: 子 agent 直接输出到对话框（编写）
+ * - reporting: 子 agent 返回给主 agent（汇报）
+ * - idle: 空闲状态
+ *
+ * 注意：
+ * - 工具调用已在 timeline 中展示，不需要在 moment 中重复
+ * - 具体的思考内容在气泡中展示，moment 只显示"思考中"状态
  */
 export type MomentType =
-  | 'thinking'
-  | 'file'
-  | 'bash'
-  | 'skill'
-  | 'memory_read'
-  | 'memory_write'
-  | 'idle';
+  | 'thinking'    // 正在运行/思考中
+  | 'writing'     // 子 agent 直接输出到对话框（编写）
+  | 'reporting'   // 子 agent 返回给主 agent（汇报）
+  | 'idle'        // 空闲状态
+  | 'file'        // 文件操作
+  | 'bash'        // 命令行
+  | 'memory_read' // 内存读取
+  | 'memory_write'// 内存写入
+  | 'skill';      // 技能调用
 
 /**
  * 当前动作（区域3：右侧动作标签）
@@ -82,8 +94,9 @@ export interface AgentMoment {
   type: MomentType;
   icon: string;
   label: string;       // 最多 20 字符
-  durationMs: number;  // 已经过的毫秒数
+  durationMs: number;  // 已经过的毫秒数（running 时由 store 定时器实时更新）
   status: 'running' | 'success' | 'error';
+  startTime?: number;  // 开始时间戳，running 时由 runtimeStore 自动设置
 }
 
 /**
@@ -92,10 +105,13 @@ export interface AgentMoment {
 export interface TimelineEvent {
   id: string;
   icon: string;
-  label: string;       // 最多 12 字符
-  duration?: number;   // ms，完成后填入
+  label: string;
+  duration?: number;
   status: 'running' | 'success' | 'error';
-  startTime?: number;  // 开始时间戳（ms），用于实时计算已过时间
+  startTime?: number;
+  endTime?: number;
+  /** 并行组 ID，同一并行组内的工具会显示并行标记 */
+  parallelGroupId?: string;
 }
 
 /**
@@ -124,11 +140,13 @@ export interface MainAgentData {
   status: AgentState;
   roleIcon: string;            // 角色 emoji，默认 🤖
   currentThought?: string;     // 区域2：思考气泡文字（向后兼容保留）
+  thinkingText?: string;       // 思考气泡文字（优先使用）
   currentTool?: string;        // 向后兼容保留
   // 新增
   currentMoment?: AgentMoment; // 区域3：右侧动作标签
   momentHistory: HistoryDot[]; // 区域4：左侧历史点阵（最多8条）
   timelineEvents: TimelineEvent[]; // 区域5：下方时间条（最多5条）
+  debateGoal?: string;         // 辩论主题（辩论模式下显示在中心圆）
 }
 
 export interface SubAgentData {
@@ -148,6 +166,12 @@ export interface SubAgentData {
   timelineEvents: TimelineEvent[]; // 区域5：下方时间条（最多5条）
   thinkingText?: string;       // 区域2：上方思考气泡
 
+  // 出场动画
+  /** 出场阶段：entering=淡入中, active=正常显示, exiting=淡出中 */
+  exitPhase?: 'entering' | 'active' | 'exiting';
+  /** 出场进度 (0=透明, 1=完全不透明)，由 CanvasRenderer 维护 */
+  exitProgress?: number;
+
   // Multi-Agent 扩展字段
   multiAgent?: {
     type: 'orchestrate' | 'pipeline' | 'quick_team' | 'agent_team' | 'delegate';
@@ -157,11 +181,15 @@ export interface SubAgentData {
     stepIndex?: number;
     totalSteps?: number;
     subagentType?: string;
+    /** 稳定的成员标识符，多轮辩论中保持不变（用于位置缓存） */
+    memberId?: string;
     // Debate 策略专用
     currentRound?: number;
     maxRounds?: number;
     /** 辩论角色：正方/反方/裁判（从 systemPrompt 的 [debate_role:xxx] 标签解析） */
     debateRole?: 'affirmative' | 'negative' | 'judge';
+    /** 团队目标/辩论主题 */
+    goal?: string;
   };
 
   // 层级结构：子 agent 可以创建更深层的子 agent
@@ -233,7 +261,7 @@ export interface Animation {
   startTime: number;
   duration: number;
   update: (progress: number, deltaTime: number) => void;
-  draw?: (ctx: CanvasRenderingContext2D) => void;
+  draw?: (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, currentTime: number) => void;
   isComplete: () => boolean;
 }
 

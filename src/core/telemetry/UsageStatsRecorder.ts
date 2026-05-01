@@ -11,8 +11,9 @@
 // - JSONL 格式，追加友好，流式解析
 //
 
-import { join } from 'node:path';
-import { appendFile, readFile, mkdir, unlink } from 'node:fs/promises';
+import { join, basename, extname } from 'node:path';
+import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
+import { getUserLogsDir } from '@/core/config/PathManager';
 import { existsSync } from 'node:fs';
 
 // ── 类型定义 ──
@@ -99,17 +100,49 @@ export interface AggregatedStats {
   };
 }
 
+/** 默认日志目录 */
+const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+
+/** 日志保留天数 */
+const LOG_RETENTION_DAYS = 30;
+
 /**
  * UsageStatsRecorder — 使用统计记录器
  *
  * 将每次会话的 token 用量和工具调用统计持久化到 JSONL 文件，
- * 支持按模型、工具、时间维度进行聚合分析。
+ * 按日期自动轮转（usage-YYYY-MM-DD.jsonl），支持按模型、工具、时间维度进行聚合分析。
  */
 export class UsageStatsRecorder {
-  private filePath: string;
+  private logDir: string;
+  private baseName: string;
 
-  constructor(filePath?: string) {
-    this.filePath = filePath ?? join(process.cwd(), '.xuanji', 'logs', 'usage.jsonl');
+  constructor(filePath?: string, userId?: string) {
+    const defaultPath = userId ? join(getUserLogsDir(userId), 'usage.jsonl') : join(DEFAULT_LOG_DIR, 'usage.jsonl');
+    const fullPath = filePath ?? defaultPath;
+    this.logDir = join(fullPath, '..');
+    const ext = extname(fullPath); // .jsonl
+    this.baseName = basename(fullPath, ext); // usage
+  }
+
+  /** 获取当天日志文件路径 */
+  private getCurrentLogPath(): string {
+    const today = new Date().toISOString().split('T')[0]!;
+    return join(this.logDir, `${this.baseName}-${today}.jsonl`);
+  }
+
+  /** 扫描目录下所有匹配的轮转日志文件 */
+  private static async findLogFiles(logDir: string, baseName: string): Promise<string[]> {
+    try {
+      const files = await readdir(logDir);
+      const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}(-\\d{4}-\\d{2}-\\d{2})?\\.jsonl$`);
+      return files
+        .filter(f => pattern.test(f))
+        .sort()
+        .map(f => join(logDir, f));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -117,33 +150,37 @@ export class UsageStatsRecorder {
    */
   async record(record: UsageRecord): Promise<void> {
     try {
-      const dir = join(this.filePath, '..');
-      await mkdir(dir, { recursive: true });
+      await mkdir(this.logDir, { recursive: true });
       const line = JSON.stringify(record) + '\n';
-      await appendFile(this.filePath, line, 'utf-8');
+      await appendFile(this.getCurrentLogPath(), line, 'utf-8');
     } catch {
       // 静默失败，不影响主流程
     }
   }
 
   /**
-   * 查询使用记录
+   * 查询使用记录（扫描所有轮转文件）
    */
   async query(filter?: UsageQueryFilter): Promise<UsageRecord[]> {
     try {
-      if (!existsSync(this.filePath)) {
-        return [];
-      }
+      const logFiles = await UsageStatsRecorder.findLogFiles(this.logDir, this.baseName);
+      if (logFiles.length === 0) return [];
 
-      const text = await readFile(this.filePath, 'utf-8');
-      const lines = text.split('\n').filter((l) => l.trim());
       let records: UsageRecord[] = [];
 
-      for (const line of lines) {
+      for (const file of logFiles) {
         try {
-          records.push(JSON.parse(line) as UsageRecord);
+          const text = await readFile(file, 'utf-8');
+          const lines = text.split('\n').filter((l) => l.trim());
+          for (const line of lines) {
+            try {
+              records.push(JSON.parse(line) as UsageRecord);
+            } catch {
+              // 跳过格式错误的行
+            }
+          }
         } catch {
-          // 跳过格式错误的行
+          // 跳过无法读取的文件
         }
       }
 
@@ -261,15 +298,51 @@ export class UsageStatsRecorder {
   }
 
   /**
-   * 清空所有记录
+   * 清空所有记录（包括所有轮转文件）
    */
   async clear(): Promise<void> {
     try {
-      if (existsSync(this.filePath)) {
-        await unlink(this.filePath);
+      const logFiles = await UsageStatsRecorder.findLogFiles(this.logDir, this.baseName);
+      for (const file of logFiles) {
+        try {
+          await unlink(file);
+        } catch {
+          // 删除失败跳过
+        }
       }
     } catch {
       // 静默失败
+    }
+  }
+
+  /**
+   * 清理超过保留期的旧使用统计文件
+   */
+  async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+
+    try {
+      const logFiles = await UsageStatsRecorder.findLogFiles(this.logDir, this.baseName);
+      let deleted = 0;
+
+      for (const file of logFiles) {
+        const name = basename(file);
+        const match = name.match(/(\d{4}-\d{2}-\d{2})\.jsonl$/);
+        if (match && match[1]! < cutoffStr) {
+          try {
+            await unlink(file);
+            deleted++;
+          } catch {
+            // 删除失败跳过
+          }
+        }
+      }
+
+      return deleted;
+    } catch {
+      return 0;
     }
   }
 }

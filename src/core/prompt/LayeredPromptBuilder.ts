@@ -82,7 +82,6 @@ export class LayeredPromptBuilder {
    * 发射事件
    */
   private emitEvent(event: PromptBuildEvent): void {
-    console.log('[LayeredPromptBuilder] 发射事件:', event.type, event);
     for (const listener of this.eventListeners) {
       try {
         listener(event);
@@ -205,7 +204,7 @@ export class LayeredPromptBuilder {
       complexity = options.complexity;
     }
 
-    let matchMethod: string | undefined;
+    let matchMethod: string | undefined = options.matchMethod;
     if (userMessage && (!scene || !options.complexity)) {
       // 转发 intentAnalyzer 的匹配过程事件
       this.intentAnalyzer.setEventCallback((evt) => {
@@ -248,7 +247,7 @@ export class LayeredPromptBuilder {
       type: 'intent:analyzed',
       timestamp: Date.now(),
       agentId: this.agentId,
-      data: { scene, complexity, matchMethod },
+      data: { scene, complexity, matchMethod, agent: options.agent },
     });
 
     // 2. 选择组件
@@ -374,15 +373,15 @@ export class LayeredPromptBuilder {
   /**
    * 按层级分组组件
    */
-  private groupComponentsByLayer(components: PromptComponent[]): Array<{ layer: number; components: string[] }> {
-    const layerMap = new Map<string, string[]>();
+  private groupComponentsByLayer(components: PromptComponent[]): Array<{ layer: number; components: Array<{ id: string; name: string }> }> {
+    const layerMap = new Map<string, Array<{ id: string; name: string }>>();
 
     for (const component of components) {
       const layerNum = component.layer.replace('L', '');
       if (!layerMap.has(layerNum)) {
         layerMap.set(layerNum, []);
       }
-      layerMap.get(layerNum)!.push(component.id);
+      layerMap.get(layerNum)!.push({ id: component.id, name: component.name });
     }
 
     return Array.from(layerMap.entries())

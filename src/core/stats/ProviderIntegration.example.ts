@@ -117,5 +117,5 @@ function extractProviderName(config: ProviderConfig): string {
  *      });
  *    }
  * 
- * 3. The stats will be automatically persisted to ~/.xuanji/stats/YYYY-MM.json
+ * 3. The stats will be automatically persisted to .xuanji/stats/YYYY-MM.json
  */

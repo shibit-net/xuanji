@@ -42,7 +42,7 @@ export interface RulesContent {
   xuanjiMd?: string;
   /** .xuanji/rules.md */
   projectRules?: string;
-  /** ~/.xuanji/rules.md */
+  /** .xuanji/rules.md */
   globalRules?: string;
 }
 

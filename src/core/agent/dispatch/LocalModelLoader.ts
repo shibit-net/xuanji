@@ -4,8 +4,8 @@
 // 使用 node-llama-cpp 运行 GGUF 格式模型，原生支持 x64/arm64
 // 首次运行自动从 HuggingFace 下载模型（通过全局 DownloadManager）
 
-import { logger } from '../../logger/index.js';
-import { DownloadManager } from '../../download/DownloadManager.js';
+import { logger } from '@/core/logger/index.js';
+import { DownloadManager } from '@/core/download/DownloadManager.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +39,7 @@ const MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'models');
 export interface ModelConfig {
   /** 模型 ID，支持格式:
    * - "hf:owner/repo:filename.gguf" (HuggingFace)
-   * - "file:filename.gguf" (本地文件，从 ~/.xuanji/models/ 加载)
+   * - "file:filename.gguf" (本地文件，从 .xuanji/models/ 加载)
    */
   modelId: string;
   /** 系统提示词 */
@@ -54,6 +54,7 @@ export class LocalModelLoader {
   private config: ModelConfig;
   private loading: Promise<void> | null = null;
   private downloadTaskId: string | null = null;
+  private LlamaChatSessionClass: any = null;
 
   constructor(config: ModelConfig) {
     this.config = config;
@@ -79,8 +80,7 @@ export class LocalModelLoader {
 
     // 使用全局 DownloadManager
     const downloadManager = DownloadManager.getInstance();
-    const hfEndpoint = process.env.HF_ENDPOINT || 'https://hf-mirror.com';
-    const downloadUrl = `${hfEndpoint}/${repoPath}/resolve/main/${filename}`;
+    const downloadUrl = `https://hf-mirror.com/${repoPath}/resolve/main/${filename}`;
 
     log.info(`[LocalModelLoader] Creating download task: ${downloadUrl} -> ${localPath}`);
     this.downloadTaskId = await downloadManager.download({
@@ -160,6 +160,8 @@ export class LocalModelLoader {
     // 解析模型 URI 并下载（如果不存在）
     const modelPath = await this.downloadModelIfNeeded(this.config.modelId);
 
+    this.LlamaChatSessionClass = LlamaChatSession;
+
     this.llama = await getLlama();
     this.model = await this.llama.loadModel({ modelPath });
     this.context = await this.model.createContext({ contextSize: 2048 });
@@ -176,7 +178,7 @@ export class LocalModelLoader {
    * 下载模型文件（使用全局 DownloadManager）
    * URI 格式:
    * - "hf:owner/repo:filename.gguf" (HuggingFace)
-   * - "file:filename.gguf" (本地文件，直接从 ~/.xuanji/models/ 加载)
+   * - "file:filename.gguf" (本地文件，直接从 .xuanji/models/ 加载)
    */
   private async downloadModelIfNeeded(modelId: string): Promise<string> {
     if (modelId.startsWith('file:')) {
@@ -212,19 +214,32 @@ export class LocalModelLoader {
     return localPath;
   }
 
-  async generate(prompt: string, options?: { maxTokens?: number; temperature?: number }): Promise<string> {
+  async generate(prompt: string, options?: { maxTokens?: number; temperature?: number; stateless?: boolean }): Promise<string> {
     // Check if model file still exists
     if (!this.isDownloaded()) {
       if (this.session) {
         await this.unload();
       }
-      log.info(`Model file not found, re-downloading: ${this.modelPath}`);
-      await this.download();
+      log.info('Model file not found, re-downloading...');
+      await this.predownload();
     }
 
-    if (!this.session) await this.load();
+    // Ensure model infrastructure is loaded
+    if (!this.llama || !this.context) {
+      await this.load();
+    }
 
-    const result = await this.session.prompt(prompt, {
+    if (options?.stateless) {
+      // 无状态模式：清空聊天历史和 KV 缓存，防止上下文累积
+      // 重用同一个 session，不创建新的（避免耗尽 context sequences）
+      this.session.resetChatHistory();
+      // 同时清除底层 context sequence 的 KV 缓存
+      await this.session.sequence.clearHistory();
+    } else if (!this.session) {
+      await this.load();
+    }
+
+    const result = await this.session!.prompt(prompt, {
       maxTokens: options?.maxTokens ?? 128,
       temperature: options?.temperature ?? 0.3,
     });

@@ -21,26 +21,32 @@
 
 ### 2. 策略选择（MANDATORY）
 
-根据任务特征选择策略（详见 `agent-team-strategies.md`）：
+**前置门槛检查**：至少满足 2 条才使用 agent_team：
+- [ ] 任务涉及 ≥3 个文件/模块
+- [ ] 需要多人协作（不同专业视角）
+- [ ] 有明确的依赖/数据链
+- [ ] 有已知决策分歧需辩论统一
+- [ ] 单 agent 执行预估 > 15min
+
+不满足门槛 → 使用 `task` 工具或直接执行。
+
+根据任务特征选择策略（P1 优化决策树）：
 
 ```
-IF 子任务完全独立 AND 无依赖关系
-  → strategy: "parallel"  ⭐ 优先选择（最快）
-  
-ELSE IF 需要多角度评估同一问题（技术选型、方案对比）
-  → strategy: "debate"  ⭐ 充分论证
-  
-ELSE IF 需要数据流转（前一步输出 → 后一步输入）
-  → strategy: "pipeline"  ⭐ 数据处理
-  
+IF 有已知决策分歧/技术选型争议
+  → strategy: "debate"  🗣️ 充分论证（含 Judge 预读优化）
+
+ELSE IF 需要先设计架构再分工实现
+  → strategy: "hierarchical"  🏗️ 架构师规划 + Workers 执行
+
+ELSE IF 数据需要多阶段转换（收集→分析→报告）
+  → strategy: "pipeline"  🔄 ETL 数据流
+
 ELSE IF 子任务有明确的顺序依赖
-  → strategy: "sequential"  ⚠️ 较慢
-  
-ELSE IF 需要协调者动态分配任务
-  → strategy: "hierarchical"  ⚠️ 谨慎使用
-  
+  → strategy: "sequential"  🔗 阶段串行
+
 ELSE
-  → 重新评估任务拆分，或使用单个 agent
+  → strategy: "parallel"  ⚡ 默认最快
 ```
 
 **详细策略说明**: 参见 `.xuanji/protocols/agent-team-strategies.md`
@@ -52,13 +58,20 @@ ELSE
 ```
 [ ] id: 唯一标识符（小写字母+下划线）
 [ ] role: 使用正确的 agent ID（explore/plan/coder/doc-writer/test-writer）
-[ ] system_prompt: 包含以下要素：
-    [ ] 明确的任务范围（只分析 X 目录/文件）
-    [ ] 具体的检查点（3-5 个要点）
+[ ] task: 🎯 具体的WHAT — 成员要完成的实际工作（成为用户消息）
+    [ ] 明确的任务描述（要分析什么、产出什么）
+    [ ] 具体的检查点/交付物（3-5 个要点）
     [ ] 输出格式要求（Markdown/JSON/不超过 X 字）
-    [ ] 时间限制提示（限时 X 分钟）
+[ ] system_prompt: 🔧 角色的HOW — 注入系统提示的指导（非工作描述）
+    [ ] 关注领域（安全/性能/代码质量/架构）
+    [ ] 方法论/约束条件
+    [ ] 视角/立场
 [ ] timeout: 设置合理超时（60000-180000ms）
 ```
+
+**🎯 `task` vs `system_prompt` — 关键区别：**
+- `task` = 要做什么（用户消息）— "审查 src/auth/login.ts 的 SQL 注入漏洞"
+- `system_prompt` = 如何行为（系统提示）— "关注 OWASP Top 10：注入、认证、数据泄露"
 
 ### 4. 性能优化检查（MANDATORY）
 
@@ -103,12 +116,14 @@ ELSE
     {
       id: "member1",
       timeout: 180000,  // 各成员可以设置不同超时
-      system_prompt: "明确的独立任务，不依赖其他成员的结果"
+      task: "明确的独立任务 — 输出什么、格式要求",
+      system_prompt: "角色/行为指导 — 关注什么、如何分析"
     },
     {
       id: "member2",
       timeout: 120000,
-      system_prompt: "另一个完全独立的任务"
+      task: "另一个完全独立的具体任务",
+      system_prompt: "不同视角的行为指导"
     }
   ]
 }
@@ -125,47 +140,35 @@ ELSE
   members: [
     {
       id: "structure",
-      role: "explore",  // 快速探索
+      role: "explore",
       priority: 1,
-      timeout: 120000,  // 2 分钟
-      system_prompt: `快速收集项目结构：
-1. list_directory(path: "src/", recursive: true, max_depth: 2)
-2. glob(pattern: "**/*.ts", path: "src/")
-3. 输出 JSON: {directories: [...], fileCount: N, coreModules: [...]}
-限时 2 分钟，只收集信息不分析。`
+      timeout: 120000,
+      task: "快速收集项目结构：列出 src/ 目录树，统计文件数量和核心模块，输出 JSON 格式",
+      system_prompt: "使用 list_directory 和 glob 快速扫描。限时 2 分钟，只收集不分析。"
     },
     {
       id: "security",
       role: "coder",
       priority: 1,
-      timeout: 180000,  // 3 分钟
-      system_prompt: `检查安全问题：
-1. grep(pattern: "exec\\(|spawn\\(", path: "src/")
-2. 读取 src/core/tools/BashTool.ts 检查参数处理
-3. 输出 Top 3 安全风险（每个不超过 100 字）
-使用 grep 快速定位，限时 3 分钟。`
+      timeout: 180000,
+      task: "检查安全问题：搜索 exec()/spawn() 调用，审查 BashTool.ts 参数处理，输出 Top 3 安全风险",
+      system_prompt: "关注命令注入、参数注入、权限提升。使用 grep 快速定位。限时 3 分钟。"
     },
     {
       id: "quality",
       role: "coder",
       priority: 1,
       timeout: 180000,
-      system_prompt: `检查代码质量：
-1. grep(pattern: "\\bany\\b", path: "src/", output_mode: "count")
-2. 读取 src/core/agent/AgentLoop.ts 检查复杂度
-3. 输出 Top 3 质量问题（每个不超过 100 字）
-限时 3 分钟。`
+      task: "检查代码质量：搜索 any 类型使用，审查 AgentLoop.ts 复杂度，输出 Top 3 质量问题",
+      system_prompt: "关注类型安全、函数复杂度、代码异味。限时 3 分钟。"
     },
     {
       id: "architecture",
       role: "plan",
       priority: 1,
       timeout: 180000,
-      system_prompt: `分析架构设计：
-1. 读取 src/core/*/types.ts 的接口定义
-2. 检查 package.json 的依赖结构
-3. 输出架构优缺点（不超过 300 字）
-限时 3 分钟。`
+      task: "分析架构设计：审查核心模块类型定义，检查依赖结构，输出架构优缺点（不超过 300 字）",
+      system_prompt: "关注模块耦合、接口设计、依赖管理。限时 3 分钟。"
     }
   ]
 }
@@ -178,7 +181,60 @@ task({
 })
 ```
 
-### 模板 2：技术选型（辩论模式）
+### 模板 2：技术选型（辩论模式 + Judge 预读优化）
+
+**P1 优化**：Judge 在辩论前先预读关键文件，输出事实摘要。正反方引用摘要而非重复读取文件，Token 节省 ~46%。
+
+```typescript
+{
+  team_name: "tech-decision-debate",
+  goal: "评估技术方案 A vs B",
+  strategy: "debate",
+  timeout: 1800000,  // 30 分钟
+  max_rounds: 3,     // 不要超过 3，否则 Token 爆炸
+  members: [
+    {
+      id: "advocate_a",
+      role: "plan",
+      priority: 1,
+      timeout: 180000,
+      system_prompt: `你支持方案 A。
+约束：
+1. 第一轮输出完整论点（含代码引用行号）
+2. 后续轮次仅回应对方论点 + 补充新证据
+3. 禁止重复读取已读文件，引用 Judge 摘要中的行号即可`
+    },
+    {
+      id: "advocate_b",
+      role: "plan",
+      priority: 1,
+      timeout: 180000,
+      system_prompt: `你支持方案 B。
+约束：
+1. 第一轮输出完整论点（含代码引用行号）
+2. 后续轮次仅回应对方论点 + 补充新证据
+3. 禁止重复读取已读文件，引用 Judge 摘要中的行号即可`
+    },
+    {
+      id: "judge",
+      role: "plan",
+      priority: 2,
+      timeout: 120000,
+      system_prompt: `[debate_role:judge]
+你在辩论开始前先执行预读阶段。
+
+预读阶段（仅你执行）：
+1. 读取所有涉及的关键源码文件
+2. 输出一份「事实摘要」包含：关键函数行号、分支条件、边界值
+3. 将摘要共享给正反双方
+
+辩论阶段：
+4. 双方基于摘要引用代码，而非重复读取文件
+5. 仅在事实争议时才重新读取具体行`
+    }
+  ]
+}
+```
 
 ```typescript
 {
@@ -275,7 +331,8 @@ task({
 
 ❌ **错误示例**：
 ```typescript
-system_prompt: "分析整个项目的代码质量"  // 太宽泛
+// ❌ 没有 task 字段 — 成员不知道具体要做什么
+task: "分析整个项目的代码质量"  // 太宽泛，没有具体范围
 ```
 
 ✅ **正确示例**：
@@ -304,16 +361,16 @@ role: "plan"  // 使用 list_agents 查看可用的 agent ID
 ❌ **错误示例**：
 ```typescript
 members: [
-  { id: "analyzer1", system_prompt: "分析项目架构" },
-  { id: "analyzer2", system_prompt: "分析项目设计" }  // 会重复读取文件
+  { id: "analyzer1", task: "分析项目架构" },         // ❌ 缺少 system_prompt
+  { id: "analyzer2", system_prompt: "分析项目设计" }  // ❌ 缺少 task，会重复读取文件
 ]
 ```
 
 ✅ **正确示例**：
 ```typescript
 members: [
-  { id: "structure", system_prompt: "只分析目录结构和模块划分" },
-  { id: "dependency", system_prompt: "只分析 package.json 的依赖关系" }
+  { id: "structure", task: "只分析目录结构和模块划分", system_prompt: "关注模块和目录组织" },
+  { id: "dependency", task: "只分析 package.json 的依赖关系", system_prompt: "关注依赖版本和冲突" }
 ]
 ```
 
@@ -368,7 +425,7 @@ members: [
 ### Step 4: 成员配置
 ```
 1. 为每个子任务选择合适的 agent（explore/plan/coder）
-2. 编写明确的 system_prompt（包含范围、检查点、输出格式）
+2. 编写明确的 task（具体要做什么）和 system_prompt（如何行为）
 3. 设置合理的 timeout
 ```
 
@@ -390,14 +447,18 @@ members: [
 
 ---
 
-## 📊 性能基准
+## 📊 性能基准（P2 优化）
 
-| 场景 | 推荐策略 | 成员数量 | 预期耗时 | 成功率 |
-|------|---------|---------|---------|--------|
-| 代码分析 | parallel | 3-4 | 3-5 分钟 | 95% |
-| 技术选型 | debate | 3 | 5-8 分钟 | 90% |
-| 模块分析 | parallel | 3-5 | 3-5 分钟 | 95% |
-| 重构方案 | sequential | 2-3 | 5-10 分钟 | 85% |
+| 场景 | 推荐策略 | 成员数量 | 推荐 timeout | 成功率 |
+|------|---------|---------|-------------|--------|
+| 代码分析 | parallel | 3-4 | 1,200,000ms | 95% |
+| 技术选型 | debate | 3 | 1,800,000ms | 90% |
+| 模块分析 | parallel | 3-5 | 1,200,000ms | 95% |
+| 架构+实现 | hierarchical | 3-4 | 1,500,000ms | 85% |
+| CI 流水线 | sequential | 3-4 | 600,000ms | 90% |
+| 数据看板 | pipeline | 2-3 | 600,000ms | 90% |
+
+**超时公式**: `timeout = baseTimeout × complexityFactor`（详见 `agent-team-strategies.md`）
 
 **如果实际耗时超过预期 2 倍，应立即中止并降级到单个 agent。**
 
@@ -445,7 +506,7 @@ IF agent_team 完全失败
 3. 我选择的策略合理吗？
    → parallel 是否可行？
 
-4. 我的 system_prompt 足够明确吗？
+4. 每个成员的 task 是否具体且互不重叠？system_prompt 是否描述了正确的行为指导？
    → 包含范围、检查点、输出格式、时间限制吗？
 
 5. 我设置的 timeout 合理吗？
@@ -517,8 +578,9 @@ IF agent_team 完全失败
    - 必须限制输出长度（不超过 500 字）
 
 3. **禁止过长的超时**
-   - 单个 member 最长 3 分钟
-   - 团队总计最长 10 分钟
+   - 单个 member: 系统自动计算（基于策略+复杂度），无需手动设置
+   - Debate 团队总计最长 60 分钟（30min 基础 × 2.0 轮次因子）
+   - Hierarchical 团队总计最长 30 分钟
 
 4. **禁止重复工作**
    - 不同 member 不应分析相同的文件

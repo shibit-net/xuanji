@@ -36,12 +36,16 @@ export class DuckDuckGoAdapter implements SearchEngineAdapter {
       skip_disambig: '1',
     });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(`https://api.duckduckgo.com/?${params}`, {
       method: 'GET',
       headers: {
         'User-Agent': 'Xuanji/1.0',
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`DuckDuckGo API error: ${response.status} ${response.statusText}`);

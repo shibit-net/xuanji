@@ -26,9 +26,7 @@ describe('SubAgentContext', () => {
       restrictedTools: ['custom_tool'],
     });
 
-    expect(ctx.restrictedTools).toContain('task');
     expect(ctx.restrictedTools).toContain('custom_tool');
-    expect(ctx.isToolRestricted('task')).toBe(true);
     expect(ctx.isToolRestricted('custom_tool')).toBe(true);
     expect(ctx.isToolRestricted('read_file')).toBe(false);
   });
@@ -115,7 +113,7 @@ describe('TaskTool', () => {
 
   it('应该有正确的元数据', () => {
     expect(taskTool.name).toBe('task');
-    expect(taskTool.description).toContain('sub-agent');
+    expect(taskTool.description).toContain('子 agent');
     expect(taskTool.input_schema.required).toContain('description');
     expect(taskTool.readonly).toBe(true);
   });
@@ -153,10 +151,11 @@ describe('TaskTool', () => {
 
     const result = await taskTool.execute({
       description: 'test task',
+      subagent_type: 'test-agent',
     });
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('nesting depth exceeded');
+    expect(result.content).toContain('Maximum nesting depth exceeded');
   });
 
   it('getActiveCount 初始为 0', () => {
@@ -165,7 +164,7 @@ describe('TaskTool', () => {
 });
 
 describe('ALWAYS_RESTRICTED_TOOLS', () => {
-  it('应该包含 task 工具', () => {
-    expect(ALWAYS_RESTRICTED_TOOLS).toContain('task');
+  it('ALWAYS_RESTRICTED_TOOLS 初始为空', () => {
+    expect(ALWAYS_RESTRICTED_TOOLS).toEqual([]);
   });
 });

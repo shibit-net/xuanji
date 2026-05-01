@@ -9,6 +9,11 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { UsageStatsRecorder, type UsageRecord } from '@/core/telemetry/UsageStatsRecorder';
 
+function todayFile(base: string, name: string): string {
+  const today = new Date().toISOString().split('T')[0];
+  return join(base, `${name}-${today}.jsonl`);
+}
+
 describe('UsageStatsRecorder', () => {
   let tempDir: string;
   let testFilePath: string;
@@ -16,8 +21,8 @@ describe('UsageStatsRecorder', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'xuanji-usage-test-'));
-    testFilePath = join(tempDir, 'usage.jsonl');
-    recorder = new UsageStatsRecorder(testFilePath);
+    testFilePath = todayFile(tempDir, 'usage');
+    recorder = new UsageStatsRecorder(join(tempDir, 'usage.jsonl'));
   });
 
   afterEach(async () => {

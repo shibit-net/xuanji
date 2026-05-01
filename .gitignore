@@ -28,3 +28,6 @@ coverage/
 
 # project config (user-created, not tracked)
 .xuanji/
+
+# embedding models (downloaded at runtime)
+models/

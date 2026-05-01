@@ -69,6 +69,8 @@ export type DownloadEventType =
  */
 export class DownloadManager extends EventEmitter {
   private static instance: DownloadManager;
+  private static instanceCounter = 0;
+  private instanceId: number;
   private tasks: Map<string, DownloadTask> = new Map();
   private activeDownloads: Map<string, AbortController> = new Map();
   private maxConcurrent = 3; // 最大并发下载数
@@ -76,7 +78,9 @@ export class DownloadManager extends EventEmitter {
 
   private constructor(shouldRestoreTasks: boolean = true) {
     super();
+    this.instanceId = ++DownloadManager.instanceCounter;
     this.shouldRestoreTasks = shouldRestoreTasks;
+    log.info(`[DownloadManager] 创建实例 #${this.instanceId}, shouldRestoreTasks=${shouldRestoreTasks}`);
     log.info(`[DownloadManager] Constructor called, PROJECT_ROOT=${PROJECT_ROOT}, DOWNLOAD_STATE_FILE=${DOWNLOAD_STATE_FILE}, shouldRestoreTasks=${shouldRestoreTasks}`);
     if (shouldRestoreTasks) {
       this.loadState();
@@ -86,8 +90,22 @@ export class DownloadManager extends EventEmitter {
   static getInstance(shouldRestoreTasks: boolean = true): DownloadManager {
     if (!DownloadManager.instance) {
       DownloadManager.instance = new DownloadManager(shouldRestoreTasks);
+      log.info(`[DownloadManager] 首次创建单例实例 #${DownloadManager.instance.instanceId}`);
+    } else {
+      log.debug(`[DownloadManager] 返回已存在的实例 #${DownloadManager.instance.instanceId}, 当前 task-created 监听器数量: ${DownloadManager.instance.listenerCount('task-created')}`);
     }
     return DownloadManager.instance;
+  }
+
+  getInstanceId(): number {
+    return this.instanceId;
+  }
+
+  /**
+   * 触发事件
+   */
+  private emitEvent(eventName: DownloadEventType, task: DownloadTask): void {
+    this.emit(eventName, task);
   }
 
   /**
@@ -201,8 +219,10 @@ export class DownloadManager extends EventEmitter {
     this.tasks.set(id, task);
     log.info(`[DownloadManager] Task created: ${task.name} (${id}), category=${task.category}`);
     this.saveState(); // 保存状态
-    log.info(`[DownloadManager] Emitting 'task-created' event for task ${id}`);
-    this.emit('task-created', task);
+    log.info(`[DownloadManager] 实例 #${this.instanceId} 触发 'task-created' 事件 for task ${id}`);
+    log.info(`[DownloadManager] task-created 监听器数量: ${this.listenerCount('task-created')}`);
+
+    this.emitEvent('task-created', task);
     log.info(`[DownloadManager] 'task-created' event emitted for task ${id}`);
 
     // 启动下载（异步）
@@ -231,7 +251,7 @@ export class DownloadManager extends EventEmitter {
     task.status = 'downloading';
     task.startTime = Date.now();
     this.saveState(); // 保存状态
-    this.emit('task-started', task);
+    this.emitEvent('task-started', task);
 
     try {
       await this.downloadFile(task, abortController.signal);
@@ -239,7 +259,7 @@ export class DownloadManager extends EventEmitter {
       task.endTime = Date.now();
       task.progress.percent = 100;
       this.saveState(); // 保存状态
-      this.emit('task-completed', task);
+      this.emitEvent('task-completed', task);
       log.info(`Download completed: ${task.name}`);
 
       // 自动清理已完成的任务（延迟清理，给UI时间显示完成状态）
@@ -252,13 +272,13 @@ export class DownloadManager extends EventEmitter {
       if (err.name === 'AbortError') {
         task.status = 'cancelled';
         this.saveState(); // 保存状态
-        this.emit('task-cancelled', task);
+        this.emitEvent('task-cancelled', task);
         log.info(`Download cancelled: ${task.name}`);
       } else {
         task.status = 'failed';
         task.error = err.message;
         this.saveState(); // 保存状态
-        this.emit('task-failed', task);
+        this.emitEvent('task-failed', task);
         log.error(`Download failed: ${task.name}`, err);
       }
     } finally {
@@ -310,8 +330,9 @@ export class DownloadManager extends EventEmitter {
       });
 
       const request = client.get(task.url, options, (response) => {
-        // 处理重定向
-        if (response.statusCode === 301 || response.statusCode === 302) {
+        // 处理重定向 (301, 302, 307, 308)
+        if (response.statusCode === 301 || response.statusCode === 302 ||
+            response.statusCode === 307 || response.statusCode === 308) {
           const redirectUrl = response.headers.location;
           if (!redirectUrl) {
             reject(new Error('Redirect without location header'));
@@ -321,7 +342,25 @@ export class DownloadManager extends EventEmitter {
           if (fs.existsSync(task.dest)) {
             fs.unlinkSync(task.dest);
           }
-          task.url = redirectUrl;
+
+          // 处理相对路径重定向
+          let fullRedirectUrl: string;
+          if (redirectUrl.startsWith('http://') || redirectUrl.startsWith('https://')) {
+            fullRedirectUrl = redirectUrl;
+          } else {
+            // 相对路径，需要拼接原始 URL 的 origin
+            const originalUrl = new URL(task.url);
+            if (redirectUrl.startsWith('/')) {
+              // 绝对路径（相对于域名）
+              fullRedirectUrl = `${originalUrl.protocol}//${originalUrl.host}${redirectUrl}`;
+            } else {
+              // 相对路径（相对于当前路径）
+              const basePath = originalUrl.pathname.substring(0, originalUrl.pathname.lastIndexOf('/') + 1);
+              fullRedirectUrl = `${originalUrl.protocol}//${originalUrl.host}${basePath}${redirectUrl}`;
+            }
+          }
+
+          task.url = fullRedirectUrl;
           this.downloadFile(task, signal).then(resolve).catch(reject);
           return;
         }
@@ -354,7 +393,7 @@ export class DownloadManager extends EventEmitter {
             task.progress.percent = percent;
             task.progress.speed = speed;
 
-            this.emit('task-progress', task);
+            this.emitEvent('task-progress', task);
 
             lastBytes = downloadedBytes;
             lastTime = now;

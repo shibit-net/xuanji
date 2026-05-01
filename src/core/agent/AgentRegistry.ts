@@ -29,6 +29,13 @@ export class AgentRegistry {
   private userAgentsDir: string;
   private templateAgentsDir: string;
   private userId: string;
+  /** 防抖：防止短时间内多次 reload */
+  private reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 互斥锁：防止并发 reload */
+  private reloadInProgress = false;
+  /** 在上一次 reload 期间又收到了变更通知 */
+  private pendingReload = false;
+  private static readonly RELOAD_DEBOUNCE_MS = 300;
 
   constructor(userId: string) {
     this.userId = userId;
@@ -40,7 +47,6 @@ export class AgentRegistry {
   }
 
   async init(): Promise<void> {
-    log.info('初始化 Agent Registry (user: ' + this.userId + ')...');
     await this.configManager.init();
     await this.initializeUserAgentsDir();
     
@@ -61,7 +67,7 @@ export class AgentRegistry {
         log.error('扫描配置目录失败: ' + configPath, error.message);
       }
     }
-    log.info('Agent Registry 初始化完成，已加载 ' + this.agents.size + ' 个 Agent');
+    log.debug('Agent Registry 初始化完成，已加载 ' + this.agents.size + ' 个 Agent');
   }
 
   private async initializeUserAgentsDir(): Promise<void> {
@@ -90,7 +96,7 @@ export class AgentRegistry {
       return;
     }
 
-    log.info(`从模板复制 ${builtinFiles.length} 个 Agent 配置...`);
+    log.debug(`从模板复制 ${builtinFiles.length} 个 Agent 配置...`);
 
     for (const srcPath of builtinFiles) {
       try {
@@ -105,7 +111,7 @@ export class AgentRegistry {
         log.error('复制 Agent 配置失败: ' + srcPath, error.message);
       }
     }
-    log.info('Agent 配置复制完成');
+    log.debug('Agent 配置复制完成');
   }
 
   private async loadAgentConfig(filePath: string): Promise<void> {
@@ -211,7 +217,7 @@ export class AgentRegistry {
       .map(agent => {
         const capabilitiesList = agent.capabilities.map(cap => '- ' + cap).join('\n');
         const toolsList = agent.tools.map(t => t.name).join(', ');
-        const tagsList = agent.tags.join('、');
+        const tagsList = (agent.tags ?? []).join('、');
         return '\n## ' + agent.name + ' (' + agent.id + ')\n\n**描述**: ' + agent.description + '\n\n**能力**:\n' + capabilitiesList + '\n\n**可用工具**: ' + toolsList + '\n\n**适用场景**: ' + tagsList;
       })
       .join('\n---\n');
@@ -222,10 +228,10 @@ export class AgentRegistry {
       const watcher = watch(
         dirPath,
         { recursive: true },
-        async (eventType, filename) => {
+        (_eventType, filename) => {
           if (filename && /\.(yaml|yml)$/.test(filename)) {
-            log.info('检测到配置变更: ' + filename);
-            await this.reload();
+            log.debug('检测到配置变更: ' + filename);
+            this.scheduleReload();
           }
         }
       );
@@ -235,11 +241,37 @@ export class AgentRegistry {
     }
   }
 
+  /** 带防抖的 reload 调度，避免同一文件保存触发多次 reload */
+  private scheduleReload(): void {
+    if (this.reloadDebounceTimer) {
+      clearTimeout(this.reloadDebounceTimer);
+    }
+    this.reloadDebounceTimer = setTimeout(async () => {
+      this.reloadDebounceTimer = null;
+      await this.reload();
+    }, AgentRegistry.RELOAD_DEBOUNCE_MS);
+  }
+
   async reload(): Promise<void> {
-    log.info('重新加载 Agent 配置...');
-    this.closeWatchers();
-    this.agents.clear();
-    await this.init();
+    // 如果已有 reload 正在进行，标记为待处理
+    if (this.reloadInProgress) {
+      this.pendingReload = true;
+      return;
+    }
+    this.reloadInProgress = true;
+    try {
+      log.debug('重新加载 Agent 配置...');
+      this.closeWatchers();
+      this.agents.clear();
+      await this.init();
+    } finally {
+      this.reloadInProgress = false;
+      // 如果在 reload 期间又收到了变更通知，再 reload 一次
+      if (this.pendingReload) {
+        this.pendingReload = false;
+        this.scheduleReload();
+      }
+    }
   }
 
   private closeWatchers(): void {
@@ -286,7 +318,7 @@ export class AgentRegistry {
   }
 
   dispose(): void {
-    log.info('清理 Agent Registry...');
+    log.debug('清理 Agent Registry...');
     this.closeWatchers();
     this.agents.clear();
   }

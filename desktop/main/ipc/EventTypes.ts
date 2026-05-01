@@ -156,6 +156,7 @@ export interface EventDataMap {
   'agent:team-member-start': {
     teamId: string;
     memberId: string;
+    subAgentId?: string;
     name?: string;
     role?: string;
     task?: string;

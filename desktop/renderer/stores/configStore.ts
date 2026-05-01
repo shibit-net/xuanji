@@ -56,6 +56,7 @@ const defaultSettings: UserSettings = {
   language: 'zh-CN',
   theme: 'dark',
   fontSize: 14,
+  workspacePath: '',
   model: {
     defaultModel: 'claude-3-5-haiku-20241022',
     temperature: 1.0,
@@ -85,10 +86,28 @@ export const useConfigStore = create<ConfigState>()(
       loadSettings: async () => {
         set({ loading: true, error: null });
         try {
-          const result = await window.electron.settingsGetConfig();
-          if (result.success && result.config) {
-            set({ settings: result.config, loaded: true });
-          } else if (result.error) {
+          const result = await window.electron.settingsGetFullConfig?.()
+            ?? await window.electron.settingsGetConfig?.();
+          if (result?.success && result.config) {
+            const c = result.config;
+            set({
+              settings: {
+                language: (c.ui?.language as 'zh-CN' | 'en-US') || 'zh-CN',
+                theme: (c.ui?.theme as 'light' | 'dark') || 'dark',
+                fontSize: 14,
+                workspacePath: (c.workspacePath as string) || '',
+                model: {
+                  defaultModel: c.provider?.model || 'claude-3-5-haiku-20241022',
+                  temperature: c.provider?.temperature ?? 1.0,
+                  maxTokens: c.provider?.maxTokens ?? 8000,
+                  streaming: true,
+                },
+                api: {},
+                permissions: get().settings.permissions,
+              },
+              loaded: true,
+            });
+          } else if (result?.error) {
             set({ error: result.error });
           }
         } catch (err) {
@@ -101,11 +120,37 @@ export const useConfigStore = create<ConfigState>()(
       updateSettings: async (settings) => {
         try {
           const newSettings = { ...get().settings, ...settings };
-          const result = await window.electron.settingsUpdateConfig(newSettings);
-          if (result.success) {
+          // 分离 UI 和 Provider 字段，分别按 section 更新
+          const uiData: Record<string, unknown> = {};
+          if (settings.theme !== undefined) uiData.theme = newSettings.theme;
+          if (settings.language !== undefined) uiData.language = newSettings.language;
+
+          const providerData: Record<string, unknown> = {};
+          if (settings.model?.defaultModel !== undefined) providerData.model = newSettings.model.defaultModel;
+          if (settings.model?.temperature !== undefined) providerData.temperature = newSettings.model.temperature;
+          if (settings.model?.maxTokens !== undefined) providerData.maxTokens = newSettings.model.maxTokens;
+
+          const updates: Promise<any>[] = [];
+          if (Object.keys(uiData).length > 0) {
+            updates.push(window.electron.settingsUpdateConfig({ section: 'ui', sectionData: uiData }));
+          }
+          if (Object.keys(providerData).length > 0) {
+            updates.push(window.electron.settingsUpdateConfig({ section: 'provider', sectionData: providerData }));
+          }
+          if (settings.workspacePath !== undefined) {
+            updates.push(window.electron.settingsUpdateConfig({ section: 'workspace', sectionData: { workspacePath: newSettings.workspacePath } }));
+          }
+
+          if (updates.length > 0) {
+            const results = await Promise.all(updates);
+            if (results.every(r => r?.success)) {
+              set({ settings: newSettings });
+            } else {
+              const failed = results.find(r => !r?.success);
+              set({ error: failed?.error || '保存失败' });
+            }
+          } else {
             set({ settings: newSettings });
-          } else if (result.error) {
-            set({ error: result.error });
           }
         } catch (err) {
           set({ error: err instanceof Error ? err.message : String(err) });

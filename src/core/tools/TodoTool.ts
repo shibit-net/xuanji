@@ -4,7 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { TodoManager } from './TodoManager';
+import { TodoManager, getTodoManager as getTodoManagerCore } from './TodoManager';
 
 // 共享单例
 let sharedManager: TodoManager | undefined;
@@ -13,7 +13,10 @@ export function setTodoManager(manager: TodoManager): void {
   sharedManager = manager;
 }
 
-export function getTodoManager(): TodoManager {
+export function getTodoManager(userId?: string): TodoManager {
+  if (userId) {
+    return getTodoManagerCore(userId);
+  }
   if (!sharedManager) {
     sharedManager = new TodoManager();
   }

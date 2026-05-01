@@ -11,7 +11,21 @@
       "Read(//Users/kevinshi/.xuanji/agents/**)",
       "Bash(rm -rf dist-electron)",
       "Read(//private/tmp/**)",
-      "Bash(git merge *)",
+      "Bash(npx vite *)",
+      "Bash(xxd)",
+      "Bash(git log *)",
+      "Bash(git stash *)",
+      "Bash(npm test *)",
+      "Bash(npx vitest *)",
+      "Bash(node -e \"const { AbortController } = require\\('node:events'\\); const ac = new AbortController\\(\\); fetch\\('http://localhost:1', { signal: ac.signal }\\).catch\\(e => console.log\\('fetch error:', e.message, e.name\\)\\); setTimeout\\(\\(\\) => ac.abort\\(\\), 100\\);\")",
+      "Bash(node -e \"const controller = new AbortController\\(\\); controller.abort\\(\\); fetch\\('https://example.com', { signal: controller.signal }\\).catch\\(e => console.log\\('Aborted result:', e.name, '|', e.message, '|', e.cause?.message\\)\\);\")",
+      "Bash(node *)",
+      "WebSearch",
+      "WebFetch(domain:cloud.tencent.com)",
+      "Bash(curl -s --max-time 15 \"https://api-docs.deepseek.com/guides/reasoning_model\")",
+      "Bash(curl -s --max-time 15 \"https://github.com/0xPlaygrounds/rig/issues/1434\")",
+      "Bash(curl *)",
+      "Bash(grep -oP '.{0,100}\\(thinking|reasoning_content\\).{0,100}' /Users/kevinshi/.claude/projects/-Users-kevinshi-Documents-workspace-codebase-shibit-xuanji/ad2dcff5-9e17-48db-8702-6314bbbe7b05/tool-results/bbtr0wa5x.txt)",
       "Bash(git checkout *)"
     ]
   }

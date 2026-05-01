@@ -67,6 +67,8 @@ export class SerperAdapter implements SearchEngineAdapter {
       requestBody.gl = options.language.split('-')[0]; // zh-CN -> zh
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch('https://google.serper.dev/search', {
       method: 'POST',
       headers: {
@@ -74,7 +76,9 @@ export class SerperAdapter implements SearchEngineAdapter {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Serper API error: ${response.status} ${response.statusText}`);

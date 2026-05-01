@@ -3,7 +3,8 @@
 // ============================================================
 
 import React, { useState, useCallback, useRef, useEffect, useMemo, useReducer } from 'react';
-import { Box, Text, useInput, useApp, useStdin, Static } from 'ink';
+import { Box, Text, useInput, useApp, useStdin, useStdout, Static } from 'ink';
+import { join } from 'node:path';
 import type { AgentState, TokenUsage, UITheme, UILanguage } from '@/core/types';
 import type { AgentCallbacks } from '@/core/agent/AgentLoop';
 import { t, setLanguage, getLanguage } from '@/core/i18n';
@@ -15,7 +16,6 @@ import { SlashCommandRegistry } from './SlashCommandRegistry';
 import { RegistryClient, MCPInstaller, SkillInstaller } from '@/tiangong';
 import { handleSearch, handleInstall, handleList, handleUninstall } from '@/tiangong/commands';
 import { AuthManager } from '@/auth';
-import { GLOBAL_CONFIG_DIR } from '@/core/config/GlobalConfig';
 import { getTodoManager } from '@/core/tools/TodoTool';
 import { LoginPrompt } from './auth/LoginPrompt';
 import { WhoamiDisplay } from './auth/WhoamiDisplay';
@@ -113,6 +113,8 @@ export interface AppProps {
   onSubAgentSetup?: (callbacks: SubAgentUICallbacks) => void;
   /** 系统诊断查询回调 (由 ChatSession 提供) */
   onDoctorQuery?: () => Promise<string>;
+  /** 提醒统计查询回调 (返回格式化后的 Markdown) */
+  onReminderStatsQuery?: (args: string) => Promise<string>;
   // ─── 连续会话回调 ─────────────────────────────────────
   /** 恢复会话通知 */
   onResumeNotification?: (summary: string, memoryCount: number) => void;
@@ -486,7 +488,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
       }).filter(Boolean);
 
       if (createMsgs.length === 1) {
-        summaryParts.push(`✅ 已创建: ${taskNames[0]}`);
+        summaryParts.push(`✅ 已创建: ${taskNames[0] || '(未知)'}`);
       } else {
         summaryParts.push(`✅ 已创建 ${createMsgs.length} 个任务: ${taskNames.join('、')}`);
       }
@@ -526,7 +528,7 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
   const configManager = useMemo(() => new ConfigManager(), []);
   const logSystem = useMemo(() => new LogSystem(), []);
   const botManager = useMemo(() => new BotManager(logSystem), [logSystem]);
-  const authManager = useMemo(() => new AuthManager(GLOBAL_CONFIG_DIR), []);
+  const authManager = useMemo(() => new AuthManager(join(process.cwd(), '.xuanji')), []);
   // 登录状态
   const [authUsername, setAuthUsername] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false); // 登录完成前阻塞主界面
@@ -1693,6 +1695,27 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
         },
       },
       {
+        name: '/reminders',
+        description: '查看提醒统计',
+        group: '提醒',
+        icon: '📋',
+        usage: '/reminders [stats|stats active|stats week|stats month]',
+        aliases: ['/remind'],
+        handler: async (args: string) => {
+          if (!p().onReminderStatsQuery) {
+            p().addSystemMessage('📋 提醒系统未启用\n提示: 请确保已配置提醒功能');
+            return;
+          }
+          try {
+            const result = await p().onReminderStatsQuery!(args);
+            p().addSystemMessage(result);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            p().addSystemMessage(`提醒统计查询失败: ${errMsg}`);
+          }
+        },
+      },
+      {
         name: '/help',
         description: t('help.help'),
         handler: async () => {
@@ -2067,8 +2090,9 @@ export function App({ agentLoop, model, onPermissionSetup, onPlanReviewSetup, on
             ? p().authManager.getAuthenticatedFetch()
             : null;
           const registryClient = new RegistryClient(undefined, undefined, authFetch ?? undefined);
-          const mcpInstaller = new MCPInstaller(registryClient);
-          const skillInstaller = new SkillInstaller(registryClient);
+          const currentUser = p().authManager.getCachedUsername();
+          const mcpInstaller = new MCPInstaller(registryClient, currentUser || undefined);
+          const skillInstaller = new SkillInstaller(registryClient, currentUser || undefined);
 
           const parts = (args || '').trim().split(/\s+/);
           const subCmd = parts[0] || '';

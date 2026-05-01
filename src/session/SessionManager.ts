@@ -198,7 +198,7 @@ export class SessionManager {
       ...this.memoryDrivenConfig,
       ...config,
     };
-    log.info('Memory-driven config updated:', this.memoryDrivenConfig);
+    log.debug('Memory-driven config updated:', this.memoryDrivenConfig);
   }
 
   /**

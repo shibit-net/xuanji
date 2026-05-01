@@ -30,7 +30,7 @@ describe('ContextBuilder', () => {
     expect(result).toContain('# Project Instructions');
     expect(result).toContain('### Custom Rules (.xuanji/rules.md)');
     expect(result).toContain('# Custom Rules');
-    expect(result).toContain('### Global Rules (~/.xuanji/rules.md)');
+    expect(result).toContain('### Global Rules (.xuanji/rules.md)');
     expect(result).toContain('# Global Rules');
     expect(result).toContain('### Environment');
     expect(result).toContain('Node:');

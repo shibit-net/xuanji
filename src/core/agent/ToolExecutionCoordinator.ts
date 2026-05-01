@@ -55,6 +55,11 @@ export class ToolExecutionCoordinator {
     private hookRegistry: HookRegistry | null,
   ) {}
 
+  /** 更新 HookRegistry 引用（避免重建整个实例） */
+  setHookRegistry(hookRegistry: HookRegistry | null): void {
+    this.hookRegistry = hookRegistry;
+  }
+
   /**
    * 分组工具并应用 Hook
    */
@@ -198,7 +203,19 @@ export class ToolExecutionCoordinator {
       }
     }
 
-    // 2. 准备需要执行的工具（排除被阻止和 Mock 的）
+    // 2. 处理幻觉工具调用（模型将自然语言误输出为 tool arguments）
+    // 直接标记为错误，不实际执行，避免浪费资源
+    for (const tc of result.toolCalls) {
+      if ((tc.input as Record<string, unknown>)?._hallucinated) {
+        const rawText = (tc.input as Record<string, unknown>)?._raw_text as string || '';
+        const errorMsg = `[模型输出异常] 工具 "${tc.name}" 的参数不是合法 JSON，模型误将自然语言输出为工具参数: "${rawText.slice(0, 200)}"。请重新生成合法的 JSON 参数。`;
+        resultsMap.set(tc.id, { content: errorMsg, isError: true });
+        callbacks.onToolEnd?.(tc.id, tc.name, errorMsg, true);
+        grouping.blockedIds.add(tc.id);
+      }
+    }
+
+    // 3. 准备需要执行的工具（排除被阻止和 Mock 的）
     const toolsToExecute = result.toolCalls
       .filter(tc => !grouping.blockedIds.has(tc.id) && !grouping.mockResults.has(tc.id))
       .map(tc => {
@@ -210,7 +227,7 @@ export class ToolExecutionCoordinator {
         };
       });
 
-    // 3. 使用 ToolDispatcher.executeAll() 执行所有工具
+    // 4. 使用 ToolDispatcher.executeAll() 执行所有工具
     // ToolDispatcher 会自动处理只读工具的并行执行和写工具的串行执行
     if (toolsToExecute.length > 0) {
       const dispatcherResults = await this.toolDispatcher.executeAll(toolsToExecute, signal);
@@ -228,7 +245,7 @@ export class ToolExecutionCoordinator {
 
     const totalDurationMs = Date.now() - startTime;
 
-    // 4. 收集文件变更
+    // 5. 收集文件变更
     const fileChanges: import('@/core/types').FileChange[] = [];
     for (const [id, fullResult] of fullResultsMap) {
       if (fullResult.fileChanges && fullResult.fileChanges.length > 0) {
@@ -236,7 +253,7 @@ export class ToolExecutionCoordinator {
       }
     }
 
-    // 5. 更新统计
+    // 6. 更新统计
     for (const tc of result.toolCalls) {
       const toolResult = resultsMap.get(tc.id);
       if (toolResult) {

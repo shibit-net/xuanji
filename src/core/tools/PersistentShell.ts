@@ -58,6 +58,7 @@ export class PersistentShell {
   private _queue: Array<{
     command: string;
     timeout: number;
+    cwd?: string;
     resolve: (result: ShellResult) => void;
     reject: (error: Error) => void;
   }> = [];
@@ -112,17 +113,17 @@ export class PersistentShell {
   /**
    * 执行命令并等待结果（带并发排队保护）
    */
-  async execute(command: string, timeout: number): Promise<ShellResult> {
+  async execute(command: string, timeout: number, cwd?: string): Promise<ShellResult> {
     // 如果已有命令在执行，排队等待
     if (this._executing) {
       return new Promise<ShellResult>((resolve, reject) => {
-        this._queue.push({ command, timeout, resolve, reject });
+        this._queue.push({ command, timeout, cwd, resolve, reject });
       });
     }
 
     this._executing = true;
     try {
-      return await this._executeInternal(command, timeout);
+      return await this._executeInternal(command, timeout, cwd);
     } finally {
       this._executing = false;
       // 处理排队的下一个命令
@@ -137,17 +138,23 @@ export class PersistentShell {
     if (this._queue.length === 0) return;
     const next = this._queue.shift()!;
     // 使用 execute 而非 _executeInternal 以保持互斥
-    this.execute(next.command, next.timeout).then(next.resolve, next.reject);
+    this.execute(next.command, next.timeout, next.cwd).then(next.resolve, next.reject);
   }
 
   /**
    * 内部执行命令（无并发保护）
    */
-  private async _executeInternal(command: string, timeout: number): Promise<ShellResult> {
+  private async _executeInternal(command: string, timeout: number, cwd?: string): Promise<ShellResult> {
     // 超时后重建 Shell，防止残留 stdout 污染
     if (this._needsReset) {
       this._needsReset = false;
       this.reset();
+    }
+
+    // 如果指定了 cwd 且与 shell 当前目录不同，先 cd 切换
+    if (cwd && cwd !== this._lastKnownCwd) {
+      command = `cd ${JSON.stringify(cwd)} 2>/dev/null || { echo "ERROR: Cannot cd to ${JSON.stringify(cwd)}"; exit 1; }\n${command}`;
+      this._lastKnownCwd = cwd;
     }
 
     this.ensureRunning();

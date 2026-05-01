@@ -7,7 +7,7 @@
  * 主 Agent 可以使用此工具创建临时 Agent。
  */
 
-import type { Tool, ToolExecuteOptions } from '@/core/types';
+import type { Tool, ToolResult } from '@/shared/types/tools';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { TemporaryAgentOptions } from '@/core/agent/TemporaryAgentFactory';
 import { logger } from '@/core/logger';
@@ -27,6 +27,18 @@ export interface CreateTemporaryAgentInput {
 
 export class CreateTemporaryAgentTool implements Tool {
   name = 'create_temporary_agent';
+  readonly = false;
+  input_schema = {
+    type: 'object',
+    properties: {
+      role: { type: 'string', description: '角色名称' },
+      capabilities: { type: 'array', items: { type: 'string' }, description: '需要的能力列表' },
+      taskDescription: { type: 'string', description: '任务描述' },
+      scene: { type: 'string', description: '关联的场景 ID（可选）' },
+    },
+    required: ['role', 'capabilities', 'taskDescription'],
+  };
+
   description = `创建临时 Agent 来完成特定任务。
 
 使用场景：
@@ -87,14 +99,14 @@ export class CreateTemporaryAgentTool implements Tool {
   }
 
   async execute(
-    input: CreateTemporaryAgentInput,
-    options?: ToolExecuteOptions
-  ): Promise<string> {
+    input: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<ToolResult> {
     if (!this.agentRegistry) {
       throw new Error('AgentRegistry 未设置');
     }
 
-    const { role, capabilities, taskDescription, scene } = input;
+    const { role, capabilities, taskDescription, scene } = input as unknown as CreateTemporaryAgentInput;
 
     log.info(`创建临时 Agent: ${role}`);
     log.debug('能力:', capabilities);
@@ -127,6 +139,6 @@ export class CreateTemporaryAgentTool implements Tool {
 
     log.info('临时 Agent 创建成功:', result);
 
-    return JSON.stringify(result, null, 2);
+    return { content: JSON.stringify(result, null, 2), isError: false };
   }
 }

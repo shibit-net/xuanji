@@ -10,7 +10,9 @@ import type { ToolCall, ToolSchema } from './tools';
  */
 export type StreamEventType =
   | 'text_delta'
+  | 'thinking_start'
   | 'thinking_delta'
+  | 'reasoning_delta'
   | 'tool_use_start'
   | 'tool_use_delta'
   | 'tool_use_end'
@@ -32,6 +34,10 @@ export interface StreamEvent {
   text?: string;
   /** 思考增量 */
   thinking?: string;
+  /** thinking 块签名（Anthropic API 要求传回） */
+  signature?: string;
+  /** 推理增量（DeepSeek thinking 模式） */
+  reasoning?: string;
   /** 工具调用信息 */
   toolCall?: Partial<ToolCall>;
   /** Token 用量 */

@@ -2,12 +2,13 @@
 // AgentManager - Agent 管理器主组件（优化版）
 // ============================================================
 
-import { useState, useMemo } from 'react';
-import { Search, Plus, X, Bot, Package, Folder, RefreshCw, Filter, ChevronDown } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, Plus, X, Bot, Package, Folder, RefreshCw, Filter, ChevronDown, Download, CheckCircle } from 'lucide-react';
 import { useAgentManager } from '../hooks/useAgentManager';
 import { useToast } from './Toast';
 import AgentDetail from './AgentDetail';
 import AgentEditor from './AgentEditor';
+import { LOCAL_MODELS } from '../hooks/useLocalModel';
 
 interface AgentManagerProps {
   onClose: () => void;
@@ -29,6 +30,54 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [showFilters, setShowFilters] = useState(false);
+  const [modelStatuses, setModelStatuses] = useState<Record<string, { installed: boolean; downloading: boolean; progress: number }>>({});
+
+  // 监听模型下载状态
+  useEffect(() => {
+    const checkModelStatuses = async () => {
+      const statuses: Record<string, any> = {};
+
+      for (const agent of agents) {
+        const modelId = agent.model?.primary;
+        if (modelId && modelId in LOCAL_MODELS) {
+          try {
+            // 检查是否已安装
+            const checkResult = await window.electron.localModelCheck(modelId);
+            const installed = checkResult.success && checkResult.installed;
+
+            // 检查是否正在下载
+            const tasksResult = await window.electron.downloadGetTasks();
+            let downloading = false;
+            let progress = 0;
+
+            if (tasksResult.success && tasksResult.tasks) {
+              const modelInfo = LOCAL_MODELS[modelId as keyof typeof LOCAL_MODELS];
+              const modelTask = tasksResult.tasks.find(
+                (t: any) => t.category === 'model' && t.name.includes(modelInfo?.filename || '')
+              );
+
+              if (modelTask) {
+                downloading = modelTask.status === 'downloading';
+                progress = modelTask.progress || 0;
+              }
+            }
+
+            statuses[agent.id] = { installed, downloading, progress };
+          } catch (err) {
+            console.error(`Failed to check model status for ${agent.id}:`, err);
+          }
+        }
+      }
+
+      setModelStatuses(statuses);
+    };
+
+    checkModelStatuses();
+
+    // 每2秒更新一次状态
+    const interval = setInterval(checkModelStatuses, 2000);
+    return () => clearInterval(interval);
+  }, [agents]);
 
   // 过滤和排序
   const filteredAndSortedAgents = useMemo(() => {
@@ -153,6 +202,32 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '删除失败');
+    }
+  };
+
+  const handleToggleEnabled = async (enabled: boolean) => {
+    if (!selectedAgent) return;
+
+    try {
+      const updatedConfig = {
+        ...selectedAgent,
+        enabled,
+      };
+
+      const result = await updateAgent(selectedAgent.id, updatedConfig);
+      if (result.success) {
+        toast.success(enabled ? 'Agent 已启用' : 'Agent 已禁用');
+
+        // 主动拉取最新 Agent 详情
+        const latest = await window.electron.agentGet({ agentId: selectedAgent.id });
+        if (latest.success && latest.agent) {
+          setSelectedAgent(latest.agent);
+        }
+      } else {
+        toast.error(result.error || '操作失败');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败');
     }
   };
 
@@ -407,6 +482,10 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                       {agentList.map((agent: any) => {
                         const typeInfo = getAgentTypeInfo(agent);
                         const source = agent.metadata?.source || 'unknown';
+                        const modelId = agent.model?.primary;
+                        const isLocalModel = modelId && modelId in LOCAL_MODELS;
+                        const modelStatus = modelStatuses[agent.id];
+
                         return (
                           <button
                             key={agent.id}
@@ -431,6 +510,25 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                               <span className="text-sm font-medium truncate flex-1">
                                 {agent.name}
                               </span>
+                              {/* 模型状态 */}
+                              {isLocalModel && modelStatus && (
+                                <>
+                                  {modelStatus.downloading ? (
+                                    <span className="text-xs text-blue-400 flex items-center gap-1" title={`下载中 ${modelStatus.progress}%`}>
+                                      <Download size={12} className="animate-pulse" />
+                                      {modelStatus.progress}%
+                                    </span>
+                                  ) : modelStatus.installed ? (
+                                    <span className="text-xs text-green-400" title="模型已安装">
+                                      <CheckCircle size={12} />
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-yellow-400" title="模型未安装">
+                                      <Download size={12} />
+                                    </span>
+                                  )}
+                                </>
+                              )}
                               {/* Agent 类型徽章 */}
                               <span
                                 className={`text-xs px-1.5 py-0.5 rounded ${typeInfo.bgColor}`}
@@ -487,6 +585,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               onDelete={handleDeleteAgent}
               onCopy={handleCopyAgent}
               onTest={() => toast.info('测试功能开发中...')}
+              onToggleEnabled={handleToggleEnabled}
             />
           ) : viewType === 'editor' ? (
             <AgentEditor

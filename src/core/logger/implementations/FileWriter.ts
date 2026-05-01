@@ -15,8 +15,12 @@ import type { LogLevel } from '../types';
  * - 按日志级别分文件输出
  * - 写入失败静默处理
  */
+/** 单个日志文件最大大小（10MB），超过后截断保留后半部分 */
+const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
+
 export class FileWriter {
   private fileHandles: Map<LogLevel, fs.FileHandle> = new Map();
+  private filePaths: Map<LogLevel, string> = new Map();
   private ready: Promise<void>;
   private baseDir: string;
 
@@ -33,6 +37,7 @@ export class FileWriter {
       const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
       for (const level of levels) {
         const filePath = path.join(this.baseDir, `${level}.log`);
+        this.filePaths.set(level, filePath);
         const handle = await fs.open(filePath, 'a');
         this.fileHandles.set(level, handle);
       }
@@ -72,10 +77,30 @@ export class FileWriter {
 
     const doWrite = async () => {
       await this.ready;
+      const filePath = this.filePaths.get(level);
       const handle = this.fileHandles.get(level);
-      if (handle) {
-        await handle.write(logLine);
+      if (!handle || !filePath) return;
+
+      // 检查文件大小，超过上限则轮转到日期文件
+      try {
+        const stat = await fs.stat(filePath);
+        if (stat.size > MAX_LOG_FILE_SIZE) {
+          await handle.close();
+          // 轮转：重命名为 <level>-YYYY-MM-DD.log
+          const today = new Date().toISOString().split('T')[0]!;
+          const rotatedPath = path.join(this.baseDir, `${level}-${today}.log`);
+          await fs.rename(filePath, rotatedPath);
+          // 创建新的活跃文件并写入当前日志行
+          const newHandle = await fs.open(filePath, 'a');
+          this.fileHandles.set(level, newHandle);
+          await newHandle.write(logLine);
+          return;
+        }
+      } catch {
+        // 大小检查失败不阻塞写入
       }
+
+      await handle.write(logLine);
     };
     doWrite().catch(() => {});
   }
@@ -122,6 +147,9 @@ export async function closeFileWriter(): Promise<void> {
 /**
  * 重置全局 FileWriter（仅用于测试）
  */
-export function resetFileWriter(): void {
-  globalWriter = null;
+export async function resetFileWriter(): Promise<void> {
+  if (globalWriter) {
+    await globalWriter.close();
+    globalWriter = null;
+  }
 }

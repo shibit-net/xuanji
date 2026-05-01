@@ -353,19 +353,15 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
   },
 
   updateTodo: (data) => {
-    console.log('[executionStore] updateTodo 调用，参数:', data);
     const currentTodos = get().todos;
-    console.log('[executionStore] 当前所有 todos:', currentTodos.map(t => ({ id: t.id, status: t.status, subject: t.subject })));
 
     set((state) => ({
       todos: state.todos.map((todo) => {
         if (todo.id === data.id) {
           const updated = { ...todo };
-          console.log('[executionStore] 找到匹配的 todo:', todo.id, '当前状态:', todo.status);
 
           if (data.status) {
             updated.status = data.status;
-            console.log('[executionStore] 更新状态为:', data.status);
 
             if (data.status === 'in_progress' && !todo.startedAt) {
               updated.startedAt = Date.now();
@@ -378,14 +374,12 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
             updated.activeForm = data.activeForm;
           }
 
-          console.log('[executionStore] 更新后的 todo:', { id: updated.id, status: updated.status });
           return updated;
         }
         return todo;
       }),
     }));
 
-    console.log('[executionStore] 更新后所有 todos:', get().todos.map(t => ({ id: t.id, status: t.status, subject: t.subject })));
   },
 
   // ========== 权限交互操作 ==========

@@ -41,14 +41,15 @@ async function buildProjectContext(): Promise<string> {
   const scanner = new ProjectScanner();
   const metadata = scanner.scan();
 
-  // 如果不是项目（没有 git 且类型未知），不加载项目上下文
-  if (metadata.type === 'unknown' && !metadata.hasGit) {
-    log.debug('Not a project, skipping project context');
-    return '';
-  }
-
+  // 先加载规则文件（即使不是项目，也可能有 XUANJI.md）
   const loader = new RulesLoader();
   const rules = loader.loadRulesSync(metadata.rootPath);
+
+  // 如果不是项目（没有 git 且类型未知）且没有规则文件，跳过
+  if (metadata.type === 'unknown' && !metadata.hasGit && !rules.xuanjiMd && !rules.projectRules) {
+    log.debug('Not a project and no rules, skipping project context');
+    return '';
+  }
 
   let indexSummary = '';
   try {

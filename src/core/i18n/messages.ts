@@ -219,7 +219,7 @@ const zh: Messages = {
   'bots_config.title': '💬 IM 机器人配置',
   'bots_config.fields_title': '{icon} {name} — 配置字段',
   'bots_config.not_configured': '(未配置)',
-  'bots_config.edit_hint': '💡 编辑 ~/.xuanji/config.json 中的 bots 字段进行配置',
+  'bots_config.edit_hint': '💡 编辑 .xuanji/config.json 中的 bots 字段进行配置',
   'bots_config.hint': '↑↓选择  1/2/3快速切换  Q=返回',
 
   // ── 日志 ──
@@ -249,17 +249,17 @@ const zh: Messages = {
   'index.interactive_cmds': '交互模式命令:',
   'index.env_vars': '环境变量:',
   'index.docs': '文档: https://github.com/shibit/xuanji',
-  'index.config_example': '配置文件 (~/.xuanji/config.json) 示例:',
+  'index.config_example': '配置文件 (.xuanji/config.json) 示例:',
   'index.background': '后台运行:',
 
   // ── Bot 模式 (index.ts) ──
   'bot.started': '璇玑 Bot 模式启动',
-  'bot.no_bot_found': '未找到要启动的机器人。\n  方式 1: xuanji bot --dingtalk (命令行指定)\n  方式 2: 在 ~/.xuanji/config.json 中配置 bots.dingtalk.enabled = true',
+  'bot.no_bot_found': '未找到要启动的机器人。\n  方式 1: xuanji bot --dingtalk (命令行指定)\n  方式 2: 在 .xuanji/config.json 中配置 bots.dingtalk.enabled = true',
   'bot.starting': '🤖 正在启动{name}机器人...',
   'bot.started_ok': '✅ {name}机器人已启动',
   'bot.start_failed': '❌ {name}机器人启动失败: {error}',
   'bot.running': '\n✦ 璇玑 Bot 模式运行中 ({count} 个机器人)',
-  'bot.log_dir': '  日志文件: ~/.xuanji/logs/',
+  'bot.log_dir': '  日志文件: .xuanji/logs/',
   'bot.stop_hint': '  Ctrl+C 或 SIGTERM 停止\n',
   'bot.signal_received': '收到 {signal}，开始优雅退出',
   'bot.stopping': '\n⏹️  收到 {signal}，正在停止机器人...',
@@ -550,7 +550,7 @@ const en: Messages = {
   'bots_config.title': '💬 IM Bot Configuration',
   'bots_config.fields_title': '{icon} {name} — Config Fields',
   'bots_config.not_configured': '(not configured)',
-  'bots_config.edit_hint': '💡 Edit the bots section in ~/.xuanji/config.json',
+  'bots_config.edit_hint': '💡 Edit the bots section in .xuanji/config.json',
   'bots_config.hint': '↑↓ Navigate  1/2/3 Quick switch  Q=Back',
 
   // ── Logs ──
@@ -580,17 +580,17 @@ const en: Messages = {
   'index.interactive_cmds': 'Interactive commands:',
   'index.env_vars': 'Environment variables:',
   'index.docs': 'Docs: https://github.com/shibit/xuanji',
-  'index.config_example': 'Config file (~/.xuanji/config.json) example:',
+  'index.config_example': 'Config file (.xuanji/config.json) example:',
   'index.background': 'Background:',
 
   // ── Bot Mode (index.ts) ──
   'bot.started': 'Xuanji Bot mode started',
-  'bot.no_bot_found': 'No bot found to start.\n  Method 1: xuanji bot --dingtalk (CLI)\n  Method 2: Set bots.dingtalk.enabled = true in ~/.xuanji/config.json',
+  'bot.no_bot_found': 'No bot found to start.\n  Method 1: xuanji bot --dingtalk (CLI)\n  Method 2: Set bots.dingtalk.enabled = true in .xuanji/config.json',
   'bot.starting': '🤖 Starting {name} bot...',
   'bot.started_ok': '✅ {name} bot started',
   'bot.start_failed': '❌ {name} bot failed to start: {error}',
   'bot.running': '\n✦ Xuanji Bot mode running ({count} bot(s))',
-  'bot.log_dir': '  Log files: ~/.xuanji/logs/',
+  'bot.log_dir': '  Log files: .xuanji/logs/',
   'bot.stop_hint': '  Ctrl+C or SIGTERM to stop\n',
   'bot.signal_received': 'Received {signal}, graceful shutdown',
   'bot.stopping': '\n⏹️  Received {signal}, stopping bots...',

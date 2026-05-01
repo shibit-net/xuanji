@@ -23,7 +23,7 @@
 //
 // 日志文件:
 //
-//   默认写入 ~/.xuanji/logs/{debug,info,warn,error}.log（按级别分文件）
+//   默认写入 .xuanji/logs/{debug,info,warn,error}.log（按级别分文件）
 //
 
 export type { ILogger, LogLevel, LogMetadata, LoggerConfig } from './types';

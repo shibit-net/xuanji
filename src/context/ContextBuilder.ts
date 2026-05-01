@@ -47,9 +47,9 @@ export class ContextBuilder {
       sections.push(this.buildSection('Custom Rules (.xuanji/rules.md)', this.rules.projectRules));
     }
 
-    // ~/.xuanji/rules.md section
+    // .xuanji/rules.md section
     if (this.rules.globalRules) {
-      sections.push(this.buildSection('Global Rules (~/.xuanji/rules.md)', this.rules.globalRules));
+      sections.push(this.buildSection('Global Rules (.xuanji/rules.md)', this.rules.globalRules));
     }
 
     // 代码索引 section

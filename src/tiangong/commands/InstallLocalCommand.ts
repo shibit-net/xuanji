@@ -120,7 +120,7 @@ export async function handleInstallLocal(args: string): Promise<string> {
   }
 
   // 写入 mcp.json
-  const mcpConfigPath = path.join(os.homedir(), '.xuanji', 'mcp.json');
+  const mcpConfigPath = path.join(process.cwd(), '.xuanji', 'mcp.json');
   let mcpConfig: any = { servers: [] };
 
   if (fs.existsSync(mcpConfigPath)) {

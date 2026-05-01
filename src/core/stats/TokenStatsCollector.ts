@@ -15,8 +15,8 @@ import { StatsStorage } from './StatsStorage.js';
 export class TokenStatsCollector implements ITokenStatsCollector {
   private storage: IStatsStorage;
 
-  constructor(storage?: IStatsStorage) {
-    this.storage = storage || new StatsStorage();
+  constructor(storage?: IStatsStorage, userId?: string) {
+    this.storage = storage || new StatsStorage(undefined, userId);
   }
 
   async recordUsage(params: {

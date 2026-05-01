@@ -28,7 +28,8 @@ function resolveLogDir(): string {
  * - 固定写入项目目录: ./.xuanji/logs/{debug,info,warn,error}.log
  */
 export function createLogger(config?: LoggerConfig): ILogger {
-  const type = process.env.NODE_ENV === 'production' ? 'consola' : 'debug';
+  const type = process.env.XUANJI_LOGGER_TYPE ||
+    (process.env.NODE_ENV === 'production' ? 'consola' : 'debug');
 
   const enableFile = config?.enableFile ?? true;
   const fileWriter = enableFile

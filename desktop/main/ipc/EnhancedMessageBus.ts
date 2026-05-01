@@ -44,7 +44,6 @@ export class EnhancedMessageChannel extends MessageChannel {
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           try {
             this.mainWindow.webContents.send(msg.type, msg.data);
-            console.log(`[EnhancedMessageBus] 自动转发消息到renderer: ${msg.type}`);
           } catch (err) {
             console.error(`[EnhancedMessageBus] 转发到renderer失败 (${msg.type}):`, err);
           }

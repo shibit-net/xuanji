@@ -40,7 +40,7 @@ describe('RulesLoader', () => {
 
     expect(result.xuanjiMd).toBeUndefined();
     expect(result.projectRules).toBeUndefined();
-    // globalRules 取决于是否存在 ~/.xuanji/rules.md，不强断言
+    // globalRules 取决于是否存在 .xuanji/rules.md，不强断言
   });
 
   it('should truncate oversized files', async () => {

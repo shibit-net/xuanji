@@ -117,9 +117,10 @@ export class MCPManager {
 
         this.clients.set(serverConfig.name, client);
 
-        // 监听重连失败事件，从工具列表移除不可用的服务器
+        // 监听重连失败事件，关闭客户端并移除不可用的服务器
         client.on('reconnect_failed', (name: string) => {
-          log.error(`MCP server "${name}" reconnect failed, removing from active clients`);
+          log.error(`MCP server "${name}" reconnect failed, closing and removing from active clients`);
+          client.close().catch(() => {});
           this.clients.delete(name);
         });
 

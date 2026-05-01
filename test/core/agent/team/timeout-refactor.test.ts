@@ -7,15 +7,15 @@ import { DEFAULT_TEAM_CONFIG } from '@/core/agent/team/types';
 
 describe('Team Timeout Refactor', () => {
   it('should have correct default values', () => {
-    expect(DEFAULT_TEAM_CONFIG.teamTotalTimeout).toBe(1_200_000); // 20 min
-    expect(DEFAULT_TEAM_CONFIG.defaultMemberTimeout).toBe(600_000); // 10 min
+    expect(DEFAULT_TEAM_CONFIG.teamTotalTimeout).toBe(1_800_000); // 30 min
+    expect(DEFAULT_TEAM_CONFIG.defaultMemberTimeout).toBe(300_000); // 5 min
     expect(DEFAULT_TEAM_CONFIG.minMemberTimeout).toBe(30_000); // 30s
   });
 
   it('should have correct strategy ratios', () => {
     expect(DEFAULT_TEAM_CONFIG.hierarchicalLeaderRatio).toBe(1.5);
-    expect(DEFAULT_TEAM_CONFIG.debateFirstRoundRatio).toBe(1.0);
-    expect(DEFAULT_TEAM_CONFIG.debateLaterRoundRatio).toBe(0.6);
+    expect(DEFAULT_TEAM_CONFIG.debateFirstRoundRatio).toBe(1.5);
+    expect(DEFAULT_TEAM_CONFIG.debateLaterRoundRatio).toBe(1.0);
   });
 
   it('should enable dynamic timeout by default', () => {
