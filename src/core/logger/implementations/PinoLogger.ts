@@ -81,16 +81,8 @@ export class PinoLogger implements ILogger {
           level: 'debug',
         },
         {
-          stream: pino.transport({
-            target: 'pino-pretty',
-            options: {
-              destination: 1,
-              colorize: true,
-              translateTime: 'SYS:yyyy-mm-dd HH:MM:ss.l',
-              ignore: 'pid,hostname',
-              messageFormat: '{if execId}[{execId}]{end} {if depth}(depth={depth}){end} {msg}',
-            },
-          }),
+          // 直接输出到 stdout，不用 pino.transport（避免 worker thread 兼容问题）
+          stream: process.stdout,
           level: process.env.XUANJI_LOG_LEVEL || 'debug',
         },
       ]),

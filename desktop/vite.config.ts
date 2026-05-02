@@ -69,6 +69,8 @@ export default defineConfig({
                 if (id.startsWith('node:')) return true;
                 if (id.startsWith('node-llama-cpp')) return true;
                 if (id.startsWith('@node-llama-cpp/')) return true;
+                // pino 相关包需要 external，因为它们的 worker 文件需要从 node_modules 加载
+                if (['pino', 'thread-stream', 'sonic-boom', 'pino-pretty', 'pino-std-serializers', 'fast-redact', 'process-warning', 'on-exit-leak-free', 'atomic-sleep', 'colorette', 'dateformat', 'joycon', 'strip-json-comments'].includes(id)) return true;
                 const builtins = ['path', 'fs', 'url', 'module', 'child_process', 'os', 'crypto', 'stream', 'util', 'events', 'http', 'https', 'net', 'tls', 'zlib', 'buffer', 'querystring', 'assert', 'tty', 'readline', 'worker_threads', 'perf_hooks', 'async_hooks', 'dns', 'dgram'];
                 if (builtins.includes(id)) return true;
                 return false;
@@ -79,27 +81,6 @@ export default defineConfig({
       },
     ]),
     renderer(),
-    // 构建时替换 pino 中的 tracingChannel 调用
-    // Electron 28 (Node 18.x) 不支持 diagnostics_channel.tracingChannel
-    // pino 在模块作用域直接调用了它，必须构建时替换而非运行时打补丁
-    {
-      name: 'fix-pino-tracing',
-      enforce: 'post',
-      closeBundle() {
-        const indexPath = path.resolve(__dirname, 'dist-electron/index.js');
-        if (require('fs').existsSync(indexPath)) {
-          const content = require('fs').readFileSync(indexPath, 'utf-8');
-          // 用字符串替换根治：把 .tracingChannel(...) 替换为 noop 对象
-          const replaced = content.replace(
-            /(\w+)\.tracingChannel\(["']pino_\w+["']\)/,
-            '{hasSubscribers:false,traceSync(t){return t()},trace(t){return t()}}'
-          );
-          if (replaced !== content) {
-            require('fs').writeFileSync(indexPath, replaced, 'utf-8');
-          }
-        }
-      },
-    },
   ],
   resolve: { alias: buildAliases() },
   base: './',
