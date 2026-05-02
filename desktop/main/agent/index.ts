@@ -92,7 +92,7 @@ function initChatSession(): Promise<boolean> {
 
       const { spawn } = require('child_process');
       agentProcess = spawn(nodePath, args, {
-        cwd: path.join(__dirname, '../../'),
+        cwd: path.resolve(__dirname, '../../'),
         env: {
           ...process.env,
           NODE_ENV: process.env.NODE_ENV || 'development',

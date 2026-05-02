@@ -60,6 +60,18 @@ export class ConfigLoader implements IConfigLoader {
       log.info(`使用 Agent 配置: ${this.agentId}`);
     }
 
+    // 3.5 确保 provider.apiKey 存在——如果 agent 配置有 apiKey，但 deepMerge 时
+    // config.provider 是空对象 {}（而非 undefined），deepMerge 的递归合并会保留
+    // 空对象的属性而不会完整替换。这里做一次兜底校验。
+    if (!config.provider?.apiKey) {
+      // 重试一次：从 agent 配置中提取 apiKey
+      const retryConfig = await this.loadAgentConfig(this.agentId);
+      if (retryConfig?.provider?.apiKey) {
+        log.info(`发现 provider.apiKey 为空，从 Agent 配置补全`);
+        config.provider = { ...config.provider, ...retryConfig.provider };
+      }
+    }
+
     // 4. 加载 MCP 配置（独立文件 .xuanji/users/{userId}/mcp.json）
     const mcpConfig = await this.loadMCPConfig();
     if (mcpConfig) {
