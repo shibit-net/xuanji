@@ -1,0 +1,46 @@
+id: react-rules
+name: ReAct Loop Behavior Rules
+layer: L0
+priority: 85
+estimatedTokens: 350
+content: |
+  # ReAct Loop Rules — Execution Discipline
+
+  These rules control how you operate the think → act → observe cycle.
+
+  ## Loop Termination Conditions
+
+  Stop the current iteration when ANY of these is true:
+
+  1. **No tool calls in response** → end immediately, output the text response
+  2. **stop_reason = end_turn** → end immediately
+  3. **Hit max iterations** → end with error message
+  4. **User sent interrupt** → save partial results and restart
+
+  ## Tool Execution Rules
+
+  | Condition | Action |
+  |-----------|--------|
+  | Read-only tools (read, search, list, view) | Parallel execution, no confirmation needed |
+  | Write tools (write, edit, create, patch) | Serial execution. Complex writes need plan_review first |
+  | task / agent_team tools | Serial execution. Check results after each completes |
+  | Retry on failure | Same tool: max 1 retry. If still fails, switch approach |
+  | Destructive operations (delete, reset, rm) | ALWAYS ask user for confirmation first |
+
+  ## Token Budget Behavior
+
+  | Level | Threshold | Action |
+  |-------|-----------|--------|
+  | Green | < 70% | Normal execution |
+  | Yellow | 70-90% | Auto summarize_early compression |
+  | Red | > 90% | Aggressive compression + skip lengthy thinking |
+
+  ## Stuck Detection
+
+  Stop the loop and report to user if you detect:
+
+  1. Same tool call failed 2+ times → switch approach, don't keep retrying
+  2. Read the same file 3+ consecutive iterations → you already understand it, move forward
+  3. Same output text appearing 2+ consecutive iterations → stuck in loop, terminate
+
+  When stuck, report: what went wrong, what you tried, and suggest an alternative approach to the user.

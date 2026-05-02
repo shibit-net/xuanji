@@ -4,9 +4,7 @@
 
 import path from 'path';
 import type { ILogger, LoggerConfig } from './types';
-import { DebugLogger } from './implementations/DebugLogger';
-import { ConsolaLogger } from './implementations/ConsolaLogger';
-import { getFileWriter } from './implementations/FileWriter';
+import { PinoLogger } from './implementations/PinoLogger';
 
 /**
  * 解析日志目录路径
@@ -20,23 +18,17 @@ function resolveLogDir(): string {
 /**
  * 创建 Logger 实例
  *
- * 根据环境自动选择实现：
- * - 开发环境 → DebugLogger（debug 包，命名空间机制）
- * - 生产环境 → ConsolaLogger（consola 包，级别控制）
- *
- * 文件输出：
- * - 固定写入项目目录: ./.xuanji/logs/{debug,info,warn,error}.log
+ * 使用 pino 实现：
+ * - 文件输出 JSONL 格式（`.xuanji/logs/xuanji.jsonl`），每行一个 JSON，便于 grep/分析
+ * - 控制台输出可读格式
+ * - child 机制传递 execId、depth 等上下文
  */
 export function createLogger(config?: LoggerConfig): ILogger {
-  const type = process.env.XUANJI_LOGGER_TYPE ||
-    (process.env.NODE_ENV === 'production' ? 'consola' : 'debug');
-
-  const enableFile = config?.enableFile ?? true;
-  const fileWriter = enableFile
-    ? getFileWriter(resolveLogDir())
-    : null;
-
-  return type === 'consola'
-    ? new ConsolaLogger(config, fileWriter)
-    : new DebugLogger(config, fileWriter);
+  const namespace = config?.namespace || 'xuanji';
+  return new PinoLogger({
+    namespace,
+    execId: config?.execId,
+    depth: config?.depth,
+    logDir: config?.file ? path.dirname(config.file) : resolveLogDir(),
+  });
 }

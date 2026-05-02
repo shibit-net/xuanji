@@ -15,23 +15,10 @@ import { WorktreeManager, type WorktreeInfo } from '@/core/agent/WorktreeManager
 export class WorktreeTool extends BaseTool {
   readonly name = 'enter_worktree';
   readonly description = [
-    '创建 Git Worktree 隔离工作环境。',
+    'Create an isolated Git worktree for sub-agent task execution.',
     '',
-    '# 功能',
-    '- create: 创建新的 worktree（基于 HEAD 创建新分支）',
-    '- remove: 移除已有的 worktree',
-    '- list: 列出所有 xuanji 管理的 worktree',
-    '- cleanup: 清理无改动的 worktree',
-    '',
-    '# 使用场景',
-    '- 子代理需要在隔离环境中修改代码',
-    '- 多分支并行开发',
-    '- 实验性修改需要独立空间',
-    '',
-    '# 注意',
-    '- 必须在 Git 仓库中才能使用',
-    '- Worktree 路径在 .xuanji/worktrees/ 下',
-    '- 退出时无改动的 worktree 会被自动清理',
+    'Actions: create, remove, list, cleanup.',
+    'Useful for parallel development on different branches without interference.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',

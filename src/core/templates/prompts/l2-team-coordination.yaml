@@ -2,151 +2,48 @@ id: "l2-team-coordination"
 name: "Team Coordination"
 layer: "L2"
 priority: 74
-estimatedTokens: 900
+estimatedTokens: 1200
 enabled: true
 content: |
-  # Agent Team 协同策略
+  # Multi-Agent Team Coordination
 
-  ## 何时使用 agent_team
+  ## When to Use agent_team
 
-  **适用场景**：
-  - 多视角分析：同一对象需要从不同角度评估
-  - 多步骤流水线：阶段间有明确的输入→输出依赖
-  - 多领域协作：跨越不同专业领域
-  - 需要辩论达成共识的决策
-
-  **不适用场景**：
-  - 单一明确任务 → 用 task
-  - 简单问题 → 直接回答
-  - 需要频繁用户交互的任务
-
-  ## 三原则
-
-  ### 原则 1：Agent ID 需验证
-
-  task 和 agent_team 共享相同的 agent 解析逻辑：
-  1. 调用 match_agent 查找匹配
-  2. 分数 >= 0.5 → 直接使用返回的 agent ID
-  3. 分数 < 0.5 → 无合适预置 agent → 创建临时 agent（需 system_prompt）
-
-  编造不存在的 agent ID 会导致创建弱能力的临时 agent。
-
-  ### 原则 2：同 Agent + 不同 Scene = 多视角
-
-  对同一领域的多视角分析，不要创建多个临时 agent：
-  1. 调用 match_agent 一次
-  2. 所有成员使用同一 agent ID
-  3. 用 scene 和 system_prompt 区分视角
-
-  这比创建多个临时 agent 更好——预置 agent 有正确的工具配置和模型设置。
-
-  ### 原则 3：临时 Agent 是最后手段
-
-  仅在 match_agent 对所有可用 agent 分数均 < 0.5 时使用。临时 agent 缺少领域专长、工具配置和独立的模型调优。
-
-  ## 任务分解
-
-  ### Step 1 — 分析需要的视角
-
-  **单领域、多视角**：调用 match_agent 一次 → 同一 agent + 不同 scene/systemPrompt
-  **多领域**：每个领域调用 match_agent 一次 → 可能匹配不同 agent
-
-  ### Step 2 — 定义具体职责
-
-  每个成员必须有独特的 task（WHAT to do），与 system_prompt（HOW to behave）明确区分：
-
-  | 字段 | 作用 | 示例 |
-  |------|------|------|
-  | task | 具体工作任务，成为子 agent 的用户消息 | "审查 X 文件中的 SQL 注入漏洞" |
-  | system_prompt | 角色行为引导，注入子 agent 系统提示 | "聚焦安全：OWASP Top 10、注入风险" |
-
-  所有成员 task 必须不同。不要让多个成员做相同的事。
-
-  ### Step 3 — 提供完整上下文
-
-  子 agent 无法访问父对话。在 goal 和每个成员的 task 中必须包含：绝对文件路径、约束条件、期望的输出格式。
-
-  ## 策略选择
-
-  | 策略 | 适用场景 | 执行模式 | 推荐 timeout |
-  |------|---------|---------|-------------|
-  | parallel | 独立分析同时进行 | 所有成员并发 | 600k+200k×(n-1) ms |
-  | sequential | 步骤有先后依赖 | A→B→C 顺序 | 300k+100k×(n-1) ms |
-  | hierarchical | 需要 leader 协调分配 | Leader 先运行，Workers 并行 | 600k+300k×workers ms |
-  | debate | 需要讨论达成共识 | 多轮辩论直至收敛 | 1,800,000ms × roundFactor |
-  | pipeline | 数据流逐阶段转换 | A 的输出→B 的输入→C 的输入 | 300k+150k×(n-1) ms |
-
-  **策略决策树（按优先级）**：
   ```
-  1. 有已知决策分歧/技术选型争议？ → debate
-  2. 需要先设计架构再分工实现？ → hierarchical
-  3. 数据需要多阶段转换（收集→分析→报告）？ → pipeline
-  4. 子任务有先后依赖？ → sequential
-  5. 以上皆非 → parallel（默认最快）
+  需要多角色协作吗？
+    ├─ 只需一个专业能力 → 用 task 工具
+    └─ 需要 2+ 专业能力协作 → 用 agent_team
+         ├─ 任务有依赖链 → sequential / pipeline
+         ├─ 独立并行分析 → parallel
+         ├─ 需要 leader 统筹 → hierarchical
+         └─ 需要讨论共识 → debate
   ```
 
-  **使用门槛**（至少满足 2 条才推荐 agent_team）：
-  - 任务涉及 ≥3 个文件/模块
-  - 需要多人协作（不同专业视角）
-  - 有明确的依赖/数据链
-  - 有已知决策分歧需辩论统一
-  - 单 agent 执行预估 > 15min
+  ## Strategy Quick Reference
 
-  ## Debate 优化：Judge 预读模式
+  | Strategy | Pattern | When | Key Point |
+  |----------|---------|------|-----------|
+  | sequential | A → B → C | Clear dependency chain | Each member receives previous output |
+  | parallel | A + B + C (all at once) | Independent tasks, same input | Same input, different perspectives |
+  | hierarchical | Leader → Workers | One planner coordinates | Leader (priority≥8) runs first |
+  | debate | A ↔ B ↔ C (multiple rounds) | Need discussion for consensus | Converges over maxRounds |
+  | pipeline | A → B → C (data transforms) | Clear data flow | Each stage transforms data |
 
-  辩论开始前，Judge 先执行预读阶段：
-  1. 读取所有涉及的关键源码文件
-  2. 输出「事实摘要」：关键函数行号、分支条件、边界值
-  3. 摘要共享给正反方
+  ## Team Configuration Checklist
 
-  正反方辩论时：
-  - 第一轮：输出完整论点（含代码引用行号）
-  - 后续轮：仅回应对方论点 + 补充新证据
-  - 禁止重复读取已读文件，引用 Judge 摘要中的行号即可
+  Before calling `agent_team`, verify:
 
-  Token 节省效果：文件读取量从 角色数×轮次×文件数 → 1次（Judge）+ 摘要引用
+  - [ ] Called `match_agent` for each member role
+  - [ ] Each member has **non-overlapping** responsibility
+  - [ ] `goal` includes all context (file paths, constraints)
+  - [ ] `systemPrompt` is concise (< 200 tokens per member)
+  - [ ] Never set `member.timeout` (let system auto-allocate)
+  - [ ] Member count is 2-5 (optimal)
 
-  ## 异步执行
+  ## CRITICAL: Context Isolation
 
-  按 l0-task-planning 中的「同步 vs 异步委派」决策流程判断是否使用 async: true。
+  Members have NO access to parent conversation history. Include ALL context in `goal` and `systemPrompt`.
 
-  长时间任务（debate/hierarchical 策略、大型重构等）强烈推荐异步，避免阻塞用户交互。
+  ## Output Integration
 
-  启动后返回 groupId，使用 task_control 管理：status / cancel / list。
-  完成后系统自动通知，你必须汇总结果给用户。
-
-  ## 异常处理
-
-  - **超时**：重试并增大 timeout，不要改用 task 逐个重试
-  - **成员失败**：查看该成员的错误信息和输出，调整 task/system_prompt 后重试整个团队
-  - **策略不匹配**：如果执行结果不符合预期，考虑切换到其他策略重试
-  - **后台任务失败**：使用 task_control status 查看详情，根据需要重试或调整方向
-
-  ## 结果汇总
-
-  团队执行完成后，必须用引用格式汇报：
-
-  📎 [成员名]："从输出中逐字复制的原句"
-
-  引用名称必须与成员执行摘要中的名称完全一致。每个关键发现附带一个引用。
-
-  ## 常见错误
-
-  1. **编造 agent ID**：照搬示例中的 ID → 应调用 match_agent
-  2. **不必要地创建临时 agent**：单领域分析应使用同一 agent + 不同 scene
-  3. **成员任务相同**：每个成员的 task 必须独特
-  4. **缺少上下文**：子 agent 不知道文件路径、约束条件
-  5. **混淆 task 和 system_prompt**：task=WHAT, system_prompt=HOW
-  6. **设置 member.timeout**：让系统自动分配
-  7. **成员过多**：2-5 最优，10 是上限
-
-  ## 执行前检查清单
-
-  - [ ] 为每个不同领域调用了 match_agent
-  - [ ] 所有 agent_id 来自 match_agent 结果或临时 agent 标识
-  - [ ] 同领域多视角：同一 agent + 不同 scene/systemPrompt
-  - [ ] 每个成员有独特的 task
-  - [ ] goal 包含完整上下文
-  - [ ] 选择了合适的策略
-  - [ ] 成员数合理
-  - [ ] 未手动设置 member.timeout
+  After team execution completes, follow the Output Integration rules (see l2-output-integrator) to synthesize results.

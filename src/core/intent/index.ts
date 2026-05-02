@@ -1,13 +1,8 @@
 /**
- * Intent System - 意图识别系统
+ * Intent System - 意图识别类型
  *
- * 意图识别机制：
- * 1. LLM 分类（精确意图分析）
- * 2. 注册表查找（快速匹配）
+ * 注意：意图分类器已移除（IntentClassifier / ModelClassifier / VectorMatcher / LLMIntentClassifier）。
+ * 保留 types.ts 因 skills/types.ts 等模块引用其中的类型定义。
  */
 
-export * from './types.js';
-export * from './IntentRouter.js';
-export * from './IntentRegistry.js';
-export * from './LLMIntentClassifier.js';
-export * from './UniversalIntentScanner.js';
+export type { IntentDomain, IntentMetadata, IntentResult as OldIntentResult } from './types';

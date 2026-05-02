@@ -26,26 +26,10 @@ const log = logger.child({ module: 'ChangeDirectoryTool' });
 export class ChangeDirectoryTool extends BaseTool {
   readonly name = 'change_directory';
   readonly description = [
-    'Change working directory and scan project information.',
+    'Switch to a different project directory. Always call this before working on a project.',
     '',
-    '# Purpose',
-    'Switch to a different project directory before performing file operations.',
-    'Ensures subsequent tool calls have correct project context (dependencies, git info, etc.).',
-    '',
-    '# Use Cases',
-    '✓ Switch between multiple projects in a conversation',
-    '✓ Load project context before reading/editing files',
-    '✓ Ensure Agent has full project information for better decision-making',
-    '',
-    '# Parameter Examples',
-    '- change_directory({ path: "/path/to/project" })',
-    '- change_directory({ path: "~/workspace/my-app" })',
-    '',
-    '# Important Notes',
-    '✓ Path will be resolved to absolute path',
-    '✓ Directory must exist and be accessible',
-    '✓ Project info will be automatically scanned and updated',
-    '✗ Cannot switch to system directories (/etc, /usr, etc.)',
+    'This ensures all subsequent file operations use the correct working directory',
+    'and project context (git info, dependencies, etc.) is loaded.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',

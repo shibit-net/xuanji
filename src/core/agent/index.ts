@@ -3,16 +3,12 @@
 // ============================================================
 
 export { AgentLoop, type AgentCallbacks } from './AgentLoop';
-export { MessageManager, type IMessageManager } from './MessageManager';
-export { StreamProcessor, type ProcessResult } from './StreamProcessor';
-export { ToolDispatcher, type IToolDispatcher } from './ToolDispatcher';
-export { TokenManager } from './TokenManager';
-export { ContextCompressor, DEFAULT_COMPRESSOR_CONFIG } from './ContextCompressor';
-export { ErrorRecovery } from './ErrorRecovery';
+export { AgentFactory } from './factory/AgentFactory';
+export type { AgentCreateOptions, AgentInstance } from './factory/AgentFactory';
 export { WorktreeManager } from './WorktreeManager';
-export type { SubAgentResult } from './SubAgentLoop';
+export type { SubAgentResult } from './factory/AgentFactory';
 export { SubAgentContext } from './SubAgentContext';
-export { emitSubAgentToolUse, createSubAgentToolUseHook, type SubAgentHookContext } from './SubAgentHooks';
+
 
 // Multi-Agent System (v2: 简化架构)
 export { AgentRegistry } from './AgentRegistry';

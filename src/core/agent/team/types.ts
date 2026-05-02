@@ -32,6 +32,8 @@ export interface TeamMember {
   task?: string;
   /** 🆕 场景类型（write_code / debug / review 等） */
   scene?: string;
+  /** 🆕 多场景列表（优先级高于 scene，会加载多个 L1 prompt 并拼接） */
+  scenes?: string[];
   /** 🆕 场景专用 prompt（L1 层，会与 agent.systemPrompt 组合） */
   scenePrompt?: string;
   /**

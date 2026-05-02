@@ -12,7 +12,7 @@ import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/shared/utils/truncatio
  */
 export class TaskOutputTool extends BaseTool {
   readonly name = 'task_output';
-  readonly description = '查询后台任务的输出结果。可阻塞等待任务完成或立即返回当前状态。';
+  readonly description = 'Query the output of a background task. Can block until completion or return current status immediately.';
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {

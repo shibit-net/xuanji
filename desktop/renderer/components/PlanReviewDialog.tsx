@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { FileText, X, Check, XCircle, MessageSquare } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import MilkdownEditor from './MilkdownEditor';
 import type { PlanReviewRequestData } from '../global';
 
 interface PlanReviewDialogProps {
@@ -62,10 +62,8 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
 
         {/* 内容 */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="prose prose-invert max-w-none">
-            <div className="bg-bg-primary p-4 rounded-lg border border-bg-tertiary">
-              <ReactMarkdown>{request.content}</ReactMarkdown>
-            </div>
+          <div className="bg-bg-primary p-4 rounded-lg border border-bg-tertiary min-h-[200px]">
+            <MilkdownEditor value={request.content} mode="preview" />
           </div>
 
           {/* 补充说明输入框 */}

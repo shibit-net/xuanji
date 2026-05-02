@@ -20,7 +20,7 @@ const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
  */
 export class WebFetchTool extends BaseTool {
   readonly name = 'web_fetch';
-  readonly description = 'Fetch web URL content and convert to Markdown format. Supports HTML pages, JSON APIs, plain text. Use prompt parameter to extract specific information.';
+  readonly description = 'Fetch a URL and convert its content to Markdown. Supports HTML pages, JSON APIs, and plain text. Use the prompt parameter to extract specific information from the page.';
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {

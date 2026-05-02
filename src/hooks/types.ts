@@ -25,6 +25,9 @@ export type HookEvent =
   | 'TeamEnd'
   | 'TeamMemberStart'
   | 'TeamMemberEnd'
+  // ─── 层级团队子成员事件 ─────────────────────────────────
+  | 'TeamSubMemberStart'   // leader 动态创建子成员
+  | 'TeamSubMemberEnd'     // 子成员执行完成
   | 'CheckpointCreated'
   | 'CheckpointRestored'
   // ─── 可视化监控事件 ────────────────────────────────────
@@ -80,6 +83,8 @@ export const ALL_EVENTS: HookEvent[] = [
   'TeamEnd',
   'TeamMemberStart',
   'TeamMemberEnd',
+  'TeamSubMemberStart',
+  'TeamSubMemberEnd',
   'CheckpointCreated',
   'CheckpointRestored',
   'AgentThinking',

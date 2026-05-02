@@ -9,7 +9,7 @@ import { TaskRouter, DEFAULT_ROUTING_CONFIG } from './TaskRouter';
 import type { RoutingDecision, ExecutionMode } from './types';
 import { Planner } from '@/core/planner/Planner';
 import { Executor } from '@/core/executor/Executor';
-import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
+import type { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'TaskRouterService' });
@@ -18,7 +18,7 @@ export interface TaskRouterServiceOptions {
   provider: ILLMProvider;
   registry: IToolRegistry;
   config: AppConfig;
-  subAgentFactory?: SubAgentFactory;
+  agentFactory?: AgentFactory;
 }
 
 export class TaskRouterService {
@@ -51,7 +51,7 @@ export class TaskRouterService {
           maxIterations: this.config.agent?.maxIterations,
         },
         this.config.executor,
-        options.subAgentFactory,
+        options.agentFactory,
       );
       log.info('TaskRouterService initialized');
     } catch (err) {

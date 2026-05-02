@@ -45,30 +45,10 @@ const MIME_MAP: Record<string, string> = {
 export class ReadTool extends BaseTool {
   readonly name = 'read_file';
   readonly description = [
-    'Read a FILE. Only works on files, NOT on directories.',
-    'To browse a directory, use list_directory.',
-    'Supports text, PDF, and image files.',
+    'Read and view file contents. Supports text files with line numbers, PDFs, and images.',
     '',
-    '# Supported File Types',
-    '- Text files: Output with line numbers, supports offset/limit pagination for large files',
-    '- PDF files: Extract text content, large PDFs (>10 pages) require pages parameter',
-    '- Image files (PNG/JPG/GIF/WebP): Return base64 encoding, readable by Vision models',
-    '',
-    '# Use Cases',
-    '✓ Must read before modifying files to understand existing code structure',
-    '✓ View config files, log files, documentation',
-    '✓ Analyze image content (requires Vision model support)',
-    '✓ Large files (>2000 lines) use offset/limit for pagination',
-    '',
-    '# Parameter Examples',
-    '- Read entire file: read_file({ path: "src/main.ts" })',
-    '- Paginated read: read_file({ path: "large.log", offset: 1000, limit: 500 })',
-    '- Read PDF pages: read_file({ path: "doc.pdf", pages: "1-5" })',
-    '',
-    '# Important Notes',
-    '✗ Do NOT use on directories — use list_directory instead',
-    '✗ Do NOT use bash cat (read_file has line numbers, formatting, truncation protection)',
-    '✗ Do NOT re-read files already in conversation history',
+    'For large files use offset/limit to read specific sections.',
+    'For directories, use list_directory instead.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',

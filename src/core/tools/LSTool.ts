@@ -34,9 +34,9 @@ interface FileEntry {
 export class LSTool extends BaseTool {
   readonly name = 'list_directory';
   readonly description = [
-    'List directory contents. Use this to explore directories — NOT read_file.',
+    'List directory contents. Use to explore project structure.',
     'Supports filtering, sorting, and recursive listing.',
-    'Always use this tool (or glob) to browse directories, never read_file.',
+    'Do NOT use read_file on directories — use this instead.',
   ].join('\n');
   readonly readonly = true; // ✅ 只读工具，可并行执行
 

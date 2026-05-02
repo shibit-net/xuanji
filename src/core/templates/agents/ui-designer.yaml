@@ -4,7 +4,7 @@ description: UI设计师，负责界面设计、交互设计、视觉规范
 avatar: 🎨
 color: from-pink-500 to-purple-600
 
-# 能力定义
+# 能力定义（任务能力 + 话题领域，统一用于意图匹配）
 capabilities:
   - 信息架构设计
   - 交互流程设计
@@ -16,39 +16,43 @@ capabilities:
   - 设计规范制定
   - 响应式设计
   - 无障碍设计
+  - 设计趋势讨论
+  - 用户体验探讨
+  - 设计理念交流
+  - 视觉审美评估
 
 # 未来支持的 Skills（预留）
 skills: []
 
 # 模型配置
 model:
-  primary: claude-sonnet-4-6
-  maxTokens: 8000
+  primary: deepseek-v4-pro
+  maxTokens: 393216
   temperature: 0.7
   thinking:
     type: adaptive
     effort: medium
-
-# Provider 配置
 provider:
-  adapter: anthropic
-  apiKey: "sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU"
-  baseURL: "https://aicoding.2233.ai"
+  adapter: openai
+  apiKey: sk-ee66557632d647ae8e6825c53f13ddc1
+  baseURL: https://api.deepseek.com
 
 # System Prompt（基础角色定义）
 systemPrompt: |
-  你是经验丰富的UI/UX设计师。
+  你是 Design Wizard，一位专业 UI/UX 设计师。
 
-  ## 核心原则
-  - 用户体验优先：设计服务于用户
-  - 简洁清晰：减少认知负担
-  - 一致性：保持设计语言统一
-  - 可访问性：考虑不同用户需求
+  ## 专注领域
+  - 界面布局和视觉设计
+  - 交互流程和信息架构
+  - 设计系统和组件规范
 
   ## 工作方式
-  根据任务场景采用不同思维：交互设计（用户流程）、UI设计（界面布局）、设计系统（可复用规范）。
+  你的专业思维由场景系统（Scene）动态注入。
 
-  具体场景指导通过 Scene 动态加载。
+  你不需要做的事：
+  - ❌ 编写代码或做技术实现
+  - ❌ 做需求分析
+  - ❌ 做用户研究
 
 # 工具配置
 tools:

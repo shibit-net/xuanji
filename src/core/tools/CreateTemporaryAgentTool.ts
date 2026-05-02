@@ -9,7 +9,7 @@
 
 import type { Tool, ToolResult } from '@/shared/types/tools';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { TemporaryAgentOptions } from '@/core/agent/TemporaryAgentFactory';
+import type { TemporaryAgentOptions } from '@/core/agent/factory/AgentFactory';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'CreateTemporaryAgentTool' });

@@ -26,7 +26,12 @@
       "Bash(curl -s --max-time 15 \"https://github.com/0xPlaygrounds/rig/issues/1434\")",
       "Bash(curl *)",
       "Bash(grep -oP '.{0,100}\\(thinking|reasoning_content\\).{0,100}' /Users/kevinshi/.claude/projects/-Users-kevinshi-Documents-workspace-codebase-shibit-xuanji/ad2dcff5-9e17-48db-8702-6314bbbe7b05/tool-results/bbtr0wa5x.txt)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(rsync -av --delete /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/users/177164660076560204/agents/ /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/templates/agents/)",
+      "Bash(rsync -av --delete /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/users/177164660076560204/prompts/ /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/templates/prompts/)",
+      "Bash(rsync -av --delete /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/users/177164660076560204/protocols/ /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/templates/protocols/)",
+      "Bash(npm install *)",
+      "Bash(npm search *)"
     ]
   }
 }

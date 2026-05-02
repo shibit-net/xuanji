@@ -12,19 +12,11 @@ import { BaseTool } from './BaseTool';
 export class ListScenesTool extends BaseTool {
   readonly name = 'list_scenes';
   readonly description = [
-    'List all available scenes (L1 layer prompt components) in the system.',
+    'List available scenes (behavior modes) for sub-agents.',
     '',
-    'Use this tool when you need to:',
-    '✓ Discover what scenes are available for task guidance',
-    '✓ Match scenes to agent capabilities',
-    '✓ Understand scene purposes and requirements',
-    '',
-    'Returns scene information including:',
-    '- Scene ID (use in task or agent_team tools)',
-    '- Name and description',
-    '- Keywords for matching',
-    '- Collaboration hints (for complex tasks)',
-    '- Content summary',
+    'Always call this before task or agent_team to discover what scenes are available.',
+    'Each scene defines a sub-agent\'s behavior mode (e.g., write_code focuses on implementation,',
+    'test focuses on testing). Pass the scene ID in task or agent_team calls.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

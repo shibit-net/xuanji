@@ -6,6 +6,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Plus, Trash2, AlertCircle, Loader2, Search, Download } from 'lucide-react';
 import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
+import MilkdownEditor from './MilkdownEditor';
 
 interface AgentEditorProps {
   agent: any | null;
@@ -548,10 +549,10 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         </label>
         {type === 'textarea' ? (
           field === 'systemPrompt' ? (
-            <CodeEditor
+            <MilkdownEditor
               value={value || ''}
               onChange={handleChange}
-              language="yaml"
+              mode="wysiwyg"
               height="300px"
             />
           ) : (

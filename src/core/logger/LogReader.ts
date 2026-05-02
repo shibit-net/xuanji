@@ -1,34 +1,38 @@
-// ============================================================
-// Logger System — 日志读取器
-// ============================================================
-// 职责：
-// - 读取持久化的日志文件
-// - 支持按级别、时间范围、关键词过滤
-// - 支持实时监听日志文件变化（tail -f 效果）
-// - 解析日志行为结构化数据
-// ============================================================
+/**
+ * Logger System — 日志读取器（JSONL 格式）
+ *
+ * 读取 .xuanji/logs/xuanji.jsonl 文件，每行一个 JSON。
+ * 支持按 execId、时间、级别、关键词过滤。
+ *
+ * 查询示例：
+ *   grep '"execId":"exec-abc"' xuanji.jsonl         ← 查某次执行的全部日志
+ *   grep '"depth":1' xuanji.jsonl                     ← 查所有子 agent 日志
+ *   grep '"level":"error"' xuanji.jsonl | tail -5     ← 查最近5条错误
+ */
 
 import { promises as fs } from 'fs';
 import { watch } from 'fs';
 import path from 'path';
-import type { LogLevel } from './types';
-
-/** 轮转日志文件名模式: <level>-YYYY-MM-DD.log */
-const ROTATED_LOG_PATTERN = /^(debug|info|warn|error)-\d{4}-\d{2}-\d{2}\.log$/;
 
 export interface LogRecord {
-  timestamp: string;
-  level: LogLevel;
-  namespace: string;
-  message: string;
+  time: string;
+  level: string;
+  ns: string;
+  msg: string;
+  execId?: string;
+  depth?: number;
+  err?: { message?: string; stack?: string };
   raw: string;
 }
 
 export interface LogQuery {
-  levels?: LogLevel[];
-  startTime?: Date;
-  endTime?: Date;
+  levels?: string[];
+  execId?: string;
+  startTime?: string;
+  endTime?: string;
   keyword?: string;
+  minDepth?: number;
+  maxDepth?: number;
   limit?: number;
   offset?: number;
 }
@@ -37,11 +41,6 @@ export interface LogWatchCallback {
   (record: LogRecord): void;
 }
 
-/**
- * 日志读取器
- *
- * 从 .xuanji/logs/ 读取持久化日志文件
- */
 export class LogReader {
   private baseDir: string;
 
@@ -50,57 +49,67 @@ export class LogReader {
   }
 
   /**
-   * 解析日志行
-   * 格式: [2026-04-12T10:30:45.123Z] [INFO ] [xuanji:AgentLoop] 开始执行任务
+   * 获取所有日志文件路径（按日期排序，最新的在前面）
    */
-  private parseLine(line: string, level: LogLevel): LogRecord | null {
-    const match = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.*)$/);
-    if (!match) return null;
-
-    const [, timestamp, , namespace, message] = match;
-    return {
-      timestamp,
-      level,
-      namespace,
-      message: message.trim(),
-      raw: line,
-    };
+  private async getLogFiles(): Promise<string[]> {
+    try {
+      const files = await fs.readdir(this.baseDir);
+      return files
+        .filter(f => /^xuanji-\d{4}-\d{2}-\d{2}(-\d+)?\.jsonl$/.test(f))
+        .sort()
+        .reverse()
+        .map(f => path.join(this.baseDir, f));
+    } catch {
+      return [];
+    }
   }
 
   /**
-   * 读取指定级别的日志文件（包括轮转文件）
+   * 解析 JSONL 行
    */
-  async readLevel(level: LogLevel, query?: LogQuery): Promise<LogRecord[]> {
+  private parseLine(line: string): LogRecord | null {
     try {
-      // 找到所有匹配的文件：<level>.log（活跃）和 <level>-YYYY-MM-DD.log（轮转）
-      const dirFiles = await fs.readdir(this.baseDir).catch(() => [] as string[]);
-      const logFiles = dirFiles
-        .filter(f => f === `${level}.log` || ROTATED_LOG_PATTERN.test(f))
-        .sort() // 按文件名排序（日期文件自然排序）
-        .map(f => path.join(this.baseDir, f));
+      const parsed = JSON.parse(line);
+      return {
+        time: parsed.time || '',
+        level: parsed.level || 'info',
+        ns: parsed.ns || '',
+        msg: parsed.msg || '',
+        execId: parsed.execId,
+        depth: parsed.depth,
+        err: parsed.err,
+        raw: line,
+      };
+    } catch {
+      return null;
+    }
+  }
 
-      if (logFiles.length === 0) return [];
+  /**
+   * 查询日志
+   */
+  async query(query?: LogQuery): Promise<LogRecord[]> {
+    try {
+      const files = await this.getLogFiles();
+      if (files.length === 0) return [];
 
       let allRecords: LogRecord[] = [];
 
-      for (const filePath of logFiles) {
+      for (const filePath of files) {
         try {
           const content = await fs.readFile(filePath, 'utf-8');
-          const lines = content.split('\n').filter(line => line.trim());
-          const records = lines
-            .map(line => this.parseLine(line, level))
+          const records = content
+            .split('\n')
+            .filter(l => l.trim())
+            .map(l => this.parseLine(l))
             .filter((r): r is LogRecord => r !== null);
           allRecords.push(...records);
         } catch {
-          // 跳过无法读取的文件
+          // skip unreadable files
         }
       }
 
-      // 应用过滤
-      if (query) {
-        allRecords = this.applyFilters(allRecords, query);
-      }
-
+      allRecords = this.applyFilters(allRecords, query);
       return allRecords;
     } catch {
       return [];
@@ -108,127 +117,120 @@ export class LogReader {
   }
 
   /**
-   * 读取所有级别的日志
+   * 按 execId 查询（一次完整执行链路）
    */
-  async readAll(query?: LogQuery): Promise<LogRecord[]> {
-    const levels: LogLevel[] = query?.levels || ['debug', 'info', 'warn', 'error'];
-
-    const results = await Promise.all(
-      levels.map(level => this.readLevel(level, query))
-    );
-
-    // 合并并按时间排序
-    const allRecords = results.flat();
-    allRecords.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-    // 应用分页
-    if (query?.offset !== undefined || query?.limit !== undefined) {
-      const offset = query.offset || 0;
-      const limit = query.limit || allRecords.length;
-      return allRecords.slice(offset, offset + limit);
-    }
-
-    return allRecords;
+  async findByExecId(execId: string, query?: Omit<LogQuery, 'execId'>): Promise<LogRecord[]> {
+    return this.query({ ...query, execId });
   }
 
   /**
    * 获取最新的 N 条日志
    */
-  async readLatest(count: number = 100, levels?: LogLevel[]): Promise<LogRecord[]> {
-    const allRecords = await this.readAll({ levels });
-    return allRecords.slice(-count);
+  async readLatest(count: number = 100, levels?: string[]): Promise<LogRecord[]> {
+    return this.query({ levels, limit: count });
   }
 
   /**
    * 应用过滤条件
    */
-  private applyFilters(records: LogRecord[], query: LogQuery): LogRecord[] {
+  private applyFilters(records: LogRecord[], query?: LogQuery): LogRecord[] {
+    if (!query) return records;
+
     let filtered = records;
 
-    // 时间范围过滤
-    if (query.startTime) {
-      const startISO = query.startTime.toISOString();
-      filtered = filtered.filter(r => r.timestamp >= startISO);
-    }
-    if (query.endTime) {
-      const endISO = query.endTime.toISOString();
-      filtered = filtered.filter(r => r.timestamp <= endISO);
+    if (query.levels && query.levels.length > 0) {
+      const levelSet = new Set(query.levels);
+      filtered = filtered.filter(r => levelSet.has(r.level));
     }
 
-    // 关键词过滤
+    if (query.execId) {
+      filtered = filtered.filter(r => r.execId === query.execId);
+    }
+
+    if (query.startTime) {
+      filtered = filtered.filter(r => r.time >= query.startTime!);
+    }
+
+    if (query.endTime) {
+      filtered = filtered.filter(r => r.time <= query.endTime!);
+    }
+
     if (query.keyword) {
-      const keyword = query.keyword.toLowerCase();
+      const kw = query.keyword.toLowerCase();
       filtered = filtered.filter(r =>
-        r.message.toLowerCase().includes(keyword) ||
-        r.namespace.toLowerCase().includes(keyword)
+        r.msg.toLowerCase().includes(kw) ||
+        r.ns.toLowerCase().includes(kw) ||
+        (r.execId && r.execId.toLowerCase().includes(kw))
       );
+    }
+
+    if (query.minDepth !== undefined) {
+      filtered = filtered.filter(r => r.depth !== undefined && r.depth >= query.minDepth!);
+    }
+
+    if (query.maxDepth !== undefined) {
+      filtered = filtered.filter(r => r.depth !== undefined && r.depth <= query.maxDepth!);
+    }
+
+    // 按时间排序
+    filtered.sort((a, b) => a.time.localeCompare(b.time));
+
+    // 分页
+    if (query.offset !== undefined || query.limit !== undefined) {
+      const offset = query.offset || 0;
+      const limit = query.limit || filtered.length;
+      return filtered.slice(offset, offset + limit);
     }
 
     return filtered;
   }
 
   /**
-   * 监听日志文件变化（实时追踪）
-   *
-   * @param levels 要监听的日志级别
-   * @param callback 新日志回调
-   * @returns 停止监听的函数
+   * 监听日志文件变化（实时追踪当前日期的日志文件）
    */
-  watchLogs(levels: LogLevel[], callback: LogWatchCallback): () => void {
-    const watchers: ReturnType<typeof watch>[] = [];
-    const lastPositions = new Map<LogLevel, number>();
+  watchLogs(callback: LogWatchCallback): () => void {
+    let lastSize = 0;
+    let currentWatcher: ReturnType<typeof watch> | null = null;
+    let cleanup = false;
 
-    for (const level of levels) {
-      const filePath = path.join(this.baseDir, `${level}.log`);
+    const watchCurrentFile = async () => {
+      const files = await this.getLogFiles();
+      const latestFile = files[0]; // 最新的文件
+      if (!latestFile) return;
 
-      // 初始化：记录当前文件大小
-      fs.stat(filePath)
-        .then(stats => lastPositions.set(level, stats.size))
-        .catch(() => lastPositions.set(level, 0));
+      lastSize = 0;
+      try {
+        const stats = await fs.stat(latestFile);
+        lastSize = stats.size;
+      } catch { lastSize = 0; }
 
-      // 监听文件变化
-      const watcher = watch(filePath, async (eventType) => {
-        if (eventType !== 'change') return;
-
+      currentWatcher?.close();
+      currentWatcher = watch(latestFile, async (eventType) => {
+        if (eventType !== 'change' || cleanup) return;
         try {
-          const stats = await fs.stat(filePath);
-          const lastPos = lastPositions.get(level) || 0;
-
-          if (stats.size <= lastPos) {
-            // 文件被截断或重写
-            lastPositions.set(level, stats.size);
-            return;
-          }
-
-          // 读取新增内容
-          const fd = await fs.open(filePath, 'r');
-          const buffer = Buffer.alloc(stats.size - lastPos);
-          await fd.read(buffer, 0, buffer.length, lastPos);
+          const stats = await fs.stat(latestFile);
+          if (stats.size <= lastSize) { lastSize = stats.size; return; }
+          const fd = await fs.open(latestFile, 'r');
+          const buffer = Buffer.alloc(stats.size - lastSize);
+          await fd.read(buffer, 0, buffer.length, lastSize);
           await fd.close();
-
-          const newContent = buffer.toString('utf-8');
-          const newLines = newContent.split('\n').filter(line => line.trim());
-
-          // 解析并回调
-          for (const line of newLines) {
-            const record = this.parseLine(line, level);
-            if (record) {
-              callback(record);
-            }
+          for (const line of buffer.toString('utf-8').split('\n').filter(l => l.trim())) {
+            const record = this.parseLine(line);
+            if (record) callback(record);
           }
-
-          lastPositions.set(level, stats.size);
-        } catch (error) {
-          // 忽略读取错误
-        }
+          lastSize = stats.size;
+        } catch { /* ignore */ }
       });
+    };
 
-      watchers.push(watcher);
-    }
+    watchCurrentFile();
+    // 每分钟检查是否有新文件（日期切换或大小轮转）
+    const timer = setInterval(watchCurrentFile, 60_000);
 
-    // 返回清理函数
     return () => {
-      watchers.forEach(w => w.close());
+      cleanup = true;
+      currentWatcher?.close();
+      clearInterval(timer);
     };
   }
 
@@ -236,34 +238,27 @@ export class LogReader {
    * 清空所有日志文件
    */
   async clearAll(): Promise<void> {
-    const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-    await Promise.all(
-      levels.map(level => {
-        const filePath = path.join(this.baseDir, `${level}.log`);
-        return fs.writeFile(filePath, '').catch(() => {});
-      })
-    );
+    const files = await this.getLogFiles();
+    await Promise.all(files.map(f => fs.writeFile(f, '').catch(() => {})));
   }
 
   /**
-   * 获取日志文件统计信息
+   * 获取所有日志文件的统计信息
    */
-  async getStats(): Promise<Record<LogLevel, { size: number; lines: number }>> {
-    const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-    const stats: Record<string, { size: number; lines: number }> = {};
+  async getStats(): Promise<{ size: number; lines: number; files: number }> {
+    const files = await this.getLogFiles();
+    let totalSize = 0;
+    let totalLines = 0;
 
-    for (const level of levels) {
-      const filePath = path.join(this.baseDir, `${level}.log`);
+    for (const f of files) {
       try {
-        const stat = await fs.stat(filePath);
-        const content = await fs.readFile(filePath, 'utf-8');
-        const lines = content.split('\n').filter(line => line.trim()).length;
-        stats[level] = { size: stat.size, lines };
-      } catch {
-        stats[level] = { size: 0, lines: 0 };
-      }
+        const stat = await fs.stat(f);
+        totalSize += stat.size;
+        const content = await fs.readFile(f, 'utf-8');
+        totalLines += content.split('\n').filter(l => l.trim()).length;
+      } catch { /* skip */ }
     }
 
-    return stats as Record<LogLevel, { size: number; lines: number }>;
+    return { size: totalSize, lines: totalLines, files: files.length };
   }
 }

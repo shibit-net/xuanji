@@ -11,9 +11,13 @@ import { AsyncAgentTaskManager } from '@/core/agent/async';
 export class TaskControlTool extends BaseTool {
   readonly name = 'task_control';
   readonly description = [
-    '管理后台运行的 agent 任务（通过 agent_team 或 task 的 async: true 模式启动）。',
-    'action: status=查询进度, cancel=取消任务, list=列出所有后台任务',
-  ].join(' ');
+    'Manage background agent tasks (started by task or agent_team).',
+    '',
+    'Actions:',
+    '  status — Check progress and result of a specific task',
+    '  cancel — Cancel a running background task',
+    '  list   — Show all background tasks',
+  ].join('\n');
 
   readonly input_schema: JSONSchema = {
     type: 'object',

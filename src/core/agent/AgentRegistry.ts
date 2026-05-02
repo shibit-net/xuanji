@@ -9,7 +9,6 @@ import globCb from 'glob';
 import type { AgentCategory, ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
 import { AgentConfigManager } from './AgentConfigManager';
-import { TemporaryAgentFactory } from './TemporaryAgentFactory';
 import {
   getUserAgentsDir,
   getTemplateAgentsDir
@@ -25,7 +24,7 @@ export class AgentRegistry {
   private watchers: FSWatcher[] = [];
   private configPaths: string[];
   private configManager: AgentConfigManager;
-  private temporaryAgentFactory: TemporaryAgentFactory;
+  private temporaryAgentConfigs = new Map<string, ConfigurableAgentConfig>();
   private userAgentsDir: string;
   private templateAgentsDir: string;
   private userId: string;
@@ -43,7 +42,6 @@ export class AgentRegistry {
     this.templateAgentsDir = getTemplateAgentsDir();
     this.configPaths = [this.userAgentsDir];
     this.configManager = new AgentConfigManager(userId);
-    this.temporaryAgentFactory = new TemporaryAgentFactory();
   }
 
   async init(): Promise<void> {
@@ -155,7 +153,7 @@ export class AgentRegistry {
 
   get(id: string): ConfigurableAgentConfig | undefined {
     // 先检查是否是临时 Agent
-    const tempAgent = this.temporaryAgentFactory.getTemporaryAgent(id);
+    const tempAgent = this.temporaryAgentConfigs.get(id);
     if (tempAgent) {
       return tempAgent;
     }
@@ -168,7 +166,7 @@ export class AgentRegistry {
 
   getRaw(id: string): ConfigurableAgentConfig | undefined {
     // 先检查是否是临时 Agent
-    const tempAgent = this.temporaryAgentFactory.getTemporaryAgent(id);
+    const tempAgent = this.temporaryAgentConfigs.get(id);
     if (tempAgent) {
       return tempAgent;
     }
@@ -182,7 +180,7 @@ export class AgentRegistry {
       .filter(agent => agent.enabled)
       .map(agent => this.configManager.getAgentWithOverride(agent));
 
-    const tempAgents = this.temporaryAgentFactory.getAllTemporaryAgents();
+    const tempAgents = Array.from(this.temporaryAgentConfigs.values());
 
     return [...regularAgents, ...tempAgents];
   }
@@ -192,16 +190,96 @@ export class AgentRegistry {
     const regularAgents = Array.from(this.agents.values())
       .map(agent => this.configManager.getAgentWithOverride(agent));
 
-    const tempAgents = this.temporaryAgentFactory.getAllTemporaryAgents();
+    const tempAgents = Array.from(this.temporaryAgentConfigs.values());
 
     return [...regularAgents, ...tempAgents];
   }
 
   /**
-   * 获取临时 Agent 工厂
+   * 获取临时 Agent 工厂（向后兼容，内部委托给 TemporaryAgentCreator）
+   * @deprecated 请使用 AgentFactory.createTemporaryAgentConfig()
    */
-  getTemporaryAgentFactory(): TemporaryAgentFactory {
-    return this.temporaryAgentFactory;
+  getTemporaryAgentFactory(): {
+    createTemporaryAgent: (opts: {
+      role: string;
+      capabilities: string[];
+      taskDescription?: string;
+      scene?: string;
+      model?: string;
+      parentConfig?: ConfigurableAgentConfig;
+    }) => ConfigurableAgentConfig;
+    getTemporaryAgent: (id: string) => ConfigurableAgentConfig | undefined;
+    cleanupTemporaryAgent: (id: string) => void;
+    cleanupAll: () => void;
+    isTemporaryAgent: (id: string) => boolean;
+    getAllTemporaryAgents: () => ConfigurableAgentConfig[];
+    createTemporaryScene: (role: string, capabilities: string[]) => { id: string; name: string; content: string };
+  } {
+    const self = this;
+    return {
+      createTemporaryAgent(opts): ConfigurableAgentConfig {
+        const tempId = `temp-${opts.role.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+        const cfg: ConfigurableAgentConfig = {
+          id: tempId,
+          name: opts.role,
+          description: `临时创建的 ${opts.role}`,
+          avatar: '🤖',
+          color: 'from-gray-500 to-gray-600',
+          category: 'custom',
+          model: {
+            primary: opts.model || opts.parentConfig?.model?.primary || 'claude-sonnet-4-6',
+            maxTokens: 64000,
+            thinking: { type: 'adaptive', effort: 'medium' },
+          },
+          provider: opts.parentConfig?.provider ? { ...opts.parentConfig.provider } : { adapter: 'anthropic' },
+          systemPrompt: opts.taskDescription || '',
+          capabilities: opts.capabilities,
+          tools: [{ name: 'read_file' }, { name: 'grep' }, { name: 'glob' }],
+          execution: { mode: 'react', maxIterations: 20, timeout: 600000, streaming: true, parallelTools: true },
+          permissions: { fileRead: 'always', fileWrite: 'ask', bashExec: 'ask', network: 'ask', allowedPaths: [], deniedPaths: [], allowedCommands: [], deniedCommands: [] },
+          enabled: true,
+          metadata: { isTemporary: true, createdAt: new Date().toISOString(), scene: opts.scene },
+        };
+        self.temporaryAgentConfigs.set(tempId, cfg);
+        return cfg;
+      },
+      getTemporaryAgent(id) { return self.temporaryAgentConfigs.get(id); },
+      cleanupTemporaryAgent(id) { self.temporaryAgentConfigs.delete(id); },
+      cleanupAll() { self.temporaryAgentConfigs.clear(); },
+      isTemporaryAgent(id) { return id.startsWith('temp-') || self.temporaryAgentConfigs.has(id); },
+      getAllTemporaryAgents() { return Array.from(self.temporaryAgentConfigs.values()); },
+      createTemporaryScene(role: string, capabilities: string[]) {
+        const sceneId = `temp-scene-${role.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+        const content = [
+          `# ${role} 场景`,
+          '## 思维框架',
+          '1. 理解任务需求', '2. 制定执行计划', '3. 完成任务', '4. 验证结果',
+          '## 核心原则',
+          '- 质量优先', '- 清晰明了', '- 符合规范',
+          '## 工作流程',
+          '1. **分析需求**：仔细理解任务要求',
+          '2. **执行任务**：按照最佳实践完成工作',
+          '3. **输出结果**：提供完整、准确的输出',
+          '## 能力要求',
+          ...capabilities.map(cap => `- ${cap}`),
+        ].join('\n');
+        return { id: sceneId, name: `${role} Scene`, content };
+      },
+    };
+  }
+
+  /**
+   * 注册临时 Agent 配置
+   */
+  registerTemporaryAgent(config: ConfigurableAgentConfig): void {
+    this.temporaryAgentConfigs.set(config.id, config);
+  }
+
+  /**
+   * 清理临时 Agent
+   */
+  cleanupTemporaryAgent(id: string): void {
+    this.temporaryAgentConfigs.delete(id);
   }
 
   getAllIds(): string[] {

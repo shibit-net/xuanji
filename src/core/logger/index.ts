@@ -28,8 +28,7 @@
 
 export type { ILogger, LogLevel, LogMetadata, LoggerConfig } from './types';
 export { createLogger } from './factory';
-export { DebugLogger } from './implementations/DebugLogger';
-export { ConsolaLogger } from './implementations/ConsolaLogger';
+export { PinoLogger } from './implementations/PinoLogger';
 export { closeFileWriter } from './implementations/FileWriter';
 export { LogReader } from './LogReader';
 export type { LogRecord, LogQuery, LogWatchCallback } from './LogReader';

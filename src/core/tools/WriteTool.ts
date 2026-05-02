@@ -17,28 +17,10 @@ const log = logger.child({ module: 'WriteTool' });
 export class WriteTool extends BaseTool {
   readonly name = 'write_file';
   readonly description = [
-    'Write content to specified file. Overwrites if file exists, creates directory if not exists.',
+    'Create or completely overwrite a file. Use for new files or full rewrites.',
     '',
-    '# Use Cases',
-    '✓ Create new files (config, code, documentation)',
-    '✓ Complete rewrite of existing files (use with caution)',
-    '✓ Small file creation (<5KB)',
-    '',
-    '# Guidelines',
-    '1. Prefer edit_file for modifying existing files (only sends diff, safer)',
-    '2. Must read_file first before overwriting existing files to confirm current content',
-    '3. Verify target directory is correct before creating new files',
-    '4. Do NOT proactively create README.md or docs unless explicitly requested',
-    '5. For large files (>5KB), use bash heredoc instead',
-    '',
-    '# Parameter Examples',
-    '- Create new file: write_file({ path: "src/utils/helper.ts", content: "export function..." })',
-    '- Create config: write_file({ path: ".eslintrc.json", content: "{\\"rules\\": {...}}" })',
-    '',
-    '# Important Notes',
-    '✗ Do NOT write files containing passwords, API keys, or sensitive info',
-    '✗ Do NOT overwrite existing files (unless confirmed complete rewrite is needed)',
-    '✗ Do NOT use for modifying existing files (should use edit_file)',
+    'For small edits to existing files, prefer edit_file instead (sends only the diff).',
+    'Always read_file first before overwriting to confirm current content.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',

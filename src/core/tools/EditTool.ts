@@ -17,28 +17,11 @@ const log = logger.child({ module: 'EditTool' });
 export class EditTool extends BaseTool {
   readonly name = 'edit_file';
   readonly description = [
-    'Perform precise string replacement in files. Suitable for modifying single or multiple locations.',
+    'Edit a file by replacing exact text. Preferred over write_file for modifications.',
     '',
-    '# Use Cases',
-    '✓ Modify function implementation, fix bugs, update configuration',
-    '✓ Batch rename variables (use replace_all=true)',
-    '✓ Modify existing files (preferred over write_file, only sends diff)',
-    '',
-    '# Guidelines',
-    '1. Must read_file first to understand current code structure',
-    '2. old_string must match file content exactly (including indentation, spaces, newlines)',
-    '3. If old_string matches multiple locations, provide more context or use replace_all=true',
-    '4. Do NOT add unrequested comments, docs, or type annotations',
-    '5. When deleting code, delete directly without leaving "// removed" comments',
-    '',
-    '# Parameter Examples',
-    '- Single edit: edit_file({ path: "src/utils.ts", old_string: "return x + y;", new_string: "return x + y + z;" })',
-    '- Batch rename: edit_file({ path: "src/auth.ts", old_string: "userId", new_string: "accountId", replace_all: true })',
-    '',
-    '# Common Errors',
-    '✗ old_string mismatch → Check indentation and spaces are exactly the same',
-    '✗ Multiple matches error → Add more context or use replace_all=true',
-    '✗ Multiple edits → Consider using multi_edit_file (more efficient)',
+    'old_string must match file content exactly (including indentation, spaces, newlines).',
+    'Always read_file first to find the exact text to replace.',
+    'Use replace_all=true to replace all occurrences.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',

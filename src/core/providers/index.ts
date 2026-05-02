@@ -1,10 +1,15 @@
 // ============================================================
-// M7 LLM Provider — 模块导出
+// M5 Provider 模块 — 模块导出
 // ============================================================
 
-export { BaseLLMProvider } from './LLMProvider';
-export { AnthropicProvider } from './AnthropicProvider';
-export { OpenAIProvider } from './OpenAIProvider';
+export { ProviderPool } from './ProviderPool';
+export type { HealthStatus } from './ProviderPool';
 export { ProviderFactory } from './ProviderFactory';
-export { withRetry, shouldRetry, calculateBackoff, DEFAULT_RETRY_CONFIG } from './RetryPolicy';
-export { isTextEvent, isThinkingEvent, isToolEvent, isEndEvent } from './StreamEvent';
+export { FallbackManager } from './FallbackManager';
+export { RateLimitManager } from './RateLimitManager';
+export type {
+  ProviderPoolConfig,
+  RateLimitConfig,
+  FallbackConfig,
+  ProviderMetrics,
+} from './types';

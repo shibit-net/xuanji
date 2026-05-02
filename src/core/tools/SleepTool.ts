@@ -17,9 +17,8 @@ const MAX_SECONDS = 300;
 export class SleepTool extends BaseTool {
   readonly name = 'sleep';
   readonly description = [
-    '等待指定的秒数。',
-    '用于等待后台任务、外部进程、轮询场景等。',
-    `最大 ${MAX_SECONDS} 秒。`,
+    'Wait for a specified number of seconds. Use for polling or waiting on external processes.',
+    `Maximum ${MAX_SECONDS} seconds.`,
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

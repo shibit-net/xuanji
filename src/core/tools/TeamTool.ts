@@ -1,7 +1,9 @@
 /**
  * TeamTool — 团队协作工具
  *
- * 允许 LLM 创建和管理 agent 团队来协作完成复杂任务
+ * 创建多 agent 团队协作完成任务。支持 5 种协作策略。
+ * 第 0 层（主 agent）自动异步执行，第 1+ 层自动同步。
+ * agent_team 成员是执行单元，不能再次创建子 agent 或子 team。
  */
 
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
@@ -11,29 +13,75 @@ import { TeamManager } from '@/core/agent/team/TeamManager';
 import type { TeamConfig, TeamMember, TeamStrategy } from '@/core/agent/team/types';
 import type { AgentRoleType } from '@/core/agent/SubAgentContext';
 import { AsyncAgentTaskManager } from '@/core/agent/async';
+import { TeamContext } from './TeamContext';
+
+// ─── 成员输入类型 ────────────────────────────────────
+
+interface MemberInput {
+  id: string;
+  agent_id?: string;
+  role?: AgentRoleType;
+  name?: string;
+  task?: string;
+  capabilities?: string[];
+  priority?: number;
+  scene?: string;
+  scenes?: string[];
+  system_prompt?: string;
+  tools?: string[];
+  timeout?: number;
+}
+
+// ─── 策略超时配置 ────────────────────────────────────
+
+const STRATEGY_BASE_TIMEOUT: Record<string, number> = {
+  debate:       1_800_000,  // 30min
+  hierarchical: 600_000 + 300_000, // leader + at least 1 worker
+  parallel:     600_000 + 200_000,
+  sequential:   300_000 + 100_000,
+  pipeline:     300_000 + 150_000,
+};
+
+const DEBATE_ROUND_FACTORS: Record<number, number> = {
+  2: 1.0, 3: 1.5, 4: 2.0, 5: 3.0,
+};
+
+const MAX_MEMBERS = 10;
+const MIN_MEMBER_TIMEOUT_MS = 120_000; // 2 分钟
+
+// ─── TeamTool ────────────────────────────────────────
 
 export class TeamTool extends BaseTool {
   readonly name = 'agent_team';
   readonly description = [
-    '创建 AI agent 团队协作完成复杂任务。',
+    'Create a team of agents to collaborate on a task. Supports 5 strategies.',
     '',
-    '使用流程：',
-    '1. 为每个不同领域调用 match_agent 查找合适的 agent',
-    '2. 分数 >= 0.5 使用返回的 agent ID，分数 < 0.5 创建临时 agent（需提供 system_prompt）',
-    '3. 同领域多视角：使用同一 agent ID + 不同 scene/system_prompt',
+    'WHEN TO USE:',
+    '• parallel — Multiple agents analyze same input from different angles',
+    '• sequential — Each agent processes previous agent\'s output',
+    '• hierarchical — A leader agent coordinates and delegates to member agents',
+    '• debate — Agents discuss and reach consensus on a decision',
+    '• pipeline — Data flows through agents in sequence, each transforms the data',
     '',
-    '异常处理：',
-    '- 超时：重试并增大 timeout 参数',
-    '- 失败：调整成员配置或任务描述后重试，不要用 task 逐个替代',
+    'WHEN NOT TO USE:',
+    '• Single sub-task → use task instead (simpler, faster)',
     '',
-    '策略选择：parallel(独立并行) | sequential(依赖串行) | hierarchical(leader协调) | debate(辩论共识) | pipeline(数据流)',
+    'IMPORTANT: Team members are execution units — they cannot call task or agent_team.',
+    'If you need nested delegation, use task to create a leader agent that further delegates.',
     '',
-    '快速推荐：',
-    '- 架构设计+分工实现 → hierarchical',
-    '- 独立功能并行开发/代码审查 → parallel',
-    '- 有明确依赖链/构建部署 → sequential',
-    '- 方案评审/技术决策 → debate',
-    '- 数据ETL/处理管道 → pipeline（大数据量建议改用 sequential）',
+    'Always use list_scenes to pick the right scene for each member.',
+    'Every member needs a unique, specific task. Do NOT give all members the same goal.',
+    '',
+    'Example — parallel:',
+    '  agent_team({',
+    '    team_name: "code-review",',
+    '    goal: "Review codebase from quality, security, and performance.",',
+    '    strategy: "parallel",',
+    '    members: [',
+    '      { id: "quality", agent_id: "explore", task: "Check code quality, smells, maintainability" },',
+    '      { id: "security", agent_id: "explore", task: "Find security vulnerabilities", scene: "review" },',
+    '    ]',
+    '  })',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -58,10 +106,7 @@ export class TeamTool extends BaseTool {
         items: {
           type: 'object',
           properties: {
-            id: {
-              type: 'string',
-              description: '成员唯一标识，使用短小的角色名（如 "quality"、"security"）',
-            },
+            id: { type: 'string', description: '成员唯一标识，使用短小的角色名（如 "quality"、"security"）' },
             agent_id: {
               type: 'string',
               description: [
@@ -71,67 +116,49 @@ export class TeamTool extends BaseTool {
                 '- 同领域多视角：使用同一 agent ID + 不同 scene/system_prompt',
               ].join('\n'),
             },
-            name: {
-              type: 'string',
-              description: '成员显示名（可选），如 "Security Reviewer"',
-            },
-            capabilities: {
-              type: 'array',
-              items: { type: 'string' },
-              description: '成员能力列表（可选），省略则从 agent 配置推断',
-            },
-            priority: {
-              type: 'number',
-              description: '优先级（hierarchical 策略需要，leader 设 >= 8）',
-            },
-            task: {
-              type: 'string',
-              description: '成员的具体工作任务（WHAT to do）。区别于 system_prompt（HOW to behave）。每个成员必须有独特、可执行的任务',
-            },
+            name: { type: 'string', description: '成员显示名（可选），如 "Security Reviewer"' },
+            capabilities: { type: 'array', items: { type: 'string' }, description: '成员能力列表（可选）' },
+            priority: { type: 'number', description: '优先级（hierarchical 策略需要，leader 设 >= 8）' },
+            task: { type: 'string', description: '成员的具体工作任务（WHAT to do）。每个成员必须有独特、可执行的任务' },
             scene: {
               type: 'string',
-              description: '场景类型，决定加载哪组 L1 prompt。**必须为每个成员指定**。通过 list_scenes 查询可用场景后选择合适的分配，无合适场景时使用 "general"',
+              description: [
+                '场景类型，决定子 agent 加载哪组 L1 prompt。',
+                '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
+                '不要自行编造 scene ID。',
+                '如无合适场景可用 "general"。',
+              ].join('\n'),
             },
             system_prompt: {
               type: 'string',
-              description: '角色行为引导（HOW to behave）。临时 agent 必需，预置 agent 可选（覆盖默认配置）。辩论策略必须包含元数据标记：[debate_role:affirmative]（正方）或 [debate_role:negative]（反方）或 [debate_role:judge]（裁判），放在 system_prompt 末尾便于解析',
+              description: '角色行为引导（HOW to behave）。临时 agent 必需，预置 agent 可选。辩论策略需包含 [debate_role:affirmative|negative|judge] 标记',
             },
-            tools: {
-              type: 'array',
-              items: { type: 'string' },
-              description: '成员可用工具列表（可选），覆盖预置 agent 的默认工具',
-            },
-            timeout: {
-              type: 'number',
-              description: '成员超时（毫秒）。不推荐设置，系统会根据策略自动分配合理的超时时间',
-            },
+            tools: { type: 'array', items: { type: 'string' }, description: '成员可用工具列表（可选）' },
+            timeout: { type: 'number', description: '成员超时（毫秒）。不推荐设置，系统会自动分配' },
           },
           required: ['id'],
         },
       },
-      max_rounds: {
-        type: 'number',
-        description: '最大协作轮次（默认 5）',
-      },
+      max_rounds: { type: 'number', description: '最大协作轮次（默认 5）' },
       timeout: {
         type: 'number',
         description: [
-          '团队总超时（毫秒），硬限制。不设置时自动计算：成员数 × 轮次 × 600000ms（最少30分钟，最多4小时）。',
+          '团队总超时（毫秒），硬限制。不设置时自动计算。',
           '建议值：代码审查 30-60分钟、辩论共识 1.5小时+、大型重构 2-3小时。',
-          '超时后可用更大的 timeout 值重试。',
         ].join(' '),
       },
       async: {
         type: 'boolean',
-        description: '异步执行模式。true=立即返回 groupId，团队在后台运行；false=等待完成（默认）。长时间任务推荐 true，用户可通过 task_control 查询进度和取消。',
+        description: '异步执行模式。主 agent 自动异步，子 agent 自动同步。一般无需设置此参数。',
       },
     },
     required: ['team_name', 'goal', 'strategy', 'members'],
   };
 
-  readonly readonly = false; // 团队执行可能涉及写操作
+  readonly readonly = false;
 
-  // 依赖注入
+  // ── 依赖注入 ────────────────────────────────────────
+
   private mainProvider: ILLMProvider | null = null;
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
@@ -140,9 +167,6 @@ export class TeamTool extends BaseTool {
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
 
-  /**
-   * 注入运行时依赖
-   */
   setDependencies(deps: {
     provider: ILLMProvider;
     registry: IToolRegistry;
@@ -161,229 +185,237 @@ export class TeamTool extends BaseTool {
     this.providerManager = deps.providerManager ?? null;
   }
 
+  // ── 主入口 ──────────────────────────────────────────
+
   async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
-    // 验证依赖
+    // 1. 依赖检查
+    const depsErr = this.checkDependencies();
+    if (depsErr) return depsErr;
+
+    // 2. 嵌套检查
+    if (TeamContext.get()) {
+      return this.error('agent_team 不能在另一个 agent_team 内部使用。请直接在团队中完成工作，或让主 agent 再创建一个独立的 agent_team。');
+    }
+
+    // 3. 参数解析
+    const parsed = this.parseInput(input);
+
+    // 4. 输入验证
+    const validationErr = this.validateInput(parsed);
+    if (validationErr) return validationErr;
+
+    // 5. 构建团队配置
+    const teamConfig = this.buildTeamConfig(parsed);
+
+    // 6. 执行
+    const isAsync = this.currentDepth === 0 || input.async === true;
+    if (isAsync) {
+      return this.executeAsync(teamConfig, parsed, input);
+    }
+    return this.executeSync(teamConfig, parsed.goal, signal);
+  }
+
+  // ── 依赖与输入验证 ──────────────────────────────────
+
+  private checkDependencies(): ToolResult | null {
     if (!this.mainProvider || !this.registry || !this.agentConfig) {
       return this.error('TeamTool not initialized. Internal error: dependencies not injected.');
     }
-
-    // 验证 agentRegistry 和 providerManager（TeamManager 现在强制要求）
     if (!this.agentRegistry || !this.providerManager) {
       return this.error('TeamTool requires agentRegistry and providerManager to be initialized.');
     }
+    return null;
+  }
 
-    // 解析参数
-    const teamName = input.team_name as string;
-    const goal = input.goal as string;
-    const strategy = input.strategy as TeamStrategy;
-    const membersInput = input.members as Array<{
-      id: string;
-      agent_id?: string;
-      role?: AgentRoleType; // 向后兼容，已废弃
-      name?: string;
-      task?: string;          // 🆕 成员具体任务（WHAT to do）
-      capabilities?: string[];
-      priority?: number;
-      scene?: string;         // 🆕 场景类型
-      system_prompt?: string;
-      tools?: string[];
-      timeout?: number;
-    }>;
-    const maxRounds = input.max_rounds as number | undefined;
-    const timeout = input.timeout as number | undefined;
+  private parseInput(input: Record<string, unknown>): {
+    teamName: string;
+    goal: string;
+    strategy: TeamStrategy;
+    membersInput: MemberInput[];
+    maxRounds?: number;
+    timeout?: number;
+  } {
+    return {
+      teamName: input.team_name as string,
+      goal: input.goal as string,
+      strategy: input.strategy as TeamStrategy,
+      membersInput: (input.members || []) as MemberInput[],
+      maxRounds: input.max_rounds as number | undefined,
+      timeout: input.timeout as number | undefined,
+    };
+  }
 
-    // 验证输入
-    if (!membersInput || membersInput.length === 0) {
+  private validateInput(parsed: {
+    membersInput: MemberInput[];
+    strategy: string;
+    timeout?: number;
+  }): ToolResult | null {
+    if (!parsed.membersInput || parsed.membersInput.length === 0) {
       return this.error('Team must have at least one member');
     }
-
-    if (membersInput.length > 10) {
-      return this.error('Maximum team size is 10 members');
+    if (parsed.membersInput.length > MAX_MEMBERS) {
+      return this.error(`Maximum team size is ${MAX_MEMBERS} members`);
     }
+    return null;
+  }
 
-    // 构建团队成员
-    const members: TeamMember[] = membersInput.map(m => ({
-      id: m.id,
-      agentId: m.agent_id || m.role || '', // 优先使用 agent_id，向后兼容 role
-      name: m.name,
-      task: m.task,             // 🆕 成员具体任务
-      capabilities: m.capabilities ?? [],
-      priority: m.priority,
-      scene: m.scene,           // 🆕 场景类型
-      systemPrompt: m.system_prompt,
-      tools: m.tools,
-      timeout: m.timeout,
-    }));
+  // ── 团队配置构建 ────────────────────────────────────
 
-    // 🆕 计算超时配置 — 基于审计数据的优化公式
-    const rounds = maxRounds ?? 3; // 默认 3 轮（超过 3 轮 Token 爆炸）
+  private buildTeamConfig(parsed: {
+    teamName: string;
+    goal: string;
+    strategy: TeamStrategy;
+    membersInput: MemberInput[];
+    maxRounds?: number;
+    timeout?: number;
+  }): TeamConfig {
+    const { teamName, goal, strategy, membersInput, maxRounds, timeout } = parsed;
+    const rounds = maxRounds ?? 3;
 
-    // 策略基础超时（ms）
-    const baseTimeouts: Record<string, number> = {
-      debate:       1_800_000, // 30min（含多轮辩论）
-      hierarchical: 600_000 + 300_000 * Math.max(0, members.length - 1), // leader + workers
-      parallel:     600_000 + 200_000 * Math.max(0, members.length - 1),
-      sequential:   300_000 + 100_000 * Math.max(0, members.length - 1),
-      pipeline:     300_000 + 150_000 * Math.max(0, members.length - 1),
-    };
+    const members = this.buildMembers(membersInput);
+    const teamTotalTimeout = this.calculateTeamTimeout(strategy, members.length, rounds, timeout);
+    const defaultMemberTimeout = this.calculateMemberTimeout(strategy, members.length, rounds, teamTotalTimeout);
 
-    const baseTimeout = baseTimeouts[strategy] ?? 600_000;
-
-    // 辩论轮次因子
-    const roundFactors: Record<number, number> = { 2: 1.0, 3: 1.5, 4: 2.0, 5: 3.0 };
-    const roundFactor = strategy === 'debate' ? (roundFactors[rounds] ?? 1.5) : 1.0;
-
-    const teamTotalTimeout = timeout ?? Math.floor(baseTimeout * roundFactor);
-    let defaultMemberTimeout: number;
-
-    // 根据策略分配成员基准超时
-    switch (strategy) {
-      case 'parallel':
-        defaultMemberTimeout = Math.floor(teamTotalTimeout * 0.85);
-        break;
-      case 'sequential':
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
-        break;
-      case 'hierarchical':
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / (1 + members.length * 0.7));
-        break;
-      case 'debate':
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / (members.length * rounds));
-        break;
-      case 'pipeline':
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
-        break;
-      default:
-        defaultMemberTimeout = Math.floor(teamTotalTimeout / members.length);
-    }
-
-    // 每成员最低 2 分钟保障
-    defaultMemberTimeout = Math.max(defaultMemberTimeout, 120_000);
-
-    // 创建团队配置
-    const teamConfig: TeamConfig = {
+    return {
       name: teamName,
       members,
       strategy,
       goal,
-      maxRounds,
-      teamTotalTimeout,           // 🆕 团队总超时
-      defaultMemberTimeout,       // 🆕 成员基准超时（会被策略权重调整）
-      // memberTimeoutMs 不设置，让策略计算生效
+      maxRounds: rounds,
+      teamTotalTimeout,
+      defaultMemberTimeout,
     };
+  }
 
-    // 异步执行模式
-    const asyncMode = input.async === true;
-    if (asyncMode) {
-      return this.executeAsync(teamConfig, teamName, goal, strategy, membersInput, input);
+  private buildMembers(membersInput: MemberInput[]): TeamMember[] {
+    return membersInput.map(m => ({
+      id: m.id,
+      agentId: m.agent_id || m.role || '',
+      name: m.name,
+      task: m.task,
+      capabilities: m.capabilities ?? [],
+      priority: m.priority,
+      scene: m.scene,
+      scenes: m.scenes,
+      systemPrompt: m.system_prompt,
+      tools: m.tools,
+      timeout: m.timeout,
+    }));
+  }
+
+  // ── 超时计算 ────────────────────────────────────────
+
+  private calculateTeamTimeout(
+    strategy: string,
+    memberCount: number,
+    rounds: number,
+    userTimeout?: number,
+  ): number {
+    if (userTimeout) return userTimeout;
+
+    const base = STRATEGY_BASE_TIMEOUT[strategy] ?? 600_000;
+    // 按成员数调整基准超时
+    const scaled = strategy === 'debate'
+      ? base
+      : base + (memberCount - 1) * (
+          strategy === 'hierarchical' ? 300_000
+          : strategy === 'parallel' ? 200_000
+          : strategy === 'pipeline' ? 150_000
+          : 100_000
+        );
+
+    // 辩论策略：按轮次倍增
+    if (strategy === 'debate') {
+      const factor = DEBATE_ROUND_FACTORS[rounds] ?? 1.5;
+      return Math.floor(scaled * factor);
+    }
+    return scaled;
+  }
+
+  private calculateMemberTimeout(
+    strategy: string,
+    memberCount: number,
+    _rounds: number,
+    teamTotalTimeout: number,
+  ): number {
+    let perMember: number;
+
+    switch (strategy) {
+      case 'parallel':
+        perMember = Math.floor(teamTotalTimeout * 0.85);
+        break;
+      case 'hierarchical':
+        perMember = Math.floor(teamTotalTimeout / (1 + memberCount * 0.7));
+        break;
+      case 'debate':
+        perMember = Math.floor(teamTotalTimeout / (memberCount * _rounds));
+        break;
+      case 'sequential':
+      case 'pipeline':
+      default:
+        perMember = Math.floor(teamTotalTimeout / memberCount);
+        break;
     }
 
+    return Math.max(perMember, MIN_MEMBER_TIMEOUT_MS);
+  }
+
+  // ── 同步执行 ────────────────────────────────────────
+
+  private async executeSync(
+    teamConfig: TeamConfig,
+    goal: string,
+    signal?: AbortSignal,
+  ): Promise<ToolResult> {
     try {
-      // 创建团队管理器
-      const teamManager = new TeamManager(
-        this.mainProvider,
-        this.registry,
-        this.agentConfig,
-        this.hookRegistry,
-        null,
-        this.currentDepth,
-        this.agentRegistry,
-        this.providerManager,
-        input._cwd as string | undefined,
-      );
-
-      // 创建团队
+      const teamManager = this.createTeamManager();
       await teamManager.createTeam(teamConfig);
-
-      // 执行团队任务
       const result = await teamManager.execute(goal, signal);
-
-      // 格式化结果
-      return this.formatResult(result, teamName, strategy);
+      return this.formatResult(result, teamConfig.name, teamConfig.strategy);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       return this.error(`Team execution failed: ${errMsg}`);
     }
   }
 
-  /**
-   * 异步执行团队任务（后台运行）
-   */
+  // ── 异步执行 ────────────────────────────────────────
+
   private executeAsync(
     teamConfig: TeamConfig,
-    teamName: string,
-    goal: string,
-    strategy: TeamStrategy,
-    membersInput: Array<{ id: string; name?: string }>,
+    parsed: { teamName: string; goal: string; strategy: TeamStrategy; membersInput: MemberInput[] },
     input: Record<string, unknown>,
   ): ToolResult {
     const manager = AsyncAgentTaskManager.getInstance();
-    const memberNames = membersInput.map((m) => ({
+    const memberNames = parsed.membersInput.map(m => ({
       id: m.id,
       name: m.name ?? m.id,
       status: 'pending' as const,
     }));
 
-    // 保存闭包需要的引用
-    const mainProvider = this.mainProvider!;
-    const registry = this.registry!;
-    const agentConfig = this.agentConfig!;
-    const hookRegistry = this.hookRegistry;
-    const currentDepth = this.currentDepth;
-    const agentRegistry = this.agentRegistry!;
-    const providerManager = this.providerManager!;
-    const cwd = input._cwd as string | undefined;
-
     const result = manager.startTask({
       type: 'team',
-      goal: goal.slice(0, 120),
+      goal: parsed.goal.slice(0, 120),
       members: memberNames,
-      workingDir: cwd,
+      workingDir: input._cwd as string | undefined,
       executor: async (abortSignal, onProgress, groupId) => {
         onProgress({ phase: 'setup', currentMember: '创建团队...' });
 
-        const teamManager = new TeamManager(
-          mainProvider,
-          registry,
-          agentConfig,
-          hookRegistry,
-          null,
-          currentDepth,
-          agentRegistry,
-          providerManager,
-          cwd,
-        );
-
+        const teamManager = this.createTeamManager();
         await teamManager.createTeam(teamConfig);
 
-        onProgress({
-          phase: 'executing',
-          totalMembers: memberNames.length,
-          completedMembers: 0,
-        });
-
-        // 更新成员状态为 running
+        onProgress({ phase: 'executing', totalMembers: memberNames.length, completedMembers: 0 });
         for (const m of memberNames) {
           manager.updateMemberStatus(groupId, m.id, 'running');
         }
 
-        const execResult = await teamManager.execute(goal, abortSignal);
+        const execResult = await teamManager.execute(parsed.goal, abortSignal);
 
-        onProgress({
-          phase: 'synthesizing',
-          completedMembers: memberNames.length,
-        });
-
-        // 更新成员状态
+        onProgress({ phase: 'synthesizing', completedMembers: memberNames.length });
         for (const mr of execResult.memberResults) {
-          manager.updateMemberStatus(
-            groupId,
-            mr.memberId,
-            mr.success ? 'completed' : 'failed',
-          );
+          manager.updateMemberStatus(groupId, mr.memberId, mr.success ? 'completed' : 'failed');
         }
 
-        return this.formatResult(execResult, teamName, strategy);
+        return this.formatResult(execResult, parsed.teamName, parsed.strategy);
       },
     });
 
@@ -391,39 +423,56 @@ export class TeamTool extends BaseTool {
       return this.error(result.error);
     }
 
-    const elapsed = manager.getProgress(result.groupId).progress;
-    const totalMembers = memberNames.length;
-    const memberList = memberNames.map((m) => m.name).join(', ');
+    return this.formatAsyncResponse(result.groupId, parsed);
+  }
 
+  private createTeamManager(): TeamManager {
+    return new TeamManager(
+      this.mainProvider!,
+      this.registry!,
+      this.agentConfig!,
+      this.hookRegistry,
+      null,
+      this.currentDepth,
+      this.agentRegistry!,
+      this.providerManager!,
+      undefined,
+    );
+  }
+
+  // ── 结果格式化 ──────────────────────────────────────
+
+  private formatAsyncResponse(
+    groupId: string,
+    parsed: { teamName: string; goal: string; strategy: TeamStrategy; membersInput: MemberInput[] },
+  ): ToolResult {
+    const memberList = parsed.membersInput.map(m => m.name ?? m.id).join(', ');
     return this.success(
       [
-        `[Agent Team 已启动 - 后台运行]`,
-        `任务组 ID: ${result.groupId}`,
-        `团队: ${teamName}`,
-        `策略: ${strategy}`,
-        `成员 (${totalMembers}): ${memberList}`,
-        `目标: ${goal.slice(0, 150)}`,
+        '[Agent Team 已启动 - 后台运行]',
+        `任务组 ID: ${groupId}`,
+        `团队: ${parsed.teamName}`,
+        `策略: ${parsed.strategy}`,
+        `成员 (${parsed.membersInput.length}): ${memberList}`,
+        `目标: ${parsed.goal.slice(0, 150)}`,
         '',
         '---',
         '用户可以：',
-        `- 查询进度: 使用 task_control({ action: "status", groupId: "${result.groupId}" })`,
-        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${result.groupId}" })`,
+        `- 查询进度: 使用 task_control({ action: "status", groupId: "${groupId}" })`,
+        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${groupId}" })`,
         `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
         '完成后系统会通知你汇总结果。',
       ].join('\n'),
       {
         teamAsync: true,
-        groupId: result.groupId,
-        teamName,
-        strategy,
-        memberCount: totalMembers,
+        groupId,
+        teamName: parsed.teamName,
+        strategy: parsed.strategy,
+        memberCount: parsed.membersInput.length,
       },
     );
   }
 
-  /**
-   * 格式化团队执行结果
-   */
   private formatResult(
     result: import('@/core/agent/team/types').TeamExecutionResult,
     teamName: string,
@@ -448,6 +497,7 @@ export class TeamTool extends BaseTool {
       })
       .join('\n');
 
+    const retryAdvice = this.buildRetryAdvice(result);
     const content = [
       meta,
       '',
@@ -458,57 +508,14 @@ export class TeamTool extends BaseTool {
       result.output,
       '',
       '---',
-      (() => {
-        if (result.timedOut) {
-          const successCount = result.memberResults.filter(r => r.success).length;
-          const checkpointInfo = successCount > 0
-            ? [`     - ${successCount}/${result.memberResults.length} 位成员成功完成，结果已保存至 checkpoint，重试时可恢复`]
-            : [];
-          return [
-            '⏱️ 团队执行超时。建议重试策略：',
-            '  1. 优先：再次调用 agent_team 并增大 timeout 参数（建议至少翻倍）',
-            `     - 当前耗时: ${Math.floor((result.duration || 0) / 1000)}s`,
-            `     - 建议设置 timeout: ${Math.floor((result.duration || 60_000) / 1000) * 2 * 1000} 或更大`,
-            ...checkpointInfo,
-            '  2. 备选：如果超时由某个特定阶段导致，可用 task 工具单独重试该阶段，然后将结果传回 agent_team',
-            '',
-          ].join('\n');
-        }
-        if (!result.success) {
-          // Bug 5: 根据失败分类提供不同的重试建议
-          const failedMembers = result.memberResults.filter(r => !r.success);
-          const categories = new Set(failedMembers.map(r => r.failureCategory).filter(Boolean));
-
-          if (categories.has('stage_disconnect') || categories.has('output_truncated')) {
-            const failedIds = failedMembers.map(r => r.memberName || r.memberId).join(', ');
-            return [
-              '⚠️ 团队执行失败（阶段衔接/输出截断）。建议重试策略：',
-              '  1. 优先：用 task 工具单独重新执行失败的阶段',
-              `     - 失败成员: ${failedIds}`,
-              '     - 提供更明确的任务描述和完整的文件路径',
-              '     - 单阶段成功后再考虑重新运行完整 pipeline',
-              '  2. 备选：再次调用 agent_team，但增加各成员的 timeout',
-              '',
-            ].join('\n');
-          }
-
-          return [
-            '⚠️ 团队执行失败。建议重试策略：',
-            '  1. 优先：再次调用 agent_team，调整成员配置或任务描述后重试',
-            '  2. 备选：如果仅个别成员失败且问题明确（如输出截断），可用 task 工具单独重试该成员的任务',
-            `     - 失败成员: ${failedMembers.map(r => r.memberName || r.memberId).join(', ')}`,
-            '',
-          ].join('\n');
-        }
-        return '';
-      })(),
+      retryAdvice,
       '⚠️ 当你向用户总结团队执行结果时，必须为每位成员的关键发现附带可点击引用。引用格式（直接写在正文中，不要放在代码块或引用块里）：',
       '📎 [成员名称]："从该成员输出中逐字复制一句原话"',
       '',
       '引用名称必须与上方成员摘要中显示的名称完全一致，否则用户无法点击查看完整输出。',
     ].join('\n');
 
-    const citations = result.memberResults.map((r) => ({
+    const citations = result.memberResults.map(r => ({
       agentName: r.memberName || r.memberId,
       originalOutput: r.result,
       duration: r.duration,
@@ -527,5 +534,48 @@ export class TeamTool extends BaseTool {
       timedOut: result.timedOut,
       citations,
     });
+  }
+
+  private buildRetryAdvice(result: import('@/core/agent/team/types').TeamExecutionResult): string {
+    if (result.timedOut) {
+      const successCount = result.memberResults.filter(r => r.success).length;
+      const lines = [
+        '⏱️ 团队执行超时。建议重试策略：',
+        '  1. 优先：再次调用 agent_team 并增大 timeout 参数（建议至少翻倍）',
+        `     - 当前耗时: ${Math.floor((result.duration || 0) / 1000)}s`,
+        `     - 建议设置 timeout: ${Math.floor((result.duration || 60_000) / 1000) * 2 * 1000} 或更大`,
+      ];
+      if (successCount > 0) {
+        lines.push(`     - ${successCount}/${result.memberResults.length} 位成员成功完成，结果已保存至 checkpoint，重试时可恢复`);
+      }
+      lines.push('  2. 备选：如果超时由某个特定阶段导致，可用 task 工具单独重试该阶段');
+      return lines.join('\n');
+    }
+
+    if (!result.success) {
+      const failedMembers = result.memberResults.filter(r => !r.success);
+      const categories = new Set(failedMembers.map(r => r.failureCategory).filter(Boolean));
+      const failedIds = failedMembers.map(r => r.memberName || r.memberId).join(', ');
+
+      if (categories.has('stage_disconnect') || categories.has('output_truncated')) {
+        return [
+          '⚠️ 团队执行失败（阶段衔接/输出截断）。建议重试策略：',
+          '  1. 优先：用 task 工具单独重新执行失败的阶段',
+          `     - 失败成员: ${failedIds}`,
+          '     - 提供更明确的任务描述和完整的文件路径',
+          '     - 单阶段成功后再考虑重新运行完整 pipeline',
+          '  2. 备选：再次调用 agent_team，但增加各成员的 timeout',
+        ].join('\n');
+      }
+
+      return [
+        '⚠️ 团队执行失败。建议重试策略：',
+        '  1. 优先：再次调用 agent_team，调整成员配置或任务描述后重试',
+        '  2. 备选：如果仅个别成员失败且问题明确，可用 task 工具单独重试该成员的任务',
+        `     - 失败成员: ${failedIds}`,
+      ].join('\n');
+    }
+
+    return '';
   }
 }

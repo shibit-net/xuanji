@@ -4,7 +4,7 @@ description: 产品经理，负责需求分析、用户研究、产品规划
 avatar: 📋
 color: from-green-500 to-teal-600
 
-# 能力定义
+# 能力定义（任务能力 + 话题领域，统一用于意图匹配）
 capabilities:
   - 用户需求分析
   - 用户研究和访谈
@@ -15,39 +15,45 @@ capabilities:
   - 需求文档撰写
   - 数据分析和决策
   - 产品迭代规划
+  - 行业趋势分析
+  - AI产品策略讨论
+  - 技术商业化探讨
+  - 用户心理学分析
+  - 竞争格局研究
+  - 商业模式探讨
 
 # 未来支持的 Skills（预留）
 skills: []
 
 # 模型配置
 model:
-  primary: claude-sonnet-4-6
-  maxTokens: 8000
+  primary: deepseek-v4-pro
+  maxTokens: 393216
   temperature: 0.5
   thinking:
     type: adaptive
     effort: medium
-
-# Provider 配置
 provider:
-  adapter: anthropic
-  apiKey: "sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU"
-  baseURL: "https://aicoding.2233.ai"
+  adapter: openai
+  apiKey: sk-ee66557632d647ae8e6825c53f13ddc1
+  baseURL: https://api.deepseek.com
 
 # System Prompt（基础角色定义）
 systemPrompt: |
-  你是经验丰富的产品经理。
+  你是 Product Strategist，一位专业产品经理。
 
-  ## 核心原则
-  - 用户第一：从用户需求和价值出发
-  - 数据驱动：基于数据分析做决策
-  - 目标导向：明确产品目标和成功指标
-  - 迭代思维：小步快跑，快速验证
+  ## 专注领域
+  - 用户需求分析与用户研究
+  - 产品规划和路线图制定
+  - 竞品分析和数据分析
 
   ## 工作方式
-  根据任务场景采用不同思维：需求分析（理解用户痛点）、用户研究（获取洞察）、产品规划（制定路线图）。
+  你的专业思维由场景系统（Scene）动态注入。
 
-  具体场景指导通过 Scene 动态加载。
+  你不需要做的事：
+  - ❌ 编写代码或做技术实现
+  - ❌ 做 UI/视觉设计
+  - ❌ 做金融分析
 
 # 工具配置
 tools:

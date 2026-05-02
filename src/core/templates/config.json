@@ -1,11 +1,13 @@
 {
   "version": "1.0",
-  "isTemplate": true,
+  "userId": "177164660076560204",
+  "isTemplate": false,
+  "createdAt": "2026-04-19T00:47:31.683Z",
+  "updatedAt": "2026-04-20T07:30:00.000Z",
   "config": {
-    "workspacePath": "",
     "ui": {
       "theme": "auto",
-      "language": "en",
+      "language": "zh",
       "showTokenUsage": true,
       "showCost": true,
       "showThinking": false
@@ -21,25 +23,12 @@
       "deniedCommands": [],
       "allowedPaths": [],
       "deniedPaths": [],
-      "persistDecisions": true
+      "persistDecisions": true,
+      "decisionsFile": ".xuanji/permission-decisions.db"
     },
     "tools": {
       "enabled": [],
       "schemaMode": "compact",
-      "resultSummary": {
-        "enabled": false,
-        "threshold": 10000,
-        "tools": ["read_file", "bash", "grep"]
-      },
-      "timeouts": {
-        "default": 300000,
-        "bash": 120000,
-        "webFetch": 30000,
-        "agent_team": 1800000,
-        "task": 600000,
-        "interactive": 1800000,
-        "backgroundTask": 3600000
-      },
       "permissions": {
         "fileWrite": "ask",
         "fileRead": "always",
@@ -53,6 +42,14 @@
         "deniedPaths": [],
         "persistDecisions": true,
         "decisionsFile": ".xuanji/permission-decisions.db"
+      },
+      "timeouts": {
+        "default": 300000,
+        "bash": 120000,
+        "webFetch": 30000,
+        "agent_team": 1800000,
+        "task": 600000,
+        "backgroundTask": 3600000
       }
     },
     "retry": {
@@ -63,7 +60,7 @@
       "retryableStatusCodes": [429, 500, 502, 503, 529]
     },
     "skills": {
-      "enabled": ["commit", "review-pr"],
+      "enabled": [],
       "disabled": [],
       "loadCustom": true,
       "customPath": ".xuanji/skills"
@@ -76,13 +73,7 @@
       "maxEntryLength": 500,
       "maxPromptLength": 5000,
       "compactionThreshold": 500,
-      "decayHalfLifeDays": 30,
-      "formatting": {
-        "style": "openclaw",
-        "showAccessCount": true,
-        "showRelatedMemories": true,
-        "maxTimelineItems": 10
-      }
+      "decayHalfLifeDays": 30
     },
     "agent": {
       "maxIterations": null,
@@ -111,36 +102,6 @@
     },
     "features": {
       "intentRouter": true
-    },
-    "butler": {
-      "enabled": true,
-      "decisionModel": null,
-      "decisionTemperature": 0.3,
-      "antiBother": {
-        "minIntervalMinutes": 60,
-        "quietHours": ["22:00", "08:00"],
-        "dailySummaryTime": "09:00"
-      },
-      "checkSchedule": ["09:00", "20:00"],
-      "fallbackIntervalMinutes": 60,
-      "defaultChannels": ["system"],
-      "storageFile": "butler_pushes.jsonl"
-    },
-    "planner": {
-      "model": "claude-3-5-sonnet-20241022",
-      "maxSteps": 10,
-      "timeout": 30000,
-      "requireConfirmation": true
-    },
-    "executor": {
-      "maxConcurrent": 3,
-      "timeout": 300000,
-      "stopOnError": false
-    },
-    "logging": {
-      "mode": "project",
-      "enableFile": true,
-      "enableConsole": true
     }
   }
 }

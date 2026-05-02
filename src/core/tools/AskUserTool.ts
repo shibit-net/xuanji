@@ -62,9 +62,9 @@ interface QueueItem {
 export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
   readonly description = [
-    '向用户提问并等待回复。用于澄清需求、选择方案、确认关键操作。',
-    '不要用于闲聊或不必要的确认。',
-    '支持选项列表（单选/多选）、优先级（1-10）、超时设置。',
+    'Ask the user a question and wait for their response.',
+    'Use when you need clarification, a decision, or additional information to proceed.',
+    'Supports multiple choice options (single/multi select), priority (1-10), and timeout.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

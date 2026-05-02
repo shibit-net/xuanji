@@ -24,7 +24,7 @@ interface GlobInput {
 export class GlobTool extends BaseTool {
   readonly name = 'glob';
   readonly description =
-    'Find file paths using glob patterns. Supports wildcards: * (any chars), ** (recursive dirs), ? (single char), [abc] (char set). Examples: "**/*.ts" (all TS files), "src/**/test/*.spec.ts" (test files).';
+    'Find files by glob pattern. Supports wildcards: * (any chars), ** (recursive dirs), ? (single char). Examples: "**/*.ts" for all TS files, "src/**/test/*.spec.ts" for test files.';
   readonly readonly = true; // ✅ 只读工具，可并行执行
 
   readonly input_schema: JSONSchema = {

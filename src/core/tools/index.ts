@@ -32,7 +32,14 @@ export { EnterPlanModeTool } from './EnterPlanModeTool';
 export { ExitPlanModeTool } from './ExitPlanModeTool';
 export { NotebookEditTool } from './NotebookEditTool';
 export { WorktreeTool } from './WorktreeTool';
+export { ToolGateway } from './ToolGateway';
+export type { ExecutionContext, ToolMetrics, PermissionController } from './ToolGateway';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
+export { PermissionGate } from './PermissionGate';
+export { ToolMetricsCollector } from './ToolMetrics';
+export type { ToolCallMetrics } from './ToolMetrics';
+export { createExecutionContext } from './ExecutionContext';
+export type { ToolExecutionContext } from './ExecutionContext';
 
 // Utils
 export { DiffRenderer } from '@/shared/utils/DiffRenderer';

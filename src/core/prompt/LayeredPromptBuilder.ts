@@ -177,173 +177,137 @@ export class LayeredPromptBuilder {
     }
   }
 
-  /**
-   * 构建 Prompt
-   */
-  async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult> {
-    const { userMessage, language = 'zh', toolList = [] } = options;
-
-    // 发射构建开始事件
-    this.emitEvent({
-      type: 'build:start',
-      timestamp: Date.now(),
-      agentId: this.agentId,
-      data: { userMessage, language },
-    });
-
-    // 1. 意图分析
-    let scene: SceneType | null = null;
-    let complexity: IntentComplexity = this.defaultComplexity;
-
-    // 优先级：显式传入 > IntentAnalyzer 分析 > defaultScene 兜底
-    if (options.scene && options.scene !== 'auto') {
-      scene = options.scene;
-    }
-
-    if (options.complexity) {
-      complexity = options.complexity;
-    }
-
-    let matchMethod: string | undefined = options.matchMethod;
-    if (userMessage && (!scene || !options.complexity)) {
-      // 转发 intentAnalyzer 的匹配过程事件
-      this.intentAnalyzer.setEventCallback((evt) => {
-        log.debug(`[LayeredPromptBuilder] 收到 intentAnalyzer 事件:`, evt);
-        this.emitEvent({
-          type: 'intent:match',
-          timestamp: Date.now(),
-          agentId: this.agentId,
-          data: evt,
-        });
-        log.debug(`[LayeredPromptBuilder] 已转发 intent:match 事件`);
-      });
-
-      const analysis = await this.intentAnalyzer.analyze(
-        userMessage,
-        !this.currentScene, // isFirstTurn
-      );
-
-      // 清除回调
-      this.intentAnalyzer.setEventCallback(undefined as any);
-
-      if (!scene) scene = analysis.scene;
-      if (!options.complexity) complexity = analysis.complexity;
-      matchMethod = analysis.matchMethod;
-    }
-
-    // 如果分析后仍为 null，不设置默认场景（让主 Agent 自己决策）
-    // 这样 L1 组件不会被加载，主 Agent 会使用 list_agents/match_agent 工具
-    if (!scene) {
-      log.debug('No scene matched, main agent will decide autonomously');
-    }
-
-    this.currentScene = scene;
-    this.currentComplexity = complexity;
-
-    log.debug(`Building prompt: scene=${scene}, complexity=${complexity}`);
-
-    // 发射意图分析完成事件
-    this.emitEvent({
-      type: 'intent:analyzed',
-      timestamp: Date.now(),
-      agentId: this.agentId,
-      data: { scene, complexity, matchMethod, agent: options.agent },
-    });
-
-    // 2. 选择组件
-    const selectedComponents = this.selectComponents(scene, complexity);
-
-    // 🔍 调试日志：打印选择的组件详情
-    log.debug(`[LayeredPromptBuilder] 🎯 Selected ${selectedComponents.length} components for scene=${scene}, complexity=${complexity}`);
-    selectedComponents.forEach((c) => {
-      log.debug(`[LayeredPromptBuilder]   - ${c.layer}/${c.id} (${c.name}) [${c.source}]`);
-    });
-
-    // 发射组件选择完成事件
-    this.emitEvent({
-      type: 'components:selected',
-      timestamp: Date.now(),
-      agentId: this.agentId,
-      data: {
-        components: selectedComponents.map((c) => ({
-          id: c.id,
-          name: c.name,
-          layer: c.layer,
-          source: c.source,
-        })),
-      },
-    });
-
-    // 3. 构建上下文
-    const context: PromptBuildContext = {
-      language,
-      toolList,
-      config: {
-        ...options.config,
-        userId: this.userRegistry?.getUserId(),
-      },
-    };
-
-    // 4. 渲染组件
-    const parts: string[] = [];
-    const componentIds: string[] = [];
-    const allRequiredTools: string[] = [];
-    let totalEstimatedTokens = 0;
-    let thinking: import('@/core/types').ThinkingConfig | undefined;
-
-    for (const component of selectedComponents) {
-      try {
-        const rendered = await component.render(context);
-        if (rendered) {
-          parts.push(rendered);
-          componentIds.push(component.id);
-          totalEstimatedTokens += component.estimatedTokens;
-
-          if (component.requiredTools) {
-            allRequiredTools.push(...component.requiredTools);
-          }
-          if (component.thinking && !thinking) {
-            thinking = component.thinking;
-          }
-        }
-      } catch (error) {
-        log.warn(`Failed to render component "${component.id}":`, error);
-      }
-    }
-
-    const prompt = parts.join('\n\n');
-    const requiredTools = [...new Set(allRequiredTools)];
-
-    log.info(
-      `Prompt built: scene=${scene}, complexity=${complexity}, components=[${componentIds.join(', ')}], ~${totalEstimatedTokens} tokens`,
-    );
-
-    const result = {
-      prompt,
-      components: componentIds,
-      scene,
-      complexity,
-      requiredTools,
-      thinking,
-      estimatedTokens: totalEstimatedTokens,
-    };
-
-    // 发射构建完成事件
-    this.emitEvent({
-      type: 'build:complete',
-      timestamp: Date.now(),
-      agentId: this.agentId,
-      data: {
-        totalComponents: componentIds.length,
-        estimatedTokens: totalEstimatedTokens,
-        scene,
-        complexity,
-        layers: this.groupComponentsByLayer(selectedComponents),
-      },
-    });
-
-    return result;
+/**
+ * 获取场景组件的完整 L1 内容（供 TaskTool/TeamTool 加载子 agent L1 prompt）
+ * 
+ * 主 agent 通过 list_scenes 工具查看可用 scene；子 agent 执行时通过此方法加载 L1 全文。
+ */
+async loadSceneContent(scene: string): Promise<string | null> {
+  if (!this.componentsLoaded) {
+    await this.init();
   }
+
+  // 查找匹配该场景的 L1 组件
+  const l1Components = Array.from(this.components.values()).filter(
+    (c) => c.layer === 'L1' && c.scenes?.includes(scene)
+  );
+
+  if (l1Components.length === 0) {
+    log.warn(`No L1 component found for scene: ${scene}`);
+    return null;
+  }
+
+  // 取优先级最高的 L1 组件
+  const component = l1Components.sort((a, b) => b.priority - a.priority)[0];
+  try {
+    const rendered = await component.render({});
+    return rendered?.trim() || null;
+  } catch (err) {
+    log.error(`Failed to render L1 component for scene ${scene}:`, err);
+    return null;
+  }
+}
+
+/**
+ * 构建 Prompt
+ *
+ * 主 agent 模式（默认）：只加载 L0 + scene 摘要列表，不加载 L1/L2
+ * 子 agent 模式：通过 buildForSubAgent 或外部直接调用 loadSceneContent
+ */
+async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult> {
+  const { language = 'zh', toolList = [] } = options;
+
+  // 发射构建开始事件
+  this.emitEvent({
+    type: 'build:start',
+    timestamp: Date.now(),
+    agentId: this.agentId,
+    data: { options },
+  });
+
+  // 主 agent 模式：L0 + scene 摘要列表（不加载 L1/L2）
+  // scene 参数被忽略 — 主 agent 不路由 scene，所有 scene 作为知识注入
+
+  log.debug('Building main agent prompt: L0 only');
+
+  // 加载组件（主 agent：仅 L0 + L3）
+  const selectedComponents: PromptComponent[] = [];
+  const requiredTools = new Set<string>();
+  let thinkingResult: import('@/core/types').ThinkingConfig | undefined;
+  let estimatedTokens = 0;
+
+  // 选择 L0 和 L3 组件
+  for (const component of this.components.values()) {
+    if (component.layer === 'L0' || component.layer === 'L3') {
+      selectedComponents.push(component);
+    }
+  }
+  // 不加载 L1/L2 — 主 agent 通过 list_scenes 工具了解场景知识
+
+  selectedComponents.sort((a, b) => b.priority - a.priority);
+
+  const context: PromptBuildContext = {
+    language,
+    toolList,
+    config: {
+      ...options.config,
+      userId: this.userRegistry?.getUserId(),
+    },
+  };
+
+  const parts: string[] = [];
+  const componentIds: string[] = [];
+
+  for (const component of selectedComponents) {
+    try {
+      const rendered = await component.render(context);
+      if (rendered) {
+        parts.push(rendered);
+        componentIds.push(component.id);
+        estimatedTokens += component.estimatedTokens;
+        if (component.requiredTools) {
+          component.requiredTools.forEach((tool) => requiredTools.add(tool));
+        }
+        if (component.thinking && !thinkingResult) {
+          thinkingResult = component.thinking;
+        }
+      }
+    } catch (error) {
+      log.warn(`Failed to render component "${component.id}":`, error);
+    }
+  }
+
+  const prompt = parts.join('\n\n');
+  const allRequiredTools = [...requiredTools];
+
+  log.info(
+    `Main agent prompt built: components=[${componentIds.join(', ')}], ~${estimatedTokens} tokens`,
+  );
+
+  const result: PromptBuildResult = {
+    prompt,
+    components: componentIds,
+    scene: null,
+    complexity: 'standard',
+    requiredTools: allRequiredTools,
+    thinking: thinkingResult,
+    estimatedTokens,
+  };
+
+  // 发射构建完成事件
+  this.emitEvent({
+    type: 'build:complete',
+    timestamp: Date.now(),
+    agentId: this.agentId,
+    data: {
+      totalComponents: componentIds.length,
+      estimatedTokens,
+      layers: this.groupComponentsByLayer(selectedComponents),
+    },
+  });
+
+  return result;
+}
 
   /**
    * 根据场景和复杂度选择组件

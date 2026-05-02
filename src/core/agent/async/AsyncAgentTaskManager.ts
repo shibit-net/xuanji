@@ -8,6 +8,8 @@
 import { randomUUID } from 'node:crypto';
 import { getRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 import type {
   AgentTaskGroup,
   AgentTaskStatus,
@@ -346,6 +348,10 @@ export class AsyncAgentTaskManager {
     if (this.globalCompletionCallback) {
       this.globalCompletionCallback(completionResult);
     }
+
+    // 通过 EventBus 发出事件（模块间解耦）
+    const event = status === 'completed' ? XuanjiEvent.ASYNC_TASK_COMPLETED : XuanjiEvent.ASYNC_TASK_FAILED;
+    eventBus.emit(event, completionResult);
   }
 
   /** 自动清理旧任务 */

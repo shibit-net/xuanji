@@ -28,9 +28,16 @@ interface AgentMatch {
 export class MatchAgentTool extends BaseTool {
   readonly name = 'match_agent';
   readonly description = [
-    '根据任务描述匹配合适的预置 agent。使用 task 或 agent_team 前必须先调用。',
-    '返回 top 3 推荐结果及匹配分数（0-1）。',
-    '分数 >= 0.5：使用推荐 agent ID。分数 < 0.5：无合适预置 agent，创建临时 agent（需 system_prompt + tools）。',
+    'Find the best pre-built agent for a given task description.',
+    '',
+    'Always call this before task or agent_team to discover the right agent.',
+    '',
+    'Score guide:',
+    '  ≥ 0.5 — Use the recommended agent ID directly in task()',
+    '  < 0.5 — No suitable pre-built agent. Create a temporary one:',
+    '          task({ subagent_type: "custom-id", system_prompt: "...", tools: [...] })',
+    '',
+    'Optionally pass preferred_agent to verify a specific agent instead of searching all.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

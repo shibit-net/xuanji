@@ -2,9 +2,7 @@
 // ChatSession - 会话管理器
 // ============================================================
 
-import type { MainAgent } from '@/core/agent/dispatch/MainAgent';
-import type { AgentCallbacks } from '@/core/agent/AgentLoop';
-import { ModelClassifier } from '@/core/agent/dispatch/ModelClassifier';
+import type { AgentLoop, AgentCallbacks } from '@/core/agent/AgentLoop';
 import type { DependencyContainer } from '@/core/di';
 import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { IToolRegistry, AppConfig, AgentState } from '@/core/types';
@@ -15,7 +13,11 @@ import type { SessionManager } from '@/session/SessionManager';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { SkillRegistry } from '@/core/skills';
 import type { MCPManager } from '@/mcp/MCPManager';
+import { ConversationManager } from '@/core/conversation/ConversationManager';
+import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
+import type { TaskStep, Task, TaskStepResult } from '@/core/task/types';
 import { logger } from '@/core/logger';
+import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
 const log = logger.child({ module: 'ChatSession' });
 
@@ -26,63 +28,129 @@ export interface SessionCallbacks extends AgentCallbacks {
 }
 
 export class ChatSession {
-  private mainAgent: MainAgent;
+  private agentLoop: AgentLoop;
   private container: DependencyContainer;
   private callbacks?: SessionCallbacks;
-  private modelClassifier: ModelClassifier | null = null;
+  private conversationManager: ConversationManager;
+  private taskOrchestrator: TaskOrchestrator;
+  private userId: string;
+  private workingDir: string;
 
   constructor(
-    mainAgent: MainAgent,
+    agentLoop: AgentLoop,
     container: DependencyContainer,
+    conversationManager: ConversationManager,
+    taskOrchestrator: TaskOrchestrator,
     callbacks?: SessionCallbacks,
   ) {
-    this.mainAgent = mainAgent;
+    this.agentLoop = agentLoop;
     this.container = container;
+    this.conversationManager = conversationManager;
+    this.taskOrchestrator = taskOrchestrator;
     this.callbacks = callbacks;
+    this.userId = 'default';
+    this.workingDir = process.cwd();
+
+    try {
+      const config = container.resolveSync<AppConfig>('config');
+      const cfg = config as Record<string, any>;
+      if (cfg.user?.id) this.userId = cfg.user.id;
+      if (cfg.projectRoot) this.workingDir = cfg.projectRoot;
+      else if (cfg.workspacePath) this.workingDir = cfg.workspacePath;
+    } catch { /* 使用默认值 */ }
+
+    this.taskOrchestrator.setExecutor(async (step: TaskStep, _task: Task): Promise<TaskStepResult> => {
+      const start = Date.now();
+      try {
+        await this.agentLoop.run(step.input);
+        return { success: true, output: `Agent completed step: ${step.description}`, duration: Date.now() - start };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err), duration: Date.now() - start };
+      }
+    });
 
     if (callbacks) {
-      this.mainAgent.on(callbacks);
+      this.agentLoop.on(callbacks);
     }
+
+    log.info('ChatSession initialized with ConversationManager + TaskOrchestrator');
   }
 
   async run(input: string): Promise<void> {
-    log.debug('Running session');
+    // 生成 executionId 用于日志追踪
+    const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setLogContext({ execId, depth: 0 });
+    log.info(`Session run started: input="${input.substring(0, 80)}"`);
+
     try {
       await this.callbacks?.onBeforeExecution?.(input);
-      await this.mainAgent.run(input);
+
+      // 主 agent 模式：不做意图分析，不路由 scene
+      // scene 知识通过 list_scenes 工具按需获取
+      // 所有任务执行通过 task 和 agent_team 工具委托给子 agent
+
+      this.conversationManager.transitionTo('executing');
+      await this.agentLoop.run(input);
+      this.conversationManager.transitionTo('idle');
+
+      // 检查是否有后台任务完成待处理
+      await this.checkPendingCompletions();
+
       await this.callbacks?.onAfterExecution?.();
+      log.info('Session run completed');
     } catch (error) {
-      // onError 已在 AgentLoop 中调用，此处不再重复发送
+      log.error('Session run failed', error as Error);
+      this.conversationManager.transitionTo('idle');
       throw error;
     }
   }
 
+  /**
+   * 检查后台任务完成队列，如有待处理结果则触发主 agent 汇总
+   */
+  private async checkPendingCompletions(): Promise<void> {
+    try {
+      const handler = (this.taskOrchestrator as any).taskCompletionHandler;
+      if (!handler) return;
+
+      if (handler.hasPending()) {
+        handler.injectPendingCompletions();
+        handler.checkAndAutoSummarize();
+      }
+    } catch (err) {
+      log.warn('Failed to check pending completions:', err);
+    }
+  }
+
   stop(): void {
-    this.mainAgent.stop();
+    this.agentLoop.stop();
+    const ctrl = this.conversationManager.activeAbortController;
+    if (ctrl) ctrl.abort();
   }
 
   interrupt(input: string): void {
-    this.mainAgent.interrupt(input);
+    this.conversationManager.interrupt(input);
+    this.agentLoop.stop();
+  }
+
+  appendMessage(message: string): void {
+    this.conversationManager.enqueue(message);
   }
 
   reset(): void {
-    this.mainAgent.reset();
+    this.agentLoop.reset();
   }
 
-  getAgentLoop() {
-    return this.mainAgent.getAgentLoop();
+  getAgentLoop(): AgentLoop {
+    return this.agentLoop;
   }
 
   getContainer(): DependencyContainer {
     return this.container;
   }
 
-  getMainAgent(): MainAgent {
-    return this.mainAgent;
-  }
-
   getState(): AgentState {
-    return this.mainAgent.getState();
+    return this.agentLoop.getState();
   }
 
   getConfig(): AppConfig {
@@ -175,21 +243,20 @@ export class ChatSession {
     }
   }
 
-  getModelClassifier(): ModelClassifier {
-    if (!this.modelClassifier) {
-      const agentRegistry = this.getAgentRegistry();
-      const classifierAgent = agentRegistry?.get('scene-classifier');
-      const modelType = classifierAgent?.model?.primary as any;
-      const systemPrompt = classifierAgent?.systemPrompt;
-      this.modelClassifier = new ModelClassifier(agentRegistry, {
-        ...(modelType && { modelType }),
-        ...(systemPrompt && { systemPrompt }),
-      });
-      this.modelClassifier.init().catch((err) => {
-        log.warn('ModelClassifier init failed:', err);
-      });
-    }
-    return this.modelClassifier;
+  getConversationManager(): ConversationManager {
+    return this.conversationManager;
+  }
+
+  getTaskOrchestrator(): TaskOrchestrator {
+    return this.taskOrchestrator;
+  }
+
+  getUserId(): string {
+    return this.userId;
+  }
+
+  getWorkingDir(): string {
+    return this.workingDir;
   }
 
   getLayeredPromptBuilder(): import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null {
@@ -202,7 +269,7 @@ export class ChatSession {
 
   async saveSession(name?: string, options?: any): Promise<string> {
     const sessionManager = this.getSessionManager();
-    const messages = this.mainAgent.getAgentLoop().getMessageManager().getMessages();
+    const messages = this.agentLoop.getContextManager().getMessages();
     return sessionManager.save(messages as any, name, options);
   }
 
@@ -237,9 +304,8 @@ export class ChatSession {
 
   async cleanup(): Promise<void> {
     log.debug('Cleaning up session');
-    // 停止 MainAgent 的执行
-    if (this.mainAgent) {
-      this.mainAgent.stop();
+    if (this.agentLoop) {
+      this.agentLoop.stop();
     }
   }
 }

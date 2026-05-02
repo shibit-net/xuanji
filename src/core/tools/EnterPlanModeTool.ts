@@ -18,9 +18,9 @@ export type PlanModeEnterHandler = () => Promise<boolean>;
 export class EnterPlanModeTool extends BaseTool {
   readonly name = 'enter_plan_mode';
   readonly description = [
-    '进入只读规划模式，所有写操作将被拦截。',
-    '在需先探索代码库、设计方案、确认影响范围时使用。',
-    '规划完成后调用 exit_plan_mode 退出恢复正常执行。',
+    'Enter plan mode. In plan mode, all write operations are blocked.',
+    'Use this before making complex changes to explore the codebase and design your approach first.',
+    'Call exit_plan_mode when done to resume normal execution.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

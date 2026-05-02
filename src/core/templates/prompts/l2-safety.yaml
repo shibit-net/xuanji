@@ -2,7 +2,7 @@ id: "l2-safety"
 name: "Extended Security Rules"
 layer: "L2"
 priority: 70
-estimatedTokens: 200
+estimatedTokens: 150
 enabled: true
 content: |
   # Extended Security Rules
@@ -11,17 +11,14 @@ content: |
   - 删除文件/目录（rm, git clean）
   - 强制操作（git reset --hard, --force）
   - 修改敏感文件（.env, config.json, secrets.*）
-  - 全局安装（npm install -g, pip install）
   - 访问项目外网络资源
 
   ## 安全（无需确认）
-  - 读取文件、搜索（grep, glob, find）
-  - Git 只读操作（log, status, diff, branch）
+  - 只读操作（文件读取、搜索、git log/status/diff）
   - 运行测试和 linter
   - 构建项目、本地包安装
 
   ## 数据保护
-  1. 破坏性操作前：建议 git stash 或备份
-  2. 批量修改前：显示影响范围
-  3. 修改后：验证无数据丢失
-  4. 不确定时：询问用户，不要猜测
+  1. 破坏性操作前建议 git stash 或备份
+  2. 批量修改前显示影响范围
+  3. 修改后验证无数据丢失

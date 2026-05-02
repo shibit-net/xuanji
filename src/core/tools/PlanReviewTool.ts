@@ -15,11 +15,7 @@ import type { IPermissionController } from '@/permission/types';
 
 export class PlanReviewTool extends BaseTool {
   readonly name = 'plan_review';
-  readonly description = [
-    '提交执行计划供用户审查。即将进行多文件修改、高风险命令或复杂多步骤操作时使用。',
-    '用户可审批(approve)、拒绝(reject)或补充(supplement)。被拒后应询问用户重新规划，被补充后应调整计划重新提交。',
-    '审批通过后必须：1) todo_create 为每个步骤创建任务 2) 使用 agent_team(多领域) 或 task(单领域) 执行 3) 及时更新 todo 状态。',
-  ].join(' ');
+  readonly description = 'Submit an execution plan for user review. Use before multi-file changes, high-risk commands, or complex multi-step operations. Users can approve, reject, or supplement the plan.';
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {

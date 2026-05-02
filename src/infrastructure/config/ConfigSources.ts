@@ -1,9 +1,9 @@
 // ============================================================
-// 配置源实现 - 简化版（只保留用户配置）
+// 配置源实现 — 使用新的 ConfigManager
 // ============================================================
 
 import type { IConfigSource } from './ConfigService';
-import { UserConfig } from '@/core/config/UserConfig';
+import { getConfigManager } from '@/core/config/ConfigManager';
 import { logger } from '@/core/logger';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,7 +12,6 @@ const log = logger.child({ module: 'ConfigSources' });
 
 /**
  * 模板配置源
- * 从 src/core/templates/config.json 加载默认配置
  */
 export class TemplateConfigSource implements IConfigSource {
   name = 'template';
@@ -24,15 +23,14 @@ export class TemplateConfigSource implements IConfigSource {
       const content = await readFile(templatePath, 'utf-8');
       const parsed = JSON.parse(content);
       return parsed.config || parsed;
-    } catch (error) {
-      log.error('Failed to load template config:', error);
+    } catch {
       return {};
     }
   }
 }
 
 /**
- * 用户配置源
+ * 用户配置源 — 使用新的 ConfigManager
  */
 export class UserConfigSource implements IConfigSource {
   name = 'user';
@@ -45,8 +43,11 @@ export class UserConfigSource implements IConfigSource {
 
   async load(): Promise<Record<string, any>> {
     try {
-      const userConfig = UserConfig.getInstance(this.userId);
-      return await userConfig.load() as Record<string, any>;
+      const cfgMgr = getConfigManager();
+      if (!cfgMgr.isLoaded()) {
+        await cfgMgr.initForUser(this.userId);
+      }
+      return cfgMgr.getSettings() as unknown as Record<string, any>;
     } catch (error) {
       log.warn(`Failed to load user config (${this.userId}):`, error);
       return {};
@@ -54,27 +55,21 @@ export class UserConfigSource implements IConfigSource {
   }
 
   async save(config: Record<string, any>): Promise<void> {
-    const userConfig = UserConfig.getInstance(this.userId);
-    await userConfig.save(config);
+    const cfgMgr = getConfigManager();
+    await cfgMgr.updateSettings(config as any);
   }
 
-  /**
-   * 切换用户
-   */
   setUserId(userId: string): void {
     this.userId = userId;
   }
 
-  /**
-   * 获取当前用户 ID
-   */
   getUserId(): string {
     return this.userId;
   }
 }
 
 /**
- * 运行时配置源（用于动态修改）
+ * 运行时配置源
  */
 export class RuntimeConfigSource implements IConfigSource {
   name = 'runtime';
@@ -85,33 +80,19 @@ export class RuntimeConfigSource implements IConfigSource {
     return this.config;
   }
 
-  /**
-   * 设置运行时配置
-   */
   set(key: string, value: any): void {
-    this.setByPath(this.config, key, value);
+    const keys = key.split('.');
+    const lastKey = keys.pop()!;
+    let current = this.config;
+    for (const k of keys) {
+      if (!(k in current)) current[k] = {};
+      current = current[k];
+    }
+    current[lastKey] = value;
   }
 
-  /**
-   * 清空运行时配置
-   */
   clear(): void {
     this.config = {};
-  }
-
-  private setByPath(obj: any, path: string, value: any): void {
-    const keys = path.split('.');
-    const lastKey = keys.pop()!;
-    let current = obj;
-
-    for (const key of keys) {
-      if (!(key in current)) {
-        current[key] = {};
-      }
-      current = current[key];
-    }
-
-    current[lastKey] = value;
   }
 }
 

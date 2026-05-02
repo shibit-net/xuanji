@@ -575,19 +575,24 @@ export class UnifiedLogManager {
 
   private async queryCoreLogger(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
     const coreFilter = filter.core;
-    const records = await this.logReader.readAll({
-      levels: coreFilter?.levels as any,
-      startTime: filter.startTime ? new Date(filter.startTime) : undefined,
-      endTime: filter.endTime ? new Date(filter.endTime) : undefined,
+    const records = await this.logReader.query({
+      levels: coreFilter?.levels,
+      execId: coreFilter?.execId,
+      startTime: filter.startTime?.toISOString(),
+      endTime: filter.endTime?.toISOString(),
       keyword: filter.keyword,
+      minDepth: coreFilter?.minDepth,
+      maxDepth: coreFilter?.maxDepth,
     });
-    
+
     return records.map((r: any) => ({
-      timestamp: r.timestamp,
+      timestamp: r.time,
       source: 'core' as const,
       level: r.level,
-      message: r.message,
-      namespace: r.namespace,
+      message: r.msg,
+      namespace: r.ns,
+      execId: r.execId,
+      depth: r.depth,
       data: r,
     }));
   }

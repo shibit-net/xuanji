@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info } from 'lucide-react';
 import { useToast } from './Toast';
-import CodeEditor from './CodeEditor';
+import MilkdownEditor from './MilkdownEditor';
 
 interface SystemPromptManagerProps {
   onClose: () => void;
@@ -591,10 +591,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                               <div>
                                 <h5 className="text-sm font-medium mb-2">Prompt 内容</h5>
                                 {isEditing ? (
-                                  <CodeEditor
+                                  <MilkdownEditor
                                     value={editContent}
                                     onChange={setEditContent}
-                                    language="markdown"
+                                    mode="wysiwyg"
                                     height="400px"
                                   />
                                 ) : (
@@ -870,10 +870,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               </div>
               <div className="flex-1 overflow-hidden p-4">
                 {editingRules ? (
-                  <CodeEditor
+                  <MilkdownEditor
                     value={projectRules}
                     onChange={setProjectRules}
-                    language="markdown"
+                    mode="wysiwyg"
                     height="100%"
                   />
                 ) : (
@@ -997,12 +997,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <CodeEditor
+              <MilkdownEditor
                 value={previewPrompt}
-                onChange={() => {}}
-                language="markdown"
+                mode="preview"
                 height="calc(90vh - 120px)"
-                readOnly
               />
             </div>
           </div>

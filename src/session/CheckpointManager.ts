@@ -19,13 +19,13 @@ const log = logger.child({ module: 'CheckpointManager' });
 import { dirname, resolve, basename, sep } from 'node:path';
 import type { SessionStorage } from './SessionStorage.js';
 import type { Checkpoint, FileSnapshot, Message } from './types.js';
-import type { HookRegistry } from '@/hooks/HookRegistry';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 
 export class CheckpointManager {
   private storage: SessionStorage;
   /** 内存中的 checkpoint 列表（与持久化同步） */
   private checkpoints: Map<string, Checkpoint[]> = new Map();
-  private hookRegistry: HookRegistry | null = null;
 
   constructor(storage: SessionStorage) {
     this.storage = storage;
@@ -67,16 +67,11 @@ export class CheckpointManager {
     // 持久化
     await this.storage.saveCheckpoints(sessionId, checkpoints);
 
-    // 触发 CheckpointCreated Hook
-    if (this.hookRegistry) {
-      this.hookRegistry.emit('CheckpointCreated', {
-        checkpointId,
-        checkpointLabel: checkpoint.label,
-        sessionId,
-      }).catch((err) => {
-        log.debug('CheckpointCreated hook emit failed:', err);
-      });
-    }
+    eventBus.emit(XuanjiEvent.SESSION_SAVED, {
+      sessionId,
+      checkpointId,
+      label: checkpoint.label,
+    });
 
     return checkpointId;
   }
@@ -109,16 +104,11 @@ export class CheckpointManager {
     this.checkpoints.set(sessionId, filteredCheckpoints);
     await this.storage.saveCheckpoints(sessionId, filteredCheckpoints);
 
-    // 触发 CheckpointRestored Hook
-    if (this.hookRegistry) {
-      this.hookRegistry.emit('CheckpointRestored', {
-        checkpointId,
-        checkpointLabel: checkpoint.label,
-        sessionId,
-      }).catch((err) => {
-        log.debug('CheckpointRestored hook emit failed:', err);
-      });
-    }
+    eventBus.emit(XuanjiEvent.SESSION_RESTORED, {
+      sessionId,
+      checkpointId,
+      label: checkpoint.label,
+    });
 
     return checkpoint.messageIndex;
   }
@@ -147,13 +137,6 @@ export class CheckpointManager {
     const checkpoints = await this.loadCheckpoints(sessionId);
     if (checkpoints.length === 0) return null;
     return checkpoints[checkpoints.length - 1];
-  }
-
-  /**
-   * 注入 HookRegistry
-   */
-  setHookRegistry(hookRegistry: HookRegistry): void {
-    this.hookRegistry = hookRegistry;
   }
 
   // ─── 私有方法 ─────────────────────────────────────────

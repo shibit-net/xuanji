@@ -29,11 +29,12 @@ import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { AgentRegistry } from '../AgentRegistry';
 import type { ProviderManager } from '@/core/providers/ProviderManager';
 import { DEFAULT_TEAM_CONFIG } from './types';
-import type { SubAgentResult } from '../SubAgentLoop';
-import { SubAgentFactory } from '../SubAgentFactory';
+import type { SubAgentResult } from '../factory/AgentFactory';
+import { AgentFactory } from '../factory/AgentFactory';
 import { WorktreeManager, type WorktreeInfo } from '../WorktreeManager';
 import { logger } from '@/core/logger';
-
+import { AsyncAgentTaskManager } from '@/core/agent/async';
+import { TeamContext as TeamContextStore } from '@/core/tools/TeamContext';
 const log = logger.child({ module: 'TeamManager' });
 
 /**
@@ -50,7 +51,7 @@ export class TeamManager implements ITeamManager {
   private completedTasks: Map<string, TaskExecutionResult> = new Map();
   private depth: number;
   private teamAbortController: AbortController | null = null; // 保存引用以便 stop() 能中止
-  public subAgentFactory: SubAgentFactory;  // 🆕 改为 public，允许外部注入 promptBuilder
+  public agentFactory: AgentFactory;  // 统一 Agent 工厂
   private teamId: string; // 团队唯一标识，在构造时生成
   private agentRegistry: AgentRegistry; // 保存 agentRegistry 引用
   private memberSubAgentIds: Map<string, string> = new Map(); // 预生成的 subAgentId 映射 (memberId → subAgentId)
@@ -85,29 +86,10 @@ export class TeamManager implements ITeamManager {
 
     this.agentRegistry = agentRegistry; // 保存引用
 
-    // 🔧 将 AgentConfig 转换为 ConfigurableAgentConfig 格式
-    // AgentConfig 的 apiKey/baseURL 是顶层字段，需要转换为 provider 对象
-    const parentAgentConfig: any = agentConfig ? {
-      id: 'main',
-      name: 'Parent Agent',
-      model: {
-        primary: agentConfig.model, // 🔧 继承父agent的模型名，避免回退到硬编码默认值
-      },
-      provider: {
-        apiKey: agentConfig.apiKey,
-        baseURL: agentConfig.baseURL,
-      },
-    } : null;
-
-    this.subAgentFactory = new SubAgentFactory(
-      agentRegistry,
-      providerManager,
-      registry,
-      hookRegistry,
-      null,
-      mainProvider,  // 传递父 provider
-      parentAgentConfig,  // 🔧 传递转换后的配置
-    );
+    this.agentFactory = new AgentFactory(registry);
+    if (hookRegistry) this.agentFactory.setHookRegistry(hookRegistry);
+    this.agentFactory.setParentProvider(mainProvider);
+    this.agentFactory.setParentConfig(agentConfig);
   }
 
   /**
@@ -805,92 +787,28 @@ export class TeamManager implements ITeamManager {
       teamRoster,
       '',
       '你的职责：分析目标，为每名成员分配具体的子任务，形成执行计划。',
-      '输出格式要求（必须严格遵守，否则成员收不到任务）：',
       '',
-      '[PLAN]',
-      '（在此撰写总体分析和执行策略）',
-      '[/PLAN]',
+      '**分配方式：使用 task 工具逐个创建子成员，而不是输出文本格式的分配方案。**',
       '',
-      '[ASSIGN:<成员id>]',
-      '（分配给该成员的具体任务描述）',
-      '[/ASSIGN]',
+      '执行步骤：',
+      `1. 分析目标，决定每个成员需要做什么、用什么 scene（通过 list_scenes 查询可用 scene）`,
+      `2. 为每个成员调用一次 task 工具执行其任务`,
+      `3. task 调用格式：task({ subagent_type: "<agent-id>", scene: "<scene>", description: "..." })`,
+      `4. 所有成员完成后，汇总结果并输出最终产出`,
       '',
-      '每个成员必须有一个对应的 [ASSIGN] 块。未被分配任务的成员将收到默认目标。',
+      '注意：task 是同步调用，等待一个成员完成后才能开始下一个。',
+      '',
     ].join('\n');
 
-    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 开始分析团队组成并分解任务`);
-    const leaderResult = await this.executeMemberTask(leader, leaderTask, [], undefined, 0, signal);
+    // ── Leader 自行通过 task 工具分配并执行 ────────────────
+    // leader 会自己调 task 创建子成员，TeamManager 不再介入
+    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 通过 task 工具分配任务`);
+    const leaderResult = await TeamContextStore.run({
+      teamId: this.teamId,
+      parentMemberId: leader.id,
+      strategy: 'hierarchical',
+    }, () => this.executeMemberTask(leader, leaderTask, [], undefined, 0, signal));
     results.push(leaderResult);
-
-    if (!leaderResult.success || signal?.aborted) {
-      return results;
-    }
-
-    // Bug 7: 等待 Leader 产出的文件就绪，再启动 Workers
-    await this.waitForLeaderFiles(leaderResult.result);
-
-    // ── 解析 Leader 输出，提取每个 Worker 的独立任务 ──────────
-    const assignments = this.parseHierarchicalAssignments(leaderResult.result, workers);
-    log.info(`Hierarchical: Leader 分解完成，解析到 ${assignments.size} 个 Worker 任务`);
-
-    // ── Worker 并行执行各自的任务 ────────────────────────────
-    const workerPromises = workers.map((worker, workerIndex) => {
-      const assignedTask = assignments.get(worker.id);
-      const task = assignedTask
-        ? [
-            `Leader 分析概要：${leaderResult.result.substring(0, 300)}…`,
-            '',
-            '---',
-            '',
-            `你的具体任务：${assignedTask}`,
-          ].join('\n')
-        : [
-            `基于 Leader 的分析：\n${leaderResult.result}`,
-            '',
-            `你的任务：${goal}`,
-          ].join('\n');
-
-      return this.executeMemberTask(
-        worker,
-        task,
-        results,
-        undefined,
-        workerIndex + 1,
-        signal,
-        0,
-        undefined,
-        true, // preferGoal: Leader 已分配独立任务，优先使用
-      );
-    });
-
-    const workerResults = await Promise.all(workerPromises);
-    results.push(...workerResults);
-
-    // Leader 合成阶段：审查所有产出并写入最终文件
-    const synthesisTask = [
-      '你已完成任务分解，所有团队成员已完成各自的工作。',
-      '现在作为团队负责人，请审查所有成员的工作产出，完成最终集成：',
-      '',
-      '1. 总结各成员的关键产出',
-      '2. 检查成员产出之间是否有冲突或遗漏',
-      '3. 如有文件产出需求（目标中提到文件路径），使用 write_file 写入最终文件',
-      '4. 指出任何未完成的工作或需要主 agent 后续跟进的事项',
-      '',
-      '你的分析概要：',
-      leaderResult.result.substring(0, 500),
-      '',
-      '--- 成员产出 ---',
-      workerResults.map((r, i) =>
-        `[${workers[i].name || workers[i].id}]: ${r.result.substring(0, 2000)}`
-      ).join('\n\n'),
-      '',
-      '请开始你的最终集成工作。',
-    ].join('\n');
-
-    const synthResult = await this.executeMemberTask(
-      leader, synthesisTask, results, 'hierarchical-synthesis', 0, signal,
-    );
-    results.push(synthResult);
 
     return results;
   }
@@ -1467,13 +1385,14 @@ export class TeamManager implements ITeamManager {
         ? [...new Set([...member.tools, ...coreTools])]
         : coreTools;
 
-      const factoryResult = await this.subAgentFactory.createAndRun(normalizedAgentId, {
+      const factoryResult = await this.agentFactory.createAndRun(normalizedAgentId, {
         task: enrichedTask,
         depth: this.depth + 1,
         timeout: memberTimeout,
         parentConfig: this.agentConfig,
         systemPrompt: member.systemPrompt,
         scene: member.scene,
+        scenes: member.scenes,
         scenePrompt: member.scenePrompt,
         tools: effectiveTools,
         skipSubAgentStartHook: true,

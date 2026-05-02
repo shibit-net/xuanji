@@ -12,7 +12,7 @@ import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { ExecutionPlan } from '@/core/routing/types';
 import type { ExecutorConfig, ExecutionResult, SubTaskResult, ExecutionCallbacks } from './types';
 import { SubAgentContext } from '@/core/agent/SubAgentContext';
-import type { SubAgentFactory } from '@/core/agent/SubAgentFactory';
+import type { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'executor' });
@@ -25,7 +25,7 @@ export class Executor {
     private toolRegistry: IToolRegistry,
     private agentConfig: AgentConfig,
     config?: ExecutorConfig,
-    private subAgentFactory?: SubAgentFactory,
+    private agentFactory?: AgentFactory,
   ) {
     this.config = {
       maxConcurrent: config?.maxConcurrent || 3,
@@ -162,11 +162,11 @@ export class Executor {
     try {
       log.debug(`Executing subtask: ${taskDescription}`, { agentId });
 
-      if (!this.subAgentFactory) {
-        throw new Error('SubAgentFactory is required for task execution');
+      if (!this.agentFactory) {
+        throw new Error('AgentFactory is required for task execution');
       }
 
-      const result = await this.subAgentFactory.createAndRun(agentId ?? 'general-purpose', {
+      const result = await this.agentFactory.createAndRun(agentId ?? 'general-purpose', {
         task: taskDescription,
         parentConfig: this.agentConfig,
       });

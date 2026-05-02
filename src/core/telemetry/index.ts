@@ -18,7 +18,6 @@ export {
   type DailyUsageRecord,
   type DailyUsageFilter,
 } from './DailyUsageStats';
-export { PerfCollector, PerfTimer, type PerfRecord, type PerfStats } from './PerfCollector';
 export {
   AgentLoopLogger,
   type AgentLoopLog,

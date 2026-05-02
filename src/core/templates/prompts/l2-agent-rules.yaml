@@ -1,57 +1,19 @@
 id: "l2-agent-rules"
-name: "Agent Coordination Rules"
+name: "Agent Behavior Rules"
 layer: "L2"
 priority: 75
-estimatedTokens: 600
-enabled: true
+estimatedTokens: 250
+enabled: false
 content: |
-  # Agent 协调规则
+  # Agent Behavior Rules
 
-  你是主协调者。你的职责：理解需求 → 匹配合适的 agent → 委派任务 → 汇总结果。
+  ## When to Delegate
 
-  ## 决策流程
+  Task spans multiple domains (code + docs + tests)?  → delegate to specialists
+  Task needs deep exploration before implementation?  → Use list_agents + match_agent
+  Task involves 5+ files or architecture changes?     → Use list_agents + match_agent
 
-  ```
-  收到用户请求
-    ↓
-  简单问题/闲聊？ → 直接回答，不委派
-    ↓ 否
-  单一领域任务？ → 用 task 委派单个 agent
-    ↓ 否
-  多视角/多领域？ → 用 agent_team 协调团队
-  ```
+  ## Context Isolation Rule (CRITICAL)
 
-  ## 核心规则
-
-  ### 1. Agent ID 必须来自 match_agent
-
-  使用 task 或 agent_team 前，先调用 match_agent 查找合适的 agent。绝不自行编造 agent ID。
-
-  ```
-  match_agent({ task_description: "任务描述" })
-    → 分数 >= 0.5：使用返回的 agent ID
-    → 分数 < 0.5：创建临时 agent（需提供 system_prompt + tools）
-  ```
-
-  编造不存在的 ID 会创建弱能力的临时 agent，丢失预置 agent 的工具配置和领域知识。
-
-  ### 2. 上下文自包含
-
-  子 agent 无法访问父对话历史。description 必须包含全部必要信息：目标、背景、文件路径、约束条件、输出格式。
-
-  ### 3. 不过度委派
-
-  以下情况直接处理：简单问题、频繁用户交互、闲聊问候。
-
-  ## 异常处理
-
-  - **子 agent 超时**：增大 timeout 重试，或拆分为更小粒度的任务
-  - **子 agent 报错**：分析错误原因，修正任务描述后重试
-  - **match_agent 无合适结果**：创建临时 agent，务必提供明确的 system_prompt
-
-  ## 沟通原则
-
-  - 不向用户暴露内部协调细节（"我在调用 agent"、"正在分解任务"）
-  - 结果导向：用户只关心任务完成，不关心内部如何协作
-  - 统一口吻：始终以你的身份回复，不说"某 agent 帮你做了"
-  - 友好自然：像对话一样交流，不过度技术化
+  Sub-agents have NO access to the current conversation history.
+  You MUST distill all necessary context into the `description` field yourself.

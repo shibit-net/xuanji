@@ -41,35 +41,9 @@ interface FileEditError {
 export class MultiEditTool extends BaseTool {
   readonly name = 'multi_edit';
   readonly description = [
-    'Perform edits on multiple files or multiple locations in a single call. More efficient than multiple edit_file calls.',
-    '',
-    '# Use Cases',
-    '✓ Multiple edits in same file (avoid multiple edit_file calls)',
-    '✓ Cross-file batch renaming (function names, variable names, type names)',
-    '✓ Unified modification of multiple config files',
-    '',
-    '# Guidelines',
-    '1. Each edit operation contains path, old_string, new_string (same as edit_file)',
-    '2. Multiple edits on same file are applied serially (in array order)',
-    '3. Edits on different files are processed in parallel',
-    '4. If one edit fails, other edits will still continue',
-    '',
-    '# Parameter Examples',
-    '- Multiple edits in same file:',
-    '  multi_edit({ edits: [',
-    '    { path: "src/auth.ts", old_string: "const token =", new_string: "const authToken =" },',
-    '    { path: "src/auth.ts", old_string: "return token;", new_string: "return authToken;" }',
-    '  ]})',
-    '',
-    '- Cross-file batch rename:',
-    '  multi_edit({ edits: [',
-    '    { path: "src/user.ts", old_string: "userId", new_string: "accountId", replace_all: true },',
-    '    { path: "src/auth.ts", old_string: "userId", new_string: "accountId", replace_all: true }',
-    '  ]})',
-    '',
-    '# Important Notes',
-    '✗ If old_string matches multiple locations without replace_all, that edit will fail',
-    '✗ Edit order matters for same file (later edits are based on earlier results)',
+    'Batch edit multiple files or multiple locations in a single call.',
+    'More efficient than calling edit_file multiple times.',
+    'Each operation follows the same rules as edit_file — old_string must match exactly.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

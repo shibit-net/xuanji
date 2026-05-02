@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { IntentClassifier } from '@/core/agent/dispatch/IntentClassifier';
+import { IntentClassifier } from '@/core/intent/IntentClassifier';
 import { IntentAnalyzer } from '@/core/prompt/IntentAnalyzer';
 import { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';

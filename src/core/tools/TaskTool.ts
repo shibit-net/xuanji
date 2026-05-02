@@ -1,29 +1,47 @@
 /**
- * TaskTool — 启动子代理执行独立任务
+ * TaskTool — 创建子 agent 执行任务
  *
- * LLM 可通过此工具将复杂任务分解为独立子任务，
- * 每个子任务在隔离的 SubAgentLoop 中执行。
- *
- * 安全机制:
- * - TaskTool 不在子代理中注册（防止无限递归）
- * - 最大嵌套深度 3 层
- * - 并发子代理数限制（默认 3）
- * - 超时自动终止（默认 5 分钟）
+ * 每个 agent 都可以通过 task 创建下级子 agent，最深 5 层。
+ * 第 0 层（主 agent）自动异步执行，第 1+ 层自动同步等待结果。
+ * agent_team 成员不能调 task（成员是执行单元）。
  */
 
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
-import type { SubAgentResult } from '@/core/agent/SubAgentLoop';
-import { SubAgentFactory } from '@/core/agent/SubAgentFactory';
+import type { SubAgentResult } from '@/core/agent/factory/AgentFactory';
+import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { AsyncAgentTaskManager } from '@/core/agent/async';
+import { TeamContext } from './TeamContext';
+
+// ─── TaskTool ────────────────────────────────────────
 
 export class TaskTool extends BaseTool {
   readonly name = 'task';
   readonly description = [
-    '委派任务给子 agent 执行。使用前必须先调用 match_agent 查找合适的 agent。',
-    '分数 >= 0.5 使用推荐 agent，分数 < 0.5 需提供 system_prompt + tools 创建临时 agent。',
+    'Create a sub-agent to execute a task. Every agent can call task to create subordinates (max 5 levels deep).',
+    '',
+    'WHEN TO USE:',
+    '• Sub-task needs specialist expertise (use match_agent first)',
+    '• Task is large enough to be delegated independently',
+    '• You want to create a leader that further delegates via task',
+    '',
+    'WHEN NOT TO USE:',
+    '• You can do it yourself directly (just use tools)',
+    '• Need multi-agent debate/pipeline → use agent_team instead',
+    '',
+    'HOW TO USE:',
+    '1. First call match_agent to find the right agent',
+    '2. Then call list_scenes to pick the right scene',
+    '3. Call task with the agent_id, scene, and complete description',
+    '',
+    'Example:',
+    '  task({',
+    '    subagent_type: "software-engineer",',
+    '    scene: "write_code",',
+    '    description: "Implement auth API in src/auth/... JWT tokens, bcrypt."',
+    '  })',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -39,7 +57,12 @@ export class TaskTool extends BaseTool {
       },
       scene: {
         type: 'string',
-        description: '场景类型，决定加载哪组提示词。可用 list_scenes 查看所有场景',
+        description: [
+          '场景类型，定义子 agent 的行为模式和边界。',
+          '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
+          '不要自行编造 scene ID。',
+          '如无合适场景可用 "general"。',
+        ].join('\n'),
       },
       isolation: {
         type: 'string',
@@ -57,7 +80,7 @@ export class TaskTool extends BaseTool {
       tools: {
         type: 'array',
         items: { type: 'string' },
-        description: '可用工具名称列表。临时 agent 必需（只能分配父 agent 拥有的工具），预置 agent 可选',
+        description: '可用工具名称列表。临时 agent 必需，预置 agent 可选',
       },
       stream_to_user: {
         type: 'boolean',
@@ -65,192 +88,179 @@ export class TaskTool extends BaseTool {
       },
       async: {
         type: 'boolean',
-        description: '异步执行模式。true=立即返回 groupId，任务在后台运行；false=等待完成（默认）。长时间任务推荐 true，用户可通过 task_control 查询进度和取消。',
+        description: '异步执行模式。主 agent 自动异步，子 agent 自动同步。一般无需设置此参数。',
       },
     },
     required: ['description', 'subagent_type'],
   };
 
-  readonly readonly = true; // 可并行执行
+  readonly readonly = true;
 
-  // 依赖注入
+  // ── 依赖注入 ────────────────────────────────────────
+
   private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
   private currentDepth = 0;
-  private parentProvider: ILLMProvider | null = null; // 父 Provider
-  private currentAgentId: string = 'main'; // 🔧 当前 Agent ID
+  private parentProvider: ILLMProvider | null = null;
+  private currentAgentId: string = 'main';
 
-  /** SubAgentFactory 实例 */
-  private subAgentFactory: SubAgentFactory | null = null;
-
-  /** 当前活跃的子代理数 */
+  private agentFactory: AgentFactory | null = null;
   private activeCount = 0;
 
-  /**
-   * 注入运行时依赖（由 ChatSession 调用）
-   */
   setDependencies(deps: {
     providerManager: import('@/core/providers/ProviderManager').ProviderManager;
     agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry;
     registry: IToolRegistry;
     agentConfig: AgentConfig;
-    parentProvider?: ILLMProvider; // 可选：父 Provider（用于继承）
+    parentProvider?: ILLMProvider;
     hookRegistry?: HookRegistry | null;
     depth?: number;
-    agentId?: string; // 🔧 当前 Agent ID
+    agentId?: string;
   }): void {
     this.providerManager = deps.providerManager;
     this.agentRegistry = deps.agentRegistry;
     this.registry = deps.registry;
     this.agentConfig = deps.agentConfig;
-    this.parentProvider = deps.parentProvider ?? null; // 保存父 Provider
+    this.parentProvider = deps.parentProvider ?? null;
     this.hookRegistry = deps.hookRegistry ?? null;
     this.currentDepth = deps.depth ?? 0;
-    this.currentAgentId = deps.agentId ?? 'main'; // 🔧 保存当前 Agent ID
+    this.currentAgentId = deps.agentId ?? 'main';
 
-    // 🔧 将 AgentConfig 转换为 ConfigurableAgentConfig 格式
-    // AgentConfig 的 apiKey/baseURL 是顶层字段，需要转换为 provider 对象
-    const parentAgentConfig: any = this.agentConfig ? {
-      id: deps.agentId ?? 'main',
-      name: 'Parent Agent',
-      model: {
-        primary: this.agentConfig.model, // 🔧 继承父agent的模型名，避免回退到硬编码默认值
-      },
-      provider: {
-        apiKey: this.agentConfig.apiKey,
-        baseURL: this.agentConfig.baseURL,
-      },
-    } : null;
-
-    // 创建 SubAgentFactory 实例
-    this.subAgentFactory = new SubAgentFactory(
-      this.agentRegistry,
-      this.providerManager,
-      this.registry,
-      this.hookRegistry,
-      null,
-      this.parentProvider,  // 传递父 provider
-      parentAgentConfig,  // 🔧 传递转换后的配置
-    );
+    if (!this.agentFactory) {
+      this.agentFactory = new AgentFactory(this.registry);
+    }
+    if (this.hookRegistry) {
+      this.agentFactory.setHookRegistry(this.hookRegistry);
+    }
+    if (this.parentProvider) {
+      this.agentFactory.setParentProvider(this.parentProvider);
+    }
+    if (this.agentConfig) {
+      this.agentFactory.setParentConfig(this.agentConfig);
+    }
   }
 
+  // ── 主入口 ──────────────────────────────────────────
+
   async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
-    const description = input.description as string;
-    const timeout = input.timeout as number | undefined;
-    let role = (input.subagent_type as AgentRoleType) ?? null;
-    const scene = input.scene as string | undefined;
-    const isolation = (input.isolation as IsolationMode) ?? 'none';
-    const systemPrompt = input.system_prompt as string | undefined;
-    const tools = input.tools as string[] | undefined;
-    const streamToUser = input.stream_to_user as boolean | undefined;
+    // 1. 参数解析
+    const params = this.parseInput(input);
 
-    // 验证依赖已注入
-    if (!this.subAgentFactory) {
-      console.error('[TaskTool] subAgentFactory is null/undefined');
-      return this.error(
-        'TaskTool not initialized. Internal error: subAgentFactory not injected.',
-      );
+    // 2. 依赖检查
+    const depsErr = this.checkDependencies();
+    if (depsErr) return depsErr;
+
+    // 3. 输入验证
+    const validationErr = this.validateInput(params);
+    if (validationErr) return validationErr;
+
+    // 4. 安全性检查
+    const safetyErr = this.checkSafety(params);
+    if (safetyErr) return safetyErr;
+
+    // 5. 决定执行模式
+    const isAsync = this.currentDepth === 0 || input.async === true;
+
+    if (isAsync) {
+      return this.executeAsync(params, input);
     }
 
+    return this.executeSync(params, input, signal);
+  }
+
+  getActiveCount(): number {
+    return this.activeCount;
+  }
+
+  // ── 输入解析与验证 ──────────────────────────────────
+
+  private parseInput(input: Record<string, unknown>): {
+    description: string;
+    role: string | null;
+    scene?: string;
+    scenes?: string[];
+    timeout?: number;
+    isolation: IsolationMode;
+    systemPrompt?: string;
+    tools?: string[];
+    streamToUser?: boolean;
+    cwd?: string;
+  } {
+    return {
+      description: input.description as string,
+      role: (input.subagent_type as AgentRoleType) ?? null,
+      scene: input.scene as string | undefined,
+      scenes: input.scenes as string[] | undefined,
+      timeout: input.timeout as number | undefined,
+      isolation: (input.isolation as IsolationMode) ?? 'none',
+      systemPrompt: input.system_prompt as string | undefined,
+      tools: input.tools as string[] | undefined,
+      streamToUser: input.stream_to_user as boolean | undefined,
+      cwd: input._cwd as string | undefined,
+    };
+  }
+
+  private checkDependencies(): ToolResult | null {
+    if (!this.agentFactory) {
+      return this.error('TaskTool not initialized. Internal error: agentFactory not injected.');
+    }
     if (!this.agentConfig) {
-      console.error('[TaskTool] agentConfig is null/undefined');
-      return this.error(
-        'TaskTool not initialized. Internal error: agentConfig not injected.',
-      );
+      return this.error('TaskTool not initialized. Internal error: agentConfig not injected.');
     }
+    return null;
+  }
 
-    console.log('[TaskTool] execute() called, subAgentFactory:', !!this.subAgentFactory, 'agentConfig:', !!this.agentConfig, 'scene:', scene);
-
-    // ⚠️ 要求明确指定 subagent_type
-    if (!role) {
+  private validateInput(params: {
+    description: string;
+    role: string | null;
+  }): ToolResult | null {
+    if (!params.role) {
       return this.error(
         'subagent_type is required. Please call match_agent first to find the best agent, ' +
-        'or specify a custom agent ID if creating a temporary agent.'
+        'or specify a custom agent ID if creating a temporary agent.',
       );
     }
+    return null;
+  }
 
-    // 🔧 禁止 agent 调用自己
-    if (role === this.currentAgentId) {
+  private checkSafety(params: {
+    role: string;
+    description: string;
+  }): ToolResult | null {
+    // 禁止调用自己
+    if (params.role === this.currentAgentId) {
       return this.error(
-        `Cannot delegate to yourself (${role}). You should handle this task directly instead of creating a sub-agent with the same ID.`
+        `Cannot delegate to yourself (${params.role}). You should handle this task directly instead of creating a sub-agent with the same ID.`,
       );
     }
 
-    // 深度检查（在调用 SubAgentFactory 之前，避免 agentRegistry 查找失败掩盖深度错误）
-    const depthCtx = new SubAgentContext({ task: description, depth: this.currentDepth + 1 });
+    // 深度限制
+    const depthCtx = new SubAgentContext({ task: params.description, depth: this.currentDepth + 1 });
     if (depthCtx.isDepthExceeded()) {
       return this.error(
         `Maximum nesting depth exceeded (depth=${this.currentDepth + 1}). Sub-agents cannot create further sub-agents beyond the limit.`,
       );
     }
 
-    // 并发限制（仅同步模式检查，异步模式互不影响）
-    const asyncMode = input.async === true;
-    if (!asyncMode && this.activeCount >= MAX_CONCURRENT_SUBAGENTS) {
+    // agent_team 成员不能调 task
+    if (TeamContext.get()) {
       return this.error(
-        `Maximum concurrent sub-agents (${MAX_CONCURRENT_SUBAGENTS}) reached. Wait for current tasks to complete.`,
+        'task 不能在 agent_team 内部使用。agent_team 的成员是执行单元，不能创建子 agent。如果你是 team leader，请直接在团队中完成工作。',
       );
     }
 
-    // 异步执行模式
-    if (asyncMode) {
-      return this.executeAsync(description, role, {
-        timeout,
-        isolation,
-        systemPrompt,
-        scene,
-        tools,
-        streamToUser,
-        cwd: input._cwd as string | undefined,
-      }, signal);
-    }
-
-    // 执行子代理（使用统一架构）
-    this.activeCount++;
-    const savedCwd = (input._cwd as string) || process.cwd();
-    try {
-      const result = await this.subAgentFactory.createAndRun(role, {
-        task: description,
-        timeout,
-        depth: this.currentDepth + 1,
-        isolation,
-        parentConfig: this.agentConfig,
-        systemPrompt,
-        scene,  // 传递 scene 参数
-        tools,
-        parentAgentId: this.currentAgentId, // 🔧 传递父 Agent ID
-        streamToUser, // 🔧 传递 streamToUser 参数
-        workingDir: savedCwd, // 🆕 继承父 agent 的工作目录
-      }, signal); // 🔧 传递 AbortSignal
-
-      // 恢复 cwd，防止子 agent 的 change_directory 影响父 agent
-      try { process.chdir(savedCwd); } catch (e) { /* ignore */ }
-
-      return this.formatResult(result, streamToUser, role);
-    } finally {
-      this.activeCount--;
-    }
+    return null;
   }
 
-  /**
-   * 获取当前活跃子代理数
-   */
-  getActiveCount(): number {
-    return this.activeCount;
-  }
+  // ── 异步执行 ────────────────────────────────────────
 
-  // ─── 私有方法 ─────────────────────────────────────────
-
-  /**
-   * 异步执行子代理任务（后台运行）
-   */
-  private async executeAsync(
-    description: string,
-    role: string,
-    opts: {
+  private executeAsync(
+    params: {
+      description: string;
+      role: string;
       timeout?: number;
       isolation: IsolationMode;
       systemPrompt?: string;
@@ -259,52 +269,51 @@ export class TaskTool extends BaseTool {
       streamToUser?: boolean;
       cwd?: string;
     },
-    _signal?: AbortSignal,
-  ): Promise<ToolResult> {
-    if (!this.subAgentFactory) {
+    input: Record<string, unknown>,
+  ): ToolResult {
+    if (!this.agentFactory) {
       return this.error('TaskTool not initialized.');
     }
 
     const manager = AsyncAgentTaskManager.getInstance();
     const agentConfig = this.agentConfig!;
     const currentDepth = this.currentDepth;
-    const subAgentFactory = this.subAgentFactory;
+    const agentFactory = this.agentFactory;
     const parentAgentId = this.currentAgentId;
     const self = this;
 
     const result = manager.startTask({
       type: 'task',
-      goal: description.slice(0, 120),
-      members: [{ id: role, name: this.getAgentName(role), status: 'pending' }],
-      workingDir: opts.cwd,
-      isolation: opts.isolation === 'worktree' ? 'worktree' : 'none',
+      goal: params.description.slice(0, 120),
+      members: [{ id: params.role, name: this.getAgentName(params.role), status: 'pending' }],
+      workingDir: params.cwd,
+      isolation: params.isolation === 'worktree' ? 'worktree' : 'none',
       executor: async (abortSignal, onProgress, groupId) => {
-        onProgress({ phase: 'executing', currentMember: role, currentMemberStatus: '执行中...' });
-        manager.updateMemberStatus(groupId, role, 'running');
+        onProgress({ phase: 'executing', currentMember: params.role, currentMemberStatus: '执行中...' });
+        manager.updateMemberStatus(groupId, params.role, 'running');
 
-        const savedCwd = opts.cwd || process.cwd();
+        const savedCwd = params.cwd || process.cwd();
 
-        // 异步模式不流式输出到用户（后台运行，用户可能在做其他事）
-        const execResult = await subAgentFactory.createAndRun(role, {
-          task: description,
-          timeout: opts.timeout,
+        const execResult = await agentFactory.createAndRun(params.role, {
+          task: params.description,
+          timeout: params.timeout,
           depth: currentDepth + 1,
-          isolation: opts.isolation,
+          isolation: params.isolation,
           parentConfig: agentConfig,
-          systemPrompt: opts.systemPrompt,
-          scene: opts.scene,
-          tools: opts.tools,
+          systemPrompt: params.systemPrompt,
+          scene: params.scene,
+          tools: params.tools,
           parentAgentId,
           streamToUser: false,
           workingDir: savedCwd,
         }, abortSignal);
 
-        try { process.chdir(savedCwd); } catch (e) { /* ignore */ }
+        try { process.chdir(savedCwd); } catch { /* ignore */ }
 
-        manager.updateMemberStatus(groupId, role, execResult.timedOut ? 'failed' : 'completed');
+        manager.updateMemberStatus(groupId, params.role, execResult.timedOut ? 'failed' : 'completed');
         onProgress({ phase: 'synthesizing', completedMembers: 1 });
 
-        return self.formatResult(execResult, false, role);
+        return self.formatResult(execResult, false, params.role);
       },
     });
 
@@ -312,36 +321,141 @@ export class TaskTool extends BaseTool {
       return this.error(result.error);
     }
 
+    return this.formatAsyncResponse(result.groupId, params.role, params.description);
+  }
+
+  // ── 同步执行 ────────────────────────────────────────
+
+  private async executeSync(
+    params: {
+      description: string;
+      role: string;
+      timeout?: number;
+      isolation: IsolationMode;
+      systemPrompt?: string;
+      scene?: string;
+      tools?: string[];
+      streamToUser?: boolean;
+      cwd?: string;
+    },
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<ToolResult> {
+    // 并发检查
+    if (this.activeCount >= MAX_CONCURRENT_SUBAGENTS) {
+      return this.error(
+        `Maximum concurrent sub-agents (${MAX_CONCURRENT_SUBAGENTS}) reached. Wait for current tasks to complete.`,
+      );
+    }
+
+    this.activeCount++;
+    const savedCwd = params.cwd || process.cwd();
+    const teamContext = TeamContext.get();
+    const subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    // 如果在 team 上下文中，发射 TeamSubMemberStart hook
+    await this.emitTeamSubMemberStart(teamContext, subAgentId, params);
+
+    try {
+      const result = await this.agentFactory!.createAndRun(params.role, {
+        task: params.description,
+        timeout: params.timeout,
+        depth: this.currentDepth + 1,
+        isolation: params.isolation,
+        parentConfig: this.agentConfig!,
+        systemPrompt: params.systemPrompt,
+        scene: params.scene,
+        tools: params.tools,
+        parentAgentId: this.currentAgentId,
+        streamToUser: params.streamToUser,
+        workingDir: savedCwd,
+        subAgentId,
+      }, signal);
+
+      await this.emitTeamSubMemberEnd(teamContext, subAgentId, params.role, result);
+
+      // 恢复 cwd，防止子 agent 的 change_directory 影响父 agent
+      try { process.chdir(savedCwd); } catch { /* ignore */ }
+
+      return this.formatResult(result, params.streamToUser, params.role);
+    } finally {
+      this.activeCount--;
+    }
+  }
+
+  // ── Team Hook 发射 ──────────────────────────────────
+
+  private async emitTeamSubMemberStart(
+    teamContext: import('./TeamContext').TeamContextData | null,
+    subAgentId: string,
+    params: { role: string; scene?: string; description: string },
+  ): Promise<void> {
+    if (!teamContext || !this.hookRegistry) return;
+
+    try {
+      await this.hookRegistry.emit('TeamSubMemberStart', {
+        teamId: teamContext.teamId,
+        data: {
+          parentMemberId: teamContext.parentMemberId,
+          subAgentId,
+          name: params.role,
+          scene: params.scene || 'general',
+          task: params.description.substring(0, 200),
+        },
+      });
+    } catch { /* ignore */ }
+  }
+
+  private async emitTeamSubMemberEnd(
+    teamContext: import('./TeamContext').TeamContextData | null,
+    subAgentId: string,
+    role: string,
+    result: SubAgentResult,
+  ): Promise<void> {
+    if (!teamContext || !this.hookRegistry) return;
+
+    try {
+      await this.hookRegistry.emit('TeamSubMemberEnd', {
+        teamId: teamContext.teamId,
+        data: {
+          parentMemberId: teamContext.parentMemberId,
+          subAgentId,
+          name: role,
+          success: result.success,
+          duration: result.duration,
+        },
+      });
+    } catch { /* ignore */ }
+  }
+
+  // ── 结果格式化 ──────────────────────────────────────
+
+  private formatAsyncResponse(groupId: string, role: string, description: string): ToolResult {
     return this.success(
       [
-        `[Task 已启动 - 后台运行]`,
-        `任务组 ID: ${result.groupId}`,
+        '[Task 已启动 - 后台运行]',
+        `任务组 ID: ${groupId}`,
         `Agent: ${this.getAgentName(role)}`,
         `任务: ${description.slice(0, 200)}`,
         '',
         '---',
         '用户可以：',
-        `- 查询进度: 使用 task_control({ action: "status", groupId: "${result.groupId}" })`,
-        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${result.groupId}" })`,
+        `- 查询进度: 使用 task_control({ action: "status", groupId: "${groupId}" })`,
+        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${groupId}" })`,
         `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
         '完成后系统会通知你汇总结果。',
       ].join('\n'),
       {
         taskAsync: true,
-        groupId: result.groupId,
+        groupId,
         agentType: role,
       },
     );
   }
 
-  /**
-   * 格式化子代理执行结果
-   */
   private formatResult(result: SubAgentResult, streamToUser?: boolean, role?: string): ToolResult {
-    // 🔧 获取 agent 名称（用于引用标识）
     const agentName = role ? this.getAgentName(role) : 'unknown-agent';
 
-    // 构建元数据行
     const meta = [
       `[Sub-agent completed]`,
       `Duration: ${(result.duration / 1000).toFixed(1)}s`,
@@ -350,24 +464,27 @@ export class TaskTool extends BaseTool {
       result.timedOut ? '⚠️ Timed out' : '',
     ].filter(Boolean).join(' | ');
 
-    // streamToUser 时添加提示前言：输出已展示给用户，不要逐字重复
     const streamedNote = streamToUser
       ? `[Sub-agent output was displayed to the user in real-time — reference it if needed but do NOT repeat it verbatim.]\n\n`
       : '';
 
-    // 🔧 在输出末尾添加隐藏的 metadata 标记（用于前端解析）
     const metadataMarker = `\n\n<!-- SUB_AGENT_METADATA: ${JSON.stringify({
       duration: result.duration,
       tokensUsed: result.tokensUsed,
       originalOutput: result.result,
     })} -->`;
 
-    // 🔧 添加引用提示（统一格式：📎 [Name]："quote"）
-    const referenceHint = `\n\n---\n⚠️ 当你向上汇报此子agent的执行结果时，必须为每条关键发现附带可点击引用。引用格式（直接写在正文中，不要放在代码块或引用块里）：
-
-📎 [${agentName}]："从上方输出中逐字复制一句原话"
-
-引用名称必须是 "${agentName}"，否则用户无法点击查看完整输出。每条结论都要有对应引用，不能只说"有报告指出"。`;
+    const referenceHint = [
+      '',
+      '---',
+      `⚠️ 当你向上汇报此子agent的执行结果时，必须为每条关键发现附带可点击引用。`,
+      `引用格式（直接写在正文中，不要放在代码块或引用块里）：`,
+      '',
+      `📎 [${agentName}]："从上方输出中逐字复制一句原话"`,
+      '',
+      `引用名称必须是 "${agentName}"，否则用户无法点击查看完整输出。`,
+      `每条结论都要有对应引用，不能只说"有报告指出"。`,
+    ].join('\n');
 
     const content = `${meta}\n\n${streamedNote}${result.result}${referenceHint}${metadataMarker}`;
 
@@ -378,25 +495,17 @@ export class TaskTool extends BaseTool {
       tokensUsed: result.tokensUsed,
       timedOut: result.timedOut,
       iterations: result.iterations,
-      // 🔧 保存原始输出，用于"引用原文"功能
       originalOutput: result.result,
     });
   }
 
-  /**
-   * 获取 agent 的友好名称
-   */
   private getAgentName(role: string): string {
-    // 尝试从 agentRegistry 获取 preset agent 的显示名称
     if (this.agentRegistry) {
       const agentConfig = this.agentRegistry.get(role);
       if (agentConfig?.name) {
         return agentConfig.name;
       }
     }
-
-    // 临时 agent：保持原始 role 字符串不变，确保与 SubAgentStart 中的 config.name 一致
-    // 这样主 agent 在引用中使用此名称时，chatStore 可以通过相同 key 查找到完整输出
     return role;
   }
 }

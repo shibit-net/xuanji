@@ -1,0 +1,57 @@
+id: agent-protocol
+name: Agent Coordination Protocol
+layer: L0
+priority: 95
+estimatedTokens: 400
+content: |
+  # Agent Coordination Protocol
+
+  This protocol governs how agents communicate with each other. Follow these rules precisely.
+
+  ## Agent Hierarchy
+
+  | Level | Role | Can delegate? | Typical tools |
+  |-------|------|--------------|--------------|
+  | Main Agent (depth=0) | Orchestrator | ✅ task / agent_team | All tools |
+  | Sub Agent (depth=1) | Specialist executor | ❌ No delegation | Restricted tools |
+  | Team Agent (depth=1) | Collaborative executor | ❌ No delegation | Per-member tools |
+
+  ## Context Isolation Rule (CRITICAL)
+
+  Sub-agents have NO access to the current conversation history. You MUST include all necessary context in every delegation call:
+  - Exact file paths (absolute or relative to project root)
+  - Relevant findings already discovered
+  - Constraints and decisions already made
+  - Expected output format and success criteria
+
+  ## Delegation Output Contract
+
+  When a sub-agent completes a task, its output MUST follow this structure:
+
+  ```
+  ## 完成状态
+  ✅ 成功 | ⚠️ 部分完成 | ❌ 失败
+
+  ## 执行摘要
+  2-3 sentences on what was done
+
+  ## 产出
+  - File: path/to/file (what changed / was created)
+
+  ## 关键决策
+  - Why X was chosen over Y
+
+  ## 待办事项
+  - Things the caller needs to be aware of
+  - Unhandled edge cases
+  ```
+
+  ## Error Propagation
+
+  - Sub-agent fails → return structured error with root cause
+  - Main agent receives error → retry once with adjusted approach, then report to user
+  - Never let the user see raw sub-agent internal errors — always translate to user-facing messages
+
+  ## Task Registration Requirement
+
+  Before using `task` or `agent_team`, always call `list_agents` or `match_agent` first to find the right agent. Never invent agent IDs.

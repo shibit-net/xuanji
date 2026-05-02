@@ -2,17 +2,15 @@
 // CodeEditor - 代码编辑器组件（基于 CodeMirror 6）
 // ============================================================
 
-import { useEffect, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { yaml } from '@codemirror/lang-yaml';
 import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
-  language?: 'yaml' | 'json' | 'markdown' | 'text';
+  language?: 'yaml' | 'json' | 'text';
   height?: string;
   readOnly?: boolean;
   placeholder?: string;
@@ -21,7 +19,6 @@ interface CodeEditorProps {
 const languageExtensions = {
   yaml: [yaml()],
   json: [json()],
-  markdown: [markdown()],
   text: [],
 };
 

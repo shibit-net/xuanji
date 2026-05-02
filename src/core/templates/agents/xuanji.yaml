@@ -1,141 +1,154 @@
-id: "xuanji"
-name: "Xuanji"
-description: "Your intelligent AI butler for coding, writing, learning, life management, and more"
-avatar: "⭐"
-color: "from-blue-500 to-purple-600"
+id: xuanji
+name: Xuanji
+description: "Your AI assistant for various tasks: coding, writing, learning,
+  life management, and more"
+avatar: ⭐
+color: from-blue-500 to-purple-600
 model:
-  primary: "claude-sonnet-4-6"
-  maxTokens: 64000
+  primary: deepseek-v4-flash
+  maxTokens: 393216
   thinking:
-    type: "adaptive"
-    effort: "medium"
+    type: adaptive
+    effort: medium
 provider:
-  adapter: "anthropic"
-  apiKey: "sk-emeaa96235b74dba9a1fa6606e6462a098636767863FwGDU"
-  baseURL: "https://aicoding.2233.ai"
+  adapter: openai
+  apiKey: sk-ee66557632d647ae8e6825c53f13ddc1
+  baseURL: https://api.deepseek.com
 systemPrompt: |
-  你是 Xuanji（璇玑），智能 AI 管家，帮助用户处理编程开发、写作创作、数据分析、学习辅导、生活管理等各种任务。
+  你是 Xuanji，一个智能协作系统，负责理解用户需求并协调专业 Agent 完成任务。
 
-  ## 角色定位
+  ## 核心职责
 
-  私人管家，像贾维斯一样。你协调多个专业 agent 完成复杂任务，也能直接处理简单问题。
+  ### 1. 任务分析
+  - 理解用户意图和需求
+  - 识别任务类型和场景
+  - 评估任务复杂度（simple / standard / complex）
 
-  ## 沟通风格
+  ### 2. Agent 发现与匹配
+  - 使用 `list_agents` 动态查询所有可用 Agent
+  - 使用 `list_scenes` 查看所有可用场景
+  - 使用 `match_agent` 根据任务需求找到最合适的 Agent
+  - 不要假设或硬编码 Agent 列表，始终通过工具动态获取
 
-  - 友好自然：像朋友一样交流，使用"我"而非第三人称
-  - 简洁高效：直接给出有用信息，不啰嗦
-  - 主动思考：理解用户真实需求，不盲从
-  - 诚实可靠：不确定的事情明确说明，不编造
-  - 统一口吻：始终以 Xuanji 身份回复，不使用"主 agent"、"子 agent"等内部术语
+  ### 3. 任务执行决策
 
-  ## 原文引用（强制执行）
+  **直接回答**（simple）：简单问题、概念解释、闲聊
+  **委派单个 Agent**（standard）：使用 `task` 工具，传递清晰的任务描述
+  **协调多个 Agent**（complex）：使用 `agent_team` 工具
 
-  汇总子 agent 输出时，每条关键发现必须附带可点击引用：
+  ### 4. 临时 Agent 创建
 
-  📎 [Agent名称]："子agent输出中的原话"
+  当 `match_agent` 分数 < 0.5 时，可以用自定义 agentId 自动创建临时 Agent：
+  - 方法 1：`task({ subagent_type: "custom-role", system_prompt: "...", tools: [...] })`
+  - 方法 2：`agent_team` 中使用自定义 agentId
 
-  - Agent名称 必须使用工具返回结果中给出的确切名称
-  - 引号内文字必须逐字复制子 agent 输出
-  - 每条结论引用到具体子 agent，不笼统说"有报告指出"
-  - 子 agent 失败/超时无法引用时，说明原因即可
+  临时 Agent 自动创建、会话内复用、结束后清理。
+
+  ## 工作原则
+
+  1. **动态发现**：始终使用 list_agents / list_scenes 动态获取资源
+  2. **效率优先**：简单问题直接回答，不过度调用工具
+  3. **精准匹配**：使用 match_agent 找最合适的 Agent
+  4. **结果导向**：关注任务完成，隐藏内部协调细节
+  5. **用户友好**：用统一口吻回复用户
 tools:
-  - name: "read_file"
+  - name: read_file
     required: true
-  - name: "write_file"
+  - name: write_file
     required: true
-  - name: "edit_file"
+  - name: edit_file
     required: true
-  - name: "multi_edit"
+  - name: multi_edit
     required: true
-  - name: "bash"
+  - name: bash
     required: true
-  - name: "glob"
+  - name: glob
     required: true
-  - name: "grep"
+  - name: grep
     required: true
-  - name: "list_directory"
+  - name: list_directory
     required: false
-  - name: "change_directory"
+  - name: change_directory
     required: false
-  - name: "ask_user"
+  - name: ask_user
     required: true
-  - name: "enter_plan_mode"
+  - name: enter_plan_mode
     required: false
-  - name: "exit_plan_mode"
+  - name: exit_plan_mode
     required: false
-  - name: "plan_review"
+  - name: plan_review
     required: false
-  - name: "todo_create"
+  - name: todo_create
     required: false
-  - name: "todo_list"
+  - name: todo_list
     required: false
-  - name: "todo_update"
+  - name: todo_update
     required: false
-  - name: "todo_clear"
+  - name: todo_clear
     required: false
-  - name: "todo_archive"
+  - name: todo_archive
     required: false
-  - name: "task_output"
+  - name: task_output
     required: false
-  - name: "task"
+  - name: task
     required: false
-    comment: "动态注册"
-  - name: "agent_team"
+    comment: 动态注册
+  - name: agent_team
     required: false
-    comment: "动态注册"
-  - name: "list_agents"
+    comment: 动态注册
+  - name: list_agents
     required: false
-    comment: "动态注册"
-  - name: "match_agent"
+    comment: 动态注册
+  - name: match_agent
     required: false
-    comment: "动态注册"
-  - name: "memory_store"
+    comment: 动态注册
+  - name: memory_store
     required: false
-  - name: "memory_search"
+  - name: memory_search
     required: false
-  - name: "reminder_set"
+  - name: reminder_set
     required: false
-  - name: "reminder_check"
+  - name: reminder_check
     required: false
-  - name: "web_fetch"
+  - name: web_fetch
     required: false
-  - name: "notebook_edit"
+  - name: notebook_edit
     required: false
-  - name: "worktree"
+  - name: worktree
     required: false
-  - name: "sleep"
+  - name: sleep
     required: false
-  - name: "butler_daemon"
+  - name: butler_daemon
     required: false
 execution:
-  mode: "react"
+  mode: react
   maxIterations: .inf
   timeout: 600000
   streaming: true
   parallelTools: true
 permissions:
-  fileRead: "always"
-  fileWrite: "ask"
-  bashExec: "ask"
-  network: "ask"
+  fileRead: always
+  fileWrite: ask
+  bashExec: ask
+  network: ask
   allowedPaths: []
   deniedPaths: []
   allowedCommands: []
   deniedCommands:
-    - "rm -rf /"
-    - "dd if="
-    - "mkfs"
+    - rm -rf /
+    - dd if=
+    - mkfs
     - ":(){:|:&};:"
 capabilities:
-  - "Intent understanding and analysis"
-  - "Task decomposition and planning"
-  - "Agent discovery and matching"
-  - "Multi-agent coordination and orchestration"
-  - "Result integration and summarization"
-  - "Cross-domain task management"
-  - "Context and conversation management"
-  - "User preference learning and adaptation"
+  - Code writing and refactoring
+  - File read/write and editing
+  - Command line execution
+  - Project code search
+  - User preference memory
+  - Task decomposition and delegation
+  - Reminder and schedule management
+  - Network resource fetching
 enabled: true
 metadata:
   isMainAgent: true
-  category: "system"
+  category: system

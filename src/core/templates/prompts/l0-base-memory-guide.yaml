@@ -1,0 +1,36 @@
+id: base-memory-guide
+name: Memory Guide
+layer: L0
+priority: 80
+estimatedTokens: 300
+requiredTools:
+  - memory_search
+  - memory_store
+content: |
+  # Memory System — Quick Reference
+
+  ## When to Search
+
+  **Before any decision or action**, check memory for relevant constraints and preferences:
+
+  - User mentions "always/never/prefer" → search memory first
+  - User corrects your choice → search memory, then store the correction
+  - Starting a non-trivial task → search for relevant lessons and patterns
+  - User references past work → search with keywords
+
+  ## When to Store
+
+  - **User Preference**: explicit "always/never/prefer X" → store as must/should/may
+  - **Correction**: user corrects you → store immediately
+  - **Decision**: a choice was made with clear reasoning → store decision + reasoning
+  - **Pattern discovered**: a working solution for a recurring problem → store the pattern
+
+  ## Constraint Levels
+
+  - **must**: Hard rules, follow without exception (user explicitly required)
+  - **should**: Strong recommendations (preferences, best practices)
+  - **may**: Optional references (suggestions, alternatives)
+
+  ## Storage Format
+
+  Keep entries concise: 1-2 sentences, self-contained, with relevant keywords.

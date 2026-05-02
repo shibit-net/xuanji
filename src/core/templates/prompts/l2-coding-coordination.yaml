@@ -2,7 +2,7 @@ id: "l2-coding-coordination"
 name: "Coding Coordination"
 layer: "L2"
 priority: 73
-estimatedTokens: 800
+estimatedTokens: 600
 enabled: true
 scenes:
   - write_code
@@ -17,66 +17,20 @@ scenes:
 content: |
   # 编码场景的 Agent 协同策略
 
-  ## 场景识别
-
-  根据用户意图识别场景后，选择最合适的协同方式和成员配置。
-
-  ## 场景化协同模式
-
-  ### 功能开发 (write_code)
-  **策略**: sequential
-  **成员角色**（每个角色调用 match_agent 匹配对应的 agent）:
-  1. 需求分析 → 需求文档、验收标准
-  2. 架构设计 (scene: plan) → 技术方案、接口定义
-  3. 代码实现 (scene: write_code) → 源代码
-  4. 测试编写 (scene: test) → 测试文件
-  5. 代码审查 (scene: review) → 审查意见
-
-  ### Bug 修复 (debug)
-  **策略**: sequential
-  **成员角色**:
-  1. 问题定位 (scene: debug) → 根因分析报告
-  2. 代码修复 (scene: write_code) → 修复后代码
-  3. 验证测试 (scene: test) → 测试结果
-
-  ### 代码重构 (refactor)
-  **策略**: sequential
-  **成员角色**:
-  1. 代码分析 (scene: review) → 问题清单、重构建议
-  2. 重构实施 (scene: refactor) → 重构后代码
-  3. 验证测试 (scene: test) → 回归测试结果
-
-  ### 代码审查 (review)
-  **策略**: parallel（多视角并行审查）
-  **成员角色**（同一 agent + 不同 system_prompt）:
-  1. 质量审查 (scene: review) — 可维护性、可读性、代码规范
-  2. 安全审查 (scene: review) — 漏洞、注入风险、权限问题
-  3. 性能审查 (scene: review) — 复杂度、内存使用、I/O 优化
-
-  ### 架构设计 (plan)
-  **策略**: debate 或 hierarchical
-  - **debate**: 多方讨论达成共识，适合方案选型
-  - **hierarchical**: Leader 分解任务 + Workers 并行实施
-
-  ### 代码探索 (explore)
-  **策略**: parallel（多视角并行探索）
-  **成员角色**（同一 agent + 不同 system_prompt）:
-  1. 结构分析 (scene: explore) → 模块划分、目录结构
-  2. 依赖分析 (scene: explore) → 调用链路、依赖关系
-  3. 技术栈分析 (scene: explore) → 框架、库、工具链
-
-  ### 部署发布 (deploy)
-  **策略**: sequential
-  **成员角色**:
-  1. 环境检查 (scene: deploy) → 环境配置、依赖清单
-  2. 构建打包 (scene: deploy) → 构建产物
-  3. 部署上线 (scene: deploy) → 部署结果、健康检查
+  | 场景 | 推荐策略 | 成员角色链 |
+  |------|---------|-----------|
+  | write_code | sequential | 需求分析 → 架构(plan) → 编码(write_code) → 测试(test) → 审查(review) |
+  | debug | sequential | 问题定位(debug) → 修复(write_code) → 验证(test) |
+  | refactor | sequential | 代码分析(review) → 重构(refactor) → 回归测试(test) |
+  | review | parallel | 质量审查 + 安全审查 + 性能审查（同 agent + 不同 system_prompt） |
+  | plan | debate / hierarchical | debate: 多方讨论共识；hierarchical: Leader + Workers |
+  | explore | parallel | 结构分析 + 依赖分析 + 技术栈分析 |
+  | deploy | sequential | 环境检查 → 构建打包 → 部署上线 |
 
   ## 通用规则
 
-  1. **所有 agent_id 来自 match_agent**：不为成员编造 agent ID
-  2. **同领域多视角用同一 agent**：不同 scene + system_prompt 区分视角
-  3. **临时 agent 是最后手段**：仅在 match_agent 分数 < 0.5 时创建
-  4. **每个成员 task 必须独特**：不能让多个成员做相同的事
-  5. **不完全照搬模式**：根据实际任务调整成员数量和角色
-  6. **场景指定**：为成员指定合适的 scene，加载对应的 L1 提示词
+  1. 所有 agent_id 来自 match_agent，不为成员编造 agent ID
+  2. 同领域多视角用同一 agent + 不同 system_prompt 区分
+  3. 临时 agent 是最后手段（仅 match_agent 分数 < 0.5 时）
+  4. 每个成员任务必须独特，不能让多个成员做相同的事
+  5. 根据实际任务调整成员数量和角色，不照搬模式

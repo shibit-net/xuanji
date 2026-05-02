@@ -13,7 +13,9 @@ import { PermissionController } from '@/permission/PermissionController';
 import { SessionManager } from '@/session/SessionManager';
 import { getUserSessionsDir } from '@/core/config/PathManager';
 import { HookRegistry } from '@/hooks/HookRegistry';
-import { MainAgent } from '@/core/agent/dispatch/MainAgent';
+import { AgentLoop } from '@/core/agent/AgentLoop';
+import { ConversationManager } from '@/core/conversation/ConversationManager';
+import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { ChatSession, type SessionCallbacks } from './ChatSession';
 import { logger } from '@/core/logger';
 import { TaskTool } from '@/core/tools/TaskTool';
@@ -23,6 +25,7 @@ import { ListScenesTool } from '@/core/tools/ListScenesTool';
 import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
 import { FilteredToolRegistry } from '@/core/tools/FilteredToolRegistry';
 import { getTodoManager } from '@/core/tools/TodoManager';
+import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 
 const log = logger.child({ module: 'SessionFactory' });
 
@@ -101,24 +104,15 @@ export class SessionFactory {
       const { getEmbeddingProvider } = await import('@/embedding/EmbeddingProvider');
       const agentRegistry = await this.container.resolve<import('@/core/agent/AgentRegistry').AgentRegistry>('agentRegistry');
 
-      // 🔧 创建 EmbeddingProvider 和 IntentAnalyzer
       let intentAnalyzer: import('@/core/prompt/IntentAnalyzer').IntentAnalyzer | undefined;
       try {
-        // 传递配置给 EmbeddingProvider（但不立即初始化）
         const embeddingProvider = getEmbeddingProvider(config.embedding);
-        // 不在这里调用 init()，让 IntentAnalyzer 在第一次使用时才初始化
-        // await embeddingProvider.init();
         intentAnalyzer = new IntentAnalyzer(embeddingProvider, agentRegistry);
-        // IntentAnalyzer 会在第一次使用时自动初始化 embeddingProvider
         await intentAnalyzer.init();
         log.info('[SessionFactory] IntentAnalyzer created with embedding support (will init on first use)');
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        const errStack = err instanceof Error ? err.stack : '';
         log.warn(`[SessionFactory] Failed to create IntentAnalyzer with embeddings, using keyword-only mode: ${errMsg}`);
-        if (errStack) {
-          log.debug(`[SessionFactory] Error stack: ${errStack}`);
-        }
         intentAnalyzer = new IntentAnalyzer(undefined, agentRegistry);
       }
 
@@ -141,29 +135,26 @@ export class SessionFactory {
     const permissionController = await this.container.resolve<IPermissionController>('permissionController');
     registry.setPermissionController?.(permissionController);
 
+    // 4.5. 注册 AgentFactory（统一 Agent 创建入口）
+    this.container.registerSingleton('agentFactory', () => new AgentFactory(registry));
+
     // 5. 注册高级工具
     await this.registerAdvancedTools(config, options, agentId);
 
     // 6. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
-    await this.container.resolve('layeredPromptBuilder');
-
-    // 7. 创建 MainAgent
-    const mainAgent = await this.createMainAgent(config);
-
-    // 8. 初始化 TodoManager（用户维度隔离）
-    getTodoManager(userId);
-
-    // 9. 创建会话
-    const session = new ChatSession(mainAgent, this.container, options.callbacks);
-    log.info('Session created successfully');
-    return session;
-  }
-
-  private async createMainAgent(config: AppConfig): Promise<MainAgent> {
-    const provider = await this.container.resolve<ILLMProvider>('provider');
-    const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
-    const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const layeredPromptBuilder = await this.container.resolve('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+    const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
+    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
+
+    // 7. 创建 ConversationManager
+    const conversationManager = new ConversationManager();
+    conversationManager.setPromptBuilder(layeredPromptBuilder);
+
+    // 8. 创建 TaskOrchestrator
+    const taskOrchestrator = new TaskOrchestrator();
+
+    // 9. 创建 AgentLoop
+    const provider = await this.container.resolve<ILLMProvider>('provider');
 
     const agentConfig = {
       model: config.provider.model,
@@ -182,27 +173,47 @@ export class SessionFactory {
       } : undefined,
     };
 
-    // 包裹 FilteredToolRegistry，让主 agent 拥有独立的工作目录管理
-    // 避免 sub-agent 的 change_directory 影响主 agent 的 cwd
     const trackedRegistry = new FilteredToolRegistry(
       registry,
-      null,  // allowAll: 主 agent 可使用所有工具
+      null,
       { agentId: this.agentId, agentName: this.agentId },
-      process.cwd(),  // 初始工作目录
+      process.cwd(),
     );
 
-    const mainAgent = new MainAgent({
-      provider,
-      registry: trackedRegistry,
-      config: agentConfig,
-      agentRegistry: await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry,
-      hookRegistry,
-      promptBuilder: layeredPromptBuilder,
-      userId: this.userId,
-    });
+    const agentLoop = new AgentLoop(provider, trackedRegistry, agentConfig, userId);
+    agentLoop.setHookRegistry(hookRegistry);
 
-    log.info('MainAgent created');
-    return mainAgent;
+    // 10. 构建主 agent system prompt（L0 only）
+    // scene 知识通过 list_scenes 工具按需获取，不做意图分析
+    try {
+      const prompt = await layeredPromptBuilder.build({});
+      if (prompt.prompt) {
+        agentLoop.getContextManager().updateSystemPrompt(prompt.prompt);
+        log.info(`Main agent prompt built: ${prompt.components.length} components, ~${prompt.estimatedTokens} tokens`);
+      }
+    } catch (err) {
+      log.warn('Failed to build initial system prompt:', err);
+    }
+
+    // 11. 初始化 TaskCompletionHandler — 后台任务完成通知
+    // 后台任务完成时自动注入到 system prompt，主 agent 空闲时自动触发汇总
+    const contextManager = agentLoop.getContextManager();
+    taskOrchestrator.setContextManager(contextManager);
+    // 重设 onRun，让后台任务完成时自动触发 ChatSession.run
+    const taskCompletionHandler = (taskOrchestrator as any).taskCompletionHandler as import('@/core/agent/async/TaskCompletionHandler').TaskCompletionHandler;
+    if (taskCompletionHandler) {
+      // onRun 由 ChatSession 通过 checkPendingCompletions 触发
+      // handleCompletion 中当主 agent 空闲时也会自动触发
+      log.info('TaskCompletionHandler initialized for async task notifications');
+    }
+
+    // 12. 初始化 TodoManager（用户维度隔离）
+    getTodoManager(userId);
+
+    // 13. 创建会话
+    const session = new ChatSession(agentLoop, this.container, conversationManager, taskOrchestrator, options.callbacks);
+    log.info('Session created successfully');
+    return session;
   }
 
   private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string): Promise<void> {
@@ -223,7 +234,7 @@ export class SessionFactory {
         agentConfig: config.provider,
         parentProvider: provider,
         hookRegistry,
-        agentId, // 🔧 传递主 Agent ID（从配置读取，如 'xuanji'）
+        agentId,
       });
     }
 
@@ -240,7 +251,6 @@ export class SessionFactory {
       });
     }
 
-    // 注册 Agent 发现工具
     const listAgentsTool = new ListAgentsTool();
     listAgentsTool.setAgentRegistry(agentRegistry);
     registry.register(listAgentsTool);
@@ -249,7 +259,6 @@ export class SessionFactory {
     matchAgentTool.setDependencies({ agentRegistry });
     registry.register(matchAgentTool);
 
-    // 注册 Scene 发现工具
     const listScenesTool = new ListScenesTool();
     listScenesTool.setPromptRegistry(promptRegistry);
     registry.register(listScenesTool);

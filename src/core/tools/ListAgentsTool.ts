@@ -11,18 +11,11 @@ import { BaseTool } from './BaseTool';
 export class ListAgentsTool extends BaseTool {
   readonly name = 'list_agents';
   readonly description = [
-    'List all available agents in the system.',
+    'List available agents in the system.',
     '',
-    'Use this tool when you need to:',
-    '✓ Choose the right agent for a specific task',
-    '✓ Understand which agents are available',
-    '✓ Learn about agent capabilities and specializations',
+    'Use this to discover which agents exist and their capabilities before calling match_agent.',
     '',
-    'Returns agent information including:',
-    '- Agent ID (use in task or agent_chain tools)',
-    '- Name and description',
-    '- Capabilities (primary matching criteria)',
-    '- Whether it\'s a built-in or custom agent',
+    'Supports filtering by search keyword, tags, and showing only enabled agents.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

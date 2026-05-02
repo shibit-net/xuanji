@@ -51,7 +51,7 @@ function getProjectRoot(): string {
 /**
  * 获取 Xuanji 数据根目录（项目目录）
  */
-function getXuanjiRoot(): string {
+export function getXuanjiRoot(): string {
   return join(getProjectRoot(), '.xuanji');
 }
 

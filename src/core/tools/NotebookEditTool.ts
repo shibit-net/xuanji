@@ -40,14 +40,8 @@ interface NotebookDocument {
 export class NotebookEditTool extends BaseTool {
   readonly name = 'notebook_edit';
   readonly description = [
-    '编辑 Jupyter Notebook (.ipynb) 文件的单元格。',
-    '',
-    '支持三种操作:',
-    '- replace: 替换指定单元格的内容',
-    '- insert: 在指定位置插入新单元格',
-    '- delete: 删除指定单元格',
-    '',
-    'cell_number 从 0 开始计数。',
+    'Edit Jupyter Notebook (.ipynb) cells. Supports replace, insert, and delete operations.',
+    'cell_number starts from 0.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {

@@ -4,7 +4,7 @@
 
 import type { AppConfig, IConfigLoader } from '@/core/types';
 import type { MCPConfig } from '@/mcp/types';
-import { UserConfigInitializer } from './UserConfigInitializer';
+import { getConfigManager } from './ConfigManager';
 import { getUserConfigPath } from './PathManager';
 import { deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
 import { ConfigValidator } from './ConfigValidator';
@@ -42,8 +42,8 @@ export class ConfigLoader implements IConfigLoader {
 
   async load(): Promise<AppConfig> {
     // 1. 初始化用户配置（如果不存在，从模板复制）
-    const initializer = new UserConfigInitializer(this.userId);
-    await initializer.initialize();
+    const cfgMgr = getConfigManager();
+    await cfgMgr.initForUser(this.userId);
 
     // 2. 加载用户配置（必须存在，因为已经初始化）
     const userConfig = await this.loadUserConfig();

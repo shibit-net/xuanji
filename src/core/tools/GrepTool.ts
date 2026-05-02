@@ -71,7 +71,8 @@ function isRipgrepAvailable(): boolean {
  */
 export class GrepTool extends BaseTool {
   readonly name = 'grep';
-  readonly description = 'Search text patterns in files (supports regex). Returns matching lines with context. Uses high-performance ripgrep when available.';
+  readonly description =
+    'Search file contents using regex patterns. Supports ripgrep with automatic JS fallback. Returns matching lines with line numbers and optional context. Use glob parameter to filter file types.';
   readonly readonly = true;
 
   readonly input_schema: JSONSchema = {

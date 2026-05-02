@@ -17,8 +17,8 @@ export type PlanModeExitHandler = () => Promise<boolean>;
 export class ExitPlanModeTool extends BaseTool {
   readonly name = 'exit_plan_mode';
   readonly description = [
-    '退出 Plan Mode，恢复正常执行模式。',
-    '规划完成后使用此工具，之后可以执行写操作。',
+    'Exit plan mode and resume normal execution.',
+    'Call this after planning is complete. Write operations will become available again.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
