@@ -45,7 +45,7 @@ function registerModelsIpcHandlers() {
   // 🆕 从用户配置中获取模型列表
   ipcMain.handle('models:list-user-config', async () => {
     try {
-      const { getUserConfigPath } = await import('../../../src/core/config/UserConfigInitializer.js');
+      const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
       const { readFile } = await import('node:fs/promises');
       const { existsSync } = await import('node:fs');
 

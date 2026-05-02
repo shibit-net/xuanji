@@ -1,106 +1,120 @@
-/**
- * Remark 插件：解析子 agent 引用标记
- *
- * 将 [查看详情: <名称>] 转换为 subAgentReference 节点
- * 将 📎 [名称]："引用原文" 转换为 citationReference 节点
- */
+// ============================================================
+// Milkdown $remark 插件: 解析子 Agent 引用标记
+// ============================================================
+//
+// 将 📎 语法解析为 Milkdown 的自定义 inline 节点：
+//   - 📎 [Name]：\"quote\" → citation-ref 节点
+//   - [查看详情: Name]    → subagent-ref 节点
+//
+// 配合 milkdown/SubAgentNodes.ts 中的 $node 定义，
+// 这些节点会被渲染为带 data-* 属性的 span 元素，
+// 供 MessageBubble 中的 React portal 注入可交互组件。
+// ============================================================
 
+import { $remark } from '@milkdown/utils';
 import { visit } from 'unist-util-visit';
+import type { Ctx } from '@milkdown/ctx';
 
 export interface SubAgentReferenceNode {
-  type: 'subAgentReference';
+  type: string;
   data: {
-    hName: 'sub-agent-reference';
+    hName: string;
     hProperties: {
-      agentName: string;
+      'data-name': string;
     };
   };
   children: [];
 }
 
 export interface CitationReferenceNode {
-  type: 'citationReference';
+  type: string;
   data: {
-    hName: 'citation-reference';
+    hName: string;
     hProperties: {
-      agentName: string;
-      quotedText: string;
+      'data-name': string;
+      'data-quote': string;
     };
   };
   children: [];
 }
 
-// 📎 [名称]："引用原文"  或  📎 [名称]:"引用原文"  或  📎 [名称]："引用原文"
-// 支持：中文/英文冒号、直引号/弯引号、有无空格
+// 📎 [名称]：\"引用原文\"  或  📎 [名称]:\"引用原文\"  或  📎 [名称]：\"引用原文\"
 const CITATION_REGEX = /\u{1F4CE}\s*\[([^\]]+)\]\s*[：:]\s*["\u201C\u2018\u300C](.+?)["\u201D\u2019\u300D]/u;
 
-export function remarkSubAgentReference() {
-  return (tree: any) => {
-    visit(tree, 'text', (node: any, index: number | undefined, parent: any) => {
-      if (!parent || index === undefined) return;
+export const remarkSubAgentReference = $remark(
+  'subAgentReference',
+  (_ctx: Ctx) => {
+    return () => (tree: any) => {
+      visit(tree, 'text', (node: any, index: number | undefined, parent: any) => {
+        if (!parent || index === undefined) return;
 
-      const text: string = node.value;
+        const text: string = node.value;
 
-      // 先尝试匹配引用语法 📎 [Name]："quote"（支持多种引号）
-      const citationMatch = CITATION_REGEX.exec(text);
-      if (citationMatch) {
-        const agentName = citationMatch[1].trim();
-        const quotedText = citationMatch[2].trim();
-        console.log('[remarkSubAgentReference] ✅ 解析到引用:', { agentName, quotedText: quotedText.substring(0, 50) });
-        const matchStart = citationMatch.index;
-        const matchEnd = matchStart + citationMatch[0].length;
+        // 先匹配引用语法 📎 [Name]：\"quote\"
+        const citationMatch = CITATION_REGEX.exec(text);
+        if (citationMatch) {
+          const agentName = citationMatch[1].trim();
+          const quotedText = citationMatch[2].trim();
+          const matchStart = citationMatch.index;
+          const matchEnd = matchStart + citationMatch[0].length;
 
-        const newNodes: any[] = [];
+          const newNodes: any[] = [];
 
-        if (matchStart > 0) {
-          newNodes.push({ type: 'text', value: text.slice(0, matchStart) });
+          if (matchStart > 0) {
+            newNodes.push({ type: 'text', value: text.slice(0, matchStart) });
+          }
+
+          newNodes.push({
+            type: 'citationReference',
+            data: {
+              hName: 'citation-ref',
+              hProperties: {
+                'data-name': agentName,
+                'data-quote': quotedText,
+              },
+            },
+            children: [],
+          });
+
+          if (matchEnd < text.length) {
+            newNodes.push({ type: 'text', value: text.slice(matchEnd) });
+          }
+
+          parent.children.splice(index, 1, ...newNodes);
+          return;
         }
 
-        newNodes.push({
-          type: 'citationReference',
-          data: {
-            hName: 'citation-reference',
-            hProperties: { agentName, quotedText },
-          },
-          children: [],
-        });
+        // 再匹配子 Agent 块引用：[查看详情: <名称>]
+        const subagentMatch = /\[查看详情:\s*(.+?)\]/.exec(text);
+        if (subagentMatch) {
+          const agentName = subagentMatch[1].trim();
+          const matchStart = subagentMatch.index;
+          const matchEnd = matchStart + subagentMatch[0].length;
 
-        if (matchEnd < text.length) {
-          newNodes.push({ type: 'text', value: text.slice(matchEnd) });
+          const newNodes: any[] = [];
+
+          if (matchStart > 0) {
+            newNodes.push({ type: 'text', value: text.slice(0, matchStart) });
+          }
+
+          newNodes.push({
+            type: 'subAgentReference',
+            data: {
+              hName: 'subagent-ref',
+              hProperties: {
+                'data-name': agentName,
+              },
+            },
+            children: [],
+          });
+
+          if (matchEnd < text.length) {
+            newNodes.push({ type: 'text', value: text.slice(matchEnd) });
+          }
+
+          parent.children.splice(index, 1, ...newNodes);
         }
-
-        parent.children.splice(index, 1, ...newNodes);
-        return;
-      }
-
-      // 再匹配引用标记：[查看详情: <名称>]
-      const match = /\[查看详情:\s*(.+?)\]/.exec(text);
-      if (!match) return;
-
-      const agentName = match[1].trim();
-      const matchStart = match.index;
-      const matchEnd = matchStart + match[0].length;
-
-      const newNodes: any[] = [];
-
-      if (matchStart > 0) {
-        newNodes.push({ type: 'text', value: text.slice(0, matchStart) });
-      }
-
-      newNodes.push({
-        type: 'subAgentReference',
-        data: {
-          hName: 'sub-agent-reference',
-          hProperties: { agentName },
-        },
-        children: [],
       });
-
-      if (matchEnd < text.length) {
-        newNodes.push({ type: 'text', value: text.slice(matchEnd) });
-      }
-
-      parent.children.splice(index, 1, ...newNodes);
-    });
-  };
-}
+    };
+  },
+);

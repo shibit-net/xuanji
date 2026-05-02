@@ -104,7 +104,11 @@ function initChatSession(): Promise<boolean> {
       // 格式: "2026-05-01 01:50:49.339 xuanji:DownloadManager:info message"
       // debug 包同时输出到 stdout 和 stderr，需要识别级别再决定前缀
       const extractLevel = (line: string): string | null => {
-        const match = line.match(/\s[\w:]+:(debug|info|warn|error|fatal)\s/);
+        // 匹配 debug 包格式的日志级别（如 "xuanji:DownloadManager:info message"）
+        // debug 包格式: namespace:module:level message，级别前有 2 级命名空间
+        // 注意：匹配 /\w+:\w+:(debug|info|warn|error|fatal)\s/ 确保是"两级命名空间+级别"格式
+        // 避免把消息内容（如 "agent:error"）中的 :error 误判为级别
+        const match = line.match(/\w+:\w+:(debug|info|warn|error|fatal)\s/);
         return match ? match[1].toLowerCase() : null;
       };
 

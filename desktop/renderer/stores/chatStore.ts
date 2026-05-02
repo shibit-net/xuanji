@@ -198,9 +198,9 @@ interface ChatStore {
   _streamToUserMap: Record<string, string>;
   /** subAgentId → 流式消息 ID 的映射，每个子 agent 独立的聊天气泡 */
   _subAgentStreams: Record<string, string>;
-  /** 引用原文存储（agentName → SubAgentReference），供 citation-reference 组件查询 */
-  citationOutputs: Record<string, SubAgentReference>;
-  /** 根据 agent 名查询引用原文 */
+  /** 引用原文存储（agentName → SubAgentReference[]），同名引用追加不覆盖 */
+  citationOutputs: Record<string, SubAgentReference[]>;
+  /** 根据 agent 名查询最新一条引用原文 */
   getCitationOutput: (agentName: string) => SubAgentReference | null;
   /** 后台任务完成自动汇总是否进行中（与用户触发的执行区分，InputArea 据此显示正常发送模式） */
   _autoSummarizeActive: boolean;
@@ -597,7 +597,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
   },
 
   getCitationOutput: (agentName: string): SubAgentReference | null => {
-    return get().citationOutputs[agentName] || null;
+    const list = get().citationOutputs[agentName];
+    if (!list || list.length === 0) return null;
+    return list[list.length - 1];
   },
 
   // ============================================================
@@ -988,23 +990,28 @@ export const useChatStore = create<ChatStore>((set, get) => {
           duration: (metadata.duration as number) || 0,
           tokensUsed: (metadata.tokensUsed as { input: number; output: number }) || { input: 0, output: 0 },
         };
-        set((s) => ({ citationOutputs: { ...s.citationOutputs, [agentName]: citation } }));
+        set((s) => {
+          const existing = s.citationOutputs[agentName] || [];
+          return { citationOutputs: { ...s.citationOutputs, [agentName]: [...existing, citation] } };
+        });
       }
       if (data.name === 'agent_team' && Array.isArray(metadata.citations)) {
-        const additions: Record<string, SubAgentReference> = {};
-        for (const c of metadata.citations as Array<{
+        const citationsData = metadata.citations as Array<{
           agentName: string;
           originalOutput: string;
           duration: number;
           tokensUsed: { input: number; output: number };
-        }>) {
-          if (c.agentName && c.originalOutput) {
-            additions[c.agentName] = c;
+        }>;
+        set((s) => {
+          const updated = { ...s.citationOutputs };
+          for (const c of citationsData) {
+            if (c.agentName && c.originalOutput) {
+              const existing = updated[c.agentName] || [];
+              updated[c.agentName] = [...existing, c];
+            }
           }
-        }
-        if (Object.keys(additions).length > 0) {
-          set((s) => ({ citationOutputs: { ...s.citationOutputs, ...additions } }));
-        }
+          return { citationOutputs: updated };
+        });
       }
     }
 
@@ -2110,17 +2117,16 @@ if (typeof window !== 'undefined' && window.electron) {
   // 🔧 引用原文数据推送（异步任务完成后端主动推送）
   messageBus.on('agent:citation-data', (citations: SubAgentReference[]) => {
     if (Array.isArray(citations)) {
-      const additions: Record<string, SubAgentReference> = {};
-      for (const c of citations) {
-        if (c.agentName && c.originalOutput) {
-          additions[c.agentName] = c;
+      useChatStore.setState((s) => {
+        const updated = { ...s.citationOutputs };
+        for (const c of citations) {
+          if (c.agentName && c.originalOutput) {
+            const existing = updated[c.agentName] || [];
+            updated[c.agentName] = [...existing, c];
+          }
         }
-      }
-      if (Object.keys(additions).length > 0) {
-        useChatStore.setState((s) => ({
-          citationOutputs: { ...s.citationOutputs, ...additions },
-        }));
-      }
+        return { citationOutputs: updated };
+      });
     }
   });
 

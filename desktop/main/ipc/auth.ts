@@ -13,7 +13,6 @@ import {
   getSavedAccounts,
   type SavedAccount
 } from '../config/auth.js';
-import { initializeUserConfig } from '../../../src/core/config/UserConfigInitializer.js';
 
 function registerAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
@@ -34,7 +33,10 @@ function registerAuthIpcHandlers() {
         // 初始化用户配置
         if (result.data?.userId) {
           try {
-            await initializeUserConfig(result.data.userId);
+            const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
+            const { mkdir } = await import('node:fs/promises');
+            const { dirname } = await import('node:path');
+            await mkdir(dirname(getUserConfigPath(result.data.userId)), { recursive: true });
           } catch (err) {
             console.error('初始化用户配置失败:', err);
           }
@@ -126,7 +128,10 @@ function registerAuthIpcHandlers() {
                 // 确保用户配置已初始化
                 if (user.userId) {
                   try {
-                    await initializeUserConfig(user.userId);
+                    const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
+                    const { mkdir } = await import('node:fs/promises');
+                    const { dirname } = await import('node:path');
+                    await mkdir(dirname(getUserConfigPath(user.userId)), { recursive: true });
                   } catch (err) {
                     console.error('初始化用户配置失败:', err);
                   }
@@ -150,7 +155,10 @@ function registerAuthIpcHandlers() {
           // 确保用户配置已初始化
           if (user.userId) {
             try {
-              await initializeUserConfig(user.userId);
+              const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
+              const { mkdir } = await import('node:fs/promises');
+              const { dirname } = await import('node:path');
+              await mkdir(dirname(getUserConfigPath(user.userId)), { recursive: true });
             } catch (err) {
               console.error('初始化用户配置失败:', err);
             }
