@@ -476,6 +476,34 @@ export interface ElectronAPI {
     error?: string;
   }>;
 
+  // 工作目录文件浏览
+  workspaceReadDirectory: (dirPath?: string) => Promise<{
+    success: boolean;
+    items?: Array<{
+      name: string;
+      path: string;
+      isDirectory: boolean;
+      size: number;
+      modifiedAt: number;
+    }>;
+    currentPath?: string;
+    gitBranch?: string | null;
+    error?: string;
+  }>;
+  workspaceOpenFile: (filePath: string) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  workspaceGetGitStatus: (dirPath: string) => Promise<{
+    success: boolean;
+    status?: Record<string, string>;
+    error?: string;
+  }>;
+
+  // 工作目录变更通知
+  onWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => void;
+  offWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => void;
+
   // 通用事件监听
   on: (channel: string, callback: (...args: any[]) => void) => void;
   off: (channel: string, callback: (...args: any[]) => void) => void;

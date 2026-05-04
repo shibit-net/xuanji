@@ -70,20 +70,27 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
   };
 
+  const handleToggleRightPanel = () => {
+    if (location.pathname === '/chat' || location.pathname === '/') {
+      window.dispatchEvent(new CustomEvent('toggle-right-panel'));
+    }
+  };
+
+  const handleToggleProjectFiles = () => {
+    if (location.pathname === '/chat' || location.pathname === '/') {
+      window.dispatchEvent(new CustomEvent('toggle-project-files'));
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary">
+    <div className="flex flex-col h-screen w-screen bg-background text-foreground">
       {/* 标题栏 */}
       <TitleBar
         onCompact={handleCompact}
         onShowStats={() => setActiveDialog('stats')}
         onShowDiagnostics={() => setActiveDialog('diagnostics')}
-        onToggleRightPanel={() => {
-          // 仅在聊天页面有效
-          if (location.pathname === '/chat' || location.pathname === '/') {
-            // 通过事件通知 MainPage 切换右侧面板
-            window.dispatchEvent(new CustomEvent('toggle-right-panel'));
-          }
-        }}
+        onToggleRightPanel={handleToggleRightPanel}
+        onToggleProjectFiles={handleToggleProjectFiles}
       />
 
       {/* 主内容区域 */}

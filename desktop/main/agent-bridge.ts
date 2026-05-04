@@ -13,6 +13,9 @@ import type { ChatSession } from '../../src/core/chat/ChatSession.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 import { ChildMessageChannel } from './ipc/MessageBus.js';
 import { DownloadManager } from '../../src/core/download/DownloadManager.js';
+import { eventBus } from '../../src/core/events/EventBus.js';
+import { XuanjiEvent } from '../../src/core/events/events.js';
+import * as path from 'node:path';
 
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
@@ -56,7 +59,10 @@ forwardDownloadEvent('task-cancelled');
 
 // 初始化 Session
 channel.handle('init', async (data) => {
-  return await handleInit(data?.userId);
+  console.error('[agent-bridge] init called with userId:', data?.userId);
+  const result = await handleInit(data?.userId);
+  console.error('[agent-bridge] init completed:', JSON.stringify(result));
+  return result;
 });
 
 // 发送用户消息
@@ -468,47 +474,13 @@ function registerHookListeners(hookRegistry: any) {
     return { success: true };
   });
 
-  hookRegistry.addListener('SubAgentEnd', async (ctx: any) => {
-    safeSend({
-      type: 'agent:subagent-end',
-      data: {
-        subAgentId: ctx.subAgentId,
-        success: !ctx.data?.timedOut,
-        duration: ctx.data?.duration,
-      },
-    });
-
-    return { success: true };
-  });
-
-  // 🔧 子 agent 流式输出到用户（streamToUser=true 时触发）
-  hookRegistry.addListener('SubAgentText', async (ctx: any) => {
-    safeSend({
-      type: 'agent:subagent-text',
-      data: {
-        agentId: ctx.subAgentId,
-        text: ctx.text || '',
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('AgentThinking', async (ctx: any) => {
-    safeSend({
-      type: 'agent:thinking-start',
-      data: {
-        agentId: ctx.subAgentId || 'main',
-        content: ctx.thinkingContent || '',
-      },
-    });
-    return { success: true };
-  });
+  // 🔧 SubAgentText 和 AgentThinking 已由 EventBus 处理，不再需要 HookRegistry 监听
 
   hookRegistry.addListener('SkillStart', async (ctx: any) => {
     safeSend({
       type: 'agent:skill-start',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         skillName: ctx.skillName,
         input: ctx.skillInput,
       },
@@ -520,7 +492,7 @@ function registerHookListeners(hookRegistry: any) {
     safeSend({
       type: 'agent:skill-end',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         skillName: ctx.skillName,
         duration: ctx.skillDuration,
         success: ctx.skillSuccess,
@@ -536,7 +508,7 @@ function registerHookListeners(hookRegistry: any) {
         id: ctx.toolId,
         name: ctx.toolName,
         input: ctx.toolInput,
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
       },
     });
     return { success: true };
@@ -550,7 +522,7 @@ function registerHookListeners(hookRegistry: any) {
         name: ctx.toolName,
         result: ctx.toolResult,
         isError: ctx.toolIsError,
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
       },
     });
     return { success: true };
@@ -560,7 +532,7 @@ function registerHookListeners(hookRegistry: any) {
     safeSend({
       type: 'agent:memory-read',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         hitCount: ctx.memoryHitCount,
         layersSearched: ctx.memoryLayersSearched,
       },
@@ -572,7 +544,7 @@ function registerHookListeners(hookRegistry: any) {
     safeSend({
       type: 'agent:memory-write',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         scope: ctx.memoryScope,
         summary: ctx.memorySummary,
       },
@@ -584,7 +556,7 @@ function registerHookListeners(hookRegistry: any) {
     safeSend({
       type: 'agent:compress-start',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         originalTokens: ctx.originalTokens,
       },
     });
@@ -595,7 +567,7 @@ function registerHookListeners(hookRegistry: any) {
     safeSend({
       type: 'agent:compress-end',
       data: {
-        agentId: ctx.subAgentId || 'main',
+        agentId: ctx.subAgentId || undefined,
         originalTokens: ctx.originalTokens,
         compressedTokens: ctx.compressedTokens,
         compressionRatio: ctx.compressionRatio,
@@ -644,6 +616,25 @@ async function handleInit(userId?: string) {
     // 默认使用 'xuanji' agent，后续可以支持动态切换
     const agentId = 'xuanji';
     const factory = new SessionFactory(userId, agentId);
+
+    // 在创建 session 前先切换到 workspace 目录，确保 ChatSession.workingDir 使用 workspace
+    const os = await import('node:os');
+    const pathModule = await import('node:path');
+    const fs = await import('node:fs');
+    const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
+    const configLoader = new ConfigLoader(userId, agentId);
+    const fullConfig = await configLoader.load();
+    let workspacePath = fullConfig.workspacePath || '';
+    if (!workspacePath) {
+      workspacePath = pathModule.join(os.homedir(), '.xuanji', 'workspace');
+    }
+    if (!fs.existsSync(workspacePath)) {
+      fs.mkdirSync(workspacePath, { recursive: true });
+    }
+    try {
+      process.chdir(workspacePath);
+    } catch {}
+
     session = await factory.create({
       userId,
       agentId,
@@ -669,13 +660,60 @@ async function handleInit(userId?: string) {
 
           // 从工具调用中提取文件路径，自动检测项目
           detectProjectFromToolCall(name, input);
+
+          // 记住 change_directory 的路径，onToolEnd 时通知渲染进程刷新文件树
+          if (name === 'change_directory' && input.path && typeof input.path === 'string') {
+            pendingChangePath = path.resolve(input.path);
+          }
         },
         onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
           safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
 
-          // 如果是 change_directory 工具且执行成功，立即检测项目信息
-          if (name === 'change_directory' && !isError) {
-            detectProjectFromCwd();
+          // 如果是 change_directory 工具且执行成功，通知渲染进程刷新文件树
+          if (name === 'change_directory' && !isError && pendingChangePath) {
+            const newPath = pendingChangePath;
+            pendingChangePath = null;
+            console.error(`[agent-bridge] change_directory -> chdir + safeSend: ${newPath}`);
+            // 切换当前工作目录
+            try {
+              process.chdir(newPath);
+            } catch (e) {
+              console.error(`[agent-bridge] chdir 失败: ${newPath}`, e);
+            }
+            safeSend({ type: 'workspace:directory-changed', data: { path: newPath } });
+            // 同步更新项目信息事件，刷新页面后渲染进程由此恢复 workingDirectory
+            const nodeFs = require('node:fs');
+            const nodePath = require('node:path');
+            const gitDir = nodePath.join(newPath, '.git');
+            const hasGit = nodeFs.existsSync(gitDir);
+            let gitBranch: string | null = null;
+            if (hasGit) {
+              try {
+                const { execSync } = require('node:child_process');
+                gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: newPath, encoding: 'utf-8', timeout: 5000 }).trim();
+              } catch {}
+            }
+            safeSend({
+              type: 'project:info',
+              data: { type: 'workspace', hasGit, rootPath: newPath, configFiles: [], gitBranch },
+            });
+            // 持久化 workspacePath 到配置文件（仅写文件，不重建 session）
+            try {
+              const pathModule = require('node:path');
+              const fsModule = require('node:fs');
+              const osModule = require('node:os');
+              const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
+              const configPath = getUserConfigPath(currentUserId);
+              const content = fsModule.readFileSync(configPath, 'utf-8');
+              const cfg = JSON.parse(content);
+              if (!cfg.config) cfg.config = {};
+              cfg.config.workspacePath = newPath;
+              cfg.updatedAt = new Date().toISOString();
+              fsModule.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf-8');
+            } catch (e) {
+              console.error('[agent-bridge] 保存 workspacePath 失败:', e);
+            }
+            console.error(`[agent-bridge] safeSend 完成`);
           }
         },
         onFileChanges: (changes: any[]) => {
@@ -688,6 +726,7 @@ async function handleInit(userId?: string) {
           safeSend({ type: 'agent:error', data: err.message });
         },
         onEnd: (state: any) => {
+          console.error(`[agent-bridge] ====> onEnd 触发！state.status=${state.status}, currentIteration=${state.currentIteration}, stack=${new Error().stack?.split('\n')[2]?.trim()}`);
           safeSend({
             type: 'agent:end',
             data: {
@@ -697,9 +736,9 @@ async function handleInit(userId?: string) {
             },
           });
         },
-        onAutoSummarize: () => {
-          console.log('[agent-bridge] onAutoSummarize called, sending agent:auto-summarize-start');
-          safeSend({ type: 'agent:auto-summarize-start' });
+        onAutoSummarize: (subAgentId?: string) => {
+          console.error('[agent-bridge] onAutoSummarize called, subAgentId:', subAgentId);
+          safeSend({ type: 'agent:auto-summarize-start', data: { subAgentId } });
         },
         onCitationData: (citations) => {
           safeSend({ type: 'agent:citation-data', data: citations });
@@ -717,6 +756,77 @@ async function handleInit(userId?: string) {
     const container = session.getContainer();
     const hookRegistry = container.resolveSync('hookRegistry');
     registerHookListeners(hookRegistry);
+
+    // 注册 EventBus 事件监听（子 agent 启动/结束）
+    eventBus.on(XuanjiEvent.SUBAGENT_STARTED, (data: any) => {
+      console.log('[agent-bridge] SUBAGENT_STARTED received:', data.subAgentId, data.role);
+      safeSend({ type: 'agent:subagent-start', data: {
+        subAgentId: data.subAgentId,
+        name: data.name || data.role,
+        role: data.role,
+        task: data.task,
+        agentType: data.agentType || 'temporary',
+        parentId: data.parentAgentId || 'xuanji',
+        streamToUser: data.streamToUser || false,
+        scene: data.scene,
+      }});
+      return { success: true };
+    });
+    eventBus.on(XuanjiEvent.SUBAGENT_ENDED, (data: any) => {
+      safeSend({ type: 'agent:subagent-end', data: {
+        subAgentId: data.subAgentId,
+        name: data.name,
+        success: data.success,
+        duration: data.duration,
+      }});
+      return { success: true };
+    });
+
+    // 注册 Agent 工具事件监听（替代 HookRegistry 的 ToolStart/ToolEnd）
+    eventBus.on(XuanjiEvent.AGENT_TOOL_START, (data: any) => {
+      safeSend({ type: 'agent:tool-start', data: {
+        id: data.id,
+        name: data.name,
+        input: data.input,
+        agentId: data.agentId,
+      }});
+      return { success: true };
+    });
+    eventBus.on(XuanjiEvent.AGENT_TOOL_END, (data: any) => {
+      safeSend({ type: 'agent:tool-end', data: {
+        id: data.id,
+        name: data.name,
+        result: data.output,
+        isError: data.isError,
+        agentId: data.agentId,
+      }});
+      return { success: true };
+    });
+
+    // 注册 Agent thinking/text 事件监听（替代 HookRegistry 的 AgentThinking/AgentText）
+    eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (data: any) => {
+      safeSend({ type: 'agent:thinking-start', data: {
+        agentId: data.agentId,
+        content: data.content,
+      }});
+      return { success: true };
+    });
+    eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (data: any) => {
+      safeSend({ type: 'agent:subagent-text', data: {
+        agentId: data.agentId,
+        text: data.text,
+      }});
+      return { success: true };
+    });
+
+    // 同步 StateTracker 状态到前端
+    const stateTracker = session.getStateTracker();
+    stateTracker.onStateChange((from, to) => {
+      safeSend({
+        type: 'agent:conversation-state',
+        data: { from, to },
+      });
+    });
 
     // 注册 Prompt 构建事件监听器
     const promptBuilder = session.getLayeredPromptBuilder();
@@ -760,6 +870,7 @@ async function handleInit(userId?: string) {
  * 发送消息
  */
 async function handleSendMessage(message: string) {
+  console.error(`[agent-bridge] handleSendMessage called, input="${String(message).substring(0, 60)}"`);
   if (!session) {
     safeSend({
       type: 'send-result',
@@ -769,14 +880,11 @@ async function handleSendMessage(message: string) {
   }
 
   try {
-    // 🆕 不再自动清空任务，让 LLM 或用户显式管理任务生命周期
-    // 如果需要清空任务，LLM 可以调用 todo_clear 工具（需要添加）
-    // 或者在创建新任务前检查是否有旧任务需要清理
-
-    await session.run(message);
+    // 用 StateTracker 统一处理三种场景
+    const action = session.handleUserInput(message);
     safeSend({
       type: 'send-result',
-      data: { success: true },
+      data: { success: true, action },
     });
   } catch (err) {
     // 错误已经通过 onError 回调发送到前端，这里只返回结果状态
@@ -796,12 +904,13 @@ async function handleSendMessage(message: string) {
  * - message 非空：补充输入，调用 interrupt(message) 中断并注入新消息
  */
 function handleInterrupt(message: string) {
+  console.error(`[agent-bridge] handleInterrupt called, message="${String(message).substring(0, 60)}"`);
   if (session) {
-    const agentLoop = session.getAgentLoop();
     if (message) {
-      agentLoop.interrupt(message);
+      // ChatSession.interrupt() 负责: 入队 → stop → 等待停稳 → 消费队列
+      session.interrupt(message);
     } else {
-      agentLoop.stop();
+      session.getAgentLoop().stop();
     }
     safeSend({
       type: 'interrupt-result',
@@ -819,13 +928,16 @@ function handleInterrupt(message: string) {
  * 追加消息（不中断当前执行，在自然边界点注入）
  * Claude Code 风格 Boundary-Aware Injection
  */
-function handleAppendMessage(data: { message?: string; content?: string }) {
-  const message = data?.message || data?.content || '';
-  if (!message) return;
+function handleAppendMessage(data: string | { message?: string; content?: string }) {
+  // 兼容两种格式：agent:send-supplement/append-message 发送纯字符串，
+  // 而其他调用方可能传递 { message, content } 对象
+  const message = typeof data === 'string' ? data : (data?.message || data?.content || '');
+  console.error(`[agent-bridge] handleAppendMessage called, dataType=${typeof data}, message="${message.substring(0, 60)}"`);
+  if (!message) { console.error('[agent-bridge] handleAppendMessage: empty message, returning'); return; }
 
   if (session) {
-    const agentLoop = session.getAgentLoop();
-    agentLoop.appendMessage(message);
+    // 追加消息不中断当前执行，入队等待自然边界
+    session.appendMessage(message);
     safeSend({
       type: 'append-result',
       data: { success: true },
@@ -1050,6 +1162,13 @@ async function handleUpdateConfig(data: any) {
     // 重新创建 session
     const { SessionFactory } = await import('../../src/core/chat/SessionFactory.js');
     const factory = new SessionFactory(userId, agentId);
+
+    // 创建 session 前确保 cwd 是 workspace 目录
+    const workspaceDir = fullConfig.workspacePath || '';
+    if (workspaceDir) {
+      try { process.chdir(workspaceDir); } catch {}
+    }
+
     session = await factory.create({
       userId,
       agentId,
@@ -1066,13 +1185,60 @@ async function handleUpdateConfig(data: any) {
 
           // 从工具调用中提取文件路径，自动检测项目
           detectProjectFromToolCall(name, input);
+
+          // 记住 change_directory 的路径，onToolEnd 时通知渲染进程刷新文件树
+          if (name === 'change_directory' && input.path && typeof input.path === 'string') {
+            pendingChangePath = path.resolve(input.path);
+          }
         },
         onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
           safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
 
-          // 如果是 change_directory 工具且执行成功，立即检测项目信息
-          if (name === 'change_directory' && !isError) {
-            detectProjectFromCwd();
+          // 如果是 change_directory 工具且执行成功，通知渲染进程刷新文件树
+          if (name === 'change_directory' && !isError && pendingChangePath) {
+            const newPath = pendingChangePath;
+            pendingChangePath = null;
+            console.error(`[agent-bridge] change_directory -> chdir + safeSend: ${newPath}`);
+            // 切换当前工作目录
+            try {
+              process.chdir(newPath);
+            } catch (e) {
+              console.error(`[agent-bridge] chdir 失败: ${newPath}`, e);
+            }
+            safeSend({ type: 'workspace:directory-changed', data: { path: newPath } });
+            // 同步更新项目信息事件，刷新页面后渲染进程由此恢复 workingDirectory
+            const nodeFs = require('node:fs');
+            const nodePath = require('node:path');
+            const gitDir = nodePath.join(newPath, '.git');
+            const hasGit = nodeFs.existsSync(gitDir);
+            let gitBranch: string | null = null;
+            if (hasGit) {
+              try {
+                const { execSync } = require('node:child_process');
+                gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: newPath, encoding: 'utf-8', timeout: 5000 }).trim();
+              } catch {}
+            }
+            safeSend({
+              type: 'project:info',
+              data: { type: 'workspace', hasGit, rootPath: newPath, configFiles: [], gitBranch },
+            });
+            // 持久化 workspacePath 到配置文件（仅写文件，不重建 session）
+            try {
+              const pathModule = require('node:path');
+              const fsModule = require('node:fs');
+              const osModule = require('node:os');
+              const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
+              const configPath = getUserConfigPath(currentUserId);
+              const content = fsModule.readFileSync(configPath, 'utf-8');
+              const cfg = JSON.parse(content);
+              if (!cfg.config) cfg.config = {};
+              cfg.config.workspacePath = newPath;
+              cfg.updatedAt = new Date().toISOString();
+              fsModule.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf-8');
+            } catch (e) {
+              console.error('[agent-bridge] 保存 workspacePath 失败:', e);
+            }
+            console.error(`[agent-bridge] safeSend 完成`);
           }
         },
         onFileChanges: (changes: any[]) => {
@@ -1094,8 +1260,8 @@ async function handleUpdateConfig(data: any) {
             },
           });
         },
-        onAutoSummarize: () => {
-          safeSend({ type: 'agent:auto-summarize-start' });
+        onAutoSummarize: (subAgentId?: string) => {
+          safeSend({ type: 'agent:auto-summarize-start', data: { subAgentId } });
         },
         onArchiveNotification: (result) => {
           safeSend({ type: 'session:archive-notification', data: result });
@@ -1417,17 +1583,10 @@ async function handleToolsList() {
     const { TOOL_CATEGORIES } = await import('../../src/core/tools/ToolCategories.js');
     const coreSet = new Set<string>(TOOL_CATEGORIES.CORE);
     const metaSet = new Set<string>(TOOL_CATEGORIES.META);
-    const sceneMap = new Map<string, string>();
-    for (const [sceneName, sceneTools] of Object.entries(TOOL_CATEGORIES.SCENE)) {
-      for (const t of sceneTools as readonly string[]) {
-        sceneMap.set(t, sceneName);
-      }
-    }
 
     const categorize = (name: string): string => {
       if (coreSet.has(name)) return 'core';
       if (metaSet.has(name)) return 'meta';
-      if (sceneMap.has(name)) return sceneMap.get(name)!;
       return 'other';
     };
 
@@ -2178,11 +2337,13 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
 // ============================================================
 
 let currentProjectRoot: string | null = null;
+/** 记住 change_directory 切换的目标路径，用于 onToolEnd 时通知渲染进程 */
+let pendingChangePath: string | null = null;
 
 /**
  * 初始化默认 workspace 目录
  * 启动时将 currentProjectRoot 设置为用户配置的 workspace 路径
- * 如果未配置，默认使用 ~/xuanji-workspace/
+ * 如果未配置，默认使用 ~/.xuanji/workspace/
  */
 async function initWorkspace() {
   try {
@@ -2197,7 +2358,7 @@ async function initWorkspace() {
       workspacePath = config.workspacePath || '';
     }
     if (!workspacePath) {
-      workspacePath = path.join(os.homedir(), 'xuanji-workspace');
+      workspacePath = path.join(os.homedir(), '.xuanji', 'workspace');
     }
 
     // 确保 workspace 目录存在
@@ -2232,6 +2393,11 @@ async function initWorkspace() {
 
     currentProjectRoot = workspacePath;
 
+    // 切换到 workspace 目录，确保后续 ProjectScanner 等逻辑从 workspace 开始扫描
+    try {
+      process.chdir(workspacePath);
+    } catch {}
+
     // 发送初始 workspace 信息到 renderer
     safeSend({
       type: 'project:info',
@@ -2252,51 +2418,56 @@ async function initWorkspace() {
 }
 
 /**
- * 从当前工作目录检测项目信息
+ * 从配置中获取工作目录路径
+ * 不再从 process.cwd() 自动扫描项目，始终使用配置的 workspacePath
  */
 async function detectProjectFromCwd() {
   try {
-    const cwd = process.cwd();
-    const { ProjectScanner } = await import('../../src/context/ProjectScanner.js');
-    const scanner = new ProjectScanner();
-    const projectMetadata = scanner.scan(cwd);
+    const os = await import('node:os');
+    const path = await import('node:path');
 
-    // 如果检测到项目，且与当前项目不同，更新项目信息
-    if ((projectMetadata.type !== 'unknown' || projectMetadata.hasGit) &&
-        projectMetadata.rootPath !== currentProjectRoot) {
-      currentProjectRoot = projectMetadata.rootPath;
+    // 从配置中读取 workspacePath
+    let workspacePath = '';
+    if (session) {
+      const config = session.getConfig();
+      workspacePath = config.workspacePath || '';
+    }
+    if (!workspacePath) {
+      workspacePath = path.join(os.homedir(), '.xuanji', 'workspace');
+    }
+
+    if (workspacePath !== currentProjectRoot) {
+      currentProjectRoot = workspacePath;
 
       // 获取 git 分支信息
       let gitBranch: string | null = null;
-      if (projectMetadata.hasGit) {
+      const fs = await import('node:fs');
+      const gitDir = path.join(workspacePath, '.git');
+      if (fs.existsSync(gitDir)) {
         try {
           const { execSync } = await import('node:child_process');
           gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: projectMetadata.rootPath,
+            cwd: workspacePath,
             encoding: 'utf-8',
           }).trim();
-        } catch (err) {
-          console.warn('[agent-bridge] 获取 git 分支失败:', err);
-        }
+        } catch {}
       }
 
-      // 注册项目到 ProjectRegistry
-      await registerProjectToRegistry(projectMetadata.rootPath);
+      await registerProjectToRegistry(workspacePath);
 
       safeSend({
         type: 'project:info',
         data: {
-          type: projectMetadata.type,
-          hasGit: projectMetadata.hasGit,
-          rootPath: projectMetadata.rootPath,
-          configFiles: projectMetadata.configFiles,
+          type: 'workspace',
+          hasGit: false,
+          rootPath: workspacePath,
+          configFiles: [],
           gitBranch,
         },
       });
-
     }
   } catch (err) {
-    console.warn('[agent-bridge] 从当前目录检测项目失败:', err);
+    console.warn('[agent-bridge] 从配置读取工作目录失败:', err);
   }
 }
 
@@ -2319,7 +2490,7 @@ async function registerProjectToRegistry(rootPath: string) {
     await registry.register(rootPath, hasRules);
 
     // 自动生成项目文档（仅对非 workspace 目录的项目，且尚无文档时）
-    const defaultWorkspace = path.join(os.homedir(), 'xuanji-workspace');
+    const defaultWorkspace = path.join(os.homedir(), '.xuanji', 'workspace');
     if (!hasRules && rootPath !== defaultWorkspace) {
       await autoGenerateProjectDocs(rootPath);
     }
@@ -2410,8 +2581,8 @@ async function detectProjectFromToolCall(toolName: string, input: Record<string,
   if (!filePath) return;
 
   // 如果不是绝对路径，跳过
-  const path = await import('node:path');
-  if (!path.isAbsolute(filePath)) return;
+  const pathModule = await import('node:path');
+  if (!pathModule.isAbsolute(filePath)) return;
 
   try {
     const { ProjectScanner } = await import('../../src/context/ProjectScanner.js');
@@ -2420,44 +2591,12 @@ async function detectProjectFromToolCall(toolName: string, input: Record<string,
     // 从文件路径的目录开始扫描
     const fs = await import('node:fs');
     const stats = await fs.promises.stat(filePath).catch(() => null);
-    const startDir = stats?.isDirectory() ? filePath : path.dirname(filePath);
+    const startDir = stats?.isDirectory() ? filePath : pathModule.dirname(filePath);
 
     const projectMetadata = scanner.scan(startDir);
 
-    // 如果检测到项目，且与当前项目不同，更新项目信息
-    if ((projectMetadata.type !== 'unknown' || projectMetadata.hasGit) &&
-        projectMetadata.rootPath !== currentProjectRoot) {
-      currentProjectRoot = projectMetadata.rootPath;
-
-      // 注册项目到 ProjectRegistry
-      await registerProjectToRegistry(projectMetadata.rootPath);
-
-      // 获取 git 分支信息
-      let gitBranch: string | null = null;
-      if (projectMetadata.hasGit) {
-        try {
-          const { execSync } = await import('node:child_process');
-          gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: projectMetadata.rootPath,
-            encoding: 'utf-8',
-          }).trim();
-        } catch (err) {
-          console.warn('[agent-bridge] 获取 git 分支失败:', err);
-        }
-      }
-
-      safeSend({
-        type: 'project:info',
-        data: {
-          type: projectMetadata.type,
-          hasGit: projectMetadata.hasGit,
-          rootPath: projectMetadata.rootPath,
-          configFiles: projectMetadata.configFiles,
-          gitBranch,
-        },
-      });
-
-    }
+    // currentProjectRoot 始终由配置中的 workspacePath 决定
+    // 文件工具的 project:info 事件会干扰当前上下文，不在此发送
   } catch (err) {
     console.warn('[agent-bridge] 项目检测失败:', err);
   }

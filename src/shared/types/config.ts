@@ -5,9 +5,79 @@
 import type { ProviderConfig, RetryConfig } from './provider';
 import type { MCPConfig } from '@/mcp/types';
 import type { PricingConfig } from './pricing';
-import type { RoutingConfig } from '@/core/routing/types';
-import type { PlannerConfig } from '@/core/planner/types';
-import type { ExecutorConfig } from '@/core/executor/types';
+
+/**
+ * 路由模式配置
+ */
+type RoutingMode = 'auto' | 'always' | 'never';
+
+/**
+ * 路由配置
+ */
+interface RoutingConfig {
+  /** 路由模式 */
+  mode: RoutingMode;
+  /** 复杂度分析配置 */
+  complexity: {
+    /** Multi-Agent 的最小步骤数阈值 */
+    minStepsForMultiAgent: number;
+    /** Token 消耗阈值 */
+    tokenThreshold: number;
+    /** 是否启用 LLM 分析器 */
+    useAnalyzer: boolean;
+    /** 分析器使用的模型 */
+    analyzerModel: string;
+    /** 缓存分析结果（秒） */
+    cacheTTL: number;
+  };
+  /** 运行时升级配置 */
+  runtimeUpgrade: {
+    /** 是否启用运行时升级 */
+    enabled: boolean;
+    /** 是否自动确认（false 则需要用户确认） */
+    autoConfirm: boolean;
+    /** 升级阈值 */
+    thresholds: {
+      /** 最大步骤数 */
+      maxSteps: number;
+      /** 最大 token 消耗 */
+      maxTokens: number;
+    };
+  };
+  /** 执行计划配置 */
+  executionPlan: {
+    /** 是否启用计划预览 */
+    enabled: boolean;
+    /** 是否需要用户确认（complex 任务强制） */
+    requireConfirmation: boolean;
+    /** 计划超时时间（秒） */
+    planTimeout: number;
+  };
+}
+
+/**
+ * Planner 配置
+ */
+interface PlannerConfig {
+  /** 最大步骤数 */
+  maxSteps: number;
+  /** 是否启用 LLM 分析 */
+  useAnalyzer: boolean;
+  /** 分析器模型 */
+  analyzerModel?: string;
+}
+
+/**
+ * Executor 配置
+ */
+interface ExecutorConfig {
+  /** 最大并发子 agent 数 */
+  maxConcurrentSubAgents: number;
+  /** 最大嵌套深度 */
+  maxNestingDepth: number;
+  /** 步骤超时时间（毫秒） */
+  stepTimeout: number;
+}
 
 /**
  * Skill 系统配置
@@ -173,7 +243,7 @@ export interface DownloadConfig {
 export interface AppConfig {
   /** 项目根目录（可选） */
   projectRoot?: string;
-  /** 默认工作目录路径（默认 ~/xuanji-workspace/） */
+  /** 默认工作目录路径（默认 ~/.xuanji/workspace/） */
   workspacePath?: string;
   /** LLM Provider 配置 */
   provider: ProviderConfig;

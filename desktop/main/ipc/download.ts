@@ -6,12 +6,38 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { DownloadManager } from '../../../src/core/download/DownloadManager.js';
 import { LocalModelLoader } from '../../../src/core/agent/dispatch/LocalModelLoader.js';
 import { messageBus } from './MessageBus.js';
+import { enhancedMessageBus } from './GlobalMessageBus.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 
 // 主进程的 DownloadManager（用于主进程触发的下载）
 // 不恢复任务，避免与子进程重复
 const mainDownloadManager = DownloadManager.getInstance(false);
+
+// 缓存子进程的当前工作目录（由 agent-bridge 通过 workspace:directory-changed 事件更新）
+let agentCwd: string | null = null;
+
+// 监听子进程目录变更事件，更新缓存
+function setupCwdListener() {
+  try {
+    const agentChannel = enhancedMessageBus.getChannel('agent');
+    if (agentChannel) {
+      agentChannel.on('workspace:directory-changed', (data: { path: string }) => {
+        if (data?.path) agentCwd = data.path;
+      });
+      // 子进程初始化完成后重置为当前 cwd
+      agentChannel.on('init-complete', (data: { success: boolean; workspacePath?: string }) => {
+        if (data.success && data.workspacePath) agentCwd = data.workspacePath;
+      });
+      return true;
+    }
+  } catch {}
+  return false;
+}
+// 延迟重试，等 agent channel 就绪
+setTimeout(() => { setupCwdListener(); }, 5000);
+setupCwdListener();
 
 // 向上查找 xuanji 项目根目录（包含 package.json 且 name 为 xuanji）
 function findProjectRoot(startDir: string): string {
@@ -324,6 +350,87 @@ export function registerDownloadHandlers() {
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
+    }
+  });
+
+  // ============ 工作目录文件浏览 ============
+  ipcMain.handle('workspace:read-directory', async (_event, dirPath: string) => {
+    try {
+      const targetPath = dirPath || agentCwd || path.join(os.homedir(), '.xuanji', 'workspace');
+
+      // 确保目录存在
+      if (!fs.existsSync(targetPath)) {
+        fs.mkdirSync(targetPath, { recursive: true });
+      }
+
+      // 新目录自动 git init
+      if (!fs.existsSync(path.join(targetPath, '.git'))) {
+        try { require('node:child_process').execSync('git init', { cwd: targetPath, encoding: 'utf-8', timeout: 5000 }); } catch {}
+      }
+
+      // 检测 git 分支
+      let gitBranch: string | null = null;
+      const gitHead = path.join(targetPath, '.git', 'HEAD');
+      if (fs.existsSync(gitHead)) {
+        try {
+          const m = fs.readFileSync(gitHead, 'utf-8').trim().match(/^ref:\s*refs\/heads\/(.+)$/);
+          if (m) gitBranch = m[1];
+        } catch {}
+      }
+
+      const items = fs.readdirSync(targetPath, { withFileTypes: true })
+        .filter(d => !d.name.startsWith('.'))
+        .map(d => {
+          const fp = path.join(targetPath, d.name);
+          let st: fs.Stats;
+          try { st = fs.statSync(fp); } catch { st = { size: 0, mtimeMs: 0 } as fs.Stats; }
+          return { name: d.name, path: fp, isDirectory: d.isDirectory(), size: d.isDirectory() ? 0 : st.size, modifiedAt: st.mtimeMs };
+        })
+        .sort((a, b) => a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1);
+
+      return { success: true, items, currentPath: targetPath, gitBranch };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // 用系统默认程序打开文件
+  ipcMain.handle('workspace:open-file', async (_event, filePath: string) => {
+    try {
+      const { shell } = require('electron');
+      await shell.openPath(filePath);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 获取 git 工作目录文件状态（git status --porcelain）
+  ipcMain.handle('workspace:get-git-status', async (_event, dirPath: string) => {
+    try {
+      const gitDir = path.join(dirPath, '.git');
+      if (!fs.existsSync(gitDir)) {
+        return { success: true, status: {} };
+      }
+      const { execSync } = require('node:child_process');
+      const output = execSync('git status --porcelain', {
+        cwd: dirPath,
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      const status: Record<string, string> = {};
+      if (output) {
+        for (const line of output.split('\n')) {
+          const xy = line.substring(0, 2).trim();
+          const filePath = line.substring(3).trim();
+          if (filePath) {
+            status[filePath] = xy;
+          }
+        }
+      }
+      return { success: true, status };
+    } catch {
+      return { success: true, status: {} };
     }
   });
 

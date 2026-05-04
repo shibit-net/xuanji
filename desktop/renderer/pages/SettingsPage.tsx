@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   Settings, X, Save, Database, Wrench,
   Palette, CheckCircle, AlertCircle
@@ -27,8 +28,8 @@ interface TabProps {
 function SectionHeader({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="mb-4">
-      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-      {desc && <p className="text-xs text-text-secondary mt-1">{desc}</p>}
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {desc && <p className="text-xs text-muted-foreground mt-1">{desc}</p>}
     </div>
   );
 }
@@ -39,16 +40,16 @@ function TextField({ label, value, onChange, placeholder, type = 'text', disable
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className="w-full px-3 py-2 bg-bg-tertiary border border-bg-tertiary rounded text-sm text-text-primary focus:outline-none focus:border-primary disabled:opacity-50"
+        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
         placeholder={placeholder}
       />
-      {hint && <p className="text-xs text-text-tertiary">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }
@@ -59,7 +60,7 @@ function NumberField({ label, value, onChange, min, placeholder, hint }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
       <input
         type="number"
         value={value}
@@ -68,10 +69,10 @@ function NumberField({ label, value, onChange, min, placeholder, hint }: {
           onChange(isNaN(v) ? 0 : v);
         }}
         min={min}
-        className="w-full px-3 py-2 bg-bg-tertiary border border-bg-tertiary rounded text-sm text-text-primary focus:outline-none focus:border-primary"
+        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
         placeholder={placeholder}
       />
-      {hint && <p className="text-xs text-text-tertiary">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }
@@ -82,17 +83,17 @@ function SelectField({ label, value, onChange, options, hint }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 bg-bg-tertiary border border-bg-tertiary rounded text-sm text-text-primary focus:outline-none focus:border-primary"
+        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
       >
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
-      {hint && <p className="text-xs text-text-tertiary">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }
@@ -103,30 +104,34 @@ function ToggleField({ label, value, onChange, hint }: {
   return (
     <div className="flex items-center justify-between py-2">
       <div>
-        <span className="text-sm text-text-primary">{label}</span>
-        {hint && <p className="text-xs text-text-tertiary">{hint}</p>}
+        <span className="text-sm text-foreground">{label}</span>
+        {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
       </div>
-      <button
+      <Button
         onClick={() => onChange(!value)}
-        className={`relative w-10 h-5 rounded-full transition-colors ${value ? 'bg-primary' : 'bg-bg-tertiary border border-text-tertiary'}`}
+        variant="ghost"
+        size="icon"
+        className={`relative w-10 h-5 rounded-full ${value ? 'bg-primary' : 'bg-muted border border-text-tertiary'}`}
       >
         <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${value ? 'translate-x-5' : 'translate-x-0.5'}`} />
-      </button>
+      </Button>
     </div>
   );
 }
 
 function SaveButton({ saving }: { saving: boolean }) {
   return (
-    <div className="pt-4 border-t border-bg-tertiary">
-      <button
+    <div className="pt-4 border-t border-border">
+      <Button
         type="submit"
         disabled={saving}
-        className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+        variant="default"
+        size="sm"
+        className="flex items-center gap-2"
       >
         <Save size={16} />
         <span>{saving ? '保存中...' : '保存配置'}</span>
-      </button>
+      </Button>
     </div>
   );
 }
@@ -221,7 +226,7 @@ function ToolsTab({ config, loading, onSave }: TabProps) {
     }
   };
 
-  if (loading) return <div className="p-6 text-text-secondary text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -310,7 +315,7 @@ function UITab({ config, loading, onSave }: TabProps) {
     }
   };
 
-  if (loading) return <div className="p-6 text-text-secondary text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -342,7 +347,7 @@ function UITab({ config, loading, onSave }: TabProps) {
         label="工作目录"
         value={form.workspacePath}
         onChange={(v) => setForm({ ...form, workspacePath: v })}
-        placeholder="留空使用默认 ~/xuanji-workspace/"
+        placeholder="留空使用默认 ~/.xuanji/workspace/"
         hint="xuanji 的开发编辑工作的基础目录，修改后重启生效"
       />
 
@@ -462,7 +467,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     }
   };
 
-  if (loading) return <div className="p-6 text-text-secondary text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -474,21 +479,21 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
           type="text"
           value={form.model}
           readOnly
-          className="flex-1 px-3 py-2 bg-bg-tertiary border border-bg-tertiary rounded text-sm text-text-secondary cursor-not-allowed"
+          className="flex-1 px-3 py-2 bg-muted border border-border rounded text-sm text-muted-foreground cursor-not-allowed"
         />
         {modelInstalled ? (
-          <button type="button" onClick={handleUninstallModel} disabled={uninstalling}
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 text-sm whitespace-nowrap">
+          <Button type="button" onClick={handleUninstallModel} disabled={uninstalling}
+            variant="destructive" size="sm" className="whitespace-nowrap">
             {uninstalling ? '卸载中...' : '卸载'}
-          </button>
+          </Button>
         ) : (
-          <button type="button" onClick={handleDownloadModel} disabled={downloading || !form.model}
-            className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-50 text-sm whitespace-nowrap">
+          <Button type="button" onClick={handleDownloadModel} disabled={downloading || !form.model}
+            variant="default" size="sm" className="whitespace-nowrap">
             {downloading ? '下载中...' : '下载模型'}
-          </button>
+          </Button>
         )}
       </div>
-      {checkingModel && <p className="text-xs text-text-secondary">检查安装状态...</p>}
+      {checkingModel && <p className="text-xs text-muted-foreground">检查安装状态...</p>}
       {!checkingModel && modelInstalled === true && <p className="text-xs text-green-400">模型已安装</p>}
       {!checkingModel && modelInstalled === false && <p className="text-xs text-yellow-400">模型未安装，请点击下载</p>}
 
@@ -558,21 +563,21 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
   const tabProps: TabProps = { config, loading, onSave: handleSave };
 
   return (
-    <div className="h-full flex flex-col bg-bg-primary text-text-primary">
+    <div className="h-full flex flex-col bg-background text-foreground">
       {/* 顶部栏 */}
-      <div className="h-12 border-b border-bg-tertiary flex items-center justify-between px-4 shrink-0">
+      <div className="h-12 border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
           <Settings size={18} />
           <h1 className="text-base font-semibold">设置</h1>
         </div>
-        <button onClick={onClose} className="p-1 hover:bg-bg-tertiary rounded transition-colors" title="关闭">
+        <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title="关闭">
           <X size={16} />
-        </button>
+        </Button>
       </div>
 
       {/* 主体 */}
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-48 border-r border-bg-tertiary bg-bg-secondary p-3 space-y-1 shrink-0">
+        <aside className="w-48 border-r border-border bg-card p-3 space-y-1 shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -580,7 +585,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
               className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
                 activeTab === tab.id
                   ? 'bg-primary/15 text-primary border border-primary/30'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               }`}
             >
               {tab.icon}

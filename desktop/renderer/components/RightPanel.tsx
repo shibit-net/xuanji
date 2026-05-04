@@ -4,8 +4,9 @@
 
 import React, { useState, useMemo } from 'react';
 import { Wrench, FileText, X, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useChatStore } from '../stores/chatStore';
-import WorkspaceMonitor from './WorkspaceMonitor';
+import ExecutionFlow from './ExecutionFlow';
 
 interface RightPanelProps {
   onToggle: () => void;
@@ -59,7 +60,7 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
   }, [isResizing, startX, startWidth, onResize]);
 
   return (
-    <div className="bg-bg-secondary flex flex-col border-l border-bg-tertiary relative" style={{ width: `${width}px` }}>
+    <div className="bg-card flex flex-col border-l border-border relative" style={{ width: `${width}px` }}>
       {/* 拖拽手柄 */}
       <div
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary transition-colors z-10"
@@ -68,16 +69,16 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
       />
 
       {/* 标签页 */}
-      <div className="flex-shrink-0 flex items-center justify-between border-b border-bg-tertiary overflow-x-auto">
+      <div className="flex-shrink-0 flex items-center justify-between border-b border-border">
         <div className="flex">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center justify-center gap-2 py-2 px-3 text-sm transition-colors whitespace-nowrap ${
+              className={`flex items-center justify-center gap-2 py-2 px-3 text-sm whitespace-nowrap transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-bg-primary text-primary border-b-2 border-primary'
-                  : 'text-text-secondary hover:bg-bg-tertiary'
+                  ? 'bg-background text-foreground border-b-2 border-primary'
+                  : 'text-muted-foreground hover:bg-muted border-b-2 border-transparent'
               }`}
             >
               {tab.icon}
@@ -85,13 +86,15 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
             </button>
           ))}
         </div>
-        <button
+        <Button
           onClick={onToggle}
-          className="p-2 hover:bg-bg-tertiary transition-colors"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
           title="关闭面板"
         >
-          <X size={16} className="text-text-secondary" />
-        </button>
+          <X size={16} className="text-muted-foreground" />
+        </Button>
       </div>
 
       {/* 内容区域 */}
@@ -108,7 +111,7 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
 function WorkspaceTab() {
   return (
     <div className="h-full w-full">
-      <WorkspaceMonitor />
+      <ExecutionFlow />
     </div>
   );
 }
@@ -220,11 +223,12 @@ function ToolsTab() {
 
                     return (
                       <div key={call.id} className="bg-bg-primary rounded overflow-hidden">
-                        <button
+                        <Button
                           onClick={() => toggleExpand(call.id)}
-                          className="w-full p-2 text-left hover:bg-bg-tertiary transition-colors"
+                          variant="ghost"
+                          className="w-full p-2 text-left h-auto justify-start"
                         >
-                          <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center justify-between text-xs w-full">
                             <div className="flex items-center gap-2">
                               <span className={statusColor}>{statusIcon}</span>
                               <span>{toolIcons[call.name] || '🔧'}</span>
@@ -232,7 +236,7 @@ function ToolsTab() {
                             </div>
                             <span className="text-text-secondary">{formatTime(call.timestamp)}</span>
                           </div>
-                        </button>
+                        </Button>
 
                         {isExpanded && (
                           <div className="px-2 pb-2 space-y-2 text-xs">
@@ -316,17 +320,14 @@ function LogsTab() {
           { value: 'info', label: '信息' },
           { value: 'tool', label: '工具' },
         ].map((item) => (
-          <button
+          <Button
             key={item.label}
             onClick={() => setFilter(item.value)}
-            className={`px-2 py-1 rounded transition-colors ${
-              filter === item.value
-                ? 'bg-primary text-white'
-                : 'bg-bg-primary hover:bg-bg-tertiary'
-            }`}
+            variant={filter === item.value ? 'default' : 'ghost'}
+            size="sm"
           >
             {item.label}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -350,12 +351,13 @@ function LogsTab() {
 
       {logs.length > 0 && (
         <div className="flex gap-2 flex-shrink-0">
-          <button
+          <Button
             onClick={clearLogs}
-            className="text-xs px-2 py-1 bg-bg-primary rounded hover:bg-bg-tertiary transition-colors"
+            variant="ghost"
+            size="sm"
           >
             清空
-          </button>
+          </Button>
         </div>
       )}
     </div>

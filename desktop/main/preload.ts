@@ -252,6 +252,11 @@
   localModelDelete: (filename: string) => ipcRenderer.invoke('local-model:delete', filename),
   localModelOpenDir: () => ipcRenderer.invoke('local-model:open-dir'),
 
+  // ============ 工作目录文件浏览 ============
+  workspaceReadDirectory: (dirPath?: string) => ipcRenderer.invoke('workspace:read-directory', dirPath),
+  workspaceOpenFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
+  workspaceGetGitStatus: (dirPath: string) => ipcRenderer.invoke('workspace:get-git-status', dirPath),
+
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {
     const handler = (_event: any, ...args: any[]) => {
@@ -264,6 +269,22 @@
     const handler = (callback as any).__ipcHandler;
     if (handler) {
       ipcRenderer.removeListener(channel, handler);
+    }
+  },
+
+  // ============ 工作目录变更通知（从 agent-bridge 子进程发出） ============
+  onWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => {
+    const handler = (_event: any, data: { path: string }) => {
+      console.log('[preload] workspace:directory-changed received:', data);
+      callback(data);
+    };
+    (callback as any).__ipcHandler = handler;
+    ipcRenderer.on('workspace:directory-changed', handler);
+  },
+  offWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => {
+    const handler = (callback as any).__ipcHandler;
+    if (handler) {
+      ipcRenderer.removeListener('workspace:directory-changed', handler);
     }
   },
 });

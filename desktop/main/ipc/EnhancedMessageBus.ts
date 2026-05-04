@@ -41,12 +41,15 @@ export class EnhancedMessageChannel extends MessageChannel {
     if (this.autoForwardToRenderer) {
       this.on('message', (msg: any) => {
         // 转发到renderer
+        console.log(`[EnhancedMessageBus] 收到转发消息: ${msg.type}`, msg.data);
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           try {
             this.mainWindow.webContents.send(msg.type, msg.data);
           } catch (err) {
             console.error(`[EnhancedMessageBus] 转发到renderer失败 (${msg.type}):`, err);
           }
+        } else {
+          console.log(`[EnhancedMessageBus] mainWindow 不可用，跳过转发: ${msg.type}`);
         }
       });
     }

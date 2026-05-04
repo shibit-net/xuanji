@@ -2,20 +2,18 @@
 // TitleBar - 标题栏组件
 // ============================================================
 
-import { useState, useRef, useEffect } from 'react';
-import { Minus, Square, X } from 'lucide-react';
-import { useChatStore } from '../stores/chatStore';
+import { Minus, Square, X, FolderTree } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface TitleBarProps {
   onCompact?: () => void;
   onShowStats?: () => void;
   onShowDiagnostics?: () => void;
   onToggleRightPanel?: () => void;
+  onToggleProjectFiles?: () => void;
 }
 
-export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, onToggleRightPanel }: TitleBarProps) {
-  const stats = useChatStore((state) => state.stats);
-
+export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, onToggleRightPanel, onToggleProjectFiles }: TitleBarProps) {
   const handleMinimize = () => {
     window.electron?.minimize();
   };
@@ -38,29 +36,63 @@ export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, on
         <div className="text-primary font-bold text-lg">璇玑</div>
       </div>
 
-      {/* 右侧：窗口控制按钮 */}
+      {/* 右侧：工具按钮 + 窗口控制 */}
       <div className="flex items-center gap-1 no-drag">
-        <button
+        {/* 文件树开关 */}
+        {onToggleProjectFiles && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleProjectFiles}
+            title="项目文件"
+            className="h-7 w-7"
+          >
+            <FolderTree size={14} />
+          </Button>
+        )}
+
+        {/* 右侧监控面板开关 */}
+        {onToggleRightPanel && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleRightPanel}
+            title="监控面板"
+            className="h-7 w-7"
+          >
+            <Square size={14} />
+          </Button>
+        )}
+
+        <div className="w-px h-4 bg-border mx-1" />
+
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={handleMinimize}
-          className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
           title="最小化"
+          className="h-7 w-7"
         >
           <Minus size={14} />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={handleMaximize}
-          className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
           title="最大化"
+          className="h-7 w-7"
         >
           <Square size={14} />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={handleClose}
-          className="p-1.5 hover:bg-red-500/80 hover:text-white rounded transition-colors"
           title="关闭"
+          className="h-7 w-7 hover:bg-red-500/80 hover:text-white"
         >
           <X size={14} />
-        </button>
+        </Button>
       </div>
     </div>
   );

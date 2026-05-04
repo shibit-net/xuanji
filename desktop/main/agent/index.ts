@@ -119,7 +119,20 @@ function initChatSession(): Promise<boolean> {
           if (line) {
             const level = extractLevel(line);
             if (level === 'error' || level === 'fatal') {
-              console.error(`🚨 [Agent Error] ${line}`);
+              console.error(`🟣 [Agent:stderr] ${line}`);
+            } else {
+              // pino JSONL 格式直接输出到控制台
+              try {
+                const parsed = JSON.parse(line);
+                const prefix = parsed.ns ? `[Agent:${parsed.ns}]` : '[Agent]';
+                const levelTag = parsed.level?.toUpperCase?.() || 'INFO';
+                console.log(`${prefix} ${levelTag}: ${parsed.msg}${parsed.execId ? ` (exec:${parsed.execId})` : ''}`);
+              } catch {
+                // debug 包格式或其他非 JSON 输出
+                if (level) {
+                  console.log(`[Agent:stdout] ${line}`);
+                }
+              }
             }
           }
         });
@@ -133,6 +146,10 @@ function initChatSession(): Promise<boolean> {
             const level = extractLevel(line);
             if (level === 'error' || level === 'fatal') {
               console.error(`🚨 [Agent Error] ${line}`);
+            } else {
+              // 非 error 级别的 stderr 也可能是重要错误（如 uncaught exception 堆栈）
+              // 防止静默吞掉，统一打印到 console.warn
+              console.warn(`[Agent Stderr] ${line}`);
             }
           }
         });
