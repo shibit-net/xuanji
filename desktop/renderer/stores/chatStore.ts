@@ -1064,6 +1064,17 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     const { activeToolCalls, currentStreamingId } = get();
 
+    // 优先确定 currentAgentId（多个块都需要）
+    const activeAgentStore = useActiveAgentStore.getState();
+    let currentAgentId: string;
+    if (data.agentId) {
+      currentAgentId = data.agentId === 'main' ? 'xuanji' : data.agentId;
+    } else {
+      const rawAgentId = activeAgentStore.currentActiveAgentId;
+      const isMainAgent = !rawAgentId || rawAgentId === activeAgentStore.mainAgent?.id;
+      currentAgentId = isMainAgent ? (activeAgentStore.mainAgent?.id || 'xuanji') : rawAgentId;
+    }
+
     // 🔧 从 task / agent_team 工具结果中提取引用原文数据
     const metadata = (data as any).metadata as Record<string, unknown> | undefined;
     if (metadata && !data.isError) {
@@ -1122,8 +1133,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
       });
 
       // 🔧 优先使用事件中的 agentId，如果没有则从 activeAgentStore 获取
-      const activeAgentStore = useActiveAgentStore.getState();
-      let currentAgentId: string;
       if (data.agentId) {
         // 事件中有 agentId（来自子 Agent 的 Hook）
         currentAgentId = data.agentId === 'main' ? 'xuanji' : data.agentId;
