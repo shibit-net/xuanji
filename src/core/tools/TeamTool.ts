@@ -415,6 +415,18 @@ export class TeamTool extends BaseTool {
           manager.updateMemberStatus(groupId, mr.memberId, mr.success ? 'completed' : 'failed');
         }
 
+        // 发射 SUBAGENT_ENDED 事件，触发 TaskCompletionHandler 将结果入队
+        try {
+          const { eventBus } = await import('@/core/events/EventBus');
+          const { XuanjiEvent } = await import('@/core/events/events');
+          eventBus.emit(XuanjiEvent.SUBAGENT_ENDED, {
+            subAgentId: groupId,
+            name: parsed.teamName,
+            success: execResult.success,
+            duration: execResult.duration,
+          });
+        } catch {}
+
         return this.formatResult(execResult, parsed.teamName, parsed.strategy);
       },
     });

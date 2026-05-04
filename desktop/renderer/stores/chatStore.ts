@@ -9,6 +9,13 @@ import { useExecutionStore } from './executionStore';
 import { useActiveAgentStore } from './activeAgentStore';
 import { messageBus } from '../utils/MessageBus'; // 🔧 导入 messageBus
 
+/** 工具名称格式化：write_file → Write file */
+function formatToolName(name: string): string {
+  return name
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ============================================================
 // 节流工具函数
 // ============================================================
@@ -46,7 +53,7 @@ function throttle<T extends (...args: any[]) => void>(
 
 // 格式化场景标签：去除 l{n}- 前缀，展示纯场景名
 function formatSceneLabel(raw: string): string {
-  return raw.replace(/^l\d+-/, '').slice(0, 12);
+  return raw.replace(/^l\d+-/, '').slice(0, 20);
 }
 
 // ============================================================
@@ -81,6 +88,19 @@ export interface SubAgentReference {
   originalOutput: string;
   duration: number;
   tokensUsed: { input: number; output: number };
+}
+
+// 待确认的子 agent 信息（收到存活性确认前不展示在 workspace monitor 中）
+interface PendingSubAgent {
+  subAgentId: string;
+  name: string;
+  role: string;
+  task: string;
+  agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+  parentId: string;
+  streamToUser: boolean;
+  scene: string | undefined;
+  startTime: number;
 }
 
 // 工具调用
@@ -198,12 +218,18 @@ interface ChatStore {
   _streamToUserMap: Record<string, string>;
   /** subAgentId → 流式消息 ID 的映射，每个子 agent 独立的聊天气泡 */
   _subAgentStreams: Record<string, string>;
+  /** subAgentId → pending 子 agent，收到存活性确认后才提升到 activeAgentStore */
+  _pendingSubAgents: Record<string, PendingSubAgent>;
+  /** 将 pending 子 agent 提升到 activeAgentStore 树（收到 first thinking/tool/text 时调用） */
+  _promoteSubAgent: (subAgentId: string) => void;
   /** 引用原文存储（agentName → SubAgentReference[]），同名引用追加不覆盖 */
   citationOutputs: Record<string, SubAgentReference[]>;
   /** 根据 agent 名查询最新一条引用原文 */
   getCitationOutput: (agentName: string) => SubAgentReference | null;
   /** 后台任务完成自动汇总是否进行中（与用户触发的执行区分，InputArea 据此显示正常发送模式） */
   _autoSummarizeActive: boolean;
+  /** StateTracker 原始状态（executing / outputting / idle / waiting_async） */
+  _conversationState: string;
   _handleSubAgentText: (agentId: string, agentName: string, text: string) => void;
 }
 
@@ -396,10 +422,17 @@ export const useChatStore = create<ChatStore>((set, get) => {
   let isAgentEnded = false; // 标记 agent 是否已结束
 
   const flushStreamText = () => {
-    if (!streamingMessageId || !streamTextBuffer) return;
+    if (!streamingMessageId || !streamTextBuffer) {
+      if (!streamingMessageId && streamTextBuffer) {
+        console.warn('[chatStore] flushStreamText: streamingMessageId 为 null 但有缓冲文本，丢弃:', streamTextBuffer.substring(0, 100));
+      }
+      return;
+    }
 
     const messageId = streamingMessageId;
     const text = streamTextBuffer;
+
+    console.log(`[chatStore] flushStreamText: msgId=${messageId}, textLen=${text.length}, isAgentEnded=${isAgentEnded}`);
 
     set((state) => ({
       messages: state.messages.map((msg) =>
@@ -471,13 +504,19 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
   // 操作
   sendMessage: async (content) => {
-    // 重置 agent 结束标记和流式缓冲区
-    isAgentEnded = false;
-    streamTextBuffer = '';
-    streamingMessageId = null;
-    // 清空子 agent 流式状态
-    for (const key of Object.keys(subAgentStreamState)) {
-      delete subAgentStreamState[key];
+    const convState = get()._conversationState;
+    const isRunning = convState === 'executing' || convState === 'outputting';
+    console.log('[chatStore] sendMessage: convState=', convState, 'isRunning=', isRunning, 'streamingMessageId=', streamingMessageId, 'currentStreamingId=', get().currentStreamingId);
+
+    // Agent 空闲时才重置流式缓冲区（新对话轮次）
+    // 运行中发送消息不应清空缓冲区，否则 flushStreamText 会因 streamingMessageId=null 丢弃文本
+    if (!isRunning) {
+      isAgentEnded = false;
+      streamTextBuffer = '';
+      streamingMessageId = null;
+      for (const key of Object.keys(subAgentStreamState)) {
+        delete subAgentStreamState[key];
+      }
     }
 
     // 添加用户消息
@@ -488,36 +527,37 @@ export const useChatStore = create<ChatStore>((set, get) => {
       timestamp: Date.now(),
     };
 
-    // 同步更新 runtimeStore
-    const runtimeStore = useRuntimeStore.getState();
-    runtimeStore.setProcessing(true);
-    runtimeStore.incrementIteration();
-    runtimeStore.resetMessageStream();
-    runtimeStore.setRunStartTime(Date.now());
-    // 初始化 agentStatus
-    runtimeStore.setAgentStatus({
-      id: 'main',
-      name: 'Xuanji',
-      status: 'idle',
-    });
+    // 仅在空闲时初始化 runtimeStore
+    if (!isRunning) {
+      const runtimeStore = useRuntimeStore.getState();
+      runtimeStore.setProcessing(true);
+      runtimeStore.incrementIteration();
+      runtimeStore.resetMessageStream();
+      runtimeStore.setRunStartTime(Date.now());
+      runtimeStore.setAgentStatus({
+        id: 'main',
+        name: 'Xuanji',
+        status: 'idle',
+      });
 
-    // 启动主 Agent（activeAgentStore）
-    // 🔧 传递 agentId，默认为 'xuanji'
-    useActiveAgentStore.getState().startMainAgent('Xuanji', 'xuanji');
+      const currentMain = useActiveAgentStore.getState().mainAgent;
+      if (!currentMain) {
+        useActiveAgentStore.getState().startMainAgent('Xuanji', 'xuanji');
+      } else {
+        useActiveAgentStore.getState().setAgentStatus(currentMain.id, 'thinking');
+      }
+    }
 
     set((state) => ({
       messages: [...state.messages, userMessage],
-      status: 'thinking',
+      status: isRunning ? state.status : 'thinking',
     }));
 
     // 调用真实的 Agent
     try {
       const result = await window.electron.agentSendMessage(content);
 
-      // 注意：无论成功还是失败，agent:end 事件都会触发并设置状态
-      // 这里只处理明确的错误情况（如会话未初始化等）
       if (!result.success) {
-        // 发送失败，添加错误消息
         const errorMessage: Message = {
           id: generateMessageId('error'),
           role: 'assistant',
@@ -525,7 +565,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
           timestamp: Date.now(),
         };
 
-        // 同步更新 runtimeStore（确保状态被重置）
         useRuntimeStore.getState().setProcessing(false);
 
         set((state) => ({
@@ -533,9 +572,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           status: 'idle',
         }));
       }
-      // 成功情况：状态由 agent:end 事件处理，这里不需要额外操作
     } catch (err) {
-      // 调用失败
       const errorMessage: Message = {
         id: generateMessageId('error'),
         role: 'assistant',
@@ -543,7 +580,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
         timestamp: Date.now(),
       };
 
-      // 同步更新 runtimeStore
       useRuntimeStore.getState().setProcessing(false);
 
       set((state) => ({
@@ -633,11 +669,21 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // Agent 开始输出文本时，清除所有 prompt 构建相关的 moment 状态
     const runtimeStore = useRuntimeStore.getState();
-    const agentId = 'main';
+    const agentId = useActiveAgentStore.getState().mainAgent?.id || 'xuanji';
     const currentMoment = runtimeStore.agentActivity.currentMoments[agentId];
     if (currentMoment && currentMoment.type === 'thinking') {
       // 清除当前的 thinking moment（prompt 构建阶段的状态）
       runtimeStore.finishAgentMoment(agentId, 'success');
+    }
+    // 设置 writing moment（编写中）
+    if (!currentStreamingId) {
+      runtimeStore.setAgentMoment(agentId, {
+        type: 'writing',
+        icon: '✍️',
+        label: '编写中',
+        durationMs: 0,
+        status: 'running',
+      });
     }
 
     // 同步更新 runtimeStore
@@ -664,8 +710,16 @@ export const useChatStore = create<ChatStore>((set, get) => {
         currentStreamingText: text,
       }));
     } else {
+      // 模块级 streamingMessageId 可能与 Zustand currentStreamingId 不同步
+      // （如 sendMessage 在 agent 运行时仍被某些路径重置）。防御性恢复同步。
+      if (!streamingMessageId) {
+        console.warn('[chatStore] streamingMessageId 为 null 但 currentStreamingId 存在，恢复同步:', currentStreamingId);
+        streamingMessageId = currentStreamingId;
+        streamTextBuffer = get().currentStreamingText || '';
+      }
       // 追加文本到缓冲区，使用节流更新
       streamTextBuffer += text;
+      console.log(`[chatStore] _handleAgentText: +${text.length} chars, total=${streamTextBuffer.length}, msgId=${currentStreamingId}`);
       throttledFlushStreamText();
     }
   },
@@ -710,6 +764,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (activeAgentStore.mainAgent) {
         activeAgentStore.setAgentThought(activeAgentStore.mainAgent.id, '');
       }
+      // 设置 thinking moment
+      const agentId = activeAgentStore.mainAgent?.id || 'xuanji';
+      runtimeStore.setAgentMoment(agentId, {
+        type: 'thinking',
+        icon: '💭',
+        label: '思考中',
+        durationMs: 0,
+        status: 'running',
+      });
       const { currentStreamingId } = get();
       if (currentStreamingId) {
         set((state) => ({
@@ -732,6 +795,19 @@ export const useChatStore = create<ChatStore>((set, get) => {
     const currentThinking = runtimeStore.messageStream?.thinking || '';
     const fullThinking = currentThinking + thinking;
 
+    // 如果当前没有 thinking moment，设置一个（第一个非空 thinking chunk）
+    const mainAgentId = useActiveAgentStore.getState().mainAgent?.id || 'xuanji';
+    const currentMomentVal = runtimeStore.agentActivity.currentMoments[mainAgentId];
+    if (!currentMomentVal || currentMomentVal.type !== 'thinking') {
+      runtimeStore.setAgentMoment(mainAgentId, {
+        type: 'thinking',
+        icon: '💭',
+        label: '思考中',
+        durationMs: 0,
+        status: 'running',
+      });
+    }
+
     // 累加到 messageStream
     runtimeStore.appendStreamThinking(thinking);
 
@@ -744,14 +820,16 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
 
     // 更新 activeAgentStore - 只更新主 Agent 的思考
-    // Sub-agent 的思考通过 agent:thinking-start 事件单独更新
-    const activeAgentStore = useActiveAgentStore.getState();
-    const currentAgentId = activeAgentStore.currentActiveAgentId;
-    const isMainAgent = !currentAgentId || currentAgentId === activeAgentStore.mainAgent?.id;
+    // Sub-agent 的思考通过 agent:thinking-start 事件单独更新（在 messageBus 中也处理）
+    const activeAgentStoreState = useActiveAgentStore.getState();
+    const cAgentId = activeAgentStoreState.currentActiveAgentId;
+    const isMain = !cAgentId || cAgentId === activeAgentStoreState.mainAgent?.id;
 
-    // 只更新主 Agent（避免覆盖 sub-agent 的思考）
-    if (isMainAgent && activeAgentStore.mainAgent) {
-      activeAgentStore.setAgentThought(activeAgentStore.mainAgent.id, fullThinking);
+    if (isMain && activeAgentStoreState.mainAgent) {
+      activeAgentStoreState.setAgentThought(activeAgentStoreState.mainAgent.id, fullThinking);
+    } else if (cAgentId && !isMain) {
+      // 子 agent 的思考也同步更新
+      activeAgentStoreState.setAgentThought(cAgentId, fullThinking);
     }
 
     // 更新气泡状态提示
@@ -866,6 +944,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
       currentTool: { name: data.name, status: 'running' },
     });
 
+    // 🔧 子 agent 的 tool-start 事件也是存活性证明，先提升 pending sub-agent
+    if (data.agentId && get()._pendingSubAgents[data.agentId]) {
+      get()._promoteSubAgent(data.agentId);
+    }
+
     // 更新 activeAgentStore - 使用事件中的 agentId（来自 Hook）
     const activeAgentStore = useActiveAgentStore.getState();
     // 🔧 优先使用事件中的 agentId，如果没有则使用 currentActiveAgentId
@@ -902,6 +985,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (name.startsWith('todo_')) return '📋 更新任务列表...';
       return '⚙️ 执行工具中...';
     })();
+
+    // 🔧 工具调用统一使用 timelineEvents 展示，不再覆盖 currentMoment
+    // 保留 thinking/writing moment 不中断，避免时间归零和状态闪烁
 
     // 如果有当前流式消息，更新状态提示（不展示具体工具名，workspace 已展示）
     if (currentStreamingId) {
@@ -953,14 +1039,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (data.name === 'agent_team' || data.name === 'task') {
         // 使用 toolCallId 作为 key，因为后续 _handleTeamStart 会建立 teamId → toolCallId 的映射
         get()._teamParentMap[data.id] = currentAgentId;
+        get()._teamParentMap[data.id] = currentAgentId;
       }
-
-      // 🔧 工具调用统一使用 timelineEvents 展示，不再使用 currentMoment
       // currentMoment 只用于瞬时动作（thinking、memory等）
       actStore.addTimelineEvent(currentAgentId, {
         id: data.id,
         icon: momentType.icon,
-        label: data.name.slice(0, 12),
+        label: formatToolName(data.name),
         status: 'running',
         startTime: Date.now(),  // ✅ 添加开始时间
       });
@@ -1041,12 +1126,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
       let currentAgentId: string;
       if (data.agentId) {
         // 事件中有 agentId（来自子 Agent 的 Hook）
-        currentAgentId = data.agentId === 'main' ? 'main' : data.agentId;
+        currentAgentId = data.agentId === 'main' ? 'xuanji' : data.agentId;
       } else {
         // 事件中没有 agentId（来自主 Agent 的回调）
         const rawAgentId = activeAgentStore.currentActiveAgentId;
         const isMainAgent = !rawAgentId || rawAgentId === activeAgentStore.mainAgent?.id;
-        currentAgentId = isMainAgent ? 'main' : rawAgentId;
+        currentAgentId = isMainAgent ? (activeAgentStore.mainAgent?.id || 'xuanji') : rawAgentId;
       }
 
 
@@ -1122,6 +1207,14 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
     // 检查是否还有活跃工具
     const hasActiveTools = Array.from(newToolCalls.values()).some(tc => tc.status === 'pending');
+
+    // 如果没有活跃工具且当前是主 agent，恢复主 agent 状态
+    if (!hasActiveTools && currentAgentId) {
+      const activeAgentStore2 = useActiveAgentStore.getState();
+      if (!currentAgentId || currentAgentId === activeAgentStore2.mainAgent?.id) {
+        activeAgentStore2.setAgentStatus(currentAgentId, 'thinking');
+      }
+    }
     
     // 更新消息的 toolCalls 和状态提示
     if (currentStreamingId) {
@@ -1296,7 +1389,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
     throttledFlushStreamText.cancel();
 
     // 刷新流式文本缓冲区，确保最后的内容显示（此时 isAgentEnded = true，不会设置 statusHint）
+    console.log(`[chatStore] _handleAgentEnd: BEFORE flush - streamingMessageId=${streamingMessageId}, streamTextBuffer.len=${streamTextBuffer.length}, currentStreamingId=${get().currentStreamingId}`);
     flushStreamText();
+    console.log(`[chatStore] _handleAgentEnd: AFTER flush - streamingMessageId=${streamingMessageId}, streamTextBuffer.len=${streamTextBuffer.length}, currentStreamingId=${get().currentStreamingId}`);
 
     // 最终刷新所有子 agent 的流式气泡并清理状态
     throttledFlushSubAgentStreams.cancel();
@@ -1311,10 +1406,21 @@ export const useChatStore = create<ChatStore>((set, get) => {
     useRuntimeStore.getState().updateAgentStatus({
       status: 'done',
     });
-    // 清空进行中的动作标签（run 结束）
-    useRuntimeStore.setState((s) => ({
-      agentActivity: { ...s.agentActivity, currentMoments: {} },
-    }));
+    // 1.5s 后清空进行中的动作标签（让用户看到 moment 从"编写中"变成完成状态）
+    const agentId = useActiveAgentStore.getState().mainAgent?.id;
+    if (agentId) {
+      const runtimeStore = useRuntimeStore.getState();
+      runtimeStore.finishAgentMoment(agentId, 'success');
+      setTimeout(() => {
+        useRuntimeStore.setState((s) => ({
+          agentActivity: { ...s.agentActivity, currentMoments: {} },
+        }));
+      }, 1500);
+    } else {
+      useRuntimeStore.setState((s) => ({
+        agentActivity: { ...s.agentActivity, currentMoments: {} },
+      }));
+    }
 
     // 将所有仍在 pending 的工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
     const { activeToolCalls, currentStreamingId } = get();
@@ -1329,23 +1435,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
       return tc;
     });
 
-    // 将仍在 in_progress 的 TODO 标记为 failed（Agent 已停止，任务不会继续）
-    const executionState = useExecutionStore.getState();
-    const hasActiveTodos = executionState.todos.some(
-      (t) => t.status === 'in_progress'
-    );
-    if (hasActiveTodos) {
-      useExecutionStore.setState({
-        todos: executionState.todos.map((t) =>
-          t.status === 'in_progress'
-            ? { ...t, status: 'failed' as const, completedAt: t.completedAt || Date.now() }
-            : t
-        ),
-      });
-    }
-
     // 完成主 Agent（activeAgentStore）
-    useActiveAgentStore.getState().finishMainAgent();
+    // 子 agent 节点由 isActiveOrHasActiveChild 自动过滤（succcess/failed = 终态 → 不出现在 flow 图中）
+    const activeAgentStore = useActiveAgentStore.getState();
+    activeAgentStore.finishMainAgent();
 
     console.log('[chatStore] _handleAgentEnd: status → idle, autoSummarizeActive was =', get()._autoSummarizeActive);
     set((prevState) => ({
@@ -1387,7 +1480,59 @@ export const useChatStore = create<ChatStore>((set, get) => {
   _taskParentMap: {},
   _streamToUserMap: {},
   _subAgentStreams: {},
+  _pendingSubAgents: {},
+
+  _promoteSubAgent: (subAgentId: string) => {
+    const pending = get()._pendingSubAgents[subAgentId];
+    if (!pending) return; // 已提升或已清理
+
+    const activeAgentStore = useActiveAgentStore.getState();
+    // 🔧 规范化 parentId：'main' → 实际 mainAgent.id
+    const parentId = pending.parentId === 'main' || !pending.parentId
+      ? (activeAgentStore.mainAgent?.id || 'xuanji')
+      : pending.parentId;
+    activeAgentStore.addSubAgent(parentId, {
+      id: pending.subAgentId,
+      name: pending.name,
+      status: 'thinking',
+      currentTask: pending.task,
+      currentTools: [],
+      subAgents: [],
+      agentType: pending.agentType,
+      stats: {
+        tokenUsage: { input: 0, output: 0, cached: 0 },
+        cost: 0,
+        toolCount: 0,
+      },
+    });
+
+    if (pending.streamToUser) {
+      set((s) => ({
+        _streamToUserMap: { ...s._streamToUserMap, [pending.subAgentId]: pending.name },
+      }));
+    }
+
+    // 设置 scene moment
+    const runtimeStore = useRuntimeStore.getState();
+    const sceneLabel = formatSceneLabel(pending.scene || pending.role || pending.name);
+    runtimeStore.setAgentMoment(pending.subAgentId, {
+      type: 'thinking',
+      icon: '🎯',
+      label: sceneLabel,
+      durationMs: 0,
+      status: 'running',
+    });
+
+    // 从 pending 中移除
+    set((s) => {
+      const next = { ...s._pendingSubAgents };
+      delete next[subAgentId];
+      return { _pendingSubAgents: next };
+    });
+  },
+
   _autoSummarizeActive: false,
+  _conversationState: 'idle',
 
   _handleTeamStart: (data) => {
 
@@ -1749,12 +1894,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
       const isDebater = agentMultiAgent?.strategy === 'debate' && (debateRole === 'affirmative' || debateRole === 'negative');
 
       // debate 辩手（正方/反方）→ "发言中"，其他（leader/judge/普通成员）→ "汇报中"
+      const teamCurrentMoment = runtimeStore.agentActivity.currentMoments[subAgentId];
+      const teamTaskStartTime = teamCurrentMoment?.startTime || Date.now();
       runtimeStore.setAgentMoment(subAgentId, {
         type: 'reporting',
         icon: isDebater ? '💬' : '📤',
         label: isDebater ? '发言中' : '汇报中',
         durationMs: 0,
         status: 'running',
+        startTime: teamTaskStartTime, // 保持原始启动时间，显示累计耗时
       });
       // 500ms 后标记完成，给用户时间看到状态
       const finishMoment = () => {
@@ -1798,12 +1946,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
       // 先设置 reporting 状态，延迟移除 agent（让用户看到"汇报中"）
       const runtimeStore = useRuntimeStore.getState();
       const status = data.success !== false ? 'success' : 'error';
+      const taskCurrentMoment = runtimeStore.agentActivity.currentMoments[subAgentId];
+      const taskTaskStartTime = taskCurrentMoment?.startTime || Date.now();
       runtimeStore.setAgentMoment(subAgentId, {
         type: 'reporting',
         icon: '📤',
         label: '汇报中',
         durationMs: 0,
         status: 'running',
+        startTime: taskTaskStartTime, // 保持原始启动时间，显示累计耗时
       });
       runtimeStore.addRecentEvent({
         agentName: 'Sub-agent',
@@ -1935,6 +2086,26 @@ if (typeof window !== 'undefined' && window.electron) {
     useChatStore.getState()._handleAgentText(text);
   });
 
+  // 同步 StateTracker 状态
+  messageBus.on('agent:conversation-state', (data: { from: string; to: string }) => {
+    const chatStatus: Record<string, string> = {
+      idle: 'idle',
+      executing: 'thinking',
+      outputting: 'thinking',
+      waiting_async: 'idle',
+    };
+    useChatStore.setState({
+      status: (chatStatus[data.to] || 'idle') as any,
+      _conversationState: data.to as any,
+    });
+
+    // 🔧 主 agent 开始输出文本时（outputting），标记 _autoSummarizeActive 回到 idle 状态
+    // 节点清理已由 auto-summarize-start 事件根据 subAgentId 精确执行
+    if (data.to === 'outputting') {
+      useChatStore.setState({ _autoSummarizeActive: false });
+    }
+  });
+
   messageBus.on('agent:thinking', (thinking: string) => {
     useChatStore.getState()._handleAgentThinking(thinking);
   });
@@ -2028,83 +2199,59 @@ if (typeof window !== 'undefined' && window.electron) {
     agentType?: 'preset' | 'builtin' | 'custom' | 'temporary';
     parentId: string;
   }) => {
+    console.log('[chatStore] agent:subagent-start:', data);
 
-    const activeAgentStore = useActiveAgentStore.getState();
-
-    // 添加子 Agent 到 activeAgentStore
-
-    // 🔧 使用agentType字段区分agent类型，如果未指定则默认为temporary
-    const agentType = data.agentType || 'temporary';
-
-    activeAgentStore.addSubAgent(data.parentId, {
-      id: data.subAgentId,
-      name: data.name,
-      status: 'thinking',
-      currentThought: data.task,
-      currentTask: data.task,
-      currentTools: [],
-      subAgents: [],
-      agentType,
-      stats: {
-        tokenUsage: {
-          input: 0,
-          output: 0,
-          cached: 0,
-        },
-        cost: 0,
-        toolCount: 0,
-      },
-    });
-
-    // 🔧 记录 streamToUser，用于判断子 agent 是"编写中"还是"汇报中"
-    if ((data as any).streamToUser) {
+    // 🔧 幂等处理：如果 subAgentId 已存在于 pending 中，不重复写入和不重复定时器
+    const existingPending = useChatStore.getState()._pendingSubAgents[data.subAgentId];
+    if (!existingPending) {
+      // 先存入 pending，等收到存活性确认（thinking/tool/text 事件）后再提升到 activeAgentStore 树
+      // 如果子 agent 因为配置错误等原因立即失败，workspace monitor 中不会出现该节点
       useChatStore.setState((s) => ({
-        _streamToUserMap: { ...s._streamToUserMap, [data.subAgentId]: data.name },
+        _pendingSubAgents: {
+          ...s._pendingSubAgents,
+          [data.subAgentId]: {
+            subAgentId: data.subAgentId,
+            name: data.name,
+            role: data.role,
+            task: data.task,
+            agentType: data.agentType || 'temporary',
+            parentId: data.parentId,
+            streamToUser: !!(data as any).streamToUser,
+            scene: (data as any).scene,
+            startTime: Date.now(),
+          },
+        },
       }));
+
+      // 超时保护：3s 内未收到存活性确认也提升到树（避免 pending 永久卡住）
+      const subAgentId = data.subAgentId;
+      setTimeout(() => {
+        const chatStore = useChatStore.getState();
+        if (chatStore._pendingSubAgents[subAgentId]) {
+          chatStore._promoteSubAgent(subAgentId);
+        }
+      }, 3000);
     }
-
-    // 先展示被分配的 scene（至少 1.5s），之后 agent:thinking-start 再切换为"思考中"
-    const runtimeStore = useRuntimeStore.getState();
-    const sceneLabel = formatSceneLabel((data as any).scene || data.role || data.name);
-    runtimeStore.setAgentMoment(data.subAgentId, {
-      type: 'thinking',
-      icon: '🎯',
-      label: sceneLabel,
-      durationMs: 0,
-      status: 'running',
-    });
-
-    // timeline 只展示工具调用，不展示 start 事件
   });
 
   // 🔧 子 agent 流式输出到用户（streamToUser=true 时触发）
   messageBus.on('agent:subagent-text', (data: { agentId: string; text: string }) => {
-    const runtimeStore = useRuntimeStore.getState();
-    // 子 agent 正在流式输出到对话框 → 设置 writing 状态
-    runtimeStore.setAgentMoment(data.agentId, {
-      type: 'writing',
-      icon: '✍️',
-      label: '编写中',
-      durationMs: 0,
-      status: 'running',
-    });
+    // 存活性确认：将 pending 子 agent 提升到 workspace monitor
+    useChatStore.getState()._promoteSubAgent(data.agentId);
 
-    // 🔧 同时更新子 agent 的 currentThought（流式文本）
-    const activeAgentStore = useActiveAgentStore.getState();
-    // 查找父 agent 并更新子 agent 的 currentThought
-    const updateThought = (agent: any): boolean => {
-      if (!agent || !agent.subAgents) return false;
-      for (const sub of agent.subAgents) {
-        if (sub.id === data.agentId) {
-          const current = sub.currentThought || '';
-          activeAgentStore.setAgentThought(data.agentId, current + data.text);
-          return true;
-        }
-        if (updateThought(sub)) return true;
-      }
-      return false;
-    };
-    updateThought(activeAgentStore.mainAgent);
+    const runtimeStore = useRuntimeStore.getState();
+    const currentMoment = runtimeStore.agentActivity.currentMoments[data.agentId];
+    // 仅在首次从非 writing 切换到 writing 时设置 moment，避免每次文本块都重置计时
+    if (!currentMoment || currentMoment.type !== 'writing') {
+      runtimeStore.setAgentMoment(data.agentId, {
+        type: 'writing',
+        icon: '✍️',
+        label: '编写中',
+        durationMs: 0,
+        status: 'running',
+        startTime: currentMoment?.startTime || Date.now(), // 保留原始 startTime，时间累加
+      });
+    }
 
     // 如果子 agent 配置了 streamToUser，输出到独立的聊天气泡
     const { _streamToUserMap } = useChatStore.getState();
@@ -2131,35 +2278,16 @@ if (typeof window !== 'undefined' && window.electron) {
   });
 
   // 后台任务完成自动汇总：标记为自动触发，InputArea 不显示中断模式
-  messageBus.on('agent:auto-summarize-start', () => {
-    console.log('[chatStore] agent:auto-summarize-start → _autoSummarizeActive = true');
+  // 同时根据 subAgentId 精确移除已完成的子 agent 节点
+  messageBus.on('agent:auto-summarize-start', (data?: { subAgentId?: string }) => {
+    console.log('[chatStore] agent:auto-summarize-start → _autoSummarizeActive = true, subAgentId:', data?.subAgentId);
     useChatStore.setState({ _autoSummarizeActive: true });
-  });
 
-  messageBus.on('agent:subagent-end', (data: {
-    subAgentId: string;
-    success: boolean;
-    duration?: number;
-  }) => {
-
-    const activeAgentStore = useActiveAgentStore.getState();
-
-    // 🔧 如果执行失败，直接移除节点（不显示失败的agent）
-    if (!data.success) {
-      // 清理 streamToUser 映射和流式气泡
-      useChatStore.setState((s) => {
-        const newMap = { ...s._streamToUserMap };
-        delete newMap[data.subAgentId];
-        const newStreams = { ...s._subAgentStreams };
-        delete newStreams[data.subAgentId];
-        return { _streamToUserMap: newMap, _subAgentStreams: newStreams };
-      });
-      // 清理子 agent 流式状态
-      delete subAgentStreamState[data.subAgentId];
-
-      // 找到父agent并移除这个子agent（使用不可变方式，避免直接 mutate 状态树）
+    if (data?.subAgentId) {
+      const activeAgentStore = useActiveAgentStore.getState();
       const mainAgent = activeAgentStore.mainAgent;
       if (mainAgent) {
+        // 查找子 agent 的父节点 ID
         const findParentId = (agent: any, targetId: string): string | null => {
           if (!agent || !agent.subAgents) return null;
           for (const sub of agent.subAgents) {
@@ -2171,18 +2299,69 @@ if (typeof window !== 'undefined' && window.electron) {
         };
         const parentId = findParentId(mainAgent, data.subAgentId);
         if (parentId) {
-          activeAgentStore.removeSubAgent(parentId, data.subAgentId);
+          useChatStore.setState((s) => {
+            const newPending = { ...s._pendingSubAgents };
+            delete newPending[data.subAgentId!];
+            activeAgentStore.removeSubAgent(parentId, data.subAgentId!);
+            return { _pendingSubAgents: newPending };
+          });
         }
       }
+    }
+  });
+
+  messageBus.on('agent:subagent-end', (data: {
+    subAgentId: string;
+    success: boolean;
+    duration?: number;
+  }) => {
+
+    const activeAgentStore = useActiveAgentStore.getState();
+
+    // 失败也保留节点，等待 auto-summarize-start 统一清理
+    if (!data.success) {
+      // 先确保子 agent 已在树中
+      useChatStore.getState()._promoteSubAgent(data.subAgentId);
+
+      // 更新子 Agent 状态为 failed
+      activeAgentStore.setAgentStatus(data.subAgentId, 'failed');
+
+      // 清理流式状态
+      useChatStore.setState((s) => {
+        const newMap = { ...s._streamToUserMap };
+        delete newMap[data.subAgentId];
+        const newStreams = { ...s._subAgentStreams };
+        delete newStreams[data.subAgentId];
+        return { _streamToUserMap: newMap, _subAgentStreams: newStreams };
+      });
+      delete subAgentStreamState[data.subAgentId];
+
+      // 完成 timeline 事件
+      const runtimeStore = useRuntimeStore.getState();
+      const currentMoment = runtimeStore.agentActivity.currentMoments[data.subAgentId];
+      const taskStartTime = currentMoment?.startTime || Date.now();
+      runtimeStore.setAgentMoment(data.subAgentId, {
+        type: 'reporting',
+        icon: '⚠️',
+        label: '执行失败',
+        durationMs: 0,
+        status: 'running',
+        startTime: taskStartTime,
+      });
+      setTimeout(() => {
+        const store = useRuntimeStore.getState();
+        store.finishAgentMoment(data.subAgentId, 'error');
+      }, 3000);
+
       return;
     }
 
+    // ── 成功 ──
+    // 确保子 agent 已在树中（可能直接成功，没有 thinking/tool 事件）
+    useChatStore.getState()._promoteSubAgent(data.subAgentId);
+
     // 更新子 Agent 状态
-    activeAgentStore.updateSubAgent(data.subAgentId, {
-      status: data.success ? 'success' : 'error',
-      endTime: Date.now(),
-      duration: data.duration,
-    });
+    activeAgentStore.setAgentStatus(data.subAgentId, 'success');
 
     // 清理 streamToUser 映射和流式气泡
     useChatStore.setState((s) => {
@@ -2195,7 +2374,6 @@ if (typeof window !== 'undefined' && window.electron) {
     // 清理子 agent 流式状态并最终刷新气泡
     const subStream = subAgentStreamState[data.subAgentId];
     if (subStream) {
-      // 最终刷新
       const msgId = subStream.messageId;
       const finalContent = subStream.buffer;
       delete subAgentStreamState[data.subAgentId];
@@ -2207,25 +2385,55 @@ if (typeof window !== 'undefined' && window.electron) {
     }
 
     // 完成 timeline 事件
-    const runtimeStore = useRuntimeStore.getState();
+    const rtStore = useRuntimeStore.getState();
 
     // 先切换到 reporting 状态（短暂展示"汇报中"），再完成 moment
-    runtimeStore.setAgentMoment(data.subAgentId, {
+    const curMoment = rtStore.agentActivity.currentMoments[data.subAgentId];
+    const tStartTime = curMoment?.startTime || Date.now();
+    rtStore.setAgentMoment(data.subAgentId, {
       type: 'reporting',
       icon: '📤',
       label: '汇报中',
       durationMs: 0,
       status: 'running',
+      startTime: tStartTime, // 保持原始启动时间，显示累计耗时
     });
     setTimeout(() => {
       const store = useRuntimeStore.getState();
       store.finishAgentMoment(data.subAgentId, data.success ? 'success' : 'error');
-    }, 500);
+    }, 3000);
+
+    // 子 agent 节点由 agent:auto-summarize-start 事件统一批量清理
+    // (TaskCompletionHandler.autoSummarize → onAutoSummarize → safeSend → renderer)
 
   });
 
   // ─── 可视化监控新事件监听 ──────────────────────────────────
   messageBus.on('agent:thinking-start', (data: { agentId: string; content: string }) => {
+    // 🔧 主 agent 真正开始执行汇总任务时，清理已完成子 agent 节点
+    // 判断是否是主 agent：无 agentId 或 agentId === 'xuanji' 或 agentId === 'main'
+    const isMainAgent = !data.agentId || data.agentId === 'xuanji' || data.agentId === 'main';
+    if (isMainAgent && useChatStore.getState()._autoSummarizeActive) {
+      const activeAgentStore = useActiveAgentStore.getState();
+      const mainAgent = activeAgentStore.mainAgent;
+      if (mainAgent) {
+        const doneIds = mainAgent.subAgents
+          .filter(sub => sub.status === 'success' || sub.status === 'failed')
+          .map(sub => sub.id);
+        useChatStore.setState((s) => {
+          const newPending = { ...s._pendingSubAgents };
+          for (const id of doneIds) {
+            delete newPending[id];
+            activeAgentStore.removeSubAgent(mainAgent.id, id);
+          }
+          return { _pendingSubAgents: newPending };
+        });
+      }
+    }
+
+    // 存活性确认：将 pending 子 agent 提升到 workspace monitor
+    useChatStore.getState()._promoteSubAgent(data.agentId);
+
     const store = useRuntimeStore.getState();
 
     // 🔧 先更新思考气泡内容（累加流式展示，不延迟）
@@ -2236,13 +2444,30 @@ if (typeof window !== 'undefined' && window.electron) {
       activeAgentStore.setAgentThought(data.agentId, currentThought + data.content);
     }
 
-    // 🔧 scene 至少展示 1.5s，之后才切换为"思考中"
+    // 🔧 scene 至少展示 3s，之后才切换为"思考中"
     const SCENE_MIN_DISPLAY_MS = 3000;
     const currentMoment = store.agentActivity.currentMoments[data.agentId];
     const sceneElapsed = currentMoment?.startTime ? Date.now() - currentMoment.startTime : SCENE_MIN_DISPLAY_MS;
     const remaining = SCENE_MIN_DISPLAY_MS - sceneElapsed;
+    const taskStartTime = currentMoment?.startTime || Date.now();
 
     const setThinkingMoment = () => {
+      // 终态保护：agent 已完成则不再覆盖 moment
+      const currentActiveAgentStore = useActiveAgentStore.getState();
+      const findAgentStatus = (agent: any, targetId: string): string | null => {
+        if (!agent) return null;
+        if (agent.id === targetId) return agent.status;
+        if (agent.subAgents) {
+          for (const sub of agent.subAgents) {
+            const found = findAgentStatus(sub, targetId);
+            if (found !== null) return found;
+          }
+        }
+        return null;
+      };
+      const agentStatus = findAgentStatus(currentActiveAgentStore.mainAgent, data.agentId);
+      if (agentStatus === 'success' || agentStatus === 'failed' || agentStatus === 'done') return;
+
       const s = useRuntimeStore.getState();
       s.setAgentMoment(data.agentId, {
         type: 'thinking',
@@ -2250,6 +2475,7 @@ if (typeof window !== 'undefined' && window.electron) {
         label: '思考中',
         durationMs: 0,
         status: 'running',
+        startTime: taskStartTime, // 保持原始启动时间，耗时累加
       });
     };
 
@@ -2268,7 +2494,7 @@ if (typeof window !== 'undefined' && window.electron) {
     store.addTimelineEvent(data.agentId, {
       id,
       icon: '✨',
-      label: data.skillName.slice(0, 12),
+      label: data.skillName.slice(0, 20),
       status: 'running',
       startTime: Date.now(),
     });
@@ -2317,7 +2543,7 @@ if (typeof window !== 'undefined' && window.electron) {
     store.addTimelineEvent(data.agentId, {
       id: eventId,
       icon: '💾',
-      label: (data.summary || '写入记忆').slice(0, 12),
+      label: (data.summary || '写入记忆').slice(0, 20),
       status: 'running',
       startTime: Date.now(),
     });
@@ -2423,8 +2649,8 @@ if (typeof window !== 'undefined' && window.electron) {
 
   messageBus.on('prompt:build-event', (event: { type: string; timestamp: number; agentId: string; data?: any }) => {
     const runtimeStore = useRuntimeStore.getState();
-    // 主 agent (xuanji) 在 WorkspaceMonitor 中的 id 是 'main'
-    const agentId = (event.agentId === 'xuanji' || !event.agentId) ? 'main' : event.agentId;
+    const mainAgentId = useActiveAgentStore.getState().mainAgent?.id || 'xuanji';
+    const agentId = (!event.agentId || event.agentId === 'xuanji' || event.agentId === 'main') ? mainAgentId : event.agentId;
 
     switch (event.type) {
       case 'build:start':
