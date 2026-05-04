@@ -70,6 +70,15 @@ interface AgentNodeData {
     currentRound?: number;
     maxRounds?: number;
     goal?: string;
+    // 成员快照数据，用于 TeamNode 内部渲染
+    members?: Array<{
+      id: string;
+      name: string;
+      status: string;
+      thinkingText?: string;
+      currentTask?: string;
+      currentMoment?: { icon: string; label: string; status?: string };
+    }>;
   };
   children?: string[]; // 子 agent ID 列表（团队节点专用）
 }
@@ -345,7 +354,7 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
 }
 
 // ============================================================
-// 团队边界框节点（React Flow Group Node）
+// TeamNode — 团队节点（内部渲染成员卡片）
 // ============================================================
 
 function TeamNode({ data }: NodeProps<AgentNodeData>) {
@@ -353,18 +362,19 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
   if (!ti) return null;
   const sc = STRATEGY_COLORS[ti.strategy] || STRATEGY_COLORS.sequential;
   const icon = STRATEGY_ICONS[ti.strategy] || '👥';
+  const colors = getColors(data.status);
+  const active = isActiveStatus(data.status);
+  const members = ti.members || [];
 
   return (
-    <div className="relative" style={{ minWidth: 200, minHeight: 100 }}>
+    <div className="relative" style={{ minWidth: 280 }}>
       <Handle type="target" position={Position.Top} className="!opacity-0 !pointer-events-none" style={{ left: '50%', top: 0, transform: 'translateX(-50%)' }} />
-      <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none" style={{ left: '50%', bottom: 0, transform: 'translateX(-50%)' }} />
 
-      {/* 虚线边界框 */}
+      {/* 虚线边框 */}
       <div
         className="rounded-xl pointer-events-none"
         style={{
-          position: 'absolute',
-          inset: -2,
+          position: 'absolute', inset: -2,
           border: `2px dashed ${sc.border}`,
           background: sc.bg,
         }}
@@ -372,28 +382,80 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
 
       {/* 标题栏 */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 rounded-t-xl cursor-grab active:cursor-grabbing"
+        className="flex items-center gap-2 px-3 py-2 rounded-t-xl cursor-grab active:cursor-grabbing"
         style={{
-          position: 'absolute',
-          top: -2, left: -2, right: -2,
+          position: 'absolute', top: -2, left: -2, right: -2,
           background: `linear-gradient(135deg, ${sc.bg}, transparent)`,
           borderBottom: `1px solid ${sc.border}`,
         }}
       >
-        <span className="text-sm">{icon}</span>
+        {/* 状态环 */}
+        <div className="relative w-7 h-7 flex-shrink-0">
+          {active && (
+            <svg className="absolute animate-spin" style={{ width: 30, height: 30, top: -1, left: -1 }} viewBox="0 0 30 30">
+              <circle cx="15" cy="15" r="13" fill="none" stroke={colors.ring} strokeWidth="2.5" strokeDasharray="20 60" strokeLinecap="round" />
+            </svg>
+          )}
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center text-xs"
+            style={{ background: colors.bg, border: `2px solid ${colors.border}` }}
+          >
+            {icon}
+          </div>
+        </div>
+
         <span className="text-xs font-semibold text-foreground/80 truncate">{ti.teamName}</span>
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground">{ti.strategy.charAt(0).toUpperCase() + ti.strategy.slice(1)}</span>
-        <div className="flex-1" />
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground whitespace-nowrap">
+          {ti.strategy.charAt(0).toUpperCase() + ti.strategy.slice(1)}
+        </span>
         {ti.strategy === 'debate' && ti.currentRound != null && ti.maxRounds != null && (
           <span className="text-[10px] font-mono text-muted-foreground">R{ti.currentRound}/{ti.maxRounds}</span>
         )}
       </div>
 
-      {/* 成员计数 */}
-      <div
-        className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground/40 pointer-events-none"
-      >
-        {ti.memberCount} 名成员
+      {/* 成员卡片列表 */}
+      <div className="pt-10 pb-2 px-2 space-y-1">
+        {members.map(m => {
+          const mc = getColors(m.status);
+          const ma = isActiveStatus(m.status);
+          return (
+            <div
+              key={m.id}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-black/10 text-xs"
+            >
+              {/* 迷你状态环 */}
+              <div className="relative w-4 h-4 flex-shrink-0">
+                {ma && (
+                  <svg className="absolute animate-spin" viewBox="0 0 16 16" style={{ width: 18, height: 18, top: -1, left: -1 }}>
+                    <circle cx="8" cy="8" r="7" fill="none" stroke={mc.ring} strokeWidth="1.5" strokeDasharray="11 33" strokeLinecap="round" />
+                  </svg>
+                )}
+                <div
+                  className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold"
+                  style={{ background: mc.bg, border: `1.5px solid ${mc.border}` }}
+                  title={m.status}
+                >
+                  {m.status === 'done' || m.status === 'success' ? '✓' : m.status === 'error' || m.status === 'failed' ? '✗' : ''}
+                </div>
+              </div>
+
+              {/* 名称 */}
+              <span className="font-medium text-foreground/80 truncate max-w-[80px]">{m.name}</span>
+
+              {/* 当前任务/思考摘要 */}
+              {(m.thinkingText || m.currentTask) && (
+                <span className="text-muted-foreground/60 truncate min-w-0 ml-auto text-[10px]">
+                  {m.thinkingText?.slice(-60) || m.currentTask?.slice(-40)}
+                </span>
+              )}
+
+              {/* moment 图标 */}
+              {m.currentMoment && (
+                <span className="flex-shrink-0 text-[10px]" title={m.currentMoment.label}>{m.currentMoment.icon}</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -591,51 +653,85 @@ function Flow() {
       const isTeamMember = a.multiAgent?.type === 'agent_team';
       const teamName = a.multiAgent?.teamName;
 
-      // 如果该 agent 是团队成员的父级，先为团队创建一个边界框节点
-      if (isTeamMember && teamName && !teamNodes.has(teamName)) {
-        // subAgents 中的子 agent 数量（addNode 时已收集到 teamMembers）
-        const memberCount = Math.max(1, a.subAgents?.length || 0);
+      // 如果是团队成员，不创建独立节点，数据由 TeamNode 内部渲染
+      if (isTeamMember && teamName) {
+        // 如果是第一个遇到的该团队 leader，创建 TeamNode
+        if (!teamNodes.has(teamName)) {
+          // 收集所有团队成员数据
+          const memberList: Array<{
+            id: string; name: string; status: string;
+            thinkingText?: string; currentTask?: string;
+            currentMoment?: { icon: string; label: string; status?: string };
+          }> = [];
+          const collectMembers = (agent: AgentState) => {
+            if (agent.subAgents) {
+              for (const sub of agent.subAgents) {
+                if (sub.multiAgent?.teamName === teamName && sub.multiAgent?.type === 'agent_team') {
+                  const cm = agentActivity.currentMoments?.[sub.id];
+                  memberList.push({
+                    id: sub.id,
+                    name: sub.name,
+                    status: sub.status,
+                    thinkingText: sub.currentThought,
+                    currentTask: sub.currentTask,
+                    currentMoment: cm ? { icon: cm.icon, label: cm.label, status: cm.status } : undefined,
+                  });
+                  collectMembers(sub);
+                }
+              }
+            }
+          };
+          collectMembers(a);
+          const members = memberList;
+          const memberCount = Math.max(1, members.length);
+          // 聚合团队状态
+          const teamStatus = ['failed','error'].some(s => members.some(m => m.status === s)) ? 'error'
+            : ['thinking','executing','running','responding'].some(s => members.some(m => m.status === s)) ? 'running'
+            : members.every(m => ['done','success'].includes(m.status)) ? 'success'
+            : 'idle';
 
-        teamNodes.set(teamName, {
-          id: `team-${teamName}`,
-          type: 'team',
-          position: { x: 0, y: 0 },
-          data: {
+          teamNodes.set(teamName, {
             id: `team-${teamName}`,
-            name: teamName,
-            status: 'idle',
             type: 'team',
-            teamInfo: {
-              teamName,
-              strategy: a.multiAgent?.strategy || 'parallel',
-              memberCount,
-              currentRound: a.multiAgent?.currentRound,
-              maxRounds: a.multiAgent?.maxRounds,
-              goal: a.multiAgent?.goal,
+            position: { x: 0, y: 0 },
+            data: {
+              id: `team-${teamName}`,
+              name: teamName,
+              status: teamStatus,
+              type: 'team',
+              teamInfo: {
+                teamName,
+                strategy: a.multiAgent?.strategy || 'parallel',
+                memberCount,
+                currentRound: a.multiAgent?.currentRound,
+                maxRounds: a.multiAgent?.maxRounds,
+                goal: a.multiAgent?.goal,
+                members,
+              },
             },
-          },
-          draggable: true,
-          width: 100,
-          height: 60,
-        });
+            draggable: true,
+            width: 420,
+            height: Math.max(160, 60 + members.length * 36),
+          });
 
-        // 父节点 → 团队边界框的连线（和 task 线一样）
-        const parentForTeam = pid || (mainAgent?.id || 'xuanji');
-        edges.push({
-          id: `e-${parentForTeam}-team-${teamName}`,
-          source: parentForTeam,
-          target: `team-${teamName}`,
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: 'hsl(var(--primary)/0.35)', strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary)/0.35)' },
-        });
+          // 父节点 → 团队边界框的连线
+          const parentForTeam = pid || (mainAgent?.id || 'xuanji');
+          edges.push({
+            id: `e-${parentForTeam}-team-${teamName}`,
+            source: parentForTeam,
+            target: `team-${teamName}`,
+            type: 'smoothstep',
+            animated: true,
+            style: { stroke: 'hsl(var(--primary)/0.35)', strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary)/0.35)' },
+          });
+        }
+        // 成员不递归处理子 agent（团队成员的数据已被 collectMembers 收集）
+        return;
       }
 
-      // 添加 agent 节点
-      addNode(a, pid, isTeamMember ? teamName : undefined);
-
-      // 递归处理子 agent
+      // 非团队成员的普通节点
+      addNode(a, pid);
       if (a.subAgents && a.subAgents.length > 0) {
         for (const sub of a.subAgents) {
           if (!isActiveOrHasActiveChild(sub)) continue;
@@ -646,87 +742,22 @@ function Flow() {
 
     processAgent(agent, parentId);
 
-    // 移除 agent → agent 的连线如果双方都在同一个团队中
-    // 也移除父 agent → 团队成员的直接连线，改为 team → member 连线让 dagre 布局
-    const agentIds = new Set(nodes.map(n => n.id));
-    const teamAgentMap = new Map<string, string>();
-    const teamMembersSet = new Set<string>();
-    teamMembers.forEach((members, teamName) => {
-      members.forEach(m => {
-        teamAgentMap.set(m, teamName);
-        teamMembersSet.add(m);
-      });
-    });
-
-    const filteredEdges = edges.filter(e => {
-      if (teamAgentMap.has(e.source) && teamAgentMap.has(e.target)) {
-        return teamAgentMap.get(e.source) === teamAgentMap.get(e.target);
-      }
-      if (teamMembersSet.has(e.target)) {
-        return false;
-      }
-      return true;
-    });
-
-    // 添加 team → member 边仅用于 dagre 布局（让成员在 team 框下方），渲染时隐藏
-    teamMembers.forEach((members, teamName) => {
-      const teamId = `team-${teamName}`;
-      members.forEach(memberId => {
-        if (agentIds.has(memberId)) {
-          filteredEdges.push({
-            id: `e-${teamId}-${memberId}`,
-            source: teamId,
-            target: memberId,
-            type: 'smoothstep',
-            animated: false,
-            style: { stroke: 'transparent', strokeWidth: 0 },
-          });
-        }
-      });
-    });
-
-    return { nodes, edges: filteredEdges, teamNodes, teamMembers };
+    return { nodes, edges, teamNodes, teamMembers: new Map() };
   }, [agentActivity, mainAgent]);
 
   const flowData = useMemo(() => {
     if (!mainAgent) return null;
     const raw = buildFlow(mainAgent, null);
-    // 合并团队节点
     const allNodes = [...raw.nodes];
     raw.teamNodes.forEach((tn) => allNodes.push(tn));
     const laidOut = layoutNodes(allNodes, raw.edges);
-    // 恢复用户拖拽过的节点位置，防止 dagre 重算时拉回
+    // 恢复用户拖拽过的节点位置
     const restored = laidOut.map(n => {
       const dragged = draggedPositions.current.get(n.id);
       if (dragged) return { ...n, position: dragged };
       return n;
     });
-
-    // 根据成员实际布局位置调整 team 虚线框的大小和位置，使其包裹所有成员
-    const adjustedNodes = restored.map(n => {
-      if (!n.id.startsWith('team-')) return n;
-      const teamName = n.id.replace('team-', '');
-      const members = raw.teamMembers.get(teamName);
-      if (!members || members.length === 0) return n;
-      const memberNodes = members.map(mid => restored.find(rn => rn.id === mid)).filter(Boolean) as Node[];
-      if (memberNodes.length === 0) return n;
-      const padding = 120; // 上下留足够空间包裹气泡
-      const leftExtra = 220; // 左侧思考气泡最大宽度
-      const rightExtra = 140; // 右侧 moment/timeline 最大宽度
-      const minX = Math.min(...memberNodes.map(m => m.position.x)) - leftExtra;
-      const maxX = Math.max(...memberNodes.map(m => m.position.x + NODE_W)) + rightExtra;
-      const minY = Math.min(...memberNodes.map(m => m.position.y)) - padding;
-      const maxY = Math.max(...memberNodes.map(m => m.position.y + NODE_H)) + padding;
-      return {
-        ...n,
-        position: { x: minX, y: minY },
-        width: maxX - minX,
-        height: maxY - minY,
-        style: { width: maxX - minX, height: maxY - minY },
-      };
-    });
-
-    return { nodes: adjustedNodes, edges: raw.edges };
+    return { nodes: restored, edges: raw.edges };
   }, [mainAgent, buildFlow, isProcessing]);
 
   const [nodes, setNodes, onNodesChangeRaw] = useNodesState(flowData?.nodes || []);
@@ -735,31 +766,11 @@ function Flow() {
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     for (const change of changes) {
       if (change.type === 'position' && change.position) {
-        const id = change.id;
-        const oldPos = draggedPositions.current.get(id);
-        draggedPositions.current.set(id, { ...change.position });
-
-        // 如果是 team 节点拖动，同步更新内部成员
-        if (id.startsWith('team-') && oldPos) {
-          const dx = change.position.x - oldPos.x;
-          const dy = change.position.y - oldPos.y;
-          const teamName = id.replace('team-', '');
-          const currentNodes = nodes;
-          currentNodes.forEach(n => {
-            if (n.id.startsWith('team-')) return;
-            const memberAgent = mainAgent ? findAgentById(mainAgent, n.id) : null;
-            if (memberAgent?.multiAgent?.teamName === teamName) {
-              const memberPos = draggedPositions.current.get(n.id);
-              if (memberPos) {
-                draggedPositions.current.set(n.id, { x: memberPos.x + dx, y: memberPos.y + dy });
-              }
-            }
-          });
-        }
+        draggedPositions.current.set(change.id, { ...change.position });
       }
     }
     onNodesChangeRaw(changes);
-  }, [onNodesChangeRaw, nodes, mainAgent]);
+  }, [onNodesChangeRaw]);
 
   // 使用 ref 缓存上一轮 nodes，避免 data 未变的节点被替换引用导致 React Flow 重挂载闪烁
   const prevNodesRef = useRef<Node[]>([]);
