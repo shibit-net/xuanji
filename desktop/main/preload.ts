@@ -45,6 +45,9 @@
   agentSendSupplment: (content: string) => ipcRenderer.invoke('agent:send-supplement', content),
   agentAppendMessage: (message: string) => ipcRenderer.invoke('agent:append-message', message),
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
+  openFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
+  openUrl: (url: string) => ipcRenderer.invoke('workspace:open-url', url),
+  getResourceUsage: () => ipcRenderer.invoke('system:resource-usage'),
 
   // 流式事件监听
   onAgentText: (callback: (text: string) => void) => {
@@ -104,7 +107,7 @@
     ipcRenderer.on('workspace:result-aggregation-end', (_event, data) => callback(data));
   },
 
-  // 移除监听器
+// 移除监听器
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel);
   },

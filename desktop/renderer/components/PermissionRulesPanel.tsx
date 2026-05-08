@@ -115,14 +115,14 @@ export default function PermissionRulesPanel() {
 
   // 按工具分组
   const rulesByTool = rules.reduce<Record<string, PermissionRule[]>>((acc, rule) => {
-    const tool = rule.toolName || '未知工具';
+    const tool = (rule as any).toolName || '未知工具';
     if (!acc[tool]) acc[tool] = [];
     acc[tool].push(rule);
     return acc;
   }, {});
 
-  const allowedCount = rules.filter((r) => r.allowed).length;
-  const deniedCount = rules.filter((r) => !r.allowed).length;
+  const allowedCount = rules.filter((r) => (r as any).allowed).length;
+  const deniedCount = rules.filter((r) => !(r as any).allowed).length;
 
   return (
     <div className="space-y-4">
@@ -225,7 +225,7 @@ export default function PermissionRulesPanel() {
                   >
                     {/* 状态图标 */}
                     <div className="flex-shrink-0 mt-0.5">
-                      {rule.allowed ? (
+                      {(rule as any).allowed ? (
                         <ShieldCheck size={15} className="text-green-500" />
                       ) : (
                         <ShieldX size={15} className="text-red-500" />
@@ -234,8 +234,8 @@ export default function PermissionRulesPanel() {
 
                     {/* 内容 */}
                     <div className="flex-1 min-w-0">
-                      <div className={`text-xs font-medium ${rule.allowed ? 'text-green-500' : 'text-red-500'}`}>
-                        {rule.allowed ? '始终允许' : '永远拒绝'}
+                      <div className={`text-xs font-medium ${(rule as any).allowed ? 'text-green-500' : 'text-red-500'}`}>
+                        {(rule as any).allowed ? '始终允许' : '永远拒绝'}
                       </div>
                       <div
                         className="text-xs text-text-secondary mt-0.5 font-mono break-all"
@@ -244,10 +244,10 @@ export default function PermissionRulesPanel() {
                         {formatCacheKey(rule.cacheKey)}
                       </div>
                       <div className="text-xs text-text-secondary opacity-60 mt-1">
-                        {formatTime(rule.timestamp)}
-                        {rule.expiresAt && (
+                        {formatTime(String(rule.timestamp))}
+                        {(rule as any).expiresAt && (
                           <span className="ml-2 text-yellow-500">
-                            · 到期: {formatTime(rule.expiresAt)}
+                            · 到期: {formatTime(String((rule as any).expiresAt))}
                           </span>
                         )}
                       </div>

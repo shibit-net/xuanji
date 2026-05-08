@@ -12,8 +12,6 @@ export { GlobTool } from './GlobTool';
 export { GrepTool } from './GrepTool';
 export { LSTool } from './LSTool';
 export { ChangeDirectoryTool } from './ChangeDirectoryTool';
-export { ReminderSetTool } from './ReminderSetTool';
-export { ReminderCheckTool } from './ReminderCheckTool';
 export { TaskOutputTool } from './TaskOutputTool';
 export { TaskTool } from './TaskTool';
 export { TeamTool } from './TeamTool';
@@ -35,11 +33,6 @@ export { WorktreeTool } from './WorktreeTool';
 export { ToolGateway } from './ToolGateway';
 export type { ExecutionContext, ToolMetrics, PermissionController } from './ToolGateway';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
-export { PermissionGate } from './PermissionGate';
-export { ToolMetricsCollector } from './ToolMetrics';
-export type { ToolCallMetrics } from './ToolMetrics';
-export { createExecutionContext } from './ExecutionContext';
-export type { ToolExecutionContext } from './ExecutionContext';
 
 // Utils
 export { DiffRenderer } from '@/shared/utils/DiffRenderer';

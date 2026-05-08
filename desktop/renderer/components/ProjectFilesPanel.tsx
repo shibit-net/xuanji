@@ -135,7 +135,7 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
       if (r.success && r.items) {
         setRootPath(r.currentPath || '');
         setGitBranch(r.gitBranch ?? null);
-        setTreeData(r.items.map(i => ({ entry: i, depth: 0, expanded: false })));
+        setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
         if (r.currentPath) loadGitStatus(r.currentPath);
       } else {
         setError(r.error || '无法读取目录');
@@ -155,7 +155,7 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
         if (!r.success || !r.items) return;
         setRootPath(r.currentPath || '');
         setGitBranch(r.gitBranch ?? null);
-        setTreeData(r.items.map(i => ({ entry: i, depth: 0, expanded: false })));
+        setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
         setError('');
         if (r.currentPath) loadGitStatus(r.currentPath);
       });
@@ -184,7 +184,7 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
       try {
         const r = await window.electron.workspaceReadDirectory(node.entry.path);
         if (r.success && r.items) {
-          setTreeData(p => updateNode(p, node.entry.path, { expanded: true, loading: false, children: r.items.map(i => ({ entry: i, depth: node.depth + 1, expanded: false })) }));
+          setTreeData(p => updateNode(p, node.entry.path, { expanded: true, loading: false, children: (r.items ?? []).map(i => ({ entry: i, depth: node.depth + 1, expanded: false })) }));
         } else {
           setTreeData(p => updateNode(p, node.entry.path, { loading: false }));
         }
@@ -219,9 +219,23 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        {loading && <div className="flex items-center justify-center h-full"><RefreshCw size={16} className="animate-spin text-muted-foreground/40" /></div>}
+        {loading && (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-3">
+              <RefreshCw size={16} className="animate-spin text-muted-foreground/30" />
+              <span className="text-[10px] text-muted-foreground/20">加载中...</span>
+            </div>
+          </div>
+        )}
         {error && <div className="p-3 text-xs text-destructive/80">{error}</div>}
-        {!loading && !error && treeData.length === 0 && <div className="p-3 text-xs text-muted-foreground/50">空目录</div>}
+        {!loading && !error && treeData.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full px-6 text-center">
+            <div className="w-10 h-10 rounded-xl bg-card backdrop-blur-sm flex items-center justify-center mb-3">
+              <FolderOpen size={18} className="text-muted-foreground/30" />
+            </div>
+            <p className="text-xs text-muted-foreground/40">空目录</p>
+          </div>
+        )}
         {!loading && !error && treeData.map(n => (
           <TreeItem key={n.entry.path} node={n} onToggle={handleToggle} onOpenFile={handleOpenFile} gitStatus={gitStatus} rootRelPath={rootRelPath} />
         ))}

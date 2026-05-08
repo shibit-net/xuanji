@@ -57,13 +57,35 @@ export class ContextManager {
     this.messages.push({ role: 'user', content });
   }
 
-  setSystemPromptSuffix(suffix: string, _key: string): void {
+  /** 追加一段内容到 system prompt 末尾。如果 key 已存在则替换不追加。suffix 为空字符串时清除该 key 的内容。 */
+  setSystemPromptSuffix(suffix: string, key: string): void {
     if (this.messages.length > 0 && this.messages[0].role === 'system') {
-      const current = typeof this.messages[0].content === 'string' ? this.messages[0].content : '';
-      if (suffix) {
-        this.messages[0] = { role: 'system', content: current + '\n\n' + suffix };
+      let current = typeof this.messages[0].content === 'string' ? this.messages[0].content : '';
+      // 用 key 标记替换：查找已有标记并替换，否则追加
+      const marker = `<!-- suffix:${key} -->`;
+      const startTag = `${marker}\n`;
+      const endTag = `\n<!-- /suffix:${key} -->`;
+      const startIdx = current.indexOf(startTag);
+      const endIdx = current.indexOf(endTag);
+      if (startIdx !== -1 && endIdx !== -1) {
+        if (suffix) {
+          // 替换已有的 key 内容
+          current = current.slice(0, startIdx) + startTag + suffix + current.slice(endIdx);
+        } else {
+          // 清除该 key 的内容（包括标记）
+          current = current.slice(0, startIdx) + current.slice(endIdx + endTag.length);
+        }
+        this.messages[0] = { role: 'system', content: current };
+      } else if (suffix) {
+        // 追加新 key
+        this.messages[0] = { role: 'system', content: current + '\n\n' + startTag + suffix + endTag };
       }
     }
+  }
+
+  /** 按 key 清除 system prompt 中的某些标记内容 */
+  clearSystemPromptSuffix(key: string): void {
+    // 暂不实现，保留接口
   }
 
   replaceMessages(messages: Message[]): void {
@@ -156,6 +178,44 @@ export class ContextManager {
     return result;
   }
 
+  /** 检查消息是否包含 tool_result，用于防止压缩拆散 tool_call/tool_result 对 */
+  private isToolResultMessage(msg: Message): boolean {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return false;
+    return (msg.content as ContentBlock[]).some(b => b.type === 'tool_result');
+  }
+
+  /** 检查消息是否包含 tool_use，用于防止压缩拆散 tool_call/tool_result 对 */
+  private isToolUseMessage(msg: Message): boolean {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return false;
+    return (msg.content as ContentBlock[]).some(b => b.type === 'tool_use');
+  }
+
+  /** 找到指定 tool_result 消息前面最近的 assistant tool_use 消息索引 */
+  private findPrecedingToolUse(toolResultIdx: number): number {
+    for (let i = toolResultIdx - 1; i >= 1; i--) {
+      if (this.isToolUseMessage(this.messages[i])) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * 向上调整 boundary，确保 boundary 之后保留的 tool_result 消息
+   * 都能找到对应的 tool_use 消息（不被丢弃在 boundary 之前）
+   */
+  private adjustBoundaryForToolPairs(boundary: number): number {
+    let adjusted = boundary;
+    for (let i = boundary; i < this.messages.length; i++) {
+      if (!this.isToolResultMessage(this.messages[i])) continue;
+      const pairIdx = this.findPrecedingToolUse(i);
+      if (pairIdx >= 0 && pairIdx < adjusted) {
+        adjusted = pairIdx;
+      }
+    }
+    return adjusted;
+  }
+
   private simpleCompress(originalTokens: number): CompressionResult {
     // 保留 system prompt + 最近 10 轮用户对话
     const systemMsg = this.messages[0];
@@ -178,6 +238,9 @@ export class ContextManager {
         if (userCount >= 10) { boundary = i; break; }
       }
     }
+
+    // 防止拆散 tool_call/tool_result 对：确保 boundary 之后的 tool_result 都有对应的 tool_use
+    boundary = this.adjustBoundaryForToolPairs(boundary);
 
     const oldCount = boundary - 1;
     if (oldCount <= 0) {
@@ -228,6 +291,9 @@ export class ContextManager {
         if (userCount >= 2) { boundary = i; break; }
       }
     }
+
+    // 防止拆散 tool_call/tool_result 对：确保 boundary 之后的 tool_result 都有对应的 tool_use
+    boundary = this.adjustBoundaryForToolPairs(boundary);
 
     const dropped = boundary - 1;
     const compressed = [systemMsg, ...this.messages.slice(boundary)];

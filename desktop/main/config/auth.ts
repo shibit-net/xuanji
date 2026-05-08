@@ -1,6 +1,5 @@
 import { safeStorage } from 'electron';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { authService, apiClient, type User } from '../services/index.js';
 
@@ -210,6 +209,10 @@ async function loadAuthState(): Promise<AuthState> {
     // 同步到 Electron Session Cookies
     await syncToElectronCookies();
 
+    // 注册 1101 自动刷新回调 + 启动主动刷新
+    registerRefreshHandler();
+    startProactiveRefresh();
+
     return authState;
   }
 
@@ -244,6 +247,9 @@ async function getSavedAccounts(): Promise<SavedAccount[]> {
 }
 
 async function clearAuthState() {
+  // 停止主动刷新定时器
+  stopProactiveRefresh();
+
   // 清除当前登录状态文件
   await clearCurrentAuth();
 
@@ -268,15 +274,76 @@ function isTokenValid(): boolean {
   return Date.now() < authState.tokenExpiresAt;
 }
 
+// ─── Token 刷新 & 主动续期 ────────────────────────────
+
+/** 主动刷新定时器句柄 */
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 主动刷新间隔（50 分钟，accessToken 1 小时过期前预留缓冲） */
+const PROACTIVE_REFRESH_INTERVAL = 50 * 60 * 1000;
+
+/** 执行 token 刷新（apiClient 的 1101 拦截器和主动定时器共用） */
+async function performRefresh(): Promise<boolean> {
+  try {
+    const result = await authService.refreshToken();
+    if (result.success) {
+      await syncCookiesFromClient();
+      await saveAuthState();
+      return true;
+    }
+  } catch (err) {
+    console.error('[performRefresh] 刷新 token 失败:', err);
+  }
+  return false;
+}
+
+/** 向 apiClient 注册 1101 自动刷新回调 */
+function registerRefreshHandler(): void {
+  apiClient.setRefreshTokenHandler(async () => {
+    return performRefresh();
+  });
+}
+
+/** 启动主动 token 刷新定时器（每 50 分钟刷新一次） */
+function startProactiveRefresh(): void {
+  stopProactiveRefresh();
+  console.log('[Auth] 启动主动 token 刷新定时器（每 50 分钟）');
+  refreshTimer = setInterval(async () => {
+    if (!authState.refreshToken) {
+      stopProactiveRefresh();
+      return;
+    }
+    console.log('[Auth] 主动刷新 token...');
+    const ok = await performRefresh();
+    if (!ok) {
+      console.error('[Auth] 主动刷新失败，清除认证状态');
+      await clearAuthState();
+    }
+  }, PROACTIVE_REFRESH_INTERVAL);
+}
+
+/** 停止主动 token 刷新定时器 */
+function stopProactiveRefresh(): void {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
 async function syncCookiesFromClient() {
   const accessToken = apiClient.getCookie('accessToken');
   const refreshToken = apiClient.getCookie('refreshToken');
   const expiresInStr = apiClient.getCookie('tokenExpiresIn');
+  const refreshExpiresInStr = apiClient.getCookie('refreshTokenExpiresIn');
 
   authState.accessToken = accessToken || null;
   authState.refreshToken = refreshToken || null;
   const expiresIn = expiresInStr ? parseInt(expiresInStr, 10) : 3600;
   authState.tokenExpiresAt = Date.now() + (expiresIn * 1000);
+
+  // 同步 refreshToken 过期时间（从服务端 Set-Cookie 的 Max-Age 解析，不再硬编码）
+  const refreshExpiresIn = refreshExpiresInStr ? parseInt(refreshExpiresInStr, 10) : 259200;
+  (authState as any)._refreshTokenExpiresAt = Date.now() + (refreshExpiresIn * 1000);
 
   // 同步到 Electron Session Cookies
   try {
@@ -323,6 +390,7 @@ async function syncToElectronCookies() {
     }
 
     if (authState.refreshToken) {
+      const refreshExpiresAt = (authState as any)._refreshTokenExpiresAt;
       await session.defaultSession.cookies.set({
         url: baseUrl,
         name: 'refreshToken',
@@ -332,7 +400,7 @@ async function syncToElectronCookies() {
         secure: true,
         httpOnly: true,
         sameSite: 'lax',
-        expirationDate: authState.tokenExpiresAt ? (authState.tokenExpiresAt + 259200000) / 1000 : undefined
+        expirationDate: refreshExpiresAt ? refreshExpiresAt / 1000 : undefined,
       });
     }
 
@@ -377,6 +445,10 @@ export {
   setAuthState,
   removeAccount,
   getSavedAccounts,
+  registerRefreshHandler,
+  startProactiveRefresh,
+  stopProactiveRefresh,
+  performRefresh,
   type AuthState,
   type SavedAccount
 };

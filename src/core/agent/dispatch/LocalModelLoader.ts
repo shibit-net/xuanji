@@ -6,35 +6,12 @@
 
 import { logger } from '@/core/logger/index.js';
 import { DownloadManager } from '@/core/download/DownloadManager.js';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
-
 const log = logger.child({ module: 'LocalModelLoader' });
 
-// 向上查找 xuanji 项目根目录（包含 package.json 且 name 为 xuanji）
-function findProjectRoot(startDir: string): string {
-  let current = startDir;
-  while (current !== path.dirname(current)) {
-    const pkgPath = path.join(current, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.name === 'xuanji') {
-          return current;
-        }
-      } catch {}
-    }
-    current = path.dirname(current);
-  }
-  // 回退方案：假设在 src/core/agent/dispatch/ 下，向上 4 级
-  return path.join(startDir, '../../../..');
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = findProjectRoot(__dirname);
-const MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'models');
+const MODEL_DIR = path.join(homedir(), '.xuanji', 'models');
 
 export interface ModelConfig {
   /** 模型 ID，支持格式:
@@ -54,8 +31,6 @@ export class LocalModelLoader {
   private config: ModelConfig;
   private loading: Promise<void> | null = null;
   private downloadTaskId: string | null = null;
-  private LlamaChatSessionClass: any = null;
-
   constructor(config: ModelConfig) {
     this.config = config;
   }
@@ -124,7 +99,7 @@ export class LocalModelLoader {
       return fs.existsSync(localPath);
     }
 
-    const [, repoPath, filename] = this.config.modelId.split(':');
+    const [, _repoPath, filename] = this.config.modelId.split(':');
     if (!filename) return false;
     const localPath = path.join(MODEL_DIR, filename);
     return fs.existsSync(localPath);
@@ -159,8 +134,6 @@ export class LocalModelLoader {
 
     // 解析模型 URI 并下载（如果不存在）
     const modelPath = await this.downloadModelIfNeeded(this.config.modelId);
-
-    this.LlamaChatSessionClass = LlamaChatSession;
 
     this.llama = await getLlama();
     this.model = await this.llama.loadModel({ modelPath });

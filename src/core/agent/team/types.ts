@@ -222,6 +222,8 @@ export interface TaskExecutionResult {
   error?: string;
   /** 失败分类（失败时填充） */
   failureCategory?: FailureCategory;
+  /** 重试次数（0 表示首次执行，未重试） */
+  retryCount?: number;
   /** 产出的文件路径列表 */
   outputFiles?: string[];
   /** checkpoint 保存时间戳（内部使用） */

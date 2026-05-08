@@ -1,18 +1,24 @@
 // ============================================================
-// InputArea - 输入区组件（适配异步 Agent 任务模式）
+// InputArea - 输入区组件
 // ============================================================
 //
-// 发送策略（根据主 agent 状态自动选择）：
-//   主 agent 空闲 → 直接发送
-//   主 agent 执行工具中 → 中断当前执行 + 注入新消息
-//   主 agent 流式输出中 → 追加消息，等待流式完成后处理
-//   后台异步任务运行中（主 agent 空闲）→ 直接发送
+// 发送策略：前端统一走 sendMessage，后端 ChatSession.handleUserInput()
+// 基于权威同步状态（StateTracker）决定路由：
+//   idle/waiting_async → 直接执行
+//   executing         → 中断当前 + 入队 + 排空队列
+//   outputting        → 追加到队列，等当前 run 结束后消费
+//
+// 纯停止（无输入时按停止按钮）→ agentInterrupt() → agentLoop.stop()
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, StopCircle, Archive, Brain, Loader2 } from 'lucide-react';
-import { useChatStore, Message } from '../stores/chatStore';
+import { useMessageStore } from '../stores/messageStore';
+import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
+
 import { useToast } from './Toast';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 export default function InputArea() {
   const [input, setInput] = useState('');
@@ -20,91 +26,130 @@ export default function InputArea() {
   const [isCompacting, setIsCompacting] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const sendMessage = useChatStore((state) => state.sendMessage);
-  const addMessage = useChatStore((state) => state.addMessage);
-  const status = useChatStore((state) => state.status);
-  const currentStreamingId = useChatStore((state) => state.currentStreamingId);
-  const messages = useChatStore((state) => state.messages);
-  const autoSummarizeActive = useChatStore((state) => state._autoSummarizeActive);
+  const sendMessage = useMessageStore((state) => state.sendMessage);
+  const autoSummarizeActive = useMessageStore((state) => state._autoSummarizeActive);
   const toast = useToast();
 
   // ─── 状态判定 ───────────────────────────────────────
-  const isIdle = status === 'idle';
+  const convState = useMessageStore((s) => s._conversationState);
+  const isIdle = convState === 'idle' || convState === 'waiting_async';
   const isRunning = !isIdle;
-  const isStreaming = isRunning && currentStreamingId !== null;
-  const isExecutingTools = isRunning && currentStreamingId === null;
-  // 后台任务完成自动汇总：用户可正常发送消息，不阻塞交互
-  const isAutoSummarizing = isRunning && autoSummarizeActive;
+  const isToolExecuting = convState === 'executing';
+  const isSummarizing = convState === 'outputting';
+  const isAutoSummarizing = autoSummarizeActive;
 
-  // ─── 后台任务追踪 ───────────────────────────────────
-  const backgroundTaskIds = React.useMemo(() => {
-    const ids: string[] = [];
-    for (const msg of messages) {
-      if (msg.role !== 'assistant' || !msg.toolCalls) continue;
-      for (const tc of msg.toolCalls) {
-        if ((tc.name === 'agent_team' || tc.name === 'task') && tc.output) {
-          const m = tc.output.match(/任务组 ID: (at-[a-f0-9]+)/);
-          if (m) ids.push(m[1]);
-        }
+  // ─── 后台任务追踪（统一从 backgroundTaskStore 派生）───
+  // 生命周期: creating → running → completed → cleared
+  const runningTaskCount = useBackgroundTaskStore((s) => {
+    let count = 0;
+    for (const t of Object.values(s.tasks)) {
+      if (t.lifecycle === 'cleared') continue;
+      if (t.type === 'task') {
+        if (t.lifecycle === 'creating' || t.lifecycle === 'running') count++;
+      } else {
+        if (t.members.some(m => m.lifecycle === 'creating' || m.lifecycle === 'running')) count++;
       }
     }
-    return [...new Set(ids)];
-  }, [messages]);
+    return count;
+  });
+  const completedTaskCount = useBackgroundTaskStore((s) => {
+    let count = 0;
+    for (const t of Object.values(s.tasks)) {
+      if (t.lifecycle === 'cleared') continue;
+      if (t.type === 'task') {
+        if (t.lifecycle === 'completed') count++;
+      } else {
+        if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed')) count++;
+      }
+    }
+    return count;
+  });
+  const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
 
   // ─── 自动调整 textarea 高度 ─────────────────────────
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+      // 内容少时固定高度，超出时自动增长
+      const baseScroll = textareaRef.current.scrollHeight;
+      if (baseScroll <= 44) {
+        textareaRef.current.style.height = '44px';
+      } else {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+      }
     }
   }, [input]);
 
+  // 首次 mount 时固定为一行高度
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '44px';
+    }
+  }, []);
+
   // ─── 发送入口 ───────────────────────────────────────
+  // 统一走 sendMessage，后端 handleUserInput 基于权威同步状态决定：
+  //   idle → 直接执行 / executing → 中断 + 入队 / outputting → 追加到队列
   const handleSubmit = useCallback(async () => {
     if (!input.trim() || isSending) return;
     const content = input.trim();
     setInput('');
     setIsSending(true);
-
     try {
-      if (isIdle || isAutoSummarizing) {
-        // 主 agent 空闲 / 后台任务完成自动汇总中 → 直接发送
-        sendMessage(content);
-      } else if (isExecutingTools) {
-        // 正在执行工具 → 中断当前执行 + 注入新消息
-        const msg: Message = {
-          id: `interrupt-${Date.now()}`,
-          role: 'user',
-          content,
-          timestamp: Date.now(),
-        };
-        addMessage(msg);
-        await window.electron.agentInterrupt(content);
-        toast.success('已中断并发送新消息');
-      } else if (isStreaming) {
-        // 正在流式输出 → 追加消息，等待流式完成后处理
-        const msg: Message = {
-          id: `append-${Date.now()}`,
-          role: 'user',
-          content,
-          timestamp: Date.now(),
-        };
-        addMessage(msg);
-        await window.electron.agentAppendMessage(content);
-        toast.info('消息将在流式输出完成后处理');
-      }
-    } catch (error) {
-      toast.error('发送失败');
+      sendMessage(content);
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, isIdle, isExecutingTools, isStreaming, sendMessage, addMessage, toast]);
+  }, [input, isSending, sendMessage]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
     window.electron.agentInterrupt();
+  }, []);
+
+  // ─── 拖拽文件放入 ────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 只在离开容器时取消高亮（避免子元素触发）
+    if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
+    const pathList: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i] as File & { path?: string };
+      if (file.path) {
+        pathList.push(file.path);
+      }
+    }
+
+    if (pathList.length === 0) return;
+
+    setInput((prev) => {
+      const trimmed = prev.trimEnd();
+      return trimmed ? `${trimmed}\n${pathList.join('\n')}` : pathList.join('\n');
+    });
   }, []);
 
   // ─── 键盘事件 ───────────────────────────────────────
@@ -152,59 +197,90 @@ export default function InputArea() {
 
   // ─── 文案 ───────────────────────────────────────────
   const placeholder = isAutoSummarizing
-    ? '输入你的问题... (后台任务结果汇总中，可直接发送)'
-    : isExecutingTools
-    ? '正在执行工具，输入内容将中断并替换当前任务...'
-    : isStreaming
-    ? '正在生成回复，输入内容将在输出完成后处理...'
-    : backgroundTaskIds.length > 0
-    ? '输入你的问题... (后台任务运行中，可直接发送新任务)'
-    : '输入你的问题... (支持 Markdown)';
+    ? '说点什么... (后台汇总中)'
+    : isRunning
+    ? '说点什么... (工作执行中，消息将自动排队)'
+    : runningTaskCount > 0
+    ? '说点什么... (后台任务运行中)'
+    : '说点什么...';
 
   const isSendDisabled = !input.trim() || isSending;
 
   return (
-    <div className="flex-shrink-0 border-t border-bg-tertiary bg-bg-secondary">
-      {/* 后台任务提示栏 */}
-      {(backgroundTaskIds.length > 0 || isAutoSummarizing) && (isIdle || isAutoSummarizing) && (
-        <div className="flex items-center gap-2 px-4 py-1 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-900/30">
-          <Loader2 size={12} className="animate-spin text-blue-600 flex-shrink-0" />
-          <span className="text-xs text-blue-700 dark:text-blue-300 truncate">
-            {isAutoSummarizing
-              ? '后台任务结果汇总中...'
-              : `${backgroundTaskIds.length} 个后台任务运行中 (${backgroundTaskIds.join(', ')})`}
+    <div
+      className={`flex-shrink-0 border-t bg-muted/50 transition-colors ${
+        isDragOver
+          ? 'border-blue-400 border-2 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+          : 'border-border'
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 后台任务提示栏 — 多态：运行中/等待汇报/异步后台任务/混合态 */}
+      {hasBackgroundTasks && (
+        <div className={`flex items-center gap-2 px-4 py-1 border-b ${
+          runningTaskCount > 0
+            ? 'bg-blue-500/10 border-blue-500/20'
+            : 'bg-green-500/10 border-green-500/20'
+        }`}>
+          {runningTaskCount > 0 ? (
+            <Loader2 size={12} className="animate-spin text-blue-500 flex-shrink-0" />
+          ) : (
+            <span className="text-xs text-green-400 flex-shrink-0">⏳</span>
+          )}
+          <span className={`text-xs truncate ${
+            runningTaskCount > 0 ? 'text-blue-400' : 'text-green-400'
+          }`}>
+            {(() => {
+              const totalRunning = runningTaskCount;
+              const totalReporting = completedTaskCount;
+              const parts: string[] = [];
+              if (totalRunning > 0) parts.push(`${totalRunning} 个任务运行中`);
+              if (totalReporting > 0) parts.push(`${totalReporting} 个待汇报`);
+              return parts.join(' · ');
+            })()}
           </span>
-          <span className="text-xs text-blue-400 ml-auto flex-shrink-0">
-            可直接发送新任务
+          <span className={`text-xs ml-auto flex-shrink-0 ${
+            runningTaskCount > 0 ? 'text-blue-400' : 'text-green-400'
+          }`}>
+            {isAutoSummarizing ? '正在汇总...' : runningTaskCount > 0 ? '可直接发送新任务' : '等待汇总'}
           </span>
         </div>
       )}
 
       {/* 工具栏 */}
       <div className="flex items-center gap-2 px-4 pt-3">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={handleCompact}
           disabled={isCompacting || isRunning}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="压缩历史消息，减少 token 使用"
         >
-          <Archive size={14} />
-          <span>{isCompacting ? '压缩中...' : '压缩消息'}</span>
-        </button>
-        <button
+          <Archive size={14} className="mr-1" />
+          {isCompacting ? '压缩中...' : '压缩消息'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={handleMemoryFlush}
           disabled={isFlushing || isRunning}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="提取对话中的记忆，保存到长期记忆库"
         >
-          <Brain size={14} />
-          <span>{isFlushing ? '提取中...' : '提取记忆'}</span>
-        </button>
+          <Brain size={14} className="mr-1" />
+          {isFlushing ? '提取中...' : '提取记忆'}
+        </Button>
       </div>
 
       {/* 输入区域 */}
-      <div className="flex items-end gap-2 p-4">
-        <textarea
+      <div className="flex items-end gap-2 p-4 relative">
+        {isDragOver && (
+          <div className="absolute inset-2 flex items-center justify-center bg-blue-500/10 rounded-xl border-2 border-dashed border-blue-400 z-10 pointer-events-none">
+            <span className="text-blue-400 text-sm">释放以添加文件路径</span>
+          </div>
+        )}
+        <Textarea
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -213,52 +289,46 @@ export default function InputArea() {
           onCompositionEnd={() => setIsComposing(false)}
           placeholder={placeholder}
           disabled={isSending}
-          className="flex-1 bg-bg-primary border border-bg-tertiary rounded-lg px-4 py-2 resize-none focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+          className="flex-1 resize-none"
           rows={1}
           style={{ maxHeight: '150px' }}
         />
 
         {/* 停止 / 发送按钮 */}
         {isRunning && !isAutoSummarizing && !input.trim() && !isSending ? (
-          <button
+          <Button
+            variant="destructive"
             onClick={handleStop}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 flex-shrink-0"
           >
-            <StopCircle size={16} />
-            <span>停止</span>
-          </button>
+            <StopCircle size={16} className="mr-1" />
+            停止
+          </Button>
         ) : (
-          <button
+          <Button
             onClick={handleSubmit}
             disabled={isSendDisabled}
-            className={`px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
-              isAutoSummarizing
-                ? 'bg-primary hover:bg-primary/90'
-                : isExecutingTools
-                ? 'bg-red-600 hover:bg-red-700'
-                : isStreaming
-                ? 'bg-orange-600 hover:bg-orange-700'
-                : 'bg-primary hover:bg-primary/90'
-            }`}
           >
             {isSending ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin mr-1" />
             ) : (
-              <Send size={16} />
+              <Send size={16} className="mr-1" />
             )}
-            <span>{isSending ? '发送中...' : '发送'}</span>
-          </button>
+            {isSending ? '发送中...' : '发送'}
+          </Button>
         )}
       </div>
 
       {/* 底部提示 */}
-      <div className="px-4 pb-2 text-xs text-text-secondary">
-        Enter 发送 · Shift+Enter 换行 · Esc 清空
+      <div className="px-4 pb-2 text-xs text-muted-foreground">
+        Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入文件追加路径
         {isAutoSummarizing && <span className="ml-2 text-blue-500">· 后台任务结果汇总中</span>}
-        {!isAutoSummarizing && isExecutingTools && <span className="ml-2 text-red-500">· 输入将中断当前工具执行</span>}
-        {!isAutoSummarizing && isStreaming && <span className="ml-2 text-orange-500">· 输入将在输出完成后处理</span>}
-        {isIdle && backgroundTaskIds.length > 0 && (
-          <span className="ml-2 text-blue-500">· 后台任务运行中</span>
+        {!isAutoSummarizing && isToolExecuting && <span className="ml-2 text-red-500">· 工具执行中</span>}
+        {!isAutoSummarizing && isSummarizing && <span className="ml-2 text-orange-500">· 流式输出中</span>}
+        {isIdle && runningTaskCount > 0 && (
+          <span className="ml-2 text-blue-500">· {runningTaskCount} 个后台任务运行中</span>
+        )}
+        {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && (
+          <span className="ml-2 text-green-500">· {completedTaskCount} 个后台任务待汇报</span>
         )}
       </div>
     </div>

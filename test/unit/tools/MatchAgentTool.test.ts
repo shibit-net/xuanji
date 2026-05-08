@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
-import type { EmbeddingProvider } from '@/embedding/EmbeddingProvider';
+// EmbeddingProvider interface (embedding模块已删除，保留接口用于测试)
+interface EmbeddingProvider {
+  embed(text: string): Promise<number[]>;
+  cosineSimilarity(a: number[] | Float32Array, b: number[] | Float32Array): number;
+  embedBatch?: any;
+  computeSimilarity?: any;
+  findMostSimilar?: any;
+  getModelId?: any;
+  getDimensions?: any;
+  init?: any;
+  updateConfig?: any;
+  getService?: any;
+}
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 
 // ============================================================

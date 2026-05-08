@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadProjectConfig, getProjectRulesPath, PROJECT_CONFIG_DIR_NAME } from '@/core/config/ProjectConfig';
+import { ProjectConfig, PROJECT_CONFIG_DIR_NAME } from '@/core/config/ProjectConfig';
 import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -27,7 +27,7 @@ describe('ProjectConfig', () => {
         'utf-8',
       );
 
-      const config = await loadProjectConfig(testDir);
+      const config = await ProjectConfig.loadProjectConfig(testDir);
       expect(config).toEqual({ provider: { model: 'test-model' } });
     });
 
@@ -36,7 +36,7 @@ describe('ProjectConfig', () => {
       await mkdir(configDir, { recursive: true });
       await writeFile(join(configDir, 'config.json'), 'not valid json', 'utf-8');
 
-      const config = await loadProjectConfig(testDir);
+      const config = await ProjectConfig.loadProjectConfig(testDir);
       expect(config).toEqual({});
     });
   });
@@ -49,7 +49,7 @@ describe('ProjectConfig', () => {
       expect(existsSync(configPath)).toBe(false);
 
       // 首次加载触发自动初始化
-      const config = await loadProjectConfig(testDir);
+      const config = await ProjectConfig.loadProjectConfig(testDir);
 
       // 验证文件已创建
       expect(existsSync(configPath)).toBe(true);
@@ -65,7 +65,7 @@ describe('ProjectConfig', () => {
 
       expect(existsSync(rulesPath)).toBe(false);
 
-      await loadProjectConfig(testDir);
+      await ProjectConfig.loadProjectConfig(testDir);
 
       expect(existsSync(rulesPath)).toBe(true);
     });
@@ -79,7 +79,7 @@ describe('ProjectConfig', () => {
       await writeFile(configPath, '{"custom": "value"}', 'utf-8');
 
       // 加载配置
-      const config = await loadProjectConfig(testDir);
+      const config = await ProjectConfig.loadProjectConfig(testDir);
 
       // 验证未被覆盖
       expect(config).toEqual({ custom: 'value' });
@@ -88,7 +88,7 @@ describe('ProjectConfig', () => {
     });
 
     it('自动生成的 config.json 应包含完整配置项', async () => {
-      await loadProjectConfig(testDir);
+      await ProjectConfig.loadProjectConfig(testDir);
 
       const configPath = join(testDir, '.xuanji', 'config.json');
       const content = await readFile(configPath, 'utf-8');
@@ -111,12 +111,12 @@ describe('ProjectConfig', () => {
 
   describe('getProjectRulesPath()', () => {
     it('应返回正确的 rules.md 路径', () => {
-      const path = getProjectRulesPath('/my/project');
+      const path = ProjectConfig.getProjectRulesPath('/my/project');
       expect(path).toBe('/my/project/.xuanji/rules.md');
     });
 
     it('不传参数应使用 process.cwd()', () => {
-      const path = getProjectRulesPath();
+      const path = ProjectConfig.getProjectRulesPath();
       expect(path).toContain('.xuanji/rules.md');
     });
   });

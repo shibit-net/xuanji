@@ -2,6 +2,7 @@
  * Stats storage - persists usage records to JSON files
  */
 
+import { homedir } from 'node:os';
 import fs from 'fs/promises';
 import path from 'path';
 import type { IStatsStorage, UsageRecord } from '../../types/stats.js';
@@ -14,7 +15,7 @@ export class StatsStorage implements IStatsStorage {
     if (userId) {
       this.statsDir = getUserStatsDir(userId);
     } else {
-      this.statsDir = baseDir || path.join(process.cwd(), '.xuanji', 'stats');
+      this.statsDir = baseDir || path.join(homedir(), '.xuanji', 'stats');
     }
   }
 

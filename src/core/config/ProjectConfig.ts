@@ -1,82 +1,248 @@
 // ============================================================
-// M9 配置管理 — 项目配置 (.xuanji/config.json)
+// 项目配置系统（多层合并 + 项目初始化）
+// ============================================================
+//
+// 配置优先级（从高到低）：
+//   1. 环境变量（XUANJI_*）
+//   2. 项目配置（{cwd}/.xuanji/config.json）
+//   3. 默认值
+//
+// 首次启动时自动初始化 .xuanji/config.json 和 rules.md
+//
+
+import { join, dirname } from 'node:path';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import type { AppConfig } from '@/core/types';
+import { logger } from '@/core/logger';
+
+const log = logger.child({ module: 'ProjectConfig' });
+
+// ============================================================
+// 常量
 // ============================================================
 
-import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { ProjectConfigWriter } from './ProjectConfigWriter';
+export const PROJECT_CONFIG_DIR_NAME = '.xuanji';
+export const PROJECT_CONFIG_FILE_NAME = 'config.json';
+export const CONFIG_VERSION = '1.0';
 
-/** 项目配置目录名 */
-const PROJECT_CONFIG_DIR_NAME = '.xuanji';
+// ============================================================
+// 配置文件结构
+// ============================================================
 
-/** 项目配置文件名 */
-const PROJECT_CONFIG_FILE_NAME = 'config.json';
-
-/**
- * 获取项目配置文件路径
- * @param cwd 项目根目录 (默认 process.cwd())
- */
-function getProjectConfigPath(cwd?: string): string {
-  const base = cwd ?? process.cwd();
-  return join(base, PROJECT_CONFIG_DIR_NAME, PROJECT_CONFIG_FILE_NAME);
+export interface ConfigFile {
+  version: string;
+  config: Partial<AppConfig>;
 }
 
-/**
- * 加载项目级配置
- *
- * 如果配置文件不存在，会自动初始化一份包含所有默认值的完整配置模板。
- * 所有错误静默处理，不阻塞启动流程。
- */
-export async function loadProjectConfig(cwd?: string): Promise<Record<string, unknown>> {
-  try {
-    const path = getProjectConfigPath(cwd);
-    const text = await readFile(path, 'utf-8');
-    return JSON.parse(text);
-  } catch (err) {
-    // 项目配置不存在 — 自动初始化
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      await autoInitProjectConfig(cwd);
-      // 再次尝试读取
-      try {
-        const path = getProjectConfigPath(cwd);
-        const text = await readFile(path, 'utf-8');
-        return JSON.parse(text);
-      } catch {
-        // 初始化失败，返回空对象
+// ============================================================
+// 环境变量映射
+// ============================================================
+
+const ENV_MAPPINGS: Record<string, { path: string; transform?: (v: string) => unknown }> = {
+  'XUANJI_API_KEY':       { path: 'provider.apiKey' },
+  'XUANJI_MODEL':         { path: 'provider.model' },
+  'XUANJI_LIGHT_MODEL':   { path: 'provider.lightModel' },
+  'XUANJI_BASE_URL':      { path: 'provider.baseURL' },
+  'XUANJI_MAX_TOKENS':    { path: 'provider.maxTokens', transform: (v) => parseInt(v, 10) || undefined },
+  'XUANJI_TEMPERATURE':   { path: 'provider.temperature', transform: (v) => parseFloat(v) },
+  'XUANJI_ADAPTER':       { path: 'provider.adapter' },
+  'XUANJI_TIMEOUT':       { path: 'provider.timeout', transform: (v) => parseInt(v, 10) || undefined },
+
+  'XUANJI_EMBEDDING_MODEL': { path: 'embedding.model' },
+  'XUANJI_EMBEDDING_DIMENSIONS': { path: 'embedding.dimensions', transform: (v) => parseInt(v, 10) || undefined },
+  'XUANJI_EMBEDDING_CACHE_ENABLED': { path: 'embedding.cacheEnabled', transform: (v) => v === 'true' || v === '1' },
+  'XUANJI_EMBEDDING_CACHE_MAX_SIZE': { path: 'embedding.cacheMaxSize', transform: (v) => parseInt(v, 10) || undefined },
+  'XUANJI_EMBEDDING_HF_MIRROR': { path: 'embedding.hfMirror' },
+  'HF_ENDPOINT': { path: 'embedding.hfMirror' },
+
+  'XUANJI_THEME':         { path: 'ui.theme' },
+  'XUANJI_LANGUAGE':      { path: 'ui.language' },
+  'XUANJI_LOCALE':        { path: 'ui.language' },
+
+  'XUANJI_MEMORY_ENABLED': { path: 'memory.enabled', transform: (v) => v === 'true' || v === '1' },
+
+  'TAVILY_API_KEY':       { path: 'webSearch.apiKeys.tavily' },
+  'BRAVE_API_KEY':        { path: 'webSearch.apiKeys.brave' },
+  'SERPER_API_KEY':       { path: 'webSearch.apiKeys.serper' },
+};
+
+// ============================================================
+// 工具函数
+// ============================================================
+
+export function deepMergeConfig(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target };
+
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = result[key];
+
+    if (srcVal === undefined) continue;
+
+    if (
+      srcVal !== null && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+      tgtVal !== null && tgtVal !== undefined && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+    ) {
+      result[key] = deepMergeConfig(
+        tgtVal as Record<string, unknown>,
+        srcVal as Record<string, unknown>,
+      );
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
+}
+
+export function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, key) => {
+    if (acc && typeof acc === 'object') {
+      return (acc as Record<string, unknown>)[key];
+    }
+    return undefined;
+  }, obj);
+}
+
+export function setByPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const keys = path.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!(key in current) || typeof current[key] !== 'object' || current[key] === null) {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
+}
+
+// ============================================================
+// ProjectConfig 类
+// ============================================================
+
+export class ProjectConfig {
+  // ── 多层配置加载 ──
+
+  static async load(projectRoot?: string, defaults?: Record<string, unknown>): Promise<Partial<AppConfig>> {
+    let merged: Record<string, unknown> = defaults ? { ...defaults } : {};
+
+    const projectConfig = await ProjectConfig.readProjectConfig(projectRoot);
+    if (Object.keys(projectConfig).length > 0) {
+      merged = deepMergeConfig(merged, projectConfig as Record<string, unknown>);
+    }
+
+    const envConfig = ProjectConfig.resolveEnvConfig();
+    if (Object.keys(envConfig).length > 0) {
+      merged = deepMergeConfig(merged, envConfig);
+    }
+
+    return merged as Partial<AppConfig>;
+  }
+
+  // ── 项目配置路径 ──
+
+  static getProjectConfigPath(projectRoot?: string): string {
+    const base = projectRoot ?? process.cwd();
+    return join(base, PROJECT_CONFIG_DIR_NAME, PROJECT_CONFIG_FILE_NAME);
+  }
+
+  static getProjectRulesPath(projectRoot?: string): string {
+    const base = projectRoot ?? process.cwd();
+    return join(base, PROJECT_CONFIG_DIR_NAME, 'rules.md');
+  }
+
+  // ── 项目配置读写 ──
+
+  static async readProjectConfig(projectRoot?: string): Promise<Partial<AppConfig>> {
+    const configPath = ProjectConfig.getProjectConfigPath(projectRoot);
+    try {
+      const text = await readFile(configPath, 'utf-8');
+      const parsed = JSON.parse(text);
+
+      if (parsed.version && parsed.config) {
+        return (parsed as ConfigFile).config;
+      }
+      return parsed;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.warn(`项目配置文件解析失败: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    // JSON 解析失败等其他错误，返回空对象
+    return {};
   }
-  return {};
-}
 
-/**
- * 自动初始化项目配置（静默执行）
- *
- * 首次启动时自动创建 .xuanji/config.json 和 rules.md。
- * 不覆盖已有文件，所有错误静默处理。
- */
-async function autoInitProjectConfig(cwd?: string): Promise<void> {
-  const writer = new ProjectConfigWriter();
-  try {
-    // 检测语言偏好（从环境变量或默认 en）
-    const language = process.env.XUANJI_LANG === 'zh' ? 'zh' : 'en';
-    await writer.initProjectConfig({
-      language,
-      overwrite: false,
-      generateFullConfig: true,
-    }, cwd);
-  } catch {
-    // 静默失败，不打扰用户
+  static async writeProjectConfig(config: Partial<AppConfig>, projectRoot?: string): Promise<void> {
+    const configPath = ProjectConfig.getProjectConfigPath(projectRoot);
+    await mkdir(dirname(configPath), { recursive: true });
+
+    const configFile: ConfigFile = {
+      version: CONFIG_VERSION,
+      config,
+    };
+    await writeFile(configPath, JSON.stringify(configFile, null, 2), 'utf-8');
+  }
+
+  // ── 带自动初始化的项目配置加载 ──
+
+  static async loadProjectConfig(projectRoot?: string): Promise<Record<string, unknown>> {
+    try {
+      const path = ProjectConfig.getProjectConfigPath(projectRoot);
+      const text = await readFile(path, 'utf-8');
+      return JSON.parse(text);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        await ProjectConfig.autoInitProjectConfig(projectRoot);
+        try {
+          const path = ProjectConfig.getProjectConfigPath(projectRoot);
+          const text = await readFile(path, 'utf-8');
+          return JSON.parse(text);
+        } catch {
+          // 初始化失败，返回空对象
+        }
+      }
+    }
+    return {};
+  }
+
+  // ── 环境变量解析 ──
+
+  static resolveEnvConfig(): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+
+    for (const [envKey, { path, transform }] of Object.entries(ENV_MAPPINGS)) {
+      const value = process.env[envKey];
+      if (value !== undefined && value !== '') {
+        const transformed = transform ? transform(value) : value;
+        if (transformed !== undefined) {
+          setByPath(result, path, transformed);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  static getEnvMappings(): Record<string, { path: string; transform?: (v: string) => unknown }> {
+    return { ...ENV_MAPPINGS };
+  }
+
+  // ── 私有方法 ──
+
+  private static async autoInitProjectConfig(projectRoot?: string): Promise<void> {
+    try {
+      const { ProjectConfigWriter } = await import('./ProjectConfigWriter');
+      const writer = new ProjectConfigWriter();
+      const language = process.env.XUANJI_LANG === 'zh' ? 'zh' : 'en';
+      await writer.initProjectConfig({
+        language,
+        overwrite: false,
+        generateFullConfig: true,
+      }, projectRoot);
+    } catch {
+      // 静默失败
+    }
   }
 }
-
-/**
- * 获取项目规则文件路径 (.xuanji/rules.md)
- */
-export function getProjectRulesPath(cwd?: string): string {
-  const base = cwd ?? process.cwd();
-  return join(base, PROJECT_CONFIG_DIR_NAME, 'rules.md');
-}
-
-export { PROJECT_CONFIG_DIR_NAME, PROJECT_CONFIG_FILE_NAME, getProjectConfigPath };

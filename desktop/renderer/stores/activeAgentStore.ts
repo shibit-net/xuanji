@@ -11,7 +11,7 @@ import { create } from 'zustand';
 
 // ========== Agent 状态类型 ==========
 
-export type AgentStatus = 'idle' | 'pending' | 'thinking' | 'executing' | 'responding' | 'done';
+export type AgentStatus = 'idle' | 'pending' | 'thinking' | 'executing' | 'responding' | 'success' | 'failed' | 'done';
 
 export interface ToolExecution {
   id: string;
@@ -47,6 +47,12 @@ export interface AgentState {
 
   // Agent 类型标识
   agentType?: 'builtin' | 'preset' | 'custom' | 'temporary';
+
+  // 场景类型
+  scene?: string;
+
+  // 执行模式：ACP 隔离进程 / 主进程内联
+  executionMode?: 'acp' | 'in-process';
 
   // 🔧 输出模式：是否直接输出到用户对话框
   streamToUser?: boolean;
@@ -99,6 +105,7 @@ interface ActiveAgentStore {
 
   // ========== 状态更新 ==========
   setAgentStatus: (agentId: string, status: AgentStatus) => void;
+  findAgentById: (agentId: string) => AgentState | null;
   setAgentThought: (agentId: string, thought: string) => void;
   getAgentThought: (agentId: string) => string | undefined;
   setAgentTask: (agentId: string, task: string) => void; // 🔧 新增：设置任务
@@ -205,9 +212,9 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
       ...agent,
       status,
-      // 当 agent 完成时，清空临时状态
+      // 当 agent 完成/失败时，清空临时状态
       // 辩论模式下保留 currentThought：思考气泡需要持续显示到下一轮辩论开始
-      ...(status === 'done' || status === 'success' ? {
+      ...(status === 'done' || status === 'success' || status === 'failed' ? {
         currentThought: agent.multiAgent?.strategy === 'debate' ? agent.currentThought : undefined,
         currentTools: [],
       } : {}),
@@ -218,14 +225,41 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     }
   },
 
+  findAgentById: (agentId: string) => {
+    const { mainAgent } = get();
+    const find = (agent: AgentState | null): AgentState | null => {
+      if (!agent) return null;
+      if (agent.id === agentId) return agent;
+      if (agent.subAgents) {
+        for (const sub of agent.subAgents) {
+          const found = find(sub);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return find(mainAgent);
+  },
+
   setAgentThought: (agentId: string, thought: string) => {
     const { mainAgent } = get();
 
-    const updated = updateAgentInTree(mainAgent, agentId, (agent) => ({
-      ...agent,
-      currentThought: thought,
-      status: 'thinking',
-    }));
+    const updated = updateAgentInTree(mainAgent, agentId, (agent) => {
+      // 清空思考内容（汇报阶段）：始终允许，不回退状态
+      if (!thought) {
+        return { ...agent, currentThought: '' };
+      }
+
+      // 终态保护：agent 已结束时不再累加思考内容，也不再回退状态
+      const finalStatuses: AgentStatus[] = ['done', 'success', 'failed'];
+      if (finalStatuses.includes(agent.status)) return agent;
+
+      return {
+        ...agent,
+        currentThought: thought,
+        status: 'thinking',
+      };
+    });
 
     if (updated) {
       set({ mainAgent: updated });
@@ -265,6 +299,10 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     const { mainAgent } = get();
 
     const updated = updateAgentInTree(mainAgent, agentId, (agent) => {
+      // 终态保护：agent 已结束时拒绝添加工具，防止延迟事件覆盖最终状态
+      const finalStatuses: AgentStatus[] = ['done', 'success', 'failed'];
+      if (finalStatuses.includes(agent.status)) return agent;
+
       // 🔥 防御性检查：避免重复添加相同 ID 的工具
       const exists = agent.currentTools.some(t => t.id === tool.id);
       if (exists) {
@@ -292,6 +330,10 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
     const { mainAgent } = get();
 
     const updated = updateAgentInTree(mainAgent, agentId, (agent) => {
+      // 终态保护：agent 已结束时拒绝更新工具，防止延迟事件覆盖最终状态
+      const finalStatuses: AgentStatus[] = ['done', 'success', 'failed'];
+      if (finalStatuses.includes(agent.status)) return agent;
+
       const toolIndex = agent.currentTools.findIndex(t => t.id === toolId);
       if (toolIndex === -1) return agent;
 
@@ -302,8 +344,8 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
         return {
           ...agent,
           currentTools: updatedTools,
-          // 如果没有正在执行的工具了，状态回到 idle
-          status: updatedTools.length === 0 ? 'idle' : agent.status,
+          // 工具执行完后回到思考状态，而不是 idle（防止 isActiveOrHasActiveChild 过滤掉节点）
+          status: updatedTools.length === 0 ? 'thinking' : agent.status,
         };
       }
 

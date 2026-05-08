@@ -4,7 +4,7 @@
 
 export { ProviderPool } from './ProviderPool';
 export type { HealthStatus } from './ProviderPool';
-export { ProviderFactory } from './ProviderFactory';
+
 export { FallbackManager } from './FallbackManager';
 export { RateLimitManager } from './RateLimitManager';
 export type {

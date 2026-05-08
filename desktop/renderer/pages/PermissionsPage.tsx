@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { ShieldCheck, RefreshCw, Trash2, Search, X } from 'lucide-react';
+import { RefreshCw, Trash2, Search, X } from 'lucide-react';
 
 interface PermissionsPageProps {
   onClose: () => void;
@@ -259,7 +259,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     try {
       const res = await window.electron.permissionConfigGet();
       if (res.success && res.config) {
-        setConfig(res.config);
+        setConfig(res.config as any);
       }
     } catch (err) {
       console.error('Failed to load config:', err);
@@ -409,7 +409,7 @@ const AuditTab: React.FC = () => {
         window.electron.permissionAuditStats()
       ]);
       if (logsRes.success) setLogs(logsRes.logs || []);
-      if (statsRes.success) setStats(statsRes.stats);
+      if (statsRes.success) setStats(statsRes.stats as any);
     } finally {
       setLoading(false);
     }

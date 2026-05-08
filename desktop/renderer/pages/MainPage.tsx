@@ -4,30 +4,59 @@
 // 聊天区 | 监控面板 (可折叠/可调) | 文件树面板 (可折叠/可调)
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import ChatArea from '../components/ChatArea';
 import RightPanel from '../components/RightPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
 import ProjectFilesPanel from '../components/ProjectFilesPanel';
+import { useRuntimeStore } from '../stores/runtimeStore';
+import { useActiveAgentStore } from '../stores/activeAgentStore';
+import { initEventBridge } from '../services/EventBridge';
+
+function formatToken(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
 
 export default function MainPage() {
+  // 初始化事件桥接（只执行一次）
+  React.useEffect(() => { initEventBridge(); }, []);
+
   // 监控面板（RightPanel）
   const [rightPanelVisible, setRightPanelVisible] = useState(true);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = localStorage.getItem('rightPanelWidth');
-    return saved ? parseInt(saved, 10) : 380;
+    return saved ? parseInt(saved, 10) : 520;
   });
 
   // 文件树面板（ProjectFilesPanel）
   const [projectFilesVisible, setProjectFilesVisible] = useState(true);
   const [projectFilesWidth, setProjectFilesWidth] = useState(() => {
     const saved = localStorage.getItem('projectFilesWidth');
-    return saved ? parseInt(saved, 10) : 280;
+    return saved ? parseInt(saved, 10) : 220;
   });
   const [projectFilesResizing, setProjectFilesResizing] = useState(false);
   const [projectFilesStartX, setProjectFilesStartX] = useState(0);
   const [projectFilesStartWidth, setProjectFilesStartWidth] = useState(0);
+
+  // 全局状态统计
+  const currentIteration = useRuntimeStore((s) => s.currentIteration);
+  const mainAgent = useActiveAgentStore((s) => s.mainAgent);
+  const totalTokens = React.useMemo(() => {
+    if (!mainAgent) return { input: 0, output: 0, cached: 0 };
+    const sum = { input: 0, output: 0, cached: 0 };
+    const walk = (agent: typeof mainAgent) => {
+      if (!agent) return;
+      sum.input += agent.stats.tokenUsage.input || 0;
+      sum.output += agent.stats.tokenUsage.output || 0;
+      sum.cached += agent.stats.tokenUsage.cached || 0;
+      if (agent.subAgents) agent.subAgents.forEach(walk);
+    };
+    walk(mainAgent);
+    return sum;
+  }, [mainAgent]);
 
   // 监听右侧面板切换事件
   useEffect(() => {
@@ -85,19 +114,37 @@ export default function MainPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* 中间内容区 */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      {/* 中间内容区 — 对话框 */}
+      <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
+        {/* 全局状态栏 */}
+        <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-white/[0.02]">
+          <div className="flex items-center gap-1.5 text-[11px] text-white/40">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span>{currentIteration} 次迭代</span>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-white/40">
+            <span className="flex items-center gap-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+              入 {formatToken(totalTokens.input)}
+            </span>
+            <span className="flex items-center gap-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+              出 {formatToken(totalTokens.output)}
+            </span>
+          </div>
+        </div>
         <ChatArea />
         <TodoPanel />
         <InputArea />
       </div>
 
-      {/* 监控面板 */}
+      {/* 监控面板 — 与对话框 1:1 占比 */}
       {rightPanelVisible && (
         <RightPanel
           onToggle={() => setRightPanelVisible(!rightPanelVisible)}
           width={rightPanelWidth}
           onResize={handleRightPanelResize}
+          className="flex-[2] min-w-0"
         />
       )}
 

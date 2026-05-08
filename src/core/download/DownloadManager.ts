@@ -11,32 +11,10 @@ import * as https from 'node:https';
 import * as http from 'node:http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { logger } from '../logger/index.js';
-import { fileURLToPath } from 'node:url';
-
+import { homedir } from 'node:os';
 const log = logger.child({ module: 'DownloadManager' });
 
-// 查找项目根目录
-function findProjectRoot(startDir: string): string {
-  let current = startDir;
-  while (current !== path.dirname(current)) {
-    const pkgPath = path.join(current, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.name === 'xuanji') {
-          return current;
-        }
-      } catch {}
-    }
-    current = path.dirname(current);
-  }
-  return startDir;
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = findProjectRoot(__dirname);
-const DOWNLOAD_STATE_FILE = path.join(PROJECT_ROOT, '.xuanji', 'download-state.json');
+const DOWNLOAD_STATE_FILE = path.join(homedir(), '.xuanji', 'download-state.json');
 
 export interface DownloadTask {
   id: string;
@@ -81,7 +59,7 @@ export class DownloadManager extends EventEmitter {
     this.instanceId = ++DownloadManager.instanceCounter;
     this.shouldRestoreTasks = shouldRestoreTasks;
     log.info(`[DownloadManager] 创建实例 #${this.instanceId}, shouldRestoreTasks=${shouldRestoreTasks}`);
-    log.info(`[DownloadManager] Constructor called, PROJECT_ROOT=${PROJECT_ROOT}, DOWNLOAD_STATE_FILE=${DOWNLOAD_STATE_FILE}, shouldRestoreTasks=${shouldRestoreTasks}`);
+    log.info(`[DownloadManager] Constructor called, DOWNLOAD_STATE_FILE=${DOWNLOAD_STATE_FILE}, shouldRestoreTasks=${shouldRestoreTasks}`);
     if (shouldRestoreTasks) {
       this.loadState();
     }

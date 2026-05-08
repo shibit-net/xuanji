@@ -1,9 +1,20 @@
 // ============================================================
-// AskUserDialog - 用户提问对话框（支持单选/多选）
+// AskUserDialog - 用户提问对话框（shadcn Dialog）
+// 支持单选/多选 + 自定义输入
 // ============================================================
 
 import React, { useState } from 'react';
-import { HelpCircle, X, Send, Check } from 'lucide-react';
+import { HelpCircle, Send, Check } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import type { AskUserRequestData } from '../global';
 
 interface AskUserDialogProps {
@@ -16,8 +27,15 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
   const [answer, setAnswer] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
 
-  const hasOptions = request.options && request.options.length > 0;
-  const isMultiSelect = request.multiSelect && hasOptions;
+  // 兼容运行时数据结构：可能是 { questions: [...] } 或扁平结构
+  const q = (request as any).questions?.[0] || (request as any);
+  const questionText = q.question || '';
+  const hasOptions = q.options && q.options.length > 0;
+  const isMultiSelect = q.multiSelect && hasOptions;
+  // options 可能是一个字符串数组或 {label, description} 数组
+  const options: string[] = hasOptions
+    ? q.options.map((o: any) => (typeof o === 'string' ? o : o.label))
+    : [];
 
   const handleRespond = async (answerText: string) => {
     if (!answerText.trim()) return;
@@ -62,28 +80,23 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-bg-secondary border border-bg-tertiary rounded-lg shadow-xl max-w-lg w-full mx-4 overflow-hidden flex flex-col">
-        {/* 头部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
-          <div className="flex items-center gap-3">
-            <HelpCircle size={24} className="text-primary" />
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <HelpCircle size={24} className="text-foreground" />
             <div>
-              <h2 className="text-lg font-semibold">需要您的输入</h2>
-              <span className="text-sm text-text-secondary">Agent 正在等待您的回答</span>
+              <span>需要您的输入</span>
+              <DialogDescription className="mt-0.5">Agent 正在等待您的回答</DialogDescription>
             </div>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-bg-tertiary rounded transition-colors" disabled={loading}>
-            <X size={20} />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
-        {/* 内容 */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="space-y-4">
           <div>
             <div className="text-sm font-semibold mb-2">问题</div>
-            <div className="text-sm text-text-secondary bg-bg-primary p-3 rounded border border-bg-tertiary">
-              {request.question}
+            <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
+              {questionText}
             </div>
           </div>
 
@@ -94,7 +107,7 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
                 {isMultiSelect ? '多选（选择后点击提交）' : '快速选择'}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {request.options!.map((option, index) => {
+                {options!.map((option, index) => {
                   const isSelected = selectedOptions.has(option);
                   return (
                     <button
@@ -102,14 +115,16 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
                       onClick={() => handleOptionClick(option)}
                       disabled={loading}
                       className={`px-4 py-2 text-sm rounded transition-colors disabled:opacity-50 text-left flex items-center gap-2 ${
-                        isSelected ? 'bg-primary text-white' : 'bg-bg-tertiary hover:bg-primary hover:text-white'
+                        isSelected
+                          ? 'bg-foreground text-background'
+                          : 'bg-muted hover:bg-foreground hover:text-background'
                       }`}
                     >
                       {isMultiSelect && (
                         <div className={`w-4 h-4 border rounded flex items-center justify-center flex-shrink-0 ${
-                          isSelected ? 'bg-white border-white' : 'border-text-secondary'
+                          isSelected ? 'bg-background border-background' : 'border-muted-foreground'
                         }`}>
-                          {isSelected && <Check size={12} className="text-primary" />}
+                          {isSelected && <Check size={12} className="text-foreground" />}
                         </div>
                       )}
                       <span className="flex-1">{option}</span>
@@ -118,14 +133,14 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
                 })}
               </div>
               {isMultiSelect && (
-                <button
+                <Button
                   onClick={handleMultiSelectSubmit}
                   disabled={loading || selectedOptions.size === 0}
-                  className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 text-sm bg-primary text-white hover:bg-primary/90 rounded transition-colors disabled:opacity-50"
+                  className="w-full mt-2"
                 >
-                  <Send size={16} />
-                  <span>提交选择 ({selectedOptions.size})</span>
-                </button>
+                  <Send size={16} className="mr-2" />
+                  提交选择 ({selectedOptions.size})
+                </Button>
               )}
             </div>
           )}
@@ -135,34 +150,31 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
             <div className="text-sm font-semibold mb-2">
               {hasOptions ? '或自定义回答' : '您的回答'}
             </div>
-            <textarea
+            <Textarea
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="输入您的回答..."
-              className="w-full bg-bg-primary border border-bg-tertiary rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary"
               rows={3}
               disabled={loading}
             />
-            <div className="text-xs text-text-secondary mt-1">Enter 提交 · Shift+Enter 换行</div>
+            <div className="text-xs text-muted-foreground mt-1">Enter 提交 · Shift+Enter 换行</div>
           </div>
         </div>
 
-        {/* 底部按钮 */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-bg-tertiary">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-primary rounded transition-colors disabled:opacity-50">
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleSubmit}
             disabled={loading || !answer.trim()}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-white hover:bg-primary/90 rounded transition-colors disabled:opacity-50"
           >
-            <Send size={16} />
-            <span>提交</span>
-          </button>
-        </div>
-      </div>
-    </div>
+            <Send size={16} className="mr-2" />
+            提交
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -11,10 +11,10 @@
 // - 支持按时间、工具名、风险级别过滤查询
 //
 
-import { join, basename, extname } from 'node:path';
+import { homedir } from 'node:os';
+import { join, basename } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserLogsDir } from '@/core/config/PathManager';
-import { existsSync } from 'node:fs';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '../../permission/types';
 
 // ── 类型定义 ──
@@ -82,7 +82,7 @@ export interface AuditQueryFilter {
 const MAX_SANITIZE_LENGTH = 200;
 
 /** 默认日志目录 */
-const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+const DEFAULT_LOG_DIR = join(homedir(), '.xuanji', 'logs');
 
 /** 日志保留天数 */
 const LOG_RETENTION_DAYS = 30;

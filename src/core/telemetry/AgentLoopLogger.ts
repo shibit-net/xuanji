@@ -17,11 +17,11 @@
 // - 支持按 sessionId/迭代/事件类型查询
 //
 
+import { homedir } from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserLogsDir } from '@/core/config/PathManager';
-import { existsSync } from 'node:fs';
-import type { TokenUsage, ToolCall, Message } from '../types';
+import type { TokenUsage } from '../types';
 
 // ── 事件类型定义 ──
 
@@ -344,7 +344,7 @@ const MAX_SANITIZE_LENGTH = 500;
 const LOG_RETENTION_DAYS = 30;
 
 /** 日志文件目录 */
-const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+const DEFAULT_LOG_DIR = join(homedir(), '.xuanji', 'logs');
 
 /**
  * AgentLoopLogger — AgentLoop 执行日志记录器

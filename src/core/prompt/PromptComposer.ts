@@ -111,11 +111,13 @@ export class PromptComposer {
   }
 
   async composeForSubAgent(ctx: SubAgentComposeContext): Promise<ComposedPrompt> {
-    // 子 Agent 组合：L0 + L1(场景匹配) + L3
+    // 子 Agent 组合：L0(排除main-agent) + L1(场景匹配) + L3
     const loaded: string[] = [];
     const parts: string[] = [];
 
     for (const c of this.l0Components) {
+      // 主 agent 独有的调度规则对子 agent 没有意义
+      if (c.id === 'main-agent') continue;
       parts.push(await c.render({ agentId: ctx.agentId, taskDescription: ctx.taskDescription, depth: ctx.depth }));
       loaded.push(c.id);
     }

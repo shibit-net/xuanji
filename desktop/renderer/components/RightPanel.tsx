@@ -3,15 +3,20 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Wrench, FileText, X, Activity } from 'lucide-react';
+import { Wrench, FileText, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useChatStore } from '../stores/chatStore';
+import { useMessageStore } from '../stores/messageStore';
+import { useSessionStore } from '../stores/sessionStore';
 import ExecutionFlow from './ExecutionFlow';
+
+// 灰色版头像（workspace 水印背景）
+import watermarkAvatar from '../assets/logos/acfee7f9a0868cf754cd2ab65cd6cfa6.png';
 
 interface RightPanelProps {
   onToggle: () => void;
   width: number;
   onResize: (width: number) => void;
+  className?: string;
 }
 
 type TabId = 'workspace' | 'tools' | 'logs';
@@ -22,7 +27,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'logs', label: '日志', icon: <FileText size={16} /> },
 ];
 
-export default function RightPanel({ onToggle, width, onResize }: RightPanelProps) {
+export default function RightPanel({ onToggle: _onToggle, width, onResize, className }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('workspace');
   const [isResizing, setIsResizing] = useState(false);
   const [startX, setStartX] = useState(0);
@@ -60,7 +65,17 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
   }, [isResizing, startX, startWidth, onResize]);
 
   return (
-    <div className="bg-card flex flex-col border-l border-border relative" style={{ width: `${width}px` }}>
+    <div className={`bg-card flex flex-col border-l border-border relative ${className || ''}`} style={{ minWidth: '280px', maxWidth: '600px' }}>
+      {/* 灰色头像水印 */}
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0 overflow-hidden">
+        <div className="w-[260px] h-[260px]">
+          <img
+            src={watermarkAvatar}
+            alt=""
+            className="w-full h-full object-contain opacity-[0.06]"
+          />
+        </div>
+      </div>
       {/* 拖拽手柄 */}
       <div
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary transition-colors z-10"
@@ -69,7 +84,7 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
       />
 
       {/* 标签页 */}
-      <div className="flex-shrink-0 flex items-center justify-between border-b border-border">
+      <div className="flex-shrink-0 flex items-center border-b border-border">
         <div className="flex">
           {TABS.map((tab) => (
             <button
@@ -86,15 +101,6 @@ export default function RightPanel({ onToggle, width, onResize }: RightPanelProp
             </button>
           ))}
         </div>
-        <Button
-          onClick={onToggle}
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title="关闭面板"
-        >
-          <X size={16} className="text-muted-foreground" />
-        </Button>
       </div>
 
       {/* 内容区域 */}
@@ -119,7 +125,7 @@ function WorkspaceTab() {
 // Checkpoint 标签
 // 工具调用标签（从 chatStore 的流式事件实时统计）
 function ToolsTab() {
-  const messages = useChatStore((state) => state.messages);
+  const messages = useMessageStore((state) => state.messages);
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
 
   // 从消息的 toolCalls 中实时统计工具使用，并保留完整的调用信息
@@ -284,8 +290,8 @@ function ToolsTab() {
 // 记忆库标签
 // 日志流标签（从 chatStore 读取真实日志）
 function LogsTab() {
-  const logs = useChatStore((state) => state.logs);
-  const clearLogs = useChatStore((state) => state.clearLogs);
+  const logs = useSessionStore((state) => state.logs);
+  const clearLogs = useSessionStore((state) => state.clearLogs);
   const [filter, setFilter] = useState<string | null>(null);
 
   const filteredLogs = filter

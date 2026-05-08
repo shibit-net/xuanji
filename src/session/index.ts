@@ -1,17 +1,4 @@
 /**
- * 会话持久化模块
+ * 会话持久化模块（精简版）
  */
-
-export { SessionStorage } from './SessionStorage.js';
 export { SessionManager } from './SessionManager.js';
-export { CheckpointManager } from './CheckpointManager.js';
-
-export type {
-  Message,
-  SessionMetadata,
-  Checkpoint,
-  SessionSnapshot,
-  SessionListItem,
-  SessionStorageOptions,
-  ResumeOptions,
-} from './types.js';

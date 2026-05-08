@@ -1,18 +1,11 @@
 declare module 'picomatch' {
-  interface PicomatchOptions {
+  interface Options {
     dot?: boolean;
     nocase?: boolean;
-    contains?: boolean;
-    matchBase?: boolean;
+    [key: string]: any;
   }
 
-  type Matcher = (input: string) => boolean;
+  function picomatch(pattern: string, options?: Options): (name: string) => boolean;
 
-  interface Picomatch {
-    (glob: string | string[], options?: PicomatchOptions): Matcher;
-    isMatch(input: string, glob: string | string[], options?: PicomatchOptions): boolean;
-  }
-
-  const picomatch: Picomatch;
   export default picomatch;
 }

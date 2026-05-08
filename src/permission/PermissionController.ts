@@ -42,6 +42,7 @@ import { PermissionAudit } from './audit/PermissionAudit';
 import { EventBus } from '@/infrastructure/messaging';
 import { logger } from '@/core/logger';
 import { t } from '@/core/i18n';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
 
@@ -144,7 +145,7 @@ export class PermissionController implements IPermissionController {
     try {
       const dbPath = this.config.decisionsFile
         ? resolve(this.config.decisionsFile)
-        : join(process.cwd(), '.xuanji', this.userId, 'permission-decisions.db');
+        : join(homedir(), '.xuanji', this.userId, 'permission-decisions.db');
 
       this.decisionStore = new DecisionStore(dbPath);
       await this.decisionStore.init();

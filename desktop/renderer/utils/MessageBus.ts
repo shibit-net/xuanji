@@ -98,7 +98,7 @@ class RendererMessageBus {
   private dispatch(eventType: string, data: any): void {
     // 只记录关键事件，减少日志噪音
     if (eventType.startsWith('agent:') && (eventType === 'agent:end' || eventType === 'agent:auto-summarize-start' || eventType === 'agent:thinking')) {
-      console.log(`[MessageBus] dispatch: ${eventType}`);
+      // console.log(`[MessageBus] dispatch: ${eventType}`);
     }
 
     const handlers = this.handlers.get(eventType);
@@ -111,14 +111,14 @@ class RendererMessageBus {
         }
       });
     } else {
-      console.warn('[RendererMessageBus] 没有处理器:', eventType);
+      // console.warn('[RendererMessageBus] 没有处理器:', eventType);
     }
   }
 
   /**
    * 发送消息到主进程
    */
-  async send(type: string, data?: any): Promise<any> {
+  async send(_type: string, data?: any): Promise<any> {
     if (!window.electron) {
       throw new Error('[RendererMessageBus] window.electron 未定义');
     }

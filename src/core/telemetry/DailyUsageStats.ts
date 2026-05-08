@@ -12,10 +12,10 @@
 // - JSON 格式缓存聚合结果
 //
 
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import type { UsageRecord } from './UsageStatsRecorder';
 import { UsageStatsRecorder } from './UsageStatsRecorder';
 
 // ── 类型定义 ──
@@ -96,7 +96,7 @@ export class DailyUsageStats {
       this.dailyFilePath = dailyFilePath;
       this.statsDir = join(dailyFilePath, '..');
     } else {
-      this.statsDir = join(process.cwd(), '.xuanji', 'stats');
+      this.statsDir = join(homedir(), '.xuanji', 'stats');
       this.dailyFilePath = join(this.statsDir, 'daily.json');
     }
   }
@@ -278,14 +278,6 @@ export class DailyUsageStats {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, limit);
-  }
-
-  /**
-   * 获取费用趋势（最近 N 天）
-   * @deprecated 费用功能已移除
-   */
-  async getCostTrend(days: number): Promise<{ date: string; cost: number }[]> {
-    return [];
   }
 
   // ── 存储管理 ──

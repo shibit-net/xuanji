@@ -26,10 +26,6 @@ export const TOOL_ICONS: Record<string, string> = {
   ask_user: '❓',
   plan_review: '📝',
 
-  // 提醒
-  reminder_set: '⏰',
-  reminder_check: '📅',
-  
   // Todo
   todo_create: '✅',
   todo_update: '🔄',

@@ -205,29 +205,6 @@ export class TodoUpdateTool extends BaseTool {
 
       const todo = await manager.update(id, updates);
 
-      // 任务完成时保存到记忆
-      if (updates.status === 'completed') {
-        // TODO: MemoryStoreTool 已移除，需要重新实现记忆功能
-        /*
-        try {
-          const { MemoryStoreTool } = await import('./MemoryStoreTool.js');
-          const memoryStore = new MemoryStoreTool();
-          await memoryStore.execute({
-            content: `完成任务：${todo.title}${todo.description ? ` - ${todo.description}` : ''}`,
-            type: 'task_completion',
-            tags: ['task', 'completed'],
-            metadata: {
-              taskId: todo.id,
-              description: todo.description,
-              completedAt: new Date().toISOString(),
-            },
-          });
-        } catch {
-          // 记忆保存失败不影响任务更新
-        }
-        */
-      }
-
       const action =
         updates.status === 'completed' ? '✅ 已完成' :
         updates.status === 'in_progress' ? '🔄 开始执行' : '📝 已更新';

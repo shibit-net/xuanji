@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
 import MilkdownEditor from './MilkdownEditor';
 
@@ -65,7 +66,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     try {
       const result = await window.electron.getPromptConfig();
       if (result.success && result.config) {
-        setDefaultComplexity(result.config.defaultComplexity || 'standard');
+        setDefaultComplexity((result.config.defaultComplexity || 'standard') as 'simple' | 'standard' | 'complex');
         setDefaultScene(result.config.defaultScene || '');
       }
     } catch (err) {
@@ -99,7 +100,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     try {
       const result = await window.electron.promptGetComponents();
       if (result.success) {
-        setComponents(result.components || []);
+        setComponents((result.components || []) as any);
       } else {
         toast.error(result.error || '加载失败');
       }
@@ -124,7 +125,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
   // 监听项目切换事件，自动刷新项目列表
   useEffect(() => {
-    window.electron.onProjectInfo((data) => {
+    window.electron.onProjectInfo((_data) => {
       loadProjectsList();
     });
   }, []);
@@ -384,30 +385,31 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   const renderPromptsTab = () => (
     <div className="flex flex-1 overflow-hidden">
       {/* 左侧：层级筛选 */}
-      <div className="w-64 border-r border-bg-tertiary flex flex-col overflow-hidden">
+      <div className="w-64 border-r border-border flex flex-col overflow-hidden">
         {/* 层级筛选 - 排除 L3 */}
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          <h3 className="text-xs font-medium text-text-secondary mb-2 px-2">层级筛选</h3>
+          <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">层级筛选</h3>
           {(['all', 'L0', 'L1', 'L2'] as LayerType[]).map(layer => {
             const count = layer === 'all'
               ? components.filter(c => c.layer !== 'L3').length
               : components.filter(c => c.layer === layer).length;
 
             return (
-              <button
+              <Button
                 key={layer}
+                variant="ghost"
                 onClick={() => setSelectedLayer(layer)}
-                className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                className={`w-full text-left px-3 py-2 rounded text-sm h-auto justify-start ${
                   selectedLayer === layer
                     ? 'bg-primary/20 text-primary border-l-2 border-primary'
-                    : 'hover:bg-bg-tertiary'
+                    : 'hover:bg-muted'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between w-full">
                   <span>{layer === 'all' ? '全部' : layer}</span>
-                  <span className="text-xs text-text-secondary">{count}</span>
+                  <span className="text-xs text-muted-foreground">{count}</span>
                 </div>
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -419,12 +421,12 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <RefreshCw size={32} className="animate-spin text-primary mx-auto mb-2" />
-              <p className="text-sm text-text-secondary">加载中...</p>
+              <p className="text-sm text-muted-foreground">加载中...</p>
             </div>
           </div>
         ) : filteredComponents.filter(c => c.layer !== 'L3').length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center text-text-secondary">
+            <div className="text-center text-muted-foreground">
               <Layers size={48} className="mx-auto mb-3 opacity-50" />
               <p className="text-sm">暂无组件</p>
             </div>
@@ -436,19 +438,19 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               const info = layerInfo[layer];
               return (
                 <div key={layer}>
-                  <div className="mb-3 bg-bg-secondary rounded-lg p-3 border border-bg-tertiary">
+                  <div className="mb-3 bg-card rounded-lg p-3 border border-border">
                     <div className="flex items-center gap-2 mb-1">
-                      <Layers size={16} className={info?.color || 'text-text-secondary'} />
-                      <h3 className={`text-sm font-medium ${info?.color || 'text-text-secondary'}`}>
+                      <Layers size={16} className={info?.color || 'text-muted-foreground'} />
+                      <h3 className={`text-sm font-medium ${info?.color || 'text-muted-foreground'}`}>
                         {info?.title || layer}
                       </h3>
-                      <span className="text-xs text-text-secondary">
+                      <span className="text-xs text-muted-foreground">
                         ({groupedComponents[layer].length} 个组件)
                       </span>
                     </div>
                     {info && (
                       <div className="ml-6 space-y-1">
-                        <p className="text-xs text-text-secondary">{info.description}</p>
+                        <p className="text-xs text-muted-foreground">{info.description}</p>
                         <p className="text-xs text-primary">📋 {info.loadRule}</p>
                       </div>
                     )}
@@ -463,23 +465,25 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                       return (
                         <div
                           key={component.id}
-                          className="bg-bg-secondary rounded-lg border border-bg-tertiary overflow-hidden"
+                          className="bg-card rounded-lg border border-border overflow-hidden"
                         >
                           {/* 组件头部 */}
                           <div className="p-3">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <button
+                                  <Button
                                     onClick={() => toggleExpand(component.id)}
-                                    className="p-0.5 hover:bg-bg-tertiary rounded"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
                                   >
                                     {isExpanded ? (
                                       <ChevronDown size={16} />
                                     ) : (
                                       <ChevronRight size={16} />
                                     )}
-                                  </button>
+                                  </Button>
                                   <h4 className="font-medium">{component.name}</h4>
                                   {component.dynamic && (
                                     <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">
@@ -487,7 +491,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-3 text-xs text-text-secondary ml-6">
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground ml-6">
                                   <span>ID: {component.id}</span>
                                   <span>优先级: {component.priority}</span>
                                   <span>~{component.estimatedTokens} tokens</span>
@@ -499,9 +503,11 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <button
+                                <Button
                                   onClick={() => toggleEnabled(component)}
-                                  className={`p-1.5 rounded transition-colors ${
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`h-7 w-7 ${
                                     component.enabled
                                       ? 'text-green-500 hover:bg-green-500/10'
                                       : 'text-gray-500 hover:bg-gray-500/10'
@@ -509,15 +515,17 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   title={component.enabled ? '禁用' : '启用'}
                                 >
                                   {component.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
-                                </button>
+                                </Button>
                                 {!component.dynamic && (
-                                  <button
+                                  <Button
                                     onClick={() => isEditing ? saveEdit() : startEdit(component)}
-                                    className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
                                     title={isEditing ? '保存' : '编辑'}
                                   >
                                     {isEditing ? <Save size={16} /> : <Edit size={16} />}
-                                  </button>
+                                  </Button>
                                 )}
                               </div>
                             </div>
@@ -525,26 +533,28 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
                           {/* 组件内容 */}
                           {isExpanded && (
-                            <div className="border-t border-bg-tertiary p-3 space-y-3">
+                            <div className="border-t border-border p-3 space-y-3">
                               {/* L1 组件显示 keywords 编辑区域 */}
                               {component.layer === 'L1' && component.match && (
-                                <div className="bg-bg-primary rounded-lg p-3 border border-bg-tertiary">
+                                <div className="bg-background rounded-lg p-3 border border-border">
                                   <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                       <Info size={14} className="text-primary" />
                                       <h5 className="text-sm font-medium">场景匹配关键词</h5>
                                     </div>
                                     {editingKeywords !== component.id && (
-                                      <button
+                                      <Button
                                         onClick={() => startEditKeywords(component)}
-                                        className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
                                         title="编辑关键词"
                                       >
                                         <Edit size={14} />
-                                      </button>
+                                      </Button>
                                     )}
                                   </div>
-                                  <p className="text-xs text-text-tertiary mb-2">
+                                  <p className="text-xs text-muted-foreground/70 mb-2">
                                     用于快速匹配用户输入的场景。支持正则表达式（不区分大小写）。
                                   </p>
                                   {editingKeywords === component.id ? (
@@ -553,33 +563,37 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         type="text"
                                         value={editKeywordsValue}
                                         onChange={(e) => setEditKeywordsValue(e.target.value)}
-                                        className="w-full bg-bg-secondary border border-bg-tertiary rounded px-3 py-2 text-sm font-mono text-text-primary focus:outline-none focus:border-primary"
+                                        className="w-full bg-card border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
                                         placeholder="例如: 写|实现|添加|修改|删除"
                                       />
                                       <div className="flex gap-2">
-                                        <button
+                                        <Button
                                           onClick={saveKeywords}
-                                          className="px-3 py-1.5 bg-primary text-white rounded text-sm hover:bg-primary/80 transition-colors"
+                                          variant="default"
+                                          size="sm"
+                                          className="px-3 py-1.5"
                                         >
                                           保存
-                                        </button>
-                                        <button
+                                        </Button>
+                                        <Button
                                           onClick={() => setEditingKeywords(null)}
-                                          className="px-3 py-1.5 bg-bg-tertiary rounded text-sm hover:bg-bg-secondary transition-colors"
+                                          variant="secondary"
+                                          size="sm"
+                                          className="px-3 py-1.5"
                                         >
                                           取消
-                                        </button>
+                                        </Button>
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="bg-bg-secondary rounded p-2">
+                                    <div className="bg-card rounded p-2">
                                       <code className="text-xs font-mono text-green-400">
                                         {component.match.keywords || '(未设置)'}
                                       </code>
                                     </div>
                                   )}
                                   {component.match.description && (
-                                    <div className="mt-2 text-xs text-text-secondary">
+                                    <div className="mt-2 text-xs text-muted-foreground">
                                       <span className="font-medium">场景描述：</span>
                                       {component.match.description}
                                     </div>
@@ -626,36 +640,36 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           {/* 标题 */}
           <div className="mb-6">
             <h3 className="text-lg font-medium mb-2">任务复杂度配置</h3>
-            <p className="text-sm text-text-secondary">
+            <p className="text-sm text-muted-foreground">
               配置默认的任务复杂度和场景，影响 Prompt 组件的加载策略
             </p>
           </div>
 
           {/* 复杂度说明 */}
-          <div className="mb-6 bg-bg-secondary rounded-lg p-4 border border-bg-tertiary">
+          <div className="mb-6 bg-card rounded-lg p-4 border border-border">
             <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
               <Info size={16} className="text-primary" />
               复杂度级别说明
             </h4>
             <div className="grid grid-cols-3 gap-4">
-              <div className="bg-bg-primary rounded p-3">
+              <div className="bg-background rounded p-3">
                 <div className="font-medium text-green-400 mb-2">Simple (~600 tokens)</div>
-                <div className="text-xs text-text-secondary mb-2">加载层级: L0 + L3</div>
-                <div className="text-xs text-text-tertiary">
+                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L3</div>
+                <div className="text-xs text-muted-foreground/70">
                   适用场景：简单问答、信息查询、基础操作
                 </div>
               </div>
-              <div className="bg-bg-primary rounded p-3">
+              <div className="bg-background rounded p-3">
                 <div className="font-medium text-blue-400 mb-2">Standard (~1400 tokens)</div>
-                <div className="text-xs text-text-secondary mb-2">加载层级: L0 + L1 + L3</div>
-                <div className="text-xs text-text-tertiary">
+                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L1 + L3</div>
+                <div className="text-xs text-muted-foreground/70">
                   适用场景：编码、调试、文件修改、常规开发任务
                 </div>
               </div>
-              <div className="bg-bg-primary rounded p-3">
+              <div className="bg-background rounded p-3">
                 <div className="font-medium text-purple-400 mb-2">Complex (~2400 tokens)</div>
-                <div className="text-xs text-text-secondary mb-2">加载层级: L0 + L1 + L2 + L3</div>
-                <div className="text-xs text-text-tertiary">
+                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L1 + L2 + L3</div>
+                <div className="text-xs text-muted-foreground/70">
                   适用场景：架构设计、大规模重构、多文件协同、复杂问题
                 </div>
               </div>
@@ -663,7 +677,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           </div>
 
           {/* 配置表单 */}
-          <div className="bg-bg-secondary rounded-lg p-6 border border-bg-tertiary">
+          <div className="bg-card rounded-lg p-6 border border-border">
             <div className="space-y-6">
               {/* 默认复杂度 */}
               <div>
@@ -671,13 +685,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 <select
                   value={defaultComplexity}
                   onChange={(e) => setDefaultComplexity(e.target.value as any)}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-primary"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
                 >
                   <option value="simple">Simple - 简单任务</option>
                   <option value="standard">Standard - 标准任务（推荐）</option>
                   <option value="complex">Complex - 复杂任务</option>
                 </select>
-                <p className="text-xs text-text-tertiary mt-2">
+                <p className="text-xs text-muted-foreground/70 mt-2">
                   设置新对话的默认复杂度级别，影响加载的 Prompt 组件数量
                 </p>
               </div>
@@ -690,23 +704,24 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                   value={defaultScene}
                   onChange={(e) => setDefaultScene(e.target.value)}
                   placeholder="留空则自动分析场景"
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm text-text-primary placeholder-text-tertiary focus:outline-none focus:border-primary"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary"
                 />
-                <p className="text-xs text-text-tertiary mt-2">
+                <p className="text-xs text-muted-foreground/70 mt-2">
                   指定默认场景（如 coding, life），留空则根据对话内容自动识别
                 </p>
               </div>
 
               {/* 保存按钮 */}
-              <div className="flex justify-end pt-4 border-t border-bg-tertiary">
-                <button
+              <div className="flex justify-end pt-4 border-t border-border">
+                <Button
                   onClick={savePromptConfig}
                   disabled={configLoading}
-                  className="px-6 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  variant="ghost"
+                  className="px-6 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 disabled:opacity-50 flex items-center gap-2"
                 >
                   <Save size={16} />
                   {configLoading ? '保存中...' : '保存配置'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -735,20 +750,22 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     return (
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：项目列表 */}
-        <div className="w-56 border-r border-bg-tertiary flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-bg-tertiary bg-bg-secondary">
+        <div className="w-56 border-r border-border flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-border bg-card">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-medium text-text-secondary">项目列表</h3>
-              <button
+              <h3 className="text-xs font-medium text-muted-foreground">项目列表</h3>
+              <Button
                 onClick={loadProjectsList}
                 disabled={loadingProjects}
-                className="p-1 hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 disabled:opacity-50"
                 title="刷新"
               >
                 <RefreshCw size={14} className={loadingProjects ? 'animate-spin' : ''} />
-              </button>
+              </Button>
             </div>
-            <p className="text-xs text-text-tertiary">
+            <p className="text-xs text-muted-foreground/70">
               所有 xuanji 操作过的项目
             </p>
           </div>
@@ -759,27 +776,28 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 <RefreshCw size={20} className="animate-spin text-primary mx-auto" />
               </div>
             ) : projects.length === 0 ? (
-              <div className="text-center py-4 text-xs text-text-secondary">
+              <div className="text-center py-4 text-xs text-muted-foreground">
                 暂无项目
               </div>
             ) : (
               <div className="space-y-1">
                 {projects.map(project => (
-                  <button
+                  <Button
                     key={project.path}
+                    variant="ghost"
                     onClick={() => selectProject(project.path)}
-                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                    className={`w-full text-left px-3 py-2 rounded text-sm h-auto justify-start ${
                       selectedProject === project.path
                         ? 'bg-primary/20 text-primary border-l-2 border-primary'
-                        : 'hover:bg-bg-tertiary'
+                        : 'hover:bg-muted'
                     }`}
                   >
                     <div className="font-medium truncate">{project.name}</div>
-                    <div className="text-xs text-text-secondary truncate">{project.path}</div>
+                    <div className="text-xs text-muted-foreground truncate">{project.path}</div>
                     {project.hasRules && (
                       <div className="text-xs text-green-400 mt-1">✓ 有规则文件</div>
                     )}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -788,10 +806,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
         {/* 中间：文档列表 */}
         {selectedProject && (
-          <div className="w-56 border-r border-bg-tertiary flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-bg-tertiary bg-bg-secondary">
-              <h3 className="text-xs font-medium text-text-secondary mb-2">文档列表</h3>
-              <p className="text-xs text-text-tertiary">
+          <div className="w-56 border-r border-border flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-border bg-card">
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">文档列表</h3>
+              <p className="text-xs text-muted-foreground/70">
                 项目相关文档
               </p>
             </div>
@@ -802,24 +820,25 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                   <RefreshCw size={20} className="animate-spin text-primary mx-auto" />
                 </div>
               ) : projectDocs.length === 0 ? (
-                <div className="text-center py-4 text-xs text-text-secondary">
+                <div className="text-center py-4 text-xs text-muted-foreground">
                   暂无文档
                 </div>
               ) : (
                 <div className="space-y-1">
                   {projectDocs.map(doc => (
-                    <button
+                    <Button
                       key={doc.path}
+                      variant="ghost"
                       onClick={() => selectDoc(doc.path)}
-                      className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                      className={`w-full text-left px-3 py-2 rounded text-sm h-auto justify-start ${
                         selectedDoc === doc.path
                           ? 'bg-primary/20 text-primary border-l-2 border-primary'
-                          : 'hover:bg-bg-tertiary'
+                          : 'hover:bg-muted'
                       }`}
                     >
                       <div className="font-medium truncate">{doc.name}</div>
-                      <div className="text-xs text-text-secondary truncate">{doc.relativePath}</div>
-                    </button>
+                      <div className="text-xs text-muted-foreground truncate">{doc.relativePath}</div>
+                    </Button>
                   ))}
                 </div>
               )}
@@ -831,40 +850,45 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         <div className="flex-1 flex flex-col overflow-hidden">
           {selectedDoc ? (
             <>
-              <div className="p-3 border-b border-bg-tertiary bg-bg-secondary flex items-center justify-between">
+              <div className="p-3 border-b border-border bg-card flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-medium">
                     {projectDocs.find(d => d.path === selectedDoc)?.name || '文档'}
                   </h3>
-                  <p className="text-xs text-text-secondary mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {projectDocs.find(d => d.path === selectedDoc)?.relativePath}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   {editingRules ? (
                     <>
-                      <button
+                      <Button
                         onClick={() => setEditingRules(false)}
-                        className="px-3 py-1.5 bg-bg-tertiary text-text-primary rounded hover:bg-bg-tertiary/80 transition-colors text-sm"
+                        variant="ghost"
+                        size="sm"
                       >
                         取消
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         onClick={saveProjectRules}
-                        className="px-3 py-1.5 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors text-sm flex items-center gap-2"
+                        variant="ghost"
+                        size="sm"
+                        className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
                       >
                         <Save size={14} />
                         保存
-                      </button>
+                      </Button>
                     </>
                   ) : (
-                    <button
+                    <Button
                       onClick={() => setEditingRules(true)}
-                      className="px-3 py-1.5 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors text-sm flex items-center gap-2"
+                      variant="ghost"
+                      size="sm"
+                      className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
                     >
                       <Edit size={14} />
                       编辑
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -877,7 +901,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                     height="100%"
                   />
                 ) : (
-                  <pre className="text-sm font-mono whitespace-pre-wrap bg-bg-secondary p-4 rounded h-full overflow-auto">
+                  <pre className="text-sm font-mono whitespace-pre-wrap bg-card p-4 rounded h-full overflow-auto">
                     {projectRules || '暂无内容'}
                   </pre>
                 )}
@@ -885,14 +909,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
             </>
           ) : selectedProject ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-text-secondary">
+              <div className="text-center text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-3 opacity-50" />
                 <p className="text-sm">请从左侧选择一个文档</p>
               </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-text-secondary">
+              <div className="text-center text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-3 opacity-50" />
                 <p className="text-sm">请从左侧选择一个项目</p>
               </div>
@@ -904,78 +928,93 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-bg-primary overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
       {/* 标题栏 */}
-      <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
           <FileText size={24} className="text-primary" />
           <div>
             <h2 className="text-lg font-bold">System Prompt 管理</h2>
-            <p className="text-xs text-text-secondary">
+            <p className="text-xs text-muted-foreground">
               管理分层 Prompt 组件 · 总计 {components.length} 个组件 · ~{totalTokens} tokens
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {activeTab === 'prompts' && (
-            <button
+            <Button
               onClick={handlePreview}
-              className="px-3 py-1.5 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors text-sm flex items-center gap-2"
+              variant="ghost"
+              size="sm"
+              className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
             >
               <Eye size={16} />
               预览完整 Prompt
-            </button>
+            </Button>
           )}
-          <button
+          <Button
             onClick={loadComponents}
             disabled={loading}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 disabled:opacity-50"
             title="刷新"
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onClose}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
             title="关闭"
           >
             <X size={20} />
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Tab 切换 */}
-      <div className="flex border-b border-bg-tertiary bg-bg-secondary">
-        <button
+      <div className="flex border-b border-border bg-card">
+        <Button
           onClick={() => setActiveTab('complexity')}
-          className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+          variant="ghost"
+          size="sm"
+          className={`px-6 py-3 rounded-none h-auto ${
             activeTab === 'complexity'
               ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
+          style={{ borderBottomWidth: 2 }}
         >
           任务复杂度
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => setActiveTab('prompts')}
-          className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+          variant="ghost"
+          size="sm"
+          className={`px-6 py-3 rounded-none h-auto ${
             activeTab === 'prompts'
               ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
+          style={{ borderBottomWidth: 2 }}
         >
           System Prompt
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => setActiveTab('projects')}
-          className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+          variant="ghost"
+          size="sm"
+          className={`px-6 py-3 rounded-none h-auto ${
             activeTab === 'projects'
               ? 'border-primary text-primary'
-              : 'border-transparent text-text-secondary hover:text-text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
+          style={{ borderBottomWidth: 2 }}
         >
           项目相关
-        </button>
+        </Button>
       </div>
 
       {/* Tab 内容 */}
@@ -986,15 +1025,17 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       {/* 预览对话框 */}
       {showPreview && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-bg-secondary rounded-lg shadow-xl w-[90%] h-[90%] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
+          <div className="bg-card rounded-lg shadow-xl w-[90%] h-[90%] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-medium">完整 System Prompt 预览</h3>
-              <button
+              <Button
                 onClick={() => setShowPreview(false)}
-                className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
               >
                 <X size={20} />
-              </button>
+              </Button>
             </div>
             <div className="flex-1 overflow-auto p-4">
               <MilkdownEditor

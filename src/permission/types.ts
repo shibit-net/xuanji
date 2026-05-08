@@ -2,7 +2,7 @@
 // M5 权限控制 — 类型定义
 // ============================================================
 
-import type { PermissionLevel, PermissionConfig } from '@/core/types';
+import type { PermissionConfig } from '@/core/types';
 
 /**
  * 权限请求 — 由 ToolRegistry 在执行工具前构造

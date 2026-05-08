@@ -1,9 +1,16 @@
 // ============================================================
-// DiagnosticsDialog - 系统诊断对话框
+// DiagnosticsDialog - 系统诊断对话框（shadcn Dialog）
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { X, Loader2, RefreshCw, Copy, Check } from 'lucide-react';
+import { Loader2, RefreshCw, Copy, Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface DiagnosticsDialogProps {
   onClose: () => void;
@@ -47,65 +54,61 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="w-[600px] max-h-[80vh] bg-bg-secondary rounded-xl shadow-2xl border border-bg-tertiary flex flex-col">
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-bg-tertiary shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🩺</span>
-            <span className="font-semibold">系统诊断</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="w-[600px] max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span>🩺</span>
+            <span>系统诊断</span>
+          </DialogTitle>
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
               onClick={handleCopy}
               disabled={!report}
-              className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
               title="复制报告"
             >
               {copied ? (
                 <Check size={16} className="text-green-500" />
               ) : (
-                <Copy size={16} className="text-text-secondary" />
+                <Copy size={16} className="text-muted-foreground" />
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={loadDiagnostics}
               disabled={loading}
-              className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
               title="刷新"
             >
               {loading ? (
-                <Loader2 size={16} className="animate-spin text-text-secondary" />
+                <Loader2 size={16} className="animate-spin text-muted-foreground" />
               ) : (
-                <RefreshCw size={16} className="text-text-secondary" />
+                <RefreshCw size={16} className="text-muted-foreground" />
               )}
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-bg-tertiary rounded transition-colors"
-            >
-              <X size={16} className="text-text-secondary" />
-            </button>
+            </Button>
           </div>
-        </div>
+        </DialogHeader>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center h-32">
-              <Loader2 size={24} className="animate-spin text-text-secondary" />
+              <Loader2 size={24} className="animate-spin text-muted-foreground" />
             </div>
           ) : error ? (
-            <div className="text-red-500 text-sm p-4 bg-red-500/10 rounded-lg border border-red-500/30">
+            <div className="text-destructive text-sm p-4 bg-destructive/10 rounded-lg border border-destructive/30">
               {error}
             </div>
           ) : (
-            <pre className="text-sm font-mono text-text-primary whitespace-pre-wrap leading-relaxed">
+            <pre className="text-sm font-mono text-foreground whitespace-pre-wrap leading-relaxed">
               {report}
             </pre>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

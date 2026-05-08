@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { GlobalConfig, deepMergeConfig, getByPath, setByPath } from '@/core/config/GlobalConfig';
+import { ProjectConfig, deepMergeConfig, getByPath, setByPath } from '@/core/config/ProjectConfig';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,7 @@ import type { AppConfig } from '@/core/types';
 // 工具函数测试
 // ============================================================
 
-describe('GlobalConfig - Utility Functions', () => {
+describe('ProjectConfig - Utility Functions', () => {
   describe('deepMergeConfig()', () => {
     it('应合并嵌套对象', () => {
       const base = { a: { b: 1, c: 2 }, d: 3 };
@@ -97,10 +97,10 @@ describe('GlobalConfig - Utility Functions', () => {
 });
 
 // ============================================================
-// GlobalConfig 类测试
+// ProjectConfig 类测试
 // ============================================================
 
-describe('GlobalConfig', () => {
+describe('ProjectConfig', () => {
   let testGlobalDir: string;
   let testProjectDir: string;
   const originalEnv = process.env;
@@ -132,13 +132,13 @@ describe('GlobalConfig', () => {
   // ---- 路径相关 ----
 
   it('getProjectConfigPath() 默认路径应包含 .xuanji/config.json', () => {
-    const path = GlobalConfig.getProjectConfigPath();
+    const path = ProjectConfig.getProjectConfigPath();
     expect(path).toContain('.xuanji');
     expect(path).toContain('config.json');
   });
 
   it('getProjectConfigPath() 应使用 projectRoot 参数', () => {
-    const path = GlobalConfig.getProjectConfigPath('/tmp/myproject');
+    const path = ProjectConfig.getProjectConfigPath('/tmp/myproject');
     expect(path).toBe('/tmp/myproject/.xuanji/config.json');
   });
 
@@ -146,22 +146,22 @@ describe('GlobalConfig', () => {
 
   it('readProjectConfig() 不存在时应返回空对象', async () => {
     const nonExistentPath = join(testGlobalDir, 'nonexistent', 'config.json');
-    vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(nonExistentPath);
+    vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(nonExistentPath);
 
-    const config = await GlobalConfig.readProjectConfig();
+    const config = await ProjectConfig.readProjectConfig();
     expect(config).toEqual({});
   });
 
   it('writeProjectConfig() 和 readProjectConfig() 应正常工作', async () => {
     const testConfigPath = join(testGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(testConfigPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(testConfigPath);
 
     const testConfig: Partial<AppConfig> = {
       provider: { model: 'test-model', apiKey: 'test-key' } as any,
     };
 
-    await GlobalConfig.writeProjectConfig(testConfig);
-    const loaded = await GlobalConfig.readProjectConfig();
+    await ProjectConfig.writeProjectConfig(testConfig);
+    const loaded = await ProjectConfig.readProjectConfig();
 
     expect(loaded.provider?.model).toBe('test-model');
     expect(loaded.provider?.apiKey).toBe('test-key');
@@ -171,10 +171,10 @@ describe('GlobalConfig', () => {
 
   it('writeProjectConfig() 应自动创建目录', async () => {
     const deepPath = join(testGlobalDir, 'deep', 'nested', 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(deepPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(deepPath);
 
-    await GlobalConfig.writeProjectConfig({ provider: { model: 'test' } as any });
-    const loaded = await GlobalConfig.readProjectConfig();
+    await ProjectConfig.writeProjectConfig({ provider: { model: 'test' } as any });
+    const loaded = await ProjectConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('test');
 
     spy.mockRestore();
@@ -183,7 +183,7 @@ describe('GlobalConfig', () => {
   // ---- 读写项目配置 ----
 
   it('readProjectConfig() 不存在时应返回空对象', async () => {
-    const config = await GlobalConfig.readProjectConfig(testProjectDir);
+    const config = await ProjectConfig.readProjectConfig(testProjectDir);
     expect(config).toEqual({});
   });
 
@@ -192,8 +192,8 @@ describe('GlobalConfig', () => {
       ui: { theme: 'dark', language: 'zh' } as any,
     };
 
-    await GlobalConfig.writeProjectConfig(testConfig, testProjectDir);
-    const loaded = await GlobalConfig.readProjectConfig(testProjectDir);
+    await ProjectConfig.writeProjectConfig(testConfig, testProjectDir);
+    const loaded = await ProjectConfig.readProjectConfig(testProjectDir);
 
     expect(loaded.ui?.theme).toBe('dark');
     expect(loaded.ui?.language).toBe('zh');
@@ -207,7 +207,7 @@ describe('GlobalConfig', () => {
     process.env.XUANJI_MAX_TOKENS = '32000';
     process.env.XUANJI_THEME = 'dark';
 
-    const envConfig = GlobalConfig.resolveEnvConfig();
+    const envConfig = ProjectConfig.resolveEnvConfig();
 
     expect(getByPath(envConfig, 'provider.model')).toBe('env-model');
     expect(getByPath(envConfig, 'provider.apiKey')).toBe('env-api-key');
@@ -220,7 +220,7 @@ describe('GlobalConfig', () => {
     process.env.XUANJI_TEMPERATURE = '0.7';
     process.env.XUANJI_TIMEOUT = '60000';
 
-    const envConfig = GlobalConfig.resolveEnvConfig();
+    const envConfig = ProjectConfig.resolveEnvConfig();
 
     expect(getByPath(envConfig, 'provider.maxTokens')).toBe(8000);
     expect(getByPath(envConfig, 'provider.temperature')).toBe(0.7);
@@ -229,17 +229,17 @@ describe('GlobalConfig', () => {
 
   it('resolveEnvConfig() 应处理布尔值', () => {
     process.env.XUANJI_MEMORY_ENABLED = 'true';
-    const envConfig = GlobalConfig.resolveEnvConfig();
+    const envConfig = ProjectConfig.resolveEnvConfig();
     expect(getByPath(envConfig, 'memory.enabled')).toBe(true);
 
     process.env.XUANJI_MEMORY_ENABLED = '0';
-    const envConfig2 = GlobalConfig.resolveEnvConfig();
+    const envConfig2 = ProjectConfig.resolveEnvConfig();
     expect(getByPath(envConfig2, 'memory.enabled')).toBe(false);
   });
 
   it('resolveEnvConfig() 应跳过空字符串', () => {
     process.env.XUANJI_MODEL = '';
-    const envConfig = GlobalConfig.resolveEnvConfig();
+    const envConfig = ProjectConfig.resolveEnvConfig();
     expect(getByPath(envConfig, 'provider.model')).toBeUndefined();
   });
 
@@ -252,20 +252,20 @@ describe('GlobalConfig', () => {
     } as unknown as Record<string, unknown>;
 
     const globalPath = join(testGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
 
-    await GlobalConfig.writeProjectConfig({
+    await ProjectConfig.writeProjectConfig({
       provider: { model: 'global-model' } as any,
       ui: { theme: 'light' } as any,
     });
 
-    await GlobalConfig.writeProjectConfig({
+    await ProjectConfig.writeProjectConfig({
       provider: { model: 'project-model' } as any,
     }, testProjectDir);
 
     process.env.XUANJI_MODEL = 'env-model';
 
-    const merged = await GlobalConfig.load(testProjectDir, defaults);
+    const merged = await ProjectConfig.load(testProjectDir, defaults);
 
     expect(merged.provider?.model).toBe('env-model');
     expect(merged.ui?.theme).toBe('auto');
@@ -282,13 +282,13 @@ describe('GlobalConfig', () => {
     await mkdir(isolatedProjectDir, { recursive: true });
 
     const globalPath = join(isolatedGlobalDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(globalPath);
 
     const defaults = {
       provider: { model: 'default-model', apiKey: 'default-key' },
     } as unknown as Record<string, unknown>;
 
-    const merged = await GlobalConfig.load(isolatedProjectDir, defaults);
+    const merged = await ProjectConfig.load(isolatedProjectDir, defaults);
     expect(merged.provider?.model).toBe('default-model');
 
     spy.mockRestore();
@@ -303,9 +303,9 @@ describe('GlobalConfig', () => {
     const isolatedDir = join(tmpdir(), `xuanji-version-${Date.now()}-${Math.random()}`);
     await mkdir(isolatedDir, { recursive: true });
     const configPath = join(isolatedDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(configPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(configPath);
 
-    await GlobalConfig.writeProjectConfig({
+    await ProjectConfig.writeProjectConfig({
       provider: { model: 'versioned-model' } as any,
     });
 
@@ -316,7 +316,7 @@ describe('GlobalConfig', () => {
     expect(parsed.config.provider.model).toBe('versioned-model');
 
     // 验证 read 方法自动解包
-    const loaded = await GlobalConfig.readProjectConfig();
+    const loaded = await ProjectConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('versioned-model');
 
     spy.mockRestore();
@@ -328,14 +328,14 @@ describe('GlobalConfig', () => {
     const isolatedDir = join(tmpdir(), `xuanji-legacy-${Date.now()}-${Math.random()}`);
     await mkdir(isolatedDir, { recursive: true });
     const configPath = join(isolatedDir, 'config.json');
-    const spy = vi.spyOn(GlobalConfig, 'getProjectConfigPath').mockReturnValue(configPath);
+    const spy = vi.spyOn(ProjectConfig, 'getProjectConfigPath').mockReturnValue(configPath);
 
     // 手动写入旧格式
     await writeFile(configPath, JSON.stringify({
       provider: { model: 'legacy-model' },
     }), 'utf-8');
 
-    const loaded = await GlobalConfig.readProjectConfig();
+    const loaded = await ProjectConfig.readProjectConfig();
     expect(loaded.provider?.model).toBe('legacy-model');
 
     spy.mockRestore();
@@ -345,7 +345,7 @@ describe('GlobalConfig', () => {
   // ---- getEnvMappings ----
 
   it('getEnvMappings() 应返回环境变量映射表', () => {
-    const mappings = GlobalConfig.getEnvMappings();
+    const mappings = ProjectConfig.getEnvMappings();
     expect(mappings).toHaveProperty('XUANJI_API_KEY');
     expect(mappings).toHaveProperty('XUANJI_MODEL');
     expect(mappings.XUANJI_MODEL.path).toBe('provider.model');

@@ -3,10 +3,65 @@
 @tailwind utilities;
 
 /* ============================================================
-   Xuanji Desktop - 全局样式
+   Xuanji Desktop - visionOS 风格设计系统
+   ============================================================
+   设计语言：Apple Vision Pro / visionOS
+   - 玻璃材质（毛玻璃 + 半透明）
+   - 大圆角，悬浮感
+   - 极简层次，宽松间距
+   - 深色背景 + 白色文字 + 彩色点缀
    ============================================================ */
 
 @layer base {
+  :root {
+    /* 背景 — 最深层，纯黑 */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 92%;
+
+    /* 卡片 — 半透明白色玻璃 */
+    --card: 0 0% 100% / 0.08;
+    --card-foreground: 0 0% 92%;
+
+    /* 弹出菜单 — 更实的玻璃 */
+    --popover: 0 0% 100% / 0.15;
+    --popover-foreground: 0 0% 92%;
+
+    /* 主色 — visionOS 蓝色调 */
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    /* 次级背景 — 面板/侧栏用 */
+    --secondary: 0 0% 100% / 0.06;
+    --secondary-foreground: 0 0% 92%;
+
+    /* 静默态 — hover/分割线 */
+    --muted: 0 0% 100% / 0.1;
+    --muted-foreground: 0 0% 60%;
+
+    /* 强调 — 浅蓝 */
+    --accent: 211 100% 50% / 0.12;
+    --accent-foreground: 211 100% 70%;
+
+    /* 危险 */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* 边框 — 非常淡的白 */
+    --border: 0 0% 100% / 0.1;
+    --input: 0 0% 100% / 0.15;
+
+    /* 焦点环 */
+    --ring: 211 100% 50%;
+
+    /* 圆角 — 大圆角 */
+    --radius: 0.75rem;
+
+    /* 语义色 */
+    --success: 150 60% 50%;
+    --warning: 35 90% 55%;
+    --info: 211 100% 50%;
+  }
+
   * {
     @apply box-border;
   }
@@ -18,53 +73,92 @@
   }
 
   body {
-    @apply bg-bg-primary text-text-primary font-sans;
+    @apply bg-background text-foreground font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* 滚动条样式 */
+  /* 滚动条 — 极简透明 */
   ::-webkit-scrollbar {
-    @apply w-2 h-2;
+    @apply w-1 h-1;
   }
-
   ::-webkit-scrollbar-track {
-    @apply bg-bg-secondary;
+    @apply bg-transparent;
   }
-
   ::-webkit-scrollbar-thumb {
-    @apply bg-bg-tertiary rounded;
+    @apply bg-white/10 rounded-full hover:bg-white/20;
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-text-secondary;
+  /* 选中 */
+  ::selection {
+    @apply bg-primary/30 text-white;
   }
 
-  /* 代码块样式 */
-  pre {
-    @apply bg-bg-secondary rounded-lg p-4 overflow-x-auto;
+  /* diff 语法高亮 — 利用 lang-diff 代码块的行前缀字符染色 */
+  pre code.language-diff {
+    .token.deleted,
+    .token.inserted,
+    .token.coord { background: transparent; }
   }
-
-  code {
-    @apply font-mono text-sm;
-  }
-
-  /* diff 语法高亮：删除行（红色）和新增行（绿色） */
+  pre code.language-diff .token.deleted,
   .token.deleted {
     color: #f87171;
+    background: rgba(248, 113, 113, 0.08);
+    border-radius: 2px;
   }
-
+  pre code.language-diff .token.inserted,
   .token.inserted {
     color: #4ade80;
+    background: rgba(74, 222, 128, 0.08);
+    border-radius: 2px;
+  }
+  .token.coord { color: #94a3b8; }
+
+  /* 代码块 — 玻璃拟态 */
+  pre {
+    @apply bg-white/[0.04] rounded-xl p-4 overflow-x-auto border border-white/[0.06];
+  }
+  code {
+    @apply font-mono text-sm text-white/80;
   }
 
-  .token.coord {
-    color: #94a3b8;
+  /* toolSummary 消息气泡内的 Markdown 内容紧凑 */
+  .message-bubble .milkdown-message-content h1,
+  .message-bubble .milkdown-message-content h2,
+  .message-bubble .milkdown-message-content h3 {
+    @apply text-sm font-semibold mb-1;
+  }
+  .message-bubble .milkdown-message-content p {
+    @apply text-xs leading-relaxed mb-0.5;
+  }
+  .message-bubble .milkdown-message-content code {
+    @apply text-[11px];
   }
 
-  /* 选中文本样式 */
-  ::selection {
-    @apply bg-primary/30;
+  /* 确保预览模式下 ProseMirror 内容可选择 */
+  .message-bubble .milkdown-message-content .ProseMirror {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  /* toolSummary 中的文件路径 code — 可点击打开文件 */
+  .tool-summary-filepath {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    font-size: 11px;
+    cursor: pointer;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+  .tool-summary-filepath:hover {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.35);
   }
 }
 
@@ -73,23 +167,13 @@
    ============================================================ */
 
 @keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-pulse-slow {
@@ -105,7 +189,7 @@
    ============================================================ */
 
 .glass {
-  @apply bg-bg-secondary/80 backdrop-blur-sm;
+  @apply bg-card backdrop-blur-sm;
 }
 
 .hover-lift {
@@ -116,19 +200,204 @@
    性能优化 — 流式输出抖动修复
    ============================================================ */
 
-/* 消息气泡容器 — 隔离布局变化，阻止重排传播 */
 .message-bubble {
   contain: layout style paint;
 }
 
-/* 流式输出中的消息气泡 — 更严格的隔离 */
 .message-bubble-streaming {
   contain: layout style paint;
   will-change: contents;
 }
 
-/* 聊天消息列表容器 — 创建独立的层叠上下文 */
 .chat-messages-container {
   contain: layout style;
   isolation: isolate;
+}
+
+/* ============================================================
+   Emoji 在 markdown 中不要过大，不要独占一行
+   ============================================================ */
+
+.milkdown-editor-wrapper img[class*="emoji"],
+.milkdown-editor-wrapper img[alt*="emoji"],
+.milkdown-editor-wrapper .emoji img {
+  display: inline !important;
+  vertical-align: middle;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
+/* ============================================================
+   Markdown 表格样式
+   ============================================================ */
+
+.milkdown-editor-wrapper table,
+.milkdown-message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+}
+
+.milkdown-editor-wrapper th,
+.milkdown-message-content th {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.milkdown-editor-wrapper td,
+.milkdown-message-content td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  color: hsl(var(--muted-foreground));
+  word-break: break-word;
+}
+
+.milkdown-editor-wrapper tr:nth-child(even) td,
+.milkdown-message-content tr:nth-child(even) td {
+  background: hsl(var(--secondary));
+}
+
+/* 覆盖 ProseMirror 的 table-layout: fixed，让列宽根据内容自动调整 */
+.milkdown-editor-wrapper .ProseMirror table,
+.milkdown-message-content .ProseMirror table {
+  table-layout: auto;
+}
+
+/* 表格容器：超宽时水平滚动 */
+.milkdown-editor-wrapper .tableWrapper,
+.milkdown-message-content .tableWrapper {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+}
+
+/* ============================================================
+   Mermaid 图表样式
+   ============================================================ */
+
+.mermaid-rendered-svg {
+  margin: 1rem 0;
+  cursor: zoom-in;
+  background: #1a1a2e;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+  max-height: 400px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.mermaid-rendered-svg svg {
+  height: auto;
+  max-height: 360px;
+  width: auto;
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+/* 隐藏 Milkdown 原始 diagram 节点，避免留白 */
+div[data-type="diagram"] {
+  display: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ============================================================
+   Mermaid 放大预览 Overlay
+   ============================================================ */
+
+.mermaid-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaid-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+}
+
+.mermaid-preview-content {
+  position: relative;
+  width: 85vw;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 1rem;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.mermaid-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.mermaid-preview-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.mermaid-preview-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mermaid-preview-btn {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.mermaid-preview-btn:hover {
+  background: hsl(var(--accent));
+}
+
+.mermaid-preview-zoom-info {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  min-width: 3rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mermaid-preview-body {
+  flex: 1;
+  padding: 1.5rem;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: #1a1a2e;
+}
+
+.mermaid-preview-body svg {
+  max-width: 100%;
+  width: auto;
+  height: auto;
 }

@@ -81,6 +81,10 @@ export interface ElectronAPI {
   maximize: () => void;
   close: () => void;
 
+  // 消息发送
+  sendMessage: (content: string) => void;
+  manualMemoryFlush: (data?: any) => Promise<{ success: boolean; error?: string }>;
+
   // ============================================================
   // 认证相关
   // ============================================================
@@ -130,7 +134,11 @@ export interface ElectronAPI {
   agentSendSupplment: (content: string) => Promise<{ success: boolean }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
+  openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  openUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
+  getResourceUsage: () => Promise<{ success: boolean; data?: { cpu: { percentCPUUsage: number }; memory: { usedMB: number; totalMB: number; percent: number } }; error?: string }>;
 
+  // 文件系统
   // 流式事件监听
   onAgentText: (callback: (text: string) => void) => void;
   onAgentThinking: (callback: (thinking: string) => void) => void;

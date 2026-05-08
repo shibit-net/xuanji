@@ -6,7 +6,8 @@
 // 2. 自动转发到renderer
 // 3. 类型安全的事件处理
 
-import { MessageChannel, type ChannelOptions, type Message } from './MessageBus';
+import { MessageChannel, type ChannelOptions } from './MessageBus';
+import { EventEmitter } from 'events';
 import type { BrowserWindow } from 'electron';
 import type { EventType, BaseEvent } from './EventTypes';
 
@@ -39,9 +40,8 @@ export class EnhancedMessageChannel extends MessageChannel {
 
     // 🔧 监听所有从子进程收到的消息，自动转发到renderer
     if (this.autoForwardToRenderer) {
-      this.on('message', (msg: any) => {
+      EventEmitter.prototype.on.call(this, 'message', (msg: any) => {
         // 转发到renderer
-        console.log(`[EnhancedMessageBus] 收到转发消息: ${msg.type}`, msg.data);
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           try {
             this.mainWindow.webContents.send(msg.type, msg.data);

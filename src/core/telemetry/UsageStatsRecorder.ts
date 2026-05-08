@@ -11,11 +11,10 @@
 // - JSONL 格式，追加友好，流式解析
 //
 
+import { homedir } from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserLogsDir } from '@/core/config/PathManager';
-import { existsSync } from 'node:fs';
-
 // ── 类型定义 ──
 
 /** 工具调用统计 */
@@ -101,7 +100,7 @@ export interface AggregatedStats {
 }
 
 /** 默认日志目录 */
-const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji', 'logs');
+const DEFAULT_LOG_DIR = join(homedir(), '.xuanji', 'logs');
 
 /** 日志保留天数 */
 const LOG_RETENTION_DAYS = 30;

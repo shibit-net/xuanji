@@ -6,6 +6,8 @@ export { useConfigStore } from './configStore';
 export { useRuntimeStore } from './runtimeStore';
 export { useHistoryStore } from './historyStore';
 export { useChatStore } from './chatStore';
+export { useMessageStore } from './messageStore';
+export { useSessionStore } from './sessionStore';
 export { useActiveAgentStore } from './activeAgentStore';
 export { useUnifiedLogStore } from './unifiedLogStore';
 
@@ -13,7 +15,8 @@ export type {
   Message,
   ToolCall,
   ChatStatus,
-} from './chatStore';
+  SubAgentReference,
+} from './messageStore';
 
 export type { LogEntry } from '../types/models';
 

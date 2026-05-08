@@ -11,9 +11,22 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Wrench, Sparkles, CheckCircle, ChevronDown, ChevronRight,
-  Loader2, Zap, Clock
+  Loader2, Zap, Clock, Tag, Layers, Server
 } from 'lucide-react';
 import type { AgentState } from '../stores';
+
+// 子 Agent 标签映射
+const AGENT_TYPE_LABEL: Record<string, string> = {
+  builtin: '内置',
+  preset: '预设',
+  custom: '自定义',
+  temporary: '临时',
+};
+
+const EXECUTION_MODE_LABEL: Record<string, string> = {
+  'acp': '子进程',
+  'in-process': '主进程',
+};
 
 interface AgentWorkCardProps {
   agent: AgentState;
@@ -138,12 +151,39 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-sm">{agent.name}</span>
-                {!isRoot && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-bg-tertiary/80 text-text-tertiary rounded">
-                    L{level}
-                  </span>
-                )}
               </div>
+              {!isRoot && (agent.agentType || agent.scene || agent.executionMode || agent.multiAgent?.type) && (
+                <div className="flex items-center gap-1 mt-1">
+                  {agent.multiAgent?.type && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 whitespace-nowrap">
+                      <Layers className="w-2.5 h-2.5" />
+                      {agent.multiAgent.type === 'agent_team' ? '团队' :
+                       agent.multiAgent.type === 'delegate' ? '委派' :
+                       agent.multiAgent.type === 'pipeline' ? '流水线' :
+                       agent.multiAgent.type === 'quick_team' ? '快速团队' :
+                       agent.multiAgent.type === 'orchestrate' ? '编排' :
+                       agent.multiAgent.type}
+                    </span>
+                  )}
+                  {agent.agentType && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20 whitespace-nowrap">
+                      <Tag className="w-2.5 h-2.5" />
+                      {AGENT_TYPE_LABEL[agent.agentType] || agent.agentType}
+                    </span>
+                  )}
+                  {agent.scene && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded border border-purple-500/20 whitespace-nowrap">
+                      {agent.scene}
+                    </span>
+                  )}
+                  {agent.executionMode && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20 whitespace-nowrap">
+                      <Server className="w-2.5 h-2.5" />
+                      {EXECUTION_MODE_LABEL[agent.executionMode] || agent.executionMode}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${statusConfig.color.replace('text-', 'bg-')} ${isActive ? 'animate-pulse' : ''}`} />
                 <span className={`text-xs ${statusConfig.color}`}>{statusConfig.label}</span>

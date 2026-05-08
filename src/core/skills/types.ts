@@ -85,7 +85,14 @@ export interface SkillRenderOptions {
  */
 export interface Skill<T = any> extends SkillMetadata {
   /** 意图元数据（实现后可被 IntentRouter 自动发现） */
-  intentMeta?: import('@/core/intent/types').IntentMetadata;
+  intentMeta?: {
+    description?: string;
+    keywords?: string[];
+    category?: string;
+    priority?: number;
+    scene?: string;
+    [key: string]: any;
+  };
 
   /** 模块类型（IntentRegistrable 接口要求，固定为 'skill'） */
   moduleType?: 'skill';

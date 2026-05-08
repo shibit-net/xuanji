@@ -14,6 +14,7 @@ import type {
   SkillRegistryOptions,
   WorkflowResult,
 } from './types';
+import { homedir } from 'node:os';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
@@ -30,7 +31,7 @@ export class SkillRegistry {
   constructor(options: SkillRegistryOptions = {}) {
     this.options = {
       autoLoad: options.autoLoad ?? false,
-      customPath: options.customPath ?? '.xuanji/skills',
+      customPath: options.customPath ?? `${homedir()}/.xuanji/skills`,
       cacheSize: options.cacheSize ?? 100,
       validateDependencies: options.validateDependencies ?? true,
     };

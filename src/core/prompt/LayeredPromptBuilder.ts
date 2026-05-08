@@ -23,7 +23,6 @@ import type {
   PromptBuildEventListener,
   PromptBuildEvent,
 } from './types';
-import { IntentAnalyzer } from './IntentAnalyzer';
 import { PromptComponentRegistry } from './PromptComponentRegistry';
 import { logger } from '@/core/logger';
 
@@ -31,7 +30,7 @@ const log = logger.child({ module: 'LayeredPromptBuilder' });
 
 export class LayeredPromptBuilder {
   private components: Map<string, PromptComponent> = new Map();
-  private intentAnalyzer: IntentAnalyzer;
+  private listener: import('@/core/events/EventBus').Unsubscribe | null = null;
   private userRegistry: PromptComponentRegistry | null = null;
   private currentScene: SceneType | null = null;
   private currentComplexity: IntentComplexity = 'standard';
@@ -42,7 +41,6 @@ export class LayeredPromptBuilder {
   private defaultScene: SceneType | null = null;
 
   constructor(
-    intentAnalyzer?: IntentAnalyzer,
     userId?: string,
     projectRoot?: string,
     agentId?: string,
@@ -51,7 +49,6 @@ export class LayeredPromptBuilder {
       defaultScene?: SceneType;
     }
   ) {
-    this.intentAnalyzer = intentAnalyzer ?? new IntentAnalyzer();
     if (agentId) this.agentId = agentId;
     if (options?.defaultComplexity) this.defaultComplexity = options.defaultComplexity;
     if (options?.defaultScene) this.defaultScene = options.defaultScene;
@@ -100,7 +97,6 @@ export class LayeredPromptBuilder {
     // 如果是 L1 组件且有 match 配置，注册到 IntentAnalyzer
     if (component.layer === 'L1' && component.match && component.scenes?.length) {
       for (const scene of component.scenes) {
-        this.intentAnalyzer.registerScene(scene, component.match);
       }
     }
 
@@ -132,7 +128,6 @@ export class LayeredPromptBuilder {
           // 如果是 L1 组件且有 match 配置，注册到 IntentAnalyzer
           if (component.layer === 'L1' && component.match && component.scenes?.length) {
             for (const scene of component.scenes) {
-              this.intentAnalyzer.registerScene(scene, component.match);
             }
           }
           log.debug(`加载用户组件: ${id}`);
@@ -142,7 +137,6 @@ export class LayeredPromptBuilder {
       }
       this.componentsLoaded = true;
     }
-    await this.intentAnalyzer.init();
   }
 
   /**
@@ -161,7 +155,6 @@ export class LayeredPromptBuilder {
           // 如果是 L1 组件且有 match 配置，更新 IntentAnalyzer
           if (event.component.layer === 'L1' && event.component.match && event.component.scenes?.length) {
             for (const scene of event.component.scenes) {
-              this.intentAnalyzer.registerScene(scene, event.component.match);
             }
           }
 
@@ -423,10 +416,6 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     return this.currentComplexity;
   }
 
-  getIntentAnalyzer(): IntentAnalyzer {
-    return this.intentAnalyzer;
-  }
-
   /** 获取所有可用场景（从已注册的 L1 组件中提取） */
   getAvailableScenes(): SceneType[] {
     const scenes = new Set<SceneType>();
@@ -454,7 +443,6 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   reset(): void {
     this.currentScene = null;
     this.currentComplexity = 'standard';
-    this.intentAnalyzer.reset();
   }
 
   /** 释放资源 */

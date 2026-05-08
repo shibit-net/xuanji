@@ -12,23 +12,6 @@ export interface Messages {
  * 中文消息
  */
 const zh: Messages = {
-  // ── CLI 通用 ──
-  'cli.title': '✦ Shibit 璇玑',
-  'cli.started': '璇玑 CLI 已启动',
-  'cli.exit': '璇玑 CLI 退出',
-  'cli.thinking': '🤔 让我想想...',
-  'cli.help_hint': '按 ? 打开快捷操作 · /help 查看帮助',
-  'cli.startup_failed': '启动失败:',
-  'cli.tool_executing': '🔧 正在使用 {name}...',
-  'cli.processing_stream': '✍️  奋笔疾书中...',
-  'cli.stream_buffered': '✍️  接收中... {lines} 行',
-  'cli.config_not_init': 'ConfigManager 尚未初始化，请先调用 load()',
-  'cli.config_not_init_short': 'ConfigManager 尚未初始化',
-  'cli.tool_nav_mode': '🔍 工具导航模式',
-  'cli.tool_nav_hint': '↑↓ 导航  Enter 展开/收起  Tab/Esc 退出',
-  'cli.tool_nav_enter': '💡 按 Tab 进入工具导航模式查看详情',
-  'cli.parallel_tools': '⚡ {count} 个工具并行执行中',
-
   // ── 命令 ──
   'cmd.help': '/help',
   'cmd.help_desc': '显示帮助信息',
@@ -44,8 +27,6 @@ const zh: Messages = {
   'cmd.settings_desc': '进入设置面板',
   'cmd.logs': '/logs',
   'cmd.logs_desc': '查看运行日志',
-  'cmd.bots': '/bots',
-  'cmd.bots_desc': '管理 IM 机器人',
   'cmd.lang': '/lang',
   'cmd.lang_desc': '切换语言 / Switch language',
   'cmd.init': '/init',
@@ -65,7 +46,6 @@ const zh: Messages = {
   'help.cost': '  /cost      — 显示 Token 用量统计',
   'help.settings': '  /settings  — 进入设置面板',
   'help.logs': '  /logs      — 查看运行日志',
-  'help.bots': '  /bots      — 管理 IM 机器人',
   'help.lang': '  /lang      — 切换语言',
   'help.init': '  /init      — 重置项目配置',
   'help.compact': '  /compact   — 压缩对话上下文',
@@ -144,7 +124,6 @@ const zh: Messages = {
   // ── 设置标签页 ──
   'settings.tab.llm': 'LLM 配置',
   'settings.tab.ui': '界面设置',
-  'settings.tab.bots': 'IM 机器人',
 
   // ── UI 设置 ──
   'ui.theme_title': '🎨 主题设置',
@@ -190,38 +169,6 @@ const zh: Messages = {
   'llm.edit_hint': '输入新值 → Enter 保存 | Esc 取消',
   'llm.hint': '↑↓选择  Enter编辑  1/2/3/4/5快速编辑  Q=返回',
 
-  // ── 机器人管理 ──
-  'bots.title': '🤖 IM 机器人管理',
-  'bots.dingtalk': '钉钉机器人',
-  'bots.feishu': '飞书机器人',
-  'bots.wecom': '企业微信机器人',
-  'bots.status_running': '● 运行中',
-  'bots.status_error': '● 错误',
-  'bots.status_stopped': '○ 已停止',
-  'bots.stopped': '{name} 已停止',
-  'bots.start_hint': '请通过 /bots start <type> 命令启动（需要先配置机器人密钥）',
-  'bots.operation_failed': '操作失败',
-  'bots.operating': '操作中...',
-  'bots.hint': '↑↓ 选择机器人  Enter 启动/停止  Q 返回',
-  'bots.enter': '进入机器人管理模式',
-  'bots.unregistered': '未注册的机器人类型: {type}',
-  'bots.already_running': '{type} 机器人已在运行中',
-  'bots.starting': '正在启动 {type} 机器人...',
-  'bots.started_ok': '{type} 机器人已启动',
-  'bots.start_failed': '启动失败',
-  'bots.start_failed_detail': '{type} 机器人启动失败: {error}',
-  'bots.stopping': '正在停止 {type} 机器人...',
-  'bots.stopped_ok': '{type} 机器人已停止',
-  'bots.stop_failed': '停止失败',
-  'bots.stop_failed_detail': '{type} 机器人停止失败: {error}',
-
-  // ── 机器人配置面板 ──
-  'bots_config.title': '💬 IM 机器人配置',
-  'bots_config.fields_title': '{icon} {name} — 配置字段',
-  'bots_config.not_configured': '(未配置)',
-  'bots_config.edit_hint': '💡 编辑 .xuanji/config.json 中的 bots 字段进行配置',
-  'bots_config.hint': '↑↓选择  1/2/3快速切换  Q=返回',
-
   // ── 日志 ──
   'logs.title': '📋 运行日志',
   'logs.count': '{count} 条',
@@ -231,60 +178,6 @@ const zh: Messages = {
   'logs.more': '↓ 还有 {remaining} 条日志（显示最近 {max} 条）',
   'logs.hint': 'P=暂停/继续  C=清空  Q=返回',
 
-  // ── 帮助文本 (index.ts) ──
-  'index.help_title': '✦ 璇玑 (Xuanji) v{version} — AI 助手',
-  'index.usage': '使用:',
-  'index.options': '选项:',
-  'index.option_help': '-h, --help           显示帮助信息',
-  'index.option_version': '-v, --version        显示版本号',
-  'index.option_model': '-m, --model <model>  指定模型',
-  'index.option_prompt': '-p, --prompt <text>  直接提问 (非交互模式)',
-  'index.bot_options': 'IM 机器人选项:',
-  'index.bot_mode': 'bot                  启动 IM 机器人模式',
-  'index.bot_dingtalk': '--dingtalk           启动钉钉机器人 (WebSocket Stream)',
-  'index.bot_feishu': '--feishu             启动飞书机器人 (WebSocket)',
-  'index.bot_wecom': '--wecom              启动企业微信机器人 (HTTP 回调)',
-  'index.gui_title': '桌面 GUI:',
-  'index.gui_desc': 'gui                  启动 Electron 桌面应用',
-  'index.interactive_cmds': '交互模式命令:',
-  'index.env_vars': '环境变量:',
-  'index.docs': '文档: https://github.com/shibit/xuanji',
-  'index.config_example': '配置文件 (.xuanji/config.json) 示例:',
-  'index.background': '后台运行:',
-
-  // ── Bot 模式 (index.ts) ──
-  'bot.started': '璇玑 Bot 模式启动',
-  'bot.no_bot_found': '未找到要启动的机器人。\n  方式 1: xuanji bot --dingtalk (命令行指定)\n  方式 2: 在 .xuanji/config.json 中配置 bots.dingtalk.enabled = true',
-  'bot.starting': '🤖 正在启动{name}机器人...',
-  'bot.started_ok': '✅ {name}机器人已启动',
-  'bot.start_failed': '❌ {name}机器人启动失败: {error}',
-  'bot.running': '\n✦ 璇玑 Bot 模式运行中 ({count} 个机器人)',
-  'bot.log_dir': '  日志文件: .xuanji/logs/',
-  'bot.stop_hint': '  Ctrl+C 或 SIGTERM 停止\n',
-  'bot.signal_received': '收到 {signal}，开始优雅退出',
-  'bot.stopping': '\n⏹️  收到 {signal}，正在停止机器人...',
-  'bot.stopped_ok': '  ✓ {name}机器人已停止',
-  'bot.stop_failed': '  ✗ {name}停止失败: {error}',
-  'bot.exited': '璇玑 Bot 模式已退出',
-
-  // ── IM Bot 适配器 ──
-  'im.config_missing': '机器人配置缺失，请设置 {appKeyEnv} 和 {appSecretEnv}',
-  'im.ws_connected': 'WebSocket 已连接',
-  'im.ws_disconnected': 'WebSocket 已断开 (code: {code})',
-  'im.ws_error': 'WebSocket 错误: {error}',
-  'im.connection_failed': '连接失败: {error}',
-  'im.message_received': '收到消息 ({sender}): {preview}',
-  'im.message_parse_failed': '解析消息失败: {error}',
-  'im.message_process_failed': '处理消息失败: {error}',
-  'im.reconnecting': '{delay} 秒后重连...',
-  'im.reconnect_failed': '重连失败: {error}',
-  'im.reply_failed': '回复失败: {error}',
-  'im.content_truncated': '...(内容过长已截断)',
-  'im.callback_config_missing': '企业微信回调配置缺失，请设置 {tokenEnv} 和 {keyEnv}',
-
-  // ── GUI 模式 ──
-  'gui.starting': '✦ 正在启动璇玑桌面应用...',
-  'gui.start_failed': '❌ GUI 启动失败:',
 
   // ── 权限控制 ──
   'perm.title_danger': '⛔ 需要确认 — 高危操作',
@@ -343,23 +236,6 @@ const zh: Messages = {
  * 英文消息
  */
 const en: Messages = {
-  // ── CLI General ──
-  'cli.title': '✦ Shibit Xuanji',
-  'cli.started': 'Xuanji CLI started',
-  'cli.exit': 'Xuanji CLI exited',
-  'cli.thinking': '🤔 Let me think...',
-  'cli.help_hint': 'Press ? for quick actions · /help for help',
-  'cli.startup_failed': 'Startup failed:',
-  'cli.tool_executing': '🔧 Using {name}...',
-  'cli.processing_stream': '✍️  Writing response...',
-  'cli.stream_buffered': '✍️  Receiving... {lines} lines',
-  'cli.config_not_init': 'ConfigManager not initialized, call load() first',
-  'cli.config_not_init_short': 'ConfigManager not initialized',
-  'cli.tool_nav_mode': '🔍 Tool Navigation Mode',
-  'cli.tool_nav_hint': '↑↓ Navigate  Enter Expand/Collapse  Tab/Esc Exit',
-  'cli.tool_nav_enter': '💡 Press Tab to enter tool navigation mode',
-  'cli.parallel_tools': '⚡ {count} tools running in parallel',
-
   // ── Commands ──
   'cmd.help': '/help',
   'cmd.help_desc': 'Show help information',
@@ -375,8 +251,6 @@ const en: Messages = {
   'cmd.settings_desc': 'Open settings panel',
   'cmd.logs': '/logs',
   'cmd.logs_desc': 'View logs',
-  'cmd.bots': '/bots',
-  'cmd.bots_desc': 'Manage IM bots',
   'cmd.lang': '/lang',
   'cmd.lang_desc': 'Switch language / 切换语言',
   'cmd.init': '/init',
@@ -396,7 +270,6 @@ const en: Messages = {
   'help.cost': '  /cost      — Show token usage stats',
   'help.settings': '  /settings  — Open settings panel',
   'help.logs': '  /logs      — View logs',
-  'help.bots': '  /bots      — Manage IM bots',
   'help.lang': '  /lang      — Switch language',
   'help.init': '  /init      — Reset project config',
   'help.compact': '  /compact   — Compress conversation context',
@@ -475,7 +348,6 @@ const en: Messages = {
   // ── Settings Tabs ──
   'settings.tab.llm': 'LLM Config',
   'settings.tab.ui': 'UI Settings',
-  'settings.tab.bots': 'IM Bots',
 
   // ── UI Settings ──
   'ui.theme_title': '🎨 Theme Settings',
@@ -521,38 +393,6 @@ const en: Messages = {
   'llm.edit_hint': 'Enter new value → Enter to save | Esc to cancel',
   'llm.hint': '↑↓ Navigate  Enter Edit  1/2/3/4/5 Quick edit  Q=Back',
 
-  // ── Bots Management ──
-  'bots.title': '🤖 IM Bot Management',
-  'bots.dingtalk': 'DingTalk Bot',
-  'bots.feishu': 'Feishu Bot',
-  'bots.wecom': 'WeCom Bot',
-  'bots.status_running': '● Running',
-  'bots.status_error': '● Error',
-  'bots.status_stopped': '○ Stopped',
-  'bots.stopped': '{name} stopped',
-  'bots.start_hint': 'Use /bots start <type> to start (configure bot credentials first)',
-  'bots.operation_failed': 'Operation failed',
-  'bots.operating': 'Processing...',
-  'bots.hint': '↑↓ Select bot  Enter Start/Stop  Q Back',
-  'bots.enter': 'Entering bot management mode',
-  'bots.unregistered': 'Unregistered bot type: {type}',
-  'bots.already_running': '{type} bot is already running',
-  'bots.starting': 'Starting {type} bot...',
-  'bots.started_ok': '{type} bot started',
-  'bots.start_failed': 'Start failed',
-  'bots.start_failed_detail': '{type} bot failed to start: {error}',
-  'bots.stopping': 'Stopping {type} bot...',
-  'bots.stopped_ok': '{type} bot stopped',
-  'bots.stop_failed': 'Stop failed',
-  'bots.stop_failed_detail': '{type} bot failed to stop: {error}',
-
-  // ── Bots Config Panel ──
-  'bots_config.title': '💬 IM Bot Configuration',
-  'bots_config.fields_title': '{icon} {name} — Config Fields',
-  'bots_config.not_configured': '(not configured)',
-  'bots_config.edit_hint': '💡 Edit the bots section in .xuanji/config.json',
-  'bots_config.hint': '↑↓ Navigate  1/2/3 Quick switch  Q=Back',
-
   // ── Logs ──
   'logs.title': '📋 Logs',
   'logs.count': '{count} entries',
@@ -562,60 +402,6 @@ const en: Messages = {
   'logs.more': '↓ {remaining} more entries (showing latest {max})',
   'logs.hint': 'P=Pause/Resume  C=Clear  Q=Back',
 
-  // ── Help Text (index.ts) ──
-  'index.help_title': '✦ Xuanji v{version} — AI Assistant',
-  'index.usage': 'Usage:',
-  'index.options': 'Options:',
-  'index.option_help': '-h, --help           Show help',
-  'index.option_version': '-v, --version        Show version',
-  'index.option_model': '-m, --model <model>  Specify model',
-  'index.option_prompt': '-p, --prompt <text>  Direct prompt (non-interactive)',
-  'index.bot_options': 'IM Bot options:',
-  'index.bot_mode': 'bot                  Start IM bot mode',
-  'index.bot_dingtalk': '--dingtalk           Start DingTalk bot (WebSocket Stream)',
-  'index.bot_feishu': '--feishu             Start Feishu bot (WebSocket)',
-  'index.bot_wecom': '--wecom              Start WeCom bot (HTTP callback)',
-  'index.gui_title': 'Desktop GUI:',
-  'index.gui_desc': 'gui                  Start Electron desktop app',
-  'index.interactive_cmds': 'Interactive commands:',
-  'index.env_vars': 'Environment variables:',
-  'index.docs': 'Docs: https://github.com/shibit/xuanji',
-  'index.config_example': 'Config file (.xuanji/config.json) example:',
-  'index.background': 'Background:',
-
-  // ── Bot Mode (index.ts) ──
-  'bot.started': 'Xuanji Bot mode started',
-  'bot.no_bot_found': 'No bot found to start.\n  Method 1: xuanji bot --dingtalk (CLI)\n  Method 2: Set bots.dingtalk.enabled = true in .xuanji/config.json',
-  'bot.starting': '🤖 Starting {name} bot...',
-  'bot.started_ok': '✅ {name} bot started',
-  'bot.start_failed': '❌ {name} bot failed to start: {error}',
-  'bot.running': '\n✦ Xuanji Bot mode running ({count} bot(s))',
-  'bot.log_dir': '  Log files: .xuanji/logs/',
-  'bot.stop_hint': '  Ctrl+C or SIGTERM to stop\n',
-  'bot.signal_received': 'Received {signal}, graceful shutdown',
-  'bot.stopping': '\n⏹️  Received {signal}, stopping bots...',
-  'bot.stopped_ok': '  ✓ {name} bot stopped',
-  'bot.stop_failed': '  ✗ {name} failed to stop: {error}',
-  'bot.exited': 'Xuanji Bot mode exited',
-
-  // ── IM Bot Adapters ──
-  'im.config_missing': 'Bot configuration missing, please set {appKeyEnv} and {appSecretEnv}',
-  'im.ws_connected': 'WebSocket connected',
-  'im.ws_disconnected': 'WebSocket disconnected (code: {code})',
-  'im.ws_error': 'WebSocket error: {error}',
-  'im.connection_failed': 'Connection failed: {error}',
-  'im.message_received': 'Message received ({sender}): {preview}',
-  'im.message_parse_failed': 'Failed to parse message: {error}',
-  'im.message_process_failed': 'Failed to process message: {error}',
-  'im.reconnecting': 'Reconnecting in {delay}s...',
-  'im.reconnect_failed': 'Reconnect failed: {error}',
-  'im.reply_failed': 'Failed to reply: {error}',
-  'im.content_truncated': '...(content truncated)',
-  'im.callback_config_missing': 'WeCom callback configuration missing, please set {tokenEnv} and {keyEnv}',
-
-  // ── GUI Mode ──
-  'gui.starting': '✦ Starting Xuanji desktop app...',
-  'gui.start_failed': '❌ GUI startup failed:',
 
   // ── Permission Control ──
   'perm.title_danger': '⛔ Confirmation Required — HIGH RISK',

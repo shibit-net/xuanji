@@ -4,6 +4,8 @@
 
 import { useState, useEffect } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface Tool {
   name: string;
@@ -30,12 +32,12 @@ function ToolCard({ tool }: { tool: Tool }) {
   const categoryColor = categoryColors[tool.category] || categoryColors.other;
 
   return (
-    <div className="bg-bg-secondary rounded-lg border border-bg-tertiary overflow-hidden hover:border-primary/30 transition-colors">
-      <div className="flex items-start gap-3 px-4 py-3">
+    <Card className="hover:border-primary/30 transition-colors">
+      <CardContent className="flex items-start gap-3 p-4">
         <Wrench size={16} className="text-accent mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="font-mono text-sm font-semibold text-text-primary">{tool.name}</span>
+            <span className="font-mono text-sm font-semibold text-foreground">{tool.name}</span>
             <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColor}`}>
               {tool.category}
             </span>
@@ -49,24 +51,24 @@ function ToolCard({ tool }: { tool: Tool }) {
               </span>
             )}
           </div>
-          <p className="text-xs text-text-secondary">{tool.description || '无描述'}</p>
+          <p className="text-xs text-muted-foreground">{tool.description || '无描述'}</p>
 
           {/* 配置信息 */}
           {tool.config && Object.keys(tool.config).length > 0 && (
-            <div className="mt-2 p-2 bg-bg-primary rounded text-xs">
-              <div className="text-text-tertiary mb-1">配置:</div>
-              <pre className="text-text-secondary font-mono">
+            <div className="mt-2 p-2 bg-background rounded text-xs">
+              <div className="text-muted-foreground/70 mb-1">配置:</div>
+              <pre className="text-muted-foreground font-mono">
                 {JSON.stringify(tool.config, null, 2)}
               </pre>
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-export default function ToolsPage({ onClose }: ToolsPageProps) {
+export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,23 +141,25 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
   return (
     <div className="flex flex-col h-full">
       {/* 头部 */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-bg-tertiary flex-shrink-0">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-text-primary">工具配置</h1>
+          <h1 className="text-base font-semibold text-foreground">工具配置</h1>
           {!loading && !error && (
-            <p className="text-xs text-text-secondary mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               共 {tools.length} 个工具，已启用 {tools.filter(t => t.enabled !== false).length} 个
             </p>
           )}
         </div>
-        <button
+        <Button
           onClick={loadTools}
           disabled={loading}
-          className="p-1.5 rounded hover:bg-bg-secondary text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-50"
           title="刷新"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        </Button>
       </div>
 
       {/* 说明 */}
@@ -164,7 +168,7 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
           <Info size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
           <div className="text-xs text-blue-400">
             <p className="font-medium mb-1">工具配置说明</p>
-            <ul className="space-y-0.5 text-text-secondary">
+            <ul className="space-y-0.5 text-muted-foreground">
               <li>• 工具是 Agent 可以调用的原子操作</li>
               <li>• 每个工具可以单独启用/禁用</li>
               <li>• 在 Agent 配置中设置工具的 enabled 字段</li>
@@ -175,20 +179,20 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
 
       {/* 搜索和筛选 */}
       {!loading && !error && tools.length > 0 && (
-        <div className="px-5 py-3 border-b border-bg-tertiary flex-shrink-0 space-y-2">
+        <div className="px-5 py-3 border-b border-border flex-shrink-0 space-y-2">
           <input
             type="text"
             placeholder="搜索工具名称或描述..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-1.5 text-sm bg-bg-secondary border border-bg-tertiary rounded text-text-primary placeholder-text-tertiary focus:outline-none focus:border-accent"
+            className="w-full px-3 py-1.5 text-sm bg-card border border-border rounded text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-accent"
           />
 
           <div className="flex gap-2">
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="flex-1 px-2 py-1 text-xs bg-bg-secondary border border-bg-tertiary rounded text-text-primary focus:outline-none focus:border-accent"
+              className="flex-1 px-2 py-1 text-xs bg-card border border-border rounded text-foreground focus:outline-none focus:border-accent"
             >
               <option value="all">所有类别</option>
               {categories.map(cat => (
@@ -199,7 +203,7 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
             <select
               value={filterEnabled}
               onChange={(e) => setFilterEnabled(e.target.value)}
-              className="flex-1 px-2 py-1 text-xs bg-bg-secondary border border-bg-tertiary rounded text-text-primary focus:outline-none focus:border-accent"
+              className="flex-1 px-2 py-1 text-xs bg-card border border-border rounded text-foreground focus:outline-none focus:border-accent"
             >
               <option value="all">所有状态</option>
               <option value="enabled">已启用</option>
@@ -212,21 +216,22 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {loading ? (
-          <div className="flex items-center justify-center h-32 text-text-secondary text-sm">
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
             加载中...
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-32 gap-3">
             <p className="text-red-400 text-sm">{error}</p>
-            <button
+            <Button
               onClick={loadTools}
-              className="px-3 py-1.5 text-sm bg-accent text-white rounded hover:opacity-90"
+              variant="default"
+              size="sm"
             >
               重试
-            </button>
+            </Button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-text-secondary text-sm">
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
             {search || filterCategory !== 'all' || filterEnabled !== 'all'
               ? '没有匹配的工具'
               : '暂无可用工具'}
@@ -235,7 +240,7 @@ export default function ToolsPage({ onClose }: ToolsPageProps) {
           <div className="space-y-4">
             {Object.entries(groupedTools).map(([category, categoryTools]) => (
               <div key={category}>
-                <h3 className="text-sm font-medium text-text-primary mb-2 px-2">
+                <h3 className="text-sm font-medium text-foreground mb-2 px-2">
                   {category} ({categoryTools.length})
                 </h3>
                 <div className="space-y-2">

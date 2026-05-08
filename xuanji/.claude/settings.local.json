@@ -11,7 +11,10 @@
       "Bash(cp provider/FallbackManager.ts providers/FallbackManager.ts)",
       "Bash(cp provider/RateLimitManager.ts providers/RateLimitManager.ts)",
       "Bash(cp provider/index.ts providers/index.ts)",
-      "Bash(rm -rf provider/)"
+      "Bash(rm -rf provider/)",
+      "Read(//Users/kevinshi/.claude/plans/**)",
+      "Bash(mkdir -p /Users/kevinshi/.claude/plans)",
+      "Bash(node scripts/migrate-xuanji-data.mjs)"
     ]
   }
 }

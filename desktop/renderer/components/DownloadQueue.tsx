@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 
 interface DownloadTask {
   id: string;
@@ -147,7 +148,9 @@ export const DownloadQueue: React.FC = () => {
           )}
         </div>
         {expanded && finishedTasks.length > 0 && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             style={{
               fontSize: '12px',
               color: '#cccccc',
@@ -162,7 +165,7 @@ export const DownloadQueue: React.FC = () => {
             }}
           >
             清除已完成
-          </button>
+          </Button>
         )}
       </div>
 
@@ -209,7 +212,9 @@ export const DownloadQueue: React.FC = () => {
                   {task.name}
                 </span>
                 {task.status === 'downloading' && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     style={{
                       fontSize: '11px',
                       color: '#f48771',
@@ -221,7 +226,7 @@ export const DownloadQueue: React.FC = () => {
                     onClick={() => handleCancel(task.id)}
                   >
                     取消
-                  </button>
+                  </Button>
                 )}
               </div>
 

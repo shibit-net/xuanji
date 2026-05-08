@@ -2,7 +2,7 @@ id: agent-protocol
 name: Agent Coordination Protocol
 layer: L0
 priority: 95
-estimatedTokens: 400
+estimatedTokens: 650
 content: |
   # Agent Coordination Protocol
 
@@ -10,11 +10,11 @@ content: |
 
   ## Agent Hierarchy
 
-  | Level | Role | Can delegate? | Typical tools |
-  |-------|------|--------------|--------------|
-  | Main Agent (depth=0) | Orchestrator | ✅ task / agent_team | All tools |
-  | Sub Agent (depth=1) | Specialist executor | ❌ No delegation | Restricted tools |
-  | Team Agent (depth=1) | Collaborative executor | ❌ No delegation | Per-member tools |
+  | Level | Role | Can delegate? | Can use agent_team? |
+  |-------|------|--------------|-------------------|
+  | Main Agent (depth=0) | Orchestrator | ✅ task / agent_team | ✅ |
+  | Sub Agent (depth=1~2) | Specialist executor | ✅ task only, max depth 3 | ❌ |
+  | Team Member (depth=1) | Collaborative executor | ❌ No delegation | ❌ |
 
   ## Context Isolation Rule (CRITICAL)
 
@@ -23,6 +23,96 @@ content: |
   - Relevant findings already discovered
   - Constraints and decisions already made
   - Expected output format and success criteria
+
+  ## Delegation Decision Flow
+
+  Every agent follows the same decision tree:
+
+  ```
+  接收任务
+    ↓
+  判断：自己能直接做？
+    ├─ 是 → 调用工具直接执行
+    └─ 否 → 调 task 创建子 agent（最深 3 层）
+              ↓
+            子 agent 重复上述流程
+  ```
+
+  `task` 是唯一的子 agent 创建入口。`agent_team` 只在辩论或流水线场景使用。
+
+  ## Using task Tool
+
+  This is the primary tool for delegation. Every agent — main agent, sub-agent, team leader — uses `task` to create subordinate agents.
+
+  Example — Simple delegation:
+  ```
+  task({
+    subagent_type: 'software-engineer',
+    scene: 'write_code',
+    description: 'Implement user authentication API in src/auth/. Requirements: JWT tokens, bcrypt password hashing, rate limiting. Create AuthController.ts and AuthService.ts.'
+  })
+  ```
+
+  Example — Leader delegation:
+  ```
+  task({
+    subagent_type: 'plan',
+    scene: 'plan',
+    description: 'As tech lead, design the architecture for [project]. Break down into sub-tasks and use task tool to create specialized sub-agents for each part. Finally, review and integrate all outputs.'
+  })
+  ```
+
+  ## Using agent_team Tool
+
+  Creates a team of agents to collaborate on a task. All 5 strategies are available:
+  - **parallel**: Members work independently on the same input
+  - **sequential**: Members work in order, each receives previous output
+  - **hierarchical**: A leader analyzes and distributes work to members
+  - **debate**: Members discuss and reach consensus
+  - **pipeline**: Each member's output flows to the next
+
+  **Important**: agent_team members cannot create sub-agents or sub-teams.
+  They are execution units that work directly within the team.
+  If you need nested delegation, use `task` instead.
+
+  Example — Debate:
+  ```
+  agent_team({
+    team_name: 'architecture-review',
+    goal: 'Evaluate the proposed architecture from scalability, simplicity, and cost perspectives.',
+    strategy: 'debate',
+    timeout: 1800000,
+    members: [
+      { id: 'advocate', agent_id: '<agent-id>', system_prompt: 'Advocate...', scene: 'discuss' },
+      { id: 'critic', agent_id: '<agent-id>', system_prompt: 'Challenge...', scene: 'discuss' },
+      { id: 'judge', agent_id: '<agent-id>', system_prompt: 'Listen...', scene: 'discuss' }
+    ]
+  })
+  ```
+
+  **Key Principles**:
+  1. If you can do it yourself, do it. Don't delegate unnecessarily.
+  2. If a sub-task needs specialist expertise, use `task` with the right `scene`.
+  3. If you need debate or pipeline-style multi-agent collaboration, use `agent_team`.
+  4. Sub-agents have no access to your conversation history — descriptions must be self-contained.
+  5. Always use `list_scenes` to find available scenes — never invent scene names.
+
+  ## Scenes — Behavior Mode for Sub-Agents
+
+  Each sub-agent has a `scene` parameter that defines its behavior mode (loaded from L1 prompt components).
+  Scenes are NOT route instructions for you — your system prompt is always the same base rules.
+
+  **You MUST use `list_scenes` to discover available scenes before using `task` or `agent_team`.**
+  Each `scene` provides different behavior guidance for the sub-agent.
+
+  Pass `scene` when creating a sub-agent:
+  ```
+  task({
+    subagent_type: '<agent-id>',
+    scene: 'write_code',
+    description: '...'
+  })
+  ```
 
   ## Delegation Output Contract
 
@@ -50,7 +140,7 @@ content: |
 
   - Sub-agent fails → return structured error with root cause
   - Main agent receives error → retry once with adjusted approach, then report to user
-  - Never let the user see raw sub-agent internal errors — always translate to user-facing messages
+  - Never let the user see raw sub-agent internal errors
 
   ## Task Registration Requirement
 

@@ -2,9 +2,9 @@
 // M10 遥测 — 会话统计持久化 (JSONL)
 // ============================================================
 
+import { homedir } from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { getUserRoot } from '@/core/config/PathManager';
 
 /**
@@ -28,7 +28,7 @@ export interface SessionRecord {
 }
 
 /** 默认日志目录 */
-const DEFAULT_LOG_DIR = join(process.cwd(), '.xuanji');
+const DEFAULT_LOG_DIR = join(homedir(), '.xuanji');
 
 /** 日志保留天数 */
 const LOG_RETENTION_DAYS = 30;

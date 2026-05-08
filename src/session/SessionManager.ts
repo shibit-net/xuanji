@@ -28,34 +28,14 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'session-manager' });
 
-/**
- * 记忆驱动会话配置（已废弃，保留接口兼容性）
- */
-export interface MemoryDrivenConfig {
-  /** 是否启用记忆驱动模式（默认 false，已废弃） */
-  enabled: boolean;
-  /** 保留最近 N 条消息（默认 10） */
-  keepRecentMessages: number;
-  /** 是否在 save() 时生成摘要（默认 true） */
-  generateSummaryOnSave: boolean;
-}
-
 export interface SessionManagerOptions extends Partial<SessionStorageOptions> {
   /** 会话配置 */
   sessionConfig?: SessionConfig;
-  /** 记忆驱动配置（已废弃） */
-  memoryDriven?: Partial<MemoryDrivenConfig>;
   /** LLM Provider（用于生成摘要） */
   provider?: ILLMProvider;
   /** Provider 配置 */
   providerConfig?: ProviderConfig;
 }
-
-const DEFAULT_MEMORY_DRIVEN_CONFIG: MemoryDrivenConfig = {
-  enabled: false,
-  keepRecentMessages: 10,
-  generateSummaryOnSave: true,
-};
 
 export class SessionManager {
   private storage: SessionStorage;
@@ -63,8 +43,6 @@ export class SessionManager {
   private activeSessionId: string | null = null;
   /** 会话配置 */
   private sessionConfig: SessionConfig | null = null;
-  /** 记忆驱动配置（已废弃） */
-  private memoryDrivenConfig: MemoryDrivenConfig;
   /** 会话摘要生成器 */
   private summarizer: SessionSummarizer | null = null;
   /** 上次归档后的消息起始索引 */
@@ -75,10 +53,6 @@ export class SessionManager {
   constructor(options?: SessionManagerOptions) {
     this.storage = new SessionStorage(options);
     this.sessionConfig = options?.sessionConfig || null;
-    this.memoryDrivenConfig = {
-      ...DEFAULT_MEMORY_DRIVEN_CONFIG,
-      ...options?.memoryDriven,
-    };
 
     // 初始化摘要生成器（如果提供了 provider）
     if (options?.provider && options?.providerConfig) {
@@ -182,24 +156,6 @@ export class SessionManager {
     }
   }
 
-
-  /**
-   * 🆕 获取记忆驱动配置
-   */
-  getMemoryDrivenConfig(): MemoryDrivenConfig {
-    return { ...this.memoryDrivenConfig };
-  }
-
-  /**
-   * 🆕 更新记忆驱动配置
-   */
-  updateMemoryDrivenConfig(config: Partial<MemoryDrivenConfig>): void {
-    this.memoryDrivenConfig = {
-      ...this.memoryDrivenConfig,
-      ...config,
-    };
-    log.debug('Memory-driven config updated:', this.memoryDrivenConfig);
-  }
 
   /**
    * 获取会话元数据

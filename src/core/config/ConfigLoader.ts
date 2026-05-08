@@ -6,7 +6,7 @@ import type { AppConfig, IConfigLoader } from '@/core/types';
 import type { MCPConfig } from '@/mcp/types';
 import { getConfigManager } from './ConfigManager';
 import { getUserConfigPath } from './PathManager';
-import { deepMergeConfig, getByPath, setByPath } from './GlobalConfig';
+import { deepMergeConfig, getByPath, setByPath } from './ProjectConfig';
 import { ConfigValidator } from './ConfigValidator';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -60,12 +60,23 @@ export class ConfigLoader implements IConfigLoader {
       log.info(`使用 Agent 配置: ${this.agentId}`);
     }
 
-    // 3.5 确保 provider.apiKey 存在——如果 agent 配置有 apiKey，但 deepMerge 时
-    // config.provider 是空对象 {}（而非 undefined），deepMerge 的递归合并会保留
-    // 空对象的属性而不会完整替换。这里做一次兜底校验。
+    // 3.5 检查 provider 加载状态
     if (!config.provider?.apiKey) {
-      // 重试一次：从 agent 配置中提取 apiKey
+      log.warn(`[CONFIG_DEBUG] config.provider 为空！检查 agent 配置路径...`);
+      const { getUserAgentsDir } = await import('./PathManager.js');
+      const agentsDir = getUserAgentsDir(this.userId);
+      log.warn(`[CONFIG_DEBUG] agentsDir=${agentsDir}`);
+      const { existsSync } = await import('node:fs');
+      const yamlPath = join(agentsDir, 'xuanji.yaml');
+      log.warn(`[CONFIG_DEBUG] yamlPath=${yamlPath}, exists=${existsSync(yamlPath)}`);
+
       const retryConfig = await this.loadAgentConfig(this.agentId);
+      log.warn(`[CONFIG_DEBUG] loadAgentConfig returned: ${JSON.stringify({
+        hasProvider: !!retryConfig,
+        hasApiKey: !!retryConfig?.provider?.apiKey,
+        adapter: retryConfig?.provider?.adapter,
+      })}`);
+
       if (retryConfig?.provider?.apiKey) {
         log.info(`发现 provider.apiKey 为空，从 Agent 配置补全`);
         config.provider = { ...config.provider, ...retryConfig.provider };

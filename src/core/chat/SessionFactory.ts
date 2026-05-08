@@ -14,7 +14,7 @@ import { SessionManager } from '@/session/SessionManager';
 import { getUserSessionsDir } from '@/core/config/PathManager';
 import { HookRegistry } from '@/hooks/HookRegistry';
 import { AgentLoop } from '@/core/agent/AgentLoop';
-import { ConversationManager } from '@/core/conversation/ConversationManager';
+import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { ChatSession, type SessionCallbacks } from './ChatSession';
 import { logger } from '@/core/logger';
@@ -100,24 +100,9 @@ export class SessionFactory {
 
     this.container.register('layeredPromptBuilder', async () => {
       const { LayeredPromptBuilder } = await import('@/core/prompt/LayeredPromptBuilder');
-      const { IntentAnalyzer } = await import('@/core/prompt/IntentAnalyzer');
-      const { getEmbeddingProvider } = await import('@/embedding/EmbeddingProvider');
       const agentRegistry = await this.container.resolve<import('@/core/agent/AgentRegistry').AgentRegistry>('agentRegistry');
 
-      let intentAnalyzer: import('@/core/prompt/IntentAnalyzer').IntentAnalyzer | undefined;
-      try {
-        const embeddingProvider = getEmbeddingProvider(config.embedding);
-        intentAnalyzer = new IntentAnalyzer(embeddingProvider, agentRegistry);
-        await intentAnalyzer.init();
-        log.info('[SessionFactory] IntentAnalyzer created with embedding support (will init on first use)');
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log.warn(`[SessionFactory] Failed to create IntentAnalyzer with embeddings, using keyword-only mode: ${errMsg}`);
-        intentAnalyzer = new IntentAnalyzer(undefined, agentRegistry);
-      }
-
       const builder = new LayeredPromptBuilder(
-        intentAnalyzer,
         userId,
         options.projectRoot,
         this.agentId,
@@ -146,12 +131,11 @@ export class SessionFactory {
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
 
-    // 7. 创建 ConversationManager
-    const conversationManager = new ConversationManager();
-    conversationManager.setPromptBuilder(layeredPromptBuilder);
+    // 7. 创建 StateTracker
+    const stateTracker = new StateTracker();
 
-    // 8. 创建 TaskOrchestrator
-    const taskOrchestrator = new TaskOrchestrator();
+    // 8. 获取 TaskOrchestrator 单例（统一后台任务管理器）
+    const taskOrchestrator = TaskOrchestrator.getInstance();
 
     // 9. 创建 AgentLoop
     const provider = await this.container.resolve<ILLMProvider>('provider');
@@ -198,20 +182,38 @@ export class SessionFactory {
     // 11. 初始化 TaskCompletionHandler — 后台任务完成通知
     // 后台任务完成时自动注入到 system prompt，主 agent 空闲时自动触发汇总
     const contextManager = agentLoop.getContextManager();
-    taskOrchestrator.setContextManager(contextManager);
-    // 重设 onRun，让后台任务完成时自动触发 ChatSession.run
-    const taskCompletionHandler = (taskOrchestrator as any).taskCompletionHandler as import('@/core/agent/async/TaskCompletionHandler').TaskCompletionHandler;
-    if (taskCompletionHandler) {
-      // onRun 由 ChatSession 通过 checkPendingCompletions 触发
-      // handleCompletion 中当主 agent 空闲时也会自动触发
-      log.info('TaskCompletionHandler initialized for async task notifications');
-    }
-
+    const completionHandler = taskOrchestrator.initCompletionHandler(contextManager);
     // 12. 初始化 TodoManager（用户维度隔离）
     getTodoManager(userId);
 
     // 13. 创建会话
-    const session = new ChatSession(agentLoop, this.container, conversationManager, taskOrchestrator, options.callbacks);
+    const session = new ChatSession(agentLoop, this.container, stateTracker, options.callbacks);
+
+    // 重设 onRun + onAutoSummarize + onCitationData，让后台任务完成时自动触发 ChatSession.run + 通知渲染器
+    const taskCompletionHandler = completionHandler;
+    if (taskCompletionHandler) {
+      const bridgeAutoSummarize = (options.callbacks as any)?.onAutoSummarize;
+      const bridgeCitationData = (options.callbacks as any)?.onCitationData;
+      (taskCompletionHandler as any).callbacks = {
+        ...(taskCompletionHandler as any).callbacks,
+        onAutoSummarize: (subAgentId?: string, groupId?: string) => {
+          bridgeAutoSummarize?.(subAgentId, groupId);
+        },
+        onCitationData: (citations: Array<{ agentName: string; originalOutput: string; duration: number; tokensUsed: { input: number; output: number } }>) => {
+          bridgeCitationData?.(citations);
+        },
+        onRun: async (message: string) => {
+          try {
+            await session.run(message);
+          } catch (err) {
+            log.error('TaskCompletionHandler onRun failed:', err);
+          }
+        },
+        isRunning: () => (agentLoop as any).running ?? false,
+      };
+      log.info('TaskCompletionHandler onRun + onAutoSummarize + onCitationData hooked');
+    }
+
     log.info('Session created successfully');
     return session;
   }

@@ -20,7 +20,9 @@
       "@/*": ["./renderer/*"],
       "@main/*": ["./main/*"],
       "@shared/*": ["./shared/*"],
+      "@/core/*": ["../src/core/*"],
       "@core/*": ["../src/core/*"],
+      "@/mcp/*": ["../src/mcp/*"],
       "@root/src/*": ["../src/*"]
     }
   },

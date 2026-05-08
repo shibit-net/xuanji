@@ -126,8 +126,9 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermissionRequirement[]> = 
   // 复合权限
   'task': ['bashExec'], // SubAgent 可能执行任意操作
   'agent_team': ['bashExec'], // 多 Agent 协作可能执行任意操作
-  'reminder_set': ['fileWrite'], // 提醒需要持久化
-  'reminder_check': ['fileRead'],
+
+
+
 };
 
 /**

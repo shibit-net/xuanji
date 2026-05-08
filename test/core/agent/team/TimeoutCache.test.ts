@@ -223,7 +223,7 @@ describe('TimeoutCache — getOrCompute', () => {
     cache.set('a', 1).set('b', 2);
 
     // Hit 'a' via getOrCompute — promotes 'a' to MRU
-    cache.getOrCompute('a', () => fail('should not call factory'));
+    cache.getOrCompute('a', () => { throw new Error('should not call factory'); });
 
     // Now 'b' is oldest
     cache.set('c', 3);

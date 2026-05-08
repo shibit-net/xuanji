@@ -246,56 +246,6 @@ export class MessageChannel extends EventEmitter {
   }
 
   /**
-   * 处理接收到的消息
-   */
-  private async handleMessage(msg: Message): Promise<void> {
-    // 只为 download:event 打印日志
-    if (msg.type === 'download:event') {
-      this.log(`收到消息: ${msg.type}`, msg);
-    }
-
-    // 如果是响应消息（有 requestId）
-    if (msg.requestId) {
-      const pending = this.pendingRequests.get(msg.requestId);
-      if (pending) {
-        clearTimeout(pending.timer);
-        this.pendingRequests.delete(msg.requestId);
-        pending.resolve(msg.data);
-        return;
-      }
-    }
-
-    // 如果有注册的处理器，调用它
-    const handler = this.handlers.get(msg.type);
-    if (handler) {
-      try {
-        const result = await handler(msg.data);
-        // 如果是请求消息，发送响应
-        if (msg.requestId) {
-          this.respond(msg.requestId, result);
-        }
-      } catch (err) {
-        this.log(`处理消息失败: ${msg.type}`, err, 'error');
-        // 如果是请求消息，发送错误响应
-        if (msg.requestId) {
-          this.respond(msg.requestId, {
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-      return;
-    }
-
-    // 触发事件（兼容旧代码）
-    if (msg.type === 'download:event') {
-      this.log(`触发事件: ${msg.type}`, msg.data);
-    }
-    this.emit(msg.type, msg.data);
-    this.emit('message', msg);
-  }
-
-  /**
    * 响应请求
    */
   private respond(requestId: string, data: any): void {
@@ -317,6 +267,36 @@ export class MessageChannel extends EventEmitter {
       this.log(`发送响应失败: ${requestId}`, err, 'error');
     }
   }
+  /**
+   * 处理接收到的消息（EnhancedMessageChannel 等子类使用）
+   */
+  private async handleMessage(msg: Message): Promise<void> {
+    this.log(`收到消息: ${msg.type}`, msg);
+    if (msg.requestId) {
+      const pending = this.pendingRequests.get(msg.requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(msg.requestId);
+        pending.resolve(msg.data);
+        return;
+      }
+    }
+    const handler = this.handlers.get(msg.type);
+    if (handler) {
+      try {
+        const result = await handler(msg.data);
+        if (msg.requestId) this.respond(msg.requestId, result);
+      } catch (err) {
+        this.log(`处理消息失败: ${msg.type}`, err, 'error');
+        if (msg.requestId) this.respond(msg.requestId, { success: false, error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+    this.emit(msg.type, msg.data);
+    this.emit('message', msg);
+  }
+
+
 
   /**
    * 生成请求 ID
@@ -329,7 +309,7 @@ export class MessageChannel extends EventEmitter {
    * 清理所有待处理的请求
    */
   private cleanup(): void {
-    for (const [requestId, pending] of this.pendingRequests.entries()) {
+    for (const [_requestId, pending] of this.pendingRequests.entries()) {
       clearTimeout(pending.timer);
       pending.reject(new Error('子进程已断开连接'));
     }
@@ -401,7 +381,7 @@ export class MessageChannel extends EventEmitter {
    * 取消所有待处理的请求
    */
   cancelAllRequests(): void {
-    for (const [requestId, pending] of this.pendingRequests.entries()) {
+    for (const [_requestId, pending] of this.pendingRequests.entries()) {
       clearTimeout(pending.timer);
       pending.reject(new Error('所有请求已取消'));
     }
@@ -425,6 +405,9 @@ export class MessageChannel extends EventEmitter {
  * 用于子进程与主进程通信
  */
 export class ChildMessageChannel extends EventEmitter {
+  /** used at runtime by respond() to send IPC responses back */
+  // @ts-ignore - used by respond() at runtime
+  private process: any = undefined as any;
   private name: string;
   private handlers = new Map<string, MessageHandler>();
   private enableLogging: boolean;
@@ -433,8 +416,11 @@ export class ChildMessageChannel extends EventEmitter {
     super();
     this.name = options.name || 'ChildMessageChannel';
     this.enableLogging = options.enableLogging !== false;
+    this.process = process as any;
     this.setupMessageListener();
   }
+
+
 
   /**
    * 设置消息监听器
@@ -489,6 +475,22 @@ export class ChildMessageChannel extends EventEmitter {
   }
 
   /**
+   * 发送响应给主进程
+   */
+  private respondToParent(requestId: string, data: any): void {
+    if (!this.process || !this.process.connected) {
+      this.log('子进程未连接，无法发送响应', null, 'warn');
+      return;
+    }
+    try {
+      this.process.send({ type: 'response', requestId, data, timestamp: Date.now() });
+      this.log(`发送响应: ${requestId}`, data);
+    } catch (err) {
+      this.log(`发送响应失败: ${requestId}`, err, 'error');
+    }
+  }
+
+  /**
    * 处理接收到的消息
    */
   private async handleMessage(msg: Message): Promise<void> {
@@ -501,13 +503,13 @@ export class ChildMessageChannel extends EventEmitter {
         const result = await handler(msg.data);
         // 如果是请求消息，发送响应
         if (msg.requestId) {
-          this.respond(msg.requestId, result);
+          this.respondToParent(msg.requestId, result);
         }
       } catch (err) {
         this.log(`处理消息失败: ${msg.type}`, err, 'error');
         // 如果是请求消息，发送错误响应
         if (msg.requestId) {
-          this.respond(msg.requestId, {
+          this.respondToParent(msg.requestId, {
             success: false,
             error: err instanceof Error ? err.message : String(err),
           });
@@ -517,7 +519,7 @@ export class ChildMessageChannel extends EventEmitter {
     }
 
     // 触发事件（兼容旧代码）
-    this.emit(msg.type, msg);
+    this.emit(msg.type, msg.data);
     this.emit('message', msg);
   }
 
@@ -646,7 +648,7 @@ export class MessageBus {
    * 清理所有通道
    */
   cleanup(): void {
-    for (const [name, channel] of this.channels.entries()) {
+    for (const [_name, channel] of this.channels.entries()) {
       channel.detach();
       channel.removeAllListeners();
     }

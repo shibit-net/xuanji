@@ -33,8 +33,9 @@ import type { SubAgentResult } from '../factory/AgentFactory';
 import { AgentFactory } from '../factory/AgentFactory';
 import { WorktreeManager, type WorktreeInfo } from '../WorktreeManager';
 import { logger } from '@/core/logger';
-import { AsyncAgentTaskManager } from '@/core/agent/async';
 import { TeamContext as TeamContextStore } from '@/core/tools/TeamContext';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 const log = logger.child({ module: 'TeamManager' });
 
 /**
@@ -263,12 +264,61 @@ export class TeamManager implements ITeamManager {
               teamName: this.context!.config.name,
               task: (member.task || goal).substring(0, 200),
               debateRole,
-              scene: member.scene,
+              scene: member.scene?.replace(/^l[12]-/, ''),
+              executionMode: 'acp',
             };
           }),
         },
       }).catch((err) => {
         log.debug('TeamStart hook emit failed:', err);
+      });
+
+      // 通过 EventBus 发送团队启动事件（agent-bridge 监听此事件转发到渲染进程）
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_START, {
+        teamId: this.teamId,
+        data: {
+          name: this.context.config.name,
+          goal,
+          strategy: this.context.config.strategy,
+          memberCount: this.context.config.members.length,
+          maxRounds: this.context.config.maxRounds,
+          members: this.context.config.members.map((member, index) => {
+            const agentConfig = this.agentRegistry.get(member.agentId);
+            const displayName = agentConfig?.name || member.name || member.id;
+            const category = agentConfig?.metadata?.category || 'custom';
+            let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+            if (agentConfig) {
+              if (category === 'system') agentType = 'builtin';
+              else if (category === 'app') agentType = 'preset';
+              else agentType = 'custom';
+            } else {
+              agentType = 'temporary';
+            }
+            let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
+            if (member.systemPrompt) {
+              const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+              if (roleMatch) {
+                debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
+              }
+            }
+            return {
+              id: member.id,
+              name: displayName,
+              role: member.agentId,
+              capabilities: member.capabilities,
+              stepIndex: index,
+              totalSteps: this.context!.config.members.length,
+              subAgentId: this.memberSubAgentIds.get(member.id) || '',
+              agentType,
+              strategy: this.context!.config.strategy,
+              teamName: this.context!.config.name,
+              task: (member.task || goal).substring(0, 200),
+              debateRole,
+              scene: member.scene?.replace(/^l[12]-/, ''),
+              executionMode: 'acp',
+            };
+          }),
+        },
       });
     }
 
@@ -284,6 +334,7 @@ export class TeamManager implements ITeamManager {
       }
 
       // 执行策略
+      log.info(`[TEAM] 执行策略: "${this.context!.config.strategy}", 成员数: ${this.context!.config.members.length}, teamName: "${this.context!.config.name}"`);
       const strategyPromise = (): Promise<TaskExecutionResult[]> => {
         switch (this.context!.config.strategy) {
           case 'sequential':
@@ -343,6 +394,17 @@ export class TeamManager implements ITeamManager {
         });
       }
 
+      // 通过 EventBus 发送团队结束事件
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_END, {
+        teamId: this.teamId,
+        data: {
+          name: this.context.config.name,
+          success: result.success,
+          duration,
+          timedOut,
+        },
+      });
+
       // P1-1: 成功完成时清理 checkpoint
       if (result.success) {
         this.clearCheckpoints();
@@ -367,6 +429,7 @@ export class TeamManager implements ITeamManager {
             duration,
             success: false,
             timedOut,
+            cancelled: externalSignal?.aborted ?? false,
             error: errMsg,
             checkpointCount: memberResults.filter(r => r.success).length,
             checkpointDir: this.checkpointDir,
@@ -375,6 +438,19 @@ export class TeamManager implements ITeamManager {
           log.debug('TeamEnd hook emit failed:', err);
         });
       }
+
+      // 通过 EventBus 发送团队结束事件（失败）
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_END, {
+        teamId: this.teamId,
+        data: {
+          name: this.context!.config.name,
+          success: false,
+          duration,
+          timedOut,
+          cancelled: externalSignal?.aborted ?? false,
+          error: errMsg,
+        },
+      });
 
       return {
         goal,
@@ -940,47 +1016,27 @@ export class TeamManager implements ITeamManager {
         const isJudge = member.systemPrompt && /\[debate_role:\s*judge\]/i.test(member.systemPrompt);
         if (isJudge) continue;
 
-        // 区分：当前轮已发言的成员（本轮上下文）+ 之前轮次的完整讨论
-        const thisRoundResults = results.filter(r => r.taskId.startsWith(`debate-round-${round + 1}`));
-        const priorRoundResults = results.filter(r =>
-          !r.taskId.startsWith(`debate-round-${round + 1}`) &&
-          !r.taskId.startsWith('debate-preread')
-        );
-        const contextParts: string[] = [];
+        // 构造辩论 goal：base goal + Judge 事实摘要 + 回合指令
+        // 完整辩论历史由 enrichTaskForMember 的 previousResults 机制注入
+        // 先解析角色
+        const roleMatch = member.systemPrompt?.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+        const roleLabel = roleMatch
+          ? ({ affirmative: '正方', negative: '反方', judge: '裁判' }[roleMatch[1].toLowerCase()] || roleMatch[1])
+          : member.name || member.id;
+        const totalRounds = this.context!.config.maxRounds!;
 
-        // P1: 注入 Judge 事实摘要
+        let debateGoal = `⚖️ 辩论轮次 ${round + 1}/${totalRounds} —— 你是「${roleLabel}」\n\n当前任务：${goal}`;
         if (factSummary && round === 0) {
-          contextParts.push(`[Judge 事实摘要 — 辩论引用基础]:\n${factSummary}\n\n📌 引用代码时请使用摘要中的行号，避免重复读取文件。仅当事摘要不足时再读取具体文件。`);
+          debateGoal += `\n\n[Judge 事实摘要 — 辩论引用基础]:\n${factSummary}\n\n📌 引用代码时请使用摘要中的行号，避免重复读取文件。仅当事摘要不足时再读取具体文件。`;
         }
-
-        if (priorRoundResults.length > 0) {
-          const priorRounds = this.groupResultsByRound(priorRoundResults);
-          const roundSummaries = priorRounds.map((roundRes, i) => {
-            const compressed = roundRes.map(r =>
-              `${r.memberId}: ${this.smartTruncate(r.result, 600)}`
-            ).join(' | ');
-            return `[Round ${i + 1} summary]: ${compressed}`;
-          });
-          contextParts.push(`Earlier rounds (compressed):\n${roundSummaries.join('\n')}`);
-        }
-
-        // P1: 后续轮次添加压缩指令
         if (round >= 1) {
-          contextParts.push('⚠️ 本轮仅回应对方论点 + 补充新证据。禁止重复已陈述的论点。引用 Judge 摘要中的行号即可，不要重新读取文件。');
+          debateGoal += '\n\n⚠️ 本轮仅回应对方论点 + 补充新证据。禁止重复已陈述的论点。';
         }
-
-        if (thisRoundResults.length > 0) {
-          contextParts.push(`This round so far:\n${thisRoundResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`);
-        }
-        const context = contextParts.join('\n\n---\n\n');
-
-        const taskDescription = context
-          ? `${goal}\n\n${context}\n\nYour turn to respond:`
-          : goal;
+        debateGoal += '\n\n⏳ 说明：辩论按顺序进行，你发言完毕后系统会自动轮到下一个成员。**不要使用 sleep 或 task_control 等工具等待其他成员**——直接完成你的发言即可。';
 
         const result = await this.executeMemberTask(
           member,
-          taskDescription,
+          debateGoal,
           results,
           `debate-round-${round + 1}-${member.id}`,
           memberIndex,
@@ -1155,7 +1211,9 @@ export class TeamManager implements ITeamManager {
       if (!this.running || signal?.aborted) break;
       const member = members[i];
 
+      log.info(`[PIPELINE] >>> 开始执行成员 ${i + 1}/${members.length}: ${member.id} (${member.name || member.agentId}) @ ${Date.now()}`);
       const result = await this.executeMemberTask(member, currentInput, results, undefined, i, signal);
+      log.info(`[PIPELINE] <<< 成员 ${i + 1}/${members.length} 完成: ${member.id} success=${result.success} @ ${Date.now()}`);
 
       // 提取产出文件路径，仅在磁盘验证通过的路径才传播给下游
       if (result.success && result.result) {
@@ -1222,11 +1280,11 @@ export class TeamManager implements ITeamManager {
     task: string,
     previousResults: TaskExecutionResult[],
     taskId?: string,
-    memberIndex?: number, // 成员索引（用于超时计算）
-    signal?: AbortSignal, // 🆕 团队级超时信号
-    retryCount: number = 0, // 🔧 重试计数（内部使用）
-    worktreePath?: string, // P1-2: 工作区隔离路径（Parallel 策略使用）
-    preferGoal: boolean = false, // 层级模式：goal 即 Leader 分配的独立任务
+    memberIndex?: number,
+    signal?: AbortSignal,
+    retryCount: number = 0,
+    worktreePath?: string,
+    preferGoal: boolean = false,
   ): Promise<TaskExecutionResult> {
     const maxRetries = 1; // 失败后最多重试 1 次
     const tid = taskId ?? `task-${member.id}-${Date.now()}`;
@@ -1264,6 +1322,7 @@ export class TeamManager implements ITeamManager {
             role: member.agentId,
             task: (member.task || task).substring(0, 200),
             agentType: 'temporary',
+            executionMode: 'acp',
             strategy: this.context!.config.strategy,
             teamName: this.context!.config.name,
             stepIndex: memberIndex,
@@ -1271,6 +1330,23 @@ export class TeamManager implements ITeamManager {
             recovered: true,
           },
         }).catch(() => {});
+        eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
+          teamId: this.teamId,
+          data: {
+            memberId: member.id,
+            subAgentId,
+            name: displayName,
+            role: member.agentId,
+            task: (member.task || task).substring(0, 200),
+            agentType: 'temporary',
+            executionMode: 'acp',
+            strategy: this.context!.config.strategy,
+            teamName: this.context!.config.name,
+            stepIndex: memberIndex,
+            totalSteps: this.context!.config.members.length,
+            recovered: true,
+          },
+        });
         this.hookRegistry.emit('TeamMemberEnd', {
           teamId: this.teamId,
           data: {
@@ -1283,9 +1359,22 @@ export class TeamManager implements ITeamManager {
             result: recoveredCp.result,
             tokensUsed: recoveredCp.tokensUsed,
             strategy: this.context!.config.strategy,
+            teamName: this.context!.config.name,
             recovered: true,
           },
         }).catch(() => {});
+        eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_END, {
+          teamId: this.teamId,
+          data: {
+            memberId: member.id,
+            subAgentId,
+            success: true,
+            duration: recoveredCp.duration,
+            resultSummary: shortResult,
+            teamName: this.context!.config.name,
+            recovered: true,
+          },
+        });
       }
       return { ...recoveredCp, taskId: tid };
     }
@@ -1338,6 +1427,7 @@ export class TeamManager implements ITeamManager {
         return base;
       })();
 
+      log.info(`[PIPELINE] --- TeamMemberStart 发射: memberId=${member.id}, subAgentId=${subAgentId}, name=${displayName} @ ${Date.now()}`);
       this.hookRegistry.emit('TeamMemberStart', {
         teamId: this.teamId,
         data: {
@@ -1347,7 +1437,8 @@ export class TeamManager implements ITeamManager {
           role: normalizedAgentId, // 使用标准化后的 agent ID
           task: displayTask,  // 🆕 辩论模式带角色前缀，便于前端区分正反方
           agentType, // 新增：详细的 agent 类型
-          scene: member.scene,    // 🆕 场景类型
+          scene: member.scene?.replace(/^l[12]-/, ''),    // 🆕 场景类型（剥离 l1-/l2- 前缀用于前端展示）
+          executionMode: 'acp',
           // 策略和团队信息
           strategy: this.context!.config.strategy,
           teamName: this.context!.config.name,
@@ -1364,10 +1455,33 @@ export class TeamManager implements ITeamManager {
       }).catch((err) => {
         log.debug('TeamMemberStart hook emit failed:', err);
       });
+
+      // 通过 EventBus 发送团队成员启动事件
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
+        teamId: this.teamId,
+        data: {
+          memberId: member.id,
+          subAgentId,
+          name: displayName,
+          role: normalizedAgentId,
+          task: displayTask,
+          agentType,
+          scene: member.scene?.replace(/^l[12]-/, ''),
+          executionMode: 'acp',
+          strategy: this.context!.config.strategy,
+          teamName: this.context!.config.name,
+          stepIndex: memberIndex,
+          totalSteps: this.context!.config.members.length,
+          currentRound: this.context!.currentRound,
+          maxRounds: this.context!.config.maxRounds,
+          debateRole,
+          systemPromptHint: member.systemPrompt?.substring(0, 100),
+        },
+      });
     }
 
     try {
-      // 构建成员特定的任务描述
+      // 构建成员特定的任务描述（enrichTaskForMember 负责注入前序结果）
       const enrichedTask = this.enrichTaskForMember(member, task, previousResults, preferGoal);
 
       let result: SubAgentResult;
@@ -1379,11 +1493,11 @@ export class TeamManager implements ITeamManager {
       // P1-2: 如果有 worktree，让成员在隔离的工作区执行
       const savedCwd = worktreePath || this.workingDir;
 
-      // 确保 team member 拥有基本文件编辑工具（不注入 todo 工具，避免子 agent 创建重复 todo）
-      const coreTools = ['write_file', 'edit_file'];
+      // 使用成员配置的工具集（如果未配置，默认不注入任何额外工具）
+      // 各策略按需配置 tools 参数，系统不代为判断
       const effectiveTools = member.tools && member.tools.length > 0
-        ? [...new Set([...member.tools, ...coreTools])]
-        : coreTools;
+        ? member.tools
+        : undefined;
 
       const factoryResult = await this.agentFactory.createAndRun(normalizedAgentId, {
         task: enrichedTask,
@@ -1425,6 +1539,7 @@ export class TeamManager implements ITeamManager {
         success: result.success,
         duration: result.duration,
         tokensUsed: result.tokensUsed,
+        retryCount,
       };
 
       // 触发 TeamMemberEnd Hook
@@ -1433,19 +1548,42 @@ export class TeamManager implements ITeamManager {
           teamId: this.teamId,
           data: {
             memberId: member.id,
-            subAgentId,  // 🆕 与 TeamMemberStart 使用相同的 subAgentId
+            subAgentId,
             memberName: displayName,
             success: executionResult.success,
             duration: executionResult.duration,
             resultSummary: executionResult.result.substring(0, 200),
             result: executionResult.result,
             tokensUsed: executionResult.tokensUsed,
-            strategy: this.context!.config.strategy, // 🆕 便于前端区分辩论模式
+            strategy: this.context!.config.strategy,
+            teamName: this.context!.config.name,
+            retryCount,
+            failureReason: !executionResult.success
+              ? (result.timedOut ? 'timeout' : this.classifyFailure(executionResult, this.context!.config.strategy))
+              : undefined,
+            error: executionResult.error,
           },
         }).catch((err) => {
           log.debug('TeamMemberEnd hook emit failed:', err);
         });
       }
+
+      // 通过 EventBus 发送团队成员结束事件
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_END, {
+        teamId: this.teamId,
+        data: {
+          memberId: member.id,
+          subAgentId,
+          success: executionResult.success,
+          duration: executionResult.duration,
+          resultSummary: executionResult.result.substring(0, 200),
+          teamName: this.context!.config.name,
+          retryCount,
+          failureReason: !executionResult.success
+            ? (result.timedOut ? 'timeout' : this.classifyFailure(executionResult, this.context!.config.strategy))
+            : undefined,
+        },
+      });
 
       // P1-1: 保存 checkpoint — 成功或失败都保存，防止超时丢失已完成工作
       this.saveCheckpoint(member.id, executionResult);
@@ -1491,11 +1629,30 @@ export class TeamManager implements ITeamManager {
               result: '',
               tokensUsed: { input: 0, output: 0 },
               strategy: this.context!.config.strategy,
+              teamName: this.context!.config.name,
+              retryCount,
+              failureReason: signal?.aborted ? 'aborted' : 'exception',
+              error: errMsg,
             },
           }).catch((hookErr) => {
             log.debug('TeamMemberEnd hook emit failed:', hookErr);
           });
         }
+
+        // 通过 EventBus 发送团队成员结束事件（异常/失败）
+        eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_END, {
+          teamId: this.teamId,
+          data: {
+            memberId: member.id,
+            subAgentId,
+            success: false,
+            duration,
+            resultSummary: errMsg.substring(0, 200),
+            teamName: this.context!.config.name,
+            retryCount,
+            failureReason: signal?.aborted ? 'aborted' : 'exception',
+          },
+        });
         return this.executeMemberTask(
           member, task, previousResults, taskId, memberIndex, signal, retryCount + 1, worktreePath
         );
@@ -1509,6 +1666,7 @@ export class TeamManager implements ITeamManager {
         duration,
         tokensUsed: { input: 0, output: 0 },
         error: errMsg,
+        retryCount,
       };
       failureResult.failureCategory = this.classifyFailure(failureResult, this.context!.config.strategy);
       return failureResult;
@@ -1566,27 +1724,36 @@ ${enriched}`;
         ? 'Pipeline — the previous stage output is your input. You MUST process it and produce the next stage result.'
         : strategy === 'sequential'
           ? `Sequential (Step ${memberIndex + 1}/${memberCount}) — the previous members have completed their work. You MUST build on their outputs.`
-          : 'The following outputs from previous team members provide context for your work.';
+          : strategy === 'debate'
+            ? '=== 完整辩论记录 ==='
+            : 'The following outputs from previous team members provide context for your work.';
 
-      // Bug 2: 对 pipeline/sequential 使用更大的截断上限并智能截断
-      const truncateLimit = (strategy === 'pipeline' || strategy === 'sequential') ? 8000 : 5000;
+      // debate 策略不截断，完整注入；pipeline/sequential 扩大到 8000；其他截断到 5000
+      const isDebate = strategy === 'debate';
+      const truncateLimit = isDebate ? Infinity : (strategy === 'pipeline' || strategy === 'sequential') ? 8000 : 5000;
 
       const prevContext = successResults
         .map((r, resultIdx) => {
           const name = r.memberName || r.memberId;
-          const truncated = this.smartTruncate(r.result, truncateLimit);
-
-          // Bug 4: 为大型输出添加块引用 ID
-          if (r.result.length > 2000) {
-            const chunks: string[] = [];
-            for (let ci = 0; ci < r.result.length; ci += 2000) {
-              const chunk = r.result.substring(ci, ci + 2000);
-              chunks.push(`[ref:${r.memberId}_p${Math.floor(ci / 2000)}]\n${chunk}`);
+          const truncated = isDebate ? r.result : this.smartTruncate(r.result, truncateLimit);
+          // debate 模式：加角色标签；debate 下不过块引用
+          let formatted: string;
+          if (isDebate) {
+            const label = this.formatDebateSpeakerLabel(name, r.memberId);
+            formatted = `[${label}]:\n${truncated}`;
+          } else {
+            // Bug 4: 为大型输出添加块引用 ID
+            if (r.result.length > 2000) {
+              const chunks: string[] = [];
+              for (let ci = 0; ci < r.result.length; ci += 2000) {
+                const chunk = r.result.substring(ci, ci + 2000);
+                chunks.push(`[ref:${r.memberId}_p${Math.floor(ci / 2000)}]\n${chunk}`);
+              }
+              return `[${name}]:\n${chunks.join('\n---\n')}${r.result.length > truncateLimit ? `\n...[total ${r.result.length} chars, ${chunks.length} ref blocks]` : ''}`;
             }
-            return `[${name}]:\n${chunks.join('\n---\n')}${r.result.length > truncateLimit ? `\n...[total ${r.result.length} chars, ${chunks.length} ref blocks]` : ''}`;
+            formatted = `[${name}]:\n${truncated}${r.result.length > truncateLimit ? `\n...[truncated, total ${r.result.length} chars]` : ''}`;
           }
-
-          return `[${name}]:\n${truncated}${r.result.length > truncateLimit ? `\n...[truncated, total ${r.result.length} chars]` : ''}`;
+          return formatted;
         })
         .join('\n\n---\n\n');
 
@@ -1616,7 +1783,11 @@ ${enriched}`;
         fileContextSection = `\n[前序成员产出的文件]:\n${existingFiles.map(f => `  - ${f}`).join('\n')}\n`;
       }
 
-      enriched += `\n\n========================================\nIMPORTANT — Previous Team Members' Outputs\n========================================\n${strategyLabel}\n${quotingNote}${fileContextSection}\n${prevContext}\n========================================\n\nBased on the above outputs, continue your work. Do NOT repeat work already done by previous members.`;
+      const trailingInstruction = isDebate
+        ? 'Based on the debate above, continue your argument. Do NOT repeat your own previous points.'
+        : 'Based on the above outputs, continue your work. Do NOT repeat work already done by previous members.';
+
+      enriched += `\n\n========================================\nIMPORTANT — Previous Team Members' Outputs\n========================================\n${strategyLabel}\n${quotingNote}${fileContextSection}\n${prevContext}\n========================================\n\n${trailingInstruction}`;
     }
 
     // 添加成员能力说明（帮助成员理解自己的职责范围）
@@ -2099,20 +2270,19 @@ ${enriched}`;
   }
 
   /**
-   * 按轮次分组辩论结果（Fix 2b）
-   * 将平铺的结果数组按 taskId 中的 debate-round-N 分组为二维数组
+   * 为辩论成员添加角色标签
    */
-  private groupResultsByRound(results: TaskExecutionResult[]): TaskExecutionResult[][] {
-    const rounds: TaskExecutionResult[][] = [];
-    for (const r of results) {
-      const match = r.taskId.match(/debate-round-(\d+)/);
-      if (match) {
-        const roundIdx = parseInt(match[1]) - 1;
-        if (!rounds[roundIdx]) rounds[roundIdx] = [];
-        rounds[roundIdx].push(r);
+  private formatDebateSpeakerLabel(name: string, memberId: string): string {
+    const members = this.context?.config.members || [];
+    const member = members.find(m => m.id === memberId);
+    if (member?.systemPrompt) {
+      const rm = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+      if (rm) {
+        const labels: Record<string, string> = { affirmative: '正方', negative: '反方', judge: '裁判' };
+        return `${labels[rm[1].toLowerCase()] || rm[1]} (${name})`;
       }
     }
-    return rounds.filter(Boolean);
+    return name;
   }
 
   /**

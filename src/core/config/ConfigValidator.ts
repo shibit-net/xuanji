@@ -7,7 +7,6 @@
 //
 
 import configSchema from './config.schema.json';
-import { getByPath } from './GlobalConfig';
 
 // ============================================================
 // 类型定义

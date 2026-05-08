@@ -5,6 +5,7 @@
  * 从文件系统加载 Skill
  */
 
+import { homedir } from 'node:os';
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { Skill, SkillLoadOptions } from './types';
@@ -36,7 +37,7 @@ export class SkillLoader {
     const {
       loadBuiltin = true,
       loadCustom = true,
-      customPath = '.xuanji/skills',
+      customPath = path.join(homedir(), '.xuanji', 'skills'),
       filter,
       timeout = 30000,
     } = options;

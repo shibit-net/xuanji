@@ -357,9 +357,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
   registry.register(new TaskControlTool());
-  // TODO: MemoryUpdateTool 和 MemoryDeleteTool 已移除
-  // registry.register(new MemoryUpdateTool());
-  // registry.register(new MemoryDeleteTool());
   // TaskTool, TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

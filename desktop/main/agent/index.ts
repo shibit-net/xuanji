@@ -131,6 +131,9 @@ function initChatSession(): Promise<boolean> {
                 // debug 包格式或其他非 JSON 输出
                 if (level) {
                   console.log(`[Agent:stdout] ${line}`);
+                } else {
+                  // 非 JSON 非 debug 格式的输出也打印，避免静默丢弃
+                  console.log(`[Agent:stdout] ${line}`);
                 }
               }
             }
@@ -158,7 +161,7 @@ function initChatSession(): Promise<boolean> {
       agentProcess!.stdout?.on('data', handleStdout);
       agentProcess!.stderr?.on('data', handleStderr);
 
-      agentProcess!.on('exit', (code: number, signal: string) => {
+      agentProcess!.on('exit', (_code: number, _signal: string) => {
         if (agentProcess) {
           agentProcess.stdout?.removeAllListeners();
           agentProcess.stderr?.removeAllListeners();
@@ -174,11 +177,11 @@ function initChatSession(): Promise<boolean> {
           restartTimer = setTimeout(() => {
             restartTimer = null;
             initChatSession().catch((err) => {
-              console.error('❌ Agent 子进程自动重启失败:', err);
+              console.warn('Agent sub-process restart failed:', err);
             });
           }, delay);
         } else if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-          console.error(`❌ Agent 子进程已重启 ${MAX_RESTART_ATTEMPTS} 次，放弃自动重启`);
+          console.warn(`Agent sub-process max restarts reached: 次，放弃自动重启`);
           // 通知 renderer 子进程无法恢复
           const mainWindow = getMainWindow();
           if (mainWindow && !mainWindow.isDestroyed()) {
@@ -190,7 +193,7 @@ function initChatSession(): Promise<boolean> {
       });
 
       agentProcess!.on('error', (err: Error) => {
-        console.error('[Agent] 子进程错误:', err);
+        console.warn('[Agent] sub-process error:', err);
       });
 
       // 创建并绑定 agent 消息通道

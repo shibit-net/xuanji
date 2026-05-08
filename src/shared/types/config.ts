@@ -270,20 +270,12 @@ export interface AppConfig {
   skills?: SkillsConfig;
   /** 子代理配置 */
   agent?: AgentTuningConfig;
-  /** IM 机器人配置（可选） */
-  bots?: BotsConfig;
   /** MCP 配置 */
   mcp?: MCPConfig;
   /** Web Search 配置 */
   webSearch?: WebSearchConfig;
-  /** 智能管家配置 */
-  butler?: any; // import('@/butler/types').ButlerConfig; // TODO: Butler module not implemented yet
   /** 定价配置 */
   pricing?: PricingConfig;
-  /** 天工坊配置 */
-  tiangong?: TiangongConfig;
-  /** CLI 输入历史记录（最多 50 条） */
-  history?: string[];
   /** 会话配置 */
   session?: SessionConfig;
   /** 功能特性配置 */
@@ -546,64 +538,6 @@ export interface IConfigLoader {
   validate(): boolean;
 }
 
-// ============================================================
-// IM 机器人配置
-// ============================================================
-
-/**
- * 钉钉机器人配置
- */
-export interface DingtalkBotConfig {
-  enabled?: boolean;
-  appKey: string;
-  appSecret: string;
-}
-
-/**
- * 飞书机器人配置
- */
-export interface FeishuBotConfig {
-  enabled?: boolean;
-  appId: string;
-  appSecret: string;
-}
-
-/**
- * 企业微信机器人配置
- */
-export interface WecomBotConfig {
-  enabled?: boolean;
-  corpId: string;
-  secret: string;
-  agentId: string;
-  token: string;
-  encodingAESKey: string;
-  port?: number;
-}
-
-/**
- * IM 机器人总配置
- */
-export interface BotsConfig {
-  dingtalk?: DingtalkBotConfig;
-  feishu?: FeishuBotConfig;
-  wecom?: WecomBotConfig;
-}
-
-/**
- * 天工坊配置
- */
-export interface TiangongConfig {
-  /** Registry API 地址 */
-  registryURL?: string;
-  /** 用户 API Key */
-  apiKey?: string;
-  /** 是否启用自动更新检查 */
-  autoUpdate?: boolean;
-  /** 信任的发布者列表 */
-  trustedPublishers?: string[];
-}
-
 /**
  * 会话配置（连续模式）
  */
@@ -633,9 +567,6 @@ export interface SessionConfig {
   /** 是否显示恢复提示（默认 true） */
   showResumeNotification: boolean;
 
-  // 向后兼容字段（逐步废弃）
-  /** @deprecated 使用 archiveThresholds.messageCount */
-  maxMessages?: number;
   /** 最大保留会话数（默认 50） */
   maxSessions?: number;
 }

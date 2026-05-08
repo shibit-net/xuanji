@@ -1,9 +1,17 @@
 // ============================================================
-// PermissionDialog - 权限确认对话框
+// PermissionDialog - 权限确认对话框（shadcn Dialog）
 // ============================================================
 
 import { useState } from 'react';
-import { AlertTriangle, Shield, X } from 'lucide-react';
+import { AlertTriangle, Shield } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import type { PermissionRequestData } from '../global';
 
 interface PermissionDialogProps {
@@ -11,8 +19,19 @@ interface PermissionDialogProps {
   onClose: () => void;
 }
 
+// 运行时类型（IPC 发送的数据可能包含类型定义之外的额外字段）
+type RichRequest = PermissionRequestData & {
+  riskLevel?: 'safe' | 'warn' | 'danger';
+  toolName?: string;
+  description?: string;
+  suggestion?: string;
+  input?: Record<string, unknown>;
+};
+
 export default function PermissionDialog({ request, onClose }: PermissionDialogProps) {
   const [loading, setLoading] = useState(false);
+  // 兼容运行时可能有更多字段
+  const r = request as unknown as RichRequest;
 
   const handleRespond = async (action: 'allow' | 'deny' | 'always' | 'never') => {
     setLoading(true);
@@ -27,6 +46,8 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
       setLoading(false);
     }
   };
+
+  const riskLevel = r.riskLevel || 'warn';
 
   const riskColors = {
     safe: 'text-green-500',
@@ -47,104 +68,82 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-bg-secondary border border-bg-tertiary rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
-        {/* 头部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
-          <div className="flex items-center gap-3">
-            <Shield size={24} className={riskColors[request.riskLevel]} />
-            <div>
-              <h2 className="text-lg font-semibold">权限确认</h2>
-              <span className={`text-sm ${riskColors[request.riskLevel]}`}>
-                {riskLabels[request.riskLevel]}
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => handleRespond('deny')}
-            className="p-1 hover:bg-bg-tertiary rounded transition-colors"
-            disabled={loading}
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <Shield size={24} className={riskColors[riskLevel]} />
+            <span>权限确认</span>
+            <span className={`text-sm ${riskColors[riskLevel]}`}>
+              {riskLabels[riskLevel]}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto space-y-4 py-4">
           {/* 工具信息 */}
-          <div className={`p-4 rounded-lg border ${riskBgColors[request.riskLevel]}`}>
+          <div className={`p-4 rounded-lg border ${riskBgColors[riskLevel]}`}>
             <div className="flex items-start gap-3">
-              <AlertTriangle size={20} className={riskColors[request.riskLevel]} />
+              <AlertTriangle size={20} className={riskColors[riskLevel]} />
               <div className="flex-1">
                 <div className="font-semibold mb-1">工具调用</div>
-                <div className="text-sm text-text-secondary">
-                  <span className="font-mono">{request.toolName}</span>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-mono">{r.toolName || r.tool}</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* 风险描述 */}
-          {request.description && (
+          {r.description && (
             <div>
               <div className="text-sm font-semibold mb-2">风险描述</div>
-              <div className="text-sm text-text-secondary bg-bg-primary p-3 rounded border border-bg-tertiary">
-                {request.description}
+              <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
+                {r.description}
               </div>
             </div>
           )}
 
           {/* 建议 */}
-          {request.suggestion && (
+          {r.suggestion && (
             <div>
               <div className="text-sm font-semibold mb-2">建议</div>
-              <div className="text-sm text-text-secondary bg-bg-primary p-3 rounded border border-bg-tertiary">
-                {request.suggestion}
+              <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
+                {r.suggestion}
               </div>
             </div>
           )}
 
           {/* 输入参数 */}
-          <div>
-            <div className="text-sm font-semibold mb-2">输入参数</div>
-            <div className="text-xs font-mono bg-bg-primary p-3 rounded border border-bg-tertiary overflow-x-auto">
-              <pre>{JSON.stringify(request.input, null, 2)}</pre>
+          {r.input && Object.keys(r.input).length > 0 && (
+            <div>
+              <div className="text-sm font-semibold mb-2">输入参数</div>
+              <div className="text-xs font-mono bg-muted p-3 rounded border border-border overflow-x-auto">
+                <pre>{JSON.stringify(r.input, null, 2)}</pre>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* 底部按钮 */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-bg-tertiary">
-          <button
-            onClick={() => handleRespond('never')}
-            disabled={loading}
-            className="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-primary rounded transition-colors disabled:opacity-50"
-          >
+        <DialogFooter className="border-t border-border pt-4">
+          <Button variant="outline" onClick={() => handleRespond('never')} disabled={loading}>
             永不允许
-          </button>
-          <button
-            onClick={() => handleRespond('deny')}
-            disabled={loading}
-            className="px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-primary rounded transition-colors disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="outline" onClick={() => handleRespond('deny')} disabled={loading}>
             拒绝
-          </button>
-          <button
-            onClick={() => handleRespond('allow')}
-            disabled={loading}
-            className="px-4 py-2 text-sm bg-primary text-white hover:bg-primary/90 rounded transition-colors disabled:opacity-50"
-          >
+          </Button>
+          <Button onClick={() => handleRespond('allow')} disabled={loading}>
             允许
-          </button>
-          <button
+          </Button>
+          <Button
+            className="bg-green-600 text-white hover:bg-green-700"
             onClick={() => handleRespond('always')}
             disabled={loading}
-            className="px-4 py-2 text-sm bg-green-600 text-white hover:bg-green-700 rounded transition-colors disabled:opacity-50"
           >
             始终允许
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

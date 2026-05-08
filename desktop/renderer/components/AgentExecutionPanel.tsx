@@ -10,6 +10,7 @@
 import React from 'react';
 import ExecutionFlow from './ExecutionFlow';
 import AgentStatusList from './AgentStatusList';
+import { Button } from '@/components/ui/button';
 
 const AgentExecutionPanel: React.FC = () => {
   return (
@@ -18,15 +19,15 @@ const AgentExecutionPanel: React.FC = () => {
       <div className="px-6 py-3 border-b border-border-secondary flex justify-between items-center">
         <h2 className="text-lg font-semibold text-text-primary">Agent 执行面板</h2>
         <div className="flex gap-2">
-          <button className="px-3 py-1 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors">
+          <Button variant="default" size="sm">
             开始
-          </button>
-          <button className="px-3 py-1 bg-bg-secondary text-text-primary rounded-md hover:bg-bg-tertiary transition-colors">
+          </Button>
+          <Button variant="secondary" size="sm">
             暂停
-          </button>
-          <button className="px-3 py-1 bg-bg-secondary text-text-primary rounded-md hover:bg-bg-tertiary transition-colors">
+          </Button>
+          <Button variant="secondary" size="sm">
             停止
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -4,8 +4,6 @@ import {
   UnifiedLogManager,
   getUnifiedLogManager,
   type UnifiedLogFilter,
-  type UnifiedQueryResult,
-  type LogStats,
   type LokiClientConfig
 } from '@root/src/core/logging/UnifiedLogManager';
 import { LogReader } from '@root/src/core/logger/LogReader';
@@ -165,7 +163,7 @@ function registerLogsIpcHandlers() {
   // 向后兼容：保留原有的日志接口
   // ─────────────────────────────────────────────────────
 
-  const logReader = new LogReader(logDir);
+  const logReader: any = new LogReader(logDir);
   let logWatcherCleanup: (() => void) | null = null;
 
   ipcMain.handle('logs:read', async (_event, query: any) => {
@@ -207,7 +205,7 @@ function registerLogsIpcHandlers() {
 
   ipcMain.handle('logs:start-watch', async (_event, levels: string[]) => {
     try {
-      logWatcherCleanup = logReader.watch((record) => {
+      logWatcherCleanup = logReader.watch((record: any) => {
         const mainWindow = getMainWindow();
         if (mainWindow) {
           mainWindow.webContents.send('logs:new-record', record);

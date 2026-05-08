@@ -14,13 +14,13 @@
 //
 // ============================================================
 
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { LogReader } from '../logger/LogReader.js';
 import { AgentLoopLogger } from '../telemetry/AgentLoopLogger.js';
 import { SessionRecorder } from '../telemetry/SessionRecorder.js';
 import { AuditLogger } from '../telemetry/AuditLogger.js';
 import { UsageStatsRecorder } from '../telemetry/UsageStatsRecorder.js';
-import { DailyUsageStats } from '../telemetry/DailyUsageStats.js';
 import { logger } from '../logger/index.js';
 import { LokiClient, type LokiClientConfig } from './LokiClient.js';
 import { formatLogTimestamp } from '../../shared/utils/time/formatters.js';
@@ -248,11 +248,9 @@ export type LogSubscriptionCallback = (record: UnifiedLogRecord) => void;
 export class UnifiedLogManager {
   private logDir: string;
   private logReader: LogReader;
-  private agentLoopLogger: AgentLoopLogger;
   private sessionRecorder: SessionRecorder;
   private auditLogger: AuditLogger;
   private usageStatsRecorder: UsageStatsRecorder;
-  private dailyUsageStats: DailyUsageStats;
   private log = logger.child({ module: 'UnifiedLogManager' });
   private lokiClient: LokiClient | null = null;
   private subscribers: Set<LogSubscriptionCallback> = new Set();
@@ -261,14 +259,12 @@ export class UnifiedLogManager {
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(baseDir?: string, lokiConfig?: LokiClientConfig) {
-    this.logDir = baseDir ?? join(process.cwd(), '.xuanji');
+    this.logDir = baseDir ?? join(homedir(), '.xuanji');
 
     this.logReader = new LogReader(join(this.logDir, 'logs'));
-    this.agentLoopLogger = new AgentLoopLogger('unified-log-manager', 'system');
     this.sessionRecorder = new SessionRecorder();
     this.auditLogger = new AuditLogger();
     this.usageStatsRecorder = new UsageStatsRecorder();
-    this.dailyUsageStats = new DailyUsageStats();
 
     // 初始化 Loki 客户端
     if (lokiConfig) {
@@ -574,12 +570,12 @@ export class UnifiedLogManager {
   // ─────────────────────────────────────────────────────
 
   private async queryCoreLogger(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
-    const coreFilter = filter.core;
+    const coreFilter = filter.core as any;
     const records = await this.logReader.query({
       levels: coreFilter?.levels,
       execId: coreFilter?.execId,
-      startTime: filter.startTime?.toISOString(),
-      endTime: filter.endTime?.toISOString(),
+      startTime: filter.startTime ? String(filter.startTime) : undefined,
+      endTime: filter.endTime ? String(filter.endTime) : undefined,
       keyword: filter.keyword,
       minDepth: coreFilter?.minDepth,
       maxDepth: coreFilter?.maxDepth,
@@ -677,7 +673,7 @@ export class UnifiedLogManager {
     }));
   }
 
-  private async queryDailyUsage(filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
+  private async queryDailyUsage(_filter: UnifiedLogFilter): Promise<UnifiedLogRecord[]> {
     // 简化版本 - DailyUsageStats 需要根据实际接口调整
     return [];
   }

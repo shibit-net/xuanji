@@ -5,7 +5,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { useChatStore } from '../stores/chatStore';
+import { useMessageStore } from '../stores/messageStore';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AgentPanelProps {
@@ -29,7 +29,7 @@ interface AgentInfo {
 }
 
 export default function AgentPanel({ onToggle }: AgentPanelProps) {
-  const messages = useChatStore((state) => state.messages);
+  const messages = useMessageStore((state) => state.messages);
   const [activeAgents, setActiveAgents] = useState<AgentInfo[]>([]);
 
   // 从消息流中推断 Agent 状态
@@ -287,7 +287,7 @@ function CurrentToolCard({ tool }: { tool: AgentInfo['currentTool'] }) {
 
 // 工具调用历史
 function ToolCallHistory() {
-  const messages = useChatStore((state) => state.messages);
+  const messages = useMessageStore((state) => state.messages);
 
   const recentTools = useMemo(() => {
     const tools: Array<{
@@ -361,7 +361,7 @@ function ToolCallHistory() {
 
 // Agent 统计面板
 function AgentStats() {
-  const messages = useChatStore((state) => state.messages);
+  const messages = useMessageStore((state) => state.messages);
 
   const stats = useMemo(() => {
     let totalTools = 0;

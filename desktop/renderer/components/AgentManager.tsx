@@ -3,12 +3,16 @@
 // ============================================================
 
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, X, Bot, Package, Folder, RefreshCw, Filter, ChevronDown, Download, CheckCircle } from 'lucide-react';
+import { Search, Plus, X, Bot, RefreshCw, Filter, ChevronDown, Download, CheckCircle } from 'lucide-react';
 import { useAgentManager } from '../hooks/useAgentManager';
 import { useToast } from './Toast';
 import AgentDetail from './AgentDetail';
 import AgentEditor from './AgentEditor';
+import { Avatar } from './Avatar';
 import { LOCAL_MODELS } from '../hooks/useLocalModel';
+
+// 主 agent 头像
+import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 
 interface AgentManagerProps {
   onClose: () => void;
@@ -58,7 +62,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
               if (modelTask) {
                 downloading = modelTask.status === 'downloading';
-                progress = modelTask.progress || 0;
+                progress = (modelTask.progress as any)?.percent ?? modelTask.progress ?? 0;
               }
             }
 
@@ -252,19 +256,6 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
       toast.success('刷新成功');
     } catch (err) {
       toast.error('刷新失败');
-    }
-  };
-
-  const getSourceIcon = (category: string) => {
-    switch (category) {
-      case 'system':
-        return <Package size={14} className="text-gray-400" />;
-      case 'app':
-        return <Bot size={14} className="text-blue-500" />;
-      case 'custom':
-        return <Folder size={14} className="text-green-500" />;
-      default:
-        return <Bot size={14} />;
     }
   };
 
@@ -481,7 +472,6 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                       </div>
                       {agentList.map((agent: any) => {
                         const typeInfo = getAgentTypeInfo(agent);
-                        const source = agent.metadata?.source || 'unknown';
                         const modelId = agent.model?.primary;
                         const isLocalModel = modelId && modelId in LOCAL_MODELS;
                         const modelStatus = modelStatuses[agent.id];
@@ -500,13 +490,12 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                           >
                             <div className="flex items-center gap-2 mb-1">
                               {/* Avatar */}
-                              <div
-                                className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${
-                                  agent.color ? `bg-gradient-to-br ${agent.color}` : 'bg-primary/20'
-                                }`}
-                              >
-                                <span className="text-sm">{agent.avatar || '🤖'}</span>
-                              </div>
+                              {/* 主 agent 用应用图标 */}
+                              {agent.id === 'xuanji' || agent.name === 'Xuanji' ? (
+                                <img src={agentAvatar} alt={agent.name} className="w-8 h-8 rounded-full object-cover" />
+                              ) : (
+                                <Avatar seed={agent.name || agent.id} size={32} className="w-8 h-8" />
+                              )}
                               <span className="text-sm font-medium truncate flex-1">
                                 {agent.name}
                               </span>

@@ -8,11 +8,12 @@
 
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
+import type { HookListener } from '@/hooks/EventEmitter.js';
 import { BaseTool } from './BaseTool';
 import { TeamManager } from '@/core/agent/team/TeamManager';
 import type { TeamConfig, TeamMember, TeamStrategy } from '@/core/agent/team/types';
 import type { AgentRoleType } from '@/core/agent/SubAgentContext';
-import { AsyncAgentTaskManager } from '@/core/agent/async';
+import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 
 // ─── 成员输入类型 ────────────────────────────────────
@@ -212,7 +213,7 @@ export class TeamTool extends BaseTool {
     if (isAsync) {
       return this.executeAsync(teamConfig, parsed, input);
     }
-    return this.executeSync(teamConfig, parsed.goal, signal);
+    return this.executeSync(teamConfig, parsed.goal, signal, input._cwd as string | undefined);
   }
 
   // ── 依赖与输入验证 ──────────────────────────────────
@@ -366,9 +367,10 @@ export class TeamTool extends BaseTool {
     teamConfig: TeamConfig,
     goal: string,
     signal?: AbortSignal,
+    cwd?: string,
   ): Promise<ToolResult> {
     try {
-      const teamManager = this.createTeamManager();
+      const teamManager = this.createTeamManager(cwd);
       await teamManager.createTeam(teamConfig);
       const result = await teamManager.execute(goal, signal);
       return this.formatResult(result, teamConfig.name, teamConfig.strategy);
@@ -385,49 +387,94 @@ export class TeamTool extends BaseTool {
     parsed: { teamName: string; goal: string; strategy: TeamStrategy; membersInput: MemberInput[] },
     input: Record<string, unknown>,
   ): ToolResult {
-    const manager = AsyncAgentTaskManager.getInstance();
+    const manager = TaskOrchestrator.getInstance();
     const memberNames = parsed.membersInput.map(m => ({
       id: m.id,
       name: m.name ?? m.id,
       status: 'pending' as const,
     }));
 
+    // 团队级别的 subAgentId，用于前端 auto-summarize-start 时清理节点
+    const teamSubAgentId = `team-exec-${parsed.teamName}-${Date.now()}`;
+
     const result = manager.startTask({
       type: 'team',
       goal: parsed.goal.slice(0, 120),
       members: memberNames,
       workingDir: input._cwd as string | undefined,
+      subAgentId: teamSubAgentId,
       executor: async (abortSignal, onProgress, groupId) => {
         onProgress({ phase: 'setup', currentMember: '创建团队...' });
 
-        const teamManager = this.createTeamManager();
+        const teamManager = this.createTeamManager(input._cwd as string | undefined);
         await teamManager.createTeam(teamConfig);
+        const teamId = teamManager.getTeamId();
 
         onProgress({ phase: 'executing', totalMembers: memberNames.length, completedMembers: 0 });
+
+        // 所有成员初始设为 waiting，由 TeamMemberStart Hook 在实际启动时切换到 running
         for (const m of memberNames) {
-          manager.updateMemberStatus(groupId, m.id, 'running');
+          manager.updateMemberStatus(groupId, m.id, 'waiting');
         }
 
-        const execResult = await teamManager.execute(parsed.goal, abortSignal);
+        // 注册 HookRegistry 监听器，实时更新成员状态
+        const onMemberStart: HookListener = async (ctx) => {
+          if (ctx.teamId === teamId && ctx.data?.memberId) {
+            manager.updateMemberStatus(groupId, ctx.data.memberId as string, 'running');
+          }
+          return { success: true };
+        };
 
-        onProgress({ phase: 'synthesizing', completedMembers: memberNames.length });
-        for (const mr of execResult.memberResults) {
-          manager.updateMemberStatus(groupId, mr.memberId, mr.success ? 'completed' : 'failed');
+        const onMemberEnd: HookListener = async (ctx) => {
+          if (ctx.teamId === teamId && ctx.data?.memberId) {
+            const success = ctx.data?.success as boolean | undefined;
+            const newStatus = success !== false ? 'completed' : 'failed';
+            manager.updateMemberStatus(
+              groupId,
+              ctx.data.memberId as string,
+              newStatus,
+              success === false ? {
+                failureReason: (ctx.data?.failureReason as string) || (ctx.data?.failureCategory as string) || 'unknown',
+                retryCount: ctx.data?.retryCount as number | undefined,
+              } : undefined,
+            );
+          }
+          return { success: true };
+        };
+
+        if (this.hookRegistry) {
+          this.hookRegistry.addListener('TeamMemberStart', onMemberStart);
+          this.hookRegistry.addListener('TeamMemberEnd', onMemberEnd);
+        } else {
+          // 回退：无 HookRegistry 时全部设为 running
+          for (const m of memberNames) {
+            manager.updateMemberStatus(groupId, m.id, 'running');
+          }
         }
 
-        // 发射 SUBAGENT_ENDED 事件，触发 TaskCompletionHandler 将结果入队
         try {
-          const { eventBus } = await import('@/core/events/EventBus');
-          const { XuanjiEvent } = await import('@/core/events/events');
-          eventBus.emit(XuanjiEvent.SUBAGENT_ENDED, {
-            subAgentId: groupId,
-            name: parsed.teamName,
-            success: execResult.success,
-            duration: execResult.duration,
-          });
-        } catch {}
+          const execResult = await teamManager.execute(parsed.goal, abortSignal);
 
-        return this.formatResult(execResult, parsed.teamName, parsed.strategy);
+          onProgress({ phase: 'synthesizing', completedMembers: memberNames.length });
+          for (const mr of execResult.memberResults) {
+            manager.updateMemberStatus(
+              groupId,
+              mr.memberId,
+              mr.success ? 'completed' : 'failed',
+              mr.success ? undefined : {
+                failureReason: mr.failureCategory || mr.error || 'unknown',
+                retryCount: mr.retryCount,
+              },
+            );
+          }
+
+          return this.formatResult(execResult, parsed.teamName, parsed.strategy);
+        } finally {
+          if (this.hookRegistry) {
+            this.hookRegistry.removeListener('TeamMemberStart', onMemberStart);
+            this.hookRegistry.removeListener('TeamMemberEnd', onMemberEnd);
+          }
+        }
       },
     });
 
@@ -438,7 +485,7 @@ export class TeamTool extends BaseTool {
     return this.formatAsyncResponse(result.groupId, parsed);
   }
 
-  private createTeamManager(): TeamManager {
+  private createTeamManager(cwd?: string): TeamManager {
     return new TeamManager(
       this.mainProvider!,
       this.registry!,
@@ -448,7 +495,7 @@ export class TeamTool extends BaseTool {
       this.currentDepth,
       this.agentRegistry!,
       this.providerManager!,
-      undefined,
+      cwd,
     );
   }
 
@@ -468,15 +515,21 @@ export class TeamTool extends BaseTool {
         `成员 (${parsed.membersInput.length}): ${memberList}`,
         `目标: ${parsed.goal.slice(0, 150)}`,
         '',
+        '注意：Agent Team 不支持 stream_to_user。团队完成后系统会自动通知你汇总结果。',
+        '',
+        '不要主动查询任务状态或等待——系统会逐个通知你。继续做你当前的工作即可。',
+        '',
+        '重要：异步任务的输出结果用户不可见，系统只会通过内部上下文告诉你。',
+        '你必须口头向用户汇报结果，不能说"已经呈现在上下文"之类的话。',
+        '',
         '---',
-        '用户可以：',
-        `- 查询进度: 使用 task_control({ action: "status", groupId: "${groupId}" })`,
-        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${groupId}" })`,
-        `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
-        '完成后系统会通知你汇总结果。',
+        '需要时可使用以下指令：',
+        `- 查询进度: task_control({ action: "status", groupId: "${groupId}" })`,
+        `- 取消任务: task_control({ action: "cancel", groupId: "${groupId}" })`,
+        `- 查看所有后台任务: task_control({ action: "list" })`,
       ].join('\n'),
       {
-        teamAsync: true,
+        taskAsync: true,
         groupId,
         teamName: parsed.teamName,
         strategy: parsed.strategy,
@@ -505,7 +558,16 @@ export class TeamTool extends BaseTool {
         const status = r.success ? '✅' : '❌';
         const duration = (r.duration / 1000).toFixed(1);
         const name = r.memberName || r.memberId;
-        return `${status} ${name}: ${duration}s, ${r.tokensUsed.input + r.tokensUsed.output} tokens`;
+        let line = `${status} ${name}: ${duration}s, ${r.tokensUsed.input + r.tokensUsed.output} tokens`;
+        if (r.retryCount && r.retryCount > 0) {
+          line += r.success
+            ? `（经 ${r.retryCount} 次重试后成功）`
+            : `（已重试 ${r.retryCount} 次）`;
+        }
+        if (!r.success && r.failureCategory) {
+          line += ` — 失败原因: ${r.failureCategory}`;
+        }
+        return line;
       })
       .join('\n');
 

@@ -13,9 +13,8 @@ import type { SessionManager } from '@/session/SessionManager';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { SkillRegistry } from '@/core/skills';
 import type { MCPManager } from '@/mcp/MCPManager';
-import { ConversationManager } from '@/core/conversation/ConversationManager';
+import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
-import type { TaskStep, Task, TaskStepResult } from '@/core/task/types';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
@@ -31,22 +30,22 @@ export class ChatSession {
   private agentLoop: AgentLoop;
   private container: DependencyContainer;
   private callbacks?: SessionCallbacks;
-  private conversationManager: ConversationManager;
-  private taskOrchestrator: TaskOrchestrator;
+  private stateTracker: StateTracker;
+  private _pendingQueue: string[] = [];
   private userId: string;
   private workingDir: string;
+  private _drainRunning = false;
+  private _currentAgentId = 'xuanji';
 
   constructor(
     agentLoop: AgentLoop,
     container: DependencyContainer,
-    conversationManager: ConversationManager,
-    taskOrchestrator: TaskOrchestrator,
+    stateTracker: StateTracker,
     callbacks?: SessionCallbacks,
   ) {
     this.agentLoop = agentLoop;
     this.container = container;
-    this.conversationManager = conversationManager;
-    this.taskOrchestrator = taskOrchestrator;
+    this.stateTracker = stateTracker;
     this.callbacks = callbacks;
     this.userId = 'default';
     this.workingDir = process.cwd();
@@ -59,25 +58,28 @@ export class ChatSession {
       else if (cfg.workspacePath) this.workingDir = cfg.workspacePath;
     } catch { /* 使用默认值 */ }
 
-    this.taskOrchestrator.setExecutor(async (step: TaskStep, _task: Task): Promise<TaskStepResult> => {
-      const start = Date.now();
-      try {
-        await this.agentLoop.run(step.input);
-        return { success: true, output: `Agent completed step: ${step.description}`, duration: Date.now() - start };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err), duration: Date.now() - start };
-      }
-    });
-
     if (callbacks) {
       this.agentLoop.on(callbacks);
     }
 
-    log.info('ChatSession initialized with ConversationManager + TaskOrchestrator');
+    // 将待处理队列引用注入 AgentLoop，用于迭代边界检查
+    agentLoop.setPendingQueue(this._pendingQueue);
+
+    log.info('ChatSession initialized with StateTracker + TaskOrchestrator');
   }
 
   async run(input: string): Promise<void> {
-    // 生成 executionId 用于日志追踪
+    // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
+    // StateTracker 可能与 AgentLoop.running 短暂不一致（如 outputting→executing 转换间隙），
+    // AgentLoop.getState().status 才是权威来源
+    if (this.agentLoop.getState().status !== 'idle') {
+      // [ChatSession] run() REENTRANCY GUARD: agentLoop.running=${this.agentLoop.getState().status}, stateTracker=${this.stateTracker.getState()}, queuing. input="${input.substring(0, 60)}"`);
+      log.warn('run() called while AgentLoop is still running, queuing instead');
+      this._pendingQueue.push(input);
+      return;
+    }
+
+    // [ChatSession] run() START: input="${input.substring(0, 60)}", stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
     log.info(`Session run started: input="${input.substring(0, 80)}"`);
@@ -85,36 +87,135 @@ export class ChatSession {
     try {
       await this.callbacks?.onBeforeExecution?.(input);
 
-      // 主 agent 模式：不做意图分析，不路由 scene
-      // scene 知识通过 list_scenes 工具按需获取
-      // 所有任务执行通过 task 和 agent_team 工具委托给子 agent
-
-      this.conversationManager.transitionTo('executing');
+      this.stateTracker.transitionTo('executing');
+      const sessionCallbacks = this.callbacks as any;
+      this.agentLoop.on({
+        onText: (text: string) => {
+          if (text.trim()) {
+            this.stateTracker.transitionTo('outputting');
+          }
+          sessionCallbacks?.onText?.(text);
+        },
+        onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
+          this.stateTracker.transitionTo('executing');
+          sessionCallbacks?.onToolStart?.(id, name, input);
+        },
+      } as any);
       await this.agentLoop.run(input);
-      this.conversationManager.transitionTo('idle');
-
-      // 检查是否有后台任务完成待处理
+      // [ChatSession] run() agentLoop.run COMPLETED. stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
+      this.stateTracker.transitionTo('idle');
+      // 清理后台任务 completion hint，防止残留到下次用户对话
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
+      // [ChatSession] run() stateTracker -> idle. draining pendingQueue=${this._pendingQueue.length}`);
       await this.checkPendingCompletions();
+      await this.drainPendingQueue();
+      // [ChatSession] run() drain complete. pendingQueue=${this._pendingQueue.length}`);
 
       await this.callbacks?.onAfterExecution?.();
       log.info('Session run completed');
     } catch (error) {
+      console.warn(`[ChatSession] run() CATCH BLOCK: ${(error as Error).message}. stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
       log.error('Session run failed', error as Error);
-      this.conversationManager.transitionTo('idle');
+      this.stateTracker.transitionTo('idle');
+      this.drainPendingQueue();
       throw error;
     }
   }
 
+  /** 由 IntentRouter 调用，设置当前执行的 agentId */
+  setCurrentAgent(agentId: string): void {
+    this._currentAgentId = agentId;
+    log.info(`Current agent set to: ${agentId}`);
+  }
+
+  get currentAgentId(): string {
+    return this._currentAgentId;
+  }
+
   /**
-   * 检查后台任务完成队列，如有待处理结果则触发主 agent 汇总
+   * 统一处理用户输入 — 根据 StateTracker 状态自动决策
+   *
+   * - idle / waiting_async → 直接 run
+   * - executing / outputting → append 到队列，等当前工具调用或流式输出结束后自动处理
+   *
+   * 不再强制中断当前工具执行。用户新消息会被注入到 AgentLoop 的迭代边界检查点。
+   * 终止请使用 stop() 或 requestAbort()。
    */
+  handleUserInput(input: string): 'running' | 'queued' | 'interrupted' {
+    const state = this.stateTracker.getState();
+    log.info(`[handleUserInput] state=${state} input="${input.substring(0, 60)}"`);
+
+    switch (state) {
+      case 'idle':
+      case 'waiting_async':
+        // 二次确认 AgentLoop 确实空闲 — StateTracker 可能因竞态短暂不一致
+        if (this.agentLoop.getState().status !== 'idle') {
+          log.warn(`[handleUserInput] StateTracker=${state} but AgentLoop is still running, queuing`);
+          this.appendMessage(input);
+          return 'queued';
+        }
+        if (state === 'waiting_async') {
+          this.agentLoop.getContextManager().setSystemPromptSuffix('', 'delegation-complete');
+          this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
+          this.agentLoop.getContextManager().setSystemPromptSuffix(
+            '\\n用户发了新消息。后台任务完成后会自动通知你，不用主动查询或等待。直接处理用户的最新请求。',
+            'new-message-during-async',
+          );
+        }
+        this.run(input).catch((err) => {
+          log.error('handleUserInput run failed:', err);
+        });
+        return 'running';
+
+      case 'executing':
+      case 'outputting':
+        // 执行工具中或流式输出中 → 入队，等待当前迭代边界（工具结束/流式输出结束）自动处理
+        this.appendMessage(input);
+        return 'queued';
+
+      default:
+        this.run(input).catch((err) => {
+          log.error('handleUserInput run failed:', err);
+        });
+        return 'running';
+    }
+  }
+
+  /** 消费 pendingQueue 中的消息 */
+  private async drainPendingQueue(): Promise<void> {
+    if (this._pendingQueue.length === 0) return;
+    if (this._drainRunning) return;
+
+    this._drainRunning = true;
+    log.info(`[drainPendingQueue] start draining, queue size=${this._pendingQueue.length}`);
+
+    try {
+      while (this._pendingQueue.length > 0) {
+        const next = this._pendingQueue.shift()!;
+        log.info(`[drainPendingQueue] processing: "${next.substring(0, 80)}"`);
+        try {
+          // 把队列里剩余的消息也合并进来，一次性处理
+          const combined = [next];
+          while (this._pendingQueue.length > 0) {
+            combined.push(this._pendingQueue.shift()!);
+          }
+          await this.run(combined.join('\n'));
+        } catch (err) {
+          log.error('Drain pending message failed:', err);
+        }
+      }
+    } finally {
+      this._drainRunning = false;
+      log.info('[drainPendingQueue] draining complete');
+    }
+  }
+
   private async checkPendingCompletions(): Promise<void> {
     try {
-      const handler = (this.taskOrchestrator as any).taskCompletionHandler;
+      const handler = TaskOrchestrator.getInstance().getCompletionHandler();
       if (!handler) return;
 
       if (handler.hasPending()) {
-        handler.injectPendingCompletions();
         handler.checkAndAutoSummarize();
       }
     } catch (err) {
@@ -123,18 +224,53 @@ export class ChatSession {
   }
 
   stop(): void {
+    this.agentLoop.requestAbort();
+  }
+
+  /**
+   * 硬中断（立即停止当前流式请求和工具执行）
+   * 仅在极端情况下使用，正常终止请使用 stop()
+   */
+  hardStop(): void {
     this.agentLoop.stop();
-    const ctrl = this.conversationManager.activeAbortController;
-    if (ctrl) ctrl.abort();
   }
 
   interrupt(input: string): void {
-    this.conversationManager.interrupt(input);
-    this.agentLoop.stop();
+    log.info(`[interrupt] stopping agent, state=${this.stateTracker.getState()}, input="${input.substring(0, 60)}"`);
+
+    // 纯停止（无新输入）：硬中断，立即中止 LLM 流 + 工具执行
+    if (!input.trim()) {
+      this.hardStop();
+      return;
+    }
+
+    // 中断 + 新消息：软中断，排队新输入，等当前迭代结束后消费
+    this._pendingQueue.unshift(input);
+    this.agentLoop.requestAbort();
+    // 等 AgentLoop 停稳后统一消费整个队列
+    const waitAndDrain = () => {
+      if (this.agentLoop.getState().status !== 'idle') {
+        setTimeout(waitAndDrain, 50);
+        return;
+      }
+      this.drainPendingQueue();
+    };
+    setTimeout(waitAndDrain, 50);
   }
 
   appendMessage(message: string): void {
-    this.conversationManager.enqueue(message);
+    this._pendingQueue.push(message);
+    log.info(`[appendMessage] queued, pendingQueue size=${this._pendingQueue.length}, state=${this.stateTracker.getState()}`);
+  }
+
+  /**
+   * 检查并消费 pendingQueue
+   * 每次 run 结束后自动调用，也允许外部手动触发
+   */
+  checkPendingQueue(): void {
+    if (this._pendingQueue.length > 0 && this.stateTracker.getState() !== 'executing') {
+      this.drainPendingQueue();
+    }
   }
 
   reset(): void {
@@ -243,12 +379,12 @@ export class ChatSession {
     }
   }
 
-  getConversationManager(): ConversationManager {
-    return this.conversationManager;
+  getStateTracker(): StateTracker {
+    return this.stateTracker;
   }
 
   getTaskOrchestrator(): TaskOrchestrator {
-    return this.taskOrchestrator;
+    return TaskOrchestrator.getInstance();
   }
 
   getUserId(): string {

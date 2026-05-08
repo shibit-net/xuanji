@@ -63,6 +63,56 @@ export class AgentLoop {
   private _consecutiveSameFileCount = 0;
   private _consecutiveSameOutputCount = 0;
 
+  /**
+   * 当为 true 时，不向 EventBus 发射 text/thinking/tool/text_delta 事件。
+   * 用于 ACP fallback 场景——子 agent 的同进程执行不应将流式内容混入主 agent 的 EventBus 通道。
+   */
+  private _suppressEventBus = false;
+
+  /** 外部注入的待处理消息队列引用（来自 ChatSession._pendingQueue） */
+  private _pendingQueue: string[] | null = null;
+
+  /** 终止按钮标志——用户点击终止时置 true，在迭代边界检查中止 */
+  private _abortRequested = false;
+
+  setSuppressEventBus(v: boolean): void {
+    this._suppressEventBus = v;
+  }
+
+  /** 注入 ChatSession 的待处理队列引用 */
+  setPendingQueue(queue: string[]): void {
+    this._pendingQueue = queue;
+  }
+
+  /** 用户点击终止按钮时调用——在当前工具调用或流式输出结束后平稳停止 */
+  requestAbort(): void {
+    this._abortRequested = true;
+  }
+
+  /** 当前迭代结束时检查新消息或终止请求，返回 true 表示需要注入并继续 */
+  private checkIterationBoundary(): boolean {
+    // 终止请求
+    if (this._abortRequested) {
+      this._abortRequested = false;
+      this.running = false;
+      this.callbacks.onInfo?.('🛑 已终止');
+      return false;
+    }
+    // 有新消息则注入到 ContextManager 并继续
+    if (this._pendingQueue && this._pendingQueue.length > 0) {
+      const newInput = this._pendingQueue.shift()!;
+      this.log.info(`[IterationBoundary] 检测到新消息，中断当前流程处理: "${newInput.substring(0, 60)}"`);
+      this.currentIteration = 0;
+      this.contextManager.setSystemPromptSuffix('', 'delegation-complete');
+      this.contextManager.setSystemPromptSuffix('', 'async-task-completion');
+      this.contextManager.setSystemPromptSuffix('', 'stuck-detect-same-file');
+      this.contextManager.setSystemPromptSuffix('', 'stuck-detect-tool-fail');
+      this.contextManager.addUserMessage(newInput);
+      return true;
+    }
+    return false;
+  }
+
   constructor(
     provider: ILLMProvider,
     registry: IToolRegistry,
@@ -81,9 +131,22 @@ export class AgentLoop {
 
     this.toolGateway = new ToolGateway(registry);
 
+    // 让 StreamPipeline 的 for-await 循环能检测到终止请求
+    this.streamPipeline.setInterruptChecker(() => !this.running || this._abortRequested);
+
     this.streamPipeline.on({
-      onText: (text) => this.callbacks.onText?.(text),
-      onThinking: (thinking) => this.callbacks.onThinking?.(thinking),
+      onText: (text) => {
+        this.callbacks.onText?.(text);
+        if (!this._suppressEventBus) {
+          eventBus.emit(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
+        }
+      },
+      onThinking: (thinking) => {
+        this.callbacks.onThinking?.(thinking);
+        if (!this._suppressEventBus) {
+          eventBus.emit(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
+        }
+      },
       onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
       onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
       onUsage: (usage) => {
@@ -147,12 +210,23 @@ export class AgentLoop {
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
           signal: signal,
           maxRetries: 3,
+          config: {
+            model: (this.config as any).model?.primary || (this.config as any).model || '',
+            apiKey: (this.config as any).apiKey || '',
+            baseURL: (this.config as any).baseURL || '',
+          },
         });
 
         if (signal?.aborted) break;
 
         this.contextManager.addAssistantMessage(result.contentBlocks as import('@/core/types').ContentBlock[]);
         this.contextManager.recordUsage(result.usage);
+
+        // ▶ 检查点 A：流式输出结束 — 有新消息或终止请求则跳出
+        if (this.checkIterationBoundary()) {
+          continue;  // 新消息已注入，进入下一轮 while
+        }
+        if (!this.running) break;  // 终止请求
 
         if (!result.toolCalls || result.toolCalls.length === 0) break;
         if (result.stopReason === 'end_turn' && result.toolCalls.length === 0) break;
@@ -173,7 +247,7 @@ export class AgentLoop {
             id: tc.id,
             name: tc.name,
             input: tc.input,
-            userId: this._userId,
+            agentId: this._userId,
           });
         }
 
@@ -182,6 +256,12 @@ export class AgentLoop {
           agentId: this._userId ?? 'default',
           workingDir: this.config.workingDir,
         });
+
+        // ▶ 检查点 B：工具调用结束 — 有新消息或终止请求则跳出
+        if (this.checkIterationBoundary()) {
+          continue;  // 新消息已注入，不处理本轮工具结果
+        }
+        if (!this.running) break;  // 终止请求
 
         const toolExecDurationMs = Date.now() - toolExecStartTime;
 
@@ -193,9 +273,10 @@ export class AgentLoop {
             eventBus.emit(XuanjiEvent.AGENT_TOOL_END, {
               id: tc.id,
               name: tc.name,
-              output: toolResult.content,
+              result: toolResult.content,
               isError: toolResult.isError,
-              userId: this._userId,
+              agentId: this._userId,
+              metadata: toolResult.metadata,
             });
             if ((toolResult as any).fileChanges?.length > 0) {
               fileChanges.push(...(toolResult as any).fileChanges);
@@ -319,7 +400,8 @@ export class AgentLoop {
         err.name === 'AbortError' ||
         err.message.includes('aborted') ||
         err.message.includes('abort') ||
-        err.message === 'terminated'
+        err.message === 'terminated' ||
+        err.message === 'Interrupted'
       );
       if (isAbort) {
         this.log.debug('Agent stopped by user, suppressing abort error');
@@ -353,6 +435,7 @@ export class AgentLoop {
 
   stop(): void {
     this.running = false;
+    this._abortRequested = true;
     this.streamPipeline.abort();
     this.toolGateway.abortAll();
   }

@@ -65,6 +65,10 @@ export class StreamPipeline {
         return await this.processStream(stream, options?.signal);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        // 中断/终止错误不重试
+        if (lastError.message === 'Interrupted' || lastError.name === 'AbortError') {
+          throw lastError;
+        }
         log.warn(`Stream attempt ${attempt + 1}/${maxRetries + 1} failed: ${lastError.message}`);
         if (attempt < maxRetries) {
           await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 10000)));
@@ -85,6 +89,9 @@ export class StreamPipeline {
     let stopReason = 'end_turn';
     const usage: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     let fullText = '';
+    let fullThinking = '';
+    let fullReasoning = '';
+    let thinkingSignature: string | undefined;
     const toolMap = new Map<string, { name: string; input: Record<string, unknown> }>();
 
     for await (const event of stream) {
@@ -97,10 +104,19 @@ export class StreamPipeline {
           break;
 
         case 'thinking_delta':
+          fullThinking += event.thinking || '';
+          thinkingSignature = event.signature || thinkingSignature;
           this.callbacks.onThinking?.(event.thinking || '');
           break;
 
         case 'thinking_start':
+          break;
+
+        case 'reasoning_delta':
+          fullReasoning += event.reasoning || '';
+          // DeepSeek/OpenAI reasoning_content 等同于 Anthropic thinking，路由到 onThinking
+          this.callbacks.onThinking?.(event.reasoning || '');
+          if (event.signature) thinkingSignature = event.signature;
           break;
 
         case 'tool_use_start': {
@@ -153,10 +169,21 @@ export class StreamPipeline {
       }
     }
 
+    // 按顺序添加 ContentBlock：thinking → reasoning → text → tool_use
+    // DeepSeek thinking 模式要求 reasoning_content 必须在后续请求中原样回传
+    if (fullThinking) contentBlocks.push({ type: 'thinking', thinking: fullThinking, signature: thinkingSignature });
+    if (fullReasoning) contentBlocks.push({ type: 'reasoning', reasoning: fullReasoning, signature: thinkingSignature });
+    if (fullText) contentBlocks.push({ type: 'text', text: fullText });
     for (const [id, tc] of toolMap) {
       toolCalls.push({ id, name: tc.name, input: tc.input });
+      // 同时添加 tool_use ContentBlock，确保 assistant 消息携带完整的工具调用信息
+      // OpenAI 格式转换时依赖此块生成 tool_calls，后续 tool_result 才能正确配对
+      contentBlocks.push({ type: 'tool_use', id, name: tc.name, input: tc.input });
     }
-    if (fullText) contentBlocks.push({ type: 'text', text: fullText });
+
+    // 诊断日志：确认 contentBlocks 中包含 reasoning 和 tool_use 块
+    const blockTypes = contentBlocks.map(b => b.type);
+    log.info(`StreamPipeline result: textLen=${fullText.length}, thinkingLen=${fullThinking.length}, reasoningLen=${fullReasoning.length}, toolCalls=${toolCalls.length}, blockTypes=[${blockTypes.join(', ')}]`);
 
     return { contentBlocks, toolCalls, stopReason, usage, text: fullText };
   }

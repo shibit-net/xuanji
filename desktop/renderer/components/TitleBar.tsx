@@ -13,7 +13,7 @@ interface TitleBarProps {
   onToggleProjectFiles?: () => void;
 }
 
-export default function TitleBar({ onCompact, onShowStats, onShowDiagnostics, onToggleRightPanel, onToggleProjectFiles }: TitleBarProps) {
+export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowStats, onShowDiagnostics: _onShowDiagnostics, onToggleRightPanel, onToggleProjectFiles }: TitleBarProps) {
   const handleMinimize = () => {
     window.electron?.minimize();
   };

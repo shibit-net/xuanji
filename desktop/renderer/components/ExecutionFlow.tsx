@@ -16,21 +16,53 @@ import { useRuntimeStore } from '../stores/runtimeStore';
 import { Avatar } from './Avatar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+// 主 agent 头像
+import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
+
 // 浅比较两个对象，用于节点 data 变化检测
-// 排除频繁变化的字段：timelineEvents, currentMoment, currentTask
-// 这些字段只影响节点内部文本渲染，不影响节点结构
+// 跳过高频字段：thinkingText（气泡内容由子组件监听 store 自行更新）
+// currentMoment 只看 type/status/label（跳过 startTime/durationMs 这些实时变化的字段）
 function hasNodeDataChanged(a: any, b: any): boolean {
   if (a === b) return false;
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return true;
-  const skipKeys = new Set(['timelineEvents', 'currentMoment', 'currentTask']);
+  const skipKeys = new Set(['thinkingText', 'currentTask']);
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return true;
   for (const k of ka) {
     if (skipKeys.has(k)) continue;
+    // 数组类型（timelineEvents）比较长度和最后 4 项 id
+    if (Array.isArray(a[k]) && Array.isArray(b[k])) {
+      if (a[k].length !== b[k].length) return true;
+      const aLast = a[k].slice(-4);
+      const bLast = b[k].slice(-4);
+      if (aLast.length !== bLast.length) return true;
+      for (let i = 0; i < aLast.length; i++) {
+        if (aLast[i]?.id !== bLast[i]?.id || aLast[i]?.status !== bLast[i]?.status) return true;
+      }
+      continue;
+    }
+    // currentMoment：跳过实时变化的毫秒字段，只看结构性变化
+    if (k === 'currentMoment' && a[k] && b[k]) {
+      if (a[k].type !== b[k].type || a[k].status !== b[k].status || a[k].label !== b[k].label) return true;
+      continue;
+    }
     if (a[k] !== b[k]) return true;
   }
   return false;
+}
+
+/** 从 agent 树中查找节点的 currentThought */
+function findAgentThought(agent: AgentState | null, targetId: string): string | undefined {
+  if (!agent) return undefined;
+  if (agent.id === targetId) return agent.currentThought;
+  if (agent.subAgents) {
+    for (const sub of agent.subAgents) {
+      const found = findAgentThought(sub, targetId);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
 }
 
 // ============================================================
@@ -52,6 +84,8 @@ interface AgentNodeData {
   strategy?: string;
   debateRole?: string;
   agentType?: string;
+  scene?: string;
+  executionMode?: 'acp' | 'in-process';
   multiAgent?: {
     type?: string;
     strategy?: string;
@@ -70,15 +104,6 @@ interface AgentNodeData {
     currentRound?: number;
     maxRounds?: number;
     goal?: string;
-    // 成员快照数据，用于 TeamNode 内部渲染
-    members?: Array<{
-      id: string;
-      name: string;
-      status: string;
-      thinkingText?: string;
-      currentTask?: string;
-      currentMoment?: { icon: string; label: string; status?: string };
-    }>;
   };
   children?: string[]; // 子 agent ID 列表（团队节点专用）
 }
@@ -94,7 +119,7 @@ const STATUS_RING_COLORS: Record<string, { bg: string; border: string; ring: str
   running:    { bg: 'rgba(124,140,245,0.15)', border: 'rgba(124,140,245,0.5)',  ring: 'rgba(124,140,245,0.8)',  glow: 'hsl(var(--primary)/0.15)' },
   responding: { bg: 'rgba(251,191,36,0.12)',  border: 'rgba(251,191,36,0.4)',   ring: 'rgba(251,191,36,0.7)',   glow: 'rgba(251,191,36,0.12)' },
   success:    { bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.4)',   ring: 'rgba(52,211,153,0.7)',   glow: 'rgba(52,211,153,0.12)' },
-  done:       { bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.25)',  ring: 'rgba(52,211,153,0.5)',   glow: 'transparent' },
+  done:       { bg: 'rgba(138,138,138,0.08)',  border: 'rgba(138,138,138,0.2)',   ring: 'rgba(138,138,138,0.3)',   glow: 'transparent' },
   failed:     { bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.5)',  ring: 'rgba(248,113,113,0.8)',  glow: 'rgba(248,113,113,0.15)' },
   error:      { bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.5)',  ring: 'rgba(248,113,113,0.8)',  glow: 'rgba(248,113,113,0.15)' },
   pending:    { bg: 'rgba(138,138,138,0.12)', border: 'rgba(138,138,138,0.2)',  ring: 'rgba(138,138,138,0.3)',  glow: 'transparent' },
@@ -162,13 +187,17 @@ function computeLiveDuration(evt: { status?: string; duration?: number; startTim
 // 自定义 Agent 节点（VisionOS 圆形玻璃风格）
 // ============================================================
 
-function AgentNode({ data }: NodeProps<AgentNodeData>) {
+function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
   const colors = getColors(data.status);
   const active = isActiveStatus(data.status);
   const final = isFinalStatus(data.status);
   const now = useRealtimeClock();
-  const hasThought = !!data.thinkingText;
-  const hasTaskHint = !!data.currentTask && !data.thinkingText;
+  // thinkingText 不从 data 读取（data 引用稳定时不会更新），从 store 实时订阅
+  const liveThinkingText = useActiveAgentStore((s) => {
+    return findAgentThought(s.mainAgent, id);
+  });
+  const hasThought = !!liveThinkingText;
+  const hasTaskHint = !!data.currentTask && !liveThinkingText;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = data.timelineEvents && data.timelineEvents.length > 0;
   const hasLeftBubble = hasThought || hasTaskHint;
@@ -177,6 +206,15 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
   const strategyLabel = data.multiAgent?.strategy
     ? data.multiAgent.strategy.charAt(0).toUpperCase() + data.multiAgent.strategy.slice(1)
     : null;
+
+  // 顺序/流水线策略的执行序号
+  const showOrderBadge = (data.multiAgent?.strategy === 'sequential' || data.multiAgent?.strategy === 'pipeline')
+    && data.multiAgent?.stepIndex !== undefined;
+  // Unicode 带圈数字 ①–⑳
+  const circledNumbers = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
+  const orderSymbol = showOrderBadge
+    ? (data.multiAgent!.stepIndex! < 20 ? circledNumbers[data.multiAgent!.stepIndex!] : `#${data.multiAgent!.stepIndex! + 1}`)
+    : '';
 
   return (
     <div className="relative" style={{ width: NODE_W, height: NODE_H }}>
@@ -194,20 +232,16 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
         />
       )}
 
-      {/* 连接点 — grid 布局保证头像始终居中 */}
-      <Handle type="target" position={Position.Top} className="!opacity-0" style={{ left: '50%', top: 0, transform: 'translateX(-50%)' }} />
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" style={{ left: '50%', bottom: 0, transform: 'translateX(-50%)' }} />
-
       <div className="grid w-full h-full pt-2 pointer-events-none" style={{ gridTemplateColumns: '1fr auto 1fr', alignItems: 'start' }}>
         {/* 左侧：思维气泡（右对齐，贴近头像） */}
         <div className="flex justify-end" style={{ paddingRight: 6 }}>
           {hasLeftBubble && (
-            <div style={{ maxWidth: 220 }}>
+            <div style={{ width: 200 }}>
               <div className={`relative bg-card/90 backdrop-blur-sm rounded-xl px-3 py-2 shadow-glass-sm ${
                 hasThought ? 'border border-green-500/40' : 'border border-yellow-500/40'
               }`}>
                 <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap">
-                  {hasThought ? data.thinkingText?.slice(-200) : data.currentTask?.slice(-200)}
+                  {hasThought ? liveThinkingText?.slice(-200) : data.currentTask?.slice(-200)}
                 </p>
                 <div className={`absolute right-[-5px] top-[28px] -translate-y-1/2 w-2.5 h-2.5 bg-card/90 border-t border-r rotate-45 ${
                   hasThought ? 'border-green-500/40' : 'border-yellow-500/40'
@@ -219,8 +253,10 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
 
         {/* 中间：圆形节点（grid center column = auto，始终居中） */}
         <div className="flex flex-col items-center flex-shrink-0">
-          {/* 圆形头像容器 */}
+          {/* 圆形头像容器 — Handles 在此使连线对接头像 */}
           <div className="relative" style={{ width: 56, height: 56 }}>
+            <Handle type="target" position={Position.Top} className="!opacity-0" />
+            <Handle type="source" position={Position.Bottom} className="!opacity-0" />
             {/* 自旋状态环 */}
             {active && (
               <svg className="absolute animate-spin" style={{ width: 60, height: 60, top: -2, left: -2 }} viewBox="0 0 60 60">
@@ -268,8 +304,30 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
                 border: `2px solid ${colors.border}`,
               }}
             >
-              <Avatar seed={data.name} size={48} className="w-full h-full rounded-full" />
+              {/* 主 agent 用实际 logo，其余用 DiceBear */}
+              {data.id === 'xuanji' || data.name === 'Xuanji' ? (
+                <img
+                  src={agentAvatar}
+                  alt={data.name}
+                  className="w-full h-full rounded-full object-cover"
+                  style={{ width: 48, height: 48 }}
+                />
+              ) : (
+                <Avatar seed={data.name} size={48} className="w-full h-full rounded-full" />
+              )}
             </div>
+
+            {/* 执行序号徽章（顺序/流水线策略） */}
+            {showOrderBadge && (
+              <div className="absolute -top-1 -right-1 z-10 flex items-center justify-center"
+                style={{ width: 18, height: 18 }}
+                title={`执行顺序: 第 ${data.multiAgent!.stepIndex! + 1} / ${data.multiAgent!.totalSteps} 步`}
+              >
+                <span className="text-sm leading-none text-primary drop-shadow-sm"
+                  style={{ textShadow: '0 0 3px rgba(0,0,0,0.5)' }}
+                >{orderSymbol}</span>
+              </div>
+            )}
 
             {/* 完成/错误徽章 */}
             {data.status === 'done' || data.status === 'success' ? (
@@ -284,12 +342,38 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
           </div>
 
           {/* 名称 */}
-          <div className="mt-1.5 flex items-center justify-center gap-1 flex-wrap max-w-[140px]">
+          <div className="mt-1.5 flex items-center justify-center max-w-[140px]">
             <span className="text-xs font-medium text-foreground/80 truncate">{data.name}</span>
-            {strategyLabel && (
-              <span className="text-[8px] px-1 py-[1px] rounded bg-muted text-muted-foreground whitespace-nowrap">{strategyLabel}</span>
-            )}
           </div>
+
+          {/* 标签行：类型 / 场景 / 执行模式（单排不换行） */}
+          {data.type !== 'team' && (data.agentType || data.scene || data.executionMode) && (
+            <div className="flex items-center gap-1 mt-1 justify-center max-w-[200px] overflow-hidden">
+              {data.agentType && (
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap flex-shrink-0">
+                  {data.agentType === 'builtin' ? '系统' :
+                   data.agentType === 'preset' ? '应用' :
+                   data.agentType === 'custom' ? '自定义' :
+                   data.agentType === 'temporary' ? '临时' : data.agentType}
+                </span>
+              )}
+              {data.scene && (
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap flex-shrink-0 truncate">
+                  {data.scene}
+                </span>
+              )}
+              {data.executionMode && (
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap flex-shrink-0">
+                  {data.executionMode === 'acp' ? '子进程' : '主进程'}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 策略标签（团队类型） */}
+          {strategyLabel && data.type === 'team' && (
+            <span className="text-[8px] px-1 py-[1px] rounded bg-muted text-muted-foreground whitespace-nowrap mt-0.5">{strategyLabel}</span>
+          )}
 
           {/* 辩论角色标签 */}
           {data.debateRole && (
@@ -302,15 +386,24 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
             </span>
           )}
 
-          {/* Agent 类型标签 */}
-          {data.agentType && (
-            <span className="text-[8px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground/60 mt-0.5">
-              {data.agentType === 'builtin' ? '系统' :
-               data.agentType === 'preset' ? '预设' :
-               data.agentType === 'custom' ? '自定义' :
-               data.agentType === 'temporary' ? '临时' : data.agentType}
+          {/* 层级模式：Leader / Worker 标签 */}
+          {!data.debateRole && data.multiAgent?.strategy === 'hierarchical' && (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded mt-0.5 font-medium ${
+              data.name?.toLowerCase().includes('leader') || data.multiAgent?.stepIndex === 0
+                ? 'bg-warning/20 text-warning'
+                : 'bg-primary/15 text-primary'
+            }`}>
+              {data.name?.toLowerCase().includes('leader') || data.multiAgent?.stepIndex === 0 ? 'Leader' : `Worker ${(data.multiAgent?.stepIndex ?? 0) + 1}`}
             </span>
           )}
+
+          {/* 并行模式：Worker 标签 */}
+          {!data.debateRole && data.multiAgent?.strategy === 'parallel' && data.multiAgent?.totalSteps && data.multiAgent.totalSteps > 1 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded mt-0.5 font-medium bg-primary/15 text-primary">
+              Worker {data.multiAgent?.stepIndex != null ? data.multiAgent.stepIndex + 1 : ''}
+            </span>
+          )}
+
         </div>
 
         {/* 右侧：Moment + Timeline */}
@@ -332,7 +425,7 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
 
           {hasTimeline && (
             <div className="space-y-0.5 mt-1 min-w-0">
-              {data.timelineEvents!.slice(-3).map((evt) => {
+              {data.timelineEvents!.slice(-4).map((evt) => {
                 const live = computeLiveDuration(evt, now);
                 return (
                   <div key={evt.id} className="flex items-center gap-1 text-[9px] leading-none min-w-0">
@@ -354,7 +447,7 @@ function AgentNode({ data }: NodeProps<AgentNodeData>) {
 }
 
 // ============================================================
-// TeamNode — 团队节点（内部渲染成员卡片）
+// 团队边界框节点（React Flow Group Node）
 // ============================================================
 
 function TeamNode({ data }: NodeProps<AgentNodeData>) {
@@ -362,19 +455,18 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
   if (!ti) return null;
   const sc = STRATEGY_COLORS[ti.strategy] || STRATEGY_COLORS.sequential;
   const icon = STRATEGY_ICONS[ti.strategy] || '👥';
-  const colors = getColors(data.status);
-  const active = isActiveStatus(data.status);
-  const members = ti.members || [];
 
   return (
-    <div className="relative" style={{ minWidth: 280 }}>
+    <div className="relative w-full h-full" style={{ minWidth: 200, minHeight: 100 }}>
       <Handle type="target" position={Position.Top} className="!opacity-0 !pointer-events-none" style={{ left: '50%', top: 0, transform: 'translateX(-50%)' }} />
+      <Handle type="source" position={Position.Bottom} className="!opacity-0 !pointer-events-none" style={{ left: '50%', bottom: 0, transform: 'translateX(-50%)' }} />
 
-      {/* 虚线边框 */}
+      {/* 虚线边界框 — 不设置 pointer-events-none，确保整个团队区域可拖拽 */}
       <div
-        className="rounded-xl pointer-events-none"
+        className="rounded-xl"
         style={{
-          position: 'absolute', inset: -2,
+          position: 'absolute',
+          inset: -2,
           border: `2px dashed ${sc.border}`,
           background: sc.bg,
         }}
@@ -382,80 +474,40 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
 
       {/* 标题栏 */}
       <div
-        className="flex items-center gap-2 px-3 py-2 rounded-t-xl cursor-grab active:cursor-grabbing"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-t-xl cursor-grab active:cursor-grabbing"
         style={{
-          position: 'absolute', top: -2, left: -2, right: -2,
+          position: 'absolute',
+          top: -2, left: -2, right: -2,
           background: `linear-gradient(135deg, ${sc.bg}, transparent)`,
           borderBottom: `1px solid ${sc.border}`,
         }}
       >
-        {/* 状态环 */}
-        <div className="relative w-7 h-7 flex-shrink-0">
-          {active && (
-            <svg className="absolute animate-spin" style={{ width: 30, height: 30, top: -1, left: -1 }} viewBox="0 0 30 30">
-              <circle cx="15" cy="15" r="13" fill="none" stroke={colors.ring} strokeWidth="2.5" strokeDasharray="20 60" strokeLinecap="round" />
-            </svg>
-          )}
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-xs"
-            style={{ background: colors.bg, border: `2px solid ${colors.border}` }}
-          >
-            {icon}
-          </div>
-        </div>
-
-        <span className="text-xs font-semibold text-foreground/80 truncate">{ti.teamName}</span>
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground whitespace-nowrap">
-          {ti.strategy.charAt(0).toUpperCase() + ti.strategy.slice(1)}
-        </span>
+        <span className="text-sm">{icon}</span>
+        <span className="text-xs font-semibold text-foreground/80 truncate max-w-[120px]">{ti.teamName}</span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground flex-shrink-0">{ti.strategy === 'sequential' ? '串行' : ti.strategy === 'parallel' ? '并行' : ti.strategy === 'debate' ? '辩论' : ti.strategy === 'hierarchical' ? '层级' : ti.strategy === 'pipeline' ? '流水线' : ti.strategy}</span>
+        <div className="flex-1" />
         {ti.strategy === 'debate' && ti.currentRound != null && ti.maxRounds != null && (
           <span className="text-[10px] font-mono text-muted-foreground">R{ti.currentRound}/{ti.maxRounds}</span>
         )}
       </div>
 
-      {/* 成员卡片列表 */}
-      <div className="pt-10 pb-2 px-2 space-y-1">
-        {members.map(m => {
-          const mc = getColors(m.status);
-          const ma = isActiveStatus(m.status);
-          return (
-            <div
-              key={m.id}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-black/10 text-xs"
-            >
-              {/* 迷你状态环 */}
-              <div className="relative w-4 h-4 flex-shrink-0">
-                {ma && (
-                  <svg className="absolute animate-spin" viewBox="0 0 16 16" style={{ width: 18, height: 18, top: -1, left: -1 }}>
-                    <circle cx="8" cy="8" r="7" fill="none" stroke={mc.ring} strokeWidth="1.5" strokeDasharray="11 33" strokeLinecap="round" />
-                  </svg>
-                )}
-                <div
-                  className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold"
-                  style={{ background: mc.bg, border: `1.5px solid ${mc.border}` }}
-                  title={m.status}
-                >
-                  {m.status === 'done' || m.status === 'success' ? '✓' : m.status === 'error' || m.status === 'failed' ? '✗' : ''}
-                </div>
-              </div>
-
-              {/* 名称 */}
-              <span className="font-medium text-foreground/80 truncate max-w-[80px]">{m.name}</span>
-
-              {/* 当前任务/思考摘要 */}
-              {(m.thinkingText || m.currentTask) && (
-                <span className="text-muted-foreground/60 truncate min-w-0 ml-auto text-[10px]">
-                  {m.thinkingText?.slice(-60) || m.currentTask?.slice(-40)}
-                </span>
-              )}
-
-              {/* moment 图标 */}
-              {m.currentMoment && (
-                <span className="flex-shrink-0 text-[10px]" title={m.currentMoment.label}>{m.currentMoment.icon}</span>
-              )}
-            </div>
-          );
-        })}
+      {/* 策略专属状态信息 */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-3 text-[10px] text-muted-foreground/50 pointer-events-none">
+        {ti.strategy === 'sequential' ? (
+          <span className="text-blue-400/60">➡️ 顺序执行 · {ti.memberCount} 步</span>
+        ) : ti.strategy === 'pipeline' ? (
+          <span className="text-purple-400/60">🔗 流水线 · {ti.memberCount} 阶段</span>
+        ) : (
+          <>
+            <span>{ti.memberCount} 名成员</span>
+            {ti.strategy === 'parallel' && ti.currentRound != null && (
+              <span className="text-primary/50">{ti.currentRound} 个运行中</span>
+            )}
+            {ti.strategy === 'hierarchical' && (
+              <span className="text-warning/50">1 Leader · {ti.memberCount - 1} Worker</span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -530,9 +582,8 @@ function layoutNodes(nodes: Node[], edges: Edge[]) {
 
 function isActiveOrHasActiveChild(agent: AgentState): boolean {
   if (agent.multiAgent?.type === 'agent_team') return true;
-  // 只要不是 idle 就保留（含 success/failed 终态）
-  // idle 是 addSubAgent 创建时的默认值，但 _promoteSubAgent 立即设为 thinking
-  if (agent.status !== 'idle') return true;
+  // idle / pending 节点也可能有活跃子 agent（异步任务），保留它们
+  if (agent.status !== 'idle' && agent.status !== 'pending') return true;
   if (agent.subAgents && Array.isArray(agent.subAgents)) {
     return agent.subAgents.some(child => isActiveOrHasActiveChild(child));
   }
@@ -552,6 +603,8 @@ function Flow() {
 
   // 追踪用户手动拖拽位置，防止思考流更新时重置位置
   const draggedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // 记录每个成员的初始 dagre 位置（首次 flowData 布局后）
+  const initialPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   // 记录 team 框拖拽时的基准偏移，用于同步移动内部成员
   const teamDragOffsets = useRef<Map<string, { dx: number; dy: number }>>(new Map());
 
@@ -569,11 +622,9 @@ function Flow() {
 
   // 🔧 调试日志
   useEffect(() => {
-    console.log('[ExecutionFlow] mainAgent:', mainAgent?.id, 'subAgents:', mainAgent?.subAgents?.length,
-      'subIds:', mainAgent?.subAgents?.map(a => `${a.id}:${a.status}`));
-    console.log('[ExecutionFlow] agentActivity moments:', Object.keys(agentActivity.currentMoments));
-    console.log('[ExecutionFlow] agentActivity timelineEvents:', Object.keys(agentActivity.timelineEvents));
-  }, [mainAgent, agentActivity]);
+    console.log('[ExecutionFlow] mainAgent subAgents:', mainAgent?.subAgents?.length,
+      mainAgent?.subAgents?.map(a => `${a.id}:${a.status}`));
+  }, [mainAgent]);
 
   const buildFlow = useCallback((
     agent: AgentState,
@@ -622,6 +673,8 @@ function Flow() {
           strategy,
           debateRole: a.multiAgent?.debateRole,
           agentType: a.agentType,
+          scene: a.scene,
+          executionMode: a.executionMode,
           multiAgent: a.multiAgent ? {
             type: a.multiAgent.type,
             strategy: a.multiAgent.strategy,
@@ -633,7 +686,7 @@ function Flow() {
             goal: a.multiAgent.goal,
           } : undefined,
         },
-        draggable: true,
+        draggable: !teamName,
       });
 
       if (pid) {
@@ -653,42 +706,13 @@ function Flow() {
       const isTeamMember = a.multiAgent?.type === 'agent_team';
       const teamName = a.multiAgent?.teamName;
 
-      // 如果是团队成员，不创建独立节点，数据由 TeamNode 内部渲染
+      // 如果是团队成员，添加 agent 节点（让 teamMembers 收集 ID）
       if (isTeamMember && teamName) {
-        // 如果是第一个遇到的该团队 leader，创建 TeamNode
+        addNode(a, pid, teamName);
+
+        // 如果团队边界框还没创建，创建它
         if (!teamNodes.has(teamName)) {
-          // 收集所有团队成员数据
-          const memberList: Array<{
-            id: string; name: string; status: string;
-            thinkingText?: string; currentTask?: string;
-            currentMoment?: { icon: string; label: string; status?: string };
-          }> = [];
-          const collectMembers = (agent: AgentState) => {
-            if (agent.subAgents) {
-              for (const sub of agent.subAgents) {
-                if (sub.multiAgent?.teamName === teamName && sub.multiAgent?.type === 'agent_team') {
-                  const cm = agentActivity.currentMoments?.[sub.id];
-                  memberList.push({
-                    id: sub.id,
-                    name: sub.name,
-                    status: sub.status,
-                    thinkingText: sub.currentThought,
-                    currentTask: sub.currentTask,
-                    currentMoment: cm ? { icon: cm.icon, label: cm.label, status: cm.status } : undefined,
-                  });
-                  collectMembers(sub);
-                }
-              }
-            }
-          };
-          collectMembers(a);
-          const members = memberList;
-          const memberCount = Math.max(1, members.length);
-          // 聚合团队状态
-          const teamStatus = ['failed','error'].some(s => members.some(m => m.status === s)) ? 'error'
-            : ['thinking','executing','running','responding'].some(s => members.some(m => m.status === s)) ? 'running'
-            : members.every(m => ['done','success'].includes(m.status)) ? 'success'
-            : 'idle';
+          const memberCount = a.multiAgent?.totalSteps || Math.max(1, teamMembers.get(teamName)?.length || 1);
 
           teamNodes.set(teamName, {
             id: `team-${teamName}`,
@@ -697,7 +721,7 @@ function Flow() {
             data: {
               id: `team-${teamName}`,
               name: teamName,
-              status: teamStatus,
+              status: 'idle',
               type: 'team',
               teamInfo: {
                 teamName,
@@ -706,15 +730,14 @@ function Flow() {
                 currentRound: a.multiAgent?.currentRound,
                 maxRounds: a.multiAgent?.maxRounds,
                 goal: a.multiAgent?.goal,
-                members,
               },
             },
             draggable: true,
-            width: 420,
-            height: Math.max(160, 60 + members.length * 36),
+            width: 100,
+            height: 60,
           });
 
-          // 父节点 → 团队边界框的连线
+          // 父节点 → 团队边界框的连线（和 task 线一样）
           const parentForTeam = pid || (mainAgent?.id || 'xuanji');
           edges.push({
             id: `e-${parentForTeam}-team-${teamName}`,
@@ -726,24 +749,63 @@ function Flow() {
             markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary)/0.35)' },
           });
         }
-        // 成员不递归处理子 agent（团队成员的数据已被 collectMembers 收集）
-        return;
+      } else {
+        // 非团队成员的普通节点
+        addNode(a, pid);
       }
 
-      // 非团队成员的普通节点
-      addNode(a, pid);
-      if (a.subAgents && a.subAgents.length > 0) {
-        for (const sub of a.subAgents) {
-          if (!isActiveOrHasActiveChild(sub)) continue;
-          processAgent(sub, a.id);
+    // 递归处理子 agent
+    if (a.subAgents && a.subAgents.length > 0) {
+      for (const sub of a.subAgents) {
+        if (!isActiveOrHasActiveChild(sub)) continue;
+        processAgent(sub, a.id);
+      }
+    }
+  };
+
+  processAgent(agent, parentId);
+
+  // 移除 agent → agent 的连线如果双方都在同一个团队中
+  // 也移除父 agent → 团队成员的直接连线，改为 team → member 连线让 dagre 布局
+  const agentIds = new Set(nodes.map(n => n.id));
+  const teamAgentMap = new Map<string, string>();
+  const teamMembersSet = new Set<string>();
+  teamMembers.forEach((members, teamName) => {
+    members.forEach(m => {
+      teamAgentMap.set(m, teamName);
+      teamMembersSet.add(m);
+    });
+  });
+
+  const filteredEdges = edges.filter(e => {
+    if (teamAgentMap.has(e.source) && teamAgentMap.has(e.target)) {
+      return teamAgentMap.get(e.source) === teamAgentMap.get(e.target);
+    }
+    if (teamMembersSet.has(e.target)) {
+      return false;
+    }
+    return true;
+  });
+
+  // 添加 team → member 边仅用于 dagre 布局（让成员在 team 框下方），渲染时隐藏
+  teamMembers.forEach((members, teamName) => {
+    const teamId = `team-${teamName}`;
+    members.forEach(memberId => {
+      if (agentIds.has(memberId)) {
+        filteredEdges.push({
+            id: `e-${teamId}-${memberId}`,
+            source: teamId,
+            target: memberId,
+            type: 'smoothstep',
+            animated: false,
+            style: { stroke: 'transparent', strokeWidth: 0 },
+          });
         }
-      }
-    };
+      });
+    });
 
-    processAgent(agent, parentId);
-
-    return { nodes, edges, teamNodes, teamMembers: new Map() };
-  }, [agentActivity, mainAgent]);
+  return { nodes, edges: filteredEdges, teamNodes, teamMembers };
+}, [agentActivity, mainAgent]);
 
   const flowData = useMemo(() => {
     if (!mainAgent) return null;
@@ -751,26 +813,137 @@ function Flow() {
     const allNodes = [...raw.nodes];
     raw.teamNodes.forEach((tn) => allNodes.push(tn));
     const laidOut = layoutNodes(allNodes, raw.edges);
-    // 恢复用户拖拽过的节点位置
+    // 恢复用户拖拽过的节点位置，防止 dagre 重算时拉回
     const restored = laidOut.map(n => {
       const dragged = draggedPositions.current.get(n.id);
       if (dragged) return { ...n, position: dragged };
       return n;
     });
-    return { nodes: restored, edges: raw.edges };
+
+    // 如果团队框被拖拽过，确保成员也跟随
+    raw.teamMembers.forEach((members, teamName) => {
+      const teamId = `team-${teamName}`;
+      const teamDragged = draggedPositions.current.get(teamId);
+      if (!teamDragged) return;
+      const teamInit = initialPositions.current.get(teamId);
+      if (!teamInit) return;
+      const dx = teamDragged.x - teamInit.x;
+      const dy = teamDragged.y - teamInit.y;
+      members.forEach(mid => {
+        const nodeIdx = restored.findIndex(n => n.id === mid);
+        if (nodeIdx === -1) return;
+        const initPos = initialPositions.current.get(mid);
+        if (!initPos) {
+          initialPositions.current.set(mid, { ...restored[nodeIdx].position });
+        } else {
+          restored[nodeIdx] = { ...restored[nodeIdx], position: { x: initPos.x + dx, y: initPos.y + dy } };
+        }
+      });
+    });
+
+    // 记录团队成员的初始 dagre 位置
+    if (draggedPositions.current.size === 0) {
+      raw.teamMembers.forEach((members) => {
+        members.forEach(mid => {
+          const node = restored.find(n => n.id === mid);
+          if (node) initialPositions.current.set(mid, { ...node.position });
+        });
+      });
+    }
+
+    // 根据成员实际布局位置调整 team 虚线框的大小和位置，使其包裹所有成员
+    const adjustedNodes = restored.map(n => {
+      if (!n.id.startsWith('team-')) return n;
+      const teamName = n.id.replace('team-', '');
+      const members = raw.teamMembers.get(teamName);
+      if (!members || members.length === 0) return n;
+      const memberNodes = members.map(mid => restored.find(rn => rn.id === mid)).filter(Boolean) as Node[];
+      if (memberNodes.length === 0) return n;
+      // 辩论模式：圆形排列需要更多空间容纳气泡和圆环
+      const isDebate = memberNodes.some(m => m.data?.strategy === 'debate');
+      const padding = isDebate ? 140 : 80;
+      const leftExtra = isDebate ? 220 : 120;
+      const rightExtra = isDebate ? 120 : 80;
+      const minX = Math.min(...memberNodes.map(m => m.position.x)) - leftExtra;
+      const maxX = Math.max(...memberNodes.map(m => m.position.x + NODE_W)) + rightExtra;
+      const minY = Math.min(...memberNodes.map(m => m.position.y)) - padding;
+      const maxY = Math.max(...memberNodes.map(m => m.position.y + NODE_H)) + padding;
+      return {
+        ...n,
+        position: { x: minX, y: minY },
+        width: maxX - minX,
+        height: maxY - minY,
+        style: { width: maxX - minX, height: maxY - minY },
+      };
+    });
+
+    // 记录团队框的初始位置（必须在 adjustedNodes 之后，因为渲染的是包裹后的位置）
+    if (draggedPositions.current.size === 0) {
+      adjustedNodes.filter(n => n.id.startsWith('team-')).forEach(tn => {
+        initialPositions.current.set(tn.id, { ...tn.position });
+      });
+    }
+
+    return { nodes: adjustedNodes, edges: raw.edges };
   }, [mainAgent, buildFlow, isProcessing]);
 
   const [nodes, setNodes, onNodesChangeRaw] = useNodesState(flowData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowData?.edges || []);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    for (const change of changes) {
-      if (change.type === 'position' && change.position) {
-        draggedPositions.current.set(change.id, { ...change.position });
+    // 只提取 team 框的拖拽变化，忽略所有其他节点的变化
+    let teamChange: NodeChange | null = null;
+    for (const c of changes) {
+      if (c.type === 'position' && 'id' in c && typeof c.id === 'string' && c.id.startsWith('team-')) {
+        teamChange = c;
+        break;
       }
     }
-    onNodesChangeRaw(changes);
-  }, [onNodesChangeRaw]);
+
+    if (!teamChange) {
+      // 过滤掉所有团队成员节点的变化（position / select / remove 等），
+      // 成员位置完全由 dagre 布局 + team 拖拽偏移决定
+      const filtered = changes.filter(c => {
+        if ('id' in c && typeof c.id === 'string') {
+          const memberAgent = mainAgent ? findAgentById(mainAgent, c.id as string) : null;
+          if (memberAgent?.multiAgent?.teamName) return false;
+        }
+        return true;
+      });
+      onNodesChangeRaw(filtered);
+      return;
+    }
+
+    // 处理 team 框拖拽
+    const change = teamChange as any;
+    if (!change.position) return;
+    const teamName = (change.id as string).replace('team-', '');
+    // 首次拖拽：用 dagre 初始位置作为 oldPos，避免首次拖拽被忽略
+    const initPos = initialPositions.current.get(change.id);
+    if (!initPos) return;
+    const oldPos = draggedPositions.current.get(change.id) || initPos;
+    draggedPositions.current.set(change.id, { ...change.position });
+
+    const dx = change.position.x - oldPos.x;
+    const dy = change.position.y - oldPos.y;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+
+    const prevOffset = teamDragOffsets.current.get(teamName) || { dx: 0, dy: 0 };
+    teamDragOffsets.current.set(teamName, { dx: prevOffset.dx + dx, dy: prevOffset.dy + dy });
+    const totalDx = prevOffset.dx + dx;
+    const totalDy = prevOffset.dy + dy;
+
+    setNodes(prev => prev.map(n => {
+      if (n.id === change.id) return { ...n, position: { ...change.position } };
+      const memberAgent = mainAgent ? findAgentById(mainAgent, n.id) : null;
+      if (memberAgent?.multiAgent?.teamName !== teamName) return n;
+      const initPos = initialPositions.current.get(n.id);
+      if (!initPos) return n;
+      const newPos = { x: initPos.x + totalDx, y: initPos.y + totalDy };
+      draggedPositions.current.set(n.id, newPos);
+      return { ...n, position: newPos };
+    }));
+  }, [onNodesChangeRaw, mainAgent]);
 
   // 使用 ref 缓存上一轮 nodes，避免 data 未变的节点被替换引用导致 React Flow 重挂载闪烁
   const prevNodesRef = useRef<Node[]>([]);
@@ -784,11 +957,28 @@ function Flow() {
       // 对比旧节点：id + type + data 不变则保留旧引用，防止 React Flow 重挂载
       const old = prevNodesRef.current.find(n => n.id === newNode.id);
       if (old && old.type === newNode.type && !hasNodeDataChanged(old.data, newNode.data)) {
+        // 数据未变时保留旧引用避免闪烁，但必须同步最新拖拽位置，否则拖拽后位置会被重置
+        if (pos.x !== old.position.x || pos.y !== old.position.y) {
+          return { ...old, position: pos };
+        }
         return old;
       }
       return { ...newNode, position: pos, data: { ...newNode.data } };
     });
     prevNodesRef.current = newNodes as Node[];
+
+    // 清理已移除节点的拖拽/位置缓存，防止多次任务执行后 ref map 无限增长
+    const newNodeIds = new Set(newNodes.map(n => n.id));
+    for (const id of draggedPositions.current.keys()) {
+      if (!newNodeIds.has(id)) draggedPositions.current.delete(id);
+    }
+    for (const id of initialPositions.current.keys()) {
+      if (!newNodeIds.has(id)) initialPositions.current.delete(id);
+    }
+    for (const id of teamDragOffsets.current.keys()) {
+      if (!newNodeIds.has(id)) teamDragOffsets.current.delete(id);
+    }
+
     requestAnimationFrame(() => {
       setNodes(newNodes as any);
       setEdges(flowData.edges);
@@ -801,21 +991,40 @@ function Flow() {
 
   return (
     <div className="w-full h-full bg-background">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        connectionLineType={ConnectionLineType.SmoothStep}
-        defaultViewport={{ x: 0, y: 0, zoom: 1.0 }}
-        minZoom={0.2}
-        maxZoom={3}
-        fitView
-        fitViewOptions={{ padding: 0.4 }}
-        attributionPosition="bottom-right"
-        proOptions={{ hideAttribution: true }}
-      >
+      {!mainAgent ? (
+        <div className="w-full h-full flex items-center justify-center relative">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-[300px] h-[300px] rounded-full bg-primary/2 blur-[80px]" />
+          </div>
+          <div className="flex flex-col items-center gap-4 text-center relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-card backdrop-blur-xl flex items-center justify-center shadow-glass-sm">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-primary/60">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground/60">执行监视</p>
+              <p className="text-xs text-muted-foreground/40 max-w-[180px]">实时追踪多 Agent 协作执行过程</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          connectionLineType={ConnectionLineType.SmoothStep}
+          defaultViewport={{ x: 0, y: 0, zoom: 1.0 }}
+          minZoom={0.2}
+          maxZoom={3}
+          fitView
+          fitViewOptions={{ padding: 0.4 }}
+          attributionPosition="bottom-right"
+          proOptions={{ hideAttribution: true }}
+        >
         <Background gap={24} size={1} color="rgba(255,255,255,0.03)" />
         <Controls className="!bg-card !border-border !rounded-xl !shadow-glass-sm" showInteractive={false} />
         <MiniMap
@@ -834,6 +1043,7 @@ function Flow() {
           zoomable
         />
       </ReactFlow>
+      )}
     </div>
   );
 }

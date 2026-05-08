@@ -13,8 +13,12 @@ import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 import { getConfigManager } from '@/core/config/ConfigManager';
 import { ProviderPool } from '@/core/providers/ProviderPool';
-import { ProviderFactory } from '@/core/providers/ProviderFactory';
+import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
+import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
 import type { PromptComposer, ComposeContext, SubAgentComposeContext } from '@/core/prompt/PromptComposer';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
+import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
 
 const log = logger.child({ module: 'AgentFactory' });
 
@@ -102,9 +106,19 @@ export class AgentFactory {
 
   constructor(baseRegistry: IToolRegistry) {
     this.baseRegistry = baseRegistry;
-    const providerFactory = new ProviderFactory();
     this.providerPool = new ProviderPool(
-      (config) => providerFactory.create(config),
+      (config) => {
+        if (!config.adapter) {
+          throw new Error(
+            `Provider adapter not specified for model "${config.model}". ` +
+            `Set 'adapter' in agent config (anthropic / openai / openai-responses).`,
+          );
+        }
+        if (config.adapter === 'anthropic') {
+          return new AnthropicProvider(config);
+        }
+        return new OpenAIProvider(config);
+      },
     );
   }
 
@@ -168,7 +182,9 @@ export class AgentFactory {
       maxTokens: agentCfg.model?.maxTokens ?? settings.maxTokens,
     }, provider);
 
-    const agentLoop = new AgentLoop(provider, registry, runtimeConfig);
+    const mainAgentId = options.subAgentId || agentId;
+
+    const agentLoop = new AgentLoop(provider, registry, runtimeConfig, mainAgentId);
 
     if (this.hookRegistry) {
       agentLoop.setHookRegistry(this.hookRegistry);
@@ -177,7 +193,7 @@ export class AgentFactory {
     return {
       agentLoop,
       config: runtimeConfig,
-      subAgentId: options.subAgentId || agentId,
+      subAgentId: mainAgentId,
       depth: options.depth ?? 0,
     };
   }
@@ -187,31 +203,86 @@ export class AgentFactory {
    */
   async createSubAgent(agentId: string, options: AgentCreateOptions): Promise<AgentInstance> {
     const cfgMgr = getConfigManager();
-    let agentCfg = cfgMgr.getAgentConfig(agentId);
+    const agentCfg = cfgMgr.getAgentConfig(agentId);
 
+    log.info(`[createSubAgent] entry`, {
+      agentId,
+      hasAgentCfg: !!agentCfg,
+      agentCfgName: agentCfg?.name,
+      hasParentProvider: !!options.parentProvider,
+      hasParentConfig: !!options.parentConfig,
+      depth: options.depth,
+      scene: options.scene,
+      toolWhitelist: options.toolWhitelist,
+      subAgentId: options.subAgentId,
+    });
+
+    // 空 ID 或未注册（临时 agent），仅继承 provider 和适配器
     if (!agentCfg) {
-      // 找不到配置，降级到 general-purpose
-      agentCfg = cfgMgr.getAgentConfig('general-purpose');
-      if (!agentCfg) {
-        throw new Error(`Agent "${agentId}" not found and no fallback`);
+      log.info(`[createSubAgent] 进入临时 agent 路径`, {
+        agentId,
+        hasParentProvider: !!options.parentProvider,
+        parentProviderType: options.parentProvider?.constructor?.name || 'unknown',
+        depth: options.depth,
+      });
+
+      if (!options.parentProvider) {
+        log.warn(`[createSubAgent] 临时 agent 缺少 parentProvider`, { agentId });
+        throw new Error(`Agent "${agentId}" not found and no parentProvider to inherit`);
       }
-      log.warn(`Agent "${agentId}" not found, falling back to general-purpose`);
+      // 临时 agent: 继承父 provider 和父配置（model / provider / tools 等），LLM 分配的 system prompt 由调用方传入
+      const provider = options.parentProvider;
+      const subAgentId = options.subAgentId || `subagent-temp-${agentId || 'unknown'}-${Date.now()}`;
+
+      const runtimeConfig = this.buildRuntimeConfig(options.parentConfig, {
+        systemPrompt: '',
+        workingDir: options.workingDir,
+        maxIterations: options.maxIterations ?? 20,
+      }, provider);
+
+      const allowedTools = this.resolveTools(options.parentConfig, options.toolWhitelist);
+      const registry = this.createFilteredRegistry(allowedTools, {
+        agentId,
+        workingDir: options.workingDir,
+      });
+
+      const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
+      if (this.hookRegistry) agentLoop.setHookRegistry(this.hookRegistry);
+
+      log.info(`[createSubAgent] 临时 agent 创建成功`, {
+        agentId,
+        subAgentId,
+        depth: options.depth,
+        providerType: provider.constructor?.name,
+        model: runtimeConfig.model,
+        toolCount: allowedTools.length,
+      });
+
+      return { agentLoop, config: runtimeConfig, subAgentId, depth: options.depth ?? 0 };
     }
+
+    log.info(`[createSubAgent] 进入预置 agent 路径`, {
+      agentId,
+      agentName: agentCfg.name,
+      enabled: agentCfg.enabled,
+      hasIndependentProvider: !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL || agentCfg.provider?.adapter),
+      hasParentProvider: !!options.parentProvider,
+    });
 
     if (agentCfg.enabled === false) {
       throw new Error(`Agent "${agentCfg.name}" is disabled`);
     }
 
-    // 解析 provider（子 Agent 可继承父 provider）
+    // 解析 provider（子 Agent 使用自有配置或继承父 provider）
     const hasIndependentProvider = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL || agentCfg.provider?.adapter);
     let provider: ILLMProvider;
 
     if (hasIndependentProvider) {
       provider = this.providerPool.getProvider({
-        adapter: agentCfg.provider?.adapter ?? 'anthropic',
-        model: agentCfg.model?.primary ?? 'claude-sonnet-4-6',
-        apiKey: agentCfg.provider?.apiKey ?? '',
-        baseURL: agentCfg.provider?.baseURL ?? '',
+        adapter: agentCfg.provider!.adapter!,
+        model: agentCfg.model!.primary!,
+        apiKey: agentCfg.provider!.apiKey!,
+        baseURL: agentCfg.provider!.baseURL!,
       });
     } else if (options.parentProvider) {
       provider = options.parentProvider;
@@ -229,6 +300,8 @@ export class AgentFactory {
       workingDir: options.workingDir,
     });
 
+    const subAgentId = options.subAgentId || `subagent-${agentId}-${Date.now()}`;
+
     // 构建 runtime config
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt,
@@ -238,13 +311,11 @@ export class AgentFactory {
       maxTokens: agentCfg.model?.maxTokens,
     }, provider);
 
-    const agentLoop = new AgentLoop(provider, registry, runtimeConfig);
+    const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
 
     if (this.hookRegistry) {
       agentLoop.setHookRegistry(this.hookRegistry);
     }
-
-    const subAgentId = options.subAgentId || `subagent-${agentId}-${Date.now()}`;
 
     return {
       agentLoop,
@@ -294,13 +365,26 @@ export class AgentFactory {
     let agentConfig = cfgMgr.getAgentConfig(agentIdOrRole);
     const isTemporary = this.isTemporaryAgent(agentIdOrRole);
 
-    if (!agentConfig && !isTemporary) {
-      agentConfig = cfgMgr.getAgentConfig('general-purpose');
-    }
-
     // 3. 解析 parentProvider（options 优先，其次 setters）
     const parentProvider = options.parentProvider ?? this._parentProvider;
     const parentConfig = options.parentConfig ?? this._parentConfig;
+
+    log.info(`[createAndRun] provider 解析`, {
+      agentId: agentIdOrRole,
+      isTemporary,
+      hasOptionsProvider: !!options.parentProvider,
+      hasInternalProvider: !!this._parentProvider,
+      hasParentConfig: !!parentConfig,
+      agentConfigFound: !!agentConfig,
+    });
+
+    if (!agentConfig && !isTemporary && !parentProvider) {
+      log.warn(`[createAndRun] agent 未找到且无 parentProvider`, {
+        agentId: agentIdOrRole,
+        isTemporary,
+      });
+      throw new Error(`Agent "${agentIdOrRole}" not found`);
+    }
 
     // 4. 创建子 Agent
     let agentLoop: AgentLoop;
@@ -323,8 +407,21 @@ export class AgentFactory {
       subAgentId = result.subAgentId;
     } catch (error: any) {
       const duration = Date.now() - startTime;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errStack = error instanceof Error ? error.stack : '';
+      log.error(`createAndRun failed`, {
+        agentId: agentIdOrRole,
+        depth: options.depth,
+        isTemporary,
+        subAgentId,
+        taskPreview: (options.task || '').slice(0, 120),
+        error: errMsg,
+        stack: errStack,
+        duration,
+      });
+      console.error(`[AgentFactory] createAndRun 失败: agentId=${agentIdOrRole}, depth=${options.depth}, error=${errMsg}`);
       return {
-        result: `[Error] Failed to create sub-agent: ${error.message}`,
+        result: `[Error] Failed to create sub-agent: ${errMsg}`,
         tokensUsed: { input: 0, output: 0 },
         duration,
         timedOut: false,
@@ -360,36 +457,60 @@ export class AgentFactory {
       },
     });
 
-    // 6. 触发 SubAgentStart Hook
-    if (this.hookRegistry && !options.skipSubAgentStartHook && agentConfig) {
-      const category = (agentConfig as any).metadata?.category || 'custom';
-      const agentType = isTemporary ? 'temporary' :
-        category === 'system' ? 'builtin' :
-        category === 'app' ? 'preset' : 'custom';
+    // 6. 触发 SubAgentStart Hook + EventBus
+    const agentType = !agentConfig ? 'temporary' :
+      isTemporary ? 'temporary' :
+      (agentConfig as any).metadata?.category === 'system' ? 'builtin' :
+      (agentConfig as any).metadata?.category === 'app' ? 'preset' : 'custom';
 
+    // 子 agent 走 ACP 子进程执行，避免阻塞主进程事件循环
+    const useAcp = !!options.subAgentId && !!subAgentId;
+
+    const subAgentStartPayload = {
+      task: options.task,
+      depth: options.depth ?? 0,
+      role: agentConfig?.id || agentIdOrRole,
+      name: agentConfig?.name || agentIdOrRole,
+      agentType,
+      parentAgentId: options.parentAgentId || 'main',
+      streamToUser: options.streamToUser || false,
+      scene: options.scene?.replace(/^l[12]-/, ''),
+      executionMode: (useAcp ? 'acp' : 'in-process') as 'acp' | 'in-process',
+    };
+
+    if (this.hookRegistry && !options.skipSubAgentStartHook) {
       this.hookRegistry.emit('SubAgentStart', {
         subAgentId,
-        data: {
-          task: options.task,
-          depth: options.depth ?? 0,
-          role: agentConfig.id,
-          name: agentConfig.name,
-          agentType,
-          parentAgentId: options.parentAgentId || 'main',
-          streamToUser: options.streamToUser || false,
-          scene: options.scene,
-        },
+        data: subAgentStartPayload,
       }).catch(() => {});
+    }
+    // 团队成员由 TeamMemberStart/TeamMemberEnd 管理生命周期，不发送 SubAgentStart/End
+    if (!options.skipSubAgentStartHook) {
+      eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_START, {
+        subAgentId,
+        data: subAgentStartPayload,
+      });
     }
 
     // 7. 带超时执行
     let timedOut = false;
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
+    if (useAcp) {
+      try {
+        const acpResult = await this.executeViaAcp(agentIdOrRole, options, subAgentId!, outputText, startTime);
+        return acpResult;
+      } catch (acpErr) {
+        log.warn(`ACP execution failed, falling back to in-process: ${acpErr}`);
+        // fall through
+      }
+    }
+
     const onExternalAbort = () => {
       agentLoop.stop();
     };
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
 
     try {
       // 更新日志上下文中的 depth，子 agent 内的 AgentLoop 写日志时自动带上
@@ -422,21 +543,28 @@ export class AgentFactory {
     const duration = Date.now() - startTime;
     const state = agentLoop.getState();
 
-    // 8. 触发 SubAgentEnd Hook
+    // 8. 触发 SubAgentEnd Hook + EventBus
+    const endPayload = {
+      task: options.task,
+      depth: options.depth ?? 0,
+      duration,
+      timedOut,
+      success: !timedOut,
+      iterations: state.currentIteration,
+      result: outputText,
+      tokensUsed: state.tokenUsage,
+    };
     if (this.hookRegistry) {
       this.hookRegistry.emit('SubAgentEnd', {
         subAgentId,
-        data: {
-          task: options.task,
-          depth: options.depth ?? 0,
-          duration,
-          timedOut,
-          success: !timedOut,
-          iterations: state.currentIteration,
-          result: outputText,
-          tokensUsed: state.tokenUsage,
-        },
+        data: endPayload,
       }).catch(() => {});
+    }
+    if (!options.skipSubAgentStartHook) {
+      eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_END, {
+        subAgentId,
+        data: endPayload,
+      });
     }
 
     // 9. 清理临时 Agent
@@ -451,6 +579,151 @@ export class AgentFactory {
       timedOut,
       iterations: state.currentIteration,
       success: !timedOut,
+    };
+  }
+
+  /**
+   * 通过 ACP 子进程执行子 agent
+   * 主进程透传 provider 配置（含 apiKey）
+   */
+  private async executeViaAcp(
+    agentIdOrRole: string,
+    options: CreateAndRunOptions,
+    subAgentId: string,
+    outputText: string,
+    startTime: number,
+  ): Promise<CreateAndRunResult> {
+    const acp = AcpProcessManager.getInstance();
+
+    const tools = options.tools && options.tools.length > 0 ? options.tools : undefined;
+
+    // 先查已注册 agent 的配置
+    const cfgMgr = getConfigManager();
+    const registeredConfig = cfgMgr.getAgentConfig(agentIdOrRole);
+    const isTemporary = this.isTemporaryAgent(agentIdOrRole);
+
+    // 已注册 agent 用自有配置，临时 agent 继承父配置
+    const fallbackConfig = options.parentConfig ?? this._parentConfig;
+    log.debug(`executeViaAcp: agentId="${agentIdOrRole}" isTemporary=${isTemporary} hasRegistered=!!${!!registeredConfig} fallbackConfig=${fallbackConfig ? 'yes' : 'no'} fallbackProvider=${JSON.stringify((fallbackConfig as any)?.provider)}`);
+    const agentProviderConfig = registeredConfig && !isTemporary
+      ? {
+          adapter: (registeredConfig as any).provider?.adapter,
+          model: (registeredConfig as any).model?.primary,
+          apiKey: (registeredConfig as any).provider?.apiKey,
+          baseURL: (registeredConfig as any).provider?.baseURL,
+          maxTokens: (registeredConfig as any).model?.maxTokens,
+          temperature: (registeredConfig as any).model?.temperature,
+        }
+      : fallbackConfig
+        ? {
+            // 兼容两种 shape：嵌套 AgentConfig (model.primary / provider.apiKey) 和扁平 ProviderConfig (model / apiKey)
+            adapter: (fallbackConfig as any).adapter || (fallbackConfig as any).provider?.adapter,
+            model: (fallbackConfig as any).model?.primary || (fallbackConfig as any).model || '',
+            apiKey: (fallbackConfig as any).apiKey || (fallbackConfig as any).provider?.apiKey,
+            baseURL: (fallbackConfig as any).baseURL || (fallbackConfig as any).provider?.baseURL,
+            maxTokens: (fallbackConfig as any).maxTokens || (fallbackConfig as any).model?.maxTokens,
+            temperature: (fallbackConfig as any).temperature || (fallbackConfig as any).model?.temperature,
+          }
+        : undefined;
+
+    const result = await acp.run(agentIdOrRole, options.task, {
+      systemPrompt: options.systemPrompt,
+      scenePrompt: options.scenePrompt,
+      tools,
+      timeout: options.timeout,
+      maxIterations: options.maxIterations,
+      workingDir: options.workingDir,
+      parentConfig: agentProviderConfig,
+      onEvent: (event) => {
+        const d = event.payload.data;
+        switch (event.payload.eventType) {
+          case 'text':
+            eventBus.emit(XuanjiEvent.AGENT_TEXT_DELTA, {
+              text: d.text,
+              agentId: subAgentId,
+            });
+            // ACP 路径也需要触发 SubAgentText hook（与 in-process 路径一致）
+            if (this.hookRegistry) {
+              this.hookRegistry.emit('SubAgentText', { subAgentId, text: d.text }).catch(() => {});
+            }
+            break;
+          case 'thinking':
+            eventBus.emit(XuanjiEvent.AGENT_THINKING_DELTA, {
+              content: d.content,
+              agentId: subAgentId,
+            });
+            if (this.hookRegistry) {
+              this.hookRegistry.emit('AgentThinking', { subAgentId, thinkingContent: d.content }).catch(() => {});
+            }
+            break;
+          case 'tool_start':
+            eventBus.emit(XuanjiEvent.AGENT_TOOL_START, {
+              id: d.id,
+              name: d.name,
+              input: d.input,
+              agentId: subAgentId,
+            });
+            if (this.hookRegistry) {
+              this.hookRegistry.emit('ToolStart', { subAgentId, toolId: d.id, toolName: d.name, toolInput: d.input }).catch(() => {});
+            }
+            break;
+          case 'tool_end':
+            eventBus.emit(XuanjiEvent.AGENT_TOOL_END, {
+              id: d.id,
+              name: d.name,
+              result: d.result,
+              isError: d.isError,
+              agentId: subAgentId,
+              metadata: d.metadata,
+            });
+            if (this.hookRegistry) {
+              this.hookRegistry.emit('ToolEnd', { subAgentId, toolId: d.id, toolName: d.name, toolResult: d.result, toolIsError: d.isError }).catch(() => {});
+            }
+            break;
+          case 'tool_delta':
+            eventBus.emit(XuanjiEvent.AGENT_TOOL_DELTA, {
+              id: d.id,
+              name: d.name,
+              receivedBytes: d.receivedBytes,
+            });
+            break;
+        }
+      },
+    });
+
+    const duration = Date.now() - startTime;
+
+    // 触发 SubAgentEnd Hook + EventBus
+    const acpEndPayload = {
+      task: options.task,
+      depth: options.depth ?? 0,
+      duration,
+      timedOut: result.payload.timedOut,
+      success: result.payload.success,
+      iterations: result.payload.iterations,
+      result: result.payload.output,
+      tokensUsed: result.payload.tokensUsed,
+    };
+    if (this.hookRegistry) {
+      this.hookRegistry.emit('SubAgentEnd', {
+        subAgentId,
+        data: acpEndPayload,
+      }).catch(() => {});
+    }
+    if (!options.skipSubAgentStartHook) {
+      eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_END, {
+        subAgentId,
+        data: acpEndPayload,
+      });
+    }
+
+    return {
+      result: result.payload.output,
+      tokensUsed: result.payload.tokensUsed,
+      duration,
+      timedOut: result.payload.timedOut,
+      iterations: result.payload.iterations,
+      success: result.payload.success,
     };
   }
 
@@ -505,7 +778,7 @@ export class AgentFactory {
 
     const provider = parentConfig?.provider
       ? { ...parentConfig.provider }
-      : { adapter: 'anthropic' as const };
+      : { adapter: 'anthropic' };
 
     const tempAgent: ConfigurableAgentConfig = {
       id: tempId,
@@ -633,13 +906,13 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private resolveProvider(agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'], parentProvider?: ILLMProvider): ILLMProvider {
-    const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL);
+    const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL || agentCfg?.provider?.adapter);
     if (hasIndependent && agentCfg?.provider) {
       return this.providerPool.getProvider({
-        adapter: agentCfg.provider.adapter ?? 'anthropic',
-        model: agentCfg.model?.primary ?? 'claude-sonnet-4-6',
-        apiKey: agentCfg.provider.apiKey ?? '',
-        baseURL: agentCfg.provider.baseURL ?? '',
+        adapter: agentCfg.provider.adapter!,
+        model: agentCfg.model!.primary!,
+        apiKey: agentCfg.provider.apiKey!,
+        baseURL: agentCfg.provider.baseURL!,
       });
     }
     if (parentProvider) return parentProvider;
@@ -689,12 +962,12 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private resolveTools(
-    agentCfg: NonNullable<ReturnType<typeof getConfigManager>['getAgentConfig']>,
+    agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'],
     whitelist?: string[],
   ): string[] {
-    const configTools = (agentCfg.tools as any[])?.map((t: any) => t.name) || [];
+    const configTools = (agentCfg?.tools as any[])?.map((t: any) => t.name) || [];
     if (whitelist && whitelist.length > 0) {
-      const requiredTools = (agentCfg.tools as any[])
+      const requiredTools = (agentCfg?.tools as any[])
         ?.filter((t: any) => t.required)
         ?.map((t: any) => t.name) || [];
       return [...new Set([...whitelist, ...requiredTools])];
@@ -713,7 +986,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private buildRuntimeConfig(
-    agentCfg: NonNullable<ReturnType<typeof getConfigManager>['getAgentConfig']>,
+    agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'],
     overrides: {
       systemPrompt: string;
       workingDir?: string;
@@ -723,19 +996,20 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     },
     _provider: ILLMProvider,
   ): AgentConfig {
-    const thinkingRaw = (agentCfg.model as any)?.thinking;
+    const thinkingRaw = (agentCfg?.model as any)?.thinking;
     const thinking = thinkingRaw?.type && thinkingRaw.type !== 'disabled' ? thinkingRaw : undefined;
 
     return {
-      model: agentCfg.model?.primary ?? 'claude-sonnet-4-6',
+      // 兼容两种 shape：嵌套 AgentConfig 和扁平 ProviderConfig
+      model: agentCfg?.model?.primary || agentCfg?.model || '',
       systemPrompt: overrides.systemPrompt,
       maxIterations: overrides.maxIterations,
       temperature: overrides.temperature,
       maxTokens: overrides.maxTokens,
       thinking,
       workingDir: overrides.workingDir,
-      apiKey: agentCfg.provider?.apiKey,
-      baseURL: agentCfg.provider?.baseURL,
+      apiKey: agentCfg?.apiKey || agentCfg?.provider?.apiKey,
+      baseURL: agentCfg?.baseURL || agentCfg?.provider?.baseURL,
     };
   }
 

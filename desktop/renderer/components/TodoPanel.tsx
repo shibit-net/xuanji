@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, AlertCircle, Archive } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useExecutionStore } from '../stores/executionStore';
 
 /** 状态排序权重：in_progress → pending → failed → completed */
@@ -43,7 +44,7 @@ export default function TodoPanel() {
         // 更新归档总数
         setArchivedCount((prev) => prev + res.count);
         // 提示用户
-        console.log(`✅ 已归档 ${res.count} 个任务`);
+        // console.log(`✅ 已归档 ${res.count} 个任务`);
       }
     } catch (err) {
       console.error('归档失败:', err);
@@ -121,18 +122,20 @@ export default function TodoPanel() {
         <div className="flex items-center gap-2">
           {/* 归档按钮 */}
           {completed > 0 && (
-            <button
+            <Button
               onClick={(e) => {
                 e.stopPropagation();
                 handleArchiveCompleted();
               }}
               disabled={archiving}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+              variant="ghost"
+              size="sm"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50 h-auto"
               title={`归档 ${completed} 个已完成任务`}
             >
               <Archive size={12} className={archiving ? 'animate-pulse' : ''} />
               <span>归档</span>
-            </button>
+            </Button>
           )}
 
           {/* 进度条 */}

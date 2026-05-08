@@ -31,7 +31,19 @@
       "Bash(rsync -av --delete /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/users/177164660076560204/prompts/ /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/templates/prompts/)",
       "Bash(rsync -av --delete /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/users/177164660076560204/protocols/ /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/templates/protocols/)",
       "Bash(npm install *)",
-      "Bash(npm search *)"
+      "Bash(npm search *)",
+      "Bash(rm /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/tools/CreateTemporaryAgentTool.ts)",
+      "Bash(rm /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/src/core/agent/factory/TemporaryAgentCreator.ts)",
+      "Bash(git *)",
+      "Bash(npx asar *)",
+      "Read(//tmp/xuanji-asar-check/dist/**)",
+      "Read(//tmp/xuanji-asar-check/dist-electron/**)",
+      "Bash(pkill -f \"Electron.*xuanji\")",
+      "Bash(pkill -f xuanji-desktop)",
+      "Bash(pkill -f concurrently)",
+      "Bash(pkill -f \"tsup.*watch\")",
+      "Bash(pkill -f \"vite\")",
+      "Read(//Users/kevinshi/Library/Application Support/xuanji-desktop/**)"
     ]
   }
 }

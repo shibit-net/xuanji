@@ -1,9 +1,19 @@
 // ============================================================
-// PlanReviewDialog - 计划审查对话框
+// PlanReviewDialog - 计划审查对话框（shadcn Dialog）
 // ============================================================
 
 import { useState } from 'react';
-import { FileText, X, Check, XCircle, MessageSquare } from 'lucide-react';
+import { FileText, MessageSquare } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import MilkdownEditor from './MilkdownEditor';
 import type { PlanReviewRequestData } from '../global';
 
@@ -16,6 +26,11 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
   const [loading, setLoading] = useState(false);
   const [supplement, setSupplement] = useState('');
   const [showSupplementInput, setShowSupplementInput] = useState(false);
+
+  // 兼容运行时：类型定义是 plan/filePath，旧代码用 content/title
+  const r = request as any;
+  const planContent = r.content || r.plan || '';
+  const planTitle = r.title || '执行计划审查';
 
   const handleRespond = async (action: 'approve' | 'reject' | 'supplement', supplementText?: string) => {
     setLoading(true);
@@ -40,41 +55,31 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-bg-secondary border border-bg-tertiary rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[85vh] overflow-hidden flex flex-col">
-        {/* 头部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
-          <div className="flex items-center gap-3">
-            <FileText size={24} className="text-primary" />
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <FileText size={24} className="text-foreground" />
             <div>
-              <h2 className="text-lg font-semibold">{request.title || '执行计划审查'}</h2>
-              <span className="text-sm text-text-secondary">请审查以下执行计划</span>
+              <span>{planTitle}</span>
+              <DialogDescription className="mt-0.5">请审查以下执行计划</DialogDescription>
             </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-bg-tertiary rounded transition-colors"
-            disabled={loading}
-          >
-            <X size={20} />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="bg-bg-primary p-4 rounded-lg border border-bg-tertiary min-h-[200px]">
-            <MilkdownEditor value={request.content} mode="preview" />
+        <div className="flex-1 overflow-y-auto py-4">
+          <div className="bg-muted p-4 rounded-lg border border-border min-h-[200px]">
+            <MilkdownEditor value={planContent} mode="preview" />
           </div>
 
           {/* 补充说明输入框 */}
           {showSupplementInput && (
             <div className="mt-4">
               <label className="block text-sm font-semibold mb-2">补充说明</label>
-              <textarea
+              <Textarea
                 value={supplement}
                 onChange={(e) => setSupplement(e.target.value)}
                 placeholder="输入补充说明或修改建议..."
-                className="w-full bg-bg-primary border border-bg-tertiary rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary"
                 rows={4}
                 disabled={loading}
               />
@@ -82,49 +87,48 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
           )}
         </div>
 
-        {/* 底部按钮 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-bg-tertiary">
-          <button
+        <DialogFooter className="border-t border-border pt-4">
+          <Button
+            variant="outline"
             onClick={() => setShowSupplementInput(!showSupplementInput)}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-bg-tertiary hover:bg-bg-primary rounded transition-colors disabled:opacity-50"
           >
-            <MessageSquare size={16} />
-            <span>{showSupplementInput ? '取消补充' : '补充说明'}</span>
-          </button>
+            <MessageSquare size={16} className="mr-2" />
+            {showSupplementInput ? '取消补充' : '补充说明'}
+          </Button>
 
-          <div className="flex items-center gap-2">
-            <button
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              variant="destructive"
               onClick={() => handleRespond('reject')}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-700 rounded transition-colors disabled:opacity-50"
             >
-              <XCircle size={16} />
-              <span>拒绝</span>
-            </button>
+              <MessageSquare size={16} className="mr-2" />
+              拒绝
+            </Button>
 
             {showSupplementInput ? (
-              <button
+              <Button
+                className="bg-yellow-600 text-white hover:bg-yellow-700"
                 onClick={handleSupplement}
                 disabled={loading || !supplement.trim()}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-yellow-600 text-white hover:bg-yellow-700 rounded transition-colors disabled:opacity-50"
               >
-                <MessageSquare size={16} />
-                <span>提交补充</span>
-              </button>
+                <MessageSquare size={16} className="mr-2" />
+                提交补充
+              </Button>
             ) : (
-              <button
+              <Button
+                className="bg-green-600 text-white hover:bg-green-700"
                 onClick={() => handleRespond('approve')}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-green-600 text-white hover:bg-green-700 rounded transition-colors disabled:opacity-50"
               >
-                <Check size={16} />
-                <span>批准执行</span>
-              </button>
+                <MessageSquare size={16} className="mr-2" />
+                批准执行
+              </Button>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -7,7 +7,11 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { EmbeddingProvider } from '@/embedding/EmbeddingProvider';
+// EmbeddingProvider interface (embedding模块已删除，保留接口用于将来扩展)
+interface EmbeddingProvider {
+  embed(text: string): Promise<number[]>;
+  cosineSimilarity(a: number[], b: number[]): number;
+}
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
 

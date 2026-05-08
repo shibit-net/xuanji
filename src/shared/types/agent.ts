@@ -97,6 +97,8 @@ export interface AgentConfig {
   apiKey?: string;
   /** API Base URL (自定义端点) */
   baseURL?: string;
+  /** Provider 配置（传递完整 provider 信息给子 Agent） */
+  provider?: { apiKey?: string; baseURL?: string; adapter?: string };
   /** 最大输出 token（不设置则由 API 端决定） */
   maxTokens?: number;
   /** 温度参数 */

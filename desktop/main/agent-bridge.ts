@@ -10,15 +10,20 @@
 
 import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
 import type { ChatSession } from '../../src/core/chat/ChatSession.js';
+import type { UserConfirmation } from '../../src/permission/types.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 import { ChildMessageChannel } from './ipc/MessageBus.js';
 import { DownloadManager } from '../../src/core/download/DownloadManager.js';
 import { eventBus } from '../../src/core/events/EventBus.js';
 import { XuanjiEvent } from '../../src/core/events/events.js';
+import { logger } from '../../src/core/logger/index.js';
 import * as path from 'node:path';
 
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
+
+// 意图路由结果：当前使用的 agentId（默认 xuanji）
+let routedAgentId = 'xuanji';
 
 // 🔧 创建子进程消息通道
 // 注意：这里仍使用 ChildMessageChannel，因为它是子进程端的通道
@@ -27,6 +32,8 @@ const channel = new ChildMessageChannel({
   name: 'agent-child',
   enableLogging: true,
 });
+
+const log = logger.child({ module: 'agent-bridge' });
 
 // 子进程启动完成，通知主进程
 channel.send('child-ready', { pid: process.pid });
@@ -52,6 +59,503 @@ forwardDownloadEvent('task-completed');
 forwardDownloadEvent('task-failed');
 forwardDownloadEvent('task-cancelled');
 
+// ============================================================
+// 待处理请求缓存（Permission / PlanReview / AskUser）
+// ============================================================
+
+const pendingPermissions = new Map<string, (result: any) => void>();
+const pendingPlanReviews = new Map<string, (result: any) => void>();
+const pendingAskUsers = new Map<string, (result: any) => void>();
+
+// ============================================================
+// 处理器函数实现
+// ============================================================
+
+/**
+ * 初始化 ChatSession
+ */
+async function handleInit(userId?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const uid = userId || currentUserId || 'default';
+    log.info(`handleInit: creating session for userId=${uid}`);
+
+    // 在创建 session 之前，先切换到配置的 workspace 目录
+    // 确保 FilteredToolRegistry.workingDir 指向 workspace 而非项目根目录
+    try {
+      const configLoader = new (await import('@/core/config/ConfigLoader')).ConfigLoader(uid, 'xuanji');
+      const config = await configLoader.load();
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const fs = await import('node:fs');
+      const workspacePath = config.workspacePath || path.join(os.homedir(), '.xuanji', 'workspace');
+      if (!fs.existsSync(workspacePath)) {
+        fs.mkdirSync(workspacePath, { recursive: true });
+      }
+      process.chdir(workspacePath);
+      log.info(`handleInit: chdir to workspace: ${workspacePath}`);
+    } catch (e) {
+      log.warn('handleInit: failed to chdir to workspace, using process.cwd()', e);
+    }
+
+    const factory = new SessionFactory(uid);
+    const newSession = await factory.create({
+      callbacks: {
+        onAutoSummarize: (subAgentId?: string, groupId?: string) => {
+          channel.send('agent:auto-summarize-start', { subAgentId, groupId });
+        },
+        onCitationData: (citations: Array<{ agentName: string; originalOutput: string; duration: number; tokensUsed: { input: number; output: number } }>) => {
+          channel.send('agent:citation-data', citations);
+        },
+      },
+    });
+    session = newSession;
+    currentUserId = uid;
+    log.info('handleInit: session created successfully');
+
+    // 注册权限确认处理器 — 将子进程的权限请求桥接到渲染进程 UI
+    session.setConfirmationHandler(async (request, guardResult) => {
+      const id = `${request.toolName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise<UserConfirmation>((resolve) => {
+        pendingPermissions.set(id, resolve);
+        channel.send('permission:request', {
+          id,
+          tool: request.toolName,
+          toolName: request.toolName,
+          args: request.input,
+          input: request.input,
+          risk: guardResult.riskLevel,
+          riskLevel: guardResult.riskLevel,
+          reason: guardResult.description,
+          description: guardResult.description,
+          suggestion: guardResult.context?.suggestion,
+          cacheKey: guardResult.cacheKey,
+        });
+      });
+    });
+
+    // 注册持久化事件桥接
+    registerHookEventBridge();
+
+    // 发送 init-complete 通知
+    channel.send('init-complete', { success: true });
+    process.stderr.write('[agent-bridge] handleInit: init-complete sent, process.connected=' + process.connected + '\n');
+
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('handleInit failed:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * 发送用户消息到会话
+ */
+async function handleSendMessage(data: { message: string; images?: string[] }): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    process.stderr.write('[agent-bridge] handleSendMessage: session is null!\n');
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const message = data?.message || '';
+    if (!message.trim()) {
+      return { success: false, error: '消息不能为空' };
+    }
+    log.info(`handleSendMessage: input="${message.substring(0, 80)}"`);
+    process.stderr.write(`[agent-bridge] handleSendMessage: calling handleUserInput...\n`);
+
+    // 意图路由：根据用户输入决定由哪个 Agent 执行
+    const { IntentRouter } = await import('../../src/core/routing/IntentRouter.js');
+    const router = new IntentRouter();
+    const route = await router.route(message);
+    routedAgentId = route.agentId;
+    session.setCurrentAgent(route.agentId);
+    channel.send('agent:intent-route', { agentId: route.agentId, confidence: route.confidence });
+
+    const result = await session.handleUserInput(message);
+    log.info(`handleSendMessage: handleUserInput returned "${result}"`);
+    process.stderr.write(`[agent-bridge] handleSendMessage: handleUserInput returned "${result}"\n`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : '';
+    process.stderr.write(`[agent-bridge] handleSendMessage ERROR: ${msg}\n${stack}\n`);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * 中断当前会话执行
+ */
+function handleInterrupt(msg?: string): void {
+  if (!session) return;
+  try {
+    session.interrupt(msg || '');
+  } catch (err) {
+    log.error('handleInterrupt failed:', err);
+  }
+}
+
+/**
+ * 追加消息到会话队列（不中断当前执行）
+ */
+function handleAppendMessage(data: { message: string }): void {
+  if (!session) return;
+  try {
+    session.appendMessage(data?.message || '');
+  } catch (err) {
+    log.error('handleAppendMessage failed:', err);
+  }
+}
+
+/**
+ * 重置会话
+ */
+function handleReset(): { success: boolean; error?: string } {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    session.reset();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取会话状态
+ */
+function handleGetState(): { success: boolean; state?: any; error?: string } {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const state = session.getState();
+    return { success: true, state };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取配置
+ */
+function handleGetConfig(): { success: boolean; config?: any; error?: string } {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const config = session.getConfig();
+    return { success: true, config };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取完整配置
+ */
+function handleGetFullConfig(): { success: boolean; config?: any; error?: string } {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const config = session.getConfig();
+    return { success: true, config };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 更新配置
+ */
+async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    // 使用 RuntimeConfig 更新配置（实际项目可能通过 config manager 持久化）
+    const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+    if (data?.updates) {
+      const current = session.getConfig();
+      const merged = { ...current, ...data.updates };
+      setRuntimeConfig(merged);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 保存会话快照
+ */
+async function handleSessionSave(data: { name?: string; options?: any }): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const sessionId = await session.saveSession(data?.name, data?.options);
+    return { success: true, sessionId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 恢复会话
+ */
+async function handleSessionResume(data: { sessionId: string }): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    await session.resumeSession(data?.sessionId);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取会话列表
+ */
+async function handleSessionList(): Promise<{ success: boolean; sessions?: any[]; error?: string }> {
+  if (!session) {
+    return { success: true, sessions: [] };
+  }
+  try {
+    const sessions = await session.listSessions();
+    return { success: true, sessions };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 删除会话
+ */
+async function handleSessionDelete(data: { sessionId: string }): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    await session.deleteSession(data?.sessionId);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 创建检查点
+ */
+async function handleCheckpointCreate(data: { label?: string }): Promise<{ success: boolean; checkpointId?: string; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const checkpointId = await session.createCheckpoint(data?.label);
+    return { success: true, checkpointId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取检查点列表
+ */
+async function handleCheckpointList(): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
+  if (!session) {
+    return { success: true, checkpoints: [] };
+  }
+  try {
+    const checkpoints = await session.listCheckpoints();
+    return { success: true, checkpoints };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 回滚到指定检查点
+ */
+async function handleCheckpointRewind(data: { checkpointId: string }): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    await session.rewindToCheckpoint(data?.checkpointId);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取用量统计
+ */
+async function handleGetUsageStats(): Promise<{ success: boolean; stats?: any; error?: string }> {
+  if (!session) {
+    return { success: true, stats: { totalTokens: 0, totalCost: 0, totalRuns: 0 } };
+  }
+  try {
+    // 尝试从 AgentLoop 获取 token 使用统计
+    const agentLoop = session.getAgentLoop();
+    const stats = (agentLoop as any).getUsageStats?.() || { totalTokens: 0, totalCost: 0, totalRuns: 0 };
+    return { success: true, stats };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取 Agent 列表
+ */
+async function handleAgentList(): Promise<{ success: boolean; agents?: any[]; error?: string }> {
+  if (!session) {
+    return { success: true, agents: [] };
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    const agents = agentRegistry.getAll();
+    return { success: true, agents };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取单个 Agent 详情
+ */
+async function handleAgentGet(data: { agentId: string }): Promise<{ success: boolean; agent?: any; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    const agent = agentRegistry.get(data?.agentId);
+    if (!agent) {
+      return { success: false, error: 'Agent 不存在' };
+    }
+    return { success: true, agent };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 创建 Agent
+ */
+async function handleAgentCreate(data: { config: any }): Promise<{ success: boolean; agent?: any; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    const configManager = (agentRegistry as any).configManager;
+    if (configManager?.createAgent) {
+      const agent = await configManager.createAgent(data?.config);
+      return { success: true, agent };
+    }
+    // 回退：直接 register
+    agentRegistry.register(data?.config);
+    return { success: true, agent: data?.config };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 更新 Agent 配置
+ */
+async function handleAgentUpdate(data: { agentId: string; config: any }): Promise<{ success: boolean; agent?: any; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    const configManager = (agentRegistry as any).configManager;
+    if (configManager?.updateAgent) {
+      const existing = agentRegistry.get(data?.agentId);
+      if (!existing) {
+        return { success: false, error: 'Agent 不存在' };
+      }
+      const updated = await configManager.updateAgent(existing, data?.config || {});
+      return { success: true, agent: updated };
+    }
+    return { success: false, error: 'AgentConfigManager 不支持 update' };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 删除 Agent
+ */
+async function handleAgentDelete(data: { agentId: string }): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    await agentRegistry.deleteFile(data?.agentId);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取工具列表
+ */
+function handleToolsList(): { success: boolean; tools?: any[]; error?: string } {
+  if (!session) {
+    return { success: true, tools: [] };
+  }
+  try {
+    const baseRegistry = session.getBaseRegistry();
+    const schemas = baseRegistry.getSchemas();
+    return { success: true, tools: schemas };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 压缩会话上下文
+ */
+async function handleCompact(data?: any): Promise<{ success: boolean; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const agentLoop = session.getAgentLoop();
+    if (typeof (agentLoop as any).compact === 'function') {
+      await (agentLoop as any).compact(data);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取诊断信息
+ */
+async function handleGetDiagnostics(): Promise<{ success: boolean; diagnostics?: any; error?: string }> {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const diagnostics = await session.getDiagnostics();
+    return { success: true, diagnostics };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 // ============================================================
 // 注册消息处理器
@@ -59,9 +563,9 @@ forwardDownloadEvent('task-cancelled');
 
 // 初始化 Session
 channel.handle('init', async (data) => {
-  console.error('[agent-bridge] init called with userId:', data?.userId);
+  log.info('init called with userId:', data?.userId);
   const result = await handleInit(data?.userId);
-  console.error('[agent-bridge] init completed:', JSON.stringify(result));
+  log.info('init completed:', JSON.stringify(result));
   return result;
 });
 
@@ -228,1476 +732,145 @@ function safeSend(message: { type: string; data?: any }) {
 /**
  * 注册 Hook 事件监听器
  */
-function registerHookListeners(hookRegistry: any) {
-  // ━━━ MainAgent 流程事件 ━━━
-  // 注意：prompt:build-event 现在由 LayeredPromptBuilder 直接发送真实事件
-
-  // ModelClassifier 事件（IntentClassifier 内部触发）
-  hookRegistry.addListener('ModelClassifierStart', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:model-classifier-start',
-      data: {
-        userInput: ctx.data.userInput,
-        model: ctx.data.model,
-        sessionId: ctx.sessionId,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('ModelClassifierEnd', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:model-classifier-end',
-      data: {
-        userInput: ctx.data.userInput,
-        model: ctx.data.model,
-        agent: ctx.data.agent,
-        scene: ctx.data.scene,
-        complexity: ctx.data.complexity,
-        durationMs: ctx.data.durationMs,
-        sessionId: ctx.sessionId,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  // IntentAnalysis 事件（已弃用，保留用于向后兼容）
-  hookRegistry.addListener('IntentAnalysisStart', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:intent-analysis-start',
-      data: {
-        userInput: ctx.data.userInput,
-        sessionId: ctx.sessionId,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('IntentAnalysisEnd', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:intent-analysis-end',
-      data: {
-        userInput: ctx.data.userInput,
-        scene: ctx.data.scene,
-        complexity: ctx.data.complexity,
-        confidence: ctx.data.confidence,
-        matchMethod: ctx.data.matchMethod,
-        intentClassifier: ctx.data.intentClassifier,
-        sessionId: ctx.sessionId,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  // ━━━ SubAgent/Team 事件 ━━━
-  hookRegistry.addListener('TaskPlanningStart', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:task-planning-start',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        scene: ctx.scene,
-        complexity: ctx.complexity,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TaskPlanningEnd', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:task-planning-end',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        strategy: ctx.strategy,
-        tasks: ctx.tasks,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TaskExecutionStart', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:task-execution-start',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        strategy: ctx.strategy,
-        taskCount: ctx.taskCount,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TaskExecutionEnd', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:task-execution-end',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        success: ctx.success,
-        duration: ctx.duration,
-        output: ctx.output,
-        error: ctx.error,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('ResultAggregationStart', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:result-aggregation-start',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        memberCount: ctx.memberCount,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('ResultAggregationEnd', async (ctx: any) => {
-    safeSend({
-      type: 'workspace:result-aggregation-end',
-      data: {
-        userInput: ctx.userInput,
-        sessionId: ctx.sessionId,
-        output: ctx.output,
-        timestamp: ctx.timestamp,
-      },
-    });
-    return { success: true };
-  });
-
-  // ━━━ 原有的 Team 事件 ━━━
-
-  hookRegistry.addListener('TeamStart', async (ctx: any) => {
-    safeSend({
-      type: 'agent:team-start',
-      data: {
-        teamId: ctx.teamId,
-        name: ctx.data?.name,
-        strategy: ctx.data?.strategy,
-        memberCount: ctx.data?.memberCount,
-        maxRounds: ctx.data?.maxRounds,
-        members: ctx.data?.members,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TeamMemberStart', async (ctx: any) => {
-    safeSend({
-      type: 'agent:team-member-start',
-      data: {
-        teamId: ctx.teamId,
-        memberId: ctx.data?.memberId,
-        subAgentId: ctx.data?.subAgentId || ctx.data?.memberId, // 🔧 转发 subAgentId（工具事件的 agentId 来源）
-        name: ctx.data?.name,
-        role: ctx.data?.role,
-        task: ctx.data?.task,
-        agentType: ctx.data?.agentType,
-        strategy: ctx.data?.strategy,
-        teamName: ctx.data?.teamName,
-        stepIndex: ctx.data?.stepIndex,
-        totalSteps: ctx.data?.totalSteps,
-        currentRound: ctx.data?.currentRound,
-        maxRounds: ctx.data?.maxRounds,
-        systemPromptHint: ctx.data?.systemPromptHint,
-        scene: ctx.data?.scene, // 🔧 转发 scene（与 task 子 agent 一致）
-        debateRole: ctx.data?.debateRole, // 🔧 转发辩论角色（前端在 TeamStart 时即展示）
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TeamMemberEnd', async (ctx: any) => {
-    safeSend({
-      type: 'agent:team-member-end',
-      data: {
-        teamId: ctx.teamId,
-        memberId: ctx.data?.memberId,
-        subAgentId: ctx.data?.subAgentId || ctx.data?.memberId, // 🔧 转发 subAgentId
-        success: ctx.data?.success,
-        duration: ctx.data?.duration,
-        resultSummary: ctx.data?.resultSummary,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('TeamEnd', async (ctx: any) => {
-    const data: any = {
-      teamId: ctx.teamId,
-      name: ctx.data?.name,
-      success: ctx.data?.success,
-      duration: ctx.data?.duration,
-    };
-    // 只在有错误时才添加 error 字段
-    if (ctx.data?.error !== undefined) {
-      data.error = ctx.data.error;
-    }
-    safeSend({
-      type: 'agent:team-end',
-      data,
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('SubAgentStart', async (ctx: any) => {
-    const role = ctx.data?.role || 'unknown';
-    const parentAgentId = ctx.data?.parentAgentId || 'xuanji'; // 🔧 默认为 'xuanji'
-
-    safeSend({
-      type: 'agent:subagent-start',
-      data: {
-        subAgentId: ctx.subAgentId,
-        name: ctx.data?.name || role,
-        role: role,
-        task: ctx.data?.task,
-        agentType: ctx.data?.agentType,
-        parentId: parentAgentId, // 🔧 直接透传，不做映射
-        streamToUser: ctx.data?.streamToUser || false, // 🔧 转发 streamToUser
-        scene: ctx.data?.scene, // 🔧 转发 scene（如 write_code、debug 等）
-      },
-    });
-
-    return { success: true };
-  });
-
-  // 🔧 SubAgentText 和 AgentThinking 已由 EventBus 处理，不再需要 HookRegistry 监听
-
-  hookRegistry.addListener('SkillStart', async (ctx: any) => {
-    safeSend({
-      type: 'agent:skill-start',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        skillName: ctx.skillName,
-        input: ctx.skillInput,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('SkillEnd', async (ctx: any) => {
-    safeSend({
-      type: 'agent:skill-end',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        skillName: ctx.skillName,
-        duration: ctx.skillDuration,
-        success: ctx.skillSuccess,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('ToolStart', async (ctx: any) => {
-    safeSend({
-      type: 'agent:tool-start',
-      data: {
-        id: ctx.toolId,
-        name: ctx.toolName,
-        input: ctx.toolInput,
-        agentId: ctx.subAgentId || undefined,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('ToolEnd', async (ctx: any) => {
-    safeSend({
-      type: 'agent:tool-end',
-      data: {
-        id: ctx.toolId,
-        name: ctx.toolName,
-        result: ctx.toolResult,
-        isError: ctx.toolIsError,
-        agentId: ctx.subAgentId || undefined,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('MemoryRead', async (ctx: any) => {
-    safeSend({
-      type: 'agent:memory-read',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        hitCount: ctx.memoryHitCount,
-        layersSearched: ctx.memoryLayersSearched,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('MemoryWrite', async (ctx: any) => {
-    safeSend({
-      type: 'agent:memory-write',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        scope: ctx.memoryScope,
-        summary: ctx.memorySummary,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('PreCompact', async (ctx: any) => {
-    safeSend({
-      type: 'agent:compress-start',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        originalTokens: ctx.originalTokens,
-      },
-    });
-    return { success: true };
-  });
-
-  hookRegistry.addListener('PostCompact', async (ctx: any) => {
-    safeSend({
-      type: 'agent:compress-end',
-      data: {
-        agentId: ctx.subAgentId || undefined,
-        originalTokens: ctx.originalTokens,
-        compressedTokens: ctx.compressedTokens,
-        compressionRatio: ctx.compressionRatio,
-        duration: ctx.duration,
-      },
-    });
-    return { success: true };
-  });
-}
-
 /**
- * 初始化 ChatSession
+ * 注册 Hook 事件监听器 — 通过 EventBus 统一接收 HookRegistry 转发
  */
-/**
- * 初始化 ChatSession
- * @param userId - 用户 ID，由主进程传递
- */
-async function handleInit(userId?: string) {
-  try {
-    // 如果没有传递 userId，尝试从 authState 获取（兼容旧逻辑）
-    if (!userId) {
-      try {
-        const { getAuthState } = await import('./config/auth.js');
-        const authState = getAuthState();
-        if (authState?.user?.userId) {
-          userId = authState.user.userId;
-        }
-      } catch (err) {
-        console.warn('[agent-bridge] 无法从 authState 获取用户:', err);
-      }
-    }
+function registerHookEventBridge() {
+  // ── 每个 hook 类型订阅独立 EventBus 事件，直接访问类型化 payload ──
 
-    if (!userId) {
-      console.error('[agent-bridge] 用户未登录，无法初始化 session');
-      // 发送初始化失败事件
-      safeSend({
-        type: 'init-complete',
-        data: { success: false, error: '用户未登录' },
-      });
-      return { success: false, error: '用户未登录' };
-    }
+  // SubAgent
+  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_START, (ctx) => {
+    const d = ctx.data;
+    console.log('[agent-bridge] HOOK_SUBAGENT_START received:', { subAgentId: ctx.subAgentId, name: d.name, parentAgentId: d.parentAgentId, parentId: d.parentId, executionMode: d.executionMode });
+    safeSend({ type: 'agent:subagent-start', data: {
+      subAgentId: ctx.subAgentId,
+      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
+      parentId: d.parentId || d.parentAgentId, scene: d.scene, streamToUser: d.streamToUser,
+      executionMode: d.executionMode,
+    }});
+  });
+  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_TEXT, (ctx) => {
+    safeSend({ type: 'agent:subagent-text', data: { agentId: ctx.subAgentId, text: ctx.text } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_END, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:subagent-end', data: { subAgentId: ctx.subAgentId, success: d.success, duration: d.duration } });
+  });
 
-    // 保存当前用户 ID
-    currentUserId = userId;
+  // Team
+  eventBus.on(XuanjiEvent.HOOK_TEAM_START, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-start', data: { teamId: ctx.teamId, name: d.name, goal: d.goal, strategy: d.strategy, memberCount: d.memberCount, maxRounds: d.maxRounds, members: d.members } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TEAM_MEMBER_START, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-member-start', data: {
+      teamId: ctx.teamId, memberId: d.memberId, subAgentId: d.subAgentId,
+      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
+      strategy: d.strategy, teamName: d.teamName,
+      stepIndex: d.stepIndex, totalSteps: d.totalSteps,
+      currentRound: d.currentRound, maxRounds: d.maxRounds, systemPromptHint: d.systemPromptHint,
+      debateRole: d.debateRole, scene: d.scene, executionMode: (d as any).executionMode,
+    }});
+  });
+  eventBus.on(XuanjiEvent.HOOK_TEAM_MEMBER_END, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-member-end', data: { teamId: ctx.teamId, memberId: d.memberId, subAgentId: d.subAgentId, success: d.success, duration: d.duration, resultSummary: d.resultSummary, teamName: d.teamName, failureReason: d.failureReason, retryCount: d.retryCount } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TEAM_END, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-end', data: { teamId: ctx.teamId, name: d.name, success: d.success, duration: d.duration, error: d.error, timedOut: (d as any).timedOut, cancelled: (d as any).cancelled } });
+  });
 
-    // 默认使用 'xuanji' agent，后续可以支持动态切换
-    const agentId = 'xuanji';
-    const factory = new SessionFactory(userId, agentId);
+  // Skill
+  eventBus.on(XuanjiEvent.HOOK_SKILL_START, (ctx) => {
+    safeSend({ type: 'agent:skill-start', data: { name: ctx.name } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_SKILL_END, (ctx) => {
+    safeSend({ type: 'agent:skill-end', data: { name: ctx.name, success: ctx.success } });
+  });
 
-    // 在创建 session 前先切换到 workspace 目录，确保 ChatSession.workingDir 使用 workspace
-    const os = await import('node:os');
-    const pathModule = await import('node:path');
-    const fs = await import('node:fs');
-    const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
-    const configLoader = new ConfigLoader(userId, agentId);
-    const fullConfig = await configLoader.load();
-    let workspacePath = fullConfig.workspacePath || '';
-    if (!workspacePath) {
-      workspacePath = pathModule.join(os.homedir(), '.xuanji', 'workspace');
-    }
-    if (!fs.existsSync(workspacePath)) {
-      fs.mkdirSync(workspacePath, { recursive: true });
-    }
-    try {
-      process.chdir(workspacePath);
-    } catch {}
+  // Memory
+  eventBus.on(XuanjiEvent.HOOK_MEMORY_READ, (ctx) => {
+    safeSend({ type: 'agent:memory-read', data: { query: ctx.query, results: ctx.results } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_MEMORY_WRITE, (ctx) => {
+    safeSend({ type: 'agent:memory-write', data: { content: ctx.content } });
+  });
 
-    session = await factory.create({
-      userId,
-      agentId,
-      callbacks: {
-        onBeforeExecution: async (input: string) => {
-          // 在执行任务前，如果有项目根目录，切换到该目录
-          if (currentProjectRoot) {
-            try {
-              process.chdir(currentProjectRoot);
-            } catch (err) {
-              console.warn(`[agent-bridge] 切换目录失败: ${err}`);
-            }
-          }
-        },
-        onText: (text: string) => {
-          safeSend({ type: 'agent:text', data: text });
-        },
-        onThinking: (thinking: string) => {
-          safeSend({ type: 'agent:thinking', data: thinking });
-        },
-        onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-          safeSend({ type: 'agent:tool-start', data: { id, name, input } });
+  // Compress
+  eventBus.on(XuanjiEvent.HOOK_COMPACT_PRE, () => {
+    safeSend({ type: 'agent:compress-start', data: {} });
+  });
+  eventBus.on(XuanjiEvent.HOOK_COMPACT_POST, (ctx) => {
+    safeSend({ type: 'agent:compress-end', data: { original: ctx.originalTokens, compressed: ctx.compressedTokens, ratio: ctx.compressionRatio } });
+  });
 
-          // 从工具调用中提取文件路径，自动检测项目
-          detectProjectFromToolCall(name, input);
+  // Workspace 流程事件
+  eventBus.on(XuanjiEvent.HOOK_MODEL_CLASSIFIER_START, (ctx) => {
+    safeSend({ type: 'workspace:model-classifier-start', data: { userInput: ctx.userInput, model: ctx.model, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_MODEL_CLASSIFIER_END, (ctx) => {
+    safeSend({ type: 'workspace:model-classifier-end', data: { userInput: ctx.userInput, model: ctx.model, agent: ctx.agent, scene: ctx.scene, complexity: ctx.complexity, durationMs: ctx.durationMs, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_INTENT_ANALYSIS_START, (ctx) => {
+    safeSend({ type: 'workspace:intent-analysis-start', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_INTENT_ANALYSIS_END, (ctx) => {
+    safeSend({ type: 'workspace:intent-analysis-end', data: { userInput: ctx.userInput, scene: ctx.scene, complexity: ctx.complexity, confidence: ctx.confidence, matchMethod: ctx.matchMethod, intentClassifier: ctx.intentClassifier, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TASK_PLANNING_START, (ctx) => {
+    safeSend({ type: 'workspace:task-planning-start', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, scene: ctx.scene, complexity: ctx.complexity, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TASK_PLANNING_END, (ctx) => {
+    safeSend({ type: 'workspace:task-planning-end', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, strategy: ctx.strategy, tasks: ctx.tasks, timestamp: (ctx as any).timestamp } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TASK_EXECUTION_START, (ctx) => {
+    safeSend({ type: 'workspace:task-execution-start', data: { userInput: ctx.userInput } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_TASK_EXECUTION_END, (ctx) => {
+    safeSend({ type: 'workspace:task-execution-end', data: { userInput: ctx.userInput, results: ctx.results, summary: ctx.summary } });
+  });
+  eventBus.on(XuanjiEvent.HOOK_RESULT_AGGREGATION_START, () => {
+    safeSend({ type: 'workspace:result-aggregation-start', data: {} });
+  });
+  eventBus.on(XuanjiEvent.HOOK_RESULT_AGGREGATION_END, (ctx) => {
+    safeSend({ type: 'workspace:result-aggregation-end', data: { results: ctx.results } });
+  });
 
-          // 记住 change_directory 的路径，onToolEnd 时通知渲染进程刷新文件树
-          if (name === 'change_directory' && input.path && typeof input.path === 'string') {
-            pendingChangePath = path.resolve(input.path);
-          }
-        },
-        onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
-          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
-
-          // 如果是 change_directory 工具且执行成功，通知渲染进程刷新文件树
-          if (name === 'change_directory' && !isError && pendingChangePath) {
-            const newPath = pendingChangePath;
-            pendingChangePath = null;
-            console.error(`[agent-bridge] change_directory -> chdir + safeSend: ${newPath}`);
-            // 切换当前工作目录
-            try {
-              process.chdir(newPath);
-            } catch (e) {
-              console.error(`[agent-bridge] chdir 失败: ${newPath}`, e);
-            }
-            safeSend({ type: 'workspace:directory-changed', data: { path: newPath } });
-            // 同步更新项目信息事件，刷新页面后渲染进程由此恢复 workingDirectory
-            const nodeFs = require('node:fs');
-            const nodePath = require('node:path');
-            const gitDir = nodePath.join(newPath, '.git');
-            const hasGit = nodeFs.existsSync(gitDir);
-            let gitBranch: string | null = null;
-            if (hasGit) {
-              try {
-                const { execSync } = require('node:child_process');
-                gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: newPath, encoding: 'utf-8', timeout: 5000 }).trim();
-              } catch {}
-            }
-            safeSend({
-              type: 'project:info',
-              data: { type: 'workspace', hasGit, rootPath: newPath, configFiles: [], gitBranch },
-            });
-            // 持久化 workspacePath 到配置文件（仅写文件，不重建 session）
-            try {
-              const pathModule = require('node:path');
-              const fsModule = require('node:fs');
-              const osModule = require('node:os');
-              const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
-              const configPath = getUserConfigPath(currentUserId);
-              const content = fsModule.readFileSync(configPath, 'utf-8');
-              const cfg = JSON.parse(content);
-              if (!cfg.config) cfg.config = {};
-              cfg.config.workspacePath = newPath;
-              cfg.updatedAt = new Date().toISOString();
-              fsModule.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf-8');
-            } catch (e) {
-              console.error('[agent-bridge] 保存 workspacePath 失败:', e);
-            }
-            console.error(`[agent-bridge] safeSend 完成`);
-          }
-        },
-        onFileChanges: (changes: any[]) => {
-          safeSend({ type: 'agent:file-changes', data: { changes } });
-        },
-        onUsage: (usage: any) => {
-          safeSend({ type: 'agent:usage', data: usage });
-        },
-        onError: (err: Error) => {
-          safeSend({ type: 'agent:error', data: err.message });
-        },
-        onEnd: (state: any) => {
-          console.error(`[agent-bridge] ====> onEnd 触发！state.status=${state.status}, currentIteration=${state.currentIteration}, stack=${new Error().stack?.split('\n')[2]?.trim()}`);
-          safeSend({
-            type: 'agent:end',
-            data: {
-              tokenUsage: state.tokenUsage,
-              cost: state.cost,
-              currentIteration: state.currentIteration,
-            },
-          });
-        },
-        onAutoSummarize: (subAgentId?: string) => {
-          console.error('[agent-bridge] onAutoSummarize called, subAgentId:', subAgentId);
-          safeSend({ type: 'agent:auto-summarize-start', data: { subAgentId } });
-        },
-        onCitationData: (citations) => {
-          safeSend({ type: 'agent:citation-data', data: citations });
-        },
-        onArchiveNotification: (result) => {
-          safeSend({ type: 'session:archive-notification', data: result });
-        },
-      },
-    });
-
-    // 注入权限交互 Handler
-    injectInteractionHandlers();
-
-    // 注册 SubAgent/Team Hook 事件监听，将成员状态变更转发到 renderer
-    const container = session.getContainer();
-    const hookRegistry = container.resolveSync('hookRegistry');
-    registerHookListeners(hookRegistry);
-
-    // 注册 EventBus 事件监听（子 agent 启动/结束）
-    eventBus.on(XuanjiEvent.SUBAGENT_STARTED, (data: any) => {
-      console.log('[agent-bridge] SUBAGENT_STARTED received:', data.subAgentId, data.role);
-      safeSend({ type: 'agent:subagent-start', data: {
-        subAgentId: data.subAgentId,
-        name: data.name || data.role,
-        role: data.role,
-        task: data.task,
-        agentType: data.agentType || 'temporary',
-        parentId: data.parentAgentId || 'xuanji',
-        streamToUser: data.streamToUser || false,
-        scene: data.scene,
-      }});
-      return { success: true };
-    });
-    eventBus.on(XuanjiEvent.SUBAGENT_ENDED, (data: any) => {
-      safeSend({ type: 'agent:subagent-end', data: {
-        subAgentId: data.subAgentId,
-        name: data.name,
-        success: data.success,
-        duration: data.duration,
-      }});
-      return { success: true };
-    });
-
-    // 注册 Agent 工具事件监听（替代 HookRegistry 的 ToolStart/ToolEnd）
-    eventBus.on(XuanjiEvent.AGENT_TOOL_START, (data: any) => {
-      safeSend({ type: 'agent:tool-start', data: {
-        id: data.id,
-        name: data.name,
-        input: data.input,
-        agentId: data.agentId,
-      }});
-      return { success: true };
-    });
-    eventBus.on(XuanjiEvent.AGENT_TOOL_END, (data: any) => {
-      safeSend({ type: 'agent:tool-end', data: {
-        id: data.id,
-        name: data.name,
-        result: data.output,
-        isError: data.isError,
-        agentId: data.agentId,
-      }});
-      return { success: true };
-    });
-
-    // 注册 Agent thinking/text 事件监听（替代 HookRegistry 的 AgentThinking/AgentText）
-    eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (data: any) => {
-      safeSend({ type: 'agent:thinking-start', data: {
-        agentId: data.agentId,
-        content: data.content,
-      }});
-      return { success: true };
-    });
-    eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (data: any) => {
-      safeSend({ type: 'agent:subagent-text', data: {
-        agentId: data.agentId,
-        text: data.text,
-      }});
-      return { success: true };
-    });
-
-    // 同步 StateTracker 状态到前端
-    const stateTracker = session.getStateTracker();
-    stateTracker.onStateChange((from, to) => {
-      safeSend({
-        type: 'agent:conversation-state',
-        data: { from, to },
-      });
-    });
-
-    // 注册 Prompt 构建事件监听器
-    const promptBuilder = session.getLayeredPromptBuilder();
-    if (promptBuilder) {
-      promptBuilder.addEventListener((event) => {
-        safeSend({
-          type: 'prompt:build-event',
-          data: event,
-        });
-      });
-    }
-
-    // 🔧 初始化时设置默认 workspace 目录
-    // 项目信息会在用户切明确打开/切换项目时通过 detectProjectFromCwd() 或 detectProjectFromFile() 发送
-    await initWorkspace();
-
-    // 发送初始化完成事件
-    safeSend({
-      type: 'init-complete',
-      data: { success: true, agentId, workspacePath: currentProjectRoot },
-    });
-
-    // 返回成功结果
-    return { success: true };
-  } catch (err) {
-    console.error('[agent-bridge] Session 初始化失败:', err);
-    const error = err instanceof Error ? err.message : String(err);
-
-    // 发送初始化失败事件
-    safeSend({
-      type: 'init-complete',
-      data: { success: false, error },
-    });
-
-    // 返回失败结果
-    return { success: false, error };
-  }
-}
-
-/**
- * 发送消息
- */
-async function handleSendMessage(message: string) {
-  console.error(`[agent-bridge] handleSendMessage called, input="${String(message).substring(0, 60)}"`);
-  if (!session) {
-    safeSend({
-      type: 'send-result',
-      data: { success: false, error: '会话未初始化' },
-    });
-    return { success: false, error: '会话未初始化' };
-  }
-
-  try {
-    // 用 StateTracker 统一处理三种场景
-    const action = session.handleUserInput(message);
-    safeSend({
-      type: 'send-result',
-      data: { success: true, action },
-    });
-  } catch (err) {
-    // 错误已经通过 onError 回调发送到前端，这里只返回结果状态
-    safeSend({
-      type: 'send-result',
-      data: {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      },
-    });
-  }
-}
-
-/**
- * 中断执行
- * - message 为空：停止按钮，调用 stop() 终止 Agent 循环
- * - message 非空：补充输入，调用 interrupt(message) 中断并注入新消息
- */
-function handleInterrupt(message: string) {
-  console.error(`[agent-bridge] handleInterrupt called, message="${String(message).substring(0, 60)}"`);
-  if (session) {
-    if (message) {
-      // ChatSession.interrupt() 负责: 入队 → stop → 等待停稳 → 消费队列
-      session.interrupt(message);
-    } else {
-      session.getAgentLoop().stop();
-    }
-    safeSend({
-      type: 'interrupt-result',
-      data: { success: true },
-    });
-  } else {
-    safeSend({
-      type: 'interrupt-result',
-      data: { success: false, error: '会话未初始化' },
-    });
-  }
-}
-
-/**
- * 追加消息（不中断当前执行，在自然边界点注入）
- * Claude Code 风格 Boundary-Aware Injection
- */
-function handleAppendMessage(data: string | { message?: string; content?: string }) {
-  // 兼容两种格式：agent:send-supplement/append-message 发送纯字符串，
-  // 而其他调用方可能传递 { message, content } 对象
-  const message = typeof data === 'string' ? data : (data?.message || data?.content || '');
-  console.error(`[agent-bridge] handleAppendMessage called, dataType=${typeof data}, message="${message.substring(0, 60)}"`);
-  if (!message) { console.error('[agent-bridge] handleAppendMessage: empty message, returning'); return; }
-
-  if (session) {
-    // 追加消息不中断当前执行，入队等待自然边界
-    session.appendMessage(message);
-    safeSend({
-      type: 'append-result',
-      data: { success: true },
-    });
-  } else {
-    safeSend({
-      type: 'append-result',
-      data: { success: false, error: '会话未初始化' },
-    });
-  }
-}
-
-/**
- * 重置会话
- */
-function handleReset() {
-  if (session) {
-    session.reset();
-    safeSend({
-      type: 'reset-result',
-      data: { success: true },
-    });
-  } else {
-    safeSend({
-      type: 'reset-result',
-      data: { success: false, error: '会话未初始化' },
-    });
-  }
-}
-
-/**
- * 获取状态
- */
-function handleGetState() {
-  if (!session) {
-    safeSend({ type: 'state-result', data: {
-        status: 'idle',
-        tokenUsage: { input: 0, output: 0 },
-        cost: 0,
-      },
-    });
-    return null;
-  }
-
-  const state = session.getState();
-  safeSend({ type: 'state-result', data: {
-      status: state.status,
-      tokenUsage: state.tokenUsage,
-      cost: state.cost,
-      currentIteration: state.currentIteration,
-    },
+  // ── EventBus 原生事件转发 ──
+  // 根 agent 的 AgentLoop._userId === currentUserId，映射到 routedAgentId
+  // 子 agent 的 AgentLoop._userId 是其 subAgentId，保留原值
+  eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
+    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
+    safeSend({ type: 'agent:text', data: { text: payload.text, agentId } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (payload) => {
+    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
+    safeSend({ type: 'agent:thinking', data: { content: payload.content, agentId } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_TOOL_START, (payload) => {
+    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
+    safeSend({ type: 'agent:tool-start', data: { id: payload.id, name: payload.name, input: payload.input, agentId } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
+    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
+    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_ERROR, (payload) => {
+    safeSend({ type: 'agent:error', data: payload.error });
+  });
+  eventBus.on(XuanjiEvent.CONVERSATION_STATE_CHANGED, (payload) => {
+    safeSend({ type: 'agent:conversation-state', data: { from: payload.from, to: payload.to } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload) => {
+    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
+    safeSend({ type: 'agent:file-changes', data: { changes: payload.changes } });
   });
 }
 
-/**
- * 获取配置
- */
-function handleGetConfig() {
-  if (!session) {
-    safeSend({ type: 'config-result', data: null,
-    });
-    return null;
-  }
-
-  const config = session.getConfig();
-  safeSend({ type: 'config-result', data: {
-      model: config.provider.model,
-      adapter: config.provider.adapter || 'anthropic',
-      apiKey: config.provider.apiKey ? '***' + config.provider.apiKey.slice(-4) : '',
-      baseURL: config.provider.baseURL || '',
-      maxTokens: config.provider.maxTokens,
-      temperature: config.provider.temperature,
-      lightModel: config.provider.lightModel || '',
-      embedding: config.embedding ? {
-        model: config.embedding.model,
-        dimensions: config.embedding.dimensions,
-        cacheEnabled: config.embedding.cacheEnabled,
-        cacheMaxSize: config.embedding.cacheMaxSize,
-        hfMirror: config.embedding.hfMirror,
-      } : undefined,
-    },
-  });
-}
-
-/**
- * 获取完整配置（供设置页面使用）
- */
-async function handleGetFullConfig() {
-  if (!session) {
-    return null;
-  }
-
-  const config = session.getConfig();
-
-  return {
-    provider: {
-      model: config.provider.model,
-      adapter: config.provider.adapter || 'anthropic',
-      apiKey: config.provider.apiKey ? '***' + config.provider.apiKey.slice(-4) : '',
-      hasApiKey: !!config.provider.apiKey,
-      baseURL: config.provider.baseURL || '',
-      maxTokens: config.provider.maxTokens,
-      temperature: config.provider.temperature,
-      lightModel: config.provider.lightModel || '',
-    },
-    workspacePath: config.workspacePath || '',
-    embedding: config.embedding ? {
-      model: config.embedding.model,
-      dimensions: config.embedding.dimensions,
-      cacheEnabled: config.embedding.cacheEnabled,
-      cacheMaxSize: config.embedding.cacheMaxSize,
-      hfMirror: config.embedding.hfMirror,
-    } : {
-      model: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-      dimensions: 384,
-      cacheEnabled: true,
-      cacheMaxSize: 100,
-      hfMirror: 'https://hf-mirror.com',
-    },
-    memory: {
-      enabled: config.memory?.enabled ?? true,
-    },
-    features: {
-      dynamicToolLoading: config.features?.dynamicToolLoading ?? true,
-    },
-    persona: config.persona ?? {},
-    onboardingDone: config.onboardingDone,
-  };
-}
-
-/**
- * 更新配置（设置页面保存时调用）
- */
-async function handleUpdateConfig(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-
-  try {
-    // 获取当前用户 ID
-    const { getAuthState } = await import('./config/auth.js');
-    const authState = getAuthState();
-    const userId = authState?.user?.userId;
-
-    if (!userId) {
-      return { success: false, error: '用户未登录' };
-    }
-
-    const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
-    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
-    const { GlobalConfig } = await import('../../src/core/config/GlobalConfig.js');
-    const { readFile, writeFile } = await import('node:fs/promises');
-
-    // 1. 读取用户配置文件
-    const configPath = getUserConfigPath(userId);
-    const content = await readFile(configPath, 'utf-8');
-    const userConfigFile = JSON.parse(content);
-
-    // 2. 确保 config.provider 对象存在
-    if (!userConfigFile.config) {
-      userConfigFile.config = {};
-    }
-    if (!userConfigFile.config.provider) {
-      userConfigFile.config.provider = {};
-    }
-
-    // 3. 合并新配置（用户级配置）
-    let needPersist = false;
-    if (data.apiKey && !data.apiKey.startsWith('***')) {
-      userConfigFile.config.provider.apiKey = data.apiKey;
-      needPersist = true;
-    }
-    if (data.model) {
-      userConfigFile.config.provider.model = data.model;
-      needPersist = true;
-    }
-    if (data.adapter) {
-      userConfigFile.config.provider.adapter = data.adapter;
-      needPersist = true;
-    }
-    if (data.baseURL !== undefined) {
-      userConfigFile.config.provider.baseURL = data.baseURL;
-      needPersist = true;
-    }
-    if (data.persona !== undefined) {
-      userConfigFile.config.persona = data.persona;
-      needPersist = true;
-    }
-    if (data.onboardingDone !== undefined) {
-      userConfigFile.config.onboardingDone = data.onboardingDone;
-      needPersist = true;
-    }
-    if (data.workspacePath !== undefined) {
-      userConfigFile.config.workspacePath = data.workspacePath;
-      needPersist = true;
-    }
-    // 兼容 section-based 格式 (来自 ConfigStore.updateSettings 或 SettingsPage)
-    if (data.sectionData?.workspacePath !== undefined) {
-      userConfigFile.config.workspacePath = data.sectionData.workspacePath;
-      needPersist = true;
-    }
-
-    // 4. 持久化到用户配置文件
-    if (needPersist) {
-      userConfigFile.updatedAt = new Date().toISOString();
-      await writeFile(configPath, JSON.stringify(userConfigFile, null, 2), 'utf-8');
-    }
-
-    // 5. 处理项目级配置（embedding）
-    if (data.embedding !== undefined) {
-      const projectRoot = process.cwd();
-      const projectConfig = await GlobalConfig.readProjectConfig(projectRoot);
-      projectConfig.embedding = data.embedding;
-      await GlobalConfig.writeProjectConfig(projectConfig, projectRoot);
-    }
-
-    // 5. 重新加载完整配置并重新创建 session
-    const agentId = 'xuanji'; // 默认使用 xuanji agent
-    const configLoader = new ConfigLoader(userId, agentId);
-    const fullConfig = await configLoader.load();
-
-    // 重新创建 session
-    const { SessionFactory } = await import('../../src/core/chat/SessionFactory.js');
-    const factory = new SessionFactory(userId, agentId);
-
-    // 创建 session 前确保 cwd 是 workspace 目录
-    const workspaceDir = fullConfig.workspacePath || '';
-    if (workspaceDir) {
-      try { process.chdir(workspaceDir); } catch {}
-    }
-
-    session = await factory.create({
-      userId,
-      agentId,
-      config: fullConfig,
-      callbacks: {
-        onText: (text: string) => {
-          safeSend({ type: 'agent:text', data: text });
-        },
-        onThinking: (thinking: string) => {
-          safeSend({ type: 'agent:thinking', data: thinking });
-        },
-        onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-          safeSend({ type: 'agent:tool-start', data: { id, name, input } });
-
-          // 从工具调用中提取文件路径，自动检测项目
-          detectProjectFromToolCall(name, input);
-
-          // 记住 change_directory 的路径，onToolEnd 时通知渲染进程刷新文件树
-          if (name === 'change_directory' && input.path && typeof input.path === 'string') {
-            pendingChangePath = path.resolve(input.path);
-          }
-        },
-        onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => {
-          safeSend({ type: 'agent:tool-end', data: { id, name, result, isError, metadata } });
-
-          // 如果是 change_directory 工具且执行成功，通知渲染进程刷新文件树
-          if (name === 'change_directory' && !isError && pendingChangePath) {
-            const newPath = pendingChangePath;
-            pendingChangePath = null;
-            console.error(`[agent-bridge] change_directory -> chdir + safeSend: ${newPath}`);
-            // 切换当前工作目录
-            try {
-              process.chdir(newPath);
-            } catch (e) {
-              console.error(`[agent-bridge] chdir 失败: ${newPath}`, e);
-            }
-            safeSend({ type: 'workspace:directory-changed', data: { path: newPath } });
-            // 同步更新项目信息事件，刷新页面后渲染进程由此恢复 workingDirectory
-            const nodeFs = require('node:fs');
-            const nodePath = require('node:path');
-            const gitDir = nodePath.join(newPath, '.git');
-            const hasGit = nodeFs.existsSync(gitDir);
-            let gitBranch: string | null = null;
-            if (hasGit) {
-              try {
-                const { execSync } = require('node:child_process');
-                gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: newPath, encoding: 'utf-8', timeout: 5000 }).trim();
-              } catch {}
-            }
-            safeSend({
-              type: 'project:info',
-              data: { type: 'workspace', hasGit, rootPath: newPath, configFiles: [], gitBranch },
-            });
-            // 持久化 workspacePath 到配置文件（仅写文件，不重建 session）
-            try {
-              const pathModule = require('node:path');
-              const fsModule = require('node:fs');
-              const osModule = require('node:os');
-              const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
-              const configPath = getUserConfigPath(currentUserId);
-              const content = fsModule.readFileSync(configPath, 'utf-8');
-              const cfg = JSON.parse(content);
-              if (!cfg.config) cfg.config = {};
-              cfg.config.workspacePath = newPath;
-              cfg.updatedAt = new Date().toISOString();
-              fsModule.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf-8');
-            } catch (e) {
-              console.error('[agent-bridge] 保存 workspacePath 失败:', e);
-            }
-            console.error(`[agent-bridge] safeSend 完成`);
-          }
-        },
-        onFileChanges: (changes: any[]) => {
-          safeSend({ type: 'agent:file-changes', data: { changes } });
-        },
-        onUsage: (usage: any) => {
-          safeSend({ type: 'agent:usage', data: usage });
-        },
-        onError: (err: Error) => {
-          safeSend({ type: 'agent:error', data: err.message });
-        },
-        onEnd: (state: any) => {
-          safeSend({
-            type: 'agent:end',
-            data: {
-              tokenUsage: state.tokenUsage,
-              cost: state.cost,
-              currentIteration: state.currentIteration,
-            },
-          });
-        },
-        onAutoSummarize: (subAgentId?: string) => {
-          safeSend({ type: 'agent:auto-summarize-start', data: { subAgentId } });
-        },
-        onArchiveNotification: (result) => {
-          safeSend({ type: 'session:archive-notification', data: result });
-        },
-      },
-    });
-
-    // 重新注入权限交互 Handler
-    injectInteractionHandlers();
-
-    // 重新注册 Hook 事件监听
-    const container = session.getContainer();
-    const hookRegistry = container.resolveSync('hookRegistry');
-    registerHookListeners(hookRegistry);
-
-    safeSend({ type: 'update-config-result', data: { success: true },
-    });
-  } catch (err) {
-    safeSend({ type: 'update-config-result', data: {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      },
-    });
-  }
-}
-
-// ============================================================
-// 会话管理
-// ============================================================
-
-async function handleSessionSave(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const sessionId = await session.saveSession(data?.name, data?.options);
-    return { success: true, sessionId };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleSessionResume(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const ctx = await session.resumeSession(data?.sessionId);
-    safeSend({ data: {
-        success: true,
-        sessionId: ctx.sessionId,
-        usage: ctx.usage,
-        historyMessages: ctx.historyMessages,
-        messageCount: ctx.messages?.length || 0,
-      },
-    });
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleSessionList() {
-  if (!session) {
-    return { success: true, sessions: [] };
-  }
-  try {
-    const sessions = await session.listSessions();
-    return { success: true, sessions };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleSessionDelete(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    await session.deleteSession(data?.sessionId);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleCheckpointCreate(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const checkpointId = await session.createCheckpoint(data?.label);
-    return { success: true, checkpointId };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleCheckpointList() {
-  if (!session) {
-    return { success: true, checkpoints: [] };
-  }
-  try {
-    const checkpoints = await session.listCheckpoints();
-    return { success: true, checkpoints };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleCheckpointRewind(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const messageCount = await session.rewindToCheckpoint(data?.checkpointId);
-    return { success: true, messageCount };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// ============================================================
-// 核心规则管理
-// ============================================================
-
-
-
-
-// ============================================================
-// 工具统计
-// ============================================================
-
-async function handleGetUsageStats() {
-  if (!session) {
-    return { success: true, stats: null };
-  }
-  try {
-    const state = session.getState();
-    safeSend({ data: {
-        success: true,
-        stats: {
-          status: state.status,
-          tokenUsage: state.tokenUsage,
-          cost: state.cost,
-          currentIteration: state.currentIteration,
-        },
-      },
-    });
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// ============================================================
-// 高级功能
-// ============================================================
-
-async function handleCompact(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const result = await session.getAgentLoop().compact(data?.instruction);
-    safeSend({ data: {
-        success: true,
-        result: result ? {
-          originalTokens: result.originalTokens,
-          compressedTokens: result.compressedTokens,
-          compressionRatio: result.compressionRatio,
-          summary: result.summary,
-        } : null,
-      },
-    });
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleGetDiagnostics() {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const report = await session.getDiagnostics();
-    return { success: true, report };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// ============================================================
-// Agent 管理
-// ============================================================
-
-/**
- * 获取 Agent 列表
- */
-async function handleAgentList() {
-  if (!session) {
-    return { success: true, agents: [] };
-  }
-  try {
-    const agentRegistry = session.getAgentRegistry();
-    if (!agentRegistry) {
-      return { success: true, agents: [] };
-    }
-    // 获取所有 Agent（包括禁用的），用于 GUI 管理界面
-    const agents = agentRegistry.getAll();
-
-    return { success: true, agents };
-  } catch (err) {
-    console.error('[agent-bridge] 获取 Agent 列表失败:', err);
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleAgentGet(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const agentRegistry = session.getAgentRegistry();
-    if (!agentRegistry) {
-      return { success: false, error: 'Agent Registry 未初始化' };
-    }
-    const agent = agentRegistry.get(data?.agentId);
-    if (!agent) {
-      return { success: false, error: `Agent 不存在: ${data?.agentId}` };
-    }
-    return { success: true, agent };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleAgentCreate(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const agentRegistry = session.getAgentRegistry();
-    if (!agentRegistry) {
-      return { success: false, error: 'Agent Registry 未初始化' };
-    }
-
-    // 保存到 YAML 文件（全局或项目级）
-    const scope = data?.scope || 'global';
-    await agentRegistry.saveToFile(data?.config, scope);
-
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleAgentUpdate(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const agentRegistry = session.getAgentRegistry();
-    if (!agentRegistry) {
-      return { success: false, error: 'Agent Registry 未初始化' };
-    }
-
-    // 更新 YAML 文件（自动检测 scope）
-    const existingAgent = agentRegistry.get(data?.agentId);
-    if (!existingAgent || !existingAgent.metadata) {
-      return { success: false, error: `Agent 不存在: ${data?.agentId}` };
-    }
-
-    const scope = existingAgent.metadata.source === 'project' ? 'project' : 'global';
-    await agentRegistry.saveToFile(data?.config, scope);
-
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleAgentDelete(data: any) {
-  if (!session) {
-    return { success: false, error: '会话未初始化' };
-  }
-  try {
-    const agentRegistry = session.getAgentRegistry();
-    if (!agentRegistry) {
-      return { success: false, error: 'Agent Registry 未初始化' };
-    }
-
-    // 删除 YAML 文件
-    await agentRegistry.deleteFile(data?.agentId);
-
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-// ============================================================
-// Tools 查询
-// ============================================================
-
-async function handleToolsList() {
-
-  if (!session) {
-    console.warn('[agent-bridge handleToolsList] session 不存在，返回空数组');
-    return { success: true, tools: [] };
-  }
-  try {
-    const baseRegistry = session.getBaseRegistry();
-
-    if (!baseRegistry) {
-      console.warn('[agent-bridge handleToolsList] baseRegistry 不存在，返回空数组');
-      return { success: true, tools: [] };
-    }
-
-    // 使用 TOOL_CATEGORIES 做分类映射
-    const { TOOL_CATEGORIES } = await import('../../src/core/tools/ToolCategories.js');
-    const coreSet = new Set<string>(TOOL_CATEGORIES.CORE);
-    const metaSet = new Set<string>(TOOL_CATEGORIES.META);
-
-    const categorize = (name: string): string => {
-      if (coreSet.has(name)) return 'core';
-      if (metaSet.has(name)) return 'meta';
-      return 'other';
-    };
-
-    const allTools = baseRegistry.getAll();
-
-    const tools = allTools.map((tool: any) => ({
-      name: tool.name,
-      description: tool.description || '',
-      category: categorize(tool.name),
-      required: tool.required ?? false,
-      readonly: tool.readonly ?? true,
-    }));
-
-
-    return { success: true, tools };
-  } catch (err) {
-    console.error('[agent-bridge handleToolsList] 异常:', err);
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-
-// ============================================================
-// 权限交互 (双向 IPC)
-// ============================================================
-
-// 存储 pending 的权限请求 resolve 回调
-const pendingPermissions = new Map<string, (result: any) => void>();
-const pendingPlanReviews = new Map<string, (result: any) => void>();
-const pendingAskUsers = new Map<string, (result: any) => void>();
-let permissionIdCounter = 0;
-
-/**
- * 在 handleInit 完成后注入三个 Handler
- */
-function injectInteractionHandlers() {
-  if (!session) return;
-
-  // 1. 权限确认 Handler
-  session.setConfirmationHandler(async (request: any, guardResult: any) => {
-    const id = `perm-${++permissionIdCounter}`;
-    safeSend({
-      type: 'permission:request',
-      data: {
-        id,
-        toolName: request.toolName,
-        input: request.input,
-        riskLevel: guardResult?.riskLevel || 'warn',
-        description: guardResult?.description || '',
-        suggestion: guardResult?.suggestion || '',
-      },
-    });
-    return new Promise((resolve) => {
-      pendingPermissions.set(id, resolve);
-    });
-  });
-
-  // 2. 计划审查 Handler
-  session.setPlanReviewHandler(async (plan: any) => {
-    const id = `plan-${++permissionIdCounter}`;
-    safeSend({
-      type: 'plan-review:request',
-      data: {
-        id,
-        content: typeof plan === 'string' ? plan : plan?.content || '',
-        title: plan?.title || '执行计划',
-      },
-    });
-    return new Promise((resolve) => {
-      pendingPlanReviews.set(id, resolve);
-    });
-  });
-
-  // 3. 用户提问 Handler
-  session.setAskUserHandler(async (question: any) => {
-    const id = `ask-${++permissionIdCounter}`;
-    safeSend({
-      type: 'ask-user:request',
-      data: {
-        id,
-        question: typeof question === 'string' ? question : question?.question || '',
-        options: question?.options || [],
-        multiSelect: question?.multiSelect || false,
-        default: question?.default,
-        // 🆕 传递上下文信息到前端
-        context: question?.context || {},
-      },
-    });
-    return new Promise((resolve) => {
-      pendingAskUsers.set(id, resolve);
-    });
-  });
-
-  // 4. Plan Mode Enter Handler（LLM 自主进入 Plan Mode）
-  session.setPlanModeEnterHandler(async () => {
-    safeSend({
-      type: 'plan-mode:enter',
-      data: {},
-    });
-    return true;
-  });
-
-  // 5. Plan Mode Exit Handler（LLM 退出 Plan Mode）
-  session.setPlanModeExitHandler(async () => {
-    safeSend({
-      type: 'plan-mode:exit',
-      data: {},
-    });
-    return true;
-  });
-}
 
 function handlePermissionResponse(data: any) {
   const resolve = pendingPermissions.get(data.id);
@@ -2254,7 +1427,7 @@ process.on('SIGINT', async () => {
  * 当代码中有未捕获的同步错误时触发
  */
 process.on('uncaughtException', (err: Error) => {
-  console.error('[agent-bridge] ❌ Uncaught Exception:', err);
+  console.error('❌ Uncaught Exception:', err);
 
   // 通知主进程发生了致命错误（格式与 onError 回调一致）
   safeSend({
@@ -2293,7 +1466,7 @@ process.on('uncaughtException', (err: Error) => {
  * 当 async 函数中有未捕获的错误时触发
  */
 process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-  console.error('[agent-bridge] ❌ Unhandled Rejection at:', promise);
+  console.error('❌ Unhandled Rejection at:', promise);
   console.error('[agent-bridge] Reason:', reason);
 
   const errorMessage = reason instanceof Error

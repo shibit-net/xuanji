@@ -3,15 +3,16 @@
 // ============================================================
 // 统一管理所有文件系统路径，确保用户数据集中管理
 //
-// 新的目录结构:
-// src/core/templates/        # 模板目录（源码，git 追踪）
+// 模板目录（源码，git 追踪）:
+// src/core/templates/
 // ├── config.json
 // ├── mcp.json
 // ├── prompt.json
 // ├── agents/
 // └── protocols/
 //
-// .xuanji/
+// 用户数据目录（~/.xuanji/，独立于项目）:
+// ~/.xuanji/
 // └── users/                # 用户数据目录（不被 git 追踪）
 //     └── {userId}/        # 每个用户的独立目录
 //         ├── config.json
@@ -22,13 +23,18 @@
 //         ├── permissions/  # 权限决策
 //         ├── sessions/     # 会话历史
 //         ├── protocols/   # 执行规范
-//         ├── reminders/  # 提醒系统
 //         ├── stats/       # 统计
 //         ├── logs/        # 日志
 //         └── skills/      # 技能
+//
+// 项目本地数据（{project}/.xuanji/，项目级）:
+//   - worktrees/   git worktrees
+//   - checkpoints/ team checkpoints
+//   - rules.md     项目规则
 // ============================================================
 
-import { join, resolve, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
+import { homedir } from 'node:os';
 import { mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,21 +44,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * 获取项目根目录
- */
-function getProjectRoot(): string {
-  const cwd = process.cwd();
-  if (cwd.endsWith('/desktop') || cwd.endsWith('\\desktop')) {
-    return resolve(cwd, '..');
-  }
-  return cwd;
-}
-
-/**
- * 获取 Xuanji 数据根目录（项目目录）
+ * 获取 Xuanji 用户数据根目录（系统用户 Home 下）
  */
 export function getXuanjiRoot(): string {
-  return join(getProjectRoot(), '.xuanji');
+  return join(homedir(), '.xuanji');
 }
 
 // ============================================================
@@ -229,13 +224,6 @@ export function getUserLogsDir(userId: string): string {
 }
 
 /**
- * 获取用户提醒目录
- */
-export function getUserRemindersDir(userId: string): string {
-  return join(getUserRoot(userId), 'reminders');
-}
-
-/**
  * 获取用户技能目录
  */
 export function getUserSkillsDir(userId: string): string {
@@ -274,7 +262,6 @@ export async function ensureUserDirectories(userId: string): Promise<void> {
     getUserSessionsDir(userId),
     getUserProtocolsDir(userId),
     getUserLogsDir(userId),
-    getUserRemindersDir(userId),
     getUserSkillsDir(userId),
     getUserStatsDir(userId),
   ];
@@ -309,7 +296,6 @@ export class PathManager {
   get sessions(): string { return getUserSessionsDir(this._userId); }
   get protocols(): string { return getUserProtocolsDir(this._userId); }
   get logs(): string { return getUserLogsDir(this._userId); }
-  get reminders(): string { return getUserRemindersDir(this._userId); }
   get skills(): string { return getUserSkillsDir(this._userId); }
   get stats(): string { return getUserStatsDir(this._userId); }
 
@@ -334,11 +320,6 @@ export class PathManager {
 
   get knowledgeJsonl(): string {
     return join(this.memory, 'knowledge.jsonl');
-  }
-
-  // 提醒相关文件
-  get remindersJsonl(): string {
-    return join(this.reminders, 'reminders.jsonl');
   }
 
   // 确保所有用户目录都存在

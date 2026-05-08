@@ -106,10 +106,6 @@ tools:
     required: false
   - name: memory_search
     required: false
-  - name: reminder_set
-    required: false
-  - name: reminder_check
-    required: false
   - name: web_fetch
     required: false
   - name: notebook_edit

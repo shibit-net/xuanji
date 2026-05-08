@@ -4,7 +4,7 @@
  * 类似"正在回忆中"的简洁状态提示
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { workspaceStore, type WorkspacePhase } from '../../stores/workspaceStore';
 import './MainFlowVisualization.css';
 

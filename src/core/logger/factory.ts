@@ -3,16 +3,12 @@
 // ============================================================
 
 import path from 'path';
+import { homedir } from 'node:os';
 import type { ILogger, LoggerConfig } from './types';
 import { PinoLogger } from './implementations/PinoLogger';
 
-/**
- * 解析日志目录路径
- *
- * 固定使用 Xuanji 项目目录: ./.xuanji/logs
- */
 function resolveLogDir(): string {
-  return path.join(process.cwd(), '.xuanji', 'logs');
+  return path.join(homedir(), '.xuanji', 'logs');
 }
 
 /**

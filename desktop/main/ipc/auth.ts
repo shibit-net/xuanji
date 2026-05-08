@@ -1,7 +1,6 @@
 import { ipcMain, session } from 'electron';
 import { authService } from '../services/index.js';
 import {
-  loadAuthState,
   saveAuthState,
   clearAuthState,
   isTokenValid,
@@ -11,8 +10,23 @@ import {
   setAuthState,
   removeAccount,
   getSavedAccounts,
+  registerRefreshHandler,
+  startProactiveRefresh,
+  stopProactiveRefresh,
+  performRefresh,
   type SavedAccount
 } from '../config/auth.js';
+
+async function initUserConfig(userId: string): Promise<void> {
+  try {
+    const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
+    const { mkdir } = await import('node:fs/promises');
+    const { dirname } = await import('node:path');
+    await mkdir(dirname(getUserConfigPath(userId)), { recursive: true });
+  } catch (err) {
+    console.error('初始化用户配置失败:', err);
+  }
+}
 
 function registerAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
@@ -30,16 +44,13 @@ function registerAuthIpcHandlers() {
         setAuthState({ user: result.data || null });
         await saveAuthState();
 
+        // 注册 1101 自动刷新回调 + 启动主动刷新定时器
+        registerRefreshHandler();
+        startProactiveRefresh();
+
         // 初始化用户配置
         if (result.data?.userId) {
-          try {
-            const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
-            const { mkdir } = await import('node:fs/promises');
-            const { dirname } = await import('node:path');
-            await mkdir(dirname(getUserConfigPath(result.data.userId)), { recursive: true });
-          } catch (err) {
-            console.error('初始化用户配置失败:', err);
-          }
+          await initUserConfig(result.data.userId);
         }
 
         return {
@@ -90,6 +101,7 @@ function registerAuthIpcHandlers() {
 
   ipcMain.handle('auth:logout', async () => {
     try {
+      stopProactiveRefresh();
       try {
         await authService.logout();
       } catch (err) {
@@ -115,59 +127,24 @@ function registerAuthIpcHandlers() {
         return { success: false };
       }
 
+      // Token 过期 → 尝试刷新
       if (!isTokenValid()) {
-        if (authState.refreshToken) {
-          try {
-            const refreshResult = await authService.refreshToken();
-
-            if (refreshResult.success) {
-              syncCookiesFromClient();
-
-              const user = await refreshUserInfo();
-              if (user) {
-                // 确保用户配置已初始化
-                if (user.userId) {
-                  try {
-                    const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
-                    const { mkdir } = await import('node:fs/promises');
-                    const { dirname } = await import('node:path');
-                    await mkdir(dirname(getUserConfigPath(user.userId)), { recursive: true });
-                  } catch (err) {
-                    console.error('初始化用户配置失败:', err);
-                  }
-                }
-
-                return { success: true, data: user };
-              }
-            }
-          } catch (err) {
-            console.error('刷新 Token 失败:', err);
-          }
+        if (!authState.refreshToken) {
+          await clearAuthState();
+          return { success: false };
         }
-
-        await clearAuthState();
-        return { success: false };
+        const refreshed = await performRefresh();
+        if (!refreshed) {
+          await clearAuthState();
+          return { success: false };
+        }
       }
 
-      try {
-        const user = await refreshUserInfo();
-        if (user) {
-          // 确保用户配置已初始化
-          if (user.userId) {
-            try {
-              const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
-              const { mkdir } = await import('node:fs/promises');
-              const { dirname } = await import('node:path');
-              await mkdir(dirname(getUserConfigPath(user.userId)), { recursive: true });
-            } catch (err) {
-              console.error('初始化用户配置失败:', err);
-            }
-          }
-
-          return { success: true, data: user };
-        }
-      } catch (err) {
-        console.error('验证用户信息失败:', err);
+      // 验证用户信息有效性
+      const user = await refreshUserInfo();
+      if (user) {
+        await initUserConfig(user.userId);
+        return { success: true, data: user };
       }
 
       await clearAuthState();

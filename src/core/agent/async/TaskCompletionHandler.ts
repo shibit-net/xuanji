@@ -8,13 +8,13 @@
 import type { ContextManager } from '@/core/context/ContextManager';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
-import type { AgentTaskCompletionResult } from './types';
+import type { TaskCompletionResult as AgentTaskCompletionResult } from '@/core/task/types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'TaskCompletionHandler' });
 
 export interface TaskCompletionHandlerCallbacks {
-  onAutoSummarize?: () => void;
+  onAutoSummarize?: (subAgentId?: string, groupId?: string) => void;
   onCitationData?: (citations: Array<{ agentName: string; originalOutput: string; duration: number; tokensUsed: { input: number; output: number } }>) => void;
   onRun?: (message: string) => Promise<void>;
   isRunning?: () => boolean;
@@ -64,23 +64,25 @@ export class TaskCompletionHandler {
 
   /** 注入待处理的后台任务完成通知到 system prompt */
   injectPendingCompletions(): void {
-    if (!this.isAutoSummarizeRun || this.pendingCompletions.length === 0) return;
+    if (this.pendingCompletions.length === 0) return;
 
     const completions = this.pendingCompletions.splice(0);
+    if (!this.isAutoSummarizeRun) return;
+
     for (const completion of completions) {
-      const statusText = completion.status === 'completed' ? '✅ 已完成' :
-        completion.status === 'failed' ? '❌ 失败' :
-        completion.status === 'cancelled' ? '🚫 已取消' : completion.status;
+      const statusText = completion.status === 'completed' ? '已完成' :
+        completion.status === 'failed' ? '失败' :
+        completion.status === 'cancelled' ? '已取消' : completion.status;
       const output = completion.result?.content ?? '';
       const hint = [
-        `\n[后台任务完成通知] 任务组 ${completion.groupId} ${statusText}`,
+        `我之前委派的后台任务（${completion.groupId}）已经${statusText}了。`,
         completion.status === 'completed'
-          ? '请直接将以下结果汇总后告知用户，不要再次调用 task_control 查询。'
+          ? '现在直接把结果汇总给用户就行，不用再去查进度了。'
           : completion.status === 'failed'
-          ? `失败原因: ${completion.error ?? '未知'}。请告知用户并询问是否需要重试。`
-          : '任务已取消。请告知用户。',
+          ? `出了点问题：${completion.error ?? '未知错误'}。我告诉用户情况，问问要不要重试。`
+          : '任务取消了，告诉用户一下。',
         completion.status === 'completed' && output
-          ? `\n--- 任务输出 ---\n${output}\n--- 输出结束 ---`
+          ? `\n子任务的输出：\n${output}\n`
           : '',
       ].filter(Boolean).join('\n');
       this.contextManager.setSystemPromptSuffix(hint, 'async-task-completion');
@@ -99,6 +101,12 @@ export class TaskCompletionHandler {
   // ── 私有方法 ──
 
   private handleCompletion(result: AgentTaskCompletionResult): void {
+    log.info('[TaskCompletionHandler] handleCompletion called:', {
+      groupId: result.groupId,
+      status: result.status,
+      isAutoSummarizeRun: this.isAutoSummarizeRun,
+      isRunning: this.callbacks.isRunning?.(),
+    });
     this.pendingCompletions.push(result);
 
     if (result.result?.metadata) {
@@ -117,7 +125,8 @@ export class TaskCompletionHandler {
       if (citations.length > 0) this.callbacks.onCitationData?.(citations);
     }
 
-    if (!this.callbacks.isRunning?.()) {
+    // 防止 autoSummarize → onAutoSummarize → emit ASYNC_TASK_COMPLETED → handleCompletion 无限递归
+    if (!this.isAutoSummarizeRun && !this.callbacks.isRunning?.()) {
       this.autoSummarize().catch((err) => {
         log.error(`Auto-summarize failed: ${err}`);
       });
@@ -125,12 +134,48 @@ export class TaskCompletionHandler {
   }
 
   private async autoSummarize(): Promise<void> {
-    this.callbacks.onAutoSummarize?.();
     this.isAutoSummarizeRun = true;
+
+    // 只取第一个完成通知，一个一个处理
+    const completion = this.pendingCompletions.shift();
+    if (!completion) {
+      this.isAutoSummarizeRun = false;
+      return;
+    }
+
+    log.info('autoSummarize completion:', JSON.stringify({ groupId: completion.groupId, subAgentId: completion.subAgentId, status: completion.status }));
+
+    const statusText = completion.status === 'completed' ? '已完成' :
+      completion.status === 'failed' ? '失败' :
+      completion.status === 'cancelled' ? '已取消' : completion.status;
+    const output = completion.result?.content ?? '';
+    const subAgentId = completion.subAgentId;
+    const hint = [
+      `我之前委派的后台任务（${completion.groupId}）已经${statusText}了。完整结果在下方。`,
+      completion.status === 'completed'
+        ? '立刻把结果汇总给用户，不要等任何其他任务。其他任务完成后系统会再次通知你。'
+        : completion.status === 'failed'
+        ? `出了点问题：${completion.error ?? '未知错误'}。我告诉用户情况，问问要不要重试。`
+        : '任务取消了，告诉用户一下。',
+      completion.status === 'completed' && output
+        ? `\n[用户不可见] 子任务的输出：\n${output}\n`
+        : '',
+    ].filter(Boolean).join('\n');
+    // 先清除旧的 async-task-completion 内容再追加，防止多个 completion 累积
+    // setSystemPromptSuffix 是追加模式，先注入空占位来隔离旧内容
+    this.contextManager.setSystemPromptSuffix(hint, 'async-task-completion');
+
+    this.callbacks.onAutoSummarize?.(subAgentId, completion.groupId);
     try {
-      await this.callbacks.onRun?.('[系统通知] 后台任务已完成，请汇总结果告知用户');
+      await this.callbacks.onRun?.('[系统通知] 有一个后台任务刚完成，结果已注入系统提示。立刻向用户汇报这个结果，不要等待其他任务。');
     } finally {
       this.isAutoSummarizeRun = false;
+      // 🔧 队列机制：本轮汇总完成后如果还有 pending，再次触发
+      if (this.pendingCompletions.length > 0) {
+        this.autoSummarize().catch((err) => {
+          log.error(`Auto-summarize (queue) failed: ${err}`);
+        });
+      }
     }
   }
 }

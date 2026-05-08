@@ -13,6 +13,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter, Search, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'all';
 
@@ -200,23 +201,27 @@ export default function LogsView() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={loadLogs}
             disabled={isLoading}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+            variant="ghost"
+            size="sm"
+            className="flex items-center gap-1 disabled:opacity-50"
             title="刷新日志"
           >
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
             刷新
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleClearLogs}
-            className="flex items-center gap-1 px-2 py-1 text-xs bg-bg-primary hover:bg-bg-tertiary rounded transition-colors"
+            variant="ghost"
+            size="sm"
+            className="flex items-center gap-1"
             title="清空日志"
           >
             <Trash2 size={12} />
             清空
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -298,15 +303,17 @@ export default function LogsView() {
       {/* 自动滚动提示 */}
       {!autoScroll && (
         <div className="mt-2 text-xs text-center">
-          <button
+          <Button
             onClick={() => {
               setAutoScroll(true);
               logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
             }}
-            className="text-primary hover:underline"
+            variant="link"
+            size="sm"
+            className="text-primary"
           >
             ↓ 跳转到最新日志
-          </button>
+          </Button>
         </div>
       )}
     </div>

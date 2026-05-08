@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { PROJECT_CONFIG_DIR_NAME, getProjectConfigPath, getProjectRulesPath } from './ProjectConfig';
+import { PROJECT_CONFIG_DIR_NAME, ProjectConfig } from './ProjectConfig';
 
 /**
  * 初始化选项
@@ -71,8 +71,8 @@ export class ProjectConfigWriter {
   async initProjectConfig(options: InitOptions, cwd?: string): Promise<void> {
     const base = cwd ?? process.cwd();
     const configDir = join(base, PROJECT_CONFIG_DIR_NAME);
-    const configPath = getProjectConfigPath(cwd);
-    const rulesPath = getProjectRulesPath(cwd);
+    const configPath = ProjectConfig.getProjectConfigPath(cwd);
+    const rulesPath = ProjectConfig.getProjectRulesPath(cwd);
 
     // 创建 .xuanji/ 目录
     await mkdir(configDir, { recursive: true });
@@ -104,7 +104,7 @@ export class ProjectConfigWriter {
   async saveProjectConfig(config: Record<string, unknown>, cwd?: string): Promise<void> {
     const base = cwd ?? process.cwd();
     const configDir = join(base, PROJECT_CONFIG_DIR_NAME);
-    const configPath = getProjectConfigPath(cwd);
+    const configPath = ProjectConfig.getProjectConfigPath(cwd);
 
     // 确保目录存在
     await mkdir(configDir, { recursive: true });

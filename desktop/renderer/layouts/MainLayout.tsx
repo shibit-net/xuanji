@@ -12,7 +12,7 @@ import PlanReviewDialog from '../components/PlanReviewDialog';
 import AskUserDialog from '../components/AskUserDialog';
 import StatsDialog from '../components/StatsDialog';
 import DiagnosticsDialog from '../components/DiagnosticsDialog';
-import { useChatStore } from '../stores/chatStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 
@@ -32,12 +32,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { loadAgents } = useConfigStore();
 
   // 权限交互状态
-  const permissionRequest = useChatStore((state) => state.permissionRequest);
-  const planReviewRequest = useChatStore((state) => state.planReviewRequest);
-  const askUserRequest = useChatStore((state) => state.askUserRequest);
-  const setPermissionRequest = useChatStore((state) => state.setPermissionRequest);
-  const setPlanReviewRequest = useChatStore((state) => state.setPlanReviewRequest);
-  const setAskUserRequest = useChatStore((state) => state.setAskUserRequest);
+  const permissionRequest = useSessionStore((state) => state.permissionRequest);
+  const planReviewRequest = useSessionStore((state) => state.planReviewRequest);
+  const askUserRequest = useSessionStore((state) => state.askUserRequest);
+  const setPermissionRequest = useSessionStore((state) => state.setPermissionRequest);
+  const setPlanReviewRequest = useSessionStore((state) => state.setPlanReviewRequest);
+  const setAskUserRequest = useSessionStore((state) => state.setAskUserRequest);
 
   // 用户登录成功后，加载 agent 配置
   useEffect(() => {

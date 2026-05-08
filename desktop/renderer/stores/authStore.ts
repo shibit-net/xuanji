@@ -50,7 +50,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       if (result.success && result.data) {
         set({
           isAuthenticated: true,
-          user: result.data as User,
+          user: {
+            ...(result.data as User),
+            nickname: (result.data as any).nickName || (result.data as User).nickname,
+          },
           error: null
         });
         // 重新加载账号列表
@@ -88,7 +91,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       if (result.success && result.data) {
         set({
           isAuthenticated: true,
-          user: result.data as User,
+          user: {
+            ...(result.data as User),
+            nickname: (result.data as any).nickName || (result.data as User).nickname,
+          },
           error: null
         });
       } else {

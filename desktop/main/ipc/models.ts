@@ -34,7 +34,7 @@ function registerModelsIpcHandlers() {
 
   ipcMain.handle('models:get-info', async (_event, id: number, routeId?: number) => {
     try {
-      const result = await modelsService.getAgentLlmBasicInfoById(id, routeId);
+      const result = await modelsService.getAgentLLMBasicInfoById(id, routeId);
       return result;
     } catch (err) {
       console.error('获取模型基本信息失败:', err);

@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { logger } from '@/core/logger';
 import { getXuanjiRoot, getTemplateRoot } from './PathManager';
 import type { UserSettings, SystemConfig, AgentConfig } from './types';
+import { parse as parseYaml } from 'yaml';
 
 export type { UserSettings, SystemConfig, AgentConfig };
 
@@ -76,7 +77,7 @@ export class ConfigManager {
       .map(f => {
         try {
           const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
-          return f.endsWith('.json') ? JSON.parse(content) : this.parseSimpleYaml(content);
+          return f.endsWith('.json') ? JSON.parse(content) : parseYaml(content);
         } catch { return null; }
       })
       .filter((c): c is AgentConfig => c !== null);
@@ -229,53 +230,6 @@ export class ConfigManager {
     return { language: 'zh-CN', theme: 'dark', keybindings: {} };
   }
 
-  private parseSimpleYaml(content: string): Record<string, any> {
-    const result: Record<string, any> = {};
-    let currentKey = '';
-    let inContent = false;
-    let contentLines: string[] = [];
-    let contentIndent = 0;
-
-    for (const line of content.split('\n')) {
-      if (inContent) {
-        const indent = line.search(/\S/);
-        if (indent <= contentIndent && line.trim()) {
-          result[currentKey] = contentLines.join('\n').trim();
-          inContent = false;
-          contentLines = [];
-        } else {
-          contentLines.push(line.slice(Math.max(0, contentIndent)));
-          continue;
-        }
-      }
-
-      if (!line.trim() || line.trim().startsWith('#')) continue;
-      const colonIdx = line.indexOf(':');
-      if (colonIdx <= 0) continue;
-      currentKey = line.substring(0, colonIdx).trim();
-      const value = line.substring(colonIdx + 1).trim();
-      if (value === '|') {
-        inContent = true;
-        contentIndent = line.search(/\S/) + 2;
-        contentLines = [];
-      } else if (value) {
-        result[currentKey] = this.parseYamlVal(value);
-      }
-    }
-    if (inContent && contentLines.length > 0) {
-      result[currentKey] = contentLines.join('\n').trim();
-    }
-    return result;
-  }
-
-  private parseYamlVal(v: string): any {
-    if (v === 'true') return true;
-    if (v === 'false') return false;
-    if (v === 'null' || v === '~') return null;
-    const n = Number(v);
-    if (!isNaN(n)) return n;
-    return v.replace(/^["']|["']$/g, '');
-  }
 }
 
 let instance: ConfigManager | null = null;

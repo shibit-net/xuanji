@@ -1,7 +1,7 @@
 import { registerAuthIpcHandlers } from './auth.js';
 import { registerModelsIpcHandlers } from './models.js';
 import { registerWindowIpcHandlers } from './window.js';
-import { registerAgentIpcHandlers } from './agent.js';
+import { registerAgentIpcHandlers, registerSystemIpcHandlers } from './agent.js';
 import { registerSettingsIpcHandlers } from './settings.js';
 import { registerSessionIpcHandlers } from './session.js';
 import { registerToolsIpcHandlers } from './tools.js';
@@ -22,6 +22,7 @@ function registerAllIpcHandlers() {
   registerLogsIpcHandlers();
   registerAdvancedIpcHandlers();
   registerDownloadHandlers();
+  registerSystemIpcHandlers();
 }
 
 export { registerAllIpcHandlers };

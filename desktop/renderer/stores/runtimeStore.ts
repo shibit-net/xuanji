@@ -288,9 +288,10 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
   finishMessageStream: () =>
     set((state) => {
       if (!state.messageStream) return {};
-      // 将所有仍在 running 的工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
+      // 将所有仍在 running 的非异步工具标记为 success（防止 agent:end 先于 agent:tool-end 到达）
+      // 异步 task/agent_team 保留 running 状态，后台任务完成后由 auto-summarize-start 更新
       const toolCalls = state.messageStream.toolCalls.map((tc) =>
-        tc.status === 'running'
+        tc.status === 'running' && tc.name !== 'task' && tc.name !== 'agent_team'
           ? { ...tc, status: 'success' as const, duration: tc.startTime ? Date.now() - tc.startTime : undefined }
           : tc
       );
@@ -430,7 +431,7 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
       }
 
       const eventWithGroup = { ...event, parallelGroupId, startTime: event.startTime || now };
-      const newEvents = [...prev, eventWithGroup].slice(-5);
+      const newEvents = [...prev, eventWithGroup].slice(-4);
       return {
         agentActivity: {
           ...state.agentActivity,
@@ -442,7 +443,7 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
       };
     }),
 
-  finishTimelineEvent: (agentId, eventId, duration, status) =>
+  finishTimelineEvent: (agentId, eventId, duration, status) => {
     set((state) => {
       const prev = state.agentActivity.timelineEvents[agentId] || [];
       const updated = prev.map((e) =>
@@ -459,7 +460,26 @@ export const useRuntimeStore = create<RuntimeStoreState>()((set) => ({
           },
         },
       };
-    }),
+    });
+    // 错误事件保留更长时间让用户看到，成功事件 1.5s 后自动移除
+    const removeDelay = status === 'error' ? 5000 : 1500;
+    setTimeout(() => {
+      set((state) => {
+        const prev = state.agentActivity.timelineEvents[agentId] || [];
+        const filtered = prev.filter(e => e.id !== eventId);
+        if (filtered.length === prev.length) return state;
+        return {
+          agentActivity: {
+            ...state.agentActivity,
+            timelineEvents: {
+              ...state.agentActivity.timelineEvents,
+              [agentId]: filtered,
+            },
+          },
+        };
+      });
+    }, removeDelay);
+  },
 
   addRecentEvent: (evt) =>
     set((state) => {

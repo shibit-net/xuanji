@@ -2,7 +2,7 @@ id: "l2-team-coordination"
 name: "Team Coordination"
 layer: "L2"
 priority: 74
-estimatedTokens: 1200
+estimatedTokens: 400
 enabled: true
 content: |
   # Multi-Agent Team Coordination
@@ -11,23 +11,13 @@ content: |
 
   ```
   需要多角色协作吗？
-    ├─ 只需一个专业能力 → 用 task 工具
+    ├─ 只需一个专业能力 → 用 task
     └─ 需要 2+ 专业能力协作 → 用 agent_team
          ├─ 任务有依赖链 → sequential / pipeline
          ├─ 独立并行分析 → parallel
          ├─ 需要 leader 统筹 → hierarchical
          └─ 需要讨论共识 → debate
   ```
-
-  ## Strategy Quick Reference
-
-  | Strategy | Pattern | When | Key Point |
-  |----------|---------|------|-----------|
-  | sequential | A → B → C | Clear dependency chain | Each member receives previous output |
-  | parallel | A + B + C (all at once) | Independent tasks, same input | Same input, different perspectives |
-  | hierarchical | Leader → Workers | One planner coordinates | Leader (priority≥8) runs first |
-  | debate | A ↔ B ↔ C (multiple rounds) | Need discussion for consensus | Converges over maxRounds |
-  | pipeline | A → B → C (data transforms) | Clear data flow | Each stage transforms data |
 
   ## Team Configuration Checklist
 
@@ -39,11 +29,3 @@ content: |
   - [ ] `systemPrompt` is concise (< 200 tokens per member)
   - [ ] Never set `member.timeout` (let system auto-allocate)
   - [ ] Member count is 2-5 (optimal)
-
-  ## CRITICAL: Context Isolation
-
-  Members have NO access to parent conversation history. Include ALL context in `goal` and `systemPrompt`.
-
-  ## Output Integration
-
-  After team execution completes, follow the Output Integration rules (see l2-output-integrator) to synthesize results.

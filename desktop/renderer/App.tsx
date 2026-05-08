@@ -5,7 +5,9 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
+import { Toaster } from './components/ui/toaster';
 import { useAuthStore } from './stores/authStore';
+import { useConfigStore } from './stores/configStore';
 
 // 懒加载页面组件
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -47,8 +49,21 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const theme = useConfigStore((s) => s.settings.theme);
+
+  // 主题同步到 html 元素（dark 类控制 shadcn CSS 变量）
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [theme]);
+
   return (
     <ToastProvider>
+      <Toaster />
       <HashRouter>
         <Suspense fallback={<LoadingScreen />}>
           <Routes>

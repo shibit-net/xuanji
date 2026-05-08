@@ -43,9 +43,8 @@ export class ModelsService {
   }
 
   // 获取模型基本信息（公开接口，无需管理员权限）
-  async getAgentLLMBasicInfoById(id: number, routeId?: number) {
-    const params = routeId ? { routeId } : undefined;
-    return this.client.get(`/api/llm/agent/info/${id}`, { params });
+  async getAgentLLMBasicInfoById(id: number, _routeId?: number) {
+    return this.client.get(`/api/llm/agent/info/${id}`);
   }
 
   // 获取模型详细信息（需管理员权限）
@@ -54,21 +53,14 @@ export class ModelsService {
   }
 
   // 获取模型广场列表
-  async listMarketplaceModels(options?: {
+  async listMarketplaceModels(_options?: {
     vendor?: string;
     name?: string;
     routeId?: number;
     page?: number;
     size?: number;
   }) {
-    const params = {
-      vendor: options?.vendor,
-      name: options?.name,
-      routeId: options?.routeId,
-      page: options?.page,
-      size: options?.size
-    };
-    return this.client.get('/api/llm/agent/marketplace', { params });
+    return this.client.get('/api/llm/agent/marketplace');
   }
 
   // 使用 POST 方式获取模型广场列表
@@ -86,7 +78,7 @@ export class ModelsService {
       page: options?.page,
       size: options?.size
     };
-    return this.client.post('/api/llm/agent/marketplace', null, { params });
+    return this.client.post('/api/llm/agent/marketplace', { params });
   }
 
   // 搜索模型列表
@@ -104,7 +96,7 @@ export class ModelsService {
       name: options?.name,
       vendor: options?.vendor
     };
-    return this.client.post('/api/llm/agent/list', null, { params });
+    return this.client.post('/api/llm/agent/list', { params });
   }
 
   // 获取所有模型列表

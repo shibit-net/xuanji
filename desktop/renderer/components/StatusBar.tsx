@@ -2,22 +2,58 @@
 // StatusBar - 状态栏组件
 // ============================================================
 
-import { useChatStore } from '../stores/chatStore';
+import { useState, useEffect, useRef } from 'react';
+import { useMessageStore } from '../stores/messageStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { DownloadQueue } from './DownloadQueue';
+import { Badge } from '@/components/ui/badge';
 
 export default function StatusBar() {
-  const stats = useChatStore((state) => state.stats);
-  const currentSkill = useChatStore((state) => state.currentSkill);
-  const isPlanMode = useChatStore((state) => state.isPlanMode);
+  const currentSkill = useMessageStore((state) => state.currentSkill);
+  const isPlanMode = useSessionStore((state) => state.isPlanMode);
+
+  // 系统资源监控
+  const [resourceUsage, setResourceUsage] = useState<{
+    cpuPercent: number;
+    memoryMB: number;
+    totalMemoryMB: number;
+    percent: number;
+  } | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const result = await window.electron.getResourceUsage();
+        if (result.success && result.data) {
+          setResourceUsage({
+            cpuPercent: Math.round(result.data.cpu.percentCPUUsage * 10) / 10,
+            memoryMB: result.data.memory.usedMB,
+            totalMemoryMB: result.data.memory.totalMB,
+            percent: result.data.memory.percent,
+          });
+        }
+      } catch (e) {
+        console.warn('[StatusBar] getResourceUsage failed:', e);
+      }
+    };
+
+    fetchUsage();
+    intervalRef.current = setInterval(fetchUsage, 3000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
 
   return (
-    <div className="flex-shrink-0 h-7 bg-bg-secondary border-t border-bg-tertiary flex items-center justify-between px-4 text-xs text-text-secondary">
+    <div className="flex-shrink-0 h-7 bg-white/[0.02] border-t border-white/[0.06] flex items-center justify-between px-4 text-[11px] text-white/30">
       {/* 左侧：Plan Mode 徽标 + 当前 Skill */}
       <div className="flex items-center gap-4">
         {isPlanMode && (
-          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-semibold tracking-wide">
+          <Badge variant="warning" className="tracking-wide text-[10px] px-1.5 py-0.5">
             📋 PLAN MODE
-          </span>
+          </Badge>
         )}
         {currentSkill && (
           <div className="flex items-center gap-2">
@@ -27,8 +63,22 @@ export default function StatusBar() {
         )}
       </div>
 
-      {/* 右侧：下载队列 */}
-      <DownloadQueue />
+      {/* 右侧：系统资源 + 下载队列 */}
+      <div className="flex items-center gap-3">
+        {resourceUsage && (
+          <>
+            <span className="flex items-center gap-1" title="CPU 使用率">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              CPU {resourceUsage.cpuPercent}%
+            </span>
+            <span className="flex items-center gap-1" title={`内存 ${resourceUsage.memoryMB}MB / ${resourceUsage.totalMemoryMB}MB`}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+              内存 {resourceUsage.percent}%
+            </span>
+          </>
+        )}
+        <DownloadQueue />
+      </div>
     </div>
   );
 }

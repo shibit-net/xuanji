@@ -13,9 +13,86 @@
 
 import pino from 'pino';
 import path from 'path';
+import { homedir } from 'node:os';
 import fs from 'fs';
+import { Writable } from 'node:stream';
 import type { ILogger, LogMetadata } from '../types';
 import { RotatingFileStream } from './RotatingFileStream';
+
+// ─── 控制台可读输出流 ─────────────────────────────
+
+const LEVEL_COLORS: Record<string, string> = {
+  debug: '\x1b[36m',   // cyan
+  info: '\x1b[32m',    // green
+  warn: '\x1b[33m',    // yellow
+  error: '\x1b[31m',   // red
+};
+const RESET = '\x1b[0m';
+const DIM = '\x1b[2m';
+
+/**
+ * 将 pino JSON 日志格式化为人类可读的控制台输出
+ */
+function formatLogLine(obj: Record<string, unknown>): string {
+  const time = (obj.time as string)?.replace('T', ' ').replace('Z', '') ?? '';
+  const level = (obj.level as string || 'info').toUpperCase().padEnd(5);
+  const color = LEVEL_COLORS[obj.level as string] || '';
+  const ns = (obj.ns as string) || '';
+  const execId = obj.execId ? ` [${obj.execId}]` : '';
+  const depth = obj.depth !== undefined ? ` (depth=${obj.depth})` : '';
+  const msg = obj.msg || '';
+  const err = obj.err as { message?: string; stack?: string } | undefined;
+
+  let line = `${DIM}${time}${RESET} ${color}${level}${RESET}`;
+  if (ns) line += ` ${ns}`;
+  line += ` ${execId}${depth} ${msg}`;
+  if (err?.message) line += `\n       ${color}${err.message}${RESET}`;
+
+  return line;
+}
+
+/**
+ * 创建控制台可读输出流，替代 pino-pretty（避免 worker thread 兼容问题）
+ * 同时输出到 console.log，确保在 Electron 主进程和 DevTools 中都能看到
+ */
+function createConsoleStream(): Writable {
+  return new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      const line = chunk.toString().trim();
+      if (!line) return callback();
+
+      try {
+        const obj = JSON.parse(line);
+        const formatted = formatLogLine(obj);
+        const level = obj.level as string || 'info';
+
+        // 同时写入 stdout（兼容重定向）和 console 方法（Electron DevTools 可见）
+        process.stdout.write(formatted + '\n');
+
+        // 错误级别也输出到 console.error，方便在 DevTools 中筛选
+        if (level === 'error') {
+          if (obj.err && typeof obj.err === 'object') {
+            console.error(formatted);
+            const errStack = (obj.err as any).stack;
+            if (errStack) console.error(errStack);
+          } else {
+            console.error(formatted);
+          }
+        } else if (level === 'warn') {
+          console.warn(formatted);
+        } else {
+          console.log(formatted);
+        }
+      } catch {
+        // 非 JSON 行直接输出
+        process.stdout.write(line + '\n');
+        console.log(line);
+      }
+
+      callback();
+    },
+  });
+}
 
 // ─── 全局执行追踪上下文 ─────────────────────────────
 
@@ -59,7 +136,7 @@ export class PinoLogger implements ILogger {
     this.execId = opts?.execId;
     this.depth = opts?.depth;
 
-    const logDir = opts?.logDir ?? path.join(process.cwd(), '.xuanji', 'logs');
+    const logDir = opts?.logDir ?? path.join(homedir(), '.xuanji', 'logs');
     fs.mkdirSync(logDir, { recursive: true });
 
     const rotatingStream = new RotatingFileStream(logDir);
@@ -81,8 +158,7 @@ export class PinoLogger implements ILogger {
           level: 'debug',
         },
         {
-          // 直接输出到 stdout，不用 pino.transport（避免 worker thread 兼容问题）
-          stream: process.stdout,
+          stream: createConsoleStream() as any,
           level: process.env.XUANJI_LOG_LEVEL || 'debug',
         },
       ]),

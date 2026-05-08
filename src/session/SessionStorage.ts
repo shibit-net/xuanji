@@ -5,6 +5,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { homedir } from 'node:os';
 import { createReadStream, createWriteStream } from 'fs';
 import { createInterface } from 'readline';
 import type {
@@ -21,7 +22,7 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SessionStorage' });
 
-const DEFAULT_BASE_DIR = path.join(process.cwd(), '.xuanji', 'sessions');
+const DEFAULT_BASE_DIR = path.join(homedir(), '.xuanji', 'sessions');
 
 export class SessionStorage {
   private baseDir: string;

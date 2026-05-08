@@ -9,10 +9,11 @@
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
+import { logger } from '@/core/logger';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
 import type { SubAgentResult } from '@/core/agent/factory/AgentFactory';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
-import { AsyncAgentTaskManager } from '@/core/agent/async';
+import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 
 // ─── TaskTool ────────────────────────────────────────
@@ -36,13 +37,21 @@ export class TaskTool extends BaseTool {
     '2. Then call list_scenes to pick the right scene',
     '3. Call task with the agent_id, scene, and complete description',
     '',
+    'ASYNC (main agent, depth=0): runs in background. Do NOT query status or wait —',
+    'the system will automatically notify you when each task completes. Just continue',
+    'your current work. Completed results will be fed to you one by one.',
+    '',
+    'SYNC (sub-agent, depth>0): waits for completion and returns the result directly.',
+    '',
     'Example:',
     '  task({',
     '    subagent_type: "software-engineer",',
     '    scene: "write_code",',
     '    description: "Implement auth API in src/auth/... JWT tokens, bcrypt."',
     '  })',
-  ].join('\n');
+].join('\n');
+
+  private log = logger.child({ module: 'TaskTool' });
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -116,7 +125,7 @@ export class TaskTool extends BaseTool {
     registry: IToolRegistry;
     agentConfig: AgentConfig;
     parentProvider?: ILLMProvider;
-    hookRegistry?: HookRegistry | null;
+    hookRegistry?: HookRegistry;
     depth?: number;
     agentId?: string;
   }): void {
@@ -132,14 +141,14 @@ export class TaskTool extends BaseTool {
     if (!this.agentFactory) {
       this.agentFactory = new AgentFactory(this.registry);
     }
-    if (this.hookRegistry) {
-      this.agentFactory.setHookRegistry(this.hookRegistry);
-    }
     if (this.parentProvider) {
       this.agentFactory.setParentProvider(this.parentProvider);
     }
     if (this.agentConfig) {
       this.agentFactory.setParentConfig(this.agentConfig);
+    }
+    if (this.hookRegistry) {
+      this.agentFactory.setHookRegistry(this.hookRegistry);
     }
   }
 
@@ -165,10 +174,10 @@ export class TaskTool extends BaseTool {
     const isAsync = this.currentDepth === 0 || input.async === true;
 
     if (isAsync) {
-      return this.executeAsync(params, input);
+      return this.executeAsync({ ...params, role: params.role! }, input);
     }
 
-    return this.executeSync(params, input, signal);
+    return this.executeSync({ ...params, role: params.role! }, input, signal);
   }
 
   getActiveCount(): number {
@@ -227,7 +236,7 @@ export class TaskTool extends BaseTool {
   }
 
   private checkSafety(params: {
-    role: string;
+    role: string | null;
     description: string;
   }): ToolResult | null {
     // 禁止调用自己
@@ -275,45 +284,92 @@ export class TaskTool extends BaseTool {
       return this.error('TaskTool not initialized.');
     }
 
-    const manager = AsyncAgentTaskManager.getInstance();
+    const manager = TaskOrchestrator.getInstance();
     const agentConfig = this.agentConfig!;
     const currentDepth = this.currentDepth;
     const agentFactory = this.agentFactory;
     const parentAgentId = this.currentAgentId;
     const self = this;
 
+    // 🔧 先生成统一的 subAgentId，后续所有 thinking/tool events 共用
+    const subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
     const result = manager.startTask({
       type: 'task',
-      goal: params.description.slice(0, 120),
+      goal: (params.description || '').slice(0, 120),
       members: [{ id: params.role, name: this.getAgentName(params.role), status: 'pending' }],
       workingDir: params.cwd,
       isolation: params.isolation === 'worktree' ? 'worktree' : 'none',
+      subAgentId,
       executor: async (abortSignal, onProgress, groupId) => {
         onProgress({ phase: 'executing', currentMember: params.role, currentMemberStatus: '执行中...' });
         manager.updateMemberStatus(groupId, params.role, 'running');
 
         const savedCwd = params.cwd || process.cwd();
 
-        const execResult = await agentFactory.createAndRun(params.role, {
-          task: params.description,
-          timeout: params.timeout,
-          depth: currentDepth + 1,
-          isolation: params.isolation,
-          parentConfig: agentConfig,
-          systemPrompt: params.systemPrompt,
-          scene: params.scene,
-          tools: params.tools,
-          parentAgentId,
-          streamToUser: false,
-          workingDir: savedCwd,
-        }, abortSignal);
+        try {
+          // 异步执行时 stream_to_user 无意义（主 agent 不等待），强制设为 false
+          // 🔧 传入预先生成的 subAgentId，确保所有事件 ID 一致
+          const execResult = await agentFactory.createAndRun(params.role, {
+            task: params.description,
+            timeout: params.timeout,
+            depth: currentDepth + 1,
+            parentConfig: agentConfig,
+            systemPrompt: params.systemPrompt,
+            scene: params.scene,
+            tools: params.tools,
+            parentAgentId,
+            streamToUser: false,
+            workingDir: savedCwd,
+            subAgentId,
+          }, abortSignal);
 
-        try { process.chdir(savedCwd); } catch { /* ignore */ }
+          try { process.chdir(savedCwd); } catch { /* ignore */ }
 
-        manager.updateMemberStatus(groupId, params.role, execResult.timedOut ? 'failed' : 'completed');
-        onProgress({ phase: 'synthesizing', completedMembers: 1 });
+          // 🐛 修复: 之前用 timedOut ? 'failed' : 'completed' 忽略了 success=false 的情况
+          // 创建失败但 timedOut=false 时也会被标记为 completed
+          const memberStatus = execResult.success ? 'completed' : 'failed';
+          this.log.info(`[TaskTool] async sub-agent result`, {
+            role: params.role,
+            depth: currentDepth + 1,
+            success: execResult.success,
+            timedOut: execResult.timedOut,
+            iterations: execResult.iterations,
+            duration: execResult.duration,
+            memberStatus,
+            resultPreview: (execResult.result || '').slice(0, 200),
+          });
 
-        return self.formatResult(execResult, false, params.role);
+          manager.updateMemberStatus(groupId, params.role, memberStatus);
+          onProgress({ phase: 'synthesizing', completedMembers: execResult.success ? 1 : 0 });
+
+          return self.formatResult(execResult, false, params.role);
+        } catch (error: any) {
+          try { process.chdir(savedCwd); } catch { /* ignore */ }
+
+          const errMsg = error instanceof Error ? error.message : String(error);
+          const errStack = error instanceof Error ? error.stack : '';
+          this.log.error(`[TaskTool] async sub-agent execution failed`, {
+            role: params.role,
+            depth: currentDepth + 1,
+            parentAgentId,
+            subAgentId,
+            error: errMsg,
+            stack: errStack,
+          });
+          console.error(`[TaskTool] 异步子 agent 执行失败: role=${params.role}, depth=${currentDepth + 1}, error=${errMsg}`);
+
+          manager.updateMemberStatus(groupId, params.role, 'failed');
+          onProgress({ phase: 'synthesizing', completedMembers: 0 });
+
+          return {
+            content: `后台任务执行失败: ${errMsg}`,
+            isError: true,
+            metadata: {
+              agentName: self.getAgentName(params.role),
+            },
+          } as any;
+        }
       },
     });
 
@@ -321,7 +377,7 @@ export class TaskTool extends BaseTool {
       return this.error(result.error);
     }
 
-    return this.formatAsyncResponse(result.groupId, params.role, params.description);
+    return this.formatAsyncResponse(result.groupId, params.role, params.description, subAgentId);
   }
 
   // ── 同步执行 ────────────────────────────────────────
@@ -350,18 +406,13 @@ export class TaskTool extends BaseTool {
 
     this.activeCount++;
     const savedCwd = params.cwd || process.cwd();
-    const teamContext = TeamContext.get();
     const subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-    // 如果在 team 上下文中，发射 TeamSubMemberStart hook
-    await this.emitTeamSubMemberStart(teamContext, subAgentId, params);
 
     try {
       const result = await this.agentFactory!.createAndRun(params.role, {
         task: params.description,
         timeout: params.timeout,
         depth: this.currentDepth + 1,
-        isolation: params.isolation,
         parentConfig: this.agentConfig!,
         systemPrompt: params.systemPrompt,
         scene: params.scene,
@@ -372,8 +423,6 @@ export class TaskTool extends BaseTool {
         subAgentId,
       }, signal);
 
-      await this.emitTeamSubMemberEnd(teamContext, subAgentId, params.role, result);
-
       // 恢复 cwd，防止子 agent 的 change_directory 影响父 agent
       try { process.chdir(savedCwd); } catch { /* ignore */ }
 
@@ -383,72 +432,31 @@ export class TaskTool extends BaseTool {
     }
   }
 
-  // ── Team Hook 发射 ──────────────────────────────────
-
-  private async emitTeamSubMemberStart(
-    teamContext: import('./TeamContext').TeamContextData | null,
-    subAgentId: string,
-    params: { role: string; scene?: string; description: string },
-  ): Promise<void> {
-    if (!teamContext || !this.hookRegistry) return;
-
-    try {
-      await this.hookRegistry.emit('TeamSubMemberStart', {
-        teamId: teamContext.teamId,
-        data: {
-          parentMemberId: teamContext.parentMemberId,
-          subAgentId,
-          name: params.role,
-          scene: params.scene || 'general',
-          task: params.description.substring(0, 200),
-        },
-      });
-    } catch { /* ignore */ }
-  }
-
-  private async emitTeamSubMemberEnd(
-    teamContext: import('./TeamContext').TeamContextData | null,
-    subAgentId: string,
-    role: string,
-    result: SubAgentResult,
-  ): Promise<void> {
-    if (!teamContext || !this.hookRegistry) return;
-
-    try {
-      await this.hookRegistry.emit('TeamSubMemberEnd', {
-        teamId: teamContext.teamId,
-        data: {
-          parentMemberId: teamContext.parentMemberId,
-          subAgentId,
-          name: role,
-          success: result.success,
-          duration: result.duration,
-        },
-      });
-    } catch { /* ignore */ }
-  }
-
   // ── 结果格式化 ──────────────────────────────────────
 
-  private formatAsyncResponse(groupId: string, role: string, description: string): ToolResult {
+  private formatAsyncResponse(groupId: string, role: string, description: string, subAgentId: string): ToolResult {
+    const safeDesc = description || '';
     return this.success(
       [
         '[Task 已启动 - 后台运行]',
         `任务组 ID: ${groupId}`,
         `Agent: ${this.getAgentName(role)}`,
-        `任务: ${description.slice(0, 200)}`,
+        `任务: ${safeDesc.slice(0, 200)}`,
+        '',
+        '注意：异步任务不支持 stream_to_user。后台任务完成后系统会自动通知你汇总结果。',
+        '',
+        '不要主动查询任务状态或等待——系统会逐个通知你。继续做你当前的工作即可。',
+        '',
+        '重要：异步任务的输出结果用户不可见，系统只会通过内部上下文告诉你。',
+        '你必须口头向用户汇报结果，不能说"已经呈现在上下文"之类的话。',
         '',
         '---',
-        '用户可以：',
-        `- 查询进度: 使用 task_control({ action: "status", groupId: "${groupId}" })`,
-        `- 取消任务: 使用 task_control({ action: "cancel", groupId: "${groupId}" })`,
-        `- 查看所有后台任务: 使用 task_control({ action: "list" })`,
-        '完成后系统会通知你汇总结果。',
-      ].join('\n'),
+      ].join('\\\\n'),
       {
         taskAsync: true,
         groupId,
         agentType: role,
+        subAgentId,
       },
     );
   }
@@ -507,5 +515,19 @@ export class TaskTool extends BaseTool {
       }
     }
     return role;
+  }
+
+  /** 从 AgentRegistry 读取 agent 的 category，映射为 agentType */
+  private getAgentType(role: string): string {
+    if (this.agentRegistry) {
+      const agentConfig = this.agentRegistry.get(role);
+      if (agentConfig) {
+        const category = (agentConfig as any).metadata?.category || 'custom';
+        if (category === 'system') return 'builtin';
+        if (category === 'app') return 'preset';
+        return 'custom';
+      }
+    }
+    return 'temporary';
   }
 }

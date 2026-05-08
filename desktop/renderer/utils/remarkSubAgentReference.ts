@@ -38,8 +38,9 @@ export interface CitationReferenceNode {
   children: [];
 }
 
-// 📎 [名称]：\"引用原文\"  或  📎 [名称]:\"引用原文\"  或  📎 [名称]：\"引用原文\"
-const CITATION_REGEX = /\u{1F4CE}\s*\[([^\]]+)\]\s*[：:]\s*["\u201C\u2018\u300C](.+?)["\u201D\u2019\u300D]/u;
+// 📎 [名称]：\"引用原文\"  或  📎 [名称]:\"引用原文\"
+// 支持中英文引号："" '' \"\" 「」 直单引号 '
+const CITATION_REGEX = /\u{1F4CE}\s*\[([^\]]+)\]\s*[：:]\s*["'\u201C\u2018\u300C](.+?)["'\u201D\u2019\u300D]/u;
 
 export const remarkSubAgentReference = $remark(
   'subAgentReference',
@@ -84,8 +85,8 @@ export const remarkSubAgentReference = $remark(
           return;
         }
 
-        // 再匹配子 Agent 块引用：[查看详情: <名称>]
-        const subagentMatch = /\[查看详情:\s*(.+?)\]/.exec(text);
+        // 再匹配子 Agent 块引用：[查看详情: <名称>]  或  [查看详情：<名称>]
+        const subagentMatch = /\[查看详情[：:]\s*(.+?)\]/.exec(text);
         if (subagentMatch) {
           const agentName = subagentMatch[1].trim();
           const matchStart = subagentMatch.index;

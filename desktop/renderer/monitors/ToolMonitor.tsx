@@ -3,7 +3,8 @@
 // ============================================================
 
 import { useState } from 'react';
-import { Wrench, CheckCircle, XCircle, Loader, ChevronDown, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useRuntimeStore } from '../stores';
 
 /** 将 ANSI 颜色代码转换为 HTML */
@@ -119,9 +120,10 @@ export default function ToolMonitor() {
 
           return (
             <div key={tool.id} className="bg-bg-primary rounded overflow-hidden border border-bg-tertiary">
-              <button
+              <Button
                 onClick={() => setExpandedId(isExpanded ? null : tool.id)}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-bg-secondary transition-colors text-left"
+                variant="ghost"
+                className="w-full flex items-center gap-2 px-3 py-2 text-left h-auto justify-start"
               >
                 {/* 序号 */}
                 <span className="text-xs text-text-tertiary w-5 flex-shrink-0 text-right">{index + 1}</span>
@@ -144,7 +146,7 @@ export default function ToolMonitor() {
 
                 {/* 展开 */}
                 {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              </button>
+              </Button>
 
               {/* 展开详情 */}
               {isExpanded && (

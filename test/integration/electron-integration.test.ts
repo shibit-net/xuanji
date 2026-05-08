@@ -93,45 +93,6 @@ vi.mock('@/core/chat/ChatSession', () => ({
   })),
 }));
 
-// ── Mock IM Bots ─────────────────────────────────────────
-
-vi.mock('@/adapters/im/DingtalkBot', () => ({
-  DingtalkBot: vi.fn().mockImplementation(() => ({
-    name: 'dingtalk',
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
-vi.mock('@/adapters/im/FeishuBot', () => ({
-  FeishuBot: vi.fn().mockImplementation(() => ({
-    name: 'feishu',
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
-vi.mock('@/adapters/im/WecomBot', () => ({
-  WecomBot: vi.fn().mockImplementation(() => ({
-    name: 'wecom',
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
-// ── Mock MessageFormatter ────────────────────────────────
-
-vi.mock('@/adapters/im/MessageFormatter', () => ({
-  MessageFormatter: vi.fn().mockImplementation(() => ({
-    appendText: vi.fn(),
-    toolStart: vi.fn(),
-    toolEnd: vi.fn(),
-    format: vi.fn().mockReturnValue('test reply'),
-    reset: vi.fn(),
-    hasContent: vi.fn().mockReturnValue(true),
-  })),
-}));
-
 // ── 辅助函数 ─────────────────────────────────────────────
 
 async function getIpcHandler(channel: string): Promise<Function> {
@@ -361,21 +322,5 @@ describe('Preload Script', () => {
       cleanup();
       expect(ipcRenderer.removeListener).toHaveBeenCalledWith('chat:text', expect.any(Function));
     }
-  });
-});
-
-// ── MessageFormatter 集成（UI 格式化逻辑） ───────────────
-
-describe('Electron + MessageFormatter Integration', () => {
-  it('应能通过 IPC 传递格式化后的消息', async () => {
-    const { MessageFormatter } = await import('@/adapters/im/MessageFormatter');
-
-    const formatter = new MessageFormatter();
-    formatter.appendText('Hello ');
-    formatter.appendText('World');
-
-    const output = formatter.format();
-    expect(output).toBeDefined();
-    expect(typeof output).toBe('string');
   });
 });

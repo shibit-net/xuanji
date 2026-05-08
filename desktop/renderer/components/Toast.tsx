@@ -1,18 +1,13 @@
 // ============================================================
-// Toast - 通知组件
+// Toast - 通知组件（shadcn 包装层）
+// 保持与旧代码兼容的 API：toast.success() / toast.error() 等
+// 底层使用 Radix Toast + shadcn/ui
 // ============================================================
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
+import React, { createContext, useContext } from 'react';
+import { toast as shadcnToast } from '../hooks/use-toast';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
-
-interface Toast {
-  id: string;
-  type: ToastType;
-  message: string;
-  duration?: number;
-}
 
 interface ToastContextValue {
   show: (type: ToastType, message: string, duration?: number) => void;
@@ -32,93 +27,38 @@ export function useToast() {
   return context;
 }
 
+const variantMap: Record<ToastType, 'success' | 'error' | 'warning' | 'info'> = {
+  success: 'success',
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
+};
+
+const typeLabelMap: Record<ToastType, string> = {
+  success: '成功',
+  error: '错误',
+  warning: '警告',
+  info: '信息',
+};
+
+function show(type: ToastType, message: string, duration = 3000) {
+  shadcnToast({
+    variant: variantMap[type],
+    title: typeLabelMap[type],
+    description: message,
+    duration,
+  });
+}
+
+const success = (message: string, duration?: number) => show('success', message, duration);
+const error = (message: string, duration?: number) => show('error', message, duration);
+const warning = (message: string, duration?: number) => show('warning', message, duration);
+const info = (message: string, duration?: number) => show('info', message, duration);
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const show = useCallback((type: ToastType, message: string, duration = 3000) => {
-    const id = `${Date.now()}-${Math.random()}`;
-    const toast: Toast = { id, type, message, duration };
-
-    setToasts((prev) => [...prev, toast]);
-
-    if (duration > 0) {
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, duration);
-    }
-  }, []);
-
-  const remove = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  const success = useCallback((message: string, duration?: number) => {
-    show('success', message, duration);
-  }, [show]);
-
-  const error = useCallback((message: string, duration?: number) => {
-    show('error', message, duration);
-  }, [show]);
-
-  const warning = useCallback((message: string, duration?: number) => {
-    show('warning', message, duration);
-  }, [show]);
-
-  const info = useCallback((message: string, duration?: number) => {
-    show('info', message, duration);
-  }, [show]);
-
   return (
     <ToastContext.Provider value={{ show, success, error, warning, info }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md">
-        {toasts.map((toast) => (
-          <ToastItem key={toast.id} toast={toast} onClose={() => remove(toast.id)} />
-        ))}
-      </div>
     </ToastContext.Provider>
-  );
-}
-
-function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
-  const config = {
-    success: {
-      icon: CheckCircle,
-      className: 'bg-green-500/20 border-green-500/50 text-green-400',
-    },
-    error: {
-      icon: XCircle,
-      className: 'bg-red-500/20 border-red-500/50 text-red-400',
-    },
-    warning: {
-      icon: AlertCircle,
-      className: 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400',
-    },
-    info: {
-      icon: Info,
-      className: 'bg-blue-500/20 border-blue-500/50 text-blue-400',
-    },
-  };
-
-  const { icon: Icon, className } = config[toast.type];
-
-  return (
-    <div
-      className={`
-        flex items-center gap-3 px-4 py-3 rounded-lg border
-        shadow-lg backdrop-blur-sm
-        animate-slide-in-right
-        ${className}
-      `}
-    >
-      <Icon size={20} className="flex-shrink-0" />
-      <p className="text-sm flex-1">{toast.message}</p>
-      <button
-        onClick={onClose}
-        className="flex-shrink-0 p-0.5 hover:bg-white/10 rounded transition-colors"
-      >
-        <X size={16} />
-      </button>
-    </div>
   );
 }

@@ -64,12 +64,7 @@ export type {
   AgentTuningConfig,
   SkillsConfig,
   SessionConfig,
-  TiangongConfig,
   IConfigLoader,
-  BotsConfig,
-  DingtalkBotConfig,
-  FeishuBotConfig,
-  WecomBotConfig,
   WebSearchConfig,
   FeaturesConfig,
 } from './config';

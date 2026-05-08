@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Plus, Trash2, AlertCircle, Loader2, Search, Download } from 'lucide-react';
+import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Trash2, AlertCircle, Loader2, Search, Download } from 'lucide-react';
 import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
 import MilkdownEditor from './MilkdownEditor';
@@ -34,8 +34,6 @@ const DEFAULT_CONFIG = {
   id: '',
   name: '',
   description: '',
-  avatar: '🤖',
-  color: 'from-blue-500 to-purple-600',
   enabled: true,
   capabilities: [],
   skills: [],
@@ -431,11 +429,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     onSave(config);
   };
 
-  // 工具选择辅助函数
-  const isToolSelected = (toolName: string) => {
-    return (config.tools || []).some((t: any) => t.name === toolName && t.enabled !== false);
-  };
-
   const toggleTool = (toolName: string) => {
     const tools = config.tools || [];
     const existingIndex = tools.findIndex((t: any) => t.name === toolName);
@@ -488,21 +481,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     });
     return groups;
   }, [filteredTools]);
-
-  // 添加能力
-  const handleAddCapability = () => {
-    setConfig({
-      ...config,
-      capabilities: [...(config.capabilities || []), ''],
-    });
-  };
-
-  // 删除能力
-  const handleRemoveCapability = (index: number) => {
-    const newCapabilities = [...config.capabilities];
-    newCapabilities.splice(index, 1);
-    setConfig({ ...config, capabilities: newCapabilities });
-  };
 
   // 渲染表单字段
   const renderFormField = (
@@ -836,48 +814,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 {renderFormField('名称 *', 'name')}
               </div>
               {renderFormField('描述 *', 'description', 'textarea')}
-
-              {/* Avatar 和 Color */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Avatar（Emoji）</label>
-                  <input
-                    type="text"
-                    value={config.avatar || '🤖'}
-                    onChange={(e) => setConfig({ ...config, avatar: e.target.value })}
-                    placeholder="🤖"
-                    maxLength={2}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                  />
-                  <p className="text-xs text-text-secondary mt-1">
-                    使用 Emoji 作为头像，例如：🚀 📋 🎨
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Color（Tailwind 渐变）</label>
-                  <select
-                    value={config.color || 'from-blue-500 to-purple-600'}
-                    onChange={(e) => setConfig({ ...config, color: e.target.value })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
-                  >
-                    <option value="from-blue-500 to-purple-600">蓝紫渐变</option>
-                    <option value="from-green-500 to-teal-600">绿青渐变</option>
-                    <option value="from-pink-500 to-purple-600">粉紫渐变</option>
-                    <option value="from-orange-500 to-red-600">橙红渐变</option>
-                    <option value="from-purple-500 to-pink-600">紫粉渐变</option>
-                    <option value="from-yellow-500 to-orange-600">黄橙渐变</option>
-                  </select>
-                  {/* 预览 */}
-                  <div className="mt-2 flex items-center gap-2">
-                    <div
-                      className={`w-10 h-10 rounded flex items-center justify-center bg-gradient-to-br ${config.color || 'from-blue-500 to-purple-600'}`}
-                    >
-                      <span className="text-xl">{config.avatar || '🤖'}</span>
-                    </div>
-                    <span className="text-xs text-text-secondary">预览</span>
-                  </div>
-                </div>
-              </div>
 
               {/* Capabilities */}
               <div>

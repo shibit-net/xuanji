@@ -405,6 +405,17 @@ export function registerDownloadHandlers() {
     }
   });
 
+  // 用系统默认浏览器打开 URL
+  ipcMain.handle('workspace:open-url', async (_event, url: string) => {
+    try {
+      const { shell } = require('electron');
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // 获取 git 工作目录文件状态（git status --porcelain）
   ipcMain.handle('workspace:get-git-status', async (_event, dirPath: string) => {
     try {

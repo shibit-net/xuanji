@@ -194,9 +194,9 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest, o
               <span className="text-xl">{typeInfo.icon}</span>
               <div className="flex items-center gap-2 flex-1">
                 <span className={`font-medium ${typeInfo.color}`}>{typeInfo.type}</span>
-                {typeInfo.subType && (
+                {(typeInfo as any).subType && (
                   <span className="text-xs px-1.5 py-0.5 bg-bg-primary rounded">
-                    {typeInfo.subType}
+                    {(typeInfo as any).subType}
                   </span>
                 )}
               </div>
@@ -214,7 +214,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest, o
             {promptMode.layers && (
               <div className="mt-3 space-y-1.5">
                 <p className="text-xs font-medium text-text-primary">Prompt 组成层级：</p>
-                {promptMode.layers.map((layer: string, idx: number) => (
+                {(promptMode.layers as string[])?.map((layer: string, idx: number) => (
                   <div key={idx} className="flex items-start gap-2 text-xs text-text-secondary">
                     <span className="text-primary mt-0.5">▸</span>
                     <span>{layer}</span>

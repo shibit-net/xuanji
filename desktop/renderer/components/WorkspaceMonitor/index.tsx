@@ -7,7 +7,7 @@ import type { WorkspaceState, SubAgentData } from './types';
 import { useRuntimeStore } from '../../stores/runtimeStore';
 import { useActiveAgentStore, type AgentState } from '../../stores/activeAgentStore';
 import { workspaceStore } from '../../stores/workspaceStore';
-import { formatModelName } from '../../stores/chatStore';
+import { formatModelName } from '../../utils/toolSummary';
 
 /**
  * 快速结构哈希：仅对影响布局/渲染的关键字段计算摘要，避免 JSON.stringify 全量序列化。
@@ -112,6 +112,11 @@ export default function WorkspaceMonitor() {
   const isPanning = useRef(false);
   const panLastPos = useRef({ x: 0, y: 0 });
 
+  // 团队拖拽状态
+  const isDraggingTeam = useRef(false);
+  const dragTeamIdRef = useRef<string | null>(null);
+  const hitTestPendingRef = useRef(false);
+
   // 从 stores 获取数据
   const agentStatus = useRuntimeStore((state) => state.agentStatus);
   const isProcessing = useRuntimeStore((state) => state.isProcessing);
@@ -190,6 +195,14 @@ export default function WorkspaceMonitor() {
         case 'error':
           console.error('[WorkspaceMonitor] Worker 错误:', e.data.message);
           break;
+        case 'hitTestResult': {
+          hitTestPendingRef.current = false;
+          if (e.data.teamId) {
+            isDraggingTeam.current = true;
+            dragTeamIdRef.current = e.data.teamId;
+          }
+          break;
+        }
       }
     };
 
@@ -467,6 +480,16 @@ export default function WorkspaceMonitor() {
       setIsDragging(true);
       panLastPos.current = { x: e.clientX, y: e.clientY };
       (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+
+      // 发送命中测试，检测是否点击在团队边界框上
+      const canvas = canvasRef.current;
+      if (canvas && workerRef.current) {
+        const rect = canvas.getBoundingClientRect();
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        hitTestPendingRef.current = true;
+        workerRef.current.postMessage({ type: 'hitTest', screenX, screenY });
+      }
     }
   }, []);
 
@@ -475,13 +498,21 @@ export default function WorkspaceMonitor() {
     const dx = e.clientX - panLastPos.current.x;
     const dy = e.clientY - panLastPos.current.y;
     panLastPos.current = { x: e.clientX, y: e.clientY };
-    workerRef.current?.postMessage({ type: 'pan', deltaX: dx, deltaY: dy });
+
+    if (isDraggingTeam.current && dragTeamIdRef.current) {
+      workerRef.current?.postMessage({ type: 'dragTeam', teamId: dragTeamIdRef.current, deltaX: dx, deltaY: dy });
+    } else {
+      workerRef.current?.postMessage({ type: 'pan', deltaX: dx, deltaY: dy });
+    }
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (isPanning.current) {
       isPanning.current = false;
       setIsDragging(false);
+      isDraggingTeam.current = false;
+      dragTeamIdRef.current = null;
+      hitTestPendingRef.current = false;
       (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
     }
   }, []);

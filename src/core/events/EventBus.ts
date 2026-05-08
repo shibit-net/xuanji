@@ -5,9 +5,15 @@
  * - emit(): 异步发射事件，等待所有处理器完成
  * - emitSync(): 同步发射（fire-and-forget）
  * - request(): 请求-响应模式，等待订阅者返回结果
+ *
+ * 类型安全：所有事件名和 payload 类型由 XuanjiEventMap 约束。
+ *   eventBus.emit(XuanjiEvent.AGENT_TEXT_DELTA, { text: '...', agentId: '...' })
+ *   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, ({ text, agentId }) => { ... })
  */
 
 import { logger } from '@/core/logger';
+import type { XuanjiEventMap } from '@/core/events/EventMap';
+import { XuanjiEvent } from '@/core/events/events';
 
 const log = logger.child({ module: 'EventBus' });
 
@@ -32,6 +38,9 @@ export interface LoggedEvent {
   payload: any;
 }
 
+type EventKey = keyof XuanjiEventMap;
+type EventPayload<E> = E extends EventKey ? XuanjiEventMap[E] : any;
+
 class EventBusImpl {
   private events = new Map<string, Subscription[]>();
   private eventLog: LoggedEvent[] = [];
@@ -39,6 +48,8 @@ class EventBusImpl {
   private logCounter = 0;
 
   /** 发射事件（异步，按优先级顺序执行所有处理器，错误隔离） */
+  async emit<E extends EventKey>(event: E, payload: EventPayload<E>): Promise<void>;
+  async emit(event: string, payload?: any): Promise<void>;
   async emit(event: string, payload?: any): Promise<void> {
     const subscriptions = this.events.get(event);
     if (!subscriptions || subscriptions.length === 0) return;
@@ -62,6 +73,8 @@ class EventBusImpl {
   }
 
   /** 同步发射（fire-and-forget，不等待异步处理器） */
+  emitSync<E extends EventKey>(event: E, payload: EventPayload<E>): void;
+  emitSync(event: string, payload?: any): void;
   emitSync(event: string, payload?: any): void {
     const subscriptions = this.events.get(event);
     if (!subscriptions || subscriptions.length === 0) return;
@@ -87,8 +100,10 @@ class EventBusImpl {
   }
 
   /** 订阅事件，返回取消订阅函数 */
-  on<T = any>(event: string, handler: EventHandler<T>, options?: SubscribeOptions): Unsubscribe {
-    const sub: Subscription<T> = { handler, priority: options?.priority ?? 0, once: options?.once ?? false };
+  on<E extends EventKey>(event: E, handler: (payload: EventPayload<E>) => void | Promise<void>, options?: SubscribeOptions): Unsubscribe;
+  on(event: string, handler: EventHandler, options?: SubscribeOptions): Unsubscribe;
+  on(event: string, handler: EventHandler, options?: SubscribeOptions): Unsubscribe {
+    const sub: Subscription = { handler, priority: options?.priority ?? 0, once: options?.once ?? false };
     const subs = this.events.get(event) ?? [];
     subs.push(sub);
     this.events.set(event, subs);
@@ -96,12 +111,16 @@ class EventBusImpl {
   }
 
   /** 一次性订阅 */
-  once<T = any>(event: string, handler: EventHandler<T>): Unsubscribe {
+  once<E extends EventKey>(event: E, handler: (payload: EventPayload<E>) => void | Promise<void>): Unsubscribe;
+  once(event: string, handler: EventHandler): Unsubscribe;
+  once(event: string, handler: EventHandler): Unsubscribe {
     return this.on(event, handler, { once: true });
   }
 
   /** 取消订阅 */
-  off<T = any>(event: string, handler: EventHandler<T>): void {
+  off<E extends EventKey>(event: E, handler: (payload: EventPayload<E>) => void | Promise<void>): void;
+  off(event: string, handler: EventHandler): void;
+  off(event: string, handler: EventHandler): void {
     const subs = this.events.get(event);
     if (!subs) return;
     const filtered = subs.filter(s => s.handler !== handler);

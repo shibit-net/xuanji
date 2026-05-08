@@ -2,6 +2,7 @@
 // M6 工具系统 — Todo 任务管理器
 // ============================================================
 
+import { homedir } from 'node:os';
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -47,10 +48,10 @@ export class TodoManager {
       this.storagePath = join(userRoot, 'todos.jsonl');
       this.archivePath = join(userRoot, 'todos-archive.jsonl');
     } else {
-      this.storagePath = storagePath ?? join(process.cwd(), '.xuanji', 'todos.jsonl');
+      this.storagePath = storagePath ?? join(homedir(), '.xuanji', 'todos.jsonl');
       this.archivePath = storagePath
         ? storagePath.replace('.jsonl', '-archive.jsonl')
-        : join(process.cwd(), '.xuanji', 'todos-archive.jsonl');
+        : join(homedir(), '.xuanji', 'todos-archive.jsonl');
     }
   }
 

@@ -18,10 +18,20 @@ export interface ApiConfig {
   timeout?: number;
 }
 
+/** refreshToken 刷新回调签名 */
+export type RefreshTokenHandler = () => Promise<boolean>;
+
 class ApiClient {
   private config: ApiConfig;
   private cookies: Map<string, string> = new Map();
   private axiosInstance: AxiosInstance;
+
+  /** refreshToken 刷新回调（由 auth config 注册） */
+  private refreshTokenHandler: RefreshTokenHandler | null = null;
+
+  /** 防止并发刷新 */
+  private isRefreshing = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(config: ApiConfig) {
     this.config = {
@@ -42,7 +52,7 @@ class ApiClient {
     this.axiosInstance.interceptors.request.use(async (config) => {
       try {
         // 从 Electron Session 获取 Cookie
-        const fullUrl = config.baseURL + config.url;
+        const fullUrl = (config.baseURL ?? '') + (config.url ?? '');
 
         // 🔧 只为 shibit.net 域添加 Cookie，避免污染其他域名的请求
         if (fullUrl.includes('shibit.net')) {
@@ -51,35 +61,46 @@ class ApiClient {
           if (cookies.length > 0) {
             const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
             config.headers['Cookie'] = cookieHeader;
-            console.log('[API Client] 自动添加 Cookie，数量:', cookies.length);
-            console.log('[API Client] Cookie 内容（前200字符）:', cookieHeader.substring(0, 200));
-
-            // 打印所有请求头
-            console.log('[API Client] 所有请求头:', JSON.stringify(config.headers, null, 2));
           } else {
             console.log('[API Client] 警告：没有可用的 Cookie');
           }
-        } else {
-          console.log('[API Client] 跳过 Cookie 添加（非 shibit.net 域）:', fullUrl);
         }
       } catch (err) {
         console.error('[API Client] 获取 Cookie 失败:', err);
       }
 
-      console.log('[API Client] 发送请求:', config.method?.toUpperCase(), config.url);
       return config;
     });
 
-    // 响应拦截器：处理 Set-Cookie 和错误
+    // 响应拦截器：处理 1101 自动刷新、Set-Cookie 和错误
     this.axiosInstance.interceptors.response.use(
-      (response) => {
-        console.log('[API Client] 收到响应，状态码:', response.status);
-
+      async (response) => {
         // 处理 Set-Cookie（如果有）
         const setCookie = response.headers['set-cookie'];
         if (setCookie) {
-          console.log('[API Client] 收到 Set-Cookie:', setCookie);
           this.parseAndStoreCookies(setCookie);
+        }
+
+        // 检测 code=1101（Token 过期），自动刷新后重放
+        // 跳过 /api/auth/refresh 自身，防止 refreshToken 也过期时无限递归
+        const data = response.data;
+        if (data?.code === 1101 && this.refreshTokenHandler && !response.config.url?.includes('/api/auth/refresh')) {
+          const refreshed = await this.handleTokenRefresh();
+          if (refreshed) {
+            // 重新获取 Cookie 并重放原请求
+            try {
+              const fullUrl = (response.config.baseURL ?? '') + (response.config.url ?? '');
+              if (fullUrl.includes('shibit.net')) {
+                const cookies = await session.defaultSession.cookies.get({ url: fullUrl });
+                if (cookies.length > 0) {
+                  const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                  response.config.headers['Cookie'] = cookieHeader;
+                }
+              }
+            } catch { /* ignore */ }
+            return this.axiosInstance.request(response.config);
+          }
+          // 刷新失败，返回原始 1101 错误
         }
 
         return response;
@@ -110,6 +131,37 @@ class ApiClient {
         throw error;
       }
     );
+  }
+
+  /** 注册 refresh token 回调 */
+  setRefreshTokenHandler(handler: RefreshTokenHandler): void {
+    this.refreshTokenHandler = handler;
+  }
+
+  /** 执行 token 刷新（带并发锁） */
+  private async handleTokenRefresh(): Promise<boolean> {
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = (async () => {
+      try {
+        if (!this.refreshTokenHandler) return false;
+        console.log('[API Client] 检测到 code=1101，开始自动刷新 token...');
+        const result = await this.refreshTokenHandler();
+        console.log('[API Client] token 刷新结果:', result ? '成功' : '失败');
+        return result;
+      } catch (err) {
+        console.error('[API Client] token 刷新异常:', err);
+        return false;
+      } finally {
+        this.isRefreshing = false;
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 
   // 设置 Cookie
@@ -144,30 +196,34 @@ class ApiClient {
   // 从 Set-Cookie 响应头解析 Cookie
   parseAndStoreCookies(setCookieHeaders: string | string[] | null) {
     if (!setCookieHeaders) return;
-    
+
     const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
-    
+
     for (const header of headers) {
-      const cookies = header.split(/,(?=\s*[a-zA-Z0-9_]+=)/);
-      
-      for (const cookie of cookies) {
-        const trimmedCookie = cookie.trim();
-        
-        if (trimmedCookie.startsWith('accessToken=')) {
-          const match = trimmedCookie.match(/accessToken=([^;]+)/);
-          if (match) {
-            this.setCookie('accessToken', match[1]);
+      // 按逗号分割多个 cookie（同一 header 中可能合并了多个 Set-Cookie）
+      const cookies = header.split(/,(?=\s*(?:access|refresh)Token=)/i);
+
+      for (const cookieStr of cookies) {
+        const trimmed = cookieStr.trim();
+
+        // 提取 cookie 名称和值
+        const nameMatch = trimmed.match(/^([^=]+)=([^;]*)/);
+        if (!nameMatch) continue;
+
+        const cookieName = nameMatch[1].trim();
+        const cookieValue = nameMatch[2].trim();
+
+        if (cookieName === 'accessToken') {
+          this.setCookie('accessToken', cookieValue);
+        } else if (cookieName === 'refreshToken') {
+          this.setCookie('refreshToken', cookieValue);
+          // 同时解析 Max-Age，避免硬编码 refreshToken 过期时间
+          const maxAgeMatch = trimmed.match(/Max-Age=(\d+)/i);
+          if (maxAgeMatch) {
+            this.setCookie('refreshTokenExpiresIn', maxAgeMatch[1]);
           }
-        } else if (trimmedCookie.startsWith('refreshToken=')) {
-          const match = trimmedCookie.match(/refreshToken=([^;]+)/);
-          if (match) {
-            this.setCookie('refreshToken', match[1]);
-          }
-        } else if (trimmedCookie.startsWith('tokenExpiresIn=')) {
-          const match = trimmedCookie.match(/tokenExpiresIn=([^;]+)/);
-          if (match) {
-            this.setCookie('tokenExpiresIn', match[1]);
-          }
+        } else if (cookieName === 'tokenExpiresIn') {
+          this.setCookie('tokenExpiresIn', cookieValue);
         }
       }
     }

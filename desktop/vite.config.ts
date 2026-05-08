@@ -90,5 +90,8 @@ export default defineConfig({
   },
   server: {
     port: 9100,
+    fs: {
+      allow: ['.', '../'],
+    },
   },
 });

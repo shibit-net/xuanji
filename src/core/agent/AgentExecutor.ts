@@ -7,7 +7,9 @@
 
 import { AgentLoop } from './AgentLoop.js';
 import { ToolRegistry } from '@/core/tools/ToolRegistry.js';
-import { ProviderFactory } from '@/core/providers/ProviderFactory.js';
+import { OpenAIProvider } from '@/core/providers/OpenAIProvider.js';
+import { AnthropicProvider } from '@/core/providers/AnthropicProvider.js';
+import { LocalLlamaAdapter } from '@/core/providers/LocalLlamaAdapter.js';
 import type { ConfigurableAgentConfig } from './types.js';
 import type { AgentConfig, ILLMProvider } from '@/core/types';
 import { logger } from '@/core/logger';
@@ -148,18 +150,21 @@ export class AgentExecutor {
   }
 
   /**
-   * 创建 Provider
+   * 创建 Provider —— 直接按 adapter 类型创建
    */
   private static createProvider(agentConfig: ConfigurableAgentConfig): ILLMProvider {
-    const providerFactory = new ProviderFactory();
-    const modelName = agentConfig.model.primary;
+    // Agent 配置的 provider.adapter 指明 Provider 类型
+    const adapter = agentConfig.provider?.adapter || 'openai';
 
-    const provider = providerFactory.getByModel(modelName);
-
-    if (!provider) {
-      throw new Error(`Unsupported model: ${modelName}`);
+    switch (adapter) {
+      case 'anthropic':
+        return new AnthropicProvider();
+      case 'local-llama':
+        return new LocalLlamaAdapter();
+      case 'openai':
+      case 'openai-response':
+      default:
+        return new OpenAIProvider();
     }
-
-    return provider;
   }
 }
