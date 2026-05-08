@@ -11,6 +11,7 @@ import { logger } from '@/core/logger';
 import { getXuanjiRoot, getTemplateRoot } from './PathManager';
 import type { UserSettings, SystemConfig, AgentConfig } from './types';
 import { parse as parseYaml } from 'yaml';
+import JSON5 from 'json5';
 
 export type { UserSettings, SystemConfig, AgentConfig };
 
@@ -77,7 +78,8 @@ export class ConfigManager {
       .map(f => {
         try {
           const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
-          return f.endsWith('.json') ? JSON.parse(content) : parseYaml(content);
+          const config = f.endsWith('.json') ? JSON.parse(content) : parseYaml(content);
+          return this.applyAgentOverride(config as AgentConfig) as AgentConfig;
         } catch { return null; }
       })
       .filter((c): c is AgentConfig => c !== null);
@@ -85,6 +87,27 @@ export class ConfigManager {
 
   getAgentConfig(agentId: string): AgentConfig | null {
     return this.getAgentConfigs().find(c => c.id === agentId) ?? null;
+  }
+
+  /** 应用 agent-overrides 中的用户覆盖到 agent 配置 */
+  private applyAgentOverride(config: AgentConfig): AgentConfig {
+    const overridesDir = path.join(this.userConfigDir, 'agent-overrides');
+    const overridePath = path.join(overridesDir, `${config.id}.json5`);
+    if (!fs.existsSync(overridePath)) return config;
+
+    try {
+      const content = fs.readFileSync(overridePath, 'utf-8');
+      const override = JSON5.parse(content) as { provider?: Record<string, any>; model?: Record<string, any> };
+
+      if (override.provider) {
+        config.provider = { ...config.provider, ...override.provider };
+      }
+      if (override.model) {
+        config.model = { ...config.model, ...override.model };
+      }
+    } catch { /* 覆盖文件解析失败时使用原始配置 */ }
+
+    return config;
   }
 
   async saveAgentConfig(agentId: string, config: AgentConfig): Promise<void> {

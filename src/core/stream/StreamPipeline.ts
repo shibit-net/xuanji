@@ -46,6 +46,9 @@ export class StreamPipeline {
   }
 
   abort(): void {
+    if (this.currentStream && typeof (this.currentStream as any).return === 'function') {
+      (this.currentStream as any).return();
+    }
     this.currentStream = null;
   }
 
@@ -74,6 +77,9 @@ export class StreamPipeline {
           await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 10000)));
         }
       } finally {
+        if (this.currentStream && typeof (this.currentStream as any).return === 'function') {
+          (this.currentStream as any).return();
+        }
         this.currentStream = null;
       }
     }

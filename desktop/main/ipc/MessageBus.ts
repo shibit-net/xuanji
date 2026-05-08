@@ -668,11 +668,11 @@ export const messageChannel = messageBus.createChannel('default', {
   timeout: 30000,
   maxRetries: 3,
   retryDelay: 1000,
-  enableLogging: true,
+  enableLogging: false,
 });
 
 // 子进程端默认通道（兼容旧代码）
 export const childMessageChannel = new ChildMessageChannel({
   name: 'default',
-  enableLogging: true,
+  enableLogging: false,
 });

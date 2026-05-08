@@ -103,10 +103,41 @@
     "npmRebuild": false,
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
-      "build-resources/**/*",
-      "build/**/*",
-      "!dist-electron/agent-bridge.ts"
+      "dist-electron/index.js",
+      "dist-electron/preload.js",
+      "build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-electron",
+        "to": "dist-electron",
+        "filter": ["*.mjs"]
+      },
+      {
+        "from": "build-resources",
+        "to": "build-resources",
+        "filter": ["*.js"]
+      },
+      {
+        "from": "../node_modules/tree-sitter",
+        "to": "dist-electron/node_modules/tree-sitter"
+      },
+      {
+        "from": "../node_modules/tree-sitter-typescript",
+        "to": "dist-electron/node_modules/tree-sitter-typescript"
+      },
+      {
+        "from": "../node_modules/tree-sitter-python",
+        "to": "dist-electron/node_modules/tree-sitter-python"
+      },
+      {
+        "from": "../node_modules/tree-sitter-java",
+        "to": "dist-electron/node_modules/tree-sitter-java"
+      },
+      {
+        "from": "../node_modules/node-gyp-build",
+        "to": "dist-electron/node_modules/node-gyp-build"
+      }
     ],
     "mac": {
       "target": [
@@ -114,7 +145,8 @@
         "zip"
       ],
       "icon": "build/icon.icns",
-      "artifactName": "xuanji-${os}-${arch}.${ext}"
+      "artifactName": "xuanji-${os}-${arch}.${ext}",
+      "hardenedRuntime": false
     },
     "win": {
       "target": [

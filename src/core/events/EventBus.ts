@@ -41,11 +41,14 @@ export interface LoggedEvent {
 type EventKey = keyof XuanjiEventMap;
 type EventPayload<E> = E extends EventKey ? XuanjiEventMap[E] : any;
 
+const DEFAULT_MAX_LISTENERS = 50;
+
 class EventBusImpl {
   private events = new Map<string, Subscription[]>();
   private eventLog: LoggedEvent[] = [];
   private maxLogSize = 200;
   private logCounter = 0;
+  private maxListeners = DEFAULT_MAX_LISTENERS;
 
   /** 发射事件（异步，按优先级顺序执行所有处理器，错误隔离） */
   async emit<E extends EventKey>(event: E, payload: EventPayload<E>): Promise<void>;
@@ -103,8 +106,11 @@ class EventBusImpl {
   on<E extends EventKey>(event: E, handler: (payload: EventPayload<E>) => void | Promise<void>, options?: SubscribeOptions): Unsubscribe;
   on(event: string, handler: EventHandler, options?: SubscribeOptions): Unsubscribe;
   on(event: string, handler: EventHandler, options?: SubscribeOptions): Unsubscribe {
-    const sub: Subscription = { handler, priority: options?.priority ?? 0, once: options?.once ?? false };
     const subs = this.events.get(event) ?? [];
+    if (subs.length >= this.maxListeners) {
+      log.warn(`EventBus: maxListeners (${this.maxListeners}) exceeded for event "${event}". Possible listener leak.`);
+    }
+    const sub: Subscription = { handler, priority: options?.priority ?? 0, once: options?.once ?? false };
     subs.push(sub);
     this.events.set(event, subs);
     return () => this.off(event, handler);
@@ -143,6 +149,16 @@ class EventBusImpl {
     return this.events.get(event)?.length ?? 0;
   }
 
+  /** 设置每个事件的最大监听器数，超过时打印警告 */
+  setMaxListeners(n: number): void {
+    this.maxListeners = n;
+  }
+
+  /** 获取当前最大监听器数 */
+  getMaxListeners(): number {
+    return this.maxListeners;
+  }
+
   /** 获取所有已注册的事件名 */
   eventNames(): string[] {
     return Array.from(this.events.keys());
@@ -175,12 +191,9 @@ class EventBusImpl {
         results.push(data);
       } }).finally(() => {
         clearTimeout(timer);
-      });
-
-      setTimeout(() => {
         unsubscribe();
         resolve(results);
-      }, timeout);
+      });
     });
   }
 

@@ -31,10 +31,21 @@ const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
 
 /**
+ * 将 UTC ISO 时间戳转为本地时间字符串：YYYY-MM-DD HH:mm:ss.SSS
+ */
+function formatLocalTime(isoTime?: string): string {
+  if (!isoTime) return '';
+  const d = new Date(isoTime);
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
+/**
  * 将 pino JSON 日志格式化为人类可读的控制台输出
  */
 function formatLogLine(obj: Record<string, unknown>): string {
-  const time = (obj.time as string)?.replace('T', ' ').replace('Z', '') ?? '';
+  const time = formatLocalTime(obj.time as string);
   const level = (obj.level as string || 'info').toUpperCase().padEnd(5);
   const color = LEVEL_COLORS[obj.level as string] || '';
   const ns = (obj.ns as string) || '';
@@ -120,11 +131,14 @@ export function getLogContext(): { execId?: string; depth?: number } {
 
 // ─── PinoLogger ──────────────────────────────────────
 
+const MAX_CHILD_CACHE_SIZE = 100;
+
 export class PinoLogger implements ILogger {
   private pino: pino.Logger;
   private ns: string;
   private execId?: string;
   private depth?: number;
+  private static childCache = new Map<string, PinoLogger>();
 
   constructor(opts?: {
     namespace?: string;
@@ -143,7 +157,7 @@ export class PinoLogger implements ILogger {
 
     this.pino = pino(
       {
-        level: process.env.XUANJI_LOG_LEVEL || 'debug',
+        level: process.env.XUANJI_LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
         timestamp: pino.stdTimeFunctions.isoTime,
         formatters: {
           level(label) {
@@ -159,7 +173,7 @@ export class PinoLogger implements ILogger {
         },
         {
           stream: createConsoleStream() as any,
-          level: process.env.XUANJI_LOG_LEVEL || 'debug',
+          level: process.env.XUANJI_LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
         },
       ]),
     );
@@ -223,10 +237,21 @@ export class PinoLogger implements ILogger {
     const childExecId = (metadata.execId as string) || this.execId;
     const childDepth = (metadata.depth as number) ?? this.depth;
 
-    return new PinoLogger({
+    const cacheKey = JSON.stringify({ ns: childNs, execId: childExecId, depth: childDepth });
+    const cached = PinoLogger.childCache.get(cacheKey);
+    if (cached) return cached;
+
+    if (PinoLogger.childCache.size >= MAX_CHILD_CACHE_SIZE) {
+      const firstKey = PinoLogger.childCache.keys().next().value;
+      if (firstKey !== undefined) PinoLogger.childCache.delete(firstKey);
+    }
+
+    const child = new PinoLogger({
       namespace: childNs,
       execId: childExecId,
       depth: childDepth,
     });
+    PinoLogger.childCache.set(cacheKey, child);
+    return child;
   }
 }

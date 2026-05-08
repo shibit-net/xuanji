@@ -607,7 +607,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           `- 工具数: ${errorDetails.toolCount}\n\n` +
           `常见原因:\n` +
           `1. API Key 无效或过期\n` +
-          `2. 模型名称错误（请检查 config.json 中的 model 字段）\n` +
+          `2. 模型名称错误（请检查 agent 配置文件的 model 字段）\n` +
           `3. baseURL 配置错误（如使用代理服务）\n` +
           `4. API 服务暂时不可用（请稍后重试）`;
       } else if (!isApiError) {

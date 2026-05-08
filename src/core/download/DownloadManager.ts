@@ -51,7 +51,8 @@ export class DownloadManager extends EventEmitter {
   private instanceId: number;
   private tasks: Map<string, DownloadTask> = new Map();
   private activeDownloads: Map<string, AbortController> = new Map();
-  private maxConcurrent = 3; // 最大并发下载数
+  private cleanupTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private maxConcurrent = 3;
   private shouldRestoreTasks: boolean;
 
   private constructor(shouldRestoreTasks: boolean = true) {
@@ -241,11 +242,13 @@ export class DownloadManager extends EventEmitter {
       log.info(`Download completed: ${task.name}`);
 
       // 自动清理已完成的任务（延迟清理，给UI时间显示完成状态）
-      setTimeout(() => {
+      const cleanupTimer = setTimeout(() => {
         this.tasks.delete(taskId);
+        this.cleanupTimers.delete(taskId);
         this.saveState();
         log.info(`[DownloadManager] Auto-cleaned completed task: ${taskId}`);
-      }, 5000); // 5秒后清理
+      }, 5000);
+      this.cleanupTimers.set(taskId, cleanupTimer);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         task.status = 'cancelled';
@@ -413,6 +416,11 @@ export class DownloadManager extends EventEmitter {
     if (controller) {
       controller.abort();
     }
+    const timer = this.cleanupTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.cleanupTimers.delete(taskId);
+    }
   }
 
   /**
@@ -446,10 +454,14 @@ export class DownloadManager extends EventEmitter {
       if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
         this.tasks.delete(id);
         count++;
+        const timer = this.cleanupTimers.get(id);
+        if (timer) {
+          clearTimeout(timer);
+          this.cleanupTimers.delete(id);
+        }
       }
     }
     log.info(`[DownloadManager] Cleared ${count} finished tasks`);
-    // 更新持久化文件
     this.saveState();
   }
 

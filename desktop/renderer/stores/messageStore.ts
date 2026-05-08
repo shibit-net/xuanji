@@ -9,6 +9,17 @@ import { useActiveAgentStore } from './activeAgentStore';
 import { useExecutionStore } from './executionStore';
 import { useSessionStore } from './sessionStore';
 
+// ── 消息数量上限（防止 OOM）──
+const MAX_MESSAGES = 500;
+const MAX_CITATIONS_PER_AGENT = 50;
+
+function trimMessages(messages: Message[]): Message[] {
+  if (messages.length > MAX_MESSAGES) {
+    return messages.slice(-Math.floor(MAX_MESSAGES / 2));
+  }
+  return messages;
+}
+
 // ── 任务文本最小展示时间（3 秒）──
 export const TASK_DISPLAY_MIN_MS = 3000;
 export const agentTaskDisplayStart: Record<string, number> = {};
@@ -286,7 +297,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     }
     const messageId = streamingMessageId;
     const text = streamTextBuffer;
-    console.log(`[messageStore] flushStreamText: msgId=${messageId}, textLen=${text.length}, isAgentEnded=${isAgentEnded}`);
     set((state) => ({
       messages: state.messages.map((msg) =>
         msg.id === messageId
@@ -341,9 +351,28 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     sendMessage: async (content) => {
       const convState = get()._conversationState;
       const isRunning = convState === 'executing' || convState === 'outputting';
-      console.log('[messageStore] sendMessage: convState=', convState, 'isRunning=', isRunning, 'streamingMessageId=', streamingMessageId, 'currentStreamingId=', get().currentStreamingId);
 
-      if (!isRunning) {
+      // ── 流式输出中追加消息：先封口当前气泡，新回复开新气泡 ──
+      if (isRunning) {
+        flushStreamText();
+        const finalizedId = streamingMessageId;
+        streamTextBuffer = '';
+        streamingMessageId = null;
+        isAgentEnded = false;
+        for (const key of Object.keys(subAgentStreamState)) {
+          delete subAgentStreamState[key];
+        }
+        if (finalizedId) {
+          set((s) => ({
+            messages: s.messages.map((msg) =>
+              msg.id === finalizedId ? { ...msg, statusHint: undefined } : msg
+            ),
+            currentStreamingId: null,
+            currentStreamingText: '',
+            _subAgentStreams: {},
+          }));
+        }
+      } else {
         isAgentEnded = false;
         streamTextBuffer = '';
         streamingMessageId = null;
@@ -376,7 +405,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }
 
       set((state) => ({
-        messages: [...state.messages, userMessage],
+        messages: trimMessages([...state.messages, userMessage]),
         status: isRunning ? state.status : 'thinking',
       }));
 
@@ -391,7 +420,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           };
           useRuntimeStore.getState().setProcessing(false);
           set((state) => ({
-            messages: [...state.messages, errorMessage],
+            messages: trimMessages([...state.messages, errorMessage]),
             status: 'idle',
           }));
         }
@@ -404,14 +433,14 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         };
         useRuntimeStore.getState().setProcessing(false);
         set((state) => ({
-          messages: [...state.messages, errorMessage],
+          messages: trimMessages([...state.messages, errorMessage]),
           status: 'idle',
         }));
       }
     },
 
     addMessage: (message) =>
-      set((state) => ({ messages: [...state.messages, message] })),
+      set((state) => ({ messages: trimMessages([...state.messages, message]) })),
 
     updateMessage: (id, updates) =>
       set((state) => ({
@@ -477,7 +506,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         streamingMessageId = newId;
         streamTextBuffer = text;
         set((state) => ({
-          messages: [...state.messages, newMessage],
+          messages: trimMessages([...state.messages, newMessage]),
           currentStreamingId: newId,
           currentStreamingText: text,
         }));
@@ -488,7 +517,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           streamTextBuffer = get().currentStreamingText || '';
         }
         streamTextBuffer += text;
-        console.log(`[messageStore] _handleAgentText: +${text.length} chars, total=${streamTextBuffer.length}, msgId=${currentStreamingId}`);
         throttledFlushStreamText();
       }
     },
@@ -503,7 +531,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         };
         subAgentStreamState[agentId] = { messageId: msgId, agentName, buffer: text };
         set((state) => ({
-          messages: [...state.messages, newMessage],
+          messages: trimMessages([...state.messages, newMessage]),
           _subAgentStreams: { ...state._subAgentStreams, [agentId]: msgId },
         }));
       } else {
@@ -535,7 +563,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
             ),
           }));
         } else {
-          console.log('[messageStore] agent:thinking(empty) → status = thinking, autoSummarizeActive =', get()._autoSummarizeActive);
           set({ status: 'thinking' });
         }
         return;
@@ -688,7 +715,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           status: 'executing',
         }));
       } else {
-        console.log('[messageStore] agent:tool-start → status = executing, autoSummarizeActive =', get()._autoSummarizeActive);
         set({ activeToolCalls: newToolCalls, status: 'executing' });
       }
 
@@ -755,7 +781,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           };
           set((s) => {
             const existing = s.citationOutputs[agentName] || [];
-            return { citationOutputs: { ...s.citationOutputs, [agentName]: [...existing, citation] } };
+            const updated = [...existing, citation];
+            return { citationOutputs: { ...s.citationOutputs, [agentName]: updated.slice(-MAX_CITATIONS_PER_AGENT) } };
           });
         }
         if (data.name === 'agent_team' && Array.isArray(metadata.citations)) {
@@ -768,7 +795,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
             for (const c of citationsData) {
               if (c.agentName && c.originalOutput) {
                 const existing = updated[c.agentName] || [];
-                updated[c.agentName] = [...existing, c];
+                updated[c.agentName] = [...existing, c].slice(-MAX_CITATIONS_PER_AGENT);
               }
             }
             return { citationOutputs: updated };
@@ -936,7 +963,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
               timestamp: Date.now(),
               toolSummary: true,
             };
-            set((state) => ({ messages: [...state.messages, summaryMessage] }));
+            set((state) => ({ messages: trimMessages([...state.messages, summaryMessage]) }));
           }
         }
       }
@@ -986,7 +1013,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       };
       useSessionStore.getState().addLog('error', error);
       set((state) => ({
-        messages: [...state.messages, errorMessage],
+        messages: trimMessages([...state.messages, errorMessage]),
         status: 'idle', currentStreamingId: null,
         currentStreamingText: '', activeToolCalls: new Map(),
       }));
@@ -996,14 +1023,14 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       isAgentEnded = true;
       throttledFlushStreamText.cancel();
 
-      console.log(`[messageStore] _handleAgentEnd: BEFORE flush - streamingMessageId=${streamingMessageId}, streamTextBuffer.len=${streamTextBuffer.length}, currentStreamingId=${get().currentStreamingId}`);
       flushStreamText();
-      console.log(`[messageStore] _handleAgentEnd: AFTER flush - streamingMessageId=${streamingMessageId}, streamTextBuffer.len=${streamTextBuffer.length}, currentStreamingId=${get().currentStreamingId}`);
 
       throttledFlushSubAgentStreams.cancel();
       flushSubAgentStreams();
       for (const key of Object.keys(subAgentStreamState)) delete subAgentStreamState[key];
-      console.log('[messageStore] agent:end → _autoSummarizeActive = false');
+      // 清理模块级 agent 记录，防止内存泄漏
+      for (const key of Object.keys(agentTaskDisplayStart)) delete agentTaskDisplayStart[key];
+      for (const key of Object.keys(agentThinkingBuffer)) delete agentThinkingBuffer[key];
       set({ _subAgentStreams: {}, _autoSummarizeActive: false });
 
       useRuntimeStore.getState().finishMessageStream();
@@ -1036,7 +1063,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       const activeAgentStore = useActiveAgentStore.getState();
       activeAgentStore.finishMainAgent();
 
-      console.log('[messageStore] _handleAgentEnd: status → idle, autoSummarizeActive was =', get()._autoSummarizeActive);
       set((prevState) => ({
         status: 'idle',
         _conversationState: 'idle',
@@ -1072,7 +1098,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
 
     _promoteSubAgent: (subAgentId: string) => {
       const pending = get()._pendingSubAgents[subAgentId];
-      console.log('[messageStore] _promoteSubAgent called:', { subAgentId, hasPending: !!pending, pendingKeys: Object.keys(get()._pendingSubAgents), parentId: pending?.parentId, name: pending?.name });
 
       const activeAgentStore = useActiveAgentStore.getState();
       const mainAgentId = activeAgentStore.mainAgent?.id || 'xuanji';
@@ -1382,6 +1407,9 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           description: `Team member ${status === 'success' ? 'completed' : 'failed'} (${data.duration}ms)`,
           icon: status === 'success' ? '✅' : '❌',
         });
+
+        delete agentTaskDisplayStart[subAgentId];
+        delete agentThinkingBuffer[subAgentId];
       } else {
         // task 工具创建的子 agent
         const subAgentId = data.memberId;
@@ -1415,7 +1443,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           icon: status === 'success' ? '✅' : '❌',
         });
 
-
+        delete agentTaskDisplayStart[subAgentId];
+        delete agentThinkingBuffer[subAgentId];
       }
     },
 

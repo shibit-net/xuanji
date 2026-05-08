@@ -102,9 +102,10 @@ export class AgentExecutor {
       // 6. 执行单次推理
       const timeout = options.timeout || agentConfig.execution.timeout || 10000;
 
-      // 设置超时
+      // 设置超时（保存 timer handle 以便在完成时清除，防止泄漏）
+      let timerId: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<void>((_, reject) => {
-        setTimeout(() => {
+        timerId = setTimeout(() => {
           if (!completed) {
             reject(new Error(`Agent execution timeout (${timeout}ms)`));
           }
@@ -123,6 +124,8 @@ export class AgentExecutor {
 
       // 等待完成或超时
       await Promise.race([executePromise, timeoutPromise]);
+      // 清除未触发的超时 timer，防止泄漏
+      if (timerId !== undefined) clearTimeout(timerId);
 
       // 检查错误
       if (error) {

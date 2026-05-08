@@ -47,11 +47,6 @@ function createWindow() {
     },
   });
 
-  // 监听渲染进程控制台输出（生产环境调试用）
-  mainWindow.webContents.on('console-message', (_event, _level, message, line, sourceId) => {
-    console.log(`[Renderer] ${message} (${sourceId}:${line})`);
-  });
-
   // 监听加载失败
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[Window] 页面加载失败: ${errorDescription} (${errorCode}) URL: ${validatedURL}`);
@@ -70,11 +65,13 @@ function createWindow() {
 
   if (isDev) {
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:9100';
+    console.log(`[Window] Dev mode, loading URL: ${devUrl}`);
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
     // 使用相对路径加载 ASAR 内的 HTML（__dirname = dist-electron/）
     const distPath = path.join(__dirname, '..', 'dist', 'index.html');
+    console.log(`[Window] Prod mode, loading file: ${distPath}`);
     mainWindow.loadFile(distPath);
   }
 

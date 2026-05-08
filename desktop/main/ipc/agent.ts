@@ -42,9 +42,7 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      logToRender('send-message: calling sendRequest...');
       const result = await sendRequest('send-message', { message }, 120000);
-      logToRender('send-message: success, result=' + JSON.stringify(result));
       return { success: true, result };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

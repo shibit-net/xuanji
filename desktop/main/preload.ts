@@ -278,7 +278,6 @@
   // ============ 工作目录变更通知（从 agent-bridge 子进程发出） ============
   onWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => {
     const handler = (_event: any, data: { path: string }) => {
-      console.log('[preload] workspace:directory-changed received:', data);
       callback(data);
     };
     (callback as any).__ipcHandler = handler;

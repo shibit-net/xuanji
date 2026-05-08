@@ -1,6 +1,9 @@
-import { safeStorage } from 'electron';
+// 使用 default import 兼容 CJS electron 模块（子进程 ESM 环境下 named export 不可用）
+import electron from 'electron';
+const { safeStorage } = electron;
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { authService, apiClient, type User } from '../services/index.js';
 
 interface AuthState {
@@ -37,7 +40,7 @@ let authState: AuthState = {
   user: null
 };
 
-const AUTH_DATA_PATH = path.join(process.cwd(), '.xuanji', 'auth');
+const AUTH_DATA_PATH = path.join(os.homedir(), '.xuanji', 'auth');
 const ACCOUNTS_FILE = path.join(AUTH_DATA_PATH, 'accounts.enc');
 const ACCOUNTS_FILE_JSON = path.join(AUTH_DATA_PATH, 'accounts.json');
 const CURRENT_AUTH_FILE = path.join(AUTH_DATA_PATH, 'current-auth.enc');
@@ -213,6 +216,7 @@ async function loadAuthState(): Promise<AuthState> {
     registerRefreshHandler();
     startProactiveRefresh();
 
+    console.log(`[Auth] Session restored: userId=${authState.user.userId}, email=${authState.user.email}, tokenValid=${isTokenValid()}`);
     return authState;
   }
 
@@ -355,7 +359,7 @@ async function syncCookiesFromClient() {
 
 // 将 token 同步到 Electron Session Cookies
 async function syncToElectronCookies() {
-  const { session } = await import('electron');
+  const { session } = electron;
   const baseUrl = process.env.STARSHIP_API_URL || 'https://shibit.net';
 
   // 从 URL 提取域名

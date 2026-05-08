@@ -170,7 +170,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
   const handleSaveAgent = async (config: any) => {
     try {
       const result = selectedAgent
-        ? await updateAgent(selectedAgent.id, config)
+        ? await updateAgent(selectedAgent.id, (({ id, ...rest }) => rest)(config))
         : await createAgent(config);
 
       if (result.success) {

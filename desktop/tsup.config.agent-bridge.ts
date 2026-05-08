@@ -11,8 +11,11 @@ export default defineConfig({
   dts: false,
   sourcemap: false,
   minify: true,
+  // 禁用代码分割，避免拆成独立 chunk（打包后 node_modules 不可用）
+  splitting: false,
+  // 内联所有非 native 的 npm 包（pino, yaml, json5, axios 等），native 包保持 external
+  noExternal: [/^(?!(@node-llama-cpp|@reflink|better-sqlite3|sqlite-vec|@xenova|tree-sitter))/],
   external: [
-    'electron',
     'better-sqlite3',
     'sqlite-vec',
     '@xenova/transformers',
@@ -36,6 +39,12 @@ export default defineConfig({
     '@reflink',
   ],
   esbuildOptions: (options) => {
-    options.alias = buildAliases(path.resolve(__dirname, '..'));
+    const aliases = buildAliases(path.resolve(__dirname, '..'));
+    // 子进程（纯 Node.js）中 electron 不可用，用 stub 替代
+    aliases['electron'] = path.resolve(__dirname, 'main', 'electron-stub.ts');
+    options.alias = aliases;
+    options.banner = {
+      js: `import{createRequire}from'module';const require=createRequire(import.meta.url);`,
+    };
   },
 });

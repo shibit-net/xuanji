@@ -4,7 +4,9 @@
 // 统一管理 API 请求，处理 Cookie 传递和响应解析
 
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import { session } from 'electron';
+// 使用 default import 兼容 CJS electron 模块（子进程 ESM 环境下 named export 不可用）
+import electron from 'electron';
+const { session } = electron;
 
 export interface ApiResponse<T = any> {
   success: boolean;

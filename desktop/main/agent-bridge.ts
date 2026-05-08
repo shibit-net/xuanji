@@ -30,7 +30,7 @@ let routedAgentId = 'xuanji';
 // 主进程端会使用 EnhancedMessageChannel 来接收和转发消息
 const channel = new ChildMessageChannel({
   name: 'agent-child',
-  enableLogging: true,
+  enableLogging: false,
 });
 
 const log = logger.child({ module: 'agent-bridge' });
@@ -58,6 +58,26 @@ forwardDownloadEvent('task-progress');
 forwardDownloadEvent('task-completed');
 forwardDownloadEvent('task-failed');
 forwardDownloadEvent('task-cancelled');
+
+// ============================================================
+// 内存监控 — 每 5 分钟记录堆使用量，超过 1GB 触发告警
+// ============================================================
+const MEMORY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const HEAP_WARN_THRESHOLD = 512 * 1024 * 1024; // 512MB
+
+setInterval(() => {
+  const mem = process.memoryUsage();
+  const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+  const rssMB = Math.round(mem.rss / 1024 / 1024);
+  log.debug(`Memory: heap=${heapMB}MB rss=${rssMB}MB`);
+
+  if (mem.heapUsed > HEAP_WARN_THRESHOLD) {
+    log.warn(`High heap usage: ${heapMB}MB — triggering GC`);
+    if (global.gc) {
+      global.gc();
+    }
+  }
+}, MEMORY_CHECK_INTERVAL_MS);
 
 // ============================================================
 // 待处理请求缓存（Permission / PlanReview / AskUser）
@@ -138,7 +158,6 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
 
     // 发送 init-complete 通知
     channel.send('init-complete', { success: true });
-    process.stderr.write('[agent-bridge] handleInit: init-complete sent, process.connected=' + process.connected + '\n');
 
     return { success: true };
   } catch (err) {
@@ -162,7 +181,6 @@ async function handleSendMessage(data: { message: string; images?: string[] }): 
       return { success: false, error: '消息不能为空' };
     }
     log.info(`handleSendMessage: input="${message.substring(0, 80)}"`);
-    process.stderr.write(`[agent-bridge] handleSendMessage: calling handleUserInput...\n`);
 
     // 意图路由：根据用户输入决定由哪个 Agent 执行
     const { IntentRouter } = await import('../../src/core/routing/IntentRouter.js');
@@ -174,7 +192,6 @@ async function handleSendMessage(data: { message: string; images?: string[] }): 
 
     const result = await session.handleUserInput(message);
     log.info(`handleSendMessage: handleUserInput returned "${result}"`);
-    process.stderr.write(`[agent-bridge] handleSendMessage: handleUserInput returned "${result}"\n`);
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -188,7 +205,7 @@ async function handleSendMessage(data: { message: string; images?: string[] }): 
  * 中断当前会话执行
  */
 function handleInterrupt(msg?: string): void {
-  if (!session) return;
+  if (!session) { log.warn('handleInterrupt: session is null, ignoring interrupt'); return; }
   try {
     session.interrupt(msg || '');
   } catch (err) {
@@ -200,7 +217,7 @@ function handleInterrupt(msg?: string): void {
  * 追加消息到会话队列（不中断当前执行）
  */
 function handleAppendMessage(data: { message: string }): void {
-  if (!session) return;
+  if (!session) { log.warn('handleAppendMessage: session is null, ignoring append'); return; }
   try {
     session.appendMessage(data?.message || '');
   } catch (err) {
@@ -741,7 +758,6 @@ function registerHookEventBridge() {
   // SubAgent
   eventBus.on(XuanjiEvent.HOOK_SUBAGENT_START, (ctx) => {
     const d = ctx.data;
-    console.log('[agent-bridge] HOOK_SUBAGENT_START received:', { subAgentId: ctx.subAgentId, name: d.name, parentAgentId: d.parentAgentId, parentId: d.parentId, executionMode: d.executionMode });
     safeSend({ type: 'agent:subagent-start', data: {
       subAgentId: ctx.subAgentId,
       name: d.name, role: d.role, task: d.task, agentType: d.agentType,
@@ -754,7 +770,7 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.HOOK_SUBAGENT_END, (ctx) => {
     const d = ctx.data;
-    safeSend({ type: 'agent:subagent-end', data: { subAgentId: ctx.subAgentId, success: d.success, duration: d.duration } });
+    safeSend({ type: 'agent:subagent-end', data: { subAgentId: ctx.subAgentId, success: d.success, duration: d.duration, timedOut: d.timedOut } });
   });
 
   // Team
@@ -1186,15 +1202,7 @@ async function handleSavePromptConfig(_data: any) {
  */
 async function handleProjectsList() {
   try {
-    // 优先使用全局 currentUserId
-    let userId = currentUserId;
-
-    // 如果没有，尝试从 authState 获取（兼容性）
-    if (!userId) {
-      const { getAuthState } = await import('./config/auth.js');
-      const authState = getAuthState();
-      userId = authState?.user?.userId;
-    }
+    const userId = currentUserId;
 
     if (!userId) {
       return { success: false, error: '用户未登录' };

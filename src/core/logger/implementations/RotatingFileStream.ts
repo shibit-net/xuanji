@@ -11,6 +11,8 @@ import fs from 'fs';
 import path from 'path';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB total disk quota
+const MAX_RETENTION_DAYS = 30;
 
 export class RotatingFileStream {
   private baseDir: string;
@@ -54,6 +56,7 @@ export class RotatingFileStream {
     this.currentSeq = this.findNextSeq(this.currentDate);
     const filePath = this.getFilePath(this.currentDate, this.currentSeq);
     this.stream = fs.createWriteStream(filePath, { flags: 'a' });
+    this.cleanupOldLogs();
   }
 
   private rotateSeq(): void {
@@ -70,6 +73,39 @@ export class RotatingFileStream {
     }
     // 用最后一个已存在的文件（追加不覆盖）
     return Math.max(0, seq - 1);
+  }
+
+  private cleanupOldLogs(): void {
+    try {
+      const files = fs.readdirSync(this.baseDir)
+        .filter(f => f.startsWith('xuanji-') && f.endsWith('.jsonl'))
+        .map(f => {
+          const filePath = path.join(this.baseDir, f);
+          try { return { name: f, path: filePath, mtime: fs.statSync(filePath).mtimeMs, size: fs.statSync(filePath).size }; }
+          catch { return null; }
+        })
+        .filter((f): f is NonNullable<typeof f> => f !== null)
+        .sort((a, b) => a.mtime - b.mtime);
+
+      // 按时间清理：超过 MAX_RETENTION_DAYS 的文件
+      const cutoff = Date.now() - MAX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      for (const file of files) {
+        if (file.mtime < cutoff) {
+          fs.unlinkSync(file.path);
+        }
+      }
+
+      // 按总大小清理：超过 MAX_TOTAL_SIZE 时删除最旧文件
+      const remaining = files.filter(f => f.mtime >= cutoff);
+      let totalSize = remaining.reduce((sum, f) => sum + f.size, 0);
+      for (const file of remaining) {
+        if (totalSize <= MAX_TOTAL_SIZE) break;
+        fs.unlinkSync(file.path);
+        totalSize -= file.size;
+      }
+    } catch {
+      // 静默失败，清理逻辑不应影响正常日志写入
+    }
   }
 
   private close(): void {

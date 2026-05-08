@@ -36,6 +36,11 @@ export class SessionStorage {
     this.maxSessions = options?.maxSessions || 0;
   }
 
+  /** 获取存储根目录 */
+  getBaseDir(): string {
+    return this.baseDir;
+  }
+
   /**
    * 初始化存储目录
    */

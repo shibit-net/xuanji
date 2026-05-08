@@ -9,7 +9,8 @@
 
 import { randomUUID } from 'crypto';
 import { execSync } from 'child_process';
-import { basename } from 'path';
+import path from 'path';
+import { createWriteStream } from 'fs';
 import { SessionStorage } from './SessionStorage.js';
 import { SessionSummarizer } from './SessionSummarizer.js';
 import type {
@@ -286,6 +287,83 @@ export class SessionManager {
   }
 
   // ─── 连续会话模式方法 ─────────────────────────────────────────
+
+  /**
+   * 归档消息到 JSONL 文件（实现 ArchiveDelegate 接口）
+   * 由 ContextManager 在压缩前调用，确保旧消息不会永久丢失
+   */
+  async archiveMessages(messages: Message[]): Promise<void> {
+    if (!this.activeSessionId || messages.length === 0) return;
+
+    try {
+      const archivePath = path.join(
+        this.storage.getBaseDir(),
+        `${this.activeSessionId}.archive.jsonl`,
+      );
+      const stream = createWriteStream(archivePath, { flags: 'a' });
+      for (const msg of messages) {
+        stream.write(JSON.stringify(msg) + '\n');
+      }
+      stream.end();
+      await new Promise<void>((resolve, reject) => {
+        stream.on('finish', resolve);
+        stream.on('error', reject);
+      });
+      log.debug(`Archived ${messages.length} messages for session ${this.activeSessionId}`);
+    } catch (err) {
+      log.warn('Failed to archive messages:', err);
+    }
+  }
+
+  /**
+   * 执行归档
+   *
+   * 流程:
+   * 1. 生成会话摘要和关键点
+   * 2. 保留最近 N 条消息
+   *
+   * @param messages - 当前完整消息历史
+   * @param currentMessageIndex - 当前消息索引
+   * @returns 归档结果
+   */
+  async archive(
+    messages: Message[],
+  ): Promise<{ archived: boolean; keptMessages?: number }> {
+    if (!this.activeSessionId) return { archived: false };
+    if (!this.sessionConfig?.archiveStrategy) {
+      log.debug('No archive strategy configured, skipping archive');
+      return { archived: false };
+    }
+
+    const { keepRecentMessages } = this.sessionConfig.archiveStrategy;
+
+    try {
+      const toArchive = messages.slice(0, -keepRecentMessages);
+      if (toArchive.length === 0) return { archived: false };
+
+      // 尝试生成摘要
+      if (this.sessionConfig.archiveStrategy.generateSummary && this.summarizer) {
+        try {
+          const summary = await this.summarizer.summarize(toArchive);
+          log.debug(`Archive summary generated: ${summary?.summary?.substring(0, 100)}`);
+        } catch {
+          // 总结失败不影响归档
+        }
+      }
+
+      // 写入归档文件
+      await this.archiveMessages(toArchive);
+
+      this.lastArchiveMessageIndex = messages.length;
+      this.lastArchiveTime = Date.now();
+
+      log.info(`Archived ${toArchive.length} messages for session ${this.activeSessionId}`);
+      return { archived: true, keptMessages: keepRecentMessages };
+    } catch (err) {
+      log.warn('Archive failed:', err);
+      return { archived: false };
+    }
+  }
 
   /**
    * 初始化：恢复上一次对话（如果启用）

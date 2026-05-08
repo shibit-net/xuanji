@@ -19,13 +19,29 @@ export type BudgetStatus =
 const YELLOW_THRESHOLD = 0.7;
 const RED_THRESHOLD = 0.9;
 
+/** 消息硬上限：超过此数量自动触发压缩，防止 OOM */
+const MAX_MESSAGES = 500;
+/** 快照最大数量 */
+const MAX_SNAPSHOTS = 10;
+
+/** 归档代理接口：压缩时将旧消息委派给外部存储 */
+export interface ArchiveDelegate {
+  archiveMessages(messages: Message[]): Promise<void>;
+}
+
 export class ContextManager {
   private messages: Message[] = [];
   private snapshots: Message[][] = [];
   private tokenCounter: TokenCounter;
+  private archiveDelegate: ArchiveDelegate | null = null;
 
   constructor(maxContextTokens?: number, reservedOutputTokens?: number) {
     this.tokenCounter = new TokenCounter(maxContextTokens, reservedOutputTokens);
+  }
+
+  /** 设置归档代理（如 SessionManager），压缩前将旧消息委派出去保存 */
+  setArchiveDelegate(delegate: ArchiveDelegate | null): void {
+    this.archiveDelegate = delegate;
   }
 
   getMessages(): Message[] {
@@ -36,12 +52,28 @@ export class ContextManager {
     this.messages.push(message);
   }
 
+  private async checkAndAutoCompress(): Promise<void> {
+    if (this.messages.length > MAX_MESSAGES) {
+      // 超过硬上限，触发激进压缩（只保留最近消息），防止 OOM
+      const oldCount = this.messages.length;
+      await this.aggressiveCompress(this.tokenCounter.estimate(this.messages));
+      eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
+        originalTokens: oldCount,
+        compressedTokens: this.messages.length,
+        compressionRatio: (oldCount - this.messages.length) / oldCount,
+      });
+    }
+  }
+
   addUserMessage(text: string): void {
     this.messages.push({ role: 'user', content: text });
+    // fire-and-forget: addMessage 是同步调用路径，自动压缩异步执行
+    this.checkAndAutoCompress().catch(() => {});
   }
 
   addAssistantMessage(blocks: ContentBlock[]): void {
     this.messages.push({ role: 'assistant', content: blocks });
+    this.checkAndAutoCompress().catch(() => {});
   }
 
   addToolResults(results: Map<string, ToolResult>): void {
@@ -151,7 +183,7 @@ export class ContextManager {
   async compress(strategy: CompressionStrategy): Promise<CompressionResult> {
     const originalTokens = this.tokenCounter.estimate(this.messages);
 
-    eventBus.emit(XuanjiEvent.CONTEXT_COMPRESSION_STARTED, {
+    eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_STARTED, {
       strategy,
       messageCount: this.messages.length,
       originalTokens,
@@ -160,16 +192,16 @@ export class ContextManager {
     let result: CompressionResult;
     switch (strategy) {
       case 'aggressive':
-        result = this.aggressiveCompress(originalTokens);
+        result = await this.aggressiveCompress(originalTokens);
         break;
       case 'summarize_early':
       case 'selective':
       default:
-        result = this.simpleCompress(originalTokens);
+        result = await this.simpleCompress(originalTokens);
         break;
     }
 
-    eventBus.emit(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
+    eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
       originalTokens: result.originalTokens,
       compressedTokens: result.compressedTokens,
       compressionRatio: result.compressionRatio,
@@ -216,7 +248,7 @@ export class ContextManager {
     return adjusted;
   }
 
-  private simpleCompress(originalTokens: number): CompressionResult {
+  private async simpleCompress(originalTokens: number): Promise<CompressionResult> {
     // 保留 system prompt + 最近 10 轮用户对话
     const systemMsg = this.messages[0];
     if (!systemMsg || this.messages.length < 10) {
@@ -253,6 +285,11 @@ export class ContextManager {
       };
     }
 
+    // 归档旧消息
+    if (this.archiveDelegate) {
+      await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+    }
+
     const summaryMsg: Message = {
       role: 'user',
       content: `[上下文摘要] 之前 ${oldCount} 条消息已压缩。`,
@@ -270,7 +307,7 @@ export class ContextManager {
     };
   }
 
-  private aggressiveCompress(originalTokens: number): CompressionResult {
+  private async aggressiveCompress(originalTokens: number): Promise<CompressionResult> {
     const systemMsg = this.messages[0];
     if (!systemMsg || this.messages.length < 6) {
       return {
@@ -296,6 +333,10 @@ export class ContextManager {
     boundary = this.adjustBoundaryForToolPairs(boundary);
 
     const dropped = boundary - 1;
+    // 归档旧消息
+    if (this.archiveDelegate) {
+      await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+    }
     const compressed = [systemMsg, ...this.messages.slice(boundary)];
     const compressedTokens = this.tokenCounter.estimate(compressed);
 
@@ -311,6 +352,10 @@ export class ContextManager {
 
   snapshot(): number {
     this.snapshots.push([...this.messages]);
+    // 超过上限时移除最旧的快照
+    while (this.snapshots.length > MAX_SNAPSHOTS) {
+      this.snapshots.shift();
+    }
     return this.snapshots.length - 1;
   }
 

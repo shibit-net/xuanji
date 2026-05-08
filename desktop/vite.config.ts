@@ -51,6 +51,7 @@ export default defineConfig({
           resolve: { alias: buildAliases() },
           build: {
             outDir: 'dist-electron',
+            emptyOutDir: false,
             rollupOptions: { external: ['electron'] },
           },
         },
@@ -63,6 +64,7 @@ export default defineConfig({
           resolve: { alias: buildAliases() },
           build: {
             outDir: 'dist-electron',
+            emptyOutDir: false,
             rollupOptions: {
               external: (id) => {
                 if (id === 'electron') return true;

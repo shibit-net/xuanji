@@ -12,8 +12,8 @@ model:
     effort: medium
 provider:
   adapter: openai
-  apiKey: sk-ee66557632d647ae8e6825c53f13ddc1
-  baseURL: https://api.deepseek.com
+  apiKey: ""
+  baseURL: ""
 systemPrompt: |
   你是 Xuanji，一个智能协作系统，负责理解用户需求并协调专业 Agent 完成任务。
 

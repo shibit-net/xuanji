@@ -18,6 +18,9 @@ import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
 
+/** 硬性最大迭代次数，超过此值强制终止，防止无限循环 */
+const HARD_MAX_ITERATIONS = 100;
+
 /**
  * Agent 事件回调
  */
@@ -138,13 +141,13 @@ export class AgentLoop {
       onText: (text) => {
         this.callbacks.onText?.(text);
         if (!this._suppressEventBus) {
-          eventBus.emit(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
+          eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
         }
       },
       onThinking: (thinking) => {
         this.callbacks.onThinking?.(thinking);
         if (!this._suppressEventBus) {
-          eventBus.emit(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
+          eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
         }
       },
       onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
@@ -168,9 +171,9 @@ export class AgentLoop {
     }
     this.running = true;
     this.currentIteration = 0;
-    const maxIterations = this.config.maxIterations ?? Infinity;
+    const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
-    eventBus.emit(XuanjiEvent.AGENT_STARTED, {
+    eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
       userId: this._userId,
       model: this.config.model,
     });
@@ -243,7 +246,7 @@ export class AgentLoop {
 
         for (const tc of result.toolCalls) {
           this.callbacks.onToolStart?.(tc.id, tc.name, tc.input);
-          eventBus.emit(XuanjiEvent.AGENT_TOOL_START, {
+          eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
             id: tc.id,
             name: tc.name,
             input: tc.input,
@@ -270,7 +273,7 @@ export class AgentLoop {
           const toolResult = resultsMap.get(tc.id);
           if (toolResult) {
             this.callbacks.onToolEnd?.(tc.id, tc.name, toolResult.content, toolResult.isError, toolResult.metadata);
-            eventBus.emit(XuanjiEvent.AGENT_TOOL_END, {
+            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
               id: tc.id,
               name: tc.name,
               result: toolResult.content,
@@ -286,7 +289,7 @@ export class AgentLoop {
 
         if (fileChanges.length > 0) {
           this.callbacks.onFileChanges?.(fileChanges);
-          eventBus.emit(XuanjiEvent.AGENT_FILE_CHANGES, {
+          eventBus.emitSync(XuanjiEvent.AGENT_FILE_CHANGES, {
             changes: fileChanges,
             userId: this._userId,
           });
@@ -415,7 +418,7 @@ export class AgentLoop {
         }).catch(() => {});
       }
 
-      eventBus.emit(XuanjiEvent.AGENT_ERROR, {
+      eventBus.emitSync(XuanjiEvent.AGENT_ERROR, {
         error: err.message,
         userId: this._userId,
       });
@@ -425,7 +428,7 @@ export class AgentLoop {
     } finally {
       this.running = false;
       this.callbacks.onEnd?.(this.getState());
-      eventBus.emit(XuanjiEvent.AGENT_COMPLETED, {
+      eventBus.emitSync(XuanjiEvent.AGENT_COMPLETED, {
         userId: this._userId,
         iterations: this.currentIteration,
         tokenUsage: this.contextManager.getTokenUsage(),

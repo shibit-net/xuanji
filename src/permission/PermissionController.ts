@@ -99,6 +99,7 @@ export class PermissionController implements IPermissionController {
 
   /** 用户拒绝的操作记录 */
   private deniedOperations: Map<string, DeniedOperation> = new Map();
+  private static MAX_DENIED_OPERATIONS = 500;
 
   /** 当前用户意图上下文（用于跟踪同一意图下的多次操作尝试） */
   private currentUserIntent: string | null = null;
@@ -767,6 +768,10 @@ export class PermissionController implements IPermissionController {
       sessionOnly,
     };
 
+    if (this.deniedOperations.size >= PermissionController.MAX_DENIED_OPERATIONS) {
+      const firstKey = this.deniedOperations.keys().next().value;
+      if (firstKey !== undefined) this.deniedOperations.delete(firstKey);
+    }
     this.deniedOperations.set(key, deniedOp);
     this.log.info(`Recorded denied operation: ${key} (sessionOnly=${sessionOnly})`);
 

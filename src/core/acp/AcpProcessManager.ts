@@ -11,8 +11,12 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
+
+/** ESM 兼容的 __dirname 替代 */
+const _dirname = path.dirname(fileURLToPath(import.meta.url));
 import type { AcpRequest, AcpMessage, AcpRunRequest, AcpRunResult, AcpProcessConfig, AcpEvent } from './types';
 import { DEFAULT_ACP_CONFIG } from './types';
 
@@ -187,24 +191,39 @@ export class AcpProcessManager extends EventEmitter {
     const workerEntry = this.config.workerPath || (() => {
       // 场景列表（从上到下优先级依次降低）：
       //
-      // 1. tsup dev: __dirname = dist/, fromDist = dist/acp-worker.js         ✅
-      // 2. electron dev: __dirname = desktop/dist-electron/,
-      //    fromDevGui = desktop/dist-electron/../../dist/acp-worker.js        ✅
-      // 3. electron dev (旧): __dirname = desktop/dist-electron/main/,
-      //    fromElectronOld = desktop/dist-electron/main/../../../dist/acp-worker.js  ✅
-      // 4. tsx dev: __dirname = src/, fromTsx = src/../dist/acp-worker.js     ✅
-      // 5. 构建版: __dirname = dist/
-      // 6. electron 打包后: 主进程入口在 app.asar/dist-electron/ 同级 build-resources/
-      const fromDist = path.resolve(__dirname, 'acp-worker.js');
+      // 1. tsup 构建: _dirname = dist/, fromDist = dist/core/acp/acp-worker.js ✅
+      // 2. electron dev: _dirname = desktop/dist-electron/,
+      //    fromDevGui = desktop/dist-electron/../../dist/core/acp/acp-worker.js ✅
+      // 3. electron dev (旧): _dirname = desktop/dist-electron/main/,
+      //    fromElectronOld = .../dist/core/acp/acp-worker.js ✅
+      // 4. tsx dev: _dirname = src/, fromTsx = src/../dist/core/acp/acp-worker.js ✅
+      // 5. electron 打包后: 主进程入口在 app.asar/ 同级 build-resources/
+
+      // 优先检查结构化路径（tsup 保留目录结构：dist/core/acp/acp-worker.js）
+      const fromDist = path.resolve(_dirname, 'core/acp/acp-worker.js');
       if (fs.existsSync(fromDist)) return fromDist;
-      const fromBuildResources = path.resolve(__dirname, '../build-resources/acp-worker.js');
+      // 兼容扁平路径（dist/acp-worker.js）
+      const fromDistFlat = path.resolve(_dirname, 'acp-worker.js');
+      if (fs.existsSync(fromDistFlat)) return fromDistFlat;
+
+      const fromBuildResources = path.resolve(_dirname, '../build-resources/acp-worker.js');
       if (fs.existsSync(fromBuildResources)) return fromBuildResources;
-      const fromDevGui = path.resolve(__dirname, '../../dist/acp-worker.js');
+
+      const fromDevGui = path.resolve(_dirname, '../../dist/core/acp/acp-worker.js');
       if (fs.existsSync(fromDevGui)) return fromDevGui;
-      const fromElectronOld = path.resolve(__dirname, '../../../dist/acp-worker.js');
+      const fromDevGuiFlat = path.resolve(_dirname, '../../dist/acp-worker.js');
+      if (fs.existsSync(fromDevGuiFlat)) return fromDevGuiFlat;
+
+      const fromElectronOld = path.resolve(_dirname, '../../../dist/core/acp/acp-worker.js');
       if (fs.existsSync(fromElectronOld)) return fromElectronOld;
-      const fromTsx = path.resolve(__dirname, '../dist/acp-worker.js');
+      const fromElectronOldFlat = path.resolve(_dirname, '../../../dist/acp-worker.js');
+      if (fs.existsSync(fromElectronOldFlat)) return fromElectronOldFlat;
+
+      const fromTsx = path.resolve(_dirname, '../../../dist/core/acp/acp-worker.js');
       if (fs.existsSync(fromTsx)) return fromTsx;
+      const fromTsxFlat = path.resolve(_dirname, '../../../dist/acp-worker.js');
+      if (fs.existsSync(fromTsxFlat)) return fromTsxFlat;
+
       return fromDist;
     })();
 

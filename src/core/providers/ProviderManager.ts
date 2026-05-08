@@ -61,7 +61,10 @@ export class ProviderManager {
    */
   getProvider(agentConfig?: ConfigurableAgentConfig): ILLMProvider {
     const merged = this.mergeConfig(agentConfig);
-    return this.createProviderByAdapter(merged.adapter);
+    log.info(`ProviderManager.getProvider: adapter=${merged.adapter}, model=${merged.model}, baseURL=${merged.baseURL}, hasAgentConfig=${!!agentConfig}`);
+    const provider = this.createProviderByAdapter(merged.adapter);
+    log.info(`ProviderManager created: ${provider.name} (${provider.constructor.name})`);
+    return provider;
   }
 
   /**

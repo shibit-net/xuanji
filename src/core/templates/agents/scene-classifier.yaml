@@ -13,8 +13,8 @@ capabilities:
   - scene-detection
 provider:
   adapter: local-llama
-  baseURL: https://shibit.net
-  apiKey: sk-4S3...Z4q8
+  apiKey: ""
+  baseURL: ""
 model:
   primary: qwen2.5-1.5b-q4
   maxTokens: 256

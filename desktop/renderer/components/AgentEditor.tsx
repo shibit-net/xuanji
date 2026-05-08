@@ -100,6 +100,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   // 模型搜索状态
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [numberInputCache, setNumberInputCache] = useState<Record<string, string>>({});
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 防抖搜索函数
@@ -129,6 +130,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const [toolSearchQuery, setToolSearchQuery] = useState('');
 
   const isCreating = !agent;
+  const category = agent?.metadata?.category || 'custom';
+  const isFieldEditable = (field: string) => {
+    if (isCreating) return true;
+    if (category === 'custom') return field !== 'id';
+    const systemEditable = ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature'];
+    const appEditable = [...systemEditable, 'model.temperature', 'systemPrompt', 'tools'];
+    const editable = category === 'system' ? systemEditable : appEditable;
+    return editable.some(f => field === f || field.startsWith(f + '.'));
+  };
 
   // 本地模型状态管理
   const [localModelStatuses, setLocalModelStatuses] = useState<Record<string, { installed: boolean; downloading: boolean; progress: number }>>({});
@@ -487,10 +497,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     label: string,
     field: string,
     type: 'text' | 'textarea' | 'number' | 'select' = 'text',
-    options?: string[]
+    options?: string[],
+    disabled?: boolean
   ) => {
     const value = field.split('.').reduce((obj, key) => obj?.[key], config);
     const error = errors[field];
+    const isDisabled = disabled ?? !isFieldEditable(field);
 
     const handleChange = (newValue: any) => {
       const keys = field.split('.');
@@ -537,42 +549,40 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             <textarea
               value={value || ''}
               onChange={(e) => handleChange(e.target.value)}
+              disabled={isDisabled}
               rows={3}
-              className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono`}
+              className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
             />
           )
         ) : type === 'select' ? (
           isModelSelect ? (
-            // 模型选择：支持搜索和手动输入
+            // 模型选择：可自由输入 + 下拉建议
             <div className="relative">
               <div className="relative">
                 <input
                   type="text"
-                  value={showModelDropdown ? modelSearchQuery : (currentModelName || '')}
+                  value={currentModelName || ''}
                   onChange={(e) => {
                     const query = e.target.value;
+                    handleChange(query);
                     setModelSearchQuery(query);
                     setShowModelDropdown(true);
-                    // 触发防抖搜索
                     debouncedSearchModels(query);
                   }}
                   onFocus={() => {
-                    setModelSearchQuery('');
+                    setModelSearchQuery(currentModelName || '');
                     setShowModelDropdown(true);
-                    // 聚焦时加载全部模型
                     const currentAdapter = config.provider?.adapter || 'anthropic';
                     loadModels(currentAdapter, undefined);
                   }}
                   onBlur={() => {
-                    // 延迟关闭，让点击事件先触发
                     setTimeout(() => {
                       setShowModelDropdown(false);
-                      setModelSearchQuery('');
                     }, 200);
                   }}
-                  placeholder="搜索或输入模型名..."
-                  className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary`}
-                  disabled={modelsLoading}
+                  disabled={isDisabled}
+                  placeholder="输入模型名称..."
+                  className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
                 />
                 {modelsLoading && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -584,61 +594,41 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 )}
               </div>
 
-              {/* 下拉列表 */}
-              {showModelDropdown && !modelsLoading && (
+              {/* 下拉建议列表 */}
+              {showModelDropdown && !modelsLoading && filteredModels.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-bg-primary border border-bg-tertiary rounded shadow-lg max-h-60 overflow-y-auto">
-                  {filteredModels.length > 0 ? (
-                    filteredModels.map((model) => (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => {
-                          handleChange(model.name);
-                          setModelSearchQuery('');
-                          setShowModelDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-bg-tertiary transition-colors text-sm"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{model.name}</div>
-                            <div className="text-xs text-text-secondary truncate">{model.model}</div>
-                          </div>
-                          {(model.inputPrice !== undefined || model.outputPrice !== undefined) && (
-                            <div className="ml-2 text-xs text-text-tertiary whitespace-nowrap">
-                              {model.inputPrice !== undefined && model.outputPrice !== undefined ? (
-                                <span>
-                                  ¥{model.inputPrice}/{model.outputPrice}
-                                </span>
-                              ) : model.inputPrice !== undefined ? (
-                                <span>¥{model.inputPrice}</span>
-                              ) : (
-                                <span>¥{model.outputPrice}</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))
-                  ) : modelSearchQuery ? (
-                    // 没有搜索结果，显示"使用输入的值"
+                  {filteredModels.map((model, idx) => (
                     <button
+                      key={model.id || `${model.model || 'model'}-${idx}`}
                       type="button"
                       onClick={() => {
-                        handleChange(modelSearchQuery);
-                        setModelSearchQuery('');
+                        handleChange(model.name);
+                        setModelSearchQuery(model.name);
                         setShowModelDropdown(false);
                       }}
                       className="w-full text-left px-3 py-2 hover:bg-bg-tertiary transition-colors text-sm"
                     >
-                      <div className="text-primary">使用: {modelSearchQuery}</div>
-                      <div className="text-xs text-text-secondary">手动输入的模型名</div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{model.name}</div>
+                          <div className="text-xs text-text-secondary truncate">{model.model}</div>
+                        </div>
+                        {(model.inputPrice !== undefined || model.outputPrice !== undefined) && (
+                          <div className="ml-2 text-xs text-text-tertiary whitespace-nowrap">
+                            {model.inputPrice !== undefined && model.outputPrice !== undefined ? (
+                              <span>
+                                ¥{model.inputPrice}/{model.outputPrice}
+                              </span>
+                            ) : model.inputPrice !== undefined ? (
+                              <span>¥{model.inputPrice}</span>
+                            ) : (
+                              <span>¥{model.outputPrice}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </button>
-                  ) : (
-                    <div className="px-3 py-2 text-sm text-text-secondary">
-                      暂无模型
-                    </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
@@ -647,19 +637,51 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             <select
               value={value || ''}
               onChange={(e) => handleChange(e.target.value)}
-              className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary`}
+              disabled={isDisabled}
+              className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
             >
               {currentOptions?.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
           )
+        ) : type === 'number' ? (
+          <input
+            type="text"
+            inputMode="decimal"
+            disabled={isDisabled}
+            value={field in numberInputCache ? numberInputCache[field] : (value != null ? String(value) : '')}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setNumberInputCache(prev => ({ ...prev, [field]: raw }));
+              const num = Number(raw);
+              if (raw !== '' && !isNaN(num)) {
+                handleChange(num);
+              }
+            }}
+            onBlur={() => {
+              setNumberInputCache(prev => {
+                const next = { ...prev };
+                delete next[field];
+                return next;
+              });
+              const displayStr = field in numberInputCache ? numberInputCache[field] : (value != null ? String(value) : '');
+              const num = Number(displayStr);
+              if (displayStr !== '' && !isNaN(num)) {
+                handleChange(num);
+              } else {
+                handleChange(0);
+              }
+            }}
+            className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+          />
         ) : (
           <input
             type={type}
-            value={value || ''}
-            onChange={(e) => handleChange(type === 'number' ? Number(e.target.value) : e.target.value)}
-            className={`w-full bg-bg-primary border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary`}
+            disabled={isDisabled}
+            value={value != null ? String(value) : ''}
+            onChange={(e) => handleChange(e.target.value)}
+            className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
           />
         )}
       </div>

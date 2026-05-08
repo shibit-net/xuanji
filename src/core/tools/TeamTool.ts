@@ -596,7 +596,7 @@ export class TeamTool extends BaseTool {
       tokensUsed: r.tokensUsed,
     }));
 
-    return this.success(content, {
+    const resultMeta = {
       teamExecution: true,
       teamName,
       strategy,
@@ -607,7 +607,12 @@ export class TeamTool extends BaseTool {
       success: result.success,
       timedOut: result.timedOut,
       citations,
-    });
+    };
+
+    if (result.success) {
+      return this.success(content, resultMeta);
+    }
+    return this.error(content, resultMeta);
   }
 
   private buildRetryAdvice(result: import('@/core/agent/team/types').TeamExecutionResult): string {

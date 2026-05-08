@@ -1,5 +1,7 @@
+import { app } from 'electron';
 import type { ChildProcess } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
 import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
@@ -73,7 +75,7 @@ function initChatSession(): Promise<boolean> {
 
       const nodePath = findNodePath();
 
-      const isDev = process.env.NODE_ENV !== 'production';
+      const isDev = !app.isPackaged;
       let scriptPath: string;
       let args: string[];
 
@@ -85,18 +87,28 @@ function initChatSession(): Promise<boolean> {
         const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
         args = [tsxPath, scriptPath];
       } else {
-        // 生产环境：运行构建后的文件
-        scriptPath = path.join(__dirname, 'agent-bridge.js');
-        args = [scriptPath];
+        // 生产环境：extraResources → Resources/dist-electron/agent-bridge.mjs
+        scriptPath = path.join(process.resourcesPath!, 'dist-electron', 'agent-bridge.mjs');
+        args = ['--experimental-require-module', scriptPath];
       }
 
       const { spawn } = require('child_process');
+      const spawnEnv: Record<string, any> = {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || 'development',
+      };
+
+      // 生产环境：设置 NODE_PATH 让子进程能找到 native 模块
+      // electron-builder 自动将 native 模块解包到 app.asar.unpacked/node_modules
+      if (!isDev) {
+        const resourcesPath = process.resourcesPath!;
+        const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
+        spawnEnv.NODE_PATH = unpackedModules;
+      }
+
       agentProcess = spawn(nodePath, args, {
         cwd: path.resolve(__dirname, '../../'),
-        env: {
-          ...process.env,
-          NODE_ENV: process.env.NODE_ENV || 'development',
-        },
+        env: spawnEnv,
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       });
 
@@ -201,7 +213,7 @@ function initChatSession(): Promise<boolean> {
         timeout: 30000,
         maxRetries: 3,
         retryDelay: 1000,
-        enableLogging: true, // 🔧 临时启用日志用于调试
+        enableLogging: false,
       });
       agentChannel.attach(agentProcess!);
 
@@ -215,7 +227,8 @@ function initChatSession(): Promise<boolean> {
       });
 
       // 监听子进程就绪
-      agentChannel.once('child-ready', () => {
+      agentChannel.once('child-ready', (data) => {
+        console.log(`[Agent] Sub-process ready, PID: ${data?.pid || 'unknown'}`);
       });
 
       // 监听初始化完成
@@ -255,6 +268,9 @@ function initChatSession(): Promise<boolean> {
       });
 
       // 成功后重置重启计数
+      if (restartAttempts > 0) {
+        console.log(`[Agent] Auto-restart succeeded after ${restartAttempts} attempts, counter reset`);
+      }
       restartAttempts = 0;
       return true;
     } catch (err) {
@@ -291,11 +307,11 @@ async function cleanupAgentProcess() {
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       if (agentProcess && !agentProcess.killed) {
-        console.warn('[Agent] 子进程未在 5 秒内退出，发送 SIGKILL');
+        console.warn('[Agent] 子进程未在 2 秒内退出，发送 SIGKILL');
         agentProcess!.kill('SIGKILL');
       }
       resolve();
-    }, 5000);
+    }, 2000);
     agentProcess!.once('exit', () => {
       clearTimeout(timer);
       resolve();

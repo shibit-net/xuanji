@@ -638,7 +638,7 @@ export class AgentFactory {
         const d = event.payload.data;
         switch (event.payload.eventType) {
           case 'text':
-            eventBus.emit(XuanjiEvent.AGENT_TEXT_DELTA, {
+            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, {
               text: d.text,
               agentId: subAgentId,
             });
@@ -648,7 +648,7 @@ export class AgentFactory {
             }
             break;
           case 'thinking':
-            eventBus.emit(XuanjiEvent.AGENT_THINKING_DELTA, {
+            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, {
               content: d.content,
               agentId: subAgentId,
             });
@@ -657,7 +657,7 @@ export class AgentFactory {
             }
             break;
           case 'tool_start':
-            eventBus.emit(XuanjiEvent.AGENT_TOOL_START, {
+            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
               id: d.id,
               name: d.name,
               input: d.input,
@@ -668,7 +668,7 @@ export class AgentFactory {
             }
             break;
           case 'tool_end':
-            eventBus.emit(XuanjiEvent.AGENT_TOOL_END, {
+            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
               id: d.id,
               name: d.name,
               result: d.result,
@@ -681,7 +681,7 @@ export class AgentFactory {
             }
             break;
           case 'tool_delta':
-            eventBus.emit(XuanjiEvent.AGENT_TOOL_DELTA, {
+            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_DELTA, {
               id: d.id,
               name: d.name,
               receivedBytes: d.receivedBytes,

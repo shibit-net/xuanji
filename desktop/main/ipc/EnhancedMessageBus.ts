@@ -48,7 +48,7 @@ export class EnhancedMessageChannel extends MessageChannel {
           } catch (err) {
             console.error(`[EnhancedMessageBus] 转发到renderer失败 (${msg.type}):`, err);
           }
-        } else {
+        } else if (process.env.NODE_ENV !== 'production') {
           console.log(`[EnhancedMessageBus] mainWindow 不可用，跳过转发: ${msg.type}`);
         }
       });

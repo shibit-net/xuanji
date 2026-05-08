@@ -12,6 +12,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { logger } from '@/core/logger';
+import JSON5 from 'json5';
+import { parse as parseYAML } from 'yaml';
 
 const log = logger.child({ module: 'ConfigLoader' });
 
@@ -60,7 +62,17 @@ export class ConfigLoader implements IConfigLoader {
       log.info(`使用 Agent 配置: ${this.agentId}`);
     }
 
-    // 3.5 检查 provider 加载状态
+    // 3.1 加载 Agent 用户覆盖配置（agent-overrides/{agentId}.json5）
+    const agentOverride = await this.loadAgentOverride(this.agentId);
+    if (agentOverride) {
+      config = deepMergeConfig(config as unknown as Record<string, unknown>, agentOverride) as unknown as AppConfig;
+      log.info(`使用 Agent 覆盖配置: ${this.agentId}`);
+    }
+
+    // 3.5 记录最终 provider 配置
+    log.info(`Provider 最终配置: adapter=${(config.provider as any)?.adapter}, model=${config.provider?.model}, baseURL=${(config.provider as any)?.baseURL}`);
+
+    // 3.6 检查 provider 加载状态
     if (!config.provider?.apiKey) {
       log.warn(`[CONFIG_DEBUG] config.provider 为空！检查 agent 配置路径...`);
       const { getUserAgentsDir } = await import('./PathManager.js');
@@ -104,8 +116,27 @@ export class ConfigLoader implements IConfigLoader {
     const configPath = getUserConfigPath(this.userId);
 
     if (!existsSync(configPath)) {
-      log.debug(`用户配置文件不存在: ${configPath}`);
-      return {};
+      log.info(`用户配置文件不存在，创建默认配置: ${configPath}`);
+      const defaultConfig: Record<string, any> = {
+        provider: {},
+        ui: { theme: 'dark', language: 'zh', showTokenUsage: true, showCost: true, showThinking: false },
+        permission: { fileWrite: 'ask', fileRead: 'always', bashExec: 'ask' },
+        tools: { enabled: [], permissions: { fileWrite: 'ask', fileRead: 'always', bashExec: 'ask' } },
+        retry: { maxRetries: 3, initialDelay: 1000, maxDelay: 30000, backoffMultiplier: 2 },
+        session: {
+          autoResumeLastSession: false,
+          showResumeNotification: true,
+          archiveThresholds: { messageCount: 200, tokenCount: 100000, timeMinutes: 30 },
+          archiveStrategy: { keepRecentMessages: 20, generateSummary: true, extractKeyPoints: true },
+        },
+      };
+      try {
+        await writeFile(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+        log.info(`默认配置已创建: ${configPath}`);
+      } catch (writeErr) {
+        log.warn('创建默认配置文件失败:', writeErr);
+      }
+      return defaultConfig;
     }
 
     try {
@@ -162,10 +193,8 @@ export class ConfigLoader implements IConfigLoader {
       let agentConfig: any;
 
       if (agentConfigPath.endsWith('.json5')) {
-        const JSON5 = (await import('json5')).default;
         agentConfig = JSON5.parse(content);
       } else if (agentConfigPath.endsWith('.yaml') || agentConfigPath.endsWith('.yml')) {
-        const { parse: parseYAML } = await import('yaml');
         agentConfig = parseYAML(content);
       } else {
         agentConfig = JSON.parse(content);
@@ -229,6 +258,50 @@ export class ConfigLoader implements IConfigLoader {
       return result;
     } catch (error) {
       log.error(`加载 Agent 配置失败:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 加载 Agent 用户覆盖配置
+   *
+   * 从 agent-overrides/{agentId}.json5 读取用户保存的 Agent 修改
+   * 转换为与 loadAgentConfig 相同的格式，用于 deepMerge
+   */
+  private async loadAgentOverride(agentId: string): Promise<Record<string, any> | null> {
+    try {
+      const { getUserRoot } = await import('./PathManager.js');
+      const userRoot = getUserRoot(this.userId);
+      const overridePath = join(userRoot, 'agent-overrides', `${agentId}.json5`);
+
+      if (!existsSync(overridePath)) {
+        return null;
+      }
+
+      const content = await readFile(overridePath, 'utf-8');
+      const override = JSON5.parse(content) as any;
+
+      const providerConfig: Record<string, any> = {};
+      if (override.provider) {
+        if (override.provider.adapter) providerConfig.adapter = override.provider.adapter;
+        if (override.provider.apiKey) providerConfig.apiKey = override.provider.apiKey;
+        if (override.provider.baseURL) providerConfig.baseURL = override.provider.baseURL;
+        if (override.provider.model) providerConfig.model = override.provider.model;
+      }
+      if (override.model) {
+        if (override.model.primary) providerConfig.model = override.model.primary;
+        if (override.model.maxTokens) providerConfig.maxTokens = override.model.maxTokens;
+        if (override.model.temperature !== undefined) providerConfig.temperature = override.model.temperature;
+      }
+
+      log.debug(`加载 Agent 覆盖配置: ${agentId}`, {
+        adapter: providerConfig.adapter,
+        hasApiKey: !!providerConfig.apiKey,
+      });
+
+      return { provider: providerConfig };
+    } catch (error) {
+      log.warn(`加载 Agent 覆盖配置失败: ${agentId}`, error);
       return null;
     }
   }

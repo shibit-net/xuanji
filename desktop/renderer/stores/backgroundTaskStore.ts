@@ -69,6 +69,11 @@ interface BackgroundTaskState {
   hasTasks: () => boolean;
 }
 
+// ─── 常量 ──────────────────────────────────────────
+
+/** 最多保留的已完成/已清理任务数，防止 tasks Record 无限增长 */
+const MAX_COMPLETED_TASKS = 50;
+
 // ─── Store ─────────────────────────────────────────
 
 export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => ({
@@ -85,6 +90,10 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
       const task = s.tasks[id];
       if (!task) return s; // 静默忽略未注册的任务
 
+      // cleared 的任务不再回退到其他状态，防止 agent:subagent-end
+      // 在 agent:auto-summarize-start 之后到达时将任务复活
+      if (task.lifecycle === 'cleared') return s;
+
       const updated = { ...task, lifecycle: to };
 
       if (to === 'completed') {
@@ -92,6 +101,21 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
       }
       if (to === 'cleared') {
         updated.clearedAt = Date.now();
+      }
+
+      // 修剪已完成/已清理的任务，防止无限增长
+      if (to === 'completed' || to === 'cleared') {
+        const completedIds = Object.keys(s.tasks).filter(
+          key => s.tasks[key].lifecycle === 'completed' || s.tasks[key].lifecycle === 'cleared'
+        );
+        // 当前任务可能不在 completedIds 中（刚转换），需额外计数
+        const totalCompleted = completedIds.includes(id) ? completedIds.length : completedIds.length + 1;
+        if (totalCompleted > MAX_COMPLETED_TASKS) {
+          const toRemove = completedIds.slice(0, totalCompleted - MAX_COMPLETED_TASKS);
+          const newTasks = { ...s.tasks, [id]: updated };
+          for (const rid of toRemove) delete newTasks[rid];
+          return { tasks: newTasks };
+        }
       }
 
       return { tasks: { ...s.tasks, [id]: updated } };

@@ -57,6 +57,17 @@ function normalizeMarkdownHeadings(text: string): string {
     .join('');
 }
 
+/** 确保 markdown 表格后有空行，防止 remark-gfm 将后续文本误解析为表格行 */
+function normalizeTableBreaks(text: string): string {
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      return part.replace(/^(\s*\|[^\n]*)\n(?!\s*$)(?!\s*\|)/gm, '$1\n\n');
+    })
+    .join('');
+}
+
 /** 移除 markdown 中的原始 HTML 标签（<details>/<summary> 等），代码块内保留 */
 function stripRawHtml(text: string): string {
   const parts = text.split(/(```[\s\S]*?```)/g);
@@ -122,8 +133,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
   const processedContent = useMemo(() => {
     if (typeof displayContent !== 'string') return '';
-    // 先去除原始 HTML 标签，再规范化标题
-    return normalizeMarkdownHeadings(stripRawHtml(displayContent));
+    // 先去除原始 HTML 标签，再规范化标题，最后确保表格后有空行
+    return normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
   }, [displayContent]);
 
   // 将 Milkdown 渲染出的自定义节点（subagent-ref / citation-ref span）替换为可交互组件

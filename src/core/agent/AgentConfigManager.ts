@@ -67,7 +67,7 @@ export class AgentConfigManager {
 
   getEditableFields(category: AgentCategory): string[] {
     if (category === 'system') {
-      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens'];
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature'];
     }
     if (category === 'app') {
       return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'systemPrompt', 'tools'];
@@ -84,13 +84,24 @@ export class AgentConfigManager {
     const updatePaths = this.getAllUpdatePaths(updates, '');
     for (const updatePath of updatePaths) {
       if (updatePath === 'id') {
-        throw new Error('不允许修改 Agent ID');
+        if (updates.id !== agent.id) {
+          throw new Error('不允许修改 Agent ID');
+        }
+        continue;
       }
       if (!editableFields.some(editable => updatePath.startsWith(editable))) {
-        throw new Error(category === 'system' ? '系统 Agent "' + agent.name + '" 不允许修改字段: ' + updatePath : 'App Agent "' + agent.name + '" 不允许修改字段: ' + updatePath);
+        const currentValue = this.getValueAtPath(agent, updatePath);
+        const newValue = this.getValueAtPath(updates, updatePath);
+        if (JSON.stringify(currentValue) !== JSON.stringify(newValue)) {
+          throw new Error(category === 'system' ? '系统 Agent "' + agent.name + '" 不允许修改字段: ' + updatePath : 'App Agent "' + agent.name + '" 不允许修改字段: ' + updatePath);
+        }
       }
     }
     return true;
+  }
+
+  private getValueAtPath(obj: any, path: string): any {
+    return path.split('.').reduce((o, key) => o?.[key], obj);
   }
 
   private getAllUpdatePaths(obj: any, prefix: string): string[] {

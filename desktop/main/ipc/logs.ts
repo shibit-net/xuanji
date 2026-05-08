@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import path from 'path';
+import os from 'os';
 import {
   UnifiedLogManager,
   getUnifiedLogManager,
@@ -26,7 +27,7 @@ function getUnifiedManager(): UnifiedLogManager {
  * 注册统一日志 IPC 处理器
  */
 function registerLogsIpcHandlers() {
-  const logDir = path.join(process.cwd(), '.xuanji', 'logs');
+  const logDir = path.join(os.homedir(), '.xuanji', 'logs');
   const manager = getUnifiedManager();
 
   // ─────────────────────────────────────────────────────
