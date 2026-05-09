@@ -5,13 +5,14 @@
  * 状态栏计数、moment 气泡三个 UI 维度的单一数据源。
  *
  * 生命周期: creating → running → completed → cleared
+ *                        ↘ cancelled → cleared
  */
 
 import { create } from 'zustand';
 
 // ─── 类型 ──────────────────────────────────────────
 
-export type TaskLifecycle = 'creating' | 'running' | 'completed' | 'cleared';
+export type TaskLifecycle = 'creating' | 'running' | 'completed' | 'cancelled' | 'cleared';
 
 export interface BackgroundTaskMember {
   id: string;
@@ -63,8 +64,10 @@ interface BackgroundTaskState {
   }) => void;
   /** 获取运行中的任务数 */
   getRunningCount: () => number;
-  /** 获取待汇报的任务数 */
+  /** 获取待汇报的任务数（含已取消） */
   getCompletedCount: () => number;
+  /** 获取已取消的任务数 */
+  getCancelledCount: () => number;
   /** 是否有后台任务 */
   hasTasks: () => boolean;
 }
@@ -96,17 +99,17 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
 
       const updated = { ...task, lifecycle: to };
 
-      if (to === 'completed') {
+      if (to === 'completed' || to === 'cancelled') {
         updated.completedAt = Date.now();
       }
       if (to === 'cleared') {
         updated.clearedAt = Date.now();
       }
 
-      // 修剪已完成/已清理的任务，防止无限增长
-      if (to === 'completed' || to === 'cleared') {
+      // 修剪已完成/已取消/已清理的任务，防止无限增长
+      if (to === 'completed' || to === 'cancelled' || to === 'cleared') {
         const completedIds = Object.keys(s.tasks).filter(
-          key => s.tasks[key].lifecycle === 'completed' || s.tasks[key].lifecycle === 'cleared'
+          key => s.tasks[key].lifecycle === 'completed' || s.tasks[key].lifecycle === 'cancelled' || s.tasks[key].lifecycle === 'cleared'
         );
         // 当前任务可能不在 completedIds 中（刚转换），需额外计数
         const totalCompleted = completedIds.includes(id) ? completedIds.length : completedIds.length + 1;
@@ -168,11 +171,26 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set, get) => 
     for (const t of tasks) {
       if (t.lifecycle === 'cleared') continue;
       if (t.type === 'task') {
-        if (t.lifecycle === 'completed') count++;
+        if (t.lifecycle === 'completed' || t.lifecycle === 'cancelled') count++;
       } else {
-        // team: 所有成员都 completed 才算待汇报
-        const allDone = t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed');
+        // team: 所有成员都 completed/cancelled 才算待汇报
+        const allDone = t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed' || m.lifecycle === 'cancelled');
         if (allDone) count++;
+      }
+    }
+    return count;
+  },
+
+  getCancelledCount: () => {
+    const tasks = Object.values(get().tasks);
+    let count = 0;
+    for (const t of tasks) {
+      if (t.lifecycle === 'cleared') continue;
+      if (t.type === 'task') {
+        if (t.lifecycle === 'cancelled') count++;
+      } else {
+        // team: 整体已取消
+        if (t.lifecycle === 'cancelled') count++;
       }
     }
     return count;

@@ -213,9 +213,11 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
       ...agent,
       status,
       // 当 agent 完成/失败时，清空临时状态
-      // 辩论模式下保留 currentThought：思考气泡需要持续显示到下一轮辩论开始
+      // 失败/辩论模式下保留 currentThought：失败原因在思考气泡中展示
       ...(status === 'done' || status === 'success' || status === 'failed' ? {
-        currentThought: agent.multiAgent?.strategy === 'debate' ? agent.currentThought : undefined,
+        currentThought: (status === 'failed' || agent.multiAgent?.strategy === 'debate')
+          ? agent.currentThought
+          : undefined,
         currentTools: [],
       } : {}),
     }));
@@ -414,6 +416,10 @@ export const useActiveAgentStore = create<ActiveAgentStore>((set, get) => ({
 
   removeSubAgent: (parentId: string, subAgentId: string) => {
     const { mainAgent } = get();
+
+    // 🔴 写入磁盘日志文件 ~/.xuanji/logs/debug-remove-agent.log
+    const stack = new Error().stack || '';
+    window.electron?.debugLog(`removeSubAgent id=${subAgentId} parent=${parentId}\n${stack}`);
 
     const updated = updateAgentInTree(mainAgent, parentId, (agent) => {
       const filtered = agent.subAgents.filter(sub => sub.id !== subAgentId);

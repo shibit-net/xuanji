@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import {
   UnifiedLogManager,
   getUnifiedLogManager,
@@ -225,6 +226,21 @@ function registerLogsIpcHandlers() {
         logWatcherCleanup();
         logWatcherCleanup = null;
       }
+      return { success: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  });
+  // ─────────────────────────────────────────────────────
+  // 调试日志：写入磁盘，供离线分析
+  // ─────────────────────────────────────────────────────
+
+  ipcMain.handle('debug:log', async (_event, message: string) => {
+    try {
+      const debugLogPath = path.join(logDir, 'debug-remove-agent.log');
+      const line = `[${new Date().toISOString()}] ${message}\n`;
+      await fs.promises.appendFile(debugLogPath, line);
       return { success: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

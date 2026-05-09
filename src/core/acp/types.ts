@@ -11,6 +11,8 @@ export interface AcpRunRequest {
   type: 'run';
   requestId: string;
   payload: {
+    /** 当前用户 ID */
+    userId: string;
     /** Agent ID 或角色名 */
     agentId: string;
     /** 任务描述 */

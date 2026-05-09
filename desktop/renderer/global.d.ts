@@ -523,11 +523,15 @@ export interface ElectronAPI {
     confidence: number;
     reasoning: string;
   }>;
+
+  // 调试日志
+  debugLog: (message: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {
   interface Window {
     electron: ElectronAPI;
+    __DEBUG_FLOW__?: boolean;
   }
 }
 

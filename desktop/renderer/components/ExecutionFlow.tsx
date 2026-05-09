@@ -122,7 +122,7 @@ const STATUS_RING_COLORS: Record<string, { bg: string; border: string; ring: str
   done:       { bg: 'rgba(138,138,138,0.08)',  border: 'rgba(138,138,138,0.2)',   ring: 'rgba(138,138,138,0.3)',   glow: 'transparent' },
   failed:     { bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.5)',  ring: 'rgba(248,113,113,0.8)',  glow: 'rgba(248,113,113,0.15)' },
   error:      { bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.5)',  ring: 'rgba(248,113,113,0.8)',  glow: 'rgba(248,113,113,0.15)' },
-  pending:    { bg: 'rgba(138,138,138,0.12)', border: 'rgba(138,138,138,0.2)',  ring: 'rgba(138,138,138,0.3)',  glow: 'transparent' },
+  pending:    { bg: 'rgba(96,165,250,0.06)',  border: 'rgba(96,165,250,0.2)',  ring: 'rgba(96,165,250,0.25)', glow: 'transparent' },
 };
 
 function getColors(s: string) {
@@ -582,8 +582,8 @@ function layoutNodes(nodes: Node[], edges: Edge[]) {
 
 function isActiveOrHasActiveChild(agent: AgentState): boolean {
   if (agent.multiAgent?.type === 'agent_team') return true;
-  // idle / pending 节点也可能有活跃子 agent（异步任务），保留它们
-  if (agent.status !== 'idle' && agent.status !== 'pending') return true;
+  // 'pending'（等待执行）视为活跃，保留在 flow 中展示待执行状态
+  if (agent.status !== 'idle') return true;
   if (agent.subAgents && Array.isArray(agent.subAgents)) {
     return agent.subAgents.some(child => isActiveOrHasActiveChild(child));
   }
@@ -706,6 +706,9 @@ function Flow() {
       const isTeamMember = a.multiAgent?.type === 'agent_team';
       const teamName = a.multiAgent?.teamName;
 
+      // 调试：追踪团队节点检测
+      // 调试：追踪团队节点检测（无守卫，无条件输出）
+
       // 如果是团队成员，添加 agent 节点（让 teamMembers 收集 ID）
       if (isTeamMember && teamName) {
         addNode(a, pid, teamName);
@@ -804,11 +807,13 @@ function Flow() {
       });
     });
 
+  // 调试：追踪团队节点结果
   return { nodes, edges: filteredEdges, teamNodes, teamMembers };
 }, [agentActivity, mainAgent]);
 
   const flowData = useMemo(() => {
     if (!mainAgent) return null;
+    // 调试：追踪 useMemo 重新计算
     const raw = buildFlow(mainAgent, null);
     const allNodes = [...raw.nodes];
     raw.teamNodes.forEach((tn) => allNodes.push(tn));

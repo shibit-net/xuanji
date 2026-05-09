@@ -7,7 +7,7 @@
  * 启动方式：tsx src/core/acp/acp-worker.ts
  */
 
-import type { AcpRequest, AcpMessage, AcpRunResult, AcpEvent } from './types';
+import type { AcpRequest, AcpRunRequest, AcpMessage, AcpRunResult, AcpEvent } from './types';
 import type { ILLMProvider, IToolRegistry } from '@/core/types';
 import { AgentLoop } from '@/core/agent/AgentLoop';
 import { logger } from '@/core/logger';
@@ -48,25 +48,37 @@ async function handleRun(requestId: string, payload: AcpRunRequest['payload']): 
     // 尝试根据 agentId 加载配置（如果注册了 agent）
     let agentModelConfig = payload.parentConfig;
 
-    // 仅当 agent 有独立配置时才覆盖父配置，临时 agent 直接使用父配置
+    // 父配置已由主进程完整解析（含 global 设置、agent-overrides），
+    // 这里重新加载 agent 配置（使用正确的 userId），并合并 overrides，
+    // 仅当 agent 有独立的 apiKey/baseURL 时覆盖父配置，否则继承父配置。
     try {
       const { ConfigLoader } = await import('@/core/config/ConfigLoader');
-      const loader = new ConfigLoader('default', payload.agentId);
-      // 先检查 agent 是否有独立配置文件，避免凭空创建默认配置覆盖父配置
+      const loader = new ConfigLoader(payload.userId || 'default', payload.agentId);
       const agentConfig = await loader.loadAgentConfig(payload.agentId);
-      if (agentConfig?.provider && Object.keys(agentConfig.provider).length > 0) {
-        // 内置 agent：agent 配置覆盖父配置（agent 优先，父配置补缺）
-        const merged = { ...payload.parentConfig };
-        for (const [key, value] of Object.entries(agentConfig.provider)) {
-          if (value != null && value !== '') {
-            merged[key] = value;
-          }
+
+      // 加载 agent-overrides（用户自定义覆盖）
+      let agentProvider = agentConfig?.provider ? { ...(agentConfig.provider as Record<string, any>) } : null;
+      try {
+        const override = await loader.loadAgentOverride(payload.agentId);
+        if (override?.provider && agentProvider) {
+          Object.assign(agentProvider, override.provider);
         }
-        agentModelConfig = merged;
-        log.info(`ACP worker: using agent-specific config for "${payload.agentId}"`);
-      } else {
-        // 临时 agent：直接使用父配置，不调用 ConfigLoader.load()（避免空配置覆盖）
-        log.info(`ACP worker: using parent config for temporary agent "${payload.agentId}"`);
+      } catch { /* override 加载失败忽略 */ }
+
+      if (agentProvider) {
+        // 仅当 agent 有自己的 apiKey 或 baseURL 时，才认为它有独立的 provider 配置
+        if (agentProvider.apiKey || agentProvider.baseURL) {
+          const merged = { ...payload.parentConfig };
+          for (const [key, value] of Object.entries(agentProvider)) {
+            if (value != null && value !== '') {
+              merged[key] = value;
+            }
+          }
+          agentModelConfig = merged;
+          log.info(`ACP worker: agent "${payload.agentId}" has independent provider config`);
+        } else {
+          log.info(`ACP worker: agent "${payload.agentId}" inherits parent provider config`);
+        }
       }
     } catch {
       // fall through: 使用 parentConfig

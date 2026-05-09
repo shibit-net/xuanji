@@ -865,6 +865,24 @@ function registerHookEventBridge() {
   // ── EventBus 原生事件转发 ──
   // 根 agent 的 AgentLoop._userId === currentUserId，映射到 routedAgentId
   // 子 agent 的 AgentLoop._userId 是其 subAgentId，保留原值
+
+  // 异步任务失败（含取消）→ 渲染进程立即更新节点
+  eventBus.on(XuanjiEvent.ASYNC_TASK_FAILED, (payload) => {
+    safeSend({ type: 'agent:task-failed', data: {
+      groupId: payload.groupId,
+      subAgentId: payload.subAgentId,
+      status: payload.status,
+      error: payload.error,
+    }});
+  });
+  // 异步任务完成 → 渲染进程更新状态栏
+  eventBus.on(XuanjiEvent.ASYNC_TASK_COMPLETED, (payload) => {
+    safeSend({ type: 'agent:task-completed', data: {
+      groupId: payload.groupId,
+      subAgentId: payload.subAgentId,
+    }});
+  });
+
   eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
     safeSend({ type: 'agent:started', data: { model: payload.model, agentId: routedAgentId } });
   });

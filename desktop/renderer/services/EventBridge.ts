@@ -486,9 +486,92 @@ messageBus.on('agent:subagent-end', (data: { subAgentId: string; success: boolea
     const curMoment = rtStore.agentActivity.currentMoments[data.subAgentId];
     const tStartTime = curMoment?.startTime || Date.now();
     rtStore.setAgentMoment(data.subAgentId, {
-      type: 'reporting', icon: '📤', label: '汇报中',
+      type: 'reporting', icon: '📤', label: '待汇报',
       durationMs: 0, status: 'running', startTime: tStartTime,
     });
+  }
+});
+
+// ── 异步任务失败/取消 → 立即更新节点状态 ─────────
+
+messageBus.on('agent:task-failed', (data: { groupId: string; subAgentId?: string; status: string; error?: string }) => {
+  if (!data.subAgentId) return;
+
+  const activeAgentStore = useActiveAgentStore.getState();
+  const rtStore = useRuntimeStore.getState();
+  const bgTaskStore = useBackgroundTaskStore.getState();
+
+  // 将后台任务标记为完成（取消的走 completed 生命周期到 cleared）
+  if (data.groupId) {
+    bgTaskStore.transitionTask(data.groupId, data.status === 'cancelled' ? 'cancelled' : 'failed');
+  }
+
+  // 查找并更新对应 agent 节点
+  const findAndUpdateAgent = (agent: any): boolean => {
+    if (!agent) return false;
+    if (agent.id === data.subAgentId) {
+      // 取消：直接移除节点（延迟 3s 让用户看到取消状态）
+      if (data.status === 'cancelled') {
+        activeAgentStore.setAgentStatus(data.subAgentId, 'failed');
+        activeAgentStore.setAgentThought(data.subAgentId, '');
+        markTaskDisplayStart(data.subAgentId);
+        const currentMoment = rtStore.agentActivity.currentMoments[data.subAgentId];
+        rtStore.setAgentMoment(data.subAgentId, {
+          type: 'reporting', icon: '🛑', label: '已取消',
+          durationMs: 0, status: 'running',
+          startTime: currentMoment?.startTime || Date.now(),
+        });
+
+        // 延迟移除节点
+        const mainAgent = activeAgentStore.mainAgent;
+        if (mainAgent) {
+          const findParentId = (a: any, targetId: string): string | null => {
+            if (!a || !a.subAgents) return null;
+            for (const sub of a.subAgents) {
+              if (sub.id === targetId) return a.id;
+              const found = findParentId(sub, targetId);
+              if (found) return found;
+            }
+            return null;
+          };
+          const parentId = findParentId(mainAgent, data.subAgentId!) || mainAgent.id;
+          setTimeout(() => {
+            const store = useActiveAgentStore.getState();
+            const rt = useRuntimeStore.getState();
+            store.removeSubAgent(parentId, data.subAgentId!);
+            rt.finishAgentMoment(data.subAgentId!, 'error');
+            rt.clearAgentActivity(data.subAgentId!);
+            // 清理相关 map
+            delete agentTaskDisplayStart[data.subAgentId!];
+            delete agentThinkingBuffer[data.subAgentId!];
+            const msgStore = useMessageStore.getState() as any;
+            if (msgStore._cleanedAgentIds) msgStore._cleanedAgentIds.add(data.subAgentId!);
+            if (msgStore._pendingSubAgents) delete msgStore._pendingSubAgents[data.subAgentId!];
+          }, 3000);
+        }
+      } else {
+        // 失败：更新状态但不移除
+        activeAgentStore.setAgentStatus(data.subAgentId, 'failed');
+        activeAgentStore.setAgentThought(data.subAgentId, data.error || '执行失败');
+        markTaskDisplayStart(data.subAgentId);
+        rtStore.setAgentMoment(data.subAgentId, {
+          type: 'reporting', icon: '⚠️', label: '执行失败',
+          durationMs: 0, status: 'error',
+          startTime: rtStore.agentActivity.currentMoments[data.subAgentId]?.startTime || Date.now(),
+        });
+      }
+      return true;
+    }
+    if (agent.subAgents) {
+      for (const sub of agent.subAgents) {
+        if (findAndUpdateAgent(sub)) return true;
+      }
+    }
+    return false;
+  };
+
+  if (activeAgentStore.mainAgent) {
+    findAndUpdateAgent(activeAgentStore.mainAgent);
   }
 });
 
@@ -536,8 +619,10 @@ messageBus.on('agent:auto-summarize-start', (data?: { subAgentId?: string; group
         const rtStore = useRuntimeStore.getState();
         useMessageStore.setState((s) => {
           const newPending = { ...s._pendingSubAgents };
+          const cleanedSet = new Set(s._cleanedAgentIds);
           for (const mid of memberIds) {
             delete newPending[mid];
+            cleanedSet.add(mid);
             activeAgentStore.removeSubAgent(parentId, mid);
             rtStore.finishAgentMoment(mid, 'success');
             rtStore.clearAgentActivity(mid);
@@ -550,7 +635,7 @@ messageBus.on('agent:auto-summarize-start', (data?: { subAgentId?: string; group
           for (const mid of memberIds) {
             delete newCitations[mid];
           }
-          return { _pendingSubAgents: newPending, citationOutputs: newCitations };
+          return { _pendingSubAgents: newPending, citationOutputs: newCitations, _cleanedAgentIds: cleanedSet };
         });
       }
     } else {

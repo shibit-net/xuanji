@@ -42,7 +42,7 @@ export default function InputArea() {
   const isAutoSummarizing = autoSummarizeActive;
 
   // ─── 后台任务追踪（统一从 backgroundTaskStore 派生）───
-  // 生命周期: creating → running → completed → cleared
+  // 生命周期: creating → running → completed/cancelled → cleared
   const runningTaskCount = useBackgroundTaskStore((s) => {
     let count = 0;
     for (const t of Object.values(s.tasks)) {
@@ -60,13 +60,14 @@ export default function InputArea() {
     for (const t of Object.values(s.tasks)) {
       if (t.lifecycle === 'cleared') continue;
       if (t.type === 'task') {
-        if (t.lifecycle === 'completed') count++;
+        if (t.lifecycle === 'completed' || t.lifecycle === 'cancelled') count++;
       } else {
-        if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed')) count++;
+        if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed' || m.lifecycle === 'cancelled')) count++;
       }
     }
     return count;
   });
+  const cancelledTaskCount = useBackgroundTaskStore((s) => s.getCancelledCount());
   const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
 
   // ─── 自动调整 textarea 高度 ─────────────────────────
@@ -202,6 +203,8 @@ export default function InputArea() {
     ? '说点什么... (工作执行中，消息将自动排队)'
     : runningTaskCount > 0
     ? '说点什么... (后台任务运行中)'
+    : cancelledTaskCount > 0
+    ? '说点什么... (有任务已取消)'
     : '说点什么...';
 
   const isSendDisabled = !input.trim() || isSending;
@@ -217,34 +220,40 @@ export default function InputArea() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* 后台任务提示栏 — 多态：运行中/等待汇报/异步后台任务/混合态 */}
+      {/* 后台任务提示栏 — 多态：运行中/等待汇报/已取消/混合态 */}
       {hasBackgroundTasks && (
         <div className={`flex items-center gap-2 px-4 py-1 border-b ${
           runningTaskCount > 0
             ? 'bg-blue-500/10 border-blue-500/20'
-            : 'bg-green-500/10 border-green-500/20'
+            : cancelledTaskCount > 0
+              ? 'bg-red-500/10 border-red-500/20'
+              : 'bg-green-500/10 border-green-500/20'
         }`}>
           {runningTaskCount > 0 ? (
             <Loader2 size={12} className="animate-spin text-blue-500 flex-shrink-0" />
+          ) : cancelledTaskCount > 0 ? (
+            <span className="text-xs text-red-400 flex-shrink-0">🛑</span>
           ) : (
             <span className="text-xs text-green-400 flex-shrink-0">⏳</span>
           )}
           <span className={`text-xs truncate ${
-            runningTaskCount > 0 ? 'text-blue-400' : 'text-green-400'
+            runningTaskCount > 0 ? 'text-blue-400' : cancelledTaskCount > 0 ? 'text-red-400' : 'text-green-400'
           }`}>
             {(() => {
               const totalRunning = runningTaskCount;
-              const totalReporting = completedTaskCount;
+              const totalReporting = completedTaskCount - cancelledTaskCount;
+              const totalCancelled = cancelledTaskCount;
               const parts: string[] = [];
               if (totalRunning > 0) parts.push(`${totalRunning} 个任务运行中`);
+              if (totalCancelled > 0) parts.push(`${totalCancelled} 个已取消`);
               if (totalReporting > 0) parts.push(`${totalReporting} 个待汇报`);
               return parts.join(' · ');
             })()}
           </span>
           <span className={`text-xs ml-auto flex-shrink-0 ${
-            runningTaskCount > 0 ? 'text-blue-400' : 'text-green-400'
+            runningTaskCount > 0 ? 'text-blue-400' : cancelledTaskCount > 0 ? 'text-red-400' : 'text-green-400'
           }`}>
-            {isAutoSummarizing ? '正在汇总...' : runningTaskCount > 0 ? '可直接发送新任务' : '等待汇总'}
+            {isAutoSummarizing ? '正在汇总...' : runningTaskCount > 0 ? '可直接发送新任务' : cancelledTaskCount > 0 ? '任务已取消' : '等待汇总'}
           </span>
         </div>
       )}
@@ -327,8 +336,14 @@ export default function InputArea() {
         {isIdle && runningTaskCount > 0 && (
           <span className="ml-2 text-blue-500">· {runningTaskCount} 个后台任务运行中</span>
         )}
-        {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && (
-          <span className="ml-2 text-green-500">· {completedTaskCount} 个后台任务待汇报</span>
+        {isIdle && runningTaskCount === 0 && cancelledTaskCount > 0 && (
+          <span className="ml-2 text-red-400">· {cancelledTaskCount} 个任务已取消</span>
+        )}
+        {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && cancelledTaskCount === 0 && (
+          <span className="ml-2 text-green-500">· {completedTaskCount - cancelledTaskCount} 个后台任务待汇报</span>
+        )}
+        {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && cancelledTaskCount > 0 && (
+          <span className="ml-2 text-green-500">· {completedTaskCount - cancelledTaskCount} 个待汇报</span>
         )}
       </div>
     </div>

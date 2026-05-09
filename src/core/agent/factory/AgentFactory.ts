@@ -627,6 +627,7 @@ export class AgentFactory {
         : undefined;
 
     const result = await acp.run(agentIdOrRole, options.task, {
+      userId: cfgMgr.getUserId() || undefined,
       systemPrompt: options.systemPrompt,
       scenePrompt: options.scenePrompt,
       tools,

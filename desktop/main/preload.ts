@@ -292,4 +292,7 @@
       ipcRenderer.removeListener('workspace:directory-changed', handler);
     }
   },
+
+  // ============ 调试日志（写入磁盘文件） ============
+  debugLog: (message: string) => ipcRenderer.invoke('debug:log', message),
 });

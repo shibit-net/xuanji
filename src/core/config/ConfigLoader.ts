@@ -268,7 +268,7 @@ export class ConfigLoader implements IConfigLoader {
    * 从 agent-overrides/{agentId}.json5 读取用户保存的 Agent 修改
    * 转换为与 loadAgentConfig 相同的格式，用于 deepMerge
    */
-  private async loadAgentOverride(agentId: string): Promise<Record<string, any> | null> {
+  async loadAgentOverride(agentId: string): Promise<Record<string, any> | null> {
     try {
       const { getUserRoot } = await import('./PathManager.js');
       const userRoot = getUserRoot(this.userId);

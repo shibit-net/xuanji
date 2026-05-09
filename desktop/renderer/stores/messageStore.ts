@@ -242,6 +242,7 @@ interface MessageStore {
   _streamToUserMap: Record<string, string>;
   _subAgentStreams: Record<string, string>;
   _pendingSubAgents: Record<string, PendingSubAgent>;
+  _cleanedAgentIds: Set<string>; // 已清理的 agent ID，防止 _promoteSubAgent 重新创建
   _autoSummarizeActive: boolean;
   _conversationState: string;
 
@@ -344,6 +345,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     _streamToUserMap: {},
     _subAgentStreams: {},
     _pendingSubAgents: {},
+    _cleanedAgentIds: new Set(),
     _autoSummarizeActive: false,
     _conversationState: 'idle',
 
@@ -353,10 +355,22 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       const convState = get()._conversationState;
       const isRunning = convState === 'executing' || convState === 'outputting';
 
-      // ── 运行时追加消息：不封口当前气泡，让流式输出在原气泡中继续 ──
-      // 后端 handleUserInput 看到 executing/outputting 会自动入队，
-      // 等当前 run 结束后 drainPendingQueue 消费队列。
-      if (!isRunning) {
+      // ── 运行时追加消息：封口当前气泡，新回复创建新气泡 ──
+      if (isRunning) {
+        const { currentStreamingId } = get();
+        if (currentStreamingId) {
+          set((s) => ({
+            messages: s.messages.map((m) =>
+              m.id === currentStreamingId ? { ...m, statusHint: undefined } : m
+            ),
+            currentStreamingId: null,
+            currentStreamingText: '',
+          }));
+        }
+        isAgentEnded = false;
+        streamTextBuffer = '';
+        streamingMessageId = null;
+      } else {
         isAgentEnded = false;
         streamTextBuffer = '';
         streamingMessageId = null;
@@ -476,7 +490,26 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       if (currentMoment && currentMoment.type === 'thinking') {
         runtimeStore.finishAgentMoment(agentId, 'success');
       }
-      if (!currentStreamingId) {
+
+      // 当前气泡已有工具调用记录 → 这轮是任务结果，启动新气泡
+      if (currentStreamingId) {
+        const currentMsg = get().messages.find(m => m.id === currentStreamingId);
+        if (currentMsg?.toolCalls?.length) {
+          // 封口旧气泡（去 statusHint），让后续 text 创建新气泡
+          set((s) => ({
+            messages: s.messages.map((m) =>
+              m.id === currentStreamingId ? { ...m, statusHint: undefined } : m
+            ),
+            currentStreamingId: null,
+            currentStreamingText: '',
+          }));
+          streamingMessageId = null;
+          streamTextBuffer = '';
+        }
+      }
+
+      const { currentStreamingId: sidAfter } = get();
+      if (!sidAfter) {
         const prevMoment = runtimeStore.agentActivity.currentMoments[agentId];
         runtimeStore.setAgentMoment(agentId, {
           type: 'writing', icon: '✍️', label: '编写中', durationMs: 0, status: 'running',
@@ -485,7 +518,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }
       runtimeStore.appendStreamText(text);
 
-      if (!currentStreamingId) {
+      if (!sidAfter) {
         const newId = generateMessageId('assistant');
         const newMessage: Message = {
           id: newId, role: 'assistant', content: text,
@@ -500,8 +533,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         }));
       } else {
         if (!streamingMessageId) {
-          console.warn('[messageStore] streamingMessageId 为 null 但 currentStreamingId 存在，恢复同步:', currentStreamingId);
-          streamingMessageId = currentStreamingId;
+          console.warn('[messageStore] streamingMessageId 为 null 但 currentStreamingId 存在，恢复同步:', sidAfter);
+          streamingMessageId = sidAfter;
           streamTextBuffer = get().currentStreamingText || '';
         }
         streamTextBuffer += text;
@@ -1021,6 +1054,50 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       for (const key of Object.keys(agentThinkingBuffer)) delete agentThinkingBuffer[key];
       set({ _subAgentStreams: {}, _autoSummarizeActive: false });
 
+      // ── 始终收尾当前流式气泡 ──
+      const { activeToolCalls, currentStreamingId } = get();
+      const finalizedToolCalls = Array.from(activeToolCalls.values()).map((tc) => {
+        if (tc.status === 'pending') {
+          return { ...tc, status: 'success' as const, duration: tc.startTime ? Date.now() - tc.startTime : undefined };
+        }
+        return tc;
+      });
+
+      if (currentStreamingId || finalizedToolCalls.length > 0) {
+        set((prevState) => ({
+          currentStreamingId: null,
+          currentStreamingText: '',
+          activeToolCalls: new Map(),
+          messages: prevState.messages.map((msg) => {
+            if (msg.id === currentStreamingId) {
+              const duration = msg.timestamp ? Date.now() - msg.timestamp : undefined;
+              const tokensUsed = state.tokenUsage || prevState.stats.tokenUsage;
+              return { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls, duration, tokensUsed };
+            } else if (msg.statusHint) {
+              return { ...msg, statusHint: undefined };
+            }
+            return msg;
+          }),
+          stats: {
+            ...prevState.stats,
+            model: state.model || prevState.stats.model,
+            tokenUsage: state.tokenUsage || prevState.stats.tokenUsage,
+            cost: state.cost || prevState.stats.cost,
+          },
+        }));
+      }
+
+      // 如果还有活跃的团队成员，跳过主 agent 结束逻辑
+      // 团队成员的个体完成不应触发 task 级别的结束行为
+      const activeAgentStore = useActiveAgentStore.getState();
+      const hasActiveTeam = activeAgentStore.mainAgent?.subAgents.some(
+        sub => sub.multiAgent?.type === 'agent_team' &&
+               sub.status !== 'success' &&
+               sub.status !== 'done' &&
+               sub.status !== 'failed'
+      );
+      if (hasActiveTeam) return;
+
       useRuntimeStore.getState().finishMessageStream();
       useRuntimeStore.getState().setProcessing(false);
       useRuntimeStore.getState().updateAgentStatus({ status: 'done' });
@@ -1040,20 +1117,13 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         }));
       }
 
-      const { activeToolCalls, currentStreamingId } = get();
-      const finalizedToolCalls = Array.from(activeToolCalls.values()).map((tc) => {
-        if (tc.status === 'pending') {
-          return { ...tc, status: 'success' as const, duration: tc.startTime ? Date.now() - tc.startTime : undefined };
-        }
-        return tc;
-      });
-
-      const activeAgentStore = useActiveAgentStore.getState();
       activeAgentStore.finishMainAgent();
       // 仅清理仍在执行中的子 agent（被停止/取消中断的），保留已完成的
+      // 跳过团队成员：他们由 team 生命周期管理（_handleTeamEnd / auto-summarize-start）
       const mainAgentAfter = useActiveAgentStore.getState().mainAgent;
       if (mainAgentAfter) {
         for (const sub of mainAgentAfter.subAgents) {
+          if (sub.multiAgent?.type === 'agent_team') continue;
           if (sub.status !== 'success' && sub.status !== 'done') {
             activeAgentStore.removeSubAgent(mainAgentAfter.id, sub.id);
           }
@@ -1063,25 +1133,12 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       set((prevState) => ({
         status: 'idle',
         _conversationState: 'idle',
-        currentStreamingId: null,
-        currentStreamingText: '',
-        activeToolCalls: new Map(),
         messages: prevState.messages.map((msg) => {
-          if (msg.id === currentStreamingId) {
-            const duration = msg.timestamp ? Date.now() - msg.timestamp : undefined;
-            const tokensUsed = state.tokenUsage || prevState.stats.tokenUsage;
-            return { ...msg, statusHint: undefined, toolCalls: finalizedToolCalls, duration, tokensUsed };
-          } else if (msg.statusHint) {
+          if (msg.statusHint) {
             return { ...msg, statusHint: undefined };
           }
           return msg;
         }),
-        stats: {
-          ...prevState.stats,
-          model: state.model || prevState.stats.model,
-          tokenUsage: state.tokenUsage || prevState.stats.tokenUsage,
-          cost: state.cost || prevState.stats.cost,
-        },
         currentSkill: state.currentSkill ? {
           name: state.currentSkill.name,
           icon: state.currentSkill.icon || '🛠️',
@@ -1115,6 +1172,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       if (!pending) {
         // 无 pending 条目时（thinking 事件先于 subagent-start 到达），用 subAgentId 派生名称
         if (alreadyExists) return;
+        // 团队结束后被清理的 agent，不再因延迟事件重新创建（否则会丢失 multiAgent 数据，退化为 task 节点）
+        if (get()._cleanedAgentIds.has(subAgentId)) return;
         const derivedName = subAgentId.replace(/^subtask-/, '').replace(/^subagent-/, '').replace(/-[\d]+-[a-z0-9]+$/, '');
         activeAgentStore.addSubAgent(mainAgentId, {
           id: subAgentId,
@@ -1196,11 +1255,22 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           data.members.forEach((member: any) => {
             const subAgentId = member.subAgentId || member.id;
             const debateRole = member.debateRole;
+            const multiAgentData = {
+              type: 'agent_team' as const,
+              strategy: data.strategy,
+              teamName: data.name,
+              memberId: member.id,
+              stepIndex: member.stepIndex,
+              totalSteps: data.members!.length,
+              debateRole,
+              currentRound: 1,
+              maxRounds: (data as any).maxRounds,
+            };
 
             activeAgentStore.addSubAgent(parentAgentId, {
               id: subAgentId,
               name: member.name || member.role || member.id,
-              status: 'idle',
+              status: 'pending',
               currentTask: member.task,
               currentTools: [],
               subAgents: [],
@@ -1208,13 +1278,21 @@ export const useMessageStore = create<MessageStore>((set, get) => {
               scene: member.scene,
               executionMode: member.executionMode || 'acp',
               stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
-              multiAgent: {
-                type: 'agent_team', strategy: data.strategy, teamName: data.name,
-                memberId: member.id, stepIndex: member.stepIndex, totalSteps: data.members!.length,
-                debateRole, currentRound: 1, maxRounds: (data as any).maxRounds,
-              },
+              multiAgent: multiAgentData,
             });
 
+            // 防止 _promoteSubAgent (tool-start) 先于 team-start 到达时
+            // 创建的裸 agent 缺少 multiAgent 数据，导致 buildFlow 无法识别为团队成员
+            activeAgentStore.updateAgentMultiAgent(subAgentId, multiAgentData);
+
+            // 设置"等待执行"初始 moment
+            markTaskDisplayStart(subAgentId);
+            const initRtStore = useRuntimeStore.getState();
+            initRtStore.setAgentMoment(subAgentId, {
+              type: 'idle', icon: '⏳', label: '等待执行',
+              durationMs: 0, status: 'running',
+              startTime: Date.now(),
+            });
           });
 
           if (toolCall) {
@@ -1273,6 +1351,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           }
           if (data.agentType) { activeAgentStore.updateAgentType(subAgentId, data.agentType); }
           activeAgentStore.updateAgentMultiAgent(subAgentId, {
+            type: 'agent_team', strategy: data.strategy, teamName: data.teamName,
             currentRound: data.currentRound, maxRounds: data.maxRounds,
             debateRole, memberId: data.memberId,
           });
@@ -1431,7 +1510,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         const taskCurrentMoment = runtimeStore.agentActivity.currentMoments[subAgentId];
         const taskTaskStartTime = taskCurrentMoment?.startTime || Date.now();
         runtimeStore.setAgentMoment(subAgentId, {
-          type: 'reporting', icon: '📤', label: '汇报中',
+          type: 'reporting', icon: '📤', label: '待汇报',
           durationMs: 0, status: 'running', startTime: taskTaskStartTime,
         });
         runtimeStore.addRecentEvent({
@@ -1476,14 +1555,14 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           runtimeStore2.setAgentMoment(memberId, {
             type: 'reporting',
             icon: isCancelled ? '🛑' : (data.success !== false ? '📤' : '⚠️'),
-            label: isCancelled ? '已取消' : (data.success !== false ? '汇报中' : '执行失败'),
+            label: isCancelled ? '已取消' : (data.success !== false ? '待汇报' : '执行失败'),
             durationMs: 0, status: 'running',
             startTime: currentMoment?.startTime || Date.now(),
           });
         });
 
-        // 团队失败时，延迟清理 flow 中的成员节点（让用户看到失败状态后再移除）
-        if (data.success === false && teamMemberIds.length > 0) {
+        // 团队失败/取消时，延迟清理 flow 中的成员节点（让用户看到失败状态后再移除）
+        if ((data.success === false || isCancelled) && teamMemberIds.length > 0) {
           const mainAgent = activeAgentStore.mainAgent;
           if (mainAgent) {
             const findParentId = (agent: any, targetId: string): string | null => {
@@ -1502,6 +1581,12 @@ export const useMessageStore = create<MessageStore>((set, get) => {
                 activeAgentStore.removeSubAgent(parentId, memberId);
                 rtStore3.finishAgentMoment(memberId, 'error');
                 rtStore3.clearAgentActivity(memberId);
+              });
+              // 标记为已清理，防止延迟事件重新创建（丢失 multiAgent 退化为 task 节点）
+              useMessageStore.setState((s) => {
+                const cleanedSet = new Set(s._cleanedAgentIds);
+                teamMemberIds.forEach(id => cleanedSet.add(id));
+                return { _cleanedAgentIds: cleanedSet };
               });
             }, 3000);
           }

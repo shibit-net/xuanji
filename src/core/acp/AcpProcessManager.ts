@@ -72,6 +72,7 @@ export class AcpProcessManager extends EventEmitter {
     agentId: string,
     task: string,
     options: {
+      userId?: string;
       systemPrompt?: string;
       scenePrompt?: string;
       tools?: string[];
@@ -99,6 +100,7 @@ export class AcpProcessManager extends EventEmitter {
         type: 'run',
         requestId,
         payload: {
+          userId: options.userId || 'default',
           agentId,
           task,
           systemPrompt: options.systemPrompt,
