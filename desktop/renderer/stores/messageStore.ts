@@ -353,10 +353,22 @@ export const useMessageStore = create<MessageStore>((set, get) => {
 
     sendMessage: async (content) => {
       const convState = get()._conversationState;
-      const isRunning = convState === 'executing' || convState === 'outputting';
+      const isExecuting = convState === 'executing';
+      const isOutputting = convState === 'outputting';
+      const isRunning = isExecuting || isOutputting;
 
-      // ── 运行时追加消息：封口当前气泡，新回复创建新气泡 ──
-      if (isRunning) {
+      // 空闲：正常重置
+      if (!isRunning) {
+        isAgentEnded = false;
+        streamTextBuffer = '';
+        streamingMessageId = null;
+        for (const key of Object.keys(subAgentStreamState)) {
+          delete subAgentStreamState[key];
+        }
+      } else if (isOutputting) {
+        // 正在输出文本：用户补充内容，不封口气泡，流式输出继续
+      } else {
+        // 正在思考/执行工具：用户发起新任务，封口当前气泡
         const { currentStreamingId } = get();
         if (currentStreamingId) {
           set((s) => ({
@@ -370,13 +382,6 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         isAgentEnded = false;
         streamTextBuffer = '';
         streamingMessageId = null;
-      } else {
-        isAgentEnded = false;
-        streamTextBuffer = '';
-        streamingMessageId = null;
-        for (const key of Object.keys(subAgentStreamState)) {
-          delete subAgentStreamState[key];
-        }
       }
 
       const userMessage: Message = {
@@ -408,7 +413,10 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }));
 
       try {
-        const result = await window.electron.agentSendMessage(content);
+        // outputting 时用 supplement（不中断流式），executing 时用 sendMessage（新任务）
+        const result = isOutputting
+          ? await window.electron.agentSendSupplment(content)
+          : await window.electron.agentSendMessage(content);
         if (!result.success) {
           const errorMessage: Message = {
             id: generateMessageId('error'),
@@ -490,26 +498,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       if (currentMoment && currentMoment.type === 'thinking') {
         runtimeStore.finishAgentMoment(agentId, 'success');
       }
-
-      // 当前气泡已有工具调用记录 → 这轮是任务结果，启动新气泡
-      if (currentStreamingId) {
-        const currentMsg = get().messages.find(m => m.id === currentStreamingId);
-        if (currentMsg?.toolCalls?.length) {
-          // 封口旧气泡（去 statusHint），让后续 text 创建新气泡
-          set((s) => ({
-            messages: s.messages.map((m) =>
-              m.id === currentStreamingId ? { ...m, statusHint: undefined } : m
-            ),
-            currentStreamingId: null,
-            currentStreamingText: '',
-          }));
-          streamingMessageId = null;
-          streamTextBuffer = '';
-        }
-      }
-
-      const { currentStreamingId: sidAfter } = get();
-      if (!sidAfter) {
+      if (!currentStreamingId) {
         const prevMoment = runtimeStore.agentActivity.currentMoments[agentId];
         runtimeStore.setAgentMoment(agentId, {
           type: 'writing', icon: '✍️', label: '编写中', durationMs: 0, status: 'running',
@@ -518,7 +507,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }
       runtimeStore.appendStreamText(text);
 
-      if (!sidAfter) {
+      if (!currentStreamingId) {
         const newId = generateMessageId('assistant');
         const newMessage: Message = {
           id: newId, role: 'assistant', content: text,
@@ -533,8 +522,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         }));
       } else {
         if (!streamingMessageId) {
-          console.warn('[messageStore] streamingMessageId 为 null 但 currentStreamingId 存在，恢复同步:', sidAfter);
-          streamingMessageId = sidAfter;
+          console.warn('[messageStore] streamingMessageId 为 null 但 currentStreamingId 存在，恢复同步:', currentStreamingId);
+          streamingMessageId = currentStreamingId;
           streamTextBuffer = get().currentStreamingText || '';
         }
         streamTextBuffer += text;
