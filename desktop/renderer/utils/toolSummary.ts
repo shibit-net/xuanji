@@ -2,6 +2,8 @@
 // toolSummary - 工具调用摘要生成（纯函数，无 store 依赖）
 // ============================================================
 
+import { toNativePath } from './pathUtils';
+
 /** 提取可读的模型名 */
 export function formatModelName(rawModel: string): string {
   if (!rawModel) return 'unknown';
@@ -51,8 +53,9 @@ export function generateToolSummaryMessage(
   input: Record<string, unknown>,
   result: string,
 ): string {
-  const filePath = (input.path || input.file_path) as string | undefined;
-  if (!filePath) return '';
+  const rawPath = (input.path || input.file_path) as string | undefined;
+  if (!rawPath) return '';
+  const filePath = toNativePath(rawPath);
 
   switch (toolName) {
     case 'write_file': {
@@ -86,7 +89,7 @@ export function generateToolSummaryMessage(
       const fileCount = new Set(edits.map(e => e.file_path)).size;
       const totalEdits = edits.length;
       const editList = edits.slice(0, 3).map(e =>
-        `- \`${e.file_path}\`：${(e.old_string || '').slice(0, 30)}... → ${(e.new_string || '').slice(0, 30)}...`
+        `- \`${toNativePath(e.file_path)}\`：${(e.old_string || '').slice(0, 30)}... → ${(e.new_string || '').slice(0, 30)}...`
       ).join('\n');
       return `✅ **批量编辑完成**\n\n📁 涉及 ${fileCount} 个文件，共 ${totalEdits} 处修改\n\n${editList}${edits.length > 3 ? `\n... 还有 ${edits.length - 3} 处修改` : ''}`;
     }
@@ -99,7 +102,8 @@ export function generateToolSummaryMessage(
 /** 生成文件变更的对话式摘要 */
 export function generateFileChangeSummary(change: import('../global').FileChange): string {
   const change2 = change as any;
-  const { filePath, operation, stats, diffContent } = change2;
+  const { filePath: rawPath, operation, stats, diffContent } = change2;
+  const filePath = toNativePath(rawPath);
   const cleanDiff = diffContent ? cleanDiffContent(diffContent) : '';
 
   switch (operation) {

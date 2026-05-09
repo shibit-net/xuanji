@@ -8,6 +8,7 @@ import { useRuntimeStore } from './runtimeStore';
 import { useActiveAgentStore } from './activeAgentStore';
 import { useExecutionStore } from './executionStore';
 import { useSessionStore } from './sessionStore';
+import { toNativePath } from '../utils/pathUtils';
 
 // ── 消息数量上限（防止 OOM）──
 const MAX_MESSAGES = 500;
@@ -159,8 +160,9 @@ function generateToolSummaryMessage(
   input: Record<string, unknown>,
   result: string
 ): string {
-  const filePath = (input.path || input.file_path) as string | undefined;
-  if (!filePath) return '';
+  const rawPath = (input.path || input.file_path) as string | undefined;
+  if (!rawPath) return '';
+  const filePath = toNativePath(rawPath);
 
   switch (toolName) {
     case 'write_file': {
@@ -202,7 +204,7 @@ function generateToolSummaryMessage(
       const fileCount = new Set(edits.map(e => e.file_path)).size;
       const totalEdits = edits.length;
       const editList = edits.slice(0, 3).map(e =>
-        `- \`${e.file_path}\`：${(e.old_string || '').slice(0, 30)}... → ${(e.new_string || '').slice(0, 30)}...`
+        `- \`${toNativePath(e.file_path)}\`：${(e.old_string || '').slice(0, 30)}... → ${(e.new_string || '').slice(0, 30)}...`
       ).join('\n');
       return `✅ **批量编辑完成**\n\n` +
              `📁 涉及 ${fileCount} 个文件，共 ${totalEdits} 处修改\n\n` +
@@ -289,6 +291,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
   let streamTextBuffer = '';
   let streamingMessageId: string | null = null;
   let isAgentEnded = false;
+  // 上一次 agent:end 后延迟清除 currentMoments 的 timeout
+  let endActivityTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const flushStreamText = () => {
     if (!streamingMessageId || !streamTextBuffer) {
@@ -359,6 +363,11 @@ export const useMessageStore = create<MessageStore>((set, get) => {
 
       // 空闲：正常重置
       if (!isRunning) {
+        // 取消上一次 agent:end 的 activity 清理 timeout，防止清掉新轮次的 thinking moment
+        if (endActivityTimeout) {
+          clearTimeout(endActivityTimeout);
+          endActivityTimeout = null;
+        }
         isAgentEnded = false;
         streamTextBuffer = '';
         streamingMessageId = null;
@@ -369,6 +378,13 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         // 正在输出文本：用户补充内容，不封口气泡，流式输出继续
       } else {
         // 正在思考/执行工具：用户发起新任务，封口当前气泡
+        // 取消上一次 agent:end 的 activity 清理 timeout
+        if (endActivityTimeout) {
+          clearTimeout(endActivityTimeout);
+          endActivityTimeout = null;
+        }
+        // 重置 currentActiveAgentId，确保新轮次 thinking 路由到主 agent
+        useActiveAgentStore.getState().setCurrentActiveAgent(null);
         const { currentStreamingId } = get();
         if (currentStreamingId) {
           set((s) => ({
@@ -413,22 +429,40 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }));
 
       try {
-        // outputting 时用 supplement（不中断流式），executing 时用 sendMessage（新任务）
-        const result = isOutputting
-          ? await window.electron.agentSendSupplment(content)
-          : await window.electron.agentSendMessage(content);
-        if (!result.success) {
-          const errorMessage: Message = {
-            id: generateMessageId('error'),
-            role: 'assistant',
-            content: `❌ 错误：${(result as any).error || '未知错误'}`,
-            timestamp: Date.now(),
-          };
-          useRuntimeStore.getState().setProcessing(false);
-          set((state) => ({
-            messages: trimMessages([...state.messages, errorMessage]),
-            status: 'idle',
-          }));
+        // idle → 直接发送，executing → 中断后发送，outputting → supplement 入队
+        if (isExecuting) {
+          await window.electron.agentInterrupt(content);
+        } else if (isOutputting) {
+          const result = await window.electron.agentSendSupplment(content);
+          if (!result.success) {
+            const errorMessage: Message = {
+              id: generateMessageId('error'),
+              role: 'assistant',
+              content: `❌ 错误：${(result as any).error || '未知错误'}`,
+              timestamp: Date.now(),
+            };
+            useRuntimeStore.getState().setProcessing(false);
+            set((state) => ({
+              messages: trimMessages([...state.messages, errorMessage]),
+              status: 'idle',
+            }));
+          }
+          return;
+        } else {
+          const result = await window.electron.agentSendMessage(content);
+          if (!result.success) {
+            const errorMessage: Message = {
+              id: generateMessageId('error'),
+              role: 'assistant',
+              content: `❌ 错误：${(result as any).error || '未知错误'}`,
+              timestamp: Date.now(),
+            };
+            useRuntimeStore.getState().setProcessing(false);
+            set((state) => ({
+              messages: trimMessages([...state.messages, errorMessage]),
+              status: 'idle',
+            }));
+          }
         }
       } catch (err) {
         const errorMessage: Message = {
@@ -468,6 +502,10 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       await window.electron.agentReset();
       streamTextBuffer = '';
       streamingMessageId = null;
+      if (endActivityTimeout) {
+        clearTimeout(endActivityTimeout);
+        endActivityTimeout = null;
+      }
       for (const key of Object.keys(subAgentStreamState)) delete subAgentStreamState[key];
       useExecutionStore.setState({ todos: [] });
       set({
@@ -835,6 +873,34 @@ export const useMessageStore = create<MessageStore>((set, get) => {
             set((s) => ({
               _taskParentMap: { ...s._taskParentMap, [subAgentId]: { toolId: data.id, agentId: currentAgentId } },
             }));
+
+            // 异步 task：提前创建 pending 节点，等 _handleTeamMemberStart 激活
+            if (data.name === 'task') {
+              const pending = get()._pendingSubAgents[subAgentId];
+              const taskName = pending?.name || 'Sub-agent';
+              const taskDesc = pending?.task || '';
+              const taskParentId = currentAgentId || useActiveAgentStore.getState().mainAgent?.id || 'xuanji';
+
+              if (!useActiveAgentStore.getState().findAgentById(subAgentId)) {
+                useActiveAgentStore.getState().addSubAgent(taskParentId, {
+                  id: subAgentId,
+                  name: taskName,
+                  status: 'pending',
+                  currentTask: taskDesc,
+                  currentTools: [],
+                  subAgents: [],
+                  agentType: 'temporary',
+                  executionMode: 'acp',
+                  stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
+                });
+                markTaskDisplayStart(subAgentId);
+                useRuntimeStore.getState().setAgentMoment(subAgentId, {
+                  type: 'idle', icon: '⏳', label: '等待执行',
+                  durationMs: 0, status: 'running',
+                  startTime: Date.now(),
+                });
+              }
+            }
           }
         } else {
           toolCall.status = data.isError ? 'error' : 'success';
@@ -1076,17 +1142,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
         }));
       }
 
-      // 如果还有活跃的团队成员，跳过主 agent 结束逻辑
-      // 团队成员的个体完成不应触发 task 级别的结束行为
       const activeAgentStore = useActiveAgentStore.getState();
-      const hasActiveTeam = activeAgentStore.mainAgent?.subAgents.some(
-        sub => sub.multiAgent?.type === 'agent_team' &&
-               sub.status !== 'success' &&
-               sub.status !== 'done' &&
-               sub.status !== 'failed'
-      );
-      if (hasActiveTeam) return;
-
       useRuntimeStore.getState().finishMessageStream();
       useRuntimeStore.getState().setProcessing(false);
       useRuntimeStore.getState().updateAgentStatus({ status: 'done' });
@@ -1095,9 +1151,18 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       if (agentId) {
         const runtimeStore = useRuntimeStore.getState();
         runtimeStore.finishAgentMoment(agentId, 'success');
-        setTimeout(() => {
+        // 取消上一次的 timeout（防止累积）
+        if (endActivityTimeout) {
+          clearTimeout(endActivityTimeout);
+        }
+        endActivityTimeout = setTimeout(() => {
+          endActivityTimeout = null;
+          // 只清除主 agent 的 moment，不干扰仍在运行的异步子 agent
+          const rtStore = useRuntimeStore.getState();
+          const newMoments = { ...rtStore.agentActivity.currentMoments };
+          delete newMoments[agentId];
           useRuntimeStore.setState((s) => ({
-            agentActivity: { ...s.agentActivity, currentMoments: {} },
+            agentActivity: { ...s.agentActivity, currentMoments: newMoments },
           }));
         }, 1500);
       } else {
@@ -1107,17 +1172,8 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       }
 
       activeAgentStore.finishMainAgent();
-      // 仅清理仍在执行中的子 agent（被停止/取消中断的），保留已完成的
-      // 跳过团队成员：他们由 team 生命周期管理（_handleTeamEnd / auto-summarize-start）
-      const mainAgentAfter = useActiveAgentStore.getState().mainAgent;
-      if (mainAgentAfter) {
-        for (const sub of mainAgentAfter.subAgents) {
-          if (sub.multiAgent?.type === 'agent_team') continue;
-          if (sub.status !== 'success' && sub.status !== 'done') {
-            activeAgentStore.removeSubAgent(mainAgentAfter.id, sub.id);
-          }
-        }
-      }
+      // 异步子 agent（task/agent_team）仍在后台运行，由各自的生命周期事件管理，
+      // 此处不主动清理，避免误删正在执行中的异步任务
 
       set((prevState) => ({
         status: 'idle',
@@ -1389,7 +1445,7 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           return false;
         };
 
-        if (findAgent(mainAgent, subAgentId)) return;
+        const agentExists = findAgent(mainAgent, subAgentId);
 
         let parentAgentId: string | undefined;
         const taskToolCalls = Object.entries(get()._teamParentMap).filter(([toolId]) => {
@@ -1404,11 +1460,20 @@ export const useMessageStore = create<MessageStore>((set, get) => {
           parentAgentId = activeAgentStore.currentActiveAgentId || mainAgent?.id;
         }
 
-        if (mainAgent && parentAgentId) {
+        if (agentExists) {
+          // pending → thinking：_handleAgentToolEnd 已创建 pending 节点，此处激活
+          activeAgentStore.setAgentStatus(subAgentId, 'thinking');
+          activeAgentStore.setCurrentActiveAgent(subAgentId);
+          if (data.task) {
+            activeAgentStore.setAgentTask(subAgentId, data.task);
+            markTaskDisplayStart(subAgentId);
+          }
+        } else if (mainAgent && parentAgentId) {
+          // 防御性兜底：先创建 pending，再立即激活
           activeAgentStore.addSubAgent(parentAgentId, {
             id: subAgentId,
             name: data.name || data.role || 'Sub-agent',
-            status: 'thinking',
+            status: 'pending',
             currentTask: data.task,
             currentTools: [],
             subAgents: [],
@@ -1417,9 +1482,13 @@ export const useMessageStore = create<MessageStore>((set, get) => {
             executionMode: (data as any).executionMode || 'acp',
             stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
           });
-          activeAgentStore.setCurrentActiveAgent(subAgentId);
-          // 进入时展示父 agent 分配的任务（通过 currentTask，黄色边框）
           if (data.task) { markTaskDisplayStart(subAgentId); }
+          useRuntimeStore.getState().setAgentMoment(subAgentId, {
+            type: 'idle', icon: '⏳', label: '等待执行',
+            durationMs: 0, status: 'running', startTime: Date.now(),
+          });
+          activeAgentStore.setAgentStatus(subAgentId, 'thinking');
+          activeAgentStore.setCurrentActiveAgent(subAgentId);
         }
 
         useRuntimeStore.getState().addRecentEvent({
@@ -1566,17 +1635,20 @@ export const useMessageStore = create<MessageStore>((set, get) => {
             const parentId = findParentId(mainAgent, teamMemberIds[0]) || mainAgent.id;
             setTimeout(() => {
               const rtStore3 = useRuntimeStore.getState();
-              teamMemberIds.forEach(memberId => {
-                activeAgentStore.removeSubAgent(parentId, memberId);
-                rtStore3.finishAgentMoment(memberId, 'error');
-                rtStore3.clearAgentActivity(memberId);
-              });
-              // 标记为已清理，防止延迟事件重新创建（丢失 multiAgent 退化为 task 节点）
-              useMessageStore.setState((s) => {
-                const cleanedSet = new Set(s._cleanedAgentIds);
-                teamMemberIds.forEach(id => cleanedSet.add(id));
-                return { _cleanedAgentIds: cleanedSet };
-              });
+              const cleanedBefore = get()._cleanedAgentIds;
+              const toClean = teamMemberIds.filter(id => !cleanedBefore.has(id));
+              if (toClean.length > 0) {
+                toClean.forEach(memberId => {
+                  activeAgentStore.removeSubAgent(parentId, memberId);
+                  rtStore3.finishAgentMoment(memberId, 'error');
+                  rtStore3.clearAgentActivity(memberId);
+                });
+                useMessageStore.setState((s) => {
+                  const cleanedSet = new Set(s._cleanedAgentIds);
+                  toClean.forEach(id => cleanedSet.add(id));
+                  return { _cleanedAgentIds: cleanedSet };
+                });
+              }
             }, 3000);
           }
         }

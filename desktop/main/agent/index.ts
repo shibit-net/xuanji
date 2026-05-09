@@ -81,7 +81,7 @@ function initChatSession(): Promise<boolean> {
 
       const userId = authState.user.userId;
 
-      const nodePath = findNodePath();
+      let nodePath = findNodePath();
 
       const isDev = !app.isPackaged;
       let scriptPath: string;
@@ -92,12 +92,21 @@ function initChatSession(): Promise<boolean> {
         const desktopRoot = path.join(__dirname, '../');
         scriptPath = path.join(desktopRoot, 'main/agent-bridge.ts');
         const projectRoot = path.join(desktopRoot, '../');
-        const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
-        args = [tsxPath, scriptPath];
+
+        if (process.platform === 'win32') {
+          // Windows: node_modules/.bin/tsx 是 bash 脚本，node 无法执行
+          // tsx.cmd 可以直接 spawn，不需要通过 node 调用
+          nodePath = path.join(projectRoot, 'node_modules', '.bin', 'tsx.cmd');
+          args = [scriptPath];
+        } else {
+          const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
+          args = [tsxPath, scriptPath];
+        }
       } else {
         // 生产环境：extraResources → Resources/dist-electron/agent-bridge.mjs
         scriptPath = path.join(process.resourcesPath!, 'dist-electron', 'agent-bridge.mjs');
-        args = ['--experimental-require-module', scriptPath];
+        // createRequire(import.meta.url) 已处理 ESM/CJS 互操作，无需 --experimental-require-module
+        args = [scriptPath];
       }
 
       const { spawn } = require('child_process');

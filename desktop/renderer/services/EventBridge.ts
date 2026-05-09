@@ -13,13 +13,15 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useActiveAgentStore } from '../stores/activeAgentStore';
 import { useRuntimeStore } from '../stores/runtimeStore';
 import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
+import { toNativePath } from '../utils/pathUtils';
 // generateToolSummaryMessage 已由 messageStore._handleAgentToolEnd 内部调用
 
 // ── 工具函数 ──────────────────────────────────────
 
 function generateFileChangeSummary(change: any): string {
-  const { filePath, operation, stats } = change;
-  if (!filePath || !operation) return '';
+  const { filePath: rawPath, operation, stats } = change;
+  if (!rawPath || !operation) return '';
+  const filePath = toNativePath(rawPath);
   switch (operation) {
     case 'create':
       return `\n## 📄 新文件 — \`${filePath}\`\n\n共 ${stats?.added || 0} 行\n`;
@@ -506,6 +508,18 @@ messageBus.on('agent:task-failed', (data: { groupId: string; subAgentId?: string
     bgTaskStore.transitionTask(data.groupId, data.status === 'cancelled' ? 'cancelled' : 'failed');
   }
 
+  // 结束父 agent 的异步 task 工具 timeline
+  const taskParentInfo = useMessageStore.getState()._taskParentMap[data.subAgentId];
+  if (taskParentInfo) {
+    rtStore.updateToolCall(taskParentInfo.toolId, { status: 'error' });
+    rtStore.finishTimelineEvent(taskParentInfo.agentId, taskParentInfo.toolId, 0, 'error');
+    useMessageStore.setState((s) => {
+      const newMap = { ...s._taskParentMap };
+      delete newMap[data.subAgentId];
+      return { _taskParentMap: newMap };
+    });
+  }
+
   // 查找并更新对应 agent 节点
   const findAndUpdateAgent = (agent: any): boolean => {
     if (!agent) return false;
@@ -651,17 +665,17 @@ messageBus.on('agent:auto-summarize-start', (data?: { subAgentId?: string; group
         const rtStore = useRuntimeStore.getState();
         useMessageStore.setState((s) => {
           const newPending = { ...s._pendingSubAgents };
+          const cleanedSet = new Set(s._cleanedAgentIds);
           delete newPending[data.subAgentId!];
+          cleanedSet.add(data.subAgentId!);
           activeAgentStore.removeSubAgent(parentId, data.subAgentId!);
           rtStore.finishAgentMoment(data.subAgentId!, 'success');
           rtStore.clearAgentActivity(data.subAgentId!);
-          // 清理模块级 map 残留
           delete agentTaskDisplayStart[data.subAgentId!];
           delete agentThinkingBuffer[data.subAgentId!];
-          // 清理 citationOutputs
           const newCitations = { ...s.citationOutputs };
           delete newCitations[data.subAgentId!];
-          return { _pendingSubAgents: newPending, citationOutputs: newCitations };
+          return { _pendingSubAgents: newPending, citationOutputs: newCitations, _cleanedAgentIds: cleanedSet };
         });
       }
     }
@@ -695,14 +709,17 @@ messageBus.on('agent:thinking-start', (data: { agentId: string; content: string 
     if (mainAgent) {
       const doneIds = mainAgent.subAgents
         .filter(sub => (sub.status === 'success' || sub.status === 'failed') && sub.multiAgent?.type !== 'agent_team')
-        .map(sub => sub.id);
+        .map(sub => sub.id)
+        .filter(id => !useMessageStore.getState()._cleanedAgentIds.has(id));
       if (doneIds.length > 0) {
         const rtStore = useRuntimeStore.getState();
         useMessageStore.setState((s) => {
           const newPending = { ...s._pendingSubAgents };
           const newCitations = { ...s.citationOutputs };
+          const cleanedSet = new Set(s._cleanedAgentIds);
           for (const id of doneIds) {
             delete newPending[id];
+            cleanedSet.add(id);
             activeAgentStore.removeSubAgent(mainAgent.id, id);
             rtStore.finishAgentMoment(id, 'success');
             rtStore.clearAgentActivity(id);
@@ -710,7 +727,7 @@ messageBus.on('agent:thinking-start', (data: { agentId: string; content: string 
             delete agentThinkingBuffer[id];
             delete newCitations[id];
           }
-          return { _pendingSubAgents: newPending, citationOutputs: newCitations };
+          return { _pendingSubAgents: newPending, citationOutputs: newCitations, _cleanedAgentIds: cleanedSet };
         });
       }
     }

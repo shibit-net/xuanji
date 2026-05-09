@@ -13,6 +13,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useActiveAgentStore } from '../stores/activeAgentStore';
 import MilkdownEditor from './MilkdownEditor';
 import { Avatar } from './Avatar';
+import { isFilePath, toNativePath } from '../utils/pathUtils';
 
 // 主 agent 头像
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
@@ -217,18 +218,16 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
       // 处理 toolSummary 消息中的文件路径 code 元素 — 标记为可点击，CSS 负责样式
       // 事件委托在 MessageBubble 外层由点击事件处理
-      const filePathRegex = /^(~\/|\/|\.\/|\/Users\/|[a-zA-Z]:\\)/;
       container!.querySelectorAll('code').forEach((el) => {
         const code = el as HTMLElement;
         if (code.dataset.fileLinked || code.closest('pre')) return;
         const text = code.textContent?.trim() || '';
-        if (!text || text.length < 5 || (!text.includes('/') && !text.includes('\\'))) return;
-        if (!filePathRegex.test(text) && !text.startsWith('~')) return;
+        if (!isFilePath(text)) return;
+        const displayPath = toNativePath(text);
         code.dataset.fileLinked = text;
         code.className = 'tool-summary-filepath';
-        // 清空原内容，用可点击样式显示
         const iconSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="flex-shrink:0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-        code.innerHTML = `${iconSvg} ${text}`;
+        code.innerHTML = `${iconSvg} ${displayPath}`;
       });
     }
 

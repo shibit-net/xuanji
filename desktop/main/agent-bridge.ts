@@ -219,10 +219,11 @@ function handleInterrupt(msg?: string): void {
 /**
  * 追加消息到会话队列（不中断当前执行）
  */
-function handleAppendMessage(data: { message: string }): void {
+function handleAppendMessage(data: { message: string } | string): void {
   if (!session) { log.warn('handleAppendMessage: session is null, ignoring append'); return; }
   try {
-    session.appendMessage(data?.message || '');
+    const message = typeof data === 'string' ? data : (data?.message || '');
+    session.appendMessage(message);
   } catch (err) {
     log.error('handleAppendMessage failed:', err);
   }
@@ -289,20 +290,62 @@ function handleGetFullConfig(): { success: boolean; config?: any; error?: string
 }
 
 /**
- * 更新配置
+ * 更新配置（支持动态重载 + 持久化到磁盘）
+ *
+ * 前端发送格式: { section: 'ui' | 'tools' | 'provider' | 'workspace' | 'embedding', sectionData: {...} }
  */
 async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?: string }> {
   if (!session) {
     return { success: false, error: '会话未初始化' };
   }
   try {
-    // 使用 RuntimeConfig 更新配置（实际项目可能通过 config manager 持久化）
-    const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
-    if (data?.updates) {
-      const current = session.getConfig();
-      const merged = { ...current, ...data.updates };
-      setRuntimeConfig(merged);
+    const { updateRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+
+    if (data?.section && data?.sectionData) {
+      const partial: Record<string, unknown> = {};
+
+      switch (data.section) {
+        case 'ui':
+          partial.ui = data.sectionData;
+          // workspacePath 通过 ui section 传递时，提升到顶层
+          if (data.sectionData.workspacePath !== undefined) {
+            partial.workspacePath = data.sectionData.workspacePath;
+          }
+          break;
+        case 'tools':
+          partial.tools = data.sectionData;
+          break;
+        case 'provider':
+          partial.provider = data.sectionData;
+          break;
+        case 'workspace':
+          partial.workspacePath = data.sectionData.workspacePath;
+          break;
+        case 'embedding':
+          partial.embedding = data.sectionData;
+          break;
+      }
+
+      if (Object.keys(partial).length > 0) {
+        updateRuntimeConfig(partial as any);
+        log.info(`Config updated: section=${data.section}`);
+      }
     }
+
+    // 持久化到 config.json，确保重启后配置不丢失
+    if (currentUserId) {
+      try {
+        const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+        const configPath = getUserConfigPath(currentUserId);
+        const currentConfig = session.getConfig();
+        const fs = await import('node:fs/promises');
+        await fs.writeFile(configPath, JSON.stringify(currentConfig, null, 2), 'utf-8');
+        log.info(`Config persisted to ${configPath}`);
+      } catch (persistErr) {
+        log.warn('Failed to persist config:', persistErr);
+      }
+    }
+
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -489,7 +532,7 @@ async function handleAgentCreate(data: { config: any }): Promise<{ success: bool
 }
 
 /**
- * 更新 Agent 配置
+ * 更新 Agent 配置（保存到磁盘 + 动态热重载 provider）
  */
 async function handleAgentUpdate(data: { agentId: string; config: any }): Promise<{ success: boolean; agent?: any; error?: string }> {
   if (!session) {
@@ -498,15 +541,53 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
   try {
     const agentRegistry = session.getAgentRegistry();
     const configManager = (agentRegistry as any).configManager;
-    if (configManager?.updateAgent) {
-      const existing = agentRegistry.get(data?.agentId);
-      if (!existing) {
-        return { success: false, error: 'Agent 不存在' };
-      }
-      const updated = await configManager.updateAgent(existing, data?.config || {});
-      return { success: true, agent: updated };
+    if (!configManager?.updateAgent) {
+      return { success: false, error: 'AgentConfigManager 不支持 update' };
     }
-    return { success: false, error: 'AgentConfigManager 不支持 update' };
+
+    const existing = agentRegistry.get(data?.agentId);
+    if (!existing) {
+      return { success: false, error: 'Agent 不存在' };
+    }
+
+    const agentId = existing.id;
+    const updated = await configManager.updateAgent(existing, data?.config || {});
+
+    // 更新内存中的 AgentRegistry 缓存（让 agentRegistry.get() 返回新的合并结果）
+    agentRegistry.register(updated);
+
+    // 热重载：reload 完整 AppConfig → 更新 RuntimeConfig → 重建 provider
+    // ConfigLoader.load() 会自动应用 agent-overrides/{agentId}.json5
+    if (currentUserId) {
+      try {
+        const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
+        const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+        const { ProviderManager } = await import('../../src/core/providers/ProviderManager.js');
+
+        const configLoader = new ConfigLoader(currentUserId, agentId);
+        const newConfig = await configLoader.load();
+
+        // 更新 DI 容器中的 config 单例（先 unregister 避免重复注册报错）
+        const container = session.getContainer();
+        container.unregister('config');
+        container.registerSingleton('config', newConfig);
+        // 同步更新全局 RuntimeConfig
+        setRuntimeConfig(newConfig);
+
+        // 用新配置重建 provider，注入 AgentLoop
+        const providerManager = new ProviderManager(newConfig);
+        const agentConfigWithOverride = agentRegistry.get(agentId);
+        const newProvider = providerManager.getProvider(agentConfigWithOverride);
+        session.getAgentLoop().updateProvider(newProvider);
+
+        log.info(`Agent ${agentId} config updated and provider reloaded: model=${newConfig.provider.model}`);
+      } catch (reloadErr) {
+        // 热重载失败不阻塞 agent 配置保存结果的返回
+        log.warn('Provider hot-reload failed after agent update:', reloadErr);
+      }
+    }
+
+    return { success: true, agent: updated };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

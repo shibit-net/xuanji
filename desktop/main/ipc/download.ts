@@ -398,7 +398,7 @@ export function registerDownloadHandlers() {
   ipcMain.handle('workspace:open-file', async (_event, filePath: string) => {
     try {
       const { shell } = require('electron');
-      await shell.openPath(filePath);
+      await shell.openPath(path.normalize(filePath));
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };

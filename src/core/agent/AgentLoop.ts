@@ -179,6 +179,7 @@ export class AgentLoop {
     this.running = true;
     this.currentIteration = 0;
     this._hasOutputInThisRun = false;
+    this._abortRequested = false;
     const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
     eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
