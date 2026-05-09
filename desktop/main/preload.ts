@@ -23,6 +23,9 @@
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authCheck: () => ipcRenderer.invoke('auth:check'),
   authGetSavedAccounts: () => ipcRenderer.invoke('auth:getSavedAccounts'),
+  onAuthSessionExpired: (callback: () => void) => {
+    ipcRenderer.on('auth:session-expired', () => callback());
+  },
   authSwitchAccount: (email: string) => ipcRenderer.invoke('auth:switchAccount', email),
   authRemoveAccount: (email: string) => ipcRenderer.invoke('auth:removeAccount', email),
 

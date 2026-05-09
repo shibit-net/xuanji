@@ -62,7 +62,7 @@ export class ChatSession {
       this.agentLoop.on(callbacks);
     }
 
-    // 将待处理队列引用注入 AgentLoop，用于迭代边界检查
+    // 将待处理队列引用注入 AgentLoop，用于思考阶段的补充输入打断检测
     agentLoop.setPendingQueue(this._pendingQueue);
 
     log.info('ChatSession initialized with StateTracker + TaskOrchestrator');

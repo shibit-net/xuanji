@@ -58,6 +58,10 @@ export function getXuanjiRoot(): string {
  * 获取源代码中的模板目录
  */
 export function getTemplateRoot(): string {
+  // 优先使用主进程传入的模板目录（兼容开发与打包环境）
+  if (process.env.XUANJI_TEMPLATE_DIR) {
+    return process.env.XUANJI_TEMPLATE_DIR;
+  }
   return join(__dirname, '..', 'templates');
 }
 

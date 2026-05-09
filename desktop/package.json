@@ -119,6 +119,10 @@
         "filter": ["*.js"]
       },
       {
+        "from": "../src/core/templates",
+        "to": "templates"
+      },
+      {
         "from": "../node_modules/tree-sitter",
         "to": "dist-electron/node_modules/tree-sitter"
       },

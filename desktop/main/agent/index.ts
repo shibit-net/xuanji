@@ -40,8 +40,16 @@ const getAgentChannel = () => enhancedMessageBus.getChannel('agent');
 function findNodePath(): string {
   const { execSync } = require('child_process');
   try {
+    if (process.platform === 'win32') {
+      // Windows: where node 可能返回多行，取第一个
+      return execSync('where node', { encoding: 'utf8' }).trim().split(/\r?\n/)[0].trim();
+    }
     return execSync('which node', { encoding: 'utf8' }).trim();
   } catch {
+    // Windows 下 spawn 可以自动通过 PATH 解析 'node' → 'node.exe'
+    if (process.platform === 'win32') {
+      return 'node';
+    }
     return '/usr/local/bin/node';
   }
 }
@@ -104,6 +112,12 @@ function initChatSession(): Promise<boolean> {
         const resourcesPath = process.resourcesPath!;
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         spawnEnv.NODE_PATH = unpackedModules;
+        // 模板文件通过 extraResources 打包到 Resources/templates/
+        spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
+      } else {
+        // 开发环境：模板在项目源码中
+        const projectRoot = path.join(__dirname, '../../');
+        spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'core', 'templates');
       }
 
       agentProcess = spawn(nodePath, args, {

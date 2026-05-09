@@ -59,6 +59,28 @@ let rootAgentId = 'xuanji';
 
 // ── Agent 基础事件 ──────────────────────────────────
 
+messageBus.on('agent:started', (_data: { model?: string; agentId?: string }) => {
+  // 与 sendMessage 闲时逻辑完全一致：重置所有状态 + 启动主 agent
+  useMessageStore.getState()._onAgentStarted();
+  const { currentStreamingId } = useMessageStore.getState();
+  if (!currentStreamingId) {
+    useMessageStore.setState({ status: 'thinking' });
+  }
+  const runtimeStore = useRuntimeStore.getState();
+  runtimeStore.setProcessing(true);
+  runtimeStore.incrementIteration();
+  runtimeStore.resetMessageStream();
+  runtimeStore.setRunStartTime(Date.now());
+  const mainAgent = useActiveAgentStore.getState().mainAgent;
+  if (mainAgent) {
+    useActiveAgentStore.getState().setAgentStatus(mainAgent.id, 'thinking');
+    runtimeStore.setAgentStatus({ id: mainAgent.id, name: mainAgent.name, status: 'thinking' });
+  } else {
+    useActiveAgentStore.getState().startMainAgent('Xuanji', 'xuanji');
+    runtimeStore.setAgentStatus({ id: 'xuanji', name: 'Xuanji', status: 'thinking' });
+  }
+});
+
 messageBus.on('agent:intent-route', (data: { agentId: string; confidence: number }) => {
   rootAgentId = data.agentId;
 });

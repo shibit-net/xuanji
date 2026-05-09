@@ -165,7 +165,7 @@ export class ConfigLoader implements IConfigLoader {
    * 从 agents 目录加载指定 agentId 的配置
    * 将 agent 的 provider 配置转换为 AppConfig 的 provider 格式
    */
-  private async loadAgentConfig(agentId: string): Promise<Record<string, any> | null> {
+  async loadAgentConfig(agentId: string): Promise<Record<string, any> | null> {
     try {
       // 构建 agent 配置文件路径
       const { getUserAgentsDir } = await import('./PathManager.js');

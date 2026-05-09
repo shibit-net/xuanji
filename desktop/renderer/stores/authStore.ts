@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 
 export interface User {
@@ -137,3 +136,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
 }));
+
+// 监听 session 过期事件（token 刷新失败时主进程通知）
+// 主进程已调用 clearAuthState()，renderer 只需清除登录状态即可触发路由守卫重定向
+if (typeof window !== 'undefined' && window.electron?.onAuthSessionExpired) {
+  window.electron.onAuthSessionExpired(() => {
+    console.warn('[AuthStore] Session 过期，跳转登录页');
+    useAuthStore.setState({ isAuthenticated: false, user: null });
+    useAuthStore.getState().loadSavedAccounts();
+  });
+}

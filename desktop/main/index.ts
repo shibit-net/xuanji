@@ -4,7 +4,7 @@ import fs from 'fs';
 import { createWindow, getMainWindow } from './window/index.js';
 import { cleanupAgentProcess, getIsCleaningUp, setIsCleaningUp } from './agent/index.js';
 import { registerAllIpcHandlers } from './ipc/index.js';
-import { loadAuthState, setAuthState } from './config/auth.js';
+import { loadAuthState, setAuthState, setSessionExpiredHandler } from './config/auth.js';
 
 // ─── DMG 自动复制到 /Applications ─────────────────────
 
@@ -79,6 +79,14 @@ app.whenReady().then(async () => {
   console.log('[Main] All IPC handlers registered');
   createWindow();
   console.log('[Main] Window created');
+
+  // 注册 token 过期回调：通知 renderer 跳转登录页
+  setSessionExpiredHandler(() => {
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auth:session-expired');
+    }
+  });
 
   app.on('activate', () => {
     const mainWindow = getMainWindow();

@@ -72,11 +72,17 @@ export class AgentLoop {
    */
   private _suppressEventBus = false;
 
-  /** 外部注入的待处理消息队列引用（来自 ChatSession._pendingQueue） */
-  private _pendingQueue: string[] | null = null;
-
   /** 终止按钮标志——用户点击终止时置 true，在迭代边界检查中止 */
   private _abortRequested = false;
+
+  /** 外部注入的待处理消息队列引用（来自 ChatSession._pendingQueue），仅用于思考阶段打断检测 */
+  private _pendingQueue: string[] | null = null;
+
+  /** 当前迭代是否已开始输出文本（onText 触发后置 true，用于区分思考/输出阶段） */
+  private _streamingOutputStarted = false;
+
+  /** 整个 run() 生命周期内是否已输出过文本。一旦置 true 不再重置，防止后续迭代被补充输入打断 */
+  private _hasOutputInThisRun = false;
 
   setSuppressEventBus(v: boolean): void {
     this._suppressEventBus = v;
@@ -92,25 +98,17 @@ export class AgentLoop {
     this._abortRequested = true;
   }
 
-  /** 当前迭代结束时检查新消息或终止请求，返回 true 表示需要注入并继续 */
-  private checkIterationBoundary(): boolean {
-    // 终止请求
+  /** 检查是否应停止当前 run()：终止请求、或整个 run() 尚未输出文字时有补充输入 */
+  private checkShouldStop(): boolean {
     if (this._abortRequested) {
       this._abortRequested = false;
       this.running = false;
       this.callbacks.onInfo?.('🛑 已终止');
-      return false;
+      return true;
     }
-    // 有新消息则注入到 ContextManager 并继续
-    if (this._pendingQueue && this._pendingQueue.length > 0) {
-      const newInput = this._pendingQueue.shift()!;
-      this.log.info(`[IterationBoundary] 检测到新消息，中断当前流程处理: "${newInput.substring(0, 60)}"`);
-      this.currentIteration = 0;
-      this.contextManager.setSystemPromptSuffix('', 'delegation-complete');
-      this.contextManager.setSystemPromptSuffix('', 'async-task-completion');
-      this.contextManager.setSystemPromptSuffix('', 'stuck-detect-same-file');
-      this.contextManager.setSystemPromptSuffix('', 'stuck-detect-tool-fail');
-      this.contextManager.addUserMessage(newInput);
+    // 整个 run() 还没输出过文字 → 思考阶段 → 补充输入立即打断
+    if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
+      this.running = false;
       return true;
     }
     return false;
@@ -134,11 +132,20 @@ export class AgentLoop {
 
     this.toolGateway = new ToolGateway(registry);
 
-    // 让 StreamPipeline 的 for-await 循环能检测到终止请求
-    this.streamPipeline.setInterruptChecker(() => !this.running || this._abortRequested);
+    // 终止请求 或 整个 run() 尚未输出文字时有补充输入 → 中断流式请求
+    this.streamPipeline.setInterruptChecker(() => {
+      if (!this.running || this._abortRequested) return true;
+      if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
+        this.running = false;  // 确保 catch 块中 isAbort 能匹配
+        return true;
+      }
+      return false;
+    });
 
     this.streamPipeline.on({
       onText: (text) => {
+        this._streamingOutputStarted = true;
+        this._hasOutputInThisRun = true;
         this.callbacks.onText?.(text);
         if (!this._suppressEventBus) {
           eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
@@ -171,6 +178,7 @@ export class AgentLoop {
     }
     this.running = true;
     this.currentIteration = 0;
+    this._hasOutputInThisRun = false;
     const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
     eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
@@ -210,6 +218,7 @@ export class AgentLoop {
         const messages = this.contextManager.getMessages();
         const toolSchemas: ToolSchema[] = this.registry.getSchemas();
 
+        this._streamingOutputStarted = false;
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
           signal: signal,
           maxRetries: 3,
@@ -225,11 +234,8 @@ export class AgentLoop {
         this.contextManager.addAssistantMessage(result.contentBlocks as import('@/core/types').ContentBlock[]);
         this.contextManager.recordUsage(result.usage);
 
-        // ▶ 检查点 A：流式输出结束 — 有新消息或终止请求则跳出
-        if (this.checkIterationBoundary()) {
-          continue;  // 新消息已注入，进入下一轮 while
-        }
-        if (!this.running) break;  // 终止请求
+        // ▶ 检查点 A：流式输出结束 — 终止或补充输入则跳出
+        if (this.checkShouldStop()) break;
 
         if (!result.toolCalls || result.toolCalls.length === 0) break;
         if (result.stopReason === 'end_turn' && result.toolCalls.length === 0) break;
@@ -260,11 +266,8 @@ export class AgentLoop {
           workingDir: this.config.workingDir,
         });
 
-        // ▶ 检查点 B：工具调用结束 — 有新消息或终止请求则跳出
-        if (this.checkIterationBoundary()) {
-          continue;  // 新消息已注入，不处理本轮工具结果
-        }
-        if (!this.running) break;  // 终止请求
+        // ▶ 检查点 B：工具调用结束 — 终止或补充输入则跳出
+        if (this.checkShouldStop()) break;
 
         const toolExecDurationMs = Date.now() - toolExecStartTime;
 

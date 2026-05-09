@@ -255,6 +255,7 @@ interface MessageStore {
   getCitationOutput: (agentName: string) => SubAgentReference | null;
 
   // 内部方法
+  _onAgentStarted: () => void;
   _handleAgentText: (text: string) => void;
   _handleAgentThinking: (thinking: string) => void;
   _handleAgentToolStart: (data: { id: string; name: string; input: Record<string, unknown>; agentId?: string }) => void;
@@ -352,27 +353,10 @@ export const useMessageStore = create<MessageStore>((set, get) => {
       const convState = get()._conversationState;
       const isRunning = convState === 'executing' || convState === 'outputting';
 
-      // ── 流式输出中追加消息：先封口当前气泡，新回复开新气泡 ──
-      if (isRunning) {
-        flushStreamText();
-        const finalizedId = streamingMessageId;
-        streamTextBuffer = '';
-        streamingMessageId = null;
-        isAgentEnded = false;
-        for (const key of Object.keys(subAgentStreamState)) {
-          delete subAgentStreamState[key];
-        }
-        if (finalizedId) {
-          set((s) => ({
-            messages: s.messages.map((msg) =>
-              msg.id === finalizedId ? { ...msg, statusHint: undefined } : msg
-            ),
-            currentStreamingId: null,
-            currentStreamingText: '',
-            _subAgentStreams: {},
-          }));
-        }
-      } else {
+      // ── 运行时追加消息：不封口当前气泡，让流式输出在原气泡中继续 ──
+      // 后端 handleUserInput 看到 executing/outputting 会自动入队，
+      // 等当前 run 结束后 drainPendingQueue 消费队列。
+      if (!isRunning) {
         isAgentEnded = false;
         streamTextBuffer = '';
         streamingMessageId = null;
@@ -479,6 +463,10 @@ export const useMessageStore = create<MessageStore>((set, get) => {
     // ============================================================
     // Agent 流式事件处理器
     // ============================================================
+
+    _onAgentStarted: () => {
+      isAgentEnded = false;
+    },
 
     _handleAgentText: (text) => {
       const { currentStreamingId } = get();
@@ -1062,6 +1050,15 @@ export const useMessageStore = create<MessageStore>((set, get) => {
 
       const activeAgentStore = useActiveAgentStore.getState();
       activeAgentStore.finishMainAgent();
+      // 仅清理仍在执行中的子 agent（被停止/取消中断的），保留已完成的
+      const mainAgentAfter = useActiveAgentStore.getState().mainAgent;
+      if (mainAgentAfter) {
+        for (const sub of mainAgentAfter.subAgents) {
+          if (sub.status !== 'success' && sub.status !== 'done') {
+            activeAgentStore.removeSubAgent(mainAgentAfter.id, sub.id);
+          }
+        }
+      }
 
       set((prevState) => ({
         status: 'idle',

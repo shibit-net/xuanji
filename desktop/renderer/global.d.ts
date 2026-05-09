@@ -106,6 +106,7 @@ export interface ElectronAPI {
   }>>;
   authSwitchAccount: (email: string) => Promise<{ success: boolean }>;
   authRemoveAccount: (email: string) => Promise<{ success: boolean }>;
+  onAuthSessionExpired: (callback: () => void) => void;
 
   // ============================================================
   // 模型管理

@@ -283,7 +283,18 @@ function isTokenValid(): boolean {
 /** 主动刷新定时器句柄 */
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-/** 主动刷新间隔（50 分钟，accessToken 1 小时过期前预留缓冲） */
+/** Session 过期回调——token 刷新失败时通知主进程，由主进程通知 renderer 跳转登录页 */
+let onSessionExpiredHandler: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: () => void): void {
+  onSessionExpiredHandler = handler;
+}
+
+/** token 刷新失败时清除认证状态并通知 renderer */
+async function notifySessionExpired(): Promise<void> {
+  await clearAuthState();
+  onSessionExpiredHandler?.();
+}
 const PROACTIVE_REFRESH_INTERVAL = 50 * 60 * 1000;
 
 /** 执行 token 刷新（apiClient 的 1101 拦截器和主动定时器共用） */
@@ -304,7 +315,11 @@ async function performRefresh(): Promise<boolean> {
 /** 向 apiClient 注册 1101 自动刷新回调 */
 function registerRefreshHandler(): void {
   apiClient.setRefreshTokenHandler(async () => {
-    return performRefresh();
+    const ok = await performRefresh();
+    if (!ok) {
+      await notifySessionExpired();
+    }
+    return ok;
   });
 }
 
@@ -320,8 +335,8 @@ function startProactiveRefresh(): void {
     console.log('[Auth] 主动刷新 token...');
     const ok = await performRefresh();
     if (!ok) {
-      console.error('[Auth] 主动刷新失败，清除认证状态');
-      await clearAuthState();
+      console.error('[Auth] 主动刷新失败，通知重新登录');
+      await notifySessionExpired();
     }
   }, PROACTIVE_REFRESH_INTERVAL);
 }

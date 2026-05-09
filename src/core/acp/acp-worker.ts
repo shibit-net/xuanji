@@ -47,15 +47,26 @@ async function handleRun(requestId: string, payload: AcpRunRequest['payload']): 
   try {
     // 尝试根据 agentId 加载配置（如果注册了 agent）
     let agentModelConfig = payload.parentConfig;
+
+    // 仅当 agent 有独立配置时才覆盖父配置，临时 agent 直接使用父配置
     try {
       const { ConfigLoader } = await import('@/core/config/ConfigLoader');
       const loader = new ConfigLoader('default', payload.agentId);
-      const config = await loader.load();
-      if (config?.provider) {
-        agentModelConfig = {
-          ...agentModelConfig,
-          ...config.provider,
-        };
+      // 先检查 agent 是否有独立配置文件，避免凭空创建默认配置覆盖父配置
+      const agentConfig = await loader.loadAgentConfig(payload.agentId);
+      if (agentConfig?.provider && Object.keys(agentConfig.provider).length > 0) {
+        // 内置 agent：agent 配置覆盖父配置（agent 优先，父配置补缺）
+        const merged = { ...payload.parentConfig };
+        for (const [key, value] of Object.entries(agentConfig.provider)) {
+          if (value != null && value !== '') {
+            merged[key] = value;
+          }
+        }
+        agentModelConfig = merged;
+        log.info(`ACP worker: using agent-specific config for "${payload.agentId}"`);
+      } else {
+        // 临时 agent：直接使用父配置，不调用 ConfigLoader.load()（避免空配置覆盖）
+        log.info(`ACP worker: using parent config for temporary agent "${payload.agentId}"`);
       }
     } catch {
       // fall through: 使用 parentConfig

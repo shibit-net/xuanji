@@ -126,10 +126,10 @@
   .message-bubble .milkdown-message-content h1,
   .message-bubble .milkdown-message-content h2,
   .message-bubble .milkdown-message-content h3 {
-    @apply text-sm font-semibold mb-1;
+    @apply text-base font-semibold mb-1;
   }
   .message-bubble .milkdown-message-content p {
-    @apply text-xs leading-relaxed mb-0.5;
+    @apply text-sm leading-relaxed mb-0.5;
   }
   .message-bubble .milkdown-message-content code {
     @apply text-[11px];

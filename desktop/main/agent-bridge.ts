@@ -25,6 +25,9 @@ let currentUserId: string | null = null;
 // 意图路由结果：当前使用的 agentId（默认 xuanji）
 let routedAgentId = 'xuanji';
 
+// 防止重复注册 EventBus 监听器导致文本重复发送
+let hookEventBridgeRegistered = false;
+
 // 🔧 创建子进程消息通道
 // 注意：这里仍使用 ChildMessageChannel，因为它是子进程端的通道
 // 主进程端会使用 EnhancedMessageChannel 来接收和转发消息
@@ -753,6 +756,11 @@ function safeSend(message: { type: string; data?: any }) {
  * 注册 Hook 事件监听器 — 通过 EventBus 统一接收 HookRegistry 转发
  */
 function registerHookEventBridge() {
+  // 防止重复注册：多次 init 会导致同一事件有多个监听器，
+  // 每个监听器都向渲染进程发送消息，造成字符级重复（如"辩辩辩"）
+  if (hookEventBridgeRegistered) return;
+  hookEventBridgeRegistered = true;
+
   // ── 每个 hook 类型订阅独立 EventBus 事件，直接访问类型化 payload ──
 
   // SubAgent
@@ -857,6 +865,9 @@ function registerHookEventBridge() {
   // ── EventBus 原生事件转发 ──
   // 根 agent 的 AgentLoop._userId === currentUserId，映射到 routedAgentId
   // 子 agent 的 AgentLoop._userId 是其 subAgentId，保留原值
+  eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
+    safeSend({ type: 'agent:started', data: { model: payload.model, agentId: routedAgentId } });
+  });
   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
     safeSend({ type: 'agent:text', data: { text: payload.text, agentId } });

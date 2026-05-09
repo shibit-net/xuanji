@@ -121,14 +121,24 @@ class ApiClient {
           errorMessage = '服务器拒绝连接，请稍后重试';
           console.error('[API Client] 连接被拒绝:', error.message);
         } else if (error.response) {
-          // 服务器返回了错误状态码
-          errorMessage = `服务器错误 (${error.response.status})`;
-          console.error('[API Client] 服务器错误:', error.response.status, error.response.data);
+          const status = error.response.status;
+          if (status === 401) {
+            errorMessage = '用户名或密码错误';
+          } else if (status === 403) {
+            errorMessage = '没有访问权限';
+          } else if (status === 429) {
+            errorMessage = '请求过于频繁，请稍后重试';
+          } else if (status >= 500) {
+            errorMessage = '服务器内部错误，请稍后重试';
+          } else {
+            errorMessage = `请求失败 (${status})`;
+          }
+          console.error('[API Client] 服务器错误:', status, error.response.data);
         } else {
+          errorMessage = '网络错误，请检查网络连接';
           console.error('[API Client] 请求失败:', error.message);
         }
 
-        // 将友好的错误消息附加到错误对象
         error.friendlyMessage = errorMessage;
         throw error;
       }
@@ -270,7 +280,7 @@ class ApiClient {
         return {
           success: false,
           data: result?.data,
-          message: result?.message || error.message,
+          message: result?.message || error.friendlyMessage || error.message,
           code: result?.code || error.response.status,
         };
       }

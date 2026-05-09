@@ -1841,20 +1841,39 @@ ${enriched}`;
         ].join('\n');
 
       case 'debate': {
-        // 按轮次分组，返回所有轮次的完整辩论记录
-        const memberCount = this.context!.config.members.length;
-        const rounds: string[] = [];
-        for (let i = 0; i < results.length; i += memberCount) {
-          const roundNum = Math.floor(i / memberCount) + 1;
-          const roundResults = results.slice(i, i + memberCount);
-          rounds.push(
-            `[Round ${roundNum}]\n${roundResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`
-          );
+        // 辩论结果包含：裁判预读、辩论轮次（仅正反方）、最终裁决、文件写入
+        // 不能按 memberCount 粗暴分组，需要按 taskId 中的轮次号精确分组
+        const parts: string[] = [];
+
+        // 裁判预读阶段（在所有轮次之前）
+        const preRead = results.find(r => r.taskId === 'debate-preread-judge');
+        if (preRead) {
+          parts.push(`[Judge Pre-Read — Fact Summary]\n${preRead.result}`);
         }
-        return [
-          `[Debate Summary — ${rounds.length} rounds]`,
-          ...rounds,
-        ].join('\n\n---\n\n');
+
+        // 按 taskId 中的轮次号分组
+        const roundMap = new Map<number, TaskExecutionResult[]>();
+        for (const r of results) {
+          const match = r.taskId.match(/debate-round-(\d+)-/);
+          if (match) {
+            const roundNum = parseInt(match[1], 10);
+            if (!roundMap.has(roundNum)) roundMap.set(roundNum, []);
+            roundMap.get(roundNum)!.push(r);
+          }
+        }
+        for (const [roundNum, roundResults] of [...roundMap.entries()].sort((a, b) => a[0] - b[0])) {
+          const hasVerdict = roundResults.some(r => r.taskId.includes('judge-final'));
+          const label = hasVerdict ? `[Round ${roundNum} — Verdict]` : `[Round ${roundNum}]`;
+          parts.push(`${label}\n${roundResults.map(r => `${r.memberId}: ${r.result}`).join('\n\n')}`);
+        }
+
+        // 文件写入结果（辩论结束后自动写入共识）
+        const fileWrite = results.find(r => r.taskId.includes('finalize-debate'));
+        if (fileWrite) {
+          parts.push(`[Consensus File Write]\n${fileWrite.result}`);
+        }
+
+        return parts.join('\n\n---\n\n');
       }
 
       default:
