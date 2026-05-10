@@ -13,7 +13,35 @@ import {
   Brain, Wrench, Sparkles, CheckCircle, ChevronDown, ChevronRight,
   Loader2, Zap, Clock, Tag, Layers, Server
 } from 'lucide-react';
-import type { AgentState } from '../stores';
+import type { ToolExecution } from '../stores/AgentStateMachine';
+
+// 树节点类型（由 ActiveAgentView.buildAgentTree 构建）
+interface TreeNode {
+  id: string;
+  name: string;
+  status: string;
+  startTime?: number;
+  currentTools: ToolExecution[];
+  currentTask?: string;
+  currentThought?: string;
+  currentResponse?: string;
+  agentType?: string;
+  executionMode?: string;
+  scene?: string;
+  stats: { tokenUsage: { input: number; output: number; cached: number }; cost: number; toolCount: number };
+  multiAgent?: {
+    type: string;
+    strategy?: string;
+    teamName?: string;
+    memberId?: string;
+    stepIndex?: number;
+    totalSteps?: number;
+    currentRound?: number;
+    maxRounds?: number;
+    debateRole?: string;
+  };
+  subAgents: TreeNode[];
+}
 
 // 子 Agent 标签映射
 const AGENT_TYPE_LABEL: Record<string, string> = {
@@ -29,7 +57,7 @@ const EXECUTION_MODE_LABEL: Record<string, string> = {
 };
 
 interface AgentWorkCardProps {
-  agent: AgentState;
+  agent: TreeNode;
   level: number;
   isRoot?: boolean;
 }

@@ -16,6 +16,7 @@ import { ChildMessageChannel } from './ipc/MessageBus.js';
 import { DownloadManager } from '../../src/core/download/DownloadManager.js';
 import { eventBus } from '../../src/core/events/EventBus.js';
 import { XuanjiEvent } from '../../src/core/events/events.js';
+import { EventForwarder } from '../../src/core/event/EventForwarder.js';
 import { logger } from '../../src/core/logger/index.js';
 import * as path from 'node:path';
 
@@ -27,6 +28,9 @@ let routedAgentId = 'xuanji';
 
 // 防止重复注册 EventBus 监听器导致文本重复发送
 let hookEventBridgeRegistered = false;
+
+// Phase 2 EventForwarder 实例（USE_EVENT_FORWARDER=true 时创建）
+let eventForwarder: EventForwarder | null = null;
 
 // 🔧 创建子进程消息通道
 // 注意：这里仍使用 ChildMessageChannel，因为它是子进程端的通道
@@ -156,8 +160,21 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
       });
     });
 
-    // 注册持久化事件桥接
-    registerHookEventBridge();
+    // 注册持久化事件桥接（Feature flag 共存）
+    if (process.env.USE_EVENT_FORWARDER === 'true') {
+      if (!eventForwarder) {
+        eventForwarder = new EventForwarder(
+          (eventType: string, data: any) => channel.send(eventType, data),
+        );
+      }
+      eventForwarder.register();
+      // 将 AsyncTaskStateMachine 注入 EventForwarder，使其能发出 agent:async-task-update IPC 事件
+      const orchestrator = session!.getTaskOrchestrator();
+      eventForwarder.setAsyncTaskStateMachine(orchestrator.getAsyncTaskStateMachine());
+      log.info('handleInit: EventForwarder registered (new path)');
+    } else {
+      registerHookEventBridge();
+    }
 
     // 发送 init-complete 通知
     channel.send('init-complete', { success: true });
@@ -170,64 +187,33 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
   }
 }
 
+
 /**
- * 发送用户消息到会话
+ * 统一用户操作入口（Phase 2 新路径）。
+ * 前端发送 { type: 'SEND_MESSAGE' | 'INTERRUPT', message?: string }，
+ * 调用 session.userAction() 由 SessionStateMachine 驱动，替代旧 handler 分发。
  */
-async function handleSendMessage(data: { message: string; images?: string[] }): Promise<{ success: boolean; error?: string }> {
+async function handleUserAction(data: { type: string; message?: string }): Promise<void> {
   if (!session) {
-    process.stderr.write('[agent-bridge] handleSendMessage: session is null!\n');
-    return { success: false, error: '会话未初始化' };
+    log.warn('handleUserAction: session is null');
+    return;
   }
   try {
-    const message = data?.message || '';
-    if (!message.trim()) {
-      return { success: false, error: '消息不能为空' };
+    // 意图路由（与 handleSendMessage 保持一致）
+    if (data.type === 'SEND_MESSAGE' && data.message) {
+      const { IntentRouter } = await import('../../src/core/routing/IntentRouter.js');
+      const router = new IntentRouter();
+      const route = await router.route(data.message);
+      routedAgentId = route.agentId;
+      session.setCurrentAgent(route.agentId);
+      channel.send('agent:intent-route', { agentId: route.agentId, confidence: route.confidence });
     }
-    log.info(`handleSendMessage: input="${message.substring(0, 80)}"`);
-
-    // 意图路由：根据用户输入决定由哪个 Agent 执行
-    const { IntentRouter } = await import('../../src/core/routing/IntentRouter.js');
-    const router = new IntentRouter();
-    const route = await router.route(message);
-    routedAgentId = route.agentId;
-    session.setCurrentAgent(route.agentId);
-    channel.send('agent:intent-route', { agentId: route.agentId, confidence: route.confidence });
-
-    const result = await session.handleUserInput(message);
-    log.info(`handleSendMessage: handleUserInput returned "${result}"`);
-    return { success: true };
+    await session.userAction(data);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : '';
-    process.stderr.write(`[agent-bridge] handleSendMessage ERROR: ${msg}\n${stack}\n`);
-    return { success: false, error: msg };
+    log.error('handleUserAction failed:', err);
   }
 }
 
-/**
- * 中断当前会话执行
- */
-function handleInterrupt(msg?: string): void {
-  if (!session) { log.warn('handleInterrupt: session is null, ignoring interrupt'); return; }
-  try {
-    session.interrupt(msg || '');
-  } catch (err) {
-    log.error('handleInterrupt failed:', err);
-  }
-}
-
-/**
- * 追加消息到会话队列（不中断当前执行）
- */
-function handleAppendMessage(data: { message: string } | string): void {
-  if (!session) { log.warn('handleAppendMessage: session is null, ignoring append'); return; }
-  try {
-    const message = typeof data === 'string' ? data : (data?.message || '');
-    session.appendMessage(message);
-  } catch (err) {
-    log.error('handleAppendMessage failed:', err);
-  }
-}
 
 /**
  * 重置会话
@@ -670,28 +656,15 @@ channel.handle('init', async (data) => {
   return result;
 });
 
-// 发送用户消息
-channel.handle('send-message', async (data) => {
-  return await handleSendMessage(data);
-});
 
-// 中断执行
-channel.handle('interrupt', (data) => {
-  handleInterrupt(data?.message || '');
+// 统一用户操作（Phase 2 新路径，替代 send-message + interrupt 分发）
+channel.handle('user-action', async (data) => {
+  await handleUserAction(data);
   return { success: true };
 });
 
-// 追加消息（不中断，Boundary-Aware 注入）
-channel.handle('append-message', (data) => {
-  handleAppendMessage(data);
-  return { success: true };
-});
 
-// 补充说明（前端向后兼容，等同 append-message）
-channel.handle('supplement', (data) => {
-  handleAppendMessage(data);
-  return { success: true };
-});
+
 
 // 重置会话
 channel.handle('reset', () => {

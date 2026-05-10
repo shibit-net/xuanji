@@ -15,6 +15,7 @@ import type { SkillRegistry } from '@/core/skills';
 import type { MCPManager } from '@/mcp/MCPManager';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
+import type { SessionStateMachine, SessionAction } from '@/core/state/SessionStateMachine';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
@@ -37,11 +38,16 @@ export class ChatSession {
   private _drainRunning = false;
   private _currentAgentId = 'xuanji';
 
+  // Phase 2 状态机路径
+  private _stateMachine: SessionStateMachine | null = null;
+  private _useNewPath: boolean = false;
+
   constructor(
     agentLoop: AgentLoop,
     container: DependencyContainer,
     stateTracker: StateTracker,
     callbacks?: SessionCallbacks,
+    stateMachine?: SessionStateMachine,
   ) {
     this.agentLoop = agentLoop;
     this.container = container;
@@ -62,24 +68,30 @@ export class ChatSession {
       this.agentLoop.on(callbacks);
     }
 
-    // 将待处理队列引用注入 AgentLoop，用于思考阶段的补充输入打断检测
-    agentLoop.setPendingQueue(this._pendingQueue);
-
-    log.info('ChatSession initialized with StateTracker + TaskOrchestrator');
+    // Feature flag 共存：USE_SESSION_STATE_MACHINE=true 且传入了 stateMachine 时走新路径
+    this._useNewPath = process.env.USE_SESSION_STATE_MACHINE === 'true' && !!stateMachine;
+    if (this._useNewPath && stateMachine) {
+      this._stateMachine = stateMachine;
+      agentLoop.setInterruptChecker(stateMachine);
+      log.info('ChatSession initialized with SessionStateMachine (new path)');
+    } else {
+      agentLoop.setPendingQueue(this._pendingQueue);
+      log.info('ChatSession initialized with StateTracker + TaskOrchestrator');
+    }
   }
 
   async run(input: string): Promise<void> {
     // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
-    // StateTracker 可能与 AgentLoop.running 短暂不一致（如 outputting→executing 转换间隙），
-    // AgentLoop.getState().status 才是权威来源
     if (this.agentLoop.getState().status !== 'idle') {
-      // [ChatSession] run() REENTRANCY GUARD: agentLoop.running=${this.agentLoop.getState().status}, stateTracker=${this.stateTracker.getState()}, queuing. input="${input.substring(0, 60)}"`);
       log.warn('run() called while AgentLoop is still running, queuing instead');
-      this._pendingQueue.push(input);
+      if (this._useNewPath && this._stateMachine) {
+        this._stateMachine.pendingMessages.push(input);
+      } else {
+        this._pendingQueue.push(input);
+      }
       return;
     }
 
-    // [ChatSession] run() START: input="${input.substring(0, 60)}", stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
     log.info(`Session run started: input="${input.substring(0, 80)}"`);
@@ -87,37 +99,60 @@ export class ChatSession {
     try {
       await this.callbacks?.onBeforeExecution?.(input);
 
-      this.stateTracker.transitionTo('executing');
+      if (this._useNewPath && this._stateMachine) {
+        this._stateMachine.transition({ type: 'AGENT_STARTED' });
+      } else {
+        this.stateTracker.transitionTo('executing');
+      }
       const sessionCallbacks = this.callbacks as any;
       this.agentLoop.on({
         onText: (text: string) => {
           if (text.trim()) {
-            this.stateTracker.transitionTo('outputting');
+            if (this._useNewPath && this._stateMachine) {
+              this._stateMachine.transition({ type: 'AGENT_TEXT_STARTED' });
+            } else {
+              this.stateTracker.transitionTo('outputting');
+            }
           }
           sessionCallbacks?.onText?.(text);
         },
         onToolStart: (id: string, name: string, input: Record<string, unknown>) => {
-          this.stateTracker.transitionTo('executing');
+          if (!this._useNewPath) {
+            this.stateTracker.transitionTo('executing');
+          }
           sessionCallbacks?.onToolStart?.(id, name, input);
         },
       } as any);
       await this.agentLoop.run(input);
-      // [ChatSession] run() agentLoop.run COMPLETED. stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
-      this.stateTracker.transitionTo('idle');
-      // 清理后台任务 completion hint，防止残留到下次用户对话
+
+      // 清理后台任务 completion hint
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
-      // [ChatSession] run() stateTracker -> idle. draining pendingQueue=${this._pendingQueue.length}`);
-      await this.checkPendingCompletions();
-      await this.drainPendingQueue();
-      // [ChatSession] run() drain complete. pendingQueue=${this._pendingQueue.length}`);
+
+      if (this._useNewPath && this._stateMachine) {
+        // 新路径：状态机处理完成 → 可能自动排队运行下一轮
+        const action = this._stateMachine.transition({ type: 'AGENT_COMPLETED' });
+        if (action.type === 'RUN_AGENT') {
+          await this.run(action.message);
+          return;
+        }
+        // QUEUE_ONLY / EMIT_SESSION_IDLE / NOOP → 无需额外处理
+      } else {
+        // 旧路径：StateTracker + drain
+        this.stateTracker.transitionTo('idle');
+        await this.checkPendingCompletions();
+        await this.drainPendingQueue();
+      }
 
       await this.callbacks?.onAfterExecution?.();
       log.info('Session run completed');
     } catch (error) {
-      console.warn(`[ChatSession] run() CATCH BLOCK: ${(error as Error).message}. stateTracker=${this.stateTracker.getState()}, pendingQueue=${this._pendingQueue.length}`);
       log.error('Session run failed', error as Error);
-      this.stateTracker.transitionTo('idle');
-      this.drainPendingQueue();
+      if (this._useNewPath && this._stateMachine) {
+        this._stateMachine.transition({ type: 'AGENT_COMPLETED' });
+      } else {
+        this.stateTracker.transitionTo('idle');
+        this.drainPendingQueue();
+      }
       throw error;
     }
   }
@@ -178,6 +213,52 @@ export class ChatSession {
           log.error('handleUserInput run failed:', err);
         });
         return 'running';
+    }
+  }
+
+  /**
+   * 统一用户操作入口（Phase 2 新路径）。
+   *
+   * flag off 时委托旧方法 (handleUserInput / interrupt)。
+   * flag on 时走状态机 transition → 执行 SessionAction。
+   */
+  async userAction(action: { type: string; message?: string }): Promise<void> {
+    if (!this._useNewPath || !this._stateMachine) {
+      // 回退到旧路径
+      if (action.type === 'SEND_MESSAGE' && action.message) {
+        this.handleUserInput(action.message);
+      } else if (action.type === 'INTERRUPT') {
+        this.interrupt(action.message ?? '');
+      }
+      return;
+    }
+    return this.userActionNewPath(action);
+  }
+
+  /** 新路径：状态机驱动的用户操作处理 */
+  private async userActionNewPath(action: { type: string; message?: string }): Promise<void> {
+    const sm = this._stateMachine!;
+
+    // 将 IPC UserAction 映射为 SessionEvent
+    const event: import('@/core/state/SessionStateMachine').SessionEvent =
+      action.type === 'INTERRUPT'
+        ? { type: 'USER_INTERRUPT', message: action.message }
+        : { type: 'USER_MESSAGE', message: action.message || '' };
+
+    const result: SessionAction = sm.transition(event);
+
+    switch (result.type) {
+      case 'RUN_AGENT':
+        await this.run(result.message);
+        break;
+      case 'ABORT_AGENT':
+        this.agentLoop.requestAbort();
+        break;
+      case 'QUEUE_ONLY':
+      case 'EMIT_SESSION_IDLE':
+      case 'RUN_AUTO_SUMMARIZE':
+      case 'NOOP':
+        break;
     }
   }
 

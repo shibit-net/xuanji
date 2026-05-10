@@ -2,10 +2,10 @@
 // ToolMonitor - 工具调用监控组件（按调用顺序展示队列）
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import { useRuntimeStore } from '../stores';
+import { useAgentStateMachine } from '../stores/AgentStateMachine';
 
 /** 将 ANSI 颜色代码转换为 HTML */
 function ansiToHtml(text: string): string {
@@ -76,7 +76,14 @@ function formatDuration(ms?: number): string {
 
 export default function ToolMonitor() {
   // 按调用顺序排列（不倒序）
-  const toolCalls = useRuntimeStore((state) => state.messageStream?.toolCalls || []);
+  const agentMap = useAgentStateMachine((s) => s.agentMap);
+
+  const toolCalls = useMemo(() => {
+    return Object.values(agentMap)
+      .flatMap(a => a.currentTools)
+      .map(t => ({ ...t, duration: t.endTime ? t.endTime - t.startTime : (t.status === 'running' ? Date.now() - t.startTime : undefined) }))
+      .sort((a, b) => a.startTime - b.startTime);
+  }, [agentMap]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (toolCalls.length === 0) {

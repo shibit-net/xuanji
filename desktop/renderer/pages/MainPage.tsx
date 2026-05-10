@@ -10,9 +10,9 @@ import RightPanel from '../components/RightPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
 import ProjectFilesPanel from '../components/ProjectFilesPanel';
-import { useRuntimeStore } from '../stores/runtimeStore';
-import { useActiveAgentStore } from '../stores/activeAgentStore';
-import { initEventBridge } from '../services/EventBridge';
+import { useConversationStore } from '../stores/ConversationStore';
+import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import { registerEventAdapter } from '../services/EventAdapter';
 
 function formatToken(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -22,7 +22,9 @@ function formatToken(n: number): string {
 
 export default function MainPage() {
   // 初始化事件桥接（只执行一次）
-  React.useEffect(() => { initEventBridge(); }, []);
+  React.useEffect(() => {
+    registerEventAdapter();
+  }, []);
 
   // 监控面板（RightPanel）
   const [rightPanelVisible, setRightPanelVisible] = useState(true);
@@ -42,21 +44,21 @@ export default function MainPage() {
   const [projectFilesStartWidth, setProjectFilesStartWidth] = useState(0);
 
   // 全局状态统计
-  const currentIteration = useRuntimeStore((s) => s.currentIteration);
-  const mainAgent = useActiveAgentStore((s) => s.mainAgent);
+
+  // iteration
+  const currentIteration = useConversationStore((s) => s.iteration);
+
+  // token 统计
+  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
   const totalTokens = React.useMemo(() => {
-    if (!mainAgent) return { input: 0, output: 0, cached: 0 };
     const sum = { input: 0, output: 0, cached: 0 };
-    const walk = (agent: typeof mainAgent) => {
-      if (!agent) return;
-      sum.input += agent.stats.tokenUsage.input || 0;
-      sum.output += agent.stats.tokenUsage.output || 0;
-      sum.cached += agent.stats.tokenUsage.cached || 0;
-      if (agent.subAgents) agent.subAgents.forEach(walk);
-    };
-    walk(mainAgent);
+    for (const a of Object.values(newAgentMap)) {
+      sum.input += a.stats.tokenUsage.input || 0;
+      sum.output += a.stats.tokenUsage.output || 0;
+      sum.cached += a.stats.tokenUsage.cached || 0;
+    }
     return sum;
-  }, [mainAgent]);
+  }, [newAgentMap]);
 
   // 监听右侧面板切换事件
   useEffect(() => {

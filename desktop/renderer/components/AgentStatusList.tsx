@@ -8,7 +8,7 @@
 // ============================================================
 
 import React, { useMemo } from 'react';
-import { useActiveAgentStore } from '../stores/activeAgentStore';
+import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 
 // 定义 Agent 状态类型
 interface AgentStatus {
@@ -24,47 +24,32 @@ interface AgentStatus {
 }
 
 const AgentStatusList: React.FC = () => {
-  const { mainAgent } = useActiveAgentStore();
+  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
 
-  // 从 activeAgentStore 生成 agent 列表
+  // 从扁平 agentMap 生成 agent 列表
   const agents = useMemo(() => {
     const agentList: AgentStatus[] = [];
 
-    // 递归处理 agent 树
-    const processAgent = (agent: any, parentId: string | null) => {
-      // 计算持续时间
-      const startTime = agent.startTime || Date.now() - 30000; // 模拟开始时间
+    const activeAgents = Object.values(newAgentMap).filter(a => a.status !== 'cleared');
+    for (const a of activeAgents) {
+      const startTime = a.moment?.startTime || a.createdAt || Date.now();
       const duration = Math.floor((Date.now() - startTime) / 1000);
       const durationStr = `${Math.floor(duration / 60).toString().padStart(2, '0')}:${(duration % 60).toString().padStart(2, '0')}`;
+      const currentTool = a.currentTools.length > 0 ? a.currentTools[0].name : undefined;
 
-      // 获取当前工具
-      const currentTool = agent.currentTools.length > 0 ? agent.currentTools[0].name : undefined;
-
-      // 添加 agent 到列表
       agentList.push({
-        id: agent.id,
-        name: agent.name,
-        type: parentId === null ? 'main' : 'sub',
-        status: agent.status === 'done' ? 'completed' : agent.status === 'error' ? 'error' : agent.status,
-        progress: agent.status === 'completed' ? 100 : agent.status === 'executing' ? 60 : agent.status === 'thinking' ? 30 : 0,
+        id: a.id,
+        name: a.name,
+        type: a.parentId === null ? 'main' : 'sub',
+        status: a.status === 'success' || a.status === 'done' ? 'completed' : a.status === 'failed' || a.status === 'cancelled' ? 'error' : a.status === 'executing' ? 'executing' : a.status === 'thinking' ? 'thinking' : 'idle',
+        progress: a.status === 'success' || a.status === 'done' ? 100 : a.status === 'executing' || a.status === 'writing' ? 60 : a.status === 'thinking' ? 30 : a.status === 'failed' || a.status === 'cancelled' ? 100 : 0,
         tool: currentTool,
         startTime: new Date(startTime).toLocaleTimeString(),
         duration: durationStr,
-        parentId: parentId || undefined,
+        parentId: a.parentId || undefined,
       });
-
-      // 处理子 agent
-      agent.subAgents.forEach((subAgent: any) => {
-        processAgent(subAgent, agent.id);
-      });
-    };
-
-    // 处理主 agent
-    if (mainAgent) {
-      processAgent(mainAgent, null);
     }
 
-    // 如果没有 agent，使用默认数据
     if (agentList.length === 0) {
       return [
         {
@@ -82,7 +67,7 @@ const AgentStatusList: React.FC = () => {
     }
 
     return agentList;
-  }, [mainAgent]);
+  }, [newAgentMap]);
 
   // 获取状态颜色
   const getStatusColor = (status: string) => {

@@ -3,13 +3,13 @@
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
-import { useMessageStore } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
+import { useConversationStore } from '../stores/ConversationStore';
 import { DownloadQueue } from './DownloadQueue';
 import { Badge } from '@/components/ui/badge';
 
 export default function StatusBar() {
-  const currentSkill = useMessageStore((state) => state.currentSkill);
+  const currentSkill = useConversationStore((state) => state.activeSkill);
   const isPlanMode = useSessionStore((state) => state.isPlanMode);
 
   // 系统资源监控

@@ -67,7 +67,13 @@
       "Bash(grep -E '\\\\.mjs$')",
       "Bash([ -d \"/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop/node_modules/$pkg\" ])",
       "Bash(ps *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(sed -n '789p' /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop/renderer/components/ExecutionFlow.tsx)",
+      "Bash(sed -n '866p' /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop/renderer/components/ExecutionFlow.tsx)",
+      "Bash(sed -n '867p' /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop/renderer/components/ExecutionFlow.tsx)",
+      "Bash(sed -i '' '259,270d' main/agent-bridge.ts)",
+      "Bash(sed -i '' '221,231d' main/agent-bridge.ts)",
+      "Bash(sed -i '' '187,220d' main/agent-bridge.ts)"
     ]
   }
 }

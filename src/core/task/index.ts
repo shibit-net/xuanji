@@ -1,4 +1,6 @@
 export { TaskOrchestrator } from './TaskOrchestrator';
+export { AsyncTaskStateMachine } from './AsyncTaskStateMachine';
+export type { AsyncTaskStatus, AsyncTaskEvent, AsyncTaskState, TaskStateChangeCallback } from './AsyncTaskStateMachine';
 export type {
   TaskStatus,
   TaskGroupType,

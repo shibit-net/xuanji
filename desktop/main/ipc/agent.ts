@@ -5,12 +5,7 @@ import {
   isSessionReady,
   getCachedConfig,
   setCachedConfig,
-  getAgentProcess
 } from '../agent/index.js';
-
-function logToRender(msg: string) {
-  process.stderr.write('[Agent:Debug] ' + msg + '\n');
-}
 
 function registerAgentIpcHandlers() {
   ipcMain.handle('agent:init', async () => {
@@ -35,35 +30,18 @@ function registerAgentIpcHandlers() {
     }
   });
 
-  ipcMain.handle('agent:send-message', async (_event, message: string) => {
+  ipcMain.handle('agent:user-action', async (_event, action: { type: string; message?: string }) => {
     if (!isSessionReady()) {
-      logToRender('send-message: session not ready');
       return { success: false, error: '会话未初始化' };
     }
 
     try {
-      const result = await sendRequest('send-message', { message }, 120000);
+      const result = await sendRequest('user-action', action, 120000);
       return { success: true, result };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : '';
-      logToRender('send-message FAILED: ' + msg + '\n' + stack);
       return { success: false, error: msg };
     }
-  });
-
-  ipcMain.handle('agent:interrupt', async (_event, message?: string) => {
-    if (!isSessionReady()) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    const agentProcess = getAgentProcess();
-    if (!agentProcess) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    agentProcess.send({ type: 'interrupt', data: { message: message || '' } });
-    return { success: true };
   });
 
   ipcMain.handle('agent:reset', async () => {
@@ -157,34 +135,6 @@ function registerAgentIpcHandlers() {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
     }
-  });
-
-  ipcMain.handle('agent:send-supplement', async (_event, content: string) => {
-    if (!isSessionReady()) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    const agentProcess = getAgentProcess();
-    if (!agentProcess) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    agentProcess.send({ type: 'supplement', data: content });
-    return { success: true };
-  });
-
-  ipcMain.handle('agent:append-message', async (_event, message: string) => {
-    if (!isSessionReady()) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    const agentProcess = getAgentProcess();
-    if (!agentProcess) {
-      return { success: false, error: '会话未初始化' };
-    }
-
-    agentProcess.send({ type: 'append-message', data: message });
-    return { success: true };
   });
 
   ipcMain.handle('agent:analyze-intent', async (_event, prompt: string) => {

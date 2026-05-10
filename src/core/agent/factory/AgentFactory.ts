@@ -11,7 +11,7 @@ import type { ConfigurableAgentConfig } from '@/core/agent/types';
 import { AgentLoop } from '../AgentLoop';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
-import { getConfigManager } from '@/core/config/ConfigManager';
+import { getConfigManager, type ConfigManager } from '@/core/config/ConfigManager';
 import { ProviderPool } from '@/core/providers/ProviderPool';
 import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
 import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
@@ -636,59 +636,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
       parentConfig: agentProviderConfig,
       onEvent: (event) => {
-        const d = event.payload.data;
-        switch (event.payload.eventType) {
-          case 'text':
-            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, {
-              text: d.text,
-              agentId: subAgentId,
-            });
-            // ACP 路径也需要触发 SubAgentText hook（与 in-process 路径一致）
-            if (this.hookRegistry) {
-              this.hookRegistry.emit('SubAgentText', { subAgentId, text: d.text }).catch(() => {});
-            }
-            break;
-          case 'thinking':
-            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, {
-              content: d.content,
-              agentId: subAgentId,
-            });
-            if (this.hookRegistry) {
-              this.hookRegistry.emit('AgentThinking', { subAgentId, thinkingContent: d.content }).catch(() => {});
-            }
-            break;
-          case 'tool_start':
-            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
-              id: d.id,
-              name: d.name,
-              input: d.input,
-              agentId: subAgentId,
-            });
-            if (this.hookRegistry) {
-              this.hookRegistry.emit('ToolStart', { subAgentId, toolId: d.id, toolName: d.name, toolInput: d.input }).catch(() => {});
-            }
-            break;
-          case 'tool_end':
-            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
-              id: d.id,
-              name: d.name,
-              result: d.result,
-              isError: d.isError,
-              agentId: subAgentId,
-              metadata: d.metadata,
-            });
-            if (this.hookRegistry) {
-              this.hookRegistry.emit('ToolEnd', { subAgentId, toolId: d.id, toolName: d.name, toolResult: d.result, toolIsError: d.isError }).catch(() => {});
-            }
-            break;
-          case 'tool_delta':
-            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_DELTA, {
-              id: d.id,
-              name: d.name,
-              receivedBytes: d.receivedBytes,
-            });
-            break;
-        }
+        this.forwardAcpEventToEventBus(event.payload.eventType, event.payload.data, subAgentId);
       },
     });
 
@@ -726,6 +674,65 @@ export class AgentFactory {
       iterations: result.payload.iterations,
       success: result.payload.success,
     };
+  }
+
+  /** 将 ACP 事件转发到 EventBus + HookRegistry */
+  private forwardAcpEventToEventBus(
+    eventType: string,
+    data: any,
+    agentId: string,
+  ): void {
+    switch (eventType) {
+      case 'text':
+        eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, {
+          text: data.text,
+          agentId,
+        });
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('SubAgentText', { subAgentId: agentId, text: data.text }).catch(() => {});
+        }
+        break;
+      case 'thinking':
+        eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, {
+          content: data.content,
+          agentId,
+        });
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('AgentThinking', { subAgentId: agentId, thinkingContent: data.content }).catch(() => {});
+        }
+        break;
+      case 'tool_start':
+        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
+          id: data.id,
+          name: data.name,
+          input: data.input,
+          agentId,
+        });
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('ToolStart', { subAgentId: agentId, toolId: data.id, toolName: data.name, toolInput: data.input }).catch(() => {});
+        }
+        break;
+      case 'tool_end':
+        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
+          id: data.id,
+          name: data.name,
+          result: data.result,
+          isError: data.isError,
+          agentId,
+          metadata: data.metadata,
+        });
+        if (this.hookRegistry) {
+          this.hookRegistry.emit('ToolEnd', { subAgentId: agentId, toolId: data.id, toolName: data.name, toolResult: data.result, toolIsError: data.isError }).catch(() => {});
+        }
+        break;
+      case 'tool_delta':
+        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_DELTA, {
+          id: data.id,
+          name: data.name,
+          receivedBytes: data.receivedBytes,
+        });
+        break;
+    }
   }
 
   /** AgentPool: 获取或复用已创建的 agent */
@@ -906,7 +913,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     return prompt.trim();
   }
 
-  private resolveProvider(agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'], parentProvider?: ILLMProvider): ILLMProvider {
+  private resolveProvider(agentCfg: ReturnType<ConfigManager['getAgentConfig']>, parentProvider?: ILLMProvider): ILLMProvider {
     const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL || agentCfg?.provider?.adapter);
     if (hasIndependent && agentCfg?.provider) {
       return this.providerPool.getProvider({
@@ -921,7 +928,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private async buildMainPrompt(
-    agentCfg: NonNullable<ReturnType<typeof getConfigManager>['getAgentConfig']>,
+    agentCfg: NonNullable<ReturnType<ConfigManager['getAgentConfig']>>,
     options: AgentCreateOptions,
   ): Promise<string> {
     // Agent 自身的 systemPrompt
@@ -942,7 +949,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private async buildSubPrompt(
-    agentCfg: NonNullable<ReturnType<typeof getConfigManager>['getAgentConfig']>,
+    agentCfg: NonNullable<ReturnType<ConfigManager['getAgentConfig']>>,
     options: AgentCreateOptions,
   ): Promise<string> {
     let prompt = (agentCfg as any).systemPrompt || '';
@@ -963,7 +970,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private resolveTools(
-    agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'],
+    agentCfg: ReturnType<ConfigManager['getAgentConfig']>,
     whitelist?: string[],
   ): string[] {
     const configTools = (agentCfg?.tools as any[])?.map((t: any) => t.name) || [];
@@ -987,7 +994,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private buildRuntimeConfig(
-    agentCfg: ReturnType<typeof getConfigManager>['getAgentConfig'],
+    agentCfg: ReturnType<ConfigManager['getAgentConfig']>,
     overrides: {
       systemPrompt: string;
       workingDir?: string;
@@ -1001,16 +1008,15 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     const thinking = thinkingRaw?.type && thinkingRaw.type !== 'disabled' ? thinkingRaw : undefined;
 
     return {
-      // 兼容两种 shape：嵌套 AgentConfig 和扁平 ProviderConfig
-      model: agentCfg?.model?.primary || agentCfg?.model || '',
+      model: agentCfg?.model?.primary || '',
       systemPrompt: overrides.systemPrompt,
       maxIterations: overrides.maxIterations,
       temperature: overrides.temperature,
       maxTokens: overrides.maxTokens,
       thinking,
       workingDir: overrides.workingDir,
-      apiKey: agentCfg?.apiKey || agentCfg?.provider?.apiKey,
-      baseURL: agentCfg?.baseURL || agentCfg?.provider?.baseURL,
+      apiKey: agentCfg?.provider?.apiKey,
+      baseURL: agentCfg?.provider?.baseURL,
     };
   }
 

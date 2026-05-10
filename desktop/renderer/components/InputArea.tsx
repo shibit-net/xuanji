@@ -13,8 +13,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, StopCircle, Archive, Brain, Loader2 } from 'lucide-react';
-import { useMessageStore } from '../stores/messageStore';
-import { useBackgroundTaskStore } from '../stores/backgroundTaskStore';
+import { useConversationStore } from '../stores/ConversationStore';
+import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 
 import { useToast } from './Toast';
 import { Button } from '@/components/ui/button';
@@ -29,25 +29,24 @@ export default function InputArea() {
   const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const sendMessage = useMessageStore((state) => state.sendMessage);
-  const autoSummarizeActive = useMessageStore((state) => state._autoSummarizeActive);
   const toast = useToast();
 
   // ─── 状态判定 ───────────────────────────────────────
-  const convState = useMessageStore((s) => s._conversationState);
+  const convState = useConversationStore((s) => s.conversationState);
+  const autoSummarizeActive = convState === 'outputting';
   const isIdle = convState === 'idle' || convState === 'waiting_async';
   const isRunning = !isIdle;
   const isToolExecuting = convState === 'executing';
   const isSummarizing = convState === 'outputting';
   const isAutoSummarizing = autoSummarizeActive;
 
-  // ─── 后台任务追踪（统一从 backgroundTaskStore 派生）───
+  // ─── 后台任务追踪 ───
   // 生命周期: creating → running → completed/cancelled → cleared
-  const runningTaskCount = useBackgroundTaskStore((s) => {
+  const runningTaskCount = useAsyncTaskStore((s) => {
     let count = 0;
     for (const t of Object.values(s.tasks)) {
       if (t.lifecycle === 'cleared') continue;
-      if (t.type === 'task') {
+      if (t.taskType === 'task') {
         if (t.lifecycle === 'creating' || t.lifecycle === 'running') count++;
       } else {
         if (t.members.some(m => m.lifecycle === 'creating' || m.lifecycle === 'running')) count++;
@@ -55,11 +54,11 @@ export default function InputArea() {
     }
     return count;
   });
-  const completedTaskCount = useBackgroundTaskStore((s) => {
+  const completedTaskCount = useAsyncTaskStore((s) => {
     let count = 0;
     for (const t of Object.values(s.tasks)) {
       if (t.lifecycle === 'cleared') continue;
-      if (t.type === 'task') {
+      if (t.taskType === 'task') {
         if (t.lifecycle === 'completed' || t.lifecycle === 'cancelled') count++;
       } else {
         if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed' || m.lifecycle === 'cancelled')) count++;
@@ -67,7 +66,7 @@ export default function InputArea() {
     }
     return count;
   });
-  const cancelledTaskCount = useBackgroundTaskStore((s) => s.getCancelledCount());
+  const cancelledTaskCount = useAsyncTaskStore((s) => s.getCancelledCount());
   const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
 
   // ─── 自动调整 textarea 高度 ─────────────────────────
@@ -92,23 +91,21 @@ export default function InputArea() {
   }, []);
 
   // ─── 发送入口 ───────────────────────────────────────
-  // 统一走 sendMessage，后端 handleUserInput 基于权威同步状态决定：
-  //   idle → 直接执行 / executing → 中断 + 入队 / outputting → 追加到队列
   const handleSubmit = useCallback(async () => {
     if (!input.trim() || isSending) return;
     const content = input.trim();
     setInput('');
     setIsSending(true);
     try {
-      sendMessage(content);
+      await window.electron.agentUserAction({ type: 'SEND_MESSAGE', message: content });
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, sendMessage]);
+  }, [input, isSending]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
-    window.electron.agentInterrupt();
+    window.electron.agentUserAction({ type: 'INTERRUPT' });
   }, []);
 
   // ─── 拖拽文件放入 ────────────────────────────────────

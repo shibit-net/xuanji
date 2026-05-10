@@ -8,7 +8,6 @@ export { useHistoryStore } from './historyStore';
 export { useChatStore } from './chatStore';
 export { useMessageStore } from './messageStore';
 export { useSessionStore } from './sessionStore';
-export { useActiveAgentStore } from './activeAgentStore';
 export { useUnifiedLogStore } from './unifiedLogStore';
 
 export type {
@@ -19,12 +18,6 @@ export type {
 } from './messageStore';
 
 export type { LogEntry } from '../types/models';
-
-export type {
-  AgentState,
-  AgentStatus,
-  ToolExecution as ActiveToolExecution,
-} from './activeAgentStore';
 
 // 统一日志相关类型导出
 export type {

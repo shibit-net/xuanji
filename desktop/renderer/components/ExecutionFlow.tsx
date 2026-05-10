@@ -11,8 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
-import { useActiveAgentStore, type AgentState } from '../stores/activeAgentStore';
-import { useRuntimeStore } from '../stores/runtimeStore';
+import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 import { Avatar } from './Avatar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -50,19 +49,6 @@ function hasNodeDataChanged(a: any, b: any): boolean {
     if (a[k] !== b[k]) return true;
   }
   return false;
-}
-
-/** 从 agent 树中查找节点的 currentThought */
-function findAgentThought(agent: AgentState | null, targetId: string): string | undefined {
-  if (!agent) return undefined;
-  if (agent.id === targetId) return agent.currentThought;
-  if (agent.subAgents) {
-    for (const sub of agent.subAgents) {
-      const found = findAgentThought(sub, targetId);
-      if (found !== undefined) return found;
-    }
-  }
-  return undefined;
 }
 
 // ============================================================
@@ -193,9 +179,7 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
   const final = isFinalStatus(data.status);
   const now = useRealtimeClock();
   // thinkingText 不从 data 读取（data 引用稳定时不会更新），从 store 实时订阅
-  const liveThinkingText = useActiveAgentStore((s) => {
-    return findAgentThought(s.mainAgent, id);
-  });
+  const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
   const hasThought = !!liveThinkingText;
   const hasTaskHint = !!data.currentTask && !liveThinkingText;
   const hasMoment = !!data.currentMoment;
@@ -579,25 +563,13 @@ function layoutNodes(nodes: Node[], edges: Edge[]) {
 // 终态（success/failed）展示绿色/红色状态环 + 暗色连线
 // 节点会在 auto-summarize-start 时由 removeSubAgent 移除
 // ============================================================
-
-function isActiveOrHasActiveChild(agent: AgentState): boolean {
-  if (agent.multiAgent?.type === 'agent_team') return true;
-  // 'pending'（等待执行）视为活跃，保留在 flow 中展示待执行状态
-  if (agent.status !== 'idle') return true;
-  if (agent.subAgents && Array.isArray(agent.subAgents)) {
-    return agent.subAgents.some(child => isActiveOrHasActiveChild(child));
-  }
-  return false;
-}
-
-// ============================================================
 // Flow 组件
 // ============================================================
 
 function Flow() {
-  const { mainAgent } = useActiveAgentStore();
-  const agentActivity = useRuntimeStore((state) => state.agentActivity);
-  const isProcessing = useRuntimeStore((state) => state.isProcessing);
+  // 新 store 订阅
+  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
+  const newMainAgentId = useAgentStateMachine((s) => s.mainAgent);
   const { fitView } = useReactFlow();
   const initialized = useRef(false);
 
@@ -608,115 +580,77 @@ function Flow() {
   // 记录 team 框拖拽时的基准偏移，用于同步移动内部成员
   const teamDragOffsets = useRef<Map<string, { dx: number; dy: number }>>(new Map());
 
-  // 从 agent 树中通过 id 查找 agent
-  const findAgentById = useCallback((agent: AgentState, targetId: string): AgentState | null => {
-    if (agent.id === targetId) return agent;
-    if (agent.subAgents) {
-      for (const sub of agent.subAgents) {
-        const found = findAgentById(sub, targetId);
-        if (found) return found;
-      }
-    }
-    return null;
-  }, []);
-
   // 🔧 调试日志
   useEffect(() => {
-    console.log('[ExecutionFlow] mainAgent subAgents:', mainAgent?.subAgents?.length,
-      mainAgent?.subAgents?.map(a => `${a.id}:${a.status}`));
-  }, [mainAgent]);
+    const agents = Object.values(newAgentMap).filter(a => a.status !== 'cleared');
+    console.log('[ExecutionFlow] agentMap agents:', agents.length,
+      agents.map(a => `${a.id}:${a.status}`));
+  }, [newAgentMap]);
 
-  const buildFlow = useCallback((
-    agent: AgentState,
-    parentId: string | null,
+
+  // ─── 新路径：从扁平 agentMap 构建 flow ───────────────
+  const buildFlowFromAgentMap = useCallback((
+    agentMap: Record<string, NewAgentState>,
+    mainAgentId: string,
   ): { nodes: Node<AgentNodeData>[]; edges: Edge[]; teamNodes: Map<string, Node<AgentNodeData>>; teamMembers: Map<string, string[]> } => {
     const nodes: Node<AgentNodeData>[] = [];
     const edges: Edge[] = [];
     const teamNodes = new Map<string, Node<AgentNodeData>>();
     const teamMembers = new Map<string, string[]>();
 
-    const addNode = (a: AgentState, pid: string | null, teamName?: string) => {
-      const agentId = a.id;
-      const isActive = isActiveStatus(a.status);
-      const timelineEvents = agentActivity.timelineEvents[agentId] || [];
-      const currentMoment = agentActivity.currentMoments?.[agentId];
-      const strategy = a.multiAgent?.strategy;
+    const activeAgents = Object.values(agentMap).filter(a => a.status !== 'cleared');
+    const agentIds = new Set(activeAgents.map(a => a.id));
 
-      // 记录团队成员
-      if (teamName) {
-        if (!teamMembers.has(teamName)) teamMembers.set(teamName, []);
-        teamMembers.get(teamName)!.push(agentId);
-      }
-
-      nodes.push({
-        id: agentId,
-        type: 'agent',
-        position: { x: 0, y: 0 },
-        data: {
-          id: agentId,
-          name: a.name,
-          status: a.status,
-          type: 'agent',
-          thinkingText: a.currentThought,
-          currentTask: a.currentTask,
-          currentMoment: currentMoment ? {
-            icon: currentMoment.icon,
-            label: currentMoment.label,
-            durationMs: currentMoment.durationMs,
-            status: currentMoment.status,
-            startTime: currentMoment.startTime,
-          } : undefined,
-          timelineEvents: timelineEvents.length > 0 ? timelineEvents.map((e: any) => ({
-            id: e.id, icon: e.icon, label: e.label,
-            duration: e.duration, status: e.status, startTime: e.startTime,
-          })) : undefined,
-          strategy,
-          debateRole: a.multiAgent?.debateRole,
-          agentType: a.agentType,
-          scene: a.scene,
-          executionMode: a.executionMode,
-          multiAgent: a.multiAgent ? {
-            type: a.multiAgent.type,
-            strategy: a.multiAgent.strategy,
-            teamName: a.multiAgent.teamName,
-            currentRound: a.multiAgent.currentRound,
-            maxRounds: a.multiAgent.maxRounds,
-            stepIndex: a.multiAgent.stepIndex,
-            totalSteps: a.multiAgent.totalSteps,
-            goal: a.multiAgent.goal,
-          } : undefined,
-        },
-        draggable: !teamName,
-      });
-
-      if (pid) {
-        edges.push({
-          id: `e-${pid}-${agentId}`,
-          source: pid,
-          target: agentId,
-          type: 'smoothstep',
-          animated: isActive,
-          style: { stroke: isActive ? 'hsl(var(--primary)/0.35)' : 'rgba(255,255,255,0.08)', strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: isActive ? 'hsl(var(--primary)/0.35)' : 'rgba(255,255,255,0.1)' },
-        });
-      }
-    };
-
-    const processAgent = (a: AgentState, pid: string | null): void => {
-      const isTeamMember = a.multiAgent?.type === 'agent_team';
+    for (const a of activeAgents) {
+      const isTeamMember = a.taskType === 'team' && a.multiAgent?.teamName;
       const teamName = a.multiAgent?.teamName;
+      const isActive = isActiveStatus(a.status);
 
-      // 调试：追踪团队节点检测
-      // 调试：追踪团队节点检测（无守卫，无条件输出）
+      const nodeData: AgentNodeData = {
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        type: a.taskType === 'team' ? 'team' : 'agent',
+        thinkingText: a.currentThought,
+        currentTask: a.currentTask,
+        currentMoment: a.moment ? {
+          icon: a.moment.icon || '',
+          label: a.moment.label,
+          durationMs: a.moment.duration,
+          status: a.moment.status,
+          startTime: a.moment.startTime,
+        } : undefined,
+        timelineEvents: a.currentTools.length > 0 ? a.currentTools.slice(-4).map((t: any) => ({
+          id: t.id,
+          icon: '',
+          label: t.name,
+          duration: t.endTime ? t.endTime - t.startTime : undefined,
+          status: t.status,
+          startTime: t.startTime,
+        })) : undefined,
+        agentType: a.agentType,
+        scene: a.scene,
+        executionMode: a.executionMode,
+        multiAgent: a.multiAgent ? {
+          type: a.multiAgent.type,
+          strategy: a.multiAgent.strategy,
+          teamName: a.multiAgent.teamName,
+          currentRound: a.multiAgent.currentRound,
+          maxRounds: a.multiAgent.maxRounds,
+          stepIndex: a.multiAgent.stepIndex,
+          totalSteps: a.multiAgent.totalSteps,
+          goal: a.multiAgent.goal,
+        } : undefined,
+        strategy: a.multiAgent?.strategy,
+        debateRole: a.multiAgent?.debateRole,
+      };
 
-      // 如果是团队成员，添加 agent 节点（让 teamMembers 收集 ID）
       if (isTeamMember && teamName) {
-        addNode(a, pid, teamName);
+        if (!teamMembers.has(teamName)) teamMembers.set(teamName, []);
+        teamMembers.get(teamName)!.push(a.id);
 
-        // 如果团队边界框还没创建，创建它
         if (!teamNodes.has(teamName)) {
-          const memberCount = a.multiAgent?.totalSteps || Math.max(1, teamMembers.get(teamName)?.length || 1);
-
+          const memberCount = a.multiAgent?.totalSteps || 1;
           teamNodes.set(teamName, {
             id: `team-${teamName}`,
             type: 'team',
@@ -740,8 +674,7 @@ function Flow() {
             height: 60,
           });
 
-          // 父节点 → 团队边界框的连线（和 task 线一样）
-          const parentForTeam = pid || (mainAgent?.id || 'xuanji');
+          const parentForTeam = a.parentId && agentIds.has(a.parentId) ? a.parentId : mainAgentId;
           edges.push({
             id: `e-${parentForTeam}-team-${teamName}`,
             source: parentForTeam,
@@ -752,50 +685,52 @@ function Flow() {
             markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary)/0.35)' },
           });
         }
+
+        nodes.push({
+          id: a.id,
+          type: 'agent',
+          position: { x: 0, y: 0 },
+          data: nodeData,
+          draggable: false,
+        });
       } else {
-        // 非团队成员的普通节点
-        addNode(a, pid);
-      }
+        nodes.push({
+          id: a.id,
+          type: 'agent',
+          position: { x: 0, y: 0 },
+          data: nodeData,
+          draggable: true,
+        });
 
-    // 递归处理子 agent
-    if (a.subAgents && a.subAgents.length > 0) {
-      for (const sub of a.subAgents) {
-        if (!isActiveOrHasActiveChild(sub)) continue;
-        processAgent(sub, a.id);
+        const pid = a.parentId;
+        if (pid && agentIds.has(pid)) {
+          edges.push({
+            id: `e-${pid}-${a.id}`,
+            source: pid,
+            target: a.id,
+            type: 'smoothstep',
+            animated: isActive,
+            style: { stroke: isActive ? 'hsl(var(--primary)/0.35)' : 'rgba(255,255,255,0.08)', strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: isActive ? 'hsl(var(--primary)/0.35)' : 'rgba(255,255,255,0.1)' },
+          });
+        }
       }
     }
-  };
 
-  processAgent(agent, parentId);
-
-  // 移除 agent → agent 的连线如果双方都在同一个团队中
-  // 也移除父 agent → 团队成员的直接连线，改为 team → member 连线让 dagre 布局
-  const agentIds = new Set(nodes.map(n => n.id));
-  const teamAgentMap = new Map<string, string>();
-  const teamMembersSet = new Set<string>();
-  teamMembers.forEach((members, teamName) => {
-    members.forEach(m => {
-      teamAgentMap.set(m, teamName);
-      teamMembersSet.add(m);
+    // 过滤边：移除直接连向 team member 的 agent → member 边
+    const teamMemberSet = new Set<string>();
+    teamMembers.forEach((members) => members.forEach(m => teamMemberSet.add(m)));
+    const filteredEdges = edges.filter(e => {
+      if (teamMemberSet.has(e.target)) return false;
+      return true;
     });
-  });
 
-  const filteredEdges = edges.filter(e => {
-    if (teamAgentMap.has(e.source) && teamAgentMap.has(e.target)) {
-      return teamAgentMap.get(e.source) === teamAgentMap.get(e.target);
-    }
-    if (teamMembersSet.has(e.target)) {
-      return false;
-    }
-    return true;
-  });
-
-  // 添加 team → member 边仅用于 dagre 布局（让成员在 team 框下方），渲染时隐藏
-  teamMembers.forEach((members, teamName) => {
-    const teamId = `team-${teamName}`;
-    members.forEach(memberId => {
-      if (agentIds.has(memberId)) {
-        filteredEdges.push({
+    // 添加 team → member 透明边用于 dagre 布局
+    teamMembers.forEach((members, teamName) => {
+      const teamId = `team-${teamName}`;
+      members.forEach(memberId => {
+        if (agentIds.has(memberId)) {
+          filteredEdges.push({
             id: `e-${teamId}-${memberId}`,
             source: teamId,
             target: memberId,
@@ -807,93 +742,57 @@ function Flow() {
       });
     });
 
-  // 调试：追踪团队节点结果
-  return { nodes, edges: filteredEdges, teamNodes, teamMembers };
-}, [agentActivity, mainAgent]);
+    return { nodes, edges: filteredEdges, teamNodes, teamMembers };
+  }, []);
 
   const flowData = useMemo(() => {
-    if (!mainAgent) return null;
-    // 调试：追踪 useMemo 重新计算
-    const raw = buildFlow(mainAgent, null);
-    const allNodes = [...raw.nodes];
-    raw.teamNodes.forEach((tn) => allNodes.push(tn));
-    const laidOut = layoutNodes(allNodes, raw.edges);
-    // 恢复用户拖拽过的节点位置，防止 dagre 重算时拉回
-    const restored = laidOut.map(n => {
-      const dragged = draggedPositions.current.get(n.id);
-      if (dragged) return { ...n, position: dragged };
-      return n;
-    });
 
-    // 如果团队框被拖拽过，确保成员也跟随
-    raw.teamMembers.forEach((members, teamName) => {
-      const teamId = `team-${teamName}`;
-      const teamDragged = draggedPositions.current.get(teamId);
-      if (!teamDragged) return;
-      const teamInit = initialPositions.current.get(teamId);
-      if (!teamInit) return;
-      const dx = teamDragged.x - teamInit.x;
-      const dy = teamDragged.y - teamInit.y;
-      members.forEach(mid => {
-        const nodeIdx = restored.findIndex(n => n.id === mid);
-        if (nodeIdx === -1) return;
-        const initPos = initialPositions.current.get(mid);
-        if (!initPos) {
-          initialPositions.current.set(mid, { ...restored[nodeIdx].position });
-        } else {
-          restored[nodeIdx] = { ...restored[nodeIdx], position: { x: initPos.x + dx, y: initPos.y + dy } };
-        }
+      if (!newMainAgentId || Object.keys(newAgentMap).length === 0) return null;
+      const raw = buildFlowFromAgentMap(newAgentMap, newMainAgentId);
+      const allNodes = [...raw.nodes];
+      raw.teamNodes.forEach((tn) => allNodes.push(tn));
+      const laidOut = layoutNodes(allNodes, raw.edges);
+      const restored = laidOut.map(n => {
+        const dragged = draggedPositions.current.get(n.id);
+        if (dragged) return { ...n, position: dragged };
+        return n;
       });
-    });
-
-    // 记录团队成员的初始 dagre 位置
-    if (draggedPositions.current.size === 0) {
-      raw.teamMembers.forEach((members) => {
-        members.forEach(mid => {
-          const node = restored.find(n => n.id === mid);
-          if (node) initialPositions.current.set(mid, { ...node.position });
+      // 根据成员位置调整 team 框
+      const adjustedNodes = restored.map(n => {
+        if (!n.id.startsWith('team-')) return n;
+        const tn = n.id.replace('team-', '');
+        const members = raw.teamMembers.get(tn);
+        if (!members || members.length === 0) return n;
+        const memberNodes = members.map(mid => restored.find(rn => rn.id === mid)).filter(Boolean) as Node[];
+        if (memberNodes.length === 0) return n;
+        const isDebate = memberNodes.some(m => m.data?.strategy === 'debate');
+        const padding = isDebate ? 140 : 80;
+        const leftExtra = isDebate ? 220 : 120;
+        const rightExtra = isDebate ? 120 : 80;
+        const minX = Math.min(...memberNodes.map(m => m.position.x)) - leftExtra;
+        const maxX = Math.max(...memberNodes.map(m => m.position.x + NODE_W)) + rightExtra;
+        const minY = Math.min(...memberNodes.map(m => m.position.y)) - padding;
+        const maxY = Math.max(...memberNodes.map(m => m.position.y + NODE_H)) + padding;
+        return { ...n, position: { x: minX, y: minY }, width: maxX - minX, height: maxY - minY, style: { width: maxX - minX, height: maxY - minY } };
+      });
+      // 记录初始位置
+      if (draggedPositions.current.size === 0) {
+        adjustedNodes.filter(n => n.id.startsWith('team-')).forEach(tn => {
+          initialPositions.current.set(tn.id, { ...tn.position });
         });
-      });
-    }
+      }
+      return { nodes: adjustedNodes, edges: raw.edges };
 
-    // 根据成员实际布局位置调整 team 虚线框的大小和位置，使其包裹所有成员
-    const adjustedNodes = restored.map(n => {
-      if (!n.id.startsWith('team-')) return n;
-      const teamName = n.id.replace('team-', '');
-      const members = raw.teamMembers.get(teamName);
-      if (!members || members.length === 0) return n;
-      const memberNodes = members.map(mid => restored.find(rn => rn.id === mid)).filter(Boolean) as Node[];
-      if (memberNodes.length === 0) return n;
-      // 辩论模式：圆形排列需要更多空间容纳气泡和圆环
-      const isDebate = memberNodes.some(m => m.data?.strategy === 'debate');
-      const padding = isDebate ? 140 : 80;
-      const leftExtra = isDebate ? 220 : 120;
-      const rightExtra = isDebate ? 120 : 80;
-      const minX = Math.min(...memberNodes.map(m => m.position.x)) - leftExtra;
-      const maxX = Math.max(...memberNodes.map(m => m.position.x + NODE_W)) + rightExtra;
-      const minY = Math.min(...memberNodes.map(m => m.position.y)) - padding;
-      const maxY = Math.max(...memberNodes.map(m => m.position.y + NODE_H)) + padding;
-      return {
-        ...n,
-        position: { x: minX, y: minY },
-        width: maxX - minX,
-        height: maxY - minY,
-        style: { width: maxX - minX, height: maxY - minY },
-      };
-    });
-
-    // 记录团队框的初始位置（必须在 adjustedNodes 之后，因为渲染的是包裹后的位置）
-    if (draggedPositions.current.size === 0) {
-      adjustedNodes.filter(n => n.id.startsWith('team-')).forEach(tn => {
-        initialPositions.current.set(tn.id, { ...tn.position });
-      });
-    }
-
-    return { nodes: adjustedNodes, edges: raw.edges };
-  }, [mainAgent, buildFlow, isProcessing]);
+  }, [newAgentMap, newMainAgentId, buildFlowFromAgentMap]);
 
   const [nodes, setNodes, onNodesChangeRaw] = useNodesState(flowData?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowData?.edges || []);
+
+  // 辅助：判断 agent 是否某 team 成员
+  const isTeamMember = useCallback((agentId: string): string | undefined => {
+    const a = newAgentMap[agentId];
+    return a?.multiAgent?.teamName;
+  }, [newAgentMap]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     // 只提取 team 框的拖拽变化，忽略所有其他节点的变化
@@ -910,8 +809,7 @@ function Flow() {
       // 成员位置完全由 dagre 布局 + team 拖拽偏移决定
       const filtered = changes.filter(c => {
         if ('id' in c && typeof c.id === 'string') {
-          const memberAgent = mainAgent ? findAgentById(mainAgent, c.id as string) : null;
-          if (memberAgent?.multiAgent?.teamName) return false;
+          if (isTeamMember(c.id as string)) return false;
         }
         return true;
       });
@@ -940,15 +838,14 @@ function Flow() {
 
     setNodes(prev => prev.map(n => {
       if (n.id === change.id) return { ...n, position: { ...change.position } };
-      const memberAgent = mainAgent ? findAgentById(mainAgent, n.id) : null;
-      if (memberAgent?.multiAgent?.teamName !== teamName) return n;
+      if (isTeamMember(n.id) !== teamName) return n;
       const initPos = initialPositions.current.get(n.id);
       if (!initPos) return n;
       const newPos = { x: initPos.x + totalDx, y: initPos.y + totalDy };
       draggedPositions.current.set(n.id, newPos);
       return { ...n, position: newPos };
     }));
-  }, [onNodesChangeRaw, mainAgent]);
+  }, [onNodesChangeRaw, newAgentMap, isTeamMember]);
 
   // 使用 ref 缓存上一轮 nodes，避免 data 未变的节点被替换引用导致 React Flow 重挂载闪烁
   const prevNodesRef = useRef<Node[]>([]);
@@ -996,7 +893,7 @@ function Flow() {
 
   return (
     <div className="w-full h-full bg-background">
-      {!mainAgent ? (
+      {!newMainAgentId || Object.values(newAgentMap).filter(a => a.status !== 'cleared').length === 0 ? (
         <div className="w-full h-full flex items-center justify-center relative">
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-[300px] h-[300px] rounded-full bg-primary/2 blur-[80px]" />

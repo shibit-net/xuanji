@@ -41,12 +41,10 @@
 
   // Agent 操作
   agentInit: () => ipcRenderer.invoke('agent:init'),
-  agentSendMessage: (message: string) => ipcRenderer.invoke('agent:send-message', message),
-  agentInterrupt: (message?: string) => ipcRenderer.invoke('agent:interrupt', message),
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
-  agentSendSupplment: (content: string) => ipcRenderer.invoke('agent:send-supplement', content),
-  agentAppendMessage: (message: string) => ipcRenderer.invoke('agent:append-message', message),
+  agentUserAction: (action: { type: string; message?: string }) =>
+    ipcRenderer.invoke('agent:user-action', action),
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
   openFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
   openUrl: (url: string) => ipcRenderer.invoke('workspace:open-url', url),
@@ -78,39 +76,6 @@
     ipcRenderer.on('agent:end', (_event, state) => callback(state));
   },
 
-  // Workspace 事件监听（MainAgent 执行流程可视化）
-  onWorkspaceIntentAnalysisStart: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:intent-analysis-start', (_event, data) => callback(data));
-  },
-  onWorkspaceIntentAnalysisEnd: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:intent-analysis-end', (_event, data) => callback(data));
-  },
-  onWorkspaceModelClassifierStart: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:model-classifier-start', (_event, data) => callback(data));
-  },
-  onWorkspaceModelClassifierEnd: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:model-classifier-end', (_event, data) => callback(data));
-  },
-  onWorkspaceTaskPlanningStart: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:task-planning-start', (_event, data) => callback(data));
-  },
-  onWorkspaceTaskPlanningEnd: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:task-planning-end', (_event, data) => callback(data));
-  },
-  onWorkspaceTaskExecutionStart: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:task-execution-start', (_event, data) => callback(data));
-  },
-  onWorkspaceTaskExecutionEnd: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:task-execution-end', (_event, data) => callback(data));
-  },
-  onWorkspaceResultAggregationStart: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:result-aggregation-start', (_event, data) => callback(data));
-  },
-  onWorkspaceResultAggregationEnd: (callback: (data: any) => void) => {
-    ipcRenderer.on('workspace:result-aggregation-end', (_event, data) => callback(data));
-  },
-
-// 移除监听器
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel);
   },

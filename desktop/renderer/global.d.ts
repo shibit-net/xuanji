@@ -81,8 +81,6 @@ export interface ElectronAPI {
   maximize: () => void;
   close: () => void;
 
-  // 消息发送
-  sendMessage: (content: string) => void;
   manualMemoryFlush: (data?: any) => Promise<{ success: boolean; error?: string }>;
 
   // ============================================================
@@ -129,10 +127,7 @@ export interface ElectronAPI {
 
   // Agent 操作
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
-  agentSendMessage: (message: string) => Promise<{ success: boolean }>;
-  agentInterrupt: (message?: string) => Promise<{ success: boolean }>;
-  agentAppendMessage: (message: string) => Promise<{ success: boolean }>;
-  agentSendSupplment: (content: string) => Promise<{ success: boolean }>;
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string }) => Promise<{ success: boolean; result?: any; error?: string }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
@@ -149,18 +144,6 @@ export interface ElectronAPI {
   onAgentUsage: (callback: (usage: any) => void) => void;
   onAgentError: (callback: (error: string) => void) => void;
   onAgentEnd: (callback: (state: { tokenUsage: any; cost: number; currentIteration: number }) => void) => void;
-
-  // Workspace 事件监听（MainAgent 执行流程可视化）
-  onWorkspaceIntentAnalysisStart: (callback: (data: any) => void) => void;
-  onWorkspaceIntentAnalysisEnd: (callback: (data: any) => void) => void;
-  onWorkspaceModelClassifierStart: (callback: (data: any) => void) => void;
-  onWorkspaceModelClassifierEnd: (callback: (data: any) => void) => void;
-  onWorkspaceTaskPlanningStart: (callback: (data: any) => void) => void;
-  onWorkspaceTaskPlanningEnd: (callback: (data: any) => void) => void;
-  onWorkspaceTaskExecutionStart: (callback: (data: any) => void) => void;
-  onWorkspaceTaskExecutionEnd: (callback: (data: any) => void) => void;
-  onWorkspaceResultAggregationStart: (callback: (data: any) => void) => void;
-  onWorkspaceResultAggregationEnd: (callback: (data: any) => void) => void;
 
   // 移除监听器
   removeAllListeners: (channel: string) => void;
@@ -526,6 +509,7 @@ export interface ElectronAPI {
 
   // 调试日志
   debugLog: (message: string) => Promise<{ success: boolean; error?: string }>;
+
 }
 
 declare global {

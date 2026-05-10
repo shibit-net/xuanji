@@ -17,6 +17,7 @@ import { ToolGateway } from '@/core/tools/ToolGateway';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
+import type { InterruptChecker } from '@/core/agent/InterruptChecker';
 
 /** 硬性最大迭代次数，超过此值强制终止，防止无限循环 */
 const HARD_MAX_ITERATIONS = 100;
@@ -78,6 +79,9 @@ export class AgentLoop {
   /** 外部注入的待处理消息队列引用（来自 ChatSession._pendingQueue），仅用于思考阶段打断检测 */
   private _pendingQueue: string[] | null = null;
 
+  /** 可选注入的中断检查器（Phase 2 状态机路径），优先级高于 _pendingQueue */
+  private _interruptChecker: InterruptChecker | null = null;
+
   /** 当前迭代是否已开始输出文本（onText 触发后置 true，用于区分思考/输出阶段） */
   private _streamingOutputStarted = false;
 
@@ -93,20 +97,40 @@ export class AgentLoop {
     this._pendingQueue = queue;
   }
 
+  /** 注入可选的 InterruptChecker（Phase 2 状态机路径），设置后 checkShouldStop 优先使用 */
+  setInterruptChecker(checker: InterruptChecker | null): void {
+    this._interruptChecker = checker;
+  }
+
   /** 用户点击终止按钮时调用——在当前工具调用或流式输出结束后平稳停止 */
   requestAbort(): void {
     this._abortRequested = true;
   }
 
-  /** 检查是否应停止当前 run()：终止请求、或整个 run() 尚未输出文字时有补充输入 */
+  /** 检查是否应停止当前 run()：优先使用 InterruptChecker，回退到 _pendingQueue 旧路径 */
   private checkShouldStop(): boolean {
+    // Phase 2 路径：委托给 InterruptChecker（SessionStateMachine）
+    if (this._interruptChecker) {
+      if (this._interruptChecker.shouldAbort()) {
+        this._abortRequested = false;
+        this.running = false;
+        this.callbacks.onInfo?.('🛑 已终止');
+        return true;
+      }
+      if (this._interruptChecker.shouldStop()) {
+        this.running = false;
+        return true;
+      }
+      return false;
+    }
+
+    // 旧路径：_abortRequested + _pendingQueue 补充输入
     if (this._abortRequested) {
       this._abortRequested = false;
       this.running = false;
       this.callbacks.onInfo?.('🛑 已终止');
       return true;
     }
-    // 整个 run() 还没输出过文字 → 思考阶段 → 补充输入立即打断
     if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
       this.running = false;
       return true;
@@ -132,11 +156,20 @@ export class AgentLoop {
 
     this.toolGateway = new ToolGateway(registry);
 
-    // 终止请求 或 整个 run() 尚未输出文字时有补充输入 → 中断流式请求
+    // 中断流式请求：优先 InterruptChecker（Phase 2），回退 _abortRequested / _pendingQueue
     this.streamPipeline.setInterruptChecker(() => {
-      if (!this.running || this._abortRequested) return true;
+      if (!this.running) return true;
+      if (this._interruptChecker) {
+        if (this._interruptChecker.shouldAbort()) return true;
+        if (this._interruptChecker.shouldStop()) {
+          this.running = false;
+          return true;
+        }
+        return false;
+      }
+      if (this._abortRequested) return true;
       if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
-        this.running = false;  // 确保 catch 块中 isAbort 能匹配
+        this.running = false;
         return true;
       }
       return false;

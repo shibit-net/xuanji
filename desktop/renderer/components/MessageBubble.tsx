@@ -6,12 +6,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client';
 import { ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
 import type { Message } from '../stores/chatStore';
-import { useMessageStore } from '../stores/messageStore';
-import type { SubAgentReference } from '../stores/chatStore';
-import { useRuntimeStore } from '../stores/runtimeStore';
+import type { SubAgentReference } from '../stores/CitationStore';
+import { useCitationStore } from '../stores/CitationStore';
 import { useAuthStore } from '../stores/authStore';
-import { useActiveAgentStore } from '../stores/activeAgentStore';
-import MilkdownEditor from './MilkdownEditor';
+import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { Avatar } from './Avatar';
 import { isFilePath, toNativePath } from '../utils/pathUtils';
 
@@ -20,18 +18,9 @@ import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 
 function getAgentDisplay(agentId: string | undefined): { name: string } {
   if (!agentId || agentId === 'xuanji') return { name: 'Xuanji' };
-  // 从 activeAgentStore 查找子 agent
-  const agent = useActiveAgentStore.getState().mainAgent;
-  if (!agent) return { name: agentId };
-  const find = (a: typeof agent): { name: string } | null => {
-    if (a.id === agentId) return { name: a.name };
-    for (const sub of a.subAgents) {
-      const r = find(sub);
-      if (r) return r;
-    }
-    return null;
-  };
-  return find(agent) || { name: agentId };
+  const a = useAgentStateMachine.getState().agentMap[agentId];
+  if (a) return { name: a.name };
+  return { name: agentId };
 }
 
 function formatDuration(ms: number): string {
@@ -88,7 +77,16 @@ function stripRawHtml(text: string): string {
 /** 流式输出统计数据 */
 function StreamingStats({ timestamp }: { timestamp: number }) {
   const [elapsed, setElapsed] = useState(Date.now() - timestamp);
-  const currentTokens = useRuntimeStore((s) => s.currentCallTokens);
+  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
+
+  const currentTokens = useMemo(() => {
+    let input = 0, output = 0;
+    for (const a of Object.values(newAgentMap)) {
+      input += a.stats?.tokenUsage?.input || 0;
+      output += a.stats?.tokenUsage?.output || 0;
+    }
+    return { input, output, cached: 0 };
+  }, [newAgentMap]);
 
   useEffect(() => {
     const timer = setInterval(() => setElapsed(Date.now() - timestamp), 1000);
@@ -159,8 +157,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         const index = nameCounts[name] || 0;
         nameCounts[name] = index + 1;
 
-        const state = useMessageStore.getState();
-        const list = state.citationOutputs[name];
+        const state = useCitationStore.getState();
+        const list = state.citations[name];
         const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
 
         const anchor = document.createElement('span');
@@ -180,8 +178,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         const index = citationCounts[name] || 0;
         citationCounts[name] = index + 1;
 
-        const state = useMessageStore.getState();
-        const list = state.citationOutputs[name];
+        const state = useCitationStore.getState();
+        const list = state.citations[name];
         const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
 
         const anchor = document.createElement('span');
@@ -427,9 +425,9 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
         <div className="mt-1.5 ml-1 rounded-xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm p-3 max-h-60 overflow-y-auto">
           <div className="text-xs text-white/70 whitespace-pre-wrap font-mono leading-relaxed">{citation.originalOutput}</div>
           <div className="mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-white/30 flex items-center gap-3">
-            <span>⏱ {(citation.duration / 1000).toFixed(1)}s</span>
+            <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
             <span>●</span>
-            <span>{citation.tokensUsed.input + citation.tokensUsed.output} tokens</span>
+            <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
           </div>
         </div>
       )}
@@ -474,7 +472,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           <span className="block w-full mt-1.5 ml-1 rounded-xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm p-3 max-h-60 overflow-y-auto">
             <span className="text-xs text-white/70 whitespace-pre-wrap font-mono leading-relaxed">{citation.originalOutput}</span>
             <span className="block mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-white/30 flex items-center gap-3">
-              ⏱ {(citation.duration / 1000).toFixed(1)}s&nbsp;●&nbsp;{citation.tokensUsed.input + citation.tokensUsed.output} tokens
+              ⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s&nbsp;●&nbsp;{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens
             </span>
           </span>
         )}

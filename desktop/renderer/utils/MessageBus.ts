@@ -118,14 +118,14 @@ class RendererMessageBus {
   /**
    * 发送消息到主进程
    */
-  async send(_type: string, data?: any): Promise<any> {
+  async send(_type: string, _data?: any): Promise<any> {
     if (!window.electron) {
       throw new Error('[RendererMessageBus] window.electron 未定义');
     }
 
     // 这里需要根据实际的IPC方法来实现
     // 暂时使用通用的invoke方法
-    return window.electron.agentSendMessage?.(data) || Promise.resolve();
+    return Promise.resolve();
   }
 
   /**

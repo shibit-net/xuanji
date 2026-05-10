@@ -11,10 +11,10 @@
 
 
 import { Folder, FileText, Clock, Package } from 'lucide-react';
-import { useRuntimeStore } from '../stores';
+import { useConversationStore } from '../stores/ConversationStore';
 
 export default function ContextView() {
-  const contextInfo = useRuntimeStore((state) => state.contextInfo);
+  const contextInfo = useConversationStore((state) => state.contextInfo);
 
   if (!contextInfo) {
     return (

@@ -7,13 +7,52 @@
 // - SubAgent 用嵌套卡片显示，体现协作关系
 // ============================================================
 
-import { useActiveAgentStore } from '../stores';
+import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 import { AgentWorkCard } from './AgentWorkCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
 
+// 将扁平 agentMap 构建为树结构（兼容 AgentWorkCard 的 subAgents 递归）
+function buildAgentTree(agentMap: Record<string, NewAgentState>, rootId: string): any {
+  const root = agentMap[rootId];
+  if (!root) return null;
+  const children = Object.values(agentMap).filter(a => a.parentId === rootId && a.id !== rootId);
+  return {
+    id: root.id,
+    name: root.name,
+    status: root.status === 'success' ? 'done' : root.status === 'failed' ? 'error' : root.status === 'cleared' ? 'done' : root.status,
+    startTime: root.moment?.startTime || root.createdAt,
+    currentTools: root.currentTools || [],
+    stats: root.stats,
+    subAgents: children.map(c => buildAgentTree(agentMap, c.id)).filter(Boolean),
+  };
+}
+
+// 递归聚合 token 统计
+function aggregateStats(agent: any): { input: number; output: number; cached: number; toolCount: number; cost: number } {
+  const sum = {
+    input: agent.stats?.tokenUsage?.input || 0,
+    output: agent.stats?.tokenUsage?.output || 0,
+    cached: agent.stats?.tokenUsage?.cached || 0,
+    toolCount: agent.stats?.toolCount || 0,
+    cost: agent.stats?.cost || 0,
+  };
+  (agent.subAgents || []).forEach((sub: any) => {
+    const s = aggregateStats(sub);
+    sum.input += s.input;
+    sum.output += s.output;
+    sum.cached += s.cached;
+    sum.toolCount += s.toolCount;
+    sum.cost += s.cost;
+  });
+  return sum;
+}
+
 export default function ActiveAgentView() {
-  const mainAgent = useActiveAgentStore((state) => state.mainAgent);
+  const newAgentMap = useAgentStateMachine((state) => state.agentMap);
+  const newMainAgentId = useAgentStateMachine((state) => state.mainAgent);
+
+  const mainAgent = newMainAgentId ? buildAgentTree(newAgentMap, newMainAgentId) : null;
 
   if (!mainAgent) {
     return (
@@ -40,14 +79,16 @@ export default function ActiveAgentView() {
   // 收集所有活跃的 Agent（主 Agent + 所有 SubAgent）
   const collectAllAgents = (agent: typeof mainAgent): typeof mainAgent[] => {
     const agents = [agent];
-    agent.subAgents.forEach(sub => {
+    (agent.subAgents || []).forEach((sub: any) => {
       agents.push(...collectAllAgents(sub));
     });
     return agents;
   };
 
   const allAgents = collectAllAgents(mainAgent);
-  const activeAgents = allAgents.filter(a => a.status !== 'idle' && a.status !== 'done');
+  const activeAgents = allAgents.filter((a: any) => a.status !== 'idle' && a.status !== 'done');
+
+  const stats = aggregateStats(mainAgent);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -62,13 +103,13 @@ export default function ActiveAgentView() {
           </div>
           <div className="flex items-center gap-4 text-xs text-text-secondary">
             <div>
-              Token: {mainAgent.stats.tokenUsage.input + mainAgent.stats.tokenUsage.output}
-              {mainAgent.stats.tokenUsage.cached > 0 && (
-                <span className="ml-1 text-primary">⚡{mainAgent.stats.tokenUsage.cached}</span>
+              Token: {stats.input + stats.output}
+              {stats.cached > 0 && (
+                <span className="ml-1 text-primary">⚡{stats.cached}</span>
               )}
             </div>
-            <div>工具: {mainAgent.stats.toolCount}</div>
-            {mainAgent.stats.cost > 0 && <div>${mainAgent.stats.cost.toFixed(4)}</div>}
+            <div>工具: {stats.toolCount}</div>
+            {stats.cost > 0 && <div>${stats.cost.toFixed(4)}</div>}
           </div>
         </div>
       </div>

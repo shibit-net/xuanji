@@ -2,6 +2,7 @@
 // M2 Agent 调度模块 — 模块导出
 // ============================================================
 
+export type { InterruptChecker } from './InterruptChecker';
 export { AgentLoop, type AgentCallbacks } from './AgentLoop';
 export { AgentFactory } from './factory/AgentFactory';
 export type { AgentCreateOptions, AgentInstance } from './factory/AgentFactory';

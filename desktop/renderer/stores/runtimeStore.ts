@@ -21,15 +21,49 @@ import type {
   PromptBuildState,
   PromptComponent,
 } from '../types/models';
-import type { AgentMoment, HistoryDot, TimelineEvent, RecentEvent } from '../components/WorkspaceMonitor/types';
-
 // Worker 端每帧实时计算 duration（renderFrame 中的 computeLiveDurations），
 // 主线程不再需要 100ms 定时器更新 durationMs，消除高频 Zustand setState → React re-render → JSON.stringify 链
 
-// ─── 活动事件（供 WorkspaceMonitor 消费）─────────────────────
+// ─── 内联类型（原 WorkspaceMonitor/types，WorkspaceMonitor 已于 Phase 4 删除）───
+
+export interface AgentMoment {
+  type: string;
+  icon: string;
+  label: string;
+  durationMs: number;
+  status: 'running' | 'success' | 'error';
+  startTime?: number;
+}
+
+export interface HistoryDot {
+  id: string;
+  status: 'success' | 'error';
+  tooltip: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  icon: string;
+  label: string;
+  status: 'running' | 'success' | 'error';
+  duration?: number;
+  startTime?: number;
+  endTime?: number;
+  parallelGroupId?: string;
+}
+
+export interface RecentEvent {
+  id: string;
+  agentName: string;
+  description: string;
+  icon: string;
+  timestamp: number;
+}
+
+// ─── 活动事件 ─────────────────────
 
 export interface ActivityEvent {
-  agentId: string;      // 'main' 或子 agent id
+  agentId: string;
   moment: AgentMoment;
 }
 

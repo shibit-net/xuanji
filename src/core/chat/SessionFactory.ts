@@ -17,6 +17,7 @@ import { AgentLoop } from '@/core/agent/AgentLoop';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { ChatSession, type SessionCallbacks } from './ChatSession';
+import { SessionStateMachine } from '@/core/state/SessionStateMachine';
 import { logger } from '@/core/logger';
 import { TaskTool } from '@/core/tools/TaskTool';
 import { TeamTool } from '@/core/tools/TeamTool';
@@ -131,8 +132,10 @@ export class SessionFactory {
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
 
-    // 7. 创建 StateTracker
+    // 7. 创建 StateTracker（旧路径）/ SessionStateMachine（新路径）
     const stateTracker = new StateTracker();
+    const useStateMachine = process.env.USE_SESSION_STATE_MACHINE === 'true';
+    const stateMachine = useStateMachine ? new SessionStateMachine() : undefined;
 
     // 8. 获取 TaskOrchestrator 单例（统一后台任务管理器）
     const taskOrchestrator = TaskOrchestrator.getInstance();
@@ -187,7 +190,7 @@ export class SessionFactory {
     getTodoManager(userId);
 
     // 13. 创建会话
-    const session = new ChatSession(agentLoop, this.container, stateTracker, options.callbacks);
+    const session = new ChatSession(agentLoop, this.container, stateTracker, options.callbacks, stateMachine);
 
     // 重设 onRun + onAutoSummarize + onCitationData，让后台任务完成时自动触发 ChatSession.run + 通知渲染器
     const taskCompletionHandler = completionHandler;

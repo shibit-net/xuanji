@@ -14,6 +14,7 @@ import { logger } from '@/core/logger';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { TaskCompletionHandler } from '@/core/agent/async/TaskCompletionHandler';
+import { AsyncTaskStateMachine } from '@/core/task/AsyncTaskStateMachine';
 import type {
   TaskGroup,
   TaskStatus,
@@ -46,6 +47,9 @@ export class TaskOrchestrator {
 
   /** TaskCompletionHandler — 后台任务完成通知（与主 agent 汇报队列对接） */
   private taskCompletionHandler: TaskCompletionHandler | null = null;
+
+  /** AsyncTaskStateMachine — 统一任务状态机（EventForwarder 通过 onTaskStateChanged 发出 IPC） */
+  private asyncTaskStateMachine: AsyncTaskStateMachine = new AsyncTaskStateMachine();
 
   private constructor(config?: Partial<TaskOrchestratorConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -89,6 +93,11 @@ export class TaskOrchestrator {
     return this.taskCompletionHandler;
   }
 
+  /** 获取 AsyncTaskStateMachine（供 EventForwarder 注册 onTaskStateChanged 回调） */
+  getAsyncTaskStateMachine(): AsyncTaskStateMachine {
+    return this.asyncTaskStateMachine;
+  }
+
   /** 启动后台 Agent 任务 */
   startTask(options: StartTaskOptions): { groupId: string; error?: string } {
     const maxConcurrent = this.getConfigValue('maxConcurrent');
@@ -130,6 +139,13 @@ export class TaskOrchestrator {
     };
 
     this.tasks.set(groupId, taskGroup);
+
+    // AsyncTaskStateMachine: 创建 → 运行
+    this.asyncTaskStateMachine.transition({
+      type: 'TASK_CREATED', taskId: groupId,
+      taskType: options.type, name: options.goal,
+      parentAgentId: options.parentAgentId,
+    });
 
     // 后台启动执行
     this.runTask(taskGroup, options.executor);
@@ -285,6 +301,7 @@ export class TaskOrchestrator {
 
     const member = task.members.find((m) => m.id === memberId);
     if (member) {
+      const prevStatus = member.status;
       member.status = status;
       if (status === 'running' && !member.startTime) {
         member.startTime = Date.now();
@@ -294,6 +311,26 @@ export class TaskOrchestrator {
       }
       if (details?.failureReason) member.failureReason = details.failureReason;
       if (details?.retryCount !== undefined) member.retryCount = details.retryCount;
+
+      // AsyncTaskStateMachine: 成员状态变更
+      if (prevStatus !== 'running' && status === 'running') {
+        this.asyncTaskStateMachine.transition({
+          type: 'SUBAGENT_STARTED', taskId: groupId,
+          subAgentId: memberId, memberName: member.name || memberId,
+        });
+      } else if (status === 'completed') {
+        this.asyncTaskStateMachine.transition({
+          type: 'SUBAGENT_ENDED', taskId: groupId,
+          subAgentId: memberId, success: true,
+          duration: member.endTime && member.startTime ? member.endTime - member.startTime : undefined,
+        });
+      } else if (status === 'failed') {
+        this.asyncTaskStateMachine.transition({
+          type: 'SUBAGENT_ENDED', taskId: groupId,
+          subAgentId: memberId, success: false,
+          duration: member.endTime && member.startTime ? member.endTime - member.startTime : undefined,
+        });
+      }
     }
   }
 
@@ -368,6 +405,15 @@ export class TaskOrchestrator {
 
   /** 通知完成 */
   private notifyCompletion(task: TaskGroup, status: TaskStatus): void {
+    // AsyncTaskStateMachine: 终态转换
+    if (status === 'completed') {
+      this.asyncTaskStateMachine.transition({ type: 'TASK_COMPLETED', taskId: task.groupId });
+    } else if (status === 'failed') {
+      this.asyncTaskStateMachine.transition({ type: 'TASK_FAILED', taskId: task.groupId });
+    } else if (status === 'cancelled') {
+      this.asyncTaskStateMachine.transition({ type: 'TASK_CANCELLED', taskId: task.groupId });
+    }
+
     const completionResult: TaskCompletionResult = {
       groupId: task.groupId,
       status,
