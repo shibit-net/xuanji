@@ -79,6 +79,9 @@ interface MessageStore {
   clearMessages: () => void;
   reset: () => Promise<void>;
   getCitationOutput: (agentName: string) => SubAgentReference | null;
+  startStreaming: (messageId: string) => void;
+  appendStreamingText: (text: string) => void;
+  finishStreaming: () => void;
 }
 
 // ============================================================
@@ -109,6 +112,40 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     })),
 
   setStatus: (status) => set({ status }),
+
+  startStreaming: (messageId) => {
+    const emptyMsg: Message = {
+      id: messageId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+    set((s) => ({
+      messages: trimMessages([...s.messages, emptyMsg]),
+      currentStreamingId: messageId,
+      currentStreamingText: '',
+      status: 'thinking',
+    }));
+  },
+
+  appendStreamingText: (text) => set((s) => ({
+    currentStreamingText: s.currentStreamingText + text,
+  })),
+
+  finishStreaming: () => {
+    const s = get();
+    if (!s.currentStreamingId) return;
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === s.currentStreamingId
+          ? { ...msg, content: s.currentStreamingText }
+          : msg
+      ),
+      currentStreamingId: null,
+      currentStreamingText: '',
+      status: 'idle',
+    }));
+  },
 
   clearMessages: () => {
     set({ messages: [], status: 'idle' });

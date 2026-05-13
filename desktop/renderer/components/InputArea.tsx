@@ -15,6 +15,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, StopCircle, Archive, Brain, Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
+import { useMessageStore, generateMessageId } from '../stores/messageStore';
+import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useAgentStateMachine } from '../stores/AgentStateMachine';
 
 import { useToast } from './Toast';
 import { Button } from '@/components/ui/button';
@@ -39,6 +42,14 @@ export default function InputArea() {
   const isToolExecuting = convState === 'executing';
   const isSummarizing = convState === 'outputting';
   const isAutoSummarizing = autoSummarizeActive;
+
+  // ─── Session 状态 ──────────────────────────────────────
+  const sessionStatus = useSessionInitStore((s) => s.status);
+  const sessionError = useSessionInitStore((s) => s.error);
+  const isSessionReady = useSessionInitStore((s) => s.isReady());
+
+  // ─── 前台 Agent ──────────────────────────────────────
+  const foregroundAgentId = useAgentStateMachine((s) => s.foregroundAgentId);
 
   // ─── 后台任务追踪 ───
   // 生命周期: creating → running → completed/cancelled → cleared
@@ -93,15 +104,35 @@ export default function InputArea() {
   // ─── 发送入口 ───────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (!input.trim() || isSending) return;
+
+    // Session 未就绪时的 UX 反馈
+    if (!isSessionReady) {
+      const store = useSessionInitStore.getState();
+      if (store.status === 'uninitialized' || store.status === 'failed') {
+        store.triggerInit();
+        toast.info('正在连接服务，请稍后重试...');
+      } else if (store.status === 'initializing') {
+        toast.info('服务正在初始化中，请稍候...');
+      }
+      return;
+    }
+
     const content = input.trim();
     setInput('');
     setIsSending(true);
+    // 立即渲染用户消息气泡
+    useMessageStore.getState().addMessage({
+      id: generateMessageId('user'),
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+    });
     try {
       await window.electron.agentUserAction({ type: 'SEND_MESSAGE', message: content });
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending]);
+  }, [input, isSending, isSessionReady, toast]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
@@ -194,7 +225,11 @@ export default function InputArea() {
   }, [isFlushing, isRunning, toast]);
 
   // ─── 文案 ───────────────────────────────────────────
-  const placeholder = isAutoSummarizing
+  const placeholder = !isSessionReady
+    ? sessionStatus === 'initializing' ? '会话初始化中...'
+      : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
+      : '正在连接服务...'
+    : isAutoSummarizing
     ? '说点什么... (后台汇总中)'
     : isRunning
     ? '说点什么... (工作执行中，消息将自动排队)'
@@ -204,7 +239,7 @@ export default function InputArea() {
     ? '说点什么... (有任务已取消)'
     : '说点什么...';
 
-  const isSendDisabled = !input.trim() || isSending;
+  const isSendDisabled = !input.trim() || isSending || !isSessionReady;
 
   return (
     <div
@@ -326,7 +361,12 @@ export default function InputArea() {
 
       {/* 底部提示 */}
       <div className="px-4 pb-2 text-xs text-muted-foreground">
-        Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入文件追加路径
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入文件追加路径</span>
+          {foregroundAgentId && foregroundAgentId !== 'xuanji' && (
+            <span className="text-blue-400">· Agent: {foregroundAgentId}</span>
+          )}
+        </div>
         {isAutoSummarizing && <span className="ml-2 text-blue-500">· 后台任务结果汇总中</span>}
         {!isAutoSummarizing && isToolExecuting && <span className="ml-2 text-red-500">· 工具执行中</span>}
         {!isAutoSummarizing && isSummarizing && <span className="ml-2 text-orange-500">· 流式输出中</span>}

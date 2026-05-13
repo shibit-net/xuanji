@@ -39,8 +39,8 @@ export class LocalLlamaAdapter implements ILLMProvider {
     return LOCAL_LLAMA_MODELS.includes(model as LocalLlamaModelType);
   }
 
-  private getLoader(model: string, systemPrompt?: string): LocalModelLoader {
-    const key = `${model}::${systemPrompt ?? ''}`;
+  private getLoader(model: string, systemPrompt?: string, contextSize?: number): LocalModelLoader {
+    const key = `${model}::${systemPrompt ?? ''}::ctx${contextSize ?? 0}`;
     if (!this.loaders.has(key)) {
       let modelId: string;
       if (model.endsWith('.gguf')) {
@@ -49,7 +49,7 @@ export class LocalLlamaAdapter implements ILLMProvider {
         modelId = MODEL_IDS[model as LocalLlamaModelType];
         if (!modelId) throw new Error(`未知本地模型: ${model}`);
       }
-      this.loaders.set(key, new LocalModelLoader({ modelId, systemPrompt }));
+      this.loaders.set(key, new LocalModelLoader({ modelId, systemPrompt, contextSize }));
     }
     return this.loaders.get(key)!;
   }
@@ -83,7 +83,8 @@ export class LocalLlamaAdapter implements ILLMProvider {
       : undefined;
 
     try {
-      const loader = this.getLoader(model, systemPrompt);
+      const contextSize = (config as any).contextSize as number | undefined;
+      const loader = this.getLoader(model, systemPrompt, contextSize);
       const result = await loader.generate(userText, {
         maxTokens: config.maxTokens ?? 512,
         temperature: config.temperature ?? 0.3,
@@ -92,7 +93,8 @@ export class LocalLlamaAdapter implements ILLMProvider {
       yield { type: 'text_delta', text: result };
       yield { type: 'end', stopReason: 'end_turn' };
     } catch (err: any) {
-      log.error('本地模型推理失败', err.message);
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`本地模型推理失败: ${msg}`, { stack: err instanceof Error ? err.stack : undefined });
       yield { type: 'error', error: err instanceof Error ? err : new Error(String(err)) };
     }
   }

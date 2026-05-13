@@ -38,6 +38,10 @@ export class ToolGateway {
     return this.registry;
   }
 
+  setRegistry(registry: IToolRegistry): void {
+    this.registry = registry;
+  }
+
   setPermissionController(controller: PermissionController): void {
     this.permissionController = controller;
     if (this.registry.setPermissionController) {

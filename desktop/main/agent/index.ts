@@ -81,6 +81,10 @@ function initChatSession(): Promise<boolean> {
 
       const userId = authState.user.userId;
 
+      // 通知 renderer 初始化开始
+      const mainWindow = getMainWindow();
+      mainWindow?.webContents.send('session:init-start');
+
       let nodePath = findNodePath();
 
       const isDev = !app.isPackaged;
@@ -207,6 +211,13 @@ function initChatSession(): Promise<boolean> {
 
         // 非清理状态下的意外退出 → 自动重启
         if (!isCleaningUp && restartAttempts < MAX_RESTART_ATTEMPTS) {
+          const mainWindow = getMainWindow();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('session:init-restarting', {
+              attempt: restartAttempts + 1,
+              maxAttempts: MAX_RESTART_ATTEMPTS,
+            });
+          }
           restartAttempts++;
           const delay = getRestartDelay();
           restartTimer = setTimeout(() => {
@@ -258,8 +269,12 @@ function initChatSession(): Promise<boolean> {
       agentChannel.on('init-complete', (data) => {
         if (data.success) {
           sessionReady = true;
+          mainWindow?.webContents.send('session:init-complete');
         } else {
           console.error('[Agent] Session 初始化失败:', data.error);
+          mainWindow?.webContents.send('session:init-failed', {
+            error: data.error || '会话初始化失败',
+          });
         }
       });
 
@@ -298,6 +313,12 @@ function initChatSession(): Promise<boolean> {
       return true;
     } catch (err) {
       console.error('❌ ChatSession 初始化失败:', err);
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session:init-failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       cleanupAgentProcess();
       throw err;
     } finally {

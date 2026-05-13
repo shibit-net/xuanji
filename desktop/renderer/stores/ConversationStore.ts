@@ -9,6 +9,13 @@ import { create } from 'zustand';
 export type ChatStatus = 'idle' | 'thinking' | 'executing';
 export type ConvState = 'idle' | 'executing' | 'outputting' | 'waiting_async';
 
+export interface RoutingInfo {
+  agentId: string;
+  confidence: number;
+  method: string;
+  scene?: string;
+}
+
 interface ConversationStoreState {
   status: ChatStatus;
   conversationState: ConvState;
@@ -17,6 +24,7 @@ interface ConversationStoreState {
   currentAgentId: string | null;
   activeSkill: { name: string; icon?: string } | null;
   contextInfo: any;
+  routingInfo: RoutingInfo | null;
 
   onAgentStarted: (data?: { model?: string }) => void;
   onAgentCompleted: () => void;
@@ -26,6 +34,7 @@ interface ConversationStoreState {
   setCurrentAgentId: (id: string | null) => void;
   setActiveSkill: (skill: { name: string; icon?: string } | null) => void;
   setContextInfo: (info: any) => void;
+  setRoutingInfo: (info: RoutingInfo | null) => void;
 
   isRunning: () => boolean;
 }
@@ -38,6 +47,7 @@ export const useConversationStore = create<ConversationStoreState>((set, get) =>
   currentAgentId: null,
   activeSkill: null,
   contextInfo: null,
+  routingInfo: null,
 
   onAgentStarted: () => {
     set({
@@ -58,6 +68,7 @@ export const useConversationStore = create<ConversationStoreState>((set, get) =>
   setCurrentAgentId: (currentAgentId) => set({ currentAgentId }),
   setActiveSkill: (activeSkill) => set({ activeSkill }),
   setContextInfo: (contextInfo) => set({ contextInfo }),
+  setRoutingInfo: (routingInfo) => set({ routingInfo }),
 
   isRunning: () => ['executing', 'outputting'].includes(get().conversationState),
 }));

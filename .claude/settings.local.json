@@ -73,7 +73,10 @@
       "Bash(sed -n '867p' /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/desktop/renderer/components/ExecutionFlow.tsx)",
       "Bash(sed -i '' '259,270d' main/agent-bridge.ts)",
       "Bash(sed -i '' '221,231d' main/agent-bridge.ts)",
-      "Bash(sed -i '' '187,220d' main/agent-bridge.ts)"
+      "Bash(sed -i '' '187,220d' main/agent-bridge.ts)",
+      "Bash([ ! -f \"$MODEL_DIR/$file\" ])",
+      "Bash(mkdir -p ~/.xuanji/embedding-models)",
+      "Bash(cp -r /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/embedding-models/Xenova ~/.xuanji/embedding-models/)"
     ]
   }
 }

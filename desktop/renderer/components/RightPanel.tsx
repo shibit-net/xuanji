@@ -3,11 +3,13 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Wrench, FileText, Activity } from 'lucide-react';
+import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useMessageStore } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
-import ExecutionFlow from './ExecutionFlow';
+import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
+import type { StageResult } from '../stores/IntentRoutingStore';
+import ExecutionFlowV2 from './ExecutionFlowV2';
 
 // 灰色版头像（workspace 水印背景）
 import watermarkAvatar from '../assets/logos/acfee7f9a0868cf754cd2ab65cd6cfa6.png';
@@ -113,11 +115,182 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
   );
 }
 
+// 路由方法标签配置
+const METHOD_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  llm: { label: 'AI 意图分析', color: 'text-blue-400', icon: <Zap size={10} /> },
+  embedding: { label: '向量匹配', color: 'text-yellow-400', icon: <Search size={10} /> },
+  default: { label: '默认路由', color: 'text-white/40', icon: <AlertTriangle size={10} /> },
+};
+
+// 路由阶段展示组件（L1/L2 路径，不展示 L3 兜底）
+function RoutingChain({ stages }: { stages: StageResult[] }) {
+  // 只展示 L1/L2，兜底 L3 不显示
+  const displayLevels = ['L1', 'L2'];
+  const stageMap = new Map(stages.map(s => [s.level, s]));
+
+  const visible = displayLevels.filter((l) => stageMap.has(l));
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1 text-[10px]">
+      {visible.map((level, i) => {
+        const stage = stageMap.get(level)!;
+        const label = level === 'L1' ? 'LLM' : '向量';
+
+        let Icon = Loader2;
+        let color = 'text-white/20';
+        if (stage.status === 'success') { Icon = CheckCircle2; color = 'text-green-400'; }
+        else if (stage.status === 'skipped') { Icon = XCircle; color = 'text-red-400/60'; }
+        else if (stage.status === 'running') { Icon = Loader2; color = 'text-blue-400 animate-spin'; }
+
+        return (
+          <React.Fragment key={level}>
+            {i > 0 && <ArrowRight size={8} className="text-white/15 flex-shrink-0" />}
+            <span className="flex items-center gap-0.5" title={`${level}: ${stage.summary}`}>
+              <span className="text-white/30">{label}</span>
+              <Icon size={10} className={color} />
+            </span>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 // Workspace 监控标签
 function WorkspaceTab() {
+  const routeStatus = useIntentRoutingStore((s) => s.status);
+  const routeResult = useIntentRoutingStore((s) => s.result);
+  const stages = useIntentRoutingStore((s) => s.stages);
+  const scenePrompts = useIntentRoutingStore((s) => s.scenePrompts);
+
+  // scene 可能是逗号分隔的多个值
+  const scenes = routeResult?.scene
+    ? routeResult.scene.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  const methodInfo = routeResult ? METHOD_CONFIG[routeResult.method] ?? METHOD_CONFIG.default : null;
+  const isDegraded = routeResult?.method === 'default' && stages.some(s => s.status === 'skipped');
+  const runningL1 = stages.find(s => s.level === 'L1' && s.status === 'running' && s.method === 'llm');
+
   return (
-    <div className="h-full w-full">
-      <ExecutionFlow />
+    <div className="h-full w-full flex flex-col bg-transparent">
+      {/* 意图路由分析面板 */}
+      {routeStatus !== 'idle' && (
+        <div className="flex-shrink-0 mx-3 mt-3 px-3 py-2 rounded-lg bg-transparent">
+          {/* 头部：标题 + 状态 + 路由路径（同行） */}
+          <div className="flex items-center gap-2">
+            <Brain size={13} className="text-blue-400 flex-shrink-0" />
+            <span className="text-[11px] font-semibold">意图分析</span>
+            {routeStatus === 'analyzing' ? (
+              <Loader2 size={11} className="animate-spin text-blue-400" />
+            ) : (
+              <span className="text-[10px] text-green-400">完成</span>
+            )}
+            {stages.length > 0 && (
+              <span className="ml-1">
+                <RoutingChain stages={stages} />
+              </span>
+            )}
+          </div>
+
+          {routeStatus === 'analyzing' ? (
+            <div className="mt-1">
+              <p className="text-[10px] text-white/30">
+                {stages.length > 0
+                  ? `${stages[stages.length - 1].summary}...`
+                  : '正在分析意图，匹配最佳 Agent...'}
+              </p>
+              {runningL1?.modelName && (
+                <p className="text-[10px] text-blue-400/70 mt-0.5">
+                  模型: {runningL1.modelName}
+                </p>
+              )}
+            </div>
+          ) : routeResult ? (
+            <div className="mt-1.5 space-y-0.5 text-[10px]">
+              {/* 核心一行：Agent + 路由方式 + 降级 + 置信度 */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Hash size={9} className="text-white/40 flex-shrink-0" />
+                <span className="text-blue-400 font-medium">{routeResult.agentId}</span>
+                {methodInfo && (
+                  <span className={`flex items-center gap-0.5 ${methodInfo.color}`}>
+                    {methodInfo.icon}
+                    <span className="text-white/35">{methodInfo.label}</span>
+                  </span>
+                )}
+                {isDegraded && (
+                  <span className="text-amber-400/70 flex items-center gap-0.5" title="L1/L2 失败，降级到默认路由">
+                    <AlertTriangle size={9} />
+                    降级
+                  </span>
+                )}
+                {routeResult.confidence > 0 && (
+                  <span className="text-white/20 ml-auto">
+                    {(routeResult.confidence * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {/* 第二行：场景 + 复杂度 + 模型 */}
+              <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                {scenes.length > 0 && (
+                  <span className="flex items-center gap-0.5">
+                    {scenes.map((s, i) => (
+                      <span key={s}>
+                        {i > 0 && <span className="text-white/15">,</span>}
+                        <span className="text-purple-400/80">{s}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {scenes.length > 0 && <span className="text-white/15">·</span>}
+                {routeResult.complexity === 'complex' ? (
+                  <span className="text-amber-400/80">复杂</span>
+                ) : (
+                  <span className="text-emerald-400/80">简单</span>
+                )}
+                {routeResult.method === 'llm' && routeResult.modelName && (
+                  <>
+                    <span className="text-white/15">·</span>
+                    <span className="text-white/30">{routeResult.modelName}</span>
+                  </>
+                )}
+              </div>
+              {/* 第三行：匹配到的 Scene Prompt */}
+              {scenes.length > 0 && scenePrompts.length > 0 && (
+                (() => {
+                  const sceneSet = new Set(scenes);
+                  const matchedPrompts = scenePrompts.filter((sp) => sceneSet.has(sp.scene));
+                  if (matchedPrompts.length === 0) return null;
+                  return (
+                    <details className="mt-1">
+                      <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">
+                        Scene Prompt ({matchedPrompts.length})
+                      </summary>
+                      <div className="mt-1 max-h-32 overflow-y-auto space-y-1">
+                        {matchedPrompts.map((sp) => (
+                          <div key={sp.scene} className="pl-2 border-l border-white/10">
+                            <span className="text-purple-400/70">{sp.scene}</span>
+                            {sp.description && (
+                              <span className="text-white/30 ml-1.5">{sp.description}</span>
+                            )}
+                            {sp.keywords && (
+                              <span className="text-white/15 ml-1.5 text-[9px]">{sp.keywords}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })()
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <ExecutionFlowV2 />
+      </div>
     </div>
   );
 }

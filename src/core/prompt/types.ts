@@ -41,10 +41,11 @@ export type PromptBuildEventListener = (event: PromptBuildEvent) => void;
 // ─── 基础类型 ────────────────────────────────────────
 
 /**
- * 场景类型
- * 开放字符串类型，内置场景为 'coding' | 'life'。
- * 新增场景只需在 src/core/prompt/components/ 下新建 l1-xxx.ts 并声明 scenes: ['xxx']，
- * LayeredPromptBuilder.init() 会自动扫描注册，无需修改此文件。
+ * 场景类型 — 开放字符串类型。
+ *
+ * 单值示例: 'coding' | 'life'。
+ * 支持逗号分隔多 scene: 'coding,debugging'（IntentRouter L1 多 scene 路由结果）。
+ * 新增场景只需在 prompt 组件中声明 scenes: ['xxx']，LayeredPromptBuilder 自动扫描。
  */
 export type SceneType = string;
 

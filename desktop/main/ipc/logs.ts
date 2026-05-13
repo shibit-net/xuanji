@@ -247,6 +247,15 @@ function registerLogsIpcHandlers() {
       return { success: false, error: msg };
     }
   });
+
+  // React Flow 调试日志：写入 ~/.xuanji/logs/flow-debug.log
+  ipcMain.on('log:flow', (_event, message: string) => {
+    try {
+      const flowLogPath = path.join(logDir, 'flow-debug.log');
+      const line = `[${new Date().toISOString()}] ${message}\n`;
+      fs.promises.appendFile(flowLogPath, line).catch(() => {});
+    } catch { /* 静默忽略 */ }
+  });
 }
 
 export { registerLogsIpcHandlers };

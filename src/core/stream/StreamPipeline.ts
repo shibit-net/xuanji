@@ -60,6 +60,8 @@ export class StreamPipeline {
     const maxRetries = options?.maxRetries ?? 3;
     let lastError: Error | null = null;
 
+    log.info(`[DIAG] StreamPipeline.execute: calling provider.stream, model=${options?.config?.model} provider=${this.provider?.name || 'unknown'} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (options?.signal?.aborted) throw new Error('Aborted');
       try {

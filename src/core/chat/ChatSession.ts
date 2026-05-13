@@ -16,6 +16,7 @@ import type { MCPManager } from '@/mcp/MCPManager';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import type { SessionStateMachine, SessionAction } from '@/core/state/SessionStateMachine';
+import { eventBus } from '@/core/events/EventBus';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
@@ -94,7 +95,7 @@ export class ChatSession {
 
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
-    log.info(`Session run started: input="${input.substring(0, 80)}"`);
+    log.info(`[DIAG] Session run started: agentLoop.running=${(this.agentLoop as any).running} input="${input.substring(0, 80)}"`);
 
     try {
       await this.callbacks?.onBeforeExecution?.(input);
@@ -123,7 +124,9 @@ export class ChatSession {
           sessionCallbacks?.onToolStart?.(id, name, input);
         },
       } as any);
+      log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
       await this.agentLoop.run(input);
+      log.info('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
@@ -135,7 +138,9 @@ export class ChatSession {
           await this.run(action.message);
           return;
         }
-        // QUEUE_ONLY / EMIT_SESSION_IDLE / NOOP → 无需额外处理
+        if (this._stateMachine.pendingMessages.length === 0) {
+          eventBus.emitSync('queue:consumed');
+        }
       } else {
         // 旧路径：StateTracker + drain
         this.stateTracker.transitionTo('idle');
@@ -157,10 +162,74 @@ export class ChatSession {
     }
   }
 
-  /** 由 IntentRouter 调用，设置当前执行的 agentId */
+  /** 由 IntentRouter 调用，设置当前执行的 agentId。
+   *  仅更新 _currentAgentId，不重建 AgentLoop 配置。
+   *  新代码应使用 switchForegroundAgent() 以完整替换 provider/systemPrompt/tools。 */
   setCurrentAgent(agentId: string): void {
     this._currentAgentId = agentId;
     log.info(`Current agent set to: ${agentId}`);
+  }
+
+  /** 动态切换前台 agent：完整替换 AgentLoop 的 provider/systemPrompt/tools */
+  async switchForegroundAgent(agentId: string, scene?: string, complexity?: string): Promise<void> {
+    const flag = process.env.USE_DYNAMIC_FOREGROUND_AGENT;
+    if (flag !== 'true') {
+      // feature flag 关闭 → 退化为简单 setCurrentAgent（只设 agentId，不重建配置）
+      this.setCurrentAgent(agentId);
+      return;
+    }
+
+    try {
+      const registry = this.getAgentRegistry();
+      const agentConfig = registry.get(agentId);
+      if (!agentConfig) {
+        // agent 不在 Registry → 退化为简单 setCurrentAgent（不重建配置，由 AgentLoop 默认配置兜底）
+        log.warn(`Agent "${agentId}" not found in registry, falling back to setCurrentAgent`);
+        this.setCurrentAgent(agentId);
+        return;
+      }
+
+      this._currentAgentId = agentId;
+      log.info(`Switching foreground agent to: ${agentId} (scene=${scene}, complexity=${complexity})`);
+
+      // 1. SystemPrompt：builder 分层构建 + agent 自身的 systemPrompt 拼接
+      const builder = this.getLayeredPromptBuilder();
+      let systemPrompt: string | undefined;
+      if (builder) {
+        const result = await builder.build({ scene, complexity: complexity as any });
+        systemPrompt = result.prompt;
+      }
+      if (agentConfig.systemPrompt) {
+        systemPrompt = systemPrompt
+          ? `${systemPrompt}\n\n${agentConfig.systemPrompt}`
+          : agentConfig.systemPrompt;
+      }
+
+      // 2. 工具过滤：按 agent 的 tools 配置
+      const toolNames = agentConfig.tools.filter(t => t.enabled !== false).map(t => t.name);
+      const baseRegistry = this.getBaseRegistry();
+      let toolRegistry: IToolRegistry = baseRegistry;
+      if (toolNames.length > 0) {
+        const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
+        toolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
+      }
+
+      // 3. 应用配置到 AgentLoop
+      this.agentLoop.applyAgentConfig({
+        systemPrompt,
+        toolRegistry,
+        model: agentConfig.model.primary,
+        maxIterations: agentConfig.execution?.maxIterations,
+        temperature: agentConfig.model.temperature,
+        maxTokens: agentConfig.model.maxTokens,
+      });
+
+      log.info(`Foreground agent switched: ${agentId}, tools=[${toolNames.join(',')}]`);
+    } catch (error) {
+      // builder/provider/tool 任一步骤异常 → 退化为简单 setCurrentAgent，保证 AgentLoop 不崩
+      log.error(`Failed to switch foreground agent to "${agentId}"`, error as Error);
+      this.setCurrentAgent(agentId);
+    }
   }
 
   get currentAgentId(): string {
@@ -178,7 +247,8 @@ export class ChatSession {
    */
   handleUserInput(input: string): 'running' | 'queued' | 'interrupted' {
     const state = this.stateTracker.getState();
-    log.info(`[handleUserInput] state=${state} input="${input.substring(0, 60)}"`);
+    const agentLoopStatus = this.agentLoop.getState().status;
+    log.info(`[DIAG] handleUserInput: state=${state} agentLoopStatus=${agentLoopStatus} _useNewPath=${this._useNewPath} _stateMachine=${!!this._stateMachine} input="${input.substring(0, 60)}"`);
 
     switch (state) {
       case 'idle':
@@ -255,6 +325,8 @@ export class ChatSession {
         this.agentLoop.requestAbort();
         break;
       case 'QUEUE_ONLY':
+        eventBus.emitSync('queue:message-queued');
+        break;
       case 'EMIT_SESSION_IDLE':
       case 'RUN_AUTO_SUMMARIZE':
       case 'NOOP':

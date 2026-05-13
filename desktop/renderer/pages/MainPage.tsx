@@ -10,8 +10,10 @@ import RightPanel from '../components/RightPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
 import ProjectFilesPanel from '../components/ProjectFilesPanel';
+import { Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import { useSessionInitStore } from '../stores/SessionInitStore';
 import { registerEventAdapter } from '../services/EventAdapter';
 
 function formatToken(n: number): string {
@@ -47,6 +49,9 @@ export default function MainPage() {
 
   // iteration
   const currentIteration = useConversationStore((s) => s.iteration);
+
+  // session 初始化状态
+  const sessionStatus = useSessionInitStore((s) => s.status);
 
   // token 统计
   const newAgentMap = useAgentStateMachine((s) => s.agentMap);
@@ -120,6 +125,27 @@ export default function MainPage() {
       <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
         {/* 全局状态栏 */}
         <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-white/[0.02]">
+          {/* Session 状态指示器 */}
+          {sessionStatus !== 'ready' && (
+            <div className="flex items-center gap-1.5 text-[11px]">
+              {sessionStatus === 'initializing' ? (
+                <>
+                  <Loader2 size={12} className="animate-spin text-blue-400" />
+                  <span className="text-blue-400">正在初始化会话...</span>
+                </>
+              ) : sessionStatus === 'failed' ? (
+                <>
+                  <span className="text-red-400">会话不可用</span>
+                  <button
+                    onClick={() => useSessionInitStore.getState().retry()}
+                    className="text-blue-400 hover:underline"
+                  >
+                    重试
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )}
           <div className="flex items-center gap-1.5 text-[11px] text-white/40">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span>{currentIteration} 次迭代</span>

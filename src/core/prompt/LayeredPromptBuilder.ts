@@ -218,24 +218,19 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     data: { options },
   });
 
-  // 主 agent 模式：L0 + scene 摘要列表（不加载 L1/L2）
-  // scene 参数被忽略 — 主 agent 不路由 scene，所有 scene 作为知识注入
+  // 动态 prompt 构建：有 scene 时激活 L1/L2 分层，无 scene 时回退 L0+L3
+  const scene = options.scene && options.scene !== 'auto' ? options.scene : null;
+  const complexity: IntentComplexity = options.complexity || 'standard';
 
-  log.debug('Building main agent prompt: L0 only');
+  log.debug(`Building main agent prompt: scene=${scene}, complexity=${complexity}`);
 
-  // 加载组件（主 agent：仅 L0 + L3）
-  const selectedComponents: PromptComponent[] = [];
+  // 加载组件
+  const selectedComponents: PromptComponent[] = scene
+    ? this.selectComponents(scene, complexity)
+    : this.getDefaultComponents();
   const requiredTools = new Set<string>();
   let thinkingResult: import('@/core/types').ThinkingConfig | undefined;
   let estimatedTokens = 0;
-
-  // 选择 L0 和 L3 组件
-  for (const component of this.components.values()) {
-    if (component.layer === 'L0' || component.layer === 'L3') {
-      selectedComponents.push(component);
-    }
-  }
-  // 不加载 L1/L2 — 主 agent 通过 list_scenes 工具了解场景知识
 
   selectedComponents.sort((a, b) => b.priority - a.priority);
 
@@ -280,8 +275,8 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   const result: PromptBuildResult = {
     prompt,
     components: componentIds,
-    scene: null,
-    complexity: 'standard',
+    scene,
+    complexity,
     requiredTools: allRequiredTools,
     thinking: thinkingResult,
     estimatedTokens,
@@ -305,6 +300,20 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   /**
    * 根据场景和复杂度选择组件
    */
+  /**
+   * 默认组件选择（L0 + L3，向后兼容）
+   */
+  private getDefaultComponents(): PromptComponent[] {
+    const selected: PromptComponent[] = [];
+    for (const component of this.components.values()) {
+      if (component.layer === 'L0' || component.layer === 'L3') {
+        selected.push(component);
+      }
+    }
+    selected.sort((a, b) => b.priority - a.priority);
+    return selected;
+  }
+
   private selectComponents(scene: SceneType | null, complexity: IntentComplexity): PromptComponent[] {
     const selected: PromptComponent[] = [];
 
@@ -350,6 +359,18 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   }
 
   /**
+   * 判断 scene 是否匹配组件的 scenes 列表。
+   * 支持逗号分隔的多 scene 字符串（如 "coding,debugging"），
+   * 只要任一 scene 命中组件就返回 true。
+   */
+  private sceneMatches(componentScenes: SceneType[] | undefined, routeScene: SceneType | null): boolean {
+    if (!routeScene) return false;
+    if (!componentScenes || componentScenes.length === 0) return true; // 未指定 scenes 的组件匹配所有场景
+    const inputScenes = routeScene.split(',').map((s) => s.trim()).filter(Boolean);
+    return inputScenes.some((s) => componentScenes.includes(s as SceneType));
+  }
+
+  /**
    * 判断组件是否应该包含
    */
   private shouldInclude(
@@ -365,32 +386,25 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     // L1: standard/complex 加载，且场景匹配
     if (layer === 'L1') {
       if (complexity === 'simple') return false;
-      // 如果 scene 为 null（主 Agent 自己决策），不加载任何 L1 组件
       if (!scene) return false;
-      if (component.scenes && !component.scenes.includes(scene)) return false;
+      if (component.scenes && !this.sceneMatches(component.scenes, scene)) return false;
       return true;
     }
 
     // L2: 仅 complex 加载，且场景匹配（如果指定了 scenes）
     if (layer === 'L2') {
       if (complexity !== 'complex') {
-        // 🔍 调试日志：L2 组件因 complexity 不匹配被过滤
         if (component.id === 'l2-team-coordination') {
           log.debug(`[LayeredPromptBuilder] ❌ Skipping ${component.id}: complexity=${complexity} (need complex)`);
         }
         return false;
       }
 
-      // 如果 L2 组件指定了 scenes，则需要场景匹配
       if (component.scenes && component.scenes.length > 0) {
-        // 如果当前没有识别出场景，不加载场景特定的 L2 组件
         if (!scene) return false;
-        // 当前场景必须在 scenes 列表中
-        if (!component.scenes.includes(scene)) return false;
+        if (!this.sceneMatches(component.scenes, scene)) return false;
       }
 
-      // 如果 L2 组件没有指定 scenes，则为通用组件，在所有 complex 任务时加载
-      // 🔍 调试日志：L2 组件通过检查
       if (component.id === 'l2-team-coordination') {
         log.debug(`[LayeredPromptBuilder] ✅ Loading ${component.id}: complexity=${complexity}, scene=${scene}`);
       }
@@ -434,6 +448,16 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     for (const component of this.components.values()) {
       if (component.layer === 'L1' && component.scenes?.includes(scene) && component.match) {
         return component.match.description;
+      }
+    }
+    return '';
+  }
+
+  /** 获取 scene 的关键词正则字符串（供 SceneClassifier 注入 prompt） */
+  getSceneKeywords(scene: SceneType): string {
+    for (const component of this.components.values()) {
+      if (component.layer === 'L1' && component.scenes?.includes(scene) && component.match) {
+        return component.match.keywords.source;
       }
     }
     return '';

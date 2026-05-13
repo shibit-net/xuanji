@@ -17,6 +17,10 @@ import { DownloadManager } from '../../src/core/download/DownloadManager.js';
 import { eventBus } from '../../src/core/events/EventBus.js';
 import { XuanjiEvent } from '../../src/core/events/events.js';
 import { EventForwarder } from '../../src/core/event/EventForwarder.js';
+import { IntentRouter } from '../../src/core/routing/IntentRouter.js';
+import { SceneClassifier } from '../../src/core/routing/SceneClassifier.js';
+import { EmbeddingMatcher } from '../../src/core/routing/EmbeddingMatcher.js';
+import { EmbeddingProvider } from '../../src/core/embedding/EmbeddingProvider.js';
 import { logger } from '../../src/core/logger/index.js';
 import * as path from 'node:path';
 
@@ -25,6 +29,9 @@ let currentUserId: string | null = null;
 
 // 意图路由结果：当前使用的 agentId（默认 xuanji）
 let routedAgentId = 'xuanji';
+
+// IntentRouter 单例（session 创建后初始化）
+let intentRouter: IntentRouter | null = null;
 
 // 防止重复注册 EventBus 监听器导致文本重复发送
 let hookEventBridgeRegistered = false;
@@ -67,6 +74,17 @@ forwardDownloadEvent('task-failed');
 forwardDownloadEvent('task-cancelled');
 
 // ============================================================
+// 排队消息 IPC 桥接 — ChatSession 通过 EventBus 发出队列事件，
+// agent-bridge 转发为 IPC 供渲染进程更新 queuedMessageCount
+// ============================================================
+eventBus.on('queue:message-queued', () => {
+  channel.send('agent:message-queued');
+});
+eventBus.on('queue:consumed', () => {
+  channel.send('agent:queue-consumed');
+});
+
+// ============================================================
 // 内存监控 — 每 5 分钟记录堆使用量，超过 1GB 触发告警
 // ============================================================
 const MEMORY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -101,6 +119,113 @@ const pendingAskUsers = new Map<string, (result: any) => void>();
 /**
  * 初始化 ChatSession
  */
+
+/** 触发 embedding 模型自动下载：检查缺失文件，通过下载中心下载，下次 rebuild 自动启用 */
+function triggerEmbeddingModelDownload(globalConfig: any): void {
+  try {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const os = require('node:os');
+    const embeddingConfig = globalConfig?.embedding;
+    if (!embeddingConfig?.model) return;
+
+    const modelId = embeddingConfig.model;
+    const hfMirror = embeddingConfig.hfMirror || 'https://hf-mirror.com';
+    const modelDir = path.join(os.homedir(), '.xuanji', 'embedding-models', modelId);
+
+    const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
+    const baseUrl = `${hfMirror}/${modelId}/resolve/main`;
+
+    let downloadCount = 0;
+    for (const file of files) {
+      const dest = path.join(modelDir, file);
+      if (!fs.existsSync(dest)) {
+        const dir = path.dirname(dest);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        downloadManager.download({
+          url: `${baseUrl}/${file}`,
+          dest,
+          name: `Embedding: ${modelId}/${file}`,
+          category: 'model',
+        });
+        downloadCount++;
+      }
+    }
+    if (downloadCount > 0) {
+      log.info(`triggerEmbeddingModelDownload: ${downloadCount} files queued for ${modelId}`);
+    }
+  } catch (err) {
+    log.warn('triggerEmbeddingModelDownload failed:', err);
+  }
+}
+
+/** 重建 IntentRouter（热重载：agent 配置变更后调用，不影响已在执行的任务） */
+async function rebuildIntentRouter(): Promise<void> {
+  if (!session) return;
+  try {
+    const agentRegistry = session.getAgentRegistry();
+    const globalConfig = session.getConfig();
+    const sceneClassifier = new SceneClassifier({ agentRegistry, globalConfig });
+
+    const promptBuilder = session.getLayeredPromptBuilder();
+    if (promptBuilder) {
+      const availableScenes = promptBuilder.getAvailableScenes();
+      sceneClassifier.setSceneList(
+        availableScenes.map((s) => ({
+          scene: s,
+          description: promptBuilder.getSceneDescription(s),
+          keywords: promptBuilder.getSceneKeywords(s),
+        })),
+      );
+    }
+
+    await sceneClassifier.initialize();
+
+    // 创建 EmbeddingProvider：模型文件存在时启用向量匹配，不存在时触发下载并降级
+    let embedder: EmbeddingProvider | null = null;
+    try {
+      const candidate = new EmbeddingProvider();
+      if (candidate.modelExists()) {
+        embedder = candidate;
+        log.info('rebuildIntentRouter: EmbeddingProvider created (model found)');
+      } else {
+        log.info('rebuildIntentRouter: Embedding model not downloaded, triggering download and falling back');
+        // 触发下载：模型缺失文件通过下载中心下载，下次 rebuild 时自动启用
+        triggerEmbeddingModelDownload(globalConfig);
+      }
+    } catch (err) {
+      log.warn('rebuildIntentRouter: Failed to create EmbeddingProvider:', err);
+    }
+
+    const embeddingMatcher = new EmbeddingMatcher(agentRegistry, embedder);
+
+    // 将场景列表注入 EmbeddingMatcher，用于向量场景匹配
+    if (promptBuilder) {
+      const sceneList = promptBuilder.getAvailableScenes().map((s) => ({
+        scene: s,
+        description: promptBuilder.getSceneDescription(s),
+        keywords: promptBuilder.getSceneKeywords(s),
+      }));
+      embeddingMatcher.setSceneList(sceneList);
+    }
+
+    intentRouter = new IntentRouter({ sceneClassifier, embeddingMatcher, agentRegistry });
+    log.info('rebuildIntentRouter: IntentRouter rebuilt successfully');
+
+    // 将场景列表发送到渲染进程，供意图分析面板展示
+    if (promptBuilder) {
+      const scenePromptList = promptBuilder.getAvailableScenes().map((s) => ({
+        scene: s,
+        description: promptBuilder.getSceneDescription(s),
+        keywords: promptBuilder.getSceneKeywords(s),
+      }));
+      channel.send('agent:scene-list', { scenes: scenePromptList });
+    }
+  } catch (err) {
+    log.warn('rebuildIntentRouter: IntentRouter rebuild failed:', err);
+  }
+}
+
 async function handleInit(userId?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const uid = userId || currentUserId || 'default';
@@ -138,6 +263,9 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
     session = newSession;
     currentUserId = uid;
     log.info('handleInit: session created successfully');
+
+    // 初始化 IntentRouter（hot-reload: rebuildIntentRouter 复用）
+    await rebuildIntentRouter();
 
     // 注册权限确认处理器 — 将子进程的权限请求桥接到渲染进程 UI
     session.setConfirmationHandler(async (request, guardResult) => {
@@ -199,16 +327,39 @@ async function handleUserAction(data: { type: string; message?: string }): Promi
     return;
   }
   try {
-    // 意图路由（与 handleSendMessage 保持一致）
     if (data.type === 'SEND_MESSAGE' && data.message) {
-      const { IntentRouter } = await import('../../src/core/routing/IntentRouter.js');
-      const router = new IntentRouter();
-      const route = await router.route(data.message);
-      routedAgentId = route.agentId;
-      session.setCurrentAgent(route.agentId);
-      channel.send('agent:intent-route', { agentId: route.agentId, confidence: route.confidence });
+      const features = session.getConfig()?.features;
+      const intentEnabled = features?.enableIntentAnalysis !== false; // 默认 true
+      if (intentRouter && intentEnabled) {
+        channel.send('agent:intent-route:start');
+        const route = await intentRouter.route(data.message, (progress) => {
+          channel.send('agent:intent-route:progress', progress);
+        });
+        routedAgentId = route.agentId;
+        await session.switchForegroundAgent(route.agentId, route.scene, route.complexity);
+        // 先发送路由结果（展示面板），再发送前台切换（React Flow 节点）
+        channel.send('agent:intent-route', {
+          agentId: route.agentId,
+          confidence: route.confidence,
+          method: route.method,
+          scene: route.scene,
+          complexity: route.complexity,
+          reason: route.reason,
+          modelName: route.modelName,
+        });
+        channel.send('agent:switch-foreground', { agentId: route.agentId, name: route.agentId });
+      } else {
+        // 意图分析关闭或未初始化 → 直接使用 xuanji
+        routedAgentId = 'xuanji';
+        session.setCurrentAgent('xuanji');
+        channel.send('agent:intent-route:start');
+        channel.send('agent:intent-route', { agentId: 'xuanji', confidence: 1.0, method: 'default' });
+        channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji' });
+      }
     }
+    log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (data.message || '').substring(0, 40));
     await session.userAction(data);
+    log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
   }
@@ -285,7 +436,7 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
     return { success: false, error: '会话未初始化' };
   }
   try {
-    const { updateRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+    const { updateRuntimeConfig, getRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
 
     if (data?.section && data?.sectionData) {
       const partial: Record<string, unknown> = {};
@@ -310,10 +461,19 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         case 'embedding':
           partial.embedding = data.sectionData;
           break;
+        case 'features':
+          partial.features = data.sectionData;
+          break;
       }
 
       if (Object.keys(partial).length > 0) {
         updateRuntimeConfig(partial as any);
+        // 同步 DI 容器中的 config 引用（updateRuntimeConfig 创建了新对象，容器保留旧引用）
+        const updated = getRuntimeConfig();
+        if (updated) {
+          session.getContainer().unregister('config');
+          session.getContainer().registerSingleton('config', updated);
+        }
         log.info(`Config updated: section=${data.section}`);
       }
     }
@@ -542,9 +702,9 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
     // 更新内存中的 AgentRegistry 缓存（让 agentRegistry.get() 返回新的合并结果）
     agentRegistry.register(updated);
 
-    // 热重载：reload 完整 AppConfig → 更新 RuntimeConfig → 重建 provider
-    // ConfigLoader.load() 会自动应用 agent-overrides/{agentId}.json5
-    if (currentUserId) {
+    // 热重载：仅在更新当前前台 agent 时 reload AppConfig / RuntimeConfig / provider
+    // 系统 agent（如 scene-classifier）只需重建 IntentRouter，不应替换主 agent 的 provider
+    if (currentUserId && agentId === session.currentAgentId) {
       try {
         const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
         const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
@@ -571,7 +731,13 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
         // 热重载失败不阻塞 agent 配置保存结果的返回
         log.warn('Provider hot-reload failed after agent update:', reloadErr);
       }
+    } else if (currentUserId && agentId !== session.currentAgentId) {
+      log.info(`Agent ${agentId} is not the current foreground agent (${session.currentAgentId}), skipping provider reload`);
     }
+
+    // 热重载 IntentRouter：agent 配置变更后重新创建 SceneClassifier + EmbeddingMatcher
+    // 不影响已在执行的任务，仅影响下次 route() 调用
+    await rebuildIntentRouter();
 
     return { success: true, agent: updated };
   } catch (err) {
@@ -661,6 +827,20 @@ channel.handle('init', async (data) => {
 channel.handle('user-action', async (data) => {
   await handleUserAction(data);
   return { success: true };
+});
+
+// 意图分析（独立调用，不执行 agent）
+channel.handle('analyze-intent', async (prompt) => {
+  if (!intentRouter) {
+    return { success: false, error: 'IntentRouter 未初始化' };
+  }
+  try {
+    const route = await intentRouter.route(prompt);
+    return { success: true, route };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: msg };
+  }
 });
 
 
@@ -938,7 +1118,8 @@ function registerHookEventBridge() {
   });
 
   eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
-    safeSend({ type: 'agent:started', data: { model: payload.model, agentId: routedAgentId } });
+    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} routedAgentId=${routedAgentId}`);
+    safeSend({ type: 'agent:started', data: { model: payload.model, agentId: routedAgentId, isForeground: true } });
   });
   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;

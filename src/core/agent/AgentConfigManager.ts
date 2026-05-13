@@ -9,6 +9,7 @@ const log = logger.child({ module: 'AgentConfigManager' });
 
 export interface AgentOverrideConfig {
   id: string;
+  enabled?: boolean;
   provider?: {
     adapter?: string;
     apiKey?: string;
@@ -19,6 +20,7 @@ export interface AgentOverrideConfig {
     primary?: string;
     maxTokens?: number;
     temperature?: number;
+    contextSize?: number;
   };
   systemPrompt?: string | null;
   tools?: Array<{ name: string; description?: string; config?: Record<string, any>; enabled?: boolean }>;
@@ -67,10 +69,10 @@ export class AgentConfigManager {
 
   getEditableFields(category: AgentCategory): string[] {
     if (category === 'system') {
-      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature'];
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled'];
     }
     if (category === 'app') {
-      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'systemPrompt', 'tools'];
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled', 'systemPrompt', 'tools'];
     }
     // custom: all fields except id
     return ['*'];
@@ -127,6 +129,9 @@ export class AgentConfigManager {
 
     // system / app: store as override
     const override: AgentOverrideConfig = { id: agent.id };
+    if (updates.enabled !== undefined) {
+      override.enabled = updates.enabled;
+    }
     if (updates.provider) {
       override.provider = {
         adapter: updates.provider.adapter,
@@ -141,6 +146,9 @@ export class AgentConfigManager {
         maxTokens: updates.model.maxTokens,
         temperature: updates.model.temperature
       };
+      if (updates.model.contextSize !== undefined) {
+        override.model.contextSize = updates.model.contextSize;
+      }
     }
     if (category === 'app') {
       if ('systemPrompt' in updates) override.systemPrompt = updates.systemPrompt ?? null;
@@ -163,6 +171,9 @@ export class AgentConfigManager {
     if (!actualOverride) return agent;
 
     const result = { ...agent };
+    if (actualOverride.enabled !== undefined) {
+      result.enabled = actualOverride.enabled;
+    }
     if (actualOverride.provider) {
       result.provider = { ...result.provider, ...actualOverride.provider };
     }

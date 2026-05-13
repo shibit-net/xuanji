@@ -191,6 +191,28 @@ export class AgentRegistry {
       .join('\n---\n');
   }
 
+  /** 生成用于 scene-classifier prompt 的 agent 列表（紧凑格式，排除 system agent 和 xuanji） */
+  getAgentListForClassifier(): string {
+    const agents = this.getEnabled()
+      .filter(a => a.metadata?.category !== 'system')
+      .filter(a => !a.metadata?.isMainAgent);
+
+    if (agents.length === 0) return '（无可用 Agent）';
+
+    return agents.map(a => {
+      const caps = (a.capabilities || []);
+      const tags = (a.tags || []).join(', ');
+      return [
+        `- id: ${a.id}`,
+        `  name: ${a.name}`,
+        `  description: ${a.description}`,
+        caps.length > 0 ? '  capabilities:' : '',
+        ...caps.map((c) => `    - ${c}`),
+        tags ? `  tags: ${tags}` : '',
+      ].filter(Boolean).join('\n');
+    }).join('\n');
+  }
+
   private watchDirectory(dirPath: string): void {
     try {
       const watcher = watch(

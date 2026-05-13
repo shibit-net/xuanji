@@ -409,6 +409,11 @@ export interface ElectronAPI {
     projectRoot?: string;
     error?: string;
   }>;
+  downloadGetEmbeddingModelDir: () => Promise<{
+    success: boolean;
+    dir?: string;
+    error?: string;
+  }>;
   downloadCheckEmbeddingModel: (modelId: string) => Promise<{
     success: boolean;
     installed?: boolean;

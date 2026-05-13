@@ -10,6 +10,7 @@ import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import MilkdownEditor from './MilkdownEditor';
 import { Avatar } from './Avatar';
 import { isFilePath, toNativePath } from '../utils/pathUtils';
 

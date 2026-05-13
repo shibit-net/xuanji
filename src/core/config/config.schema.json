@@ -315,6 +315,11 @@
         "smartMemoryV2": {
           "type": "boolean",
           "default": false
+        },
+        "enableIntentAnalysis": {
+          "type": "boolean",
+          "description": "启用 LLM + 向量三级意图分析路由，关闭后所有消息直接使用 xuanji 兜底",
+          "default": true
         }
       }
     }

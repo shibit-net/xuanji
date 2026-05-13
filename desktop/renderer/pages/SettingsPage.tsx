@@ -6,14 +6,14 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Settings, X, Save, Database, Wrench,
-  Palette, CheckCircle, AlertCircle
+  Palette, CheckCircle, AlertCircle, Zap,
 } from 'lucide-react';
 
 interface SettingsPageProps {
   onClose: () => void;
 }
 
-type TabType = 'tools' | 'ui' | 'embedding';
+type TabType = 'tools' | 'ui' | 'embedding' | 'features';
 
 // ============================================================
 // 通用工具
@@ -265,6 +265,58 @@ function ToolsTab({ config, loading, onSave }: TabProps) {
 }
 
 // ============================================================
+// Tab: 功能特性
+// ============================================================
+function FeaturesTab({ config, loading, onSave }: TabProps) {
+  const [form, setForm] = useState({
+    enableIntentAnalysis: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (config?.features) {
+      setForm({
+        enableIntentAnalysis: config.features.enableIntentAnalysis ?? true,
+      });
+    }
+  }, [config]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onSave('features', {
+        enableIntentAnalysis: form.enableIntentAnalysis,
+      });
+      setMessage({ type: 'success', text: '功能设置已保存' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+
+  return (
+    <form onSubmit={handleSave} className="p-6 space-y-5">
+      <MessageBanner message={message} />
+      <SectionHeader title="意图路由" desc="控制消息到达时是否先用 LLM + 向量进行意图分析再选择 Agent" />
+      <ToggleField
+        label="启用意图分析"
+        value={form.enableIntentAnalysis}
+        onChange={(v) => setForm({ ...form, enableIntentAnalysis: v })}
+        hint="开启后使用三级路由（LLM → 向量 → 默认）；关闭后所有消息直接使用 xuanji 兜底"
+      />
+      <SaveButton saving={saving} />
+    </form>
+  );
+}
+
+// ============================================================
 // Tab: 界面配置
 // ============================================================
 function UITab({ config, loading, onSave }: TabProps) {
@@ -425,16 +477,16 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     setDownloading(true);
     setMessage(null);
     try {
-      const rootResult = await window.electron.downloadGetProjectRoot();
-      if (!rootResult.success || !rootResult.projectRoot) throw new Error('无法获取项目根目录');
-      const projectRoot = rootResult.projectRoot;
+      const dirResult = await window.electron.downloadGetEmbeddingModelDir();
+      if (!dirResult.success || !dirResult.dir) throw new Error('无法获取 embedding 模型目录');
+      const embeddingDir = dirResult.dir;
       const modelId = form.model;
       const hfMirror = form.hfMirror || 'https://hf-mirror.com';
       const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
       const baseUrl = `${hfMirror}/${modelId}/resolve/main`;
       for (const file of files) {
         const url = `${baseUrl}/${file}`;
-        const dest = `${projectRoot}/.xuanji/embedding-models/${modelId}/${file}`;
+        const dest = `${embeddingDir}/${modelId}/${file}`;
         const result = await window.electron.downloadCreate({ url, dest, name: `Embedding: ${modelId}/${file}`, category: 'model' });
         if (!result.success) throw new Error(`创建下载任务失败: ${file}`);
       }
@@ -556,6 +608,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'tools', label: '工具配置', icon: <Wrench size={16} /> },
+    { id: 'features', label: '功能特性', icon: <Zap size={16} /> },
     { id: 'ui', label: '界面配置', icon: <Palette size={16} /> },
     { id: 'embedding', label: '向量配置', icon: <Database size={16} /> },
   ];
@@ -596,6 +649,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
 
         <div className="flex-1 overflow-y-auto">
           {activeTab === 'tools' && <ToolsTab {...tabProps} />}
+          {activeTab === 'features' && <FeaturesTab {...tabProps} />}
           {activeTab === 'ui' && <UITab {...tabProps} />}
           {activeTab === 'embedding' && <EmbeddingTab {...tabProps} />}
         </div>

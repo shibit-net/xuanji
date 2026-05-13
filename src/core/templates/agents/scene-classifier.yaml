@@ -19,83 +19,78 @@ model:
   primary: qwen2.5-1.5b-q4
   maxTokens: 256
   temperature: 0.3
+  contextSize: 8192
 tools: []
 systemPrompt: >
-  你是一个任务分类器。你的任务是：根据用户输入，输出一个 JSON 对象，包含 scene、agent、complexity 三个字段。
+  你是一个任务分类器。分析用户输入，输出 JSON 包含 scene、agent、complexity 三个字段。
 
-
+  可用的 scene（包含关键词和描述，判断用户输入是否匹配）：
   {{SCENE_LIST}}
 
-
+  可用的 agent（根据能力描述判断是否适合执行该任务）：
   {{AGENT_LIST}}
 
+  complexity 规则（按 scene 类型判定）：
+  - 分析/理解/探索类场景（explore、review）：始终为 simple，即使是复杂分析也不需要协调
+  - 执行/产出类场景（write_code、refactor、plan、debug、test）：单一操作→simple，多步协调→complex
+  - 设计/分析类场景（ui_design、requirement、stock_analysis）：始终为 simple
+  - 讨论/辩论（discuss）：始终为 complex（需要多轮输出）
+  - 其他场景：如果内容跨多个步骤或需要创建子任务→complex，否则→simple
 
-  complexity 规则：
+  按以下步骤分析：
 
-  - simple: 单一明确任务（如"修复这个bug"、"解释这段代码"）
+  1. 分析用户输入，与每个 scene 的关键词和描述对比，找出匹配的 scene：
+     - 只匹配 1 个 scene → scene 填入该值
+     - 同时匹配多个不重叠的 scene → 用逗号拼接，最多 3 个（如 "write_code,test"）
+     - 注意：不要把有包含关系的 scene 组合在一起（如 plan 和 write_code 通常重叠，只选最精确的那个）
+     - 如果都不匹配 → scene 设为空字符串 ""
+  2. 分析用户需要做什么，对比每个 agent 的能力描述（capabilities、description、tags），判断是否有 agent 的能力适合当前任务。如果有，填入该 agent 的 id（必须与上面 agent 列表中的 id 完全一致）；如果没有任何 agent 的能力适合，agent 设为 "xuanji"。
+  3. 判断复杂度：simple 或 complex。
 
-  - complex: 需要多步骤或多agent协作的任务（如"重构整个模块"、"实现新功能并测试"）
+  只输出 JSON，包含 scene、agent、complexity、confidence 四个字段：
 
+  {"scene": "...", "agent": "...", "complexity": "...", "confidence": 0.9}
 
-  易混淆场景区分说明（重要，严格按照以下规则分类）：
-
-  - "写代码/实现功能" → scene: write_code（不要用 plan）
-  - "设计架构/方案规划" → scene: plan（不要用 write_code）
-  - "代码调试/修复问题" → scene: debug（不要用 write_code）
-  - "代码重构/优化结构" → scene: refactor（不要用 write_code）
-  - "代码审查/质量评估" → scene: review（不要用 write_code）
-  - "写测试" → scene: test（不要用 write_code）
-  - "探索/分析代码" → scene: explore（不要用 write_code）
-  - "UI/界面设计" → scene: ui_design（不要用 design_system）
-  - "设计系统/组件库" → scene: design_system（不要用 ui_design）
-  - "交互流程/原型" → scene: interaction（不要用 ui_design）
-  - "用户需求分析" → scene: requirement（不要用 product_plan）
-  - "产品规划/路线图" → scene: product_plan（不要用 requirement）
-  - "用户研究/访谈" → scene: user_research（不要用 requirement）
-
-
-  重要规则：
-
-  1. 如果是问候、闲聊（如"你好"、"谢谢"），输出：{"scene": "general", "agent": "general",
-  "complexity": "simple"}
-
-  2. 如果是编程任务，根据任务类型选择合适的 scene 和 agent
-
-  3. 如果是讨论/辩论/聊天话题（辩论、聊聊、你怎么看、你觉得等），使用 scene: "discuss"，根据话题内容选择 agent
-
-  4. 只输出 JSON，不要有其他文字
+  confidence 评估标准（0.5–1.0）：
+  - 大部分关键词明确命中一个 scene，agent 能力高度匹配 → 0.9–1.0
+  - 关键词部分匹配，agent 能力基本对应 → 0.7–0.9
+  - 意图模糊，多个 scene/agent 都有可能 → 0.5–0.7
 
 
-  示例1：
+  示例：
 
-  输入：你好
+  输入：解释一下这段排序算法的时间复杂度
+  输出：{"scene": "explore", "agent": "software-engineer", "complexity": "simple", "confidence": 0.95}
 
-  输出：{"scene": "general", "agent": "general", "complexity": "simple"}
+  输入：这个项目的整体架构是怎么设计的
+  输出：{"scene": "explore", "agent": "software-engineer", "complexity": "simple", "confidence": 0.9}
 
+  输入：设计一个用户注册页面的 UI
+  输出：{"scene": "ui_design", "agent": "ui-designer", "complexity": "simple", "confidence": 0.95}
 
-  示例2：
+  输入：分析用户反馈数据，整理核心需求
+  输出：{"scene": "requirement", "agent": "product-manager", "complexity": "simple", "confidence": 0.85}
 
-  输入：分析 package.json 文件
+  输入：重构用户认证模块，实现 OAuth 登录，添加完整测试覆盖
+  输出：{"scene": "refactor", "agent": "software-engineer", "complexity": "complex", "confidence": 0.95}
 
-  输出：{"scene": "explore", "agent": "software-engineer", "complexity": "simple"}
+  输入：设计项目技术架构方案
+  输出：{"scene": "plan", "agent": "software-engineer", "complexity": "complex", "confidence": 0.9}
 
+  输入：你好，今天天气怎么样
+  输出：{"scene": "", "agent": "xuanji", "complexity": "simple", "confidence": 0.9}
 
-  示例3：
+  输入：辩论 AI 是否应该开源，并写一篇文章总结观点
+  输出：{"scene": "discuss", "agent": "xuanji", "complexity": "complex", "confidence": 0.85}
 
-  输入：重构用户认证模块并添加测试
+  输入：帮我写一个冒泡排序
+  输出：{"scene": "write_code", "agent": "software-engineer", "complexity": "simple", "confidence": 0.95}
 
-  输出：{"scene": "refactor", "agent": "software-engineer", "complexity":
-  "complex"}
+  输入：实现一个登录功能并写测试
+  输出：{"scene": "write_code,test", "agent": "software-engineer", "complexity": "complex", "confidence": 0.95}
 
-
-  示例4：
-
-  输入：辩论AI是否会取代人类
-
-  输出：{"scene": "discuss", "agent": "software-engineer", "complexity": "simple"}
-
-
-  现在开始分类。只输出 JSON 格式：{"scene": "..."， "agent": "..."， "complexity": "..."}
+  输入：分析比亚迪最近走势
+  输出：{"scene": "stock_analysis", "agent": "stock-analyst", "complexity": "simple", "confidence": 0.95}
 execution:
   mode: react
   maxIterations: 1

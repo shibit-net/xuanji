@@ -215,6 +215,8 @@ export class AgentLoop {
     this._abortRequested = false;
     const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
+    this.log.info(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} apiKey=${((this.config as any).apiKey || '').substring(0, 8)}... baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}`);
+
     eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
       userId: this._userId,
       model: this.config.model,
@@ -253,15 +255,18 @@ export class AgentLoop {
         const toolSchemas: ToolSchema[] = this.registry.getSchemas();
 
         this._streamingOutputStarted = false;
+        const streamConfig = {
+          model: (this.config as any).model?.primary || (this.config as any).model || '',
+          apiKey: (this.config as any).apiKey || '',
+          baseURL: (this.config as any).baseURL || '',
+        };
+        this.log.info(`[DIAG] AgentLoop.run: calling streamPipeline.execute, model=${streamConfig.model} apiKey=${streamConfig.apiKey.substring(0, 8)}... baseURL=${streamConfig.baseURL} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
           signal: signal,
           maxRetries: 3,
-          config: {
-            model: (this.config as any).model?.primary || (this.config as any).model || '',
-            apiKey: (this.config as any).apiKey || '',
-            baseURL: (this.config as any).baseURL || '',
-          },
+          config: streamConfig,
         });
+        this.log.info(`[DIAG] AgentLoop.run: streamPipeline.execute returned, contentBlocks=${result.contentBlocks?.length || 0} toolCalls=${result.toolCalls?.length || 0} stopReason=${result.stopReason}`);
 
         if (signal?.aborted) break;
 
@@ -430,6 +435,7 @@ export class AgentLoop {
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      this.log.error(`[DIAG] AgentLoop.run: caught error: ${err.message}`, err.stack);
 
       if (signal?.aborted) {
         this.log.debug('Agent aborted via signal');
@@ -463,6 +469,7 @@ export class AgentLoop {
       this.callbacks.onError?.(err);
       throw err;
     } finally {
+      this.log.info(`[DIAG] AgentLoop.run: finally block, hasOutput=${this._hasOutputInThisRun} iterations=${this.currentIteration}`);
       this.running = false;
       this.callbacks.onEnd?.(this.getState());
       eventBus.emitSync(XuanjiEvent.AGENT_COMPLETED, {
@@ -540,6 +547,79 @@ export class AgentLoop {
   updateConfig(partial: { maxIterations?: number }): void {
     if (partial.maxIterations !== undefined) {
       this.config.maxIterations = partial.maxIterations;
+    }
+  }
+
+  applyAgentConfig(cfg: {
+    provider?: ILLMProvider;
+    systemPrompt?: string;
+    toolRegistry?: IToolRegistry;
+    model?: string;
+    maxIterations?: number;
+    temperature?: number;
+    maxTokens?: number;
+  }): void {
+    if (cfg.provider) {
+      this.provider = cfg.provider;
+      this.streamPipeline = new StreamPipeline(cfg.provider);
+      this.streamPipeline.setInterruptChecker(() => {
+        if (!this.running) return true;
+        if (this._interruptChecker) {
+          if (this._interruptChecker.shouldAbort()) return true;
+          if (this._interruptChecker.shouldStop()) {
+            this.running = false;
+            return true;
+          }
+          return false;
+        }
+        if (this._abortRequested) return true;
+        if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
+          this.running = false;
+          return true;
+        }
+        return false;
+      });
+      this.streamPipeline.on({
+        onText: (text) => {
+          this._streamingOutputStarted = true;
+          this._hasOutputInThisRun = true;
+          this.callbacks.onText?.(text);
+          if (!this._suppressEventBus) {
+            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
+          }
+        },
+        onThinking: (thinking) => {
+          this.callbacks.onThinking?.(thinking);
+          if (!this._suppressEventBus) {
+            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
+          }
+        },
+        onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
+        onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
+        onUsage: (usage) => {
+          this.contextManager.recordUsage(usage);
+          this.callbacks.onUsage?.(usage);
+        },
+      });
+    }
+    if (cfg.systemPrompt !== undefined) {
+      this.contextManager.updateSystemPrompt(cfg.systemPrompt);
+    }
+    if (cfg.toolRegistry) {
+      this.registry = cfg.toolRegistry;
+      this.toolGateway.setRegistry(cfg.toolRegistry);
+    }
+    if (cfg.model) {
+      this.config.model = cfg.model;
+    }
+    if (cfg.maxIterations !== undefined) {
+      this.config.maxIterations = cfg.maxIterations;
+    }
+    if (cfg.temperature !== undefined) {
+      this.config.temperature = cfg.temperature;
+    }
+    if (cfg.maxTokens !== undefined) {
+      this.config.maxTokens = cfg.maxTokens;
     }
   }
 

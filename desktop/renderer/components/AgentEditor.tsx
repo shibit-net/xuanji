@@ -134,7 +134,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const isFieldEditable = (field: string) => {
     if (isCreating) return true;
     if (category === 'custom') return field !== 'id';
-    const systemEditable = ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature'];
+    const systemEditable = ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled'];
     const appEditable = [...systemEditable, 'model.temperature', 'systemPrompt', 'tools'];
     const editable = category === 'system' ? systemEditable : appEditable;
     return editable.some(f => field === f || field.startsWith(f + '.'));
@@ -195,7 +195,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     }
   }, [config.provider?.adapter]);
 
-  // 下载本地模型
+  // 下载本地模型（启动下载 + 轮询完成状态）
+  const pollTimersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+
   const downloadLocalModel = async (modelId: string) => {
     try {
       const result = await window.electron.localModelDownload(modelId);
@@ -205,6 +207,26 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           [modelId]: { ...prev[modelId], downloading: true, progress: 0 },
         }));
         toast.success(`开始下载 ${modelId}`);
+
+        // 轮询检查下载是否完成
+        const existing = pollTimersRef.current.get(modelId);
+        if (existing) clearInterval(existing);
+
+        const timer = setInterval(async () => {
+          try {
+            const check = await window.electron.localModelCheck(modelId);
+            if (check.success && check.installed) {
+              clearInterval(timer);
+              pollTimersRef.current.delete(modelId);
+              setLocalModelStatuses(prev => ({
+                ...prev,
+                [modelId]: { installed: true, downloading: false, progress: 0 },
+              }));
+              toast.success(`${modelId} 下载完成`);
+            }
+          } catch {}
+        }, 3000);
+        pollTimersRef.current.set(modelId, timer);
       } else {
         toast.error(result.error || '下载失败');
       }
@@ -212,6 +234,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       toast.error(err.message || '下载失败');
     }
   };
+
+  // 组件卸载时清理轮询
+  useEffect(() => {
+    return () => {
+      pollTimersRef.current.forEach((timer) => clearInterval(timer));
+    };
+  }, []);
 
   const deleteLocalModel = async (filename: string) => {
     try {
@@ -835,6 +864,24 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 {renderFormField('Agent ID *', 'id')}
                 {renderFormField('名称 *', 'name')}
               </div>
+              {/* 启用/禁用开关 */}
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm font-medium">启用状态</span>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+                  disabled={!isFieldEditable('enabled')}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    config.enabled !== false ? 'bg-primary' : 'bg-bg-tertiary'
+                  } ${!isFieldEditable('enabled') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      config.enabled !== false ? 'translate-x-4' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
               {renderFormField('描述 *', 'description', 'textarea')}
 
               {/* Capabilities */}
@@ -1125,6 +1172,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               )}
               <div className="grid grid-cols-2 gap-4">
                 {renderFormField('温度 (0-1)', 'model.temperature', 'number')}
+                {config.provider?.adapter === 'local-llama' && renderFormField('上下文窗口 (tokens)', 'model.contextSize', 'number')}
               </div>
             </>
           )}

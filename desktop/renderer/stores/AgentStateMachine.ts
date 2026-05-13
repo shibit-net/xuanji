@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { storeEventBus } from '../utils/StoreEventBus';
+import { flowLogger } from '../utils/flow/flowLogger';
 
 // ============================================================
 // 类型定义
@@ -92,7 +93,11 @@ export type AgentEvent =
   | { type: 'AUTO_SUMMARIZE_START'; agentId: string }
   | { type: 'TASK_FAILED'; agentId: string; error?: string }
   | { type: 'CLEANUP'; agentId: string }
-  | { type: 'CLEANUP_COMPLETED_TASKS' };
+  | { type: 'CLEANUP_COMPLETED_TASKS' }
+  | { type: 'SET_FOREGROUND_AGENT'; agentId: string; name: string }
+  | { type: 'FOREGROUND_COMPLETE'; agentId: string }
+  | { type: 'QUEUED_MESSAGE' }
+  | { type: 'CLEAR_QUEUED_MESSAGE' };
 
 // ============================================================
 // 终态集合
@@ -111,6 +116,9 @@ function isTerminal(status: AgentStatus): boolean {
 interface AgentStateMachineStore {
   mainAgent: string | null;
   agentMap: Record<string, AgentState>;
+  foregroundAgentId: string | null;
+  lastMessageAgentId: string | null;  // 最近一次发送消息时的前台 agent，供子 agent parentId 归属判断
+  queuedMessageCount: number;
 
   transition: (event: AgentEvent) => void;
   getAgentById: (id: string) => AgentState | undefined;
@@ -123,8 +131,15 @@ interface AgentStateMachineStore {
 export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) => ({
   mainAgent: null,
   agentMap: {},
+  foregroundAgentId: null,
+  lastMessageAgentId: null,
+  queuedMessageCount: 0,
 
   transition: (event) => {
+    // 诊断日志：跟踪关键事件
+    if (event.type === 'AGENT_CREATED' || event.type === 'CLEANUP_COMPLETED_TASKS' || event.type === 'SET_FOREGROUND_AGENT') {
+      flowLogger.log('AgentStateMachine', 'transition:', event.type, (event as any).agentId || '');
+    }
     set((s) => {
       const next = { ...s.agentMap };
       let main = s.mainAgent;
@@ -139,48 +154,69 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
         }
       }
 
-      // 终态屏障：终态 agent 的非清理事件直接静默忽略
-      if (event.type !== 'AGENT_CREATED' && event.type !== 'CLEANUP' && event.type !== 'CLEANUP_COMPLETED_TASKS') {
+      // 终态屏障：终态 agent 的非清理/非前台切换事件直接静默忽略
+      if (event.type !== 'AGENT_CREATED' && event.type !== 'CLEANUP' && event.type !== 'CLEANUP_COMPLETED_TASKS' && event.type !== 'SET_FOREGROUND_AGENT') {
         const e = event as any;
         if (e.agentId && next[e.agentId] && isTerminal(next[e.agentId].status)) {
           return { agentMap: next, mainAgent: main };
         }
       }
 
-      switch (event.type) {
-        case 'AGENT_CREATED':
-          return applyAgentCreated(s, next, event);
+      // 分发到各事件处理器
+      const partial = ((): Partial<AgentStateMachineStore> => {
+        switch (event.type) {
+          case 'AGENT_CREATED':
+            return applyAgentCreated(s, next, event);
 
-        case 'THINKING_DELTA':
-          return applyThinkingDelta(s, next, event);
+          case 'THINKING_DELTA':
+            return applyThinkingDelta(s, next, event);
 
-        case 'TOOL_START':
-          return applyToolStart(s, next, event);
+          case 'TOOL_START':
+            return applyToolStart(s, next, event);
 
-        case 'TOOL_END':
-          return applyToolEnd(s, next, event);
+          case 'TOOL_END':
+            return applyToolEnd(s, next, event);
 
-        case 'TEXT_DELTA':
-          return applyTextDelta(s, next, event);
+          case 'TEXT_DELTA':
+            return applyTextDelta(s, next, event);
 
-        case 'SUBAGENT_END':
-          return applySubAgentEnd(s, next, event);
+          case 'SUBAGENT_END':
+            return applySubAgentEnd(s, next, event);
 
-        case 'AUTO_SUMMARIZE_START':
-          return applyAutoSummarize(s, next, event);
+          case 'AUTO_SUMMARIZE_START':
+            return applyAutoSummarize(s, next, event);
 
-        case 'TASK_FAILED':
-          return applyTaskFailed(s, next, event);
+          case 'TASK_FAILED':
+            return applyTaskFailed(s, next, event);
 
-        case 'CLEANUP':
-          return applyCleanup(s, next, event);
+          case 'CLEANUP':
+            return applyCleanup(s, next, event);
 
-        case 'CLEANUP_COMPLETED_TASKS':
-          return applyCleanupCompleted(s, next);
+          case 'CLEANUP_COMPLETED_TASKS':
+            return applyCleanupCompleted(s, next);
 
-        default:
-          return s;
+          case 'SET_FOREGROUND_AGENT':
+            return applySetForeground(s, next, event);
+
+          case 'FOREGROUND_COMPLETE':
+            return applyForegroundComplete(s, next, event);
+
+          case 'QUEUED_MESSAGE':
+            return { agentMap: next, mainAgent: main, queuedMessageCount: s.queuedMessageCount + 1 };
+
+          case 'CLEAR_QUEUED_MESSAGE':
+            return { agentMap: next, mainAgent: main, queuedMessageCount: 0 };
+
+          default:
+            return s;
+        }
+      })();
+
+      // 兜底：fallback ensureAgent 可能已更新 mainAgent，但各 handler 未必返回它
+      if (main !== s.mainAgent && !('mainAgent' in partial)) {
+        return { ...partial, mainAgent: main };
       }
+      return partial;
     });
   },
 
@@ -190,7 +226,7 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
 
   getCurrentMoments: () =>
     Object.values(get().agentMap)
-      .filter((a) => a.moment && !isTerminal(a.status))
+      .filter((a) => a.moment && a.status !== 'cleared')
       .map((a) => a.moment!),
 
   getDescendantIds: (parentId) => {
@@ -204,7 +240,7 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
     return result;
   },
 
-  clearAll: () => set({ mainAgent: null, agentMap: {} }),
+  clearAll: () => set({ mainAgent: null, agentMap: {}, foregroundAgentId: null, queuedMessageCount: 0 }),
 }));
 
 // ============================================================
@@ -219,7 +255,23 @@ function ensureAgent(
   parentId?: string,
   options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; multiAgent?: AgentState['multiAgent'] },
 ): { agentMap: Record<string, AgentState>; mainAgent: string | null } {
-  if (agentMap[agentId]) return { agentMap, mainAgent };
+  if (agentMap[agentId]) {
+    // 已存在则补全 options 中缺失的字段（解决事件时序导致的 auto-create 先于 AGENT_CREATED 到达）
+    const existing = agentMap[agentId];
+    let updated = false;
+    const patch: Partial<AgentState> = {};
+    if (options?.taskType && !existing.taskType) { patch.taskType = options.taskType; updated = true; }
+    if (options?.agentType && !existing.agentType) { patch.agentType = options.agentType; updated = true; }
+    if (options?.executionMode && !existing.executionMode) { patch.executionMode = options.executionMode; updated = true; }
+    if (options?.streamToUser !== undefined && existing.streamToUser === undefined) { patch.streamToUser = options.streamToUser; updated = true; }
+    if (options?.multiAgent && !existing.multiAgent?.type) { patch.multiAgent = options.multiAgent; updated = true; }
+    if (parentId && !existing.parentId) { patch.parentId = parentId; updated = true; }
+    if (updated) {
+      const newMap = { ...agentMap, [agentId]: { ...existing, ...patch } };
+      return { agentMap: newMap, mainAgent };
+    }
+    return { agentMap, mainAgent };
+  }
 
   const agent: AgentState = {
     id: agentId,
@@ -414,13 +466,13 @@ function applySubAgentEnd(
 
   if (isTerminal(agent.status)) return s;
 
+  // team 成员正常更新状态（供 React Flow 展示），但清理由 agent:team-end 统一处理
   const newStatus: AgentStatus = event.success ? 'reporting' : 'failed';
   const updated = { ...agent, status: newStatus };
   Object.assign(updated, updateMoment(updated, newStatus));
 
   next[event.agentId] = updated;
 
-  // 通知 EventBus：agent 进入终态
   storeEventBus.emit('agent:terminal', {
     agentId: event.agentId,
     from: agent.status,
@@ -438,7 +490,10 @@ function applyAutoSummarize(
   const agent = next[event.agentId];
   if (!agent) return _s;
 
-  if (agent.status === 'success' || agent.status === 'failed') {
+  // team 成员不单独清理 — 由 agent:team-end 统一 CLEANUP
+  if (agent.taskType === 'team') return { agentMap: next };
+
+  if (agent.status === 'success' || agent.status === 'failed' || agent.status === 'reporting') {
     const updated = { ...agent, status: 'cleared' as AgentStatus };
     next[event.agentId] = updated;
   }
@@ -480,14 +535,92 @@ function applyCleanup(
   return { agentMap: next };
 }
 
+function applySetForeground(
+  s: AgentStateMachineStore,
+  next: Record<string, AgentState>,
+  event: AgentEvent & { type: 'SET_FOREGROUND_AGENT' },
+): Partial<AgentStateMachineStore> {
+  // 不清理旧前台 — 多个路由结果共存于 React Flow
+  let mainAgent = s.mainAgent;
+  if (next[event.agentId]) {
+    next[event.agentId] = { ...next[event.agentId], status: 'pending' as AgentStatus };
+    if (!mainAgent) {
+      mainAgent = event.agentId;
+    }
+  } else {
+    const result = ensureAgent(next, s.mainAgent, event.agentId, event.name);
+    Object.assign(next, result.agentMap);
+    mainAgent = result.mainAgent;
+  }
+  return { agentMap: next, mainAgent, foregroundAgentId: event.agentId, lastMessageAgentId: event.agentId };
+}
+
+function applyForegroundComplete(
+  s: AgentStateMachineStore,
+  next: Record<string, AgentState>,
+  event: AgentEvent & { type: 'FOREGROUND_COMPLETE' },
+): Partial<AgentStateMachineStore> {
+  const agent = next[event.agentId];
+  if (!agent || isTerminal(agent.status)) return s;
+  // 前台本轮完成 → pending（等待下一轮）
+  next[event.agentId] = { ...agent, status: 'pending' as AgentStatus };
+  return { agentMap: next };
+}
+
 function applyCleanupCompleted(
   _s: AgentStateMachineStore,
   next: Record<string, AgentState>,
 ): Partial<AgentStateMachineStore> {
+  const activeStates: Set<AgentStatus> = new Set(['writing', 'thinking', 'executing', 'reporting']);
+
   for (const [id, agent] of Object.entries(next)) {
-    if (agent.status === 'success' || agent.status === 'failed' || agent.status === 'cancelled') {
-      next[id] = { ...agent, status: 'cleared' };
+    if (isTerminal(agent.status)) continue;
+
+    const isForeground = agent.parentId === null && agent.taskType === undefined;
+    const isTeamMember = agent.taskType === 'team';
+
+    // team 成员不在 CLEANUP_COMPLETED_TASKS 中清理 — 由 agent:team-end 统一清理
+    if (isTeamMember) continue;
+
+    if (isForeground) {
+      // 前台 agent：活跃状态 → pending（等待子 agent 全部完成）
+      if (activeStates.has(agent.status)) {
+        next[id] = { ...agent, status: 'pending' as AgentStatus };
+      }
+      // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
+      if (agent.status === 'pending') {
+        const childIds = getAllDescendantIds(next, id);
+        const allChildrenCleared = childIds.every((cid) => {
+          const child = next[cid];
+          return child && isTerminal(child.status);
+        });
+        if (allChildrenCleared) {
+          next[id] = { ...agent, status: 'cleared' as AgentStatus };
+        }
+      }
+    } else {
+      // 后台 task 子 agent：终态或活跃 → cleared
+      if (
+        agent.status === 'success' ||
+        agent.status === 'failed' ||
+        agent.status === 'cancelled' ||
+        activeStates.has(agent.status)
+      ) {
+        next[id] = { ...agent, status: 'cleared' as AgentStatus };
+      }
     }
   }
   return { agentMap: next };
+}
+
+/** 递归获取 agent 的所有后代 ID */
+function getAllDescendantIds(agentMap: Record<string, AgentState>, parentId: string): string[] {
+  const result: string[] = [];
+  for (const [id, agent] of Object.entries(agentMap)) {
+    if (agent.parentId === parentId) {
+      result.push(id);
+      result.push(...getAllDescendantIds(agentMap, id));
+    }
+  }
+  return result;
 }

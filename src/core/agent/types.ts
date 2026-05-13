@@ -317,6 +317,8 @@ export interface ConfigurableAgentConfig {
     maxTokens?: number;
     /** 温度 */
     temperature?: number;
+    /** 上下文窗口大小（tokens），用于 local-llama 等本地模型 */
+    contextSize?: number;
     /** Thinking 配置 */
     thinking?: {
       type?: 'enabled' | 'disabled' | 'adaptive';

@@ -209,6 +209,7 @@
   // ============ 下载管理 ============
   downloadGetTasks: () => ipcRenderer.invoke('download:get-tasks'),
   downloadGetProjectRoot: () => ipcRenderer.invoke('download:get-project-root'),
+  downloadGetEmbeddingModelDir: () => ipcRenderer.invoke('download:get-embedding-model-dir'),
   downloadCheckEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:check-embedding-model', modelId),
   downloadUninstallEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:uninstall-embedding-model', modelId),
   downloadCreate: (options: { url: string; dest: string; name: string; category?: string }) =>

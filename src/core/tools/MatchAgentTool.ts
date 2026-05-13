@@ -7,11 +7,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-// EmbeddingProvider interface (embedding模块已删除，保留接口用于将来扩展)
-interface EmbeddingProvider {
-  embed(text: string): Promise<number[]>;
-  cosineSimilarity(a: number[], b: number[]): number;
-}
+import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
 
@@ -66,14 +62,14 @@ export class MatchAgentTool extends BaseTool {
   readonly readonly = true;
 
   private agentRegistry: AgentRegistry | null = null;
-  private embeddingProvider: EmbeddingProvider | null = null;
+  private embeddingProvider: EmbeddingProviderInterface | null = null;
 
   /**
    * 注入依赖
    */
   setDependencies(deps: {
     agentRegistry: AgentRegistry;
-    embeddingProvider?: EmbeddingProvider | null;
+    embeddingProvider?: EmbeddingProviderInterface | null;
   }): void {
     this.agentRegistry = deps.agentRegistry;
     this.embeddingProvider = deps.embeddingProvider ?? null;

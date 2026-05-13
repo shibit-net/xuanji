@@ -59,7 +59,8 @@ function findProjectRoot(startDir: string): string {
 }
 
 const PROJECT_ROOT = findProjectRoot(__dirname);
-const MODEL_DIR = path.join(PROJECT_ROOT, '.xuanji', 'models');
+const MODEL_DIR = path.join(os.homedir(), '.xuanji', 'models');
+const EMBEDDING_MODEL_DIR = path.join(os.homedir(), '.xuanji', 'embedding-models');
 
 const MODEL_IDS: Record<string, string> = {
   'qwen2.5-0.5b-q4': 'hf:Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf',
@@ -143,10 +144,19 @@ export function registerDownloadHandlers() {
     }
   });
 
+  // 获取 embedding 模型目录
+  ipcMain.handle('download:get-embedding-model-dir', async () => {
+    try {
+      return { success: true, dir: EMBEDDING_MODEL_DIR };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // 检查 embedding 模型是否已安装
   ipcMain.handle('download:check-embedding-model', async (_event, modelId: string) => {
     try {
-      const modelDir = path.join(PROJECT_ROOT, '.xuanji', 'embedding-models', modelId);
+      const modelDir = path.join(EMBEDDING_MODEL_DIR, modelId);
 
       // 检查必需的文件是否存在
       const requiredFiles = [
@@ -177,7 +187,7 @@ export function registerDownloadHandlers() {
   // 卸载 embedding 模型
   ipcMain.handle('download:uninstall-embedding-model', async (_event, modelId: string) => {
     try {
-      const modelDir = path.join(PROJECT_ROOT, '.xuanji', 'embedding-models', modelId);
+      const modelDir = path.join(EMBEDDING_MODEL_DIR, modelId);
 
       if (!fs.existsSync(modelDir)) {
         return { success: true, message: 'Model not found' };
