@@ -123,23 +123,23 @@ export function registerEventAdapter(): void {
   // AgentStateMachine — 前台切换 + 排队通知
   // ============================================================
 
-  messageBus.on('agent:switch-foreground', (data: { agentId: string; name: string }) => {
-    flowLogger.log('EventAdapter', 'RECV agent:switch-foreground', 'agentId:', data.agentId, 'name:', data.name);
+  messageBus.on('agent:switch-foreground', (data: { agentId: string; name: string; agentType?: string }) => {
+    flowLogger.log('EventAdapter', 'RECV agent:switch-foreground', 'agentId:', data.agentId, 'name:', data.name, 'agentType:', data.agentType);
     useAgentStateMachine.getState().transition({
       type: 'SET_FOREGROUND_AGENT', agentId: data.agentId, name: data.name,
     });
-    // 将意图路由结果中的 scene/complexity 写入 agent
-    if (pendingScene || pendingComplexity) {
+    // 将意图路由结果中的 scene/complexity 和 agentType 写入 agent
+    if (pendingScene || pendingComplexity || data.agentType) {
       const s = useAgentStateMachine.getState();
       const agent = s.agentMap[data.agentId];
       if (agent) {
+        const patch: Partial<import('../stores/AgentStateMachine').AgentState> = {};
+        if (pendingScene) patch.scene = pendingScene;
+        if (data.agentType) patch.agentType = data.agentType;
         useAgentStateMachine.setState({
           agentMap: {
             ...s.agentMap,
-            [data.agentId]: {
-              ...agent,
-              scene: pendingScene || agent.scene,
-            },
+            [data.agentId]: { ...agent, ...patch },
           },
         });
       }

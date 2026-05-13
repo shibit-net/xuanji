@@ -1,6 +1,8 @@
 /**
  * ForegroundNode — 前台 Agent 节点。
- * LR 布局中思考气泡置于上方，下方展示 moment + timeline。
+ * 左侧：聊天气泡（thinking + output）
+ * 右侧：moment + timeline
+ * 内部：头像 + 名称 + scene/agentType/进程
  */
 
 import { useMemo } from 'react';
@@ -14,7 +16,7 @@ import { Avatar } from '../Avatar';
 import { useRealtimeClock, formatDuration } from './hooks';
 import agentAvatar from '../../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 
-const NODE_W = 180;
+const NODE_W = 100;
 const AVATAR_SIZE = 64;
 
 export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
@@ -22,11 +24,15 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
   const active = isActiveStatus(data.status);
   const terminal = isTerminalStatus(data.status);
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
+  const liveOutputText = useAgentStateMachine((s) => s.agentMap[id]?.currentResponse);
   const now = useRealtimeClock();
 
   const hasThought = !!liveThinkingText && data.status === 'thinking';
+  const hasOutput = !!liveOutputText && data.status === 'writing';
+  const hasChat = hasThought || hasOutput;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = !!(data.timelineEvents && data.timelineEvents.length > 0);
+  const hasRightSide = hasMoment || hasTimeline;
 
   const badge = useMemo(() => {
     if (data.status === 'success') return { icon: '✓', color: 'bg-success' };
@@ -34,10 +40,13 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
     return null;
   }, [data.status]);
 
+  const chatText = hasThought ? liveThinkingText : liveOutputText;
+  const chatLabel = hasThought ? '思考' : '输出';
+
   return (
-    <div className="relative flex flex-col items-center" style={{ width: NODE_W, minHeight: 200 }}>
-      <Handle type="target" position={Position.Left} className="!opacity-0" />
-      <Handle type="source" position={Position.Right} className="!opacity-0" />
+    <div className="relative flex flex-col items-center overflow-visible" style={{ width: NODE_W, minHeight: 130 }}>
+      <Handle type="target" position={Position.Top} className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
 
       {/* 脉冲光晕（活跃态） */}
       {active && (
@@ -108,17 +117,17 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
       )}
 
       {/* 名称 */}
-      <div className="mt-2 text-center max-w-[160px]">
+      <div className="mt-2 text-center max-w-[90px]">
         <span className="text-xs font-medium truncate block"
           style={{ color: terminal ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.8)' }}>
           {data.name}
         </span>
       </div>
 
-      {/* 场景 + Agent类型标签 */}
+      {/* 场景 + Agent类型 + 执行模式 + 进程 */}
       <div className="flex items-center gap-1 mt-0.5 flex-wrap justify-center">
         {data.scene && (
-          <span className="text-[8px] px-1 py-0 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 truncate max-w-[100px]">
+          <span className="text-[8px] px-1 py-0 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 truncate max-w-[80px]">
             {data.scene}
           </span>
         )}
@@ -132,52 +141,66 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
             {data.executionMode === 'acp' ? 'acp' : 'proc'}
           </span>
         )}
+        {data.currentTask && (
+          <span className="text-[8px] px-1 py-0 rounded bg-cyan-500/10 text-cyan-400/70 border border-cyan-500/20 truncate max-w-[80px]">
+            {data.currentTask.slice(0, 50)}
+          </span>
+        )}
       </div>
 
-      {/* Moment 状态指示 */}
-      {hasMoment && (
-        <div className={`inline-flex items-center gap-1 px-1 py-0 rounded text-[8px] mt-0.5 ${
-          data.currentMoment!.status === 'error' ? 'bg-destructive/15 text-destructive' :
-          data.currentMoment!.status === 'failed' ? 'bg-destructive/15 text-destructive' :
-          active ? 'bg-primary/15 text-primary' :
-          'bg-success/15 text-success'
-        }`}>
-          <span>{data.currentMoment!.label}</span>
-          {active && data.currentMoment!.startTime ? (
-            <span className="opacity-50 font-mono">{formatDuration(now - data.currentMoment!.startTime)}</span>
-          ) : data.currentMoment!.durationMs != null ? (
-            <span className="opacity-50 font-mono">{formatDuration(data.currentMoment!.durationMs)}</span>
-          ) : null}
-        </div>
-      )}
-
-      {/* Timeline 工具调用 */}
-      {hasTimeline && (
-        <div className="flex flex-col gap-0.5 mt-1 w-full max-w-[160px]">
-          {data.timelineEvents!.map((evt) => (
-            <div key={evt.id} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] bg-muted/30">
-              <span className={`w-1 h-1 rounded-full flex-shrink-0 ${
-                evt.status === 'running' ? 'bg-primary animate-pulse' :
-                evt.status === 'success' ? 'bg-success' : 'bg-destructive'
-              }`} />
-              <span className="text-muted-foreground truncate flex-1">{evt.label}</span>
-              {evt.duration != null && (
-                <span className="text-muted-foreground/50 font-mono flex-shrink-0">{formatDuration(evt.duration)}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* thinking 气泡 — LR 布局中放节点上方，避免与右侧子节点重叠 */}
-      {hasThought && liveThinkingText && (
+      {/* ─── 左侧：聊天气泡 ─── */}
+      {hasChat && chatText && (
         <div
-          className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-green-500/40 shadow-glass-sm max-w-[200px]"
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-green-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
           style={{ zIndex: 10 }}
         >
-          <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap">
-            {liveThinkingText.slice(-150)}
+          <span className="text-[7px] text-muted-foreground/50 uppercase tracking-wider">{chatLabel}</span>
+          <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
+            {chatText.slice(-200)}
           </p>
+        </div>
+      )}
+
+      {/* ─── 右侧：moment + timeline ─── */}
+      {hasRightSide && (
+        <div
+          className="absolute top-0 left-full ml-0 flex flex-col gap-1 max-w-[160px]"
+          style={{ zIndex: 10 }}
+        >
+          {/* Moment 状态指示 */}
+          {hasMoment && (
+            <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] whitespace-nowrap ${
+              data.currentMoment!.status === 'error' ? 'bg-destructive/15 text-destructive' :
+              data.currentMoment!.status === 'failed' ? 'bg-destructive/15 text-destructive' :
+              active ? 'bg-primary/15 text-primary' :
+              'bg-success/15 text-success'
+            }`}>
+              <span>{data.currentMoment!.label}</span>
+              {active && data.currentMoment!.startTime ? (
+                <span className="opacity-50 font-mono">{formatDuration(now - data.currentMoment!.startTime)}</span>
+              ) : data.currentMoment!.durationMs != null ? (
+                <span className="opacity-50 font-mono">{formatDuration(data.currentMoment!.durationMs)}</span>
+              ) : null}
+            </div>
+          )}
+
+          {/* Timeline 工具调用 */}
+          {hasTimeline && (
+            <div className="flex flex-col gap-0.5">
+              {data.timelineEvents!.map((evt) => (
+                <div key={evt.id} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] bg-muted/30">
+                  <span className={`w-1 h-1 rounded-full flex-shrink-0 ${
+                    evt.status === 'running' ? 'bg-primary animate-pulse' :
+                    evt.status === 'success' ? 'bg-success' : 'bg-destructive'
+                  }`} />
+                  <span className="text-muted-foreground truncate flex-1">{evt.label}</span>
+                  {evt.duration != null && (
+                    <span className="text-muted-foreground/50 font-mono flex-shrink-0">{formatDuration(evt.duration)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

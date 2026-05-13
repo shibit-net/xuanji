@@ -21,35 +21,35 @@ export class PolicyEngine {
    * 获取操作类别对应的策略级别
    */
   getLevel(category: 'fileRead' | 'fileWrite' | 'bashExec'): PermissionLevel {
-    return this.config[category];
+    return this.config?.[category] ?? 'safe';
   }
 
   /**
    * 获取允许的路径白名单
    */
   getAllowedPaths(): string[] {
-    return this.config.allowedPaths ?? [];
+    return this.config?.allowedPaths ?? [];
   }
 
   /**
    * 获取禁止的路径黑名单
    */
   getDeniedPaths(): string[] {
-    return this.config.deniedPaths ?? [];
+    return this.config?.deniedPaths ?? [];
   }
 
   /**
    * 获取允许的命令白名单
    */
   getAllowedCommands(): string[] {
-    return this.config.allowedCommands ?? [];
+    return this.config?.allowedCommands ?? [];
   }
 
   /**
    * 获取禁止的命令黑名单
    */
   getDeniedCommands(): string[] {
-    return this.config.deniedCommands ?? [];
+    return this.config?.deniedCommands ?? [];
   }
 
   /**

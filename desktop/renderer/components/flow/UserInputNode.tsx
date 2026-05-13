@@ -17,7 +17,7 @@ export function UserInputNode({ data }: NodeProps<UserInputNodeData>) {
         transition: 'opacity 0.3s ease-out',
       }}
     >
-      <Handle type="source" position={Position.Right} className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
 
       {/* 用户图标 */}
       <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 mr-2">

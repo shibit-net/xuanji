@@ -141,7 +141,7 @@ export class IntentRouter {
       confidence: 1.0,
       method: 'default',
       scene: '',
-      complexity: 'simple',
+      complexity: 'complex',
       reason: '默认路由',
     };
   }

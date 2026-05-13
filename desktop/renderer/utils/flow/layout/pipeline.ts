@@ -6,7 +6,7 @@ import type { Node, Edge } from 'reactflow';
 import type { FlowNodeData } from '../FlowNodeTypes';
 
 const MEMBER_W = 120;
-const MEMBER_H = 140;
+const MEMBER_H = 100;
 const GAP = 60;
 const PADDING = { top: 40, right: 30, bottom: 50, left: 30 };
 

@@ -367,6 +367,9 @@ function applyThinkingDelta(
   }
 
   agent.currentThought = (agent.currentThought ?? '') + event.content;
+  if ((event as any).taskDescription) {
+    agent.currentTask = (event as any).taskDescription;
+  }
   next[event.agentId] = agent;
   return { agentMap: next };
 }

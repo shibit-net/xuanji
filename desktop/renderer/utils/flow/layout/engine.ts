@@ -2,7 +2,7 @@
  * Layout Engine — 全局布局编排器。
  *
  * 策略：
- * 1. Dagre LR 布局非 team 节点 + team 占位框
+ * 1. Dagre TB 布局非 team 节点 + team 占位框（子 agent 在父 agent 下方）
  * 2. 每个 team 内部执行策略感知子布局
  * 3. 调整 team 框尺寸 + 下游节点偏移
  */
@@ -16,10 +16,10 @@ import { layoutHierarchical } from './hierarchical';
 import { layoutDebate } from './debate';
 import { layoutPipeline } from './pipeline';
 
-const FOREGROUND_W = 180;
-const FOREGROUND_H = 200;
+const FOREGROUND_W = 100;
+const FOREGROUND_H = 130;
 const SUBAGENT_W = 140;
-const SUBAGENT_H = 160;
+const SUBAGENT_H = 110;
 const TEAM_DEFAULT_W = 260;
 const TEAM_DEFAULT_H = 160;
 const USER_INPUT_W = 200;
@@ -58,7 +58,7 @@ export function applyLayout(
   // 2. Dagre LR 全局布局（非 team 节点 + team 占位框）
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 120, marginx: 60, marginy: 60 });
+  g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 80, marginx: 60, marginy: 60 });
 
   for (const n of otherNodes) {
     const dims = getNodeDimensions(n.type as string);
@@ -134,28 +134,27 @@ export function applyLayout(
     allNodes.push({ ...n, position: pos });
   }
 
-  // 4. 偏移：如果 team 框变宽了，右侧下游节点需要右移
-  // 简单处理：对每个 team 尺寸变化，找 dagre 中在该 team 右侧的节点
+  // 4. 偏移：如果 team 框变高了，下方下游节点需要下移
   for (const [teamId, diff] of teamDimensionChanges) {
-    const widthDelta = diff.newW - diff.oldW;
-    if (widthDelta <= 0) continue;
+    const heightDelta = diff.newH - diff.oldH;
+    if (heightDelta <= 0) continue;
 
     const teamPos = positioned.get(teamId);
     if (!teamPos) continue;
 
-    const teamRight = teamPos.x + diff.oldW;
+    const teamBottom = teamPos.y + diff.oldH;
 
-    // 偏移在 team 右侧的节点
+    // 偏移在 team 下方的节点
     for (let i = 0; i < allNodes.length; i++) {
       const n = allNodes[i];
       if (n.id.startsWith('team-')) continue;
       if (n.type === 'team-member' && (n.data as any).teamId === teamId.replace('team-', '')) continue;
 
       const nPos = positioned.get(n.id);
-      if (nPos && nPos.x + getNodeDimensions(n.type as string).w / 2 > teamRight) {
+      if (nPos && nPos.y + getNodeDimensions(n.type as string).h / 2 > teamBottom) {
         allNodes[i] = {
           ...n,
-          position: { x: n.position.x + widthDelta, y: n.position.y },
+          position: { x: n.position.x, y: n.position.y + heightDelta },
         };
       }
     }
@@ -168,7 +167,7 @@ function getNodeDimensions(type: string): { w: number; h: number } {
   switch (type) {
     case 'foreground': return { w: FOREGROUND_W, h: FOREGROUND_H };
     case 'subagent': return { w: SUBAGENT_W, h: SUBAGENT_H };
-    case 'team-member': return { w: 120, h: 140 };
+    case 'team-member': return { w: 120, h: 100 };
     case 'user-input': return { w: USER_INPUT_W, h: USER_INPUT_H };
     default: return { w: SUBAGENT_W, h: SUBAGENT_H };
   }

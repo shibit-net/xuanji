@@ -167,10 +167,10 @@ export function classifyAgent(agent: AgentState, foregroundAgentId: string | nul
 // ============================================================
 
 export const NODE_DIMENSIONS: Record<FlowNodeType, { width: number; height: number }> = {
-  foreground:  { width: 180, height: 200 },
-  subagent:    { width: 140, height: 160 },
+  foreground:  { width: 100, height: 130 },
+  subagent:    { width: 140, height: 110 },
   team:        { width: 0, height: 0 },     // 动态计算
-  'team-member': { width: 120, height: 140 },
+  'team-member': { width: 120, height: 100 },
   'user-input':  { width: 200, height: 60 },
 };
 

@@ -337,6 +337,7 @@ async function handleUserAction(data: { type: string; message?: string }): Promi
         });
         routedAgentId = route.agentId;
         await session.switchForegroundAgent(route.agentId, route.scene, route.complexity);
+        const agentConfig = session.getAgentRegistry()?.get(route.agentId);
         // 先发送路由结果（展示面板），再发送前台切换（React Flow 节点）
         channel.send('agent:intent-route', {
           agentId: route.agentId,
@@ -347,14 +348,14 @@ async function handleUserAction(data: { type: string; message?: string }): Promi
           reason: route.reason,
           modelName: route.modelName,
         });
-        channel.send('agent:switch-foreground', { agentId: route.agentId, name: route.agentId });
+        channel.send('agent:switch-foreground', { agentId: route.agentId, name: route.agentId, agentType: agentConfig?.category || undefined });
       } else {
         // 意图分析关闭或未初始化 → 直接使用 xuanji
         routedAgentId = 'xuanji';
         session.setCurrentAgent('xuanji');
         channel.send('agent:intent-route:start');
         channel.send('agent:intent-route', { agentId: 'xuanji', confidence: 1.0, method: 'default' });
-        channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji' });
+        channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji', agentType: 'system' });
       }
     }
     log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (data.message || '').substring(0, 40));

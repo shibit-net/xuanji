@@ -225,7 +225,7 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   log.debug(`Building main agent prompt: scene=${scene}, complexity=${complexity}`);
 
   // 加载组件
-  const selectedComponents: PromptComponent[] = scene
+  const selectedComponents: PromptComponent[] = (scene || complexity !== 'simple')
     ? this.selectComponents(scene, complexity)
     : this.getDefaultComponents();
   const requiredTools = new Set<string>();

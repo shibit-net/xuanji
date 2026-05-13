@@ -6,9 +6,9 @@ import type { Node, Edge } from 'reactflow';
 import type { FlowNodeData } from '../FlowNodeTypes';
 
 const MEMBER_W = 120;
-const MEMBER_H = 140;
+const MEMBER_H = 100;
 const LEADER_W = 140;
-const LEADER_H = 160;
+const LEADER_H = 110;
 const WORKER_GAP = 40;
 const VERT_GAP = 60;
 const PADDING = { top: 40, right: 40, bottom: 40, left: 40 };
