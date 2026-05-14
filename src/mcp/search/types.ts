@@ -20,6 +20,10 @@ export interface SearchResult {
   publishedDate?: number;
   /** 来源（引擎名称） */
   source?: string;
+  /** Tavily include_raw_content 返回的完整正文（HTML stripped） */
+  rawContent?: string;
+  /** Tavily include_answer 返回的综合回答摘要 */
+  answer?: string;
 }
 
 /**

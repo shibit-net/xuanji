@@ -92,8 +92,10 @@ function buildStatusOutput(p: {
   members?: TaskMember[];
   elapsed: number;
   error?: string;
+  currentRound?: number;
+  maxRounds?: number;
 }): string {
-  const { groupId, type, goal, status, phase, totalMembers, completedMembers, members, elapsed, error } = p;
+  const { groupId, type, goal, status, phase, totalMembers, completedMembers, members, elapsed, error, currentRound, maxRounds } = p;
   const typeLabel = type === 'team' ? `team${p.currentMember ? '' : ''}` : 'task';
   const header = `📋 [${typeLabel}] ${goal}`;
 
@@ -129,6 +131,11 @@ function buildStatusOutput(p: {
     const lines: string[] = [header, '', `阶段: ${PHASE_LABEL[phase]}`];
 
     if (type === 'team') {
+      // 辩论模式：显示当前轮次
+      if (currentRound != null && maxRounds != null) {
+        lines.push(`轮次: 第 ${currentRound}/${maxRounds} 轮`);
+      }
+
       // 统计各状态成员数
       const successCount = members?.filter(m => m.status === 'completed').length ?? completedMembers;
       const failedCount = members?.filter(m => m.status === 'failed').length ?? 0;
@@ -313,6 +320,8 @@ export class TaskControlTool extends BaseTool {
           members: progress.members,
           elapsed: p?.elapsed || 0,
           error: progress.error,
+          currentRound: progress.currentRound,
+          maxRounds: progress.maxRounds,
         });
 
         return this.success(content, {

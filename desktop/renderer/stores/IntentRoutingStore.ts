@@ -46,18 +46,27 @@ export interface ScenePromptInfo {
   keywords: string;
 }
 
+export interface PromptComponentLayer {
+  layer: number;
+  components: Array<{ id: string; name: string }>;
+}
+
 export type RouteEvent =
   | { type: 'ROUTE_START' }
   | { type: 'ROUTE_STAGE'; stage: StageResult }
   | { type: 'ROUTE_COMPLETE'; result: RouteResult }
   | { type: 'ROUTE_RESET' }
-  | { type: 'SET_SCENE_PROMPTS'; scenes: ScenePromptInfo[] };
+  | { type: 'SET_SCENE_PROMPTS'; scenes: ScenePromptInfo[] }
+  | { type: 'SET_PROMPT_COMPONENTS'; layers: PromptComponentLayer[]; totalComponents: number; estimatedTokens: number };
 
 interface IntentRoutingState {
   status: RouteStatus;
   stages: StageResult[];
   result: RouteResult | null;
   scenePrompts: ScenePromptInfo[];
+  promptLayers: PromptComponentLayer[];
+  totalComponents: number;
+  estimatedTokens: number;
 
   transition: (event: RouteEvent) => void;
 }
@@ -91,11 +100,14 @@ export const useIntentRoutingStore = create<IntentRoutingState>((set, get) => ({
   stages: [],
   result: null,
   scenePrompts: [],
+  promptLayers: [],
+  totalComponents: 0,
+  estimatedTokens: 0,
 
   transition: (event) => {
     switch (event.type) {
       case 'ROUTE_START':
-        set({ status: 'analyzing', stages: [], result: null });
+        set({ status: 'analyzing', stages: [], result: null, promptLayers: [], totalComponents: 0, estimatedTokens: 0 });
         break;
 
       case 'ROUTE_STAGE':
@@ -112,6 +124,10 @@ export const useIntentRoutingStore = create<IntentRoutingState>((set, get) => ({
 
       case 'SET_SCENE_PROMPTS':
         set({ scenePrompts: event.scenes });
+        break;
+
+      case 'SET_PROMPT_COMPONENTS':
+        set({ promptLayers: event.layers, totalComponents: event.totalComponents, estimatedTokens: event.estimatedTokens });
         break;
     }
   },

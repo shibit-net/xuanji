@@ -125,6 +125,8 @@ export interface IPermissionController {
   setIgnoreFilter(filter: { isIgnored(path: string): boolean }): void;
   /** 设置当前用户意图（用于跟踪同一意图下的拒绝操作） */
   setCurrentUserIntent(intent: string | null): void;
+  /** 串行化用户交互：将操作加入全局队列，保证同一时刻只有一个确认框/提问框 */
+  serialize<T>(fn: () => Promise<T>): Promise<T>;
 
   // ============ 权限规则管理 ============
   /** 列出所有持久化决策 */

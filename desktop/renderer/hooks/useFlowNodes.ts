@@ -17,6 +17,7 @@ import {
   type TeamStrategy,
 } from '../utils/flow/FlowNodeTypes';
 import { flowLogger } from '../utils/flow/flowLogger';
+import { formatToolName } from '../utils/toolSummary';
 
 // ============================================================
 // UserInput 状态
@@ -131,6 +132,12 @@ export function useFlowNodes(): {
         const team = resolvedTeamId ? teamMap.get(resolvedTeamId) : undefined;
         if (team) {
           team.memberIds.push(agent.id);
+          // 辩论模式：从成员更新 team 的轮次信息（取最新轮次）
+          if (agent.multiAgent?.currentRound != null &&
+              (team.currentRound == null || agent.multiAgent.currentRound > team.currentRound)) {
+            team.currentRound = agent.multiAgent.currentRound;
+            if (agent.multiAgent?.maxRounds != null) team.maxRounds = agent.multiAgent.maxRounds;
+          }
         }
         // 修正 teamId：layout engine 用 team-${data.teamId} 匹配 team 节点 ID，
         // 但 classified.teamId 是 team name，必须替换为 team agent ID 才能匹配
@@ -144,22 +151,25 @@ export function useFlowNodes(): {
           id: agent.id,
           type: 'team-member',
           position: { x: 0, y: 0 },
+          parentNode: resolvedTeamId ? `team-${resolvedTeamId}` : undefined,
           draggable: false,
+          extent: 'parent',
           data: memberData as any,
         });
       } else {
         // foreground / subagent 节点
+        const isSubagent = classified.nodeType === 'subagent';
         nodes.push({
           id: agent.id,
           type: classified.nodeType,
           position: { x: 0, y: 0 },
-          draggable: false,
+          draggable: isSubagent,  // 子 agent 节点可拖拽
           data: nodeData as any,
         });
       }
     }
 
-    // 更新 team 节点的 memberIds
+    // 更新 team 节点的 memberIds 和辩论轮次（从成员 multiAgent 取 currentRound）
     for (const node of nodes) {
       if (node.type === 'team') {
         const teamId = node.id.replace('team-', '');
@@ -167,6 +177,13 @@ export function useFlowNodes(): {
         if (team && node.data) {
           (node.data as any).memberIds = team.memberIds;
           (node.data as any).memberCount = team.memberIds.length;
+          // 同步 team 的 currentRound（优先取 teamMap 中的值）
+          if (team.currentRound != null) {
+            (node.data as any).currentRound = team.currentRound;
+          }
+          if (team.maxRounds != null) {
+            (node.data as any).maxRounds = team.maxRounds;
+          }
         }
       }
     }
@@ -324,10 +341,11 @@ function buildNodeData(
     startTime: agent.moment.startTime,
   } : undefined;
 
-  const timelineData = agent.currentTools.length > 0 ? agent.currentTools.slice(-4).map((t) => ({
+  const timelineData = agent.currentTools.length > 0 ? agent.currentTools
+    .slice(-4).map((t) => ({
     id: t.id,
     icon: '',
-    label: t.name,
+    label: formatToolName(t.name),
     duration: t.endTime ? t.endTime - t.startTime : undefined,
     status: t.status as 'running' | 'success' | 'error',
     startTime: t.startTime,
@@ -353,6 +371,7 @@ function buildNodeData(
       return {
         ...base,
         nodeType: 'subagent',
+        scene: agent.scene,
         taskDescription: agent.currentTask || '',
         executionMode: agent.executionMode || 'in-process',
         agentType: agent.agentType,
@@ -381,6 +400,7 @@ function buildNodeData(
         nodeType: 'team-member',
         teamId: classified.teamId!,
         memberRole: agent.multiAgent?.debateRole || 'worker',
+        scene: agent.scene,
         agentType: agent.agentType,
         executionMode: agent.executionMode,
         debateRole: agent.multiAgent?.debateRole as any,

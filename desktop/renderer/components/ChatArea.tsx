@@ -128,8 +128,8 @@ const VirtualMessageList = memo(function VirtualMessageList({
         </div>
       )}
 
-      {/* 流式消息：使用自然文档流渲染，不受虚拟滚动器干扰 */}
-      {streamingMessage && (
+      {/* 流式消息：有实际文字内容后才展示气泡，避免空泡闪烁 */}
+      {streamingMessage && currentStreamingText && (
         <div className="message-bubble-streaming pb-4">
           <MessageBubble
             message={streamingMessage}
@@ -158,8 +158,8 @@ export default function ChatArea() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
 
-  // 是否显示三点等待动画
-  const showTypingIndicator = status === 'thinking' && !currentStreamingId;
+  // 是否显示三点等待动画（未开始输出 或 已创建气泡但尚无文字内容）
+  const showTypingIndicator = (status === 'thinking' && !currentStreamingId) || (currentStreamingId !== null && !currentStreamingText);
 
   // 是否正在流式输出中
   const isStreaming = currentStreamingId !== null;

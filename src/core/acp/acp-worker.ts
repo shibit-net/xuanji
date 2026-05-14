@@ -87,8 +87,8 @@ async function handleRun(requestId: string, payload: AcpRunRequest['payload']): 
     // 创建 provider
     const provider = createProvider(agentModelConfig);
 
-    // 创建 registry
-    const registry = createRegistry(payload.tools);
+    // 创建 registry（传入 workingDir，确保子 agent 能访问正确的工作目录）
+    const registry = createRegistry(payload.tools, payload.workingDir);
 
     // 创建 AgentLoop
     const agentLoop = new AgentLoop(provider, registry, {
@@ -194,17 +194,12 @@ function createProvider(parentConfig?: Record<string, any>): ILLMProvider {
 }
 
 /** 从工具白名单创建 registry */
-function createRegistry(tools?: string[]): IToolRegistry {
+function createRegistry(tools?: string[], workingDir?: string): IToolRegistry {
   const { createDefaultRegistry } = require('@/core/tools/ToolRegistry');
   const registry = createDefaultRegistry();
-
-  // 如果有工具白名单，用 FilteredToolRegistry 包装
-  if (tools && tools.length > 0) {
-    const { FilteredToolRegistry } = require('@/core/tools/FilteredToolRegistry');
-    return new FilteredToolRegistry(registry, tools);
-  }
-
-  return registry;
+  const { FilteredToolRegistry, DEFAULT_SUBAGENT_TOOLS } = require('@/core/tools/FilteredToolRegistry');
+  const effectiveTools = tools && tools.length > 0 ? tools : DEFAULT_SUBAGENT_TOOLS;
+  return new FilteredToolRegistry(registry, effectiveTools, undefined, workingDir);
 }
 
 // ── 主消息循环 ──────────────────────────────────────

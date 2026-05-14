@@ -229,6 +229,9 @@
   workspaceOpenFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
   workspaceGetGitStatus: (dirPath: string) => ipcRenderer.invoke('workspace:get-git-status', dirPath),
 
+  // ============ 拖拽文件路径解析 ============
+  resolveDropPaths: (data: { names: string[] }) => ipcRenderer.invoke('workspace:resolve-drop-paths', data),
+
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {
     const handler = (_event: any, ...args: any[]) => {

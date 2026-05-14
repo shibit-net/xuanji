@@ -120,6 +120,31 @@ const pendingAskUsers = new Map<string, (result: any) => void>();
  * 初始化 ChatSession
  */
 
+/** 更新 MatchAgentTool 的 embedding provider，模型不存在时触发下载 */
+function updateMatchAgentEmbedding(sess: ChatSession): void {
+  try {
+    // 始终尝试创建 EmbeddingProvider（使用默认模型），不依赖 globalConfig.embedding
+    const candidate = new EmbeddingProvider();
+    if (candidate.modelExists()) {
+      const registry = sess.getBaseRegistry();
+      const matchAgentTool = registry.get('match_agent');
+      if (matchAgentTool && 'setDependencies' in matchAgentTool) {
+        (matchAgentTool as any).setDependencies({
+          agentRegistry: sess.getAgentRegistry(),
+          embeddingProvider: candidate,
+        });
+        log.info('updateMatchAgentEmbedding: EmbeddingProvider injected into MatchAgentTool');
+      }
+    } else {
+      const globalConfig = sess.getConfig();
+      log.info('updateMatchAgentEmbedding: model not found, triggering download');
+      triggerEmbeddingModelDownload(globalConfig);
+    }
+  } catch (err) {
+    log.warn('updateMatchAgentEmbedding failed:', err);
+  }
+}
+
 /** 触发 embedding 模型自动下载：检查缺失文件，通过下载中心下载，下次 rebuild 自动启用 */
 function triggerEmbeddingModelDownload(globalConfig: any): void {
   try {
@@ -127,10 +152,9 @@ function triggerEmbeddingModelDownload(globalConfig: any): void {
     const path = require('node:path');
     const os = require('node:os');
     const embeddingConfig = globalConfig?.embedding;
-    if (!embeddingConfig?.model) return;
-
-    const modelId = embeddingConfig.model;
-    const hfMirror = embeddingConfig.hfMirror || 'https://hf-mirror.com';
+    // 使用配置中的 modelId，若未配置则使用默认模型
+    const modelId = embeddingConfig?.model || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
+    const hfMirror = embeddingConfig?.hfMirror || 'https://hf-mirror.com';
     const modelDir = path.join(os.homedir(), '.xuanji', 'embedding-models', modelId);
 
     const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
@@ -212,6 +236,9 @@ async function rebuildIntentRouter(): Promise<void> {
     intentRouter = new IntentRouter({ sceneClassifier, embeddingMatcher, agentRegistry });
     log.info('rebuildIntentRouter: IntentRouter rebuilt successfully');
 
+    // 同步更新 MatchAgentTool 的 embedding provider
+    updateMatchAgentEmbedding(session);
+
     // 将场景列表发送到渲染进程，供意图分析面板展示
     if (promptBuilder) {
       const scenePromptList = promptBuilder.getAvailableScenes().map((s) => ({
@@ -259,10 +286,18 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
           channel.send('agent:citation-data', citations);
         },
       },
+      onMissingEmbedding: () => {
+        // MatchAgentTool 发现向量模型不可用时触发下载
+        const cfg = newSession.getConfig();
+        triggerEmbeddingModelDownload(cfg);
+      },
     });
     session = newSession;
     currentUserId = uid;
     log.info('handleInit: session created successfully');
+
+    // 初始化 MatchAgentTool 的 embedding provider
+    updateMatchAgentEmbedding(newSession);
 
     // 初始化 IntentRouter（hot-reload: rebuildIntentRouter 复用）
     await rebuildIntentRouter();
@@ -352,9 +387,9 @@ async function handleUserAction(data: { type: string; message?: string }): Promi
       } else {
         // 意图分析关闭或未初始化 → 直接使用 xuanji
         routedAgentId = 'xuanji';
-        session.setCurrentAgent('xuanji');
         channel.send('agent:intent-route:start');
-        channel.send('agent:intent-route', { agentId: 'xuanji', confidence: 1.0, method: 'default' });
+        await session.switchForegroundAgent('xuanji', undefined, 'complex');
+        channel.send('agent:intent-route', { agentId: 'xuanji', confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
         channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji', agentType: 'system' });
       }
     }
@@ -1006,6 +1041,7 @@ function registerHookEventBridge() {
       name: d.name, role: d.role, task: d.task, agentType: d.agentType,
       parentId: d.parentId || d.parentAgentId, scene: d.scene, streamToUser: d.streamToUser,
       executionMode: d.executionMode,
+      isAsync: d.isAsync ?? false,
     }});
   });
   eventBus.on(XuanjiEvent.HOOK_SUBAGENT_TEXT, (ctx) => {
@@ -1119,8 +1155,10 @@ function registerHookEventBridge() {
   });
 
   eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
-    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} routedAgentId=${routedAgentId}`);
-    safeSend({ type: 'agent:started', data: { model: payload.model, agentId: routedAgentId, isForeground: true } });
+    const agentId = payload.userId || routedAgentId;
+    const isForeground = !payload.userId || payload.userId === currentUserId;
+    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} agentId=${agentId} isForeground=${isForeground}`);
+    safeSend({ type: 'agent:started', data: { model: payload.model, agentId, isForeground } });
   });
   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
@@ -1145,10 +1183,14 @@ function registerHookEventBridge() {
     safeSend({ type: 'agent:conversation-state', data: { from: payload.from, to: payload.to } });
   });
   eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload) => {
-    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage } });
+    const agentId = payload.userId || routedAgentId;
+    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage, agentId } });
   });
   eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
     safeSend({ type: 'agent:file-changes', data: { changes: payload.changes } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_PROMPT_COMPONENTS, (payload) => {
+    safeSend({ type: 'agent:prompt-components', data: payload });
   });
 }
 

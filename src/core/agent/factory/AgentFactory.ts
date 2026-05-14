@@ -19,6 +19,7 @@ import type { PromptComposer, ComposeContext, SubAgentComposeContext } from '@/c
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
+import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/core/tools/FilteredToolRegistry';
 
 const log = logger.child({ module: 'AgentFactory' });
 
@@ -72,6 +73,8 @@ export interface CreateAndRunOptions {
   workingDir?: string;
   maxIterations?: number;
   subAgentId?: string;
+  /** 异步任务：主 agent 不等待，子 agent 输出走 TaskCompletionHandler；同步任务：主 agent 阻塞等待 */
+  isAsync?: boolean;
 }
 
 export interface CreateAndRunResult {
@@ -240,8 +243,12 @@ export class AgentFactory {
         maxIterations: options.maxIterations ?? 20,
       }, provider);
 
-      const allowedTools = this.resolveTools(options.parentConfig, options.toolWhitelist);
-      const registry = this.createFilteredRegistry(allowedTools, {
+      const allowedTools = this.resolveTools((options.parentConfig as any) ?? null, options.toolWhitelist);
+      // 临时 agent 未指定工具时使用默认工具集，自动补齐管理工具
+      const effectiveTools = augmentToolList(
+        allowedTools.length > 0 ? allowedTools : DEFAULT_SUBAGENT_TOOLS,
+      );
+      const registry = this.createFilteredRegistry(effectiveTools, {
         agentId,
         workingDir: options.workingDir,
       });
@@ -474,6 +481,7 @@ export class AgentFactory {
       agentType,
       parentAgentId: options.parentAgentId || 'main',
       streamToUser: options.streamToUser || false,
+      isAsync: options.isAsync || false,
       scene: options.scene?.replace(/^l[12]-/, ''),
       executionMode: (useAcp ? 'acp' : 'in-process') as 'acp' | 'in-process',
     };
@@ -595,12 +603,21 @@ export class AgentFactory {
   ): Promise<CreateAndRunResult> {
     const acp = AcpProcessManager.getInstance();
 
-    const tools = options.tools && options.tools.length > 0 ? options.tools : undefined;
-
     // 先查已注册 agent 的配置
     const cfgMgr = getConfigManager();
     const registeredConfig = cfgMgr.getAgentConfig(agentIdOrRole);
     const isTemporary = this.isTemporaryAgent(agentIdOrRole);
+
+    // 工具解析：注册 agent 合并 YAML tools + whitelist，临时 agent 用 whitelist（兜底默认集）
+    let tools: string[];
+    if (!isTemporary && registeredConfig) {
+      const yamlTools = (registeredConfig.tools as Array<{ name: string }>)?.map(t => t.name) || [];
+      const whitelist = options.tools || [];
+      tools = [...new Set([...yamlTools, ...whitelist])];
+    } else {
+      tools = options.tools && options.tools.length > 0 ? options.tools : DEFAULT_SUBAGENT_TOOLS;
+    }
+    tools = augmentToolList(tools);
 
     // 已注册 agent 用自有配置，临时 agent 继承父配置
     const fallbackConfig = options.parentConfig ?? this._parentConfig;
@@ -970,17 +987,11 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private resolveTools(
-    agentCfg: ReturnType<ConfigManager['getAgentConfig']>,
+    agentCfg: { tools?: Array<{ name: string }> } | null,
     whitelist?: string[],
   ): string[] {
     const configTools = (agentCfg?.tools as any[])?.map((t: any) => t.name) || [];
-    if (whitelist && whitelist.length > 0) {
-      const requiredTools = (agentCfg?.tools as any[])
-        ?.filter((t: any) => t.required)
-        ?.map((t: any) => t.name) || [];
-      return [...new Set([...whitelist, ...requiredTools])];
-    }
-    return configTools;
+    return [...new Set([...configTools, ...(whitelist || [])])];
   }
 
   private createFilteredRegistry(allowedTools: string[], context: { agentId: string; workingDir?: string }): IToolRegistry {

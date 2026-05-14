@@ -143,9 +143,7 @@ export default function InputArea() {
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.dataTransfer.types.includes('Files')) {
-      setIsDragOver(true);
-    }
+    setIsDragOver(true); // 不限制 types，兼容 Electron 不同版本的格式名
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -157,19 +155,46 @@ export default function InputArea() {
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
 
-    const files = e.dataTransfer.files;
-    if (files.length === 0) return;
-
     const pathList: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i] as File & { path?: string };
-      if (file.path) {
-        pathList.push(file.path);
+
+    // 方案1（最优）: 通过 IPC 让主进程用 webUtils.getPathForFile 获取完整路径
+    try {
+      if (window.electron?.resolveDropPaths) {
+        const fileNames: string[] = [];
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          fileNames.push(e.dataTransfer.files[i]!.name);
+        }
+        const resolved = await window.electron.resolveDropPaths({ fileNames });
+        if (resolved && resolved.length > 0) {
+          pathList.push(...resolved);
+        }
+      }
+    } catch { /* fallback */ }
+
+    // 方案2（备选）: text/uri-list（macOS Finder 携带完整 file:// 路径）
+    if (pathList.length === 0) {
+      try {
+        const uriList = e.dataTransfer.getData('text/uri-list');
+        if (uriList) {
+          for (const uri of uriList.split('\n')) {
+            const trimmed = uri.trim();
+            if (trimmed.startsWith('file://')) {
+              pathList.push(decodeURIComponent(trimmed.slice(7)));
+            }
+          }
+        }
+      } catch { /* 安全策略限制 */ }
+    }
+
+    // 方案3（最终降级）: 文件名
+    if (pathList.length === 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        pathList.push(e.dataTransfer.files[i]!.name);
       }
     }
 

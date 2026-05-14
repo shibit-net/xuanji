@@ -25,6 +25,10 @@ export interface TaskProgress {
   currentMemberStatus?: string;
   elapsed: number;
   estimatedRemaining?: number;
+  /** 辩论模式当前轮次 */
+  currentRound?: number;
+  /** 辩论模式最大轮次 */
+  maxRounds?: number;
 }
 
 /** 后台任务组成员状态 */

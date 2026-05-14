@@ -7,16 +7,13 @@ import type { FlowNodeData } from '../FlowNodeTypes';
 
 const MEMBER_W = 120;
 const MEMBER_H = 100;
-const GAP = 60;
-const PADDING = { top: 40, right: 30, bottom: 50, left: 30 };
+const GAP = 280;
+const PADDING = { top: 60, right: 140, bottom: 60, left: 20 };
 
 export function layoutPipeline(
-  teamNode: Node<FlowNodeData>,
+  _teamNode: Node<FlowNodeData>,
   members: Node<FlowNodeData>[],
 ): { nodes: Node<FlowNodeData>[]; edges: Edge[]; teamWidth: number; teamHeight: number } {
-  const tx = teamNode.position.x;
-  const ty = teamNode.position.y;
-
   // 按 stepIndex 排序
   const sorted = [...members].sort(
     (a, b) => ((a.data as any).stepIndex ?? 0) - ((b.data as any).stepIndex ?? 0),
@@ -29,8 +26,8 @@ export function layoutPipeline(
   const positioned: Node<FlowNodeData>[] = [];
 
   for (let i = 0; i < sorted.length; i++) {
-    const x = tx + PADDING.left + i * (MEMBER_W + GAP);
-    const y = ty + PADDING.top;
+    const x = PADDING.left + i * (MEMBER_W + GAP);
+    const y = PADDING.top;
 
     positioned.push({
       ...sorted[i],

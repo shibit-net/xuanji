@@ -99,9 +99,9 @@ export class EmbeddingMatcher {
   private matchBestScene(
     messageVec: number[] | null,
     sceneVecs: Map<string, number[] | null> | null,
-  ): { scene: string; complexity: 'simple' } {
+  ): { scene: string; complexity: 'complex' } {
     if (!this.embedder || !messageVec || !sceneVecs || sceneVecs.size === 0) {
-      return { scene: '', complexity: 'simple' };
+      return { scene: '', complexity: 'complex' };
     }
 
     const scored: Array<{ scene: string; score: number }> = [];
@@ -113,10 +113,10 @@ export class EmbeddingMatcher {
       }
     }
 
-    if (scored.length === 0) return { scene: '', complexity: 'simple' };
+    if (scored.length === 0) return { scene: '', complexity: 'complex' };
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, 3).map((s) => s.scene);
-    return { scene: top.join(','), complexity: 'simple' };
+    return { scene: top.join(','), complexity: 'complex' };
   }
 
   private scoreAgent(

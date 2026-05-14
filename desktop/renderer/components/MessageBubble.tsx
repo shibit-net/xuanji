@@ -17,11 +17,20 @@ import { isFilePath, toNativePath } from '../utils/pathUtils';
 // 主 agent 头像
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 
-function getAgentDisplay(agentId: string | undefined): { name: string } {
-  if (!agentId || agentId === 'xuanji') return { name: 'Xuanji' };
+function useRealtimeClock() {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function getAgentDisplay(agentId: string | undefined): { name: string; agentId: string } {
+  if (!agentId || agentId === 'xuanji') return { name: 'Xuanji', agentId: 'xuanji' };
   const a = useAgentStateMachine.getState().agentMap[agentId];
-  if (a) return { name: a.name };
-  return { name: agentId };
+  if (a) return { name: a.name, agentId: a.id };
+  return { name: agentId, agentId };
 }
 
 function formatDuration(ms: number): string {
@@ -118,6 +127,12 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const user = useAuthStore((s) => s.user);
   const userName = user?.nickname || user?.email?.split('@')[0] || 'You';
   const agentInfo = useMemo(() => !isUser && !isToolSummary ? getAgentDisplay(message.agentId) : null, [message.agentId, isUser, isToolSummary]);
+  // 流式消息：优先用 streamingAgentId（当前实际输出文本的 agent），其次 foregroundId
+  const foregroundId = useAgentStateMachine((s) => s.foregroundAgentId);
+  const streamingAgentId = useAgentStateMachine((s) => s.streamingAgentId);
+  const effectiveAgentId = isStreaming ? (streamingAgentId || foregroundId || message.agentId) : message.agentId;
+  const respondingAgent = useAgentStateMachine((s) => effectiveAgentId ? s.agentMap[effectiveAgentId] : undefined);
+  const now = useRealtimeClock();
 
   const displayContent = isStreaming && streamingText !== undefined ? streamingText : message.content;
 
@@ -330,10 +345,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             </svg>
           ) : (
             <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0">
-              {message.agentId === 'xuanji' || !message.agentId ? (
+              {!effectiveAgentId || effectiveAgentId === 'xuanji' ? (
                 <img src={agentAvatar} alt="Xuanji" className="w-full h-full object-cover" />
               ) : (
-                <Avatar seed={agentInfo?.name || message.agentId} size={20} className="w-full h-full rounded-full" />
+                <Avatar seed={respondingAgent?.name || agentInfo?.name || effectiveAgentId} size={20} className="w-full h-full rounded-full" />
               )}
             </div>
           )}
@@ -342,7 +357,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
               ? userName
               : isToolSummary
               ? '文件变更'
-              : (agentInfo?.name || 'Xuanji')}
+              : (respondingAgent?.name || agentInfo?.name || 'Xuanji')}
           </span>
           {message.timestamp && (
             <span className="text-xs opacity-60 ml-auto">
@@ -360,6 +375,33 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             </button>
           )}
         </div>
+
+        {/* Moment 状态条：展示当前 agent 的运行状态 */}
+        {!isUser && !isSystem && !isToolSummary && respondingAgent?.moment && (
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
+                ? 'bg-primary animate-pulse'
+                : respondingAgent.status === 'writing' || respondingAgent.status === 'reporting'
+                ? 'bg-blue-400'
+                : 'bg-success'
+            }`} />
+            <span className="text-[11px] text-muted-foreground/70">
+              {respondingAgent.status === 'writing'
+                ? `${respondingAgent.name} 在编辑中`
+                : respondingAgent.moment.label}
+            </span>
+            {respondingAgent.moment.startTime && (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing') ? (
+              <span className="text-[10px] text-muted-foreground/40 font-mono">
+                {formatDuration(now - respondingAgent.moment.startTime)}
+              </span>
+            ) : respondingAgent.moment.duration != null ? (
+              <span className="text-[10px] text-muted-foreground/40 font-mono">
+                {formatDuration(respondingAgent.moment.duration)}
+              </span>
+            ) : null}
+          </div>
+        )}
 
         {!isUser && message.statusHint && (
           <div className="mb-2 text-xs text-text-secondary animate-pulse">{message.statusHint}</div>

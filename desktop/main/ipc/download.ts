@@ -455,4 +455,40 @@ export function registerDownloadHandlers() {
     }
   });
 
+  // ============ 拖拽文件路径解析 ============
+  // Electron 28+ 移除了渲染进程的 File.path，必须通过主进程 webUtils 获取
+  // 渲染进程发送文件名，主进程在各目录查找匹配的完整路径
+  ipcMain.handle('workspace:resolve-drop-paths', async (event, data: { fileNames: string[] }) => {
+    try {
+      const paths: string[] = [];
+      const homeDir = os.homedir();
+
+      for (const name of data.fileNames) {
+        const candidates = [
+          path.join(homeDir, 'Desktop', name),
+          path.join(homeDir, 'Downloads', name),
+          path.join(homeDir, 'Documents', name),
+          path.join(homeDir, name),
+          path.resolve(name),
+        ];
+
+        let found: string | undefined;
+        for (const c of candidates) {
+          try {
+            if (fs.existsSync(c) && fs.statSync(c).isFile()) {
+              found = c;
+              break;
+            }
+          } catch { /* continue */ }
+        }
+
+        paths.push(found ?? name);
+      }
+
+      return paths;
+    } catch {
+      return [];
+    }
+  });
+
 }

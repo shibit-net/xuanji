@@ -2,14 +2,49 @@
  * AskUser 工具并发控制测试
  *
  * 测试场景：
- * 1. 多个 agent 同时提问
- * 2. 优先级排序
- * 3. 超时控制
+ * 1. 多个 agent 同时提问 — 通过 PermissionController.serialize() 排队
+ * 2. 超时控制
  */
 
 import { describe, test, beforeEach, expect, vi } from 'vitest';
 import { AskUserTool } from '@/core/tools/AskUserTool';
 import type { AskUserRequest, AskUserHandler } from '@/core/tools/AskUserTool';
+import type { IPermissionController } from '@/permission/types';
+
+/** 创建一个带真实 Promise 链串行化的 mock PermissionController */
+function createMockController(): IPermissionController {
+  let queue: Promise<void> = Promise.resolve();
+
+  return {
+    check: vi.fn(),
+    setConfirmationHandler: vi.fn(),
+    updateConfig: vi.fn(),
+    getConfig: vi.fn().mockReturnValue({}),
+    setPlanReviewHandler: vi.fn(),
+    reviewPlan: vi.fn(),
+    setIgnoreFilter: vi.fn(),
+    setCurrentUserIntent: vi.fn(),
+    listDecisions: vi.fn().mockReturnValue([]),
+    deleteDecision: vi.fn().mockResolvedValue(undefined),
+    clearDecisions: vi.fn().mockResolvedValue(undefined),
+    recordDeniedOperation: vi.fn(),
+    isDeniedOperation: vi.fn().mockReturnValue(false),
+    listDeniedOperations: vi.fn().mockReturnValue([]),
+    deleteDeniedOperation: vi.fn().mockResolvedValue(undefined),
+    clearDeniedOperations: vi.fn().mockResolvedValue(undefined),
+    serialize: vi.fn().mockImplementation(<T>(fn: () => Promise<T>): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        queue = queue.then(async () => {
+          try {
+            resolve(await fn());
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    }),
+  };
+}
 
 describe('AskUserTool - 并发控制', () => {
   let tool: AskUserTool;
@@ -20,10 +55,8 @@ describe('AskUserTool - 并发控制', () => {
     tool = new AskUserTool();
     handlerCallOrder = [];
 
-    // Mock handler：记录调用顺序
     mockHandler = vi.fn<Parameters<AskUserHandler>, ReturnType<AskUserHandler>>(async (request: AskUserRequest) => {
       handlerCallOrder.push(request.question);
-      // 模拟用户回复延迟
       await new Promise(resolve => setTimeout(resolve, 100));
       return `回答: ${request.question}`;
     });
@@ -31,80 +64,50 @@ describe('AskUserTool - 并发控制', () => {
     tool.setHandler(mockHandler);
   });
 
-  test('多个问题自动排队', async () => {
-    // 同时发起 3 个问题
+  test('多个问题通过 PermissionController 自动排队', async () => {
+    const controller = createMockController();
+    tool.setPermissionController(controller);
+
     const promises = [
       tool.execute({ question: '问题 1' }),
       tool.execute({ question: '问题 2' }),
       tool.execute({ question: '问题 3' }),
     ];
 
-    // 等待所有问题完成
     const results = await Promise.all(promises);
 
-    // 验证：所有问题都得到回复
     expect(results).toHaveLength(3);
     expect(results[0].content).toBe('回答: 问题 1');
     expect(results[1].content).toBe('回答: 问题 2');
     expect(results[2].content).toBe('回答: 问题 3');
 
-    // 验证：handler 被串行调用（一次一个）
     expect(mockHandler).toHaveBeenCalledTimes(3);
+    // 通过统一队列串行化，按 FIFO 顺序处理
     expect(handlerCallOrder).toEqual(['问题 1', '问题 2', '问题 3']);
   });
 
-  test('优先级排序', async () => {
-    // 发起不同优先级的问题
-    const promises = [
-      tool.execute({ question: '低优先级', priority: 3 }),
-      tool.execute({ question: '高优先级', priority: 9 }),
-      tool.execute({ question: '中优先级', priority: 5 }),
-    ];
-
-    await Promise.all(promises);
-
-    // 验证：按优先级排序（高优先级先处理）
-    expect(handlerCallOrder).toEqual([
-      '低优先级',    // 第一个进入队列，立即处理
-      '高优先级',    // 优先级最高，排在第二
-      '中优先级',    // 优先级中等，排在最后
-    ]);
-  });
-
-  test('优先级相同时按时间排序', async () => {
-    // 发起相同优先级的问题
-    const promises = [
-      tool.execute({ question: '问题 A', priority: 5 }),
-      tool.execute({ question: '问题 B', priority: 5 }),
-      tool.execute({ question: '问题 C', priority: 5 }),
-    ];
-
-    await Promise.all(promises);
-
-    // 验证：按提问时间排序（先到先得）
-    expect(handlerCallOrder).toEqual(['问题 A', '问题 B', '问题 C']);
-  });
-
   test('超时控制', async () => {
-    // Mock handler：延迟 200ms 回复
+    const controller = createMockController();
+    tool.setPermissionController(controller);
+
     mockHandler.mockImplementation(async (request: AskUserRequest) => {
       await new Promise(resolve => setTimeout(resolve, 200));
       return '回答';
     });
 
-    // 设置 100ms 超时
     const result = await tool.execute({
       question: '超时问题',
       timeout: 100,
     });
 
-    // 验证：超时返回错误
     expect(result.isError).toBe(true);
     expect(result.content).toContain('超时');
   });
 
   test('Agent 上下文注入', async () => {
-    // 模拟 SubAgentFactory 注入的上下文
+    const controller = createMockController();
+    tool.setPermissionController(controller);
+
     const result = await tool.execute({
       question: '测试问题',
       _agentId: 'coder',
@@ -113,7 +116,6 @@ describe('AskUserTool - 并发控制', () => {
       timeout: 60000,
     });
 
-    // 验证：handler 收到完整的上下文
     expect(mockHandler).toHaveBeenCalledWith(
       expect.objectContaining({
         question: '测试问题',
@@ -127,36 +129,15 @@ describe('AskUserTool - 并发控制', () => {
     );
   });
 
-  test('高优先级问题插队', async () => {
-    // 第一个问题开始处理
-    const promise1 = tool.execute({ question: '问题 1', priority: 5 });
-
-    // 等待第一个问题开始处理
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // 发起高优先级问题（应该插队）
-    const promise2 = tool.execute({ question: '紧急问题', priority: 10 });
-    const promise3 = tool.execute({ question: '问题 3', priority: 5 });
-
-    await Promise.all([promise1, promise2, promise3]);
-
-    // 验证：高优先级问题插队到第二位
-    expect(handlerCallOrder).toEqual([
-      '问题 1',      // 已经在处理，无法插队
-      '紧急问题',    // 高优先级，插队到第二
-      '问题 3',      // 普通优先级，排在最后
-    ]);
-  });
-
   test('队列为空时立即处理', async () => {
+    const controller = createMockController();
+    tool.setPermissionController(controller);
+
     const startTime = Date.now();
-
     const result = await tool.execute({ question: '单个问题' });
-
     const duration = Date.now() - startTime;
 
-    // 验证：立即处理，不等待
-    expect(duration).toBeLessThan(150);  // 100ms 延迟 + 50ms 容差
+    expect(duration).toBeLessThan(150);
     expect(result.content).toBe('回答: 单个问题');
   });
 
@@ -175,14 +156,29 @@ describe('AskUserTool - 并发控制', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('问题不能为空');
   });
+
+  test('无 PermissionController 时直接执行（不排队）', async () => {
+    const results = await Promise.all([
+      tool.execute({ question: 'A' }),
+      tool.execute({ question: 'B' }),
+    ]);
+
+    expect(results[0].content).toBe('回答: A');
+    expect(results[1].content).toBe('回答: B');
+    // 无队列时可能并发执行
+    expect(mockHandler).toHaveBeenCalledTimes(2);
+  });
 });
 
 /**
  * 集成测试：模拟真实场景
  */
 describe('AskUserTool - 集成测试', () => {
-  test('并行 Agent 场景', async () => {
+  test('并行 Agent 场景（通过统一队列串行处理）', async () => {
     const tool = new AskUserTool();
+    const controller = createMockController();
+    tool.setPermissionController(controller);
+
     const answers = new Map<string, string>([
       ['Agent A 的问题', '回答 A'],
       ['Agent B 的问题', '回答 B'],
@@ -194,29 +190,12 @@ describe('AskUserTool - 集成测试', () => {
       return answers.get(request.question) || '默认回答';
     });
 
-    // 模拟 3 个 agent 同时提问
     const results = await Promise.all([
-      tool.execute({
-        question: 'Agent A 的问题',
-        _agentId: 'agent-a',
-        _agentName: 'Agent A',
-        priority: 5,
-      }),
-      tool.execute({
-        question: 'Agent B 的问题',
-        _agentId: 'agent-b',
-        _agentName: 'Agent B',
-        priority: 8,  // 高优先级
-      }),
-      tool.execute({
-        question: 'Agent C 的问题',
-        _agentId: 'agent-c',
-        _agentName: 'Agent C',
-        priority: 3,  // 低优先级
-      }),
+      tool.execute({ question: 'Agent A 的问题', _agentId: 'agent-a', _agentName: 'Agent A' }),
+      tool.execute({ question: 'Agent B 的问题', _agentId: 'agent-b', _agentName: 'Agent B' }),
+      tool.execute({ question: 'Agent C 的问题', _agentId: 'agent-c', _agentName: 'Agent C' }),
     ]);
 
-    // 验证：所有 agent 都得到回复
     expect(results[0].content).toBe('回答 A');
     expect(results[1].content).toBe('回答 B');
     expect(results[2].content).toBe('回答 C');

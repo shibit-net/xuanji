@@ -163,6 +163,9 @@ function WorkspaceTab() {
   const routeResult = useIntentRoutingStore((s) => s.result);
   const stages = useIntentRoutingStore((s) => s.stages);
   const scenePrompts = useIntentRoutingStore((s) => s.scenePrompts);
+  const promptLayers = useIntentRoutingStore((s) => s.promptLayers);
+  const totalComponents = useIntentRoutingStore((s) => s.totalComponents);
+  const estimatedTokens = useIntentRoutingStore((s) => s.estimatedTokens);
 
   // scene 可能是逗号分隔的多个值
   const scenes = routeResult?.scene
@@ -283,6 +286,34 @@ function WorkspaceTab() {
                     </details>
                   );
                 })()
+              )}
+              {/* 第四部分：已加载的 Prompt 组件分层展示 */}
+              {promptLayers.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">
+                    Prompt 组件 ({totalComponents}) · ~{estimatedTokens} tokens
+                  </summary>
+                  <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5">
+                    {promptLayers.map((layer) => {
+                      const layerColors: Record<number, string> = { 0: 'text-blue-400/70', 1: 'text-purple-400/70', 2: 'text-amber-400/70', 3: 'text-emerald-400/70' };
+                      const layerLabels: Record<number, string> = { 0: 'L0·基础', 1: 'L1·能力', 2: 'L2·行为', 3: 'L3·上下文' };
+                      return (
+                        <div key={layer.layer} className="pl-2 border-l border-white/10">
+                          <span className={layerColors[layer.layer] || 'text-white/40'}>
+                            {layerLabels[layer.layer] || `L${layer.layer}`}
+                          </span>
+                          <div className="ml-3 mt-0.5 space-y-0.5">
+                            {layer.components.map((c) => (
+                              <div key={c.id} className="text-[10px] text-white/30 truncate" title={c.id}>
+                                {c.name}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
               )}
             </div>
           ) : null}

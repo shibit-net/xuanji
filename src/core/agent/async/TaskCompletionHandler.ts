@@ -89,12 +89,15 @@ export class TaskCompletionHandler {
     }
   }
 
-  /** 检查并在主循环结束后触发自动汇总 */
-  checkAndAutoSummarize(): void {
-    if (this.pendingCompletions.length > 0) {
-      this.autoSummarize().catch((err) => {
+  /** 检查并在主循环结束后触发自动汇总。等待所有 pending completion 处理完成后再返回。 */
+  async checkAndAutoSummarize(): Promise<void> {
+    while (this.pendingCompletions.length > 0) {
+      try {
+        await this.autoSummarize();
+      } catch (err) {
         log.error(`Post-run auto-summarize failed: ${err}`);
-      });
+        break;
+      }
     }
   }
 
@@ -127,7 +130,7 @@ export class TaskCompletionHandler {
 
     // 防止 autoSummarize → onAutoSummarize → emit ASYNC_TASK_COMPLETED → handleCompletion 无限递归
     if (!this.isAutoSummarizeRun && !this.callbacks.isRunning?.()) {
-      this.autoSummarize().catch((err) => {
+      this.checkAndAutoSummarize().catch((err) => {
         log.error(`Auto-summarize failed: ${err}`);
       });
     }
@@ -170,12 +173,6 @@ export class TaskCompletionHandler {
       await this.callbacks.onRun?.('[系统通知] 有一个后台任务刚完成，结果已注入系统提示。立刻向用户汇报这个结果，不要等待其他任务。');
     } finally {
       this.isAutoSummarizeRun = false;
-      // 🔧 队列机制：本轮汇总完成后如果还有 pending，再次触发
-      if (this.pendingCompletions.length > 0) {
-        this.autoSummarize().catch((err) => {
-          log.error(`Auto-summarize (queue) failed: ${err}`);
-        });
-      }
     }
   }
 }

@@ -71,7 +71,15 @@ export class TeamTool extends BaseTool {
     'If you need nested delegation, use task to create a leader agent that further delegates.',
     '',
     'Always use list_scenes to pick the right scene for each member.',
-    'Every member needs a unique, specific task. Do NOT give all members the same goal.',
+    '',
+    'TASK ASSIGNMENT — You are the assigner:',
+    '• You MUST assign a unique, specific task to EACH member via the `task` field.',
+    '• Do NOT give all members the same task. Each member should have a clearly different responsibility.',
+    '• The `goal` is the team\'s overall objective. Each `member.task` is that member\'s specific contribution.',
+    '• For debate: assign different stances/perspectives via `system_prompt` with [debate_role:...] tag.',
+    '• For parallel: assign different analysis angles to each member.',
+    '• For sequential/pipeline: each member\'s task should reflect their position in the workflow.',
+    '• Sub-agents have NO access to parent conversation — put ALL needed context in task + system_prompt.',
     '',
     'Example — parallel:',
     '  agent_team({',
@@ -79,8 +87,8 @@ export class TeamTool extends BaseTool {
     '    goal: "Review codebase from quality, security, and performance.",',
     '    strategy: "parallel",',
     '    members: [',
-    '      { id: "quality", agent_id: "explore", task: "Check code quality, smells, maintainability" },',
-    '      { id: "security", agent_id: "explore", task: "Find security vulnerabilities", scene: "review" },',
+    '      { id: "quality", agent_id: "explore", task: "Check code quality, smells, maintainability", tools: ["read_file", "glob", "grep", "list_directory"] },',
+    '      { id: "security", agent_id: "explore", task: "Find security vulnerabilities", scene: "review", tools: ["read_file", "glob", "grep", "list_directory"] },',
     '    ]',
     '  })',
   ].join('\n');
@@ -94,7 +102,7 @@ export class TeamTool extends BaseTool {
       },
       goal: {
         type: 'string',
-        description: '团队总目标。子 agent 无法访问父对话历史，必须包含所有必要的上下文：文件路径、约束条件、输出格式',
+        description: '团队总目标（WHAT the team should achieve as a whole）。注意：这是团队级别的目标，不是每个成员的任务。每个成员的具体分工通过 members[].task 单独分配。子 agent 无法访问父对话历史，必须包含所有必要的上下文：文件路径、约束条件、输出格式',
       },
       strategy: {
         type: 'string',
@@ -120,21 +128,21 @@ export class TeamTool extends BaseTool {
             name: { type: 'string', description: '成员显示名（可选），如 "Security Reviewer"' },
             capabilities: { type: 'array', items: { type: 'string' }, description: '成员能力列表（可选）' },
             priority: { type: 'number', description: '优先级（hierarchical 策略需要，leader 设 >= 8）' },
-            task: { type: 'string', description: '成员的具体工作任务（WHAT to do）。每个成员必须有独特、可执行的任务' },
+            task: { type: 'string', description: '成员的具体工作任务（WHAT to do）。由你（主 agent）分配，每个成员必须有独特、可执行的任务。不同成员的任务必须有明确区分，禁止多个成员使用相同或高度相似的任务描述' },
             scene: {
               type: 'string',
               description: [
                 '场景类型，决定子 agent 加载哪组 L1 prompt。',
                 '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
                 '不要自行编造 scene ID。',
-                '如无合适场景可用 "general"。',
+                '如果没有合适的场景，可以不传 scene 参数。',
               ].join('\n'),
             },
             system_prompt: {
               type: 'string',
-              description: '角色行为引导（HOW to behave）。临时 agent 必需，预置 agent 可选。辩论策略需包含 [debate_role:affirmative|negative|judge] 标记',
+              description: '角色行为引导（HOW to behave）。由你（主 agent）编写，用于定义成员的立场、思维方式和行为边界。临时 agent 必需，预置 agent 可选。辩论策略需包含 [debate_role:affirmative|negative|judge] 标记以指定立场',
             },
-            tools: { type: 'array', items: { type: 'string' }, description: '成员可用工具列表（可选）' },
+            tools: { type: 'array', items: { type: 'string' }, description: '成员可用工具列表。子 agent 默认没有任何工具，强烈建议显式传入。至少包含 read_file, glob, grep, list_directory；编码任务加 write_file, edit_file, bash' },
             timeout: { type: 'number', description: '成员超时（毫秒）。不推荐设置，系统会自动分配' },
           },
           required: ['id'],
@@ -406,7 +414,7 @@ export class TeamTool extends BaseTool {
       executor: async (abortSignal, onProgress, groupId) => {
         onProgress({ phase: 'setup', currentMember: '创建团队...' });
 
-        const teamManager = this.createTeamManager(input._cwd as string | undefined);
+        const teamManager = this.createTeamManager(input._cwd as string | undefined, teamSubAgentId);
         await teamManager.createTeam(teamConfig);
         const teamId = teamManager.getTeamId();
 
@@ -421,6 +429,10 @@ export class TeamTool extends BaseTool {
         const onMemberStart: HookListener = async (ctx) => {
           if (ctx.teamId === teamId && ctx.data?.memberId) {
             manager.updateMemberStatus(groupId, ctx.data.memberId as string, 'running');
+          }
+          // 辩论模式：更新轮次信息到 task progress
+          if (ctx.data?.currentRound != null) {
+            onProgress({ currentRound: ctx.data.currentRound as number, maxRounds: ctx.data.maxRounds as number | undefined });
           }
           return { success: true };
         };
@@ -485,7 +497,7 @@ export class TeamTool extends BaseTool {
     return this.formatAsyncResponse(result.groupId, parsed);
   }
 
-  private createTeamManager(cwd?: string): TeamManager {
+  private createTeamManager(cwd?: string, teamId?: string): TeamManager {
     return new TeamManager(
       this.mainProvider!,
       this.registry!,
@@ -496,6 +508,7 @@ export class TeamTool extends BaseTool {
       this.agentRegistry!,
       this.providerManager!,
       cwd,
+      teamId,
     );
   }
 

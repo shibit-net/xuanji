@@ -23,7 +23,7 @@ import { GrepTool } from './GrepTool';
 import { PlanReviewTool } from './PlanReviewTool';
 import { AskUserTool } from './AskUserTool';
 import { TaskOutputTool } from './TaskOutputTool';
-import { WebFetchTool } from './WebFetchTool';
+import { EnhancedWebSearchTool } from '@/mcp/search/EnhancedWebSearchTool';
 import { TodoCreateTool, TodoListTool, TodoUpdateTool, TodoClearTool } from './TodoTool';
 import { TodoArchiveTool } from './TodoArchiveTool';
 import { SleepTool } from './SleepTool';
@@ -143,10 +143,15 @@ export class ToolRegistry implements IToolRegistry {
       .use(new PlanModeMiddleware())
       .use(new PermissionMiddleware(controller));
 
-    // 同步注入到 PlanReviewTool
+    // 同步注入到 PlanReviewTool 和 AskUserTool
     const planTool = this.tools.get('plan_review');
     if (planTool && planTool instanceof PlanReviewTool) {
       (planTool as PlanReviewTool).setPermissionController(controller);
+    }
+
+    const askUserTool = this.tools.get('ask_user');
+    if (askUserTool && askUserTool instanceof AskUserTool) {
+      (askUserTool as AskUserTool).setPermissionController(controller);
     }
   }
 
@@ -285,6 +290,8 @@ export class ToolRegistry implements IToolRegistry {
         toolTimeout = timeouts.task;
       } else if (toolName === 'bash' && timeouts.bash) {
         toolTimeout = timeouts.bash;
+      } else if (toolName === 'web_search' && timeouts.webFetch) {
+        toolTimeout = timeouts.webFetch;
       } else if (toolName === 'web_fetch' && timeouts.webFetch) {
         toolTimeout = timeouts.webFetch;
       } else if (toolName === 'ask_user' || toolName === 'plan_review' || toolName === 'enter_plan_mode' || toolName === 'exit_plan_mode') {
@@ -343,7 +350,6 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new PlanReviewTool());
   registry.register(new AskUserTool());
   registry.register(new TaskOutputTool());
-  registry.register(new WebFetchTool());
   registry.register(new TodoCreateTool());
   registry.register(new TodoListTool());
   registry.register(new TodoUpdateTool());
@@ -357,6 +363,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new LSTool());
   registry.register(new MultiEditTool());
   registry.register(new TaskControlTool());
+  // 注册统一 web_search 工具（替代原来的 web_fetch）
+  registry.register(new EnhancedWebSearchTool());
   // TaskTool, TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

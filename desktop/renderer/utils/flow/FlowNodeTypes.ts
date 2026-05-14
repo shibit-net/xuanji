@@ -54,6 +54,7 @@ export interface ForegroundNodeData extends BaseNodeData {
 
 export interface SubagentNodeData extends BaseNodeData {
   nodeType: 'subagent';
+  scene?: string;
   taskDescription: string;
   executionMode: 'acp' | 'in-process';
   agentType?: string;
@@ -93,6 +94,7 @@ export interface TeamMemberNodeData extends BaseNodeData {
   nodeType: 'team-member';
   teamId: string;
   memberRole: string;
+  scene?: string;
   agentType?: string;
   executionMode?: 'acp' | 'in-process';
   debateRole?: 'affirmative' | 'negative' | 'judge';
@@ -199,6 +201,47 @@ export function isActiveStatus(status: string): boolean {
 
 export function isTerminalStatus(status: string): boolean {
   return ['success', 'failed', 'cancelled'].includes(status);
+}
+
+// ============================================================
+// AgentType 中文映射
+// ============================================================
+
+const AGENT_TYPE_LABELS: Record<string, string> = {
+  builtin: '系统',
+  preset: '应用',
+  custom: '自定义',
+  temporary: '临时',
+};
+
+export function getAgentTypeLabel(agentType?: string): string {
+  if (!agentType) return '';
+  return AGENT_TYPE_LABELS[agentType] || agentType;
+}
+
+// ============================================================
+// Moment 颜色映射
+// ============================================================
+
+const MOMENT_COLORS: Record<string, string> = {
+  pending: 'bg-muted/30 text-muted-foreground',
+  thinking: 'bg-purple-500/10 text-purple-400',
+  executing: 'bg-blue-500/10 text-blue-400',
+  writing: 'bg-cyan-500/10 text-cyan-400',
+  reporting: 'bg-amber-500/10 text-amber-400',
+  success: 'bg-emerald-500/15 text-emerald-400',
+  failed: 'bg-red-500/15 text-red-400',
+  cancelled: 'bg-muted/30 text-muted-foreground',
+};
+
+export function getMomentColor(status?: string): string {
+  if (!status) return MOMENT_COLORS.pending;
+  return MOMENT_COLORS[status] || MOMENT_COLORS.executing;
+}
+
+/** 判断 moment 是否处于活跃状态（显示实时计时器） */
+export function isMomentActive(status?: string): boolean {
+  return status === 'thinking' || status === 'executing' || status === 'writing';
 }
 
 // ============================================================

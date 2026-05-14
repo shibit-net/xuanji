@@ -5,7 +5,8 @@
 
 import { Handle, Position, type NodeProps } from 'reactflow';
 import {
-  getStatusVisual, isActiveStatus, isTerminalStatus,
+  getStatusVisual, isActiveStatus, isTerminalStatus, getAgentTypeLabel,
+  getMomentColor, isMomentActive,
   type TeamMemberNodeData,
 } from '../../utils/flow/FlowNodeTypes';
 import { useAgentStateMachine } from '../../stores/AgentStateMachine';
@@ -20,18 +21,18 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
   const active = isActiveStatus(data.status);
   const terminal = isTerminalStatus(data.status);
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
-  const liveOutputText = useAgentStateMachine((s) => s.agentMap[id]?.currentResponse);
   const now = useRealtimeClock();
 
-  const hasThought = !!liveThinkingText && data.status === 'thinking';
-  const hasOutput = !!liveOutputText && data.status === 'writing';
-  const hasChat = hasThought || hasOutput;
+  const isThinking = data.status === 'thinking';
+  const hasThought = !!liveThinkingText && isThinking;
+  const hasTask = !!(data.taskDescription || data.currentTask);
+  const showTaskBubble = hasTask && data.status === 'pending';
+  const showThoughtBubble = hasThought && !!liveThinkingText;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = !!(data.timelineEvents && data.timelineEvents.length > 0);
   const hasRightSide = hasMoment || hasTimeline;
 
-  const chatText = hasThought ? liveThinkingText : liveOutputText;
-  const chatLabel = hasThought ? '思考' : '输出';
+  const taskText = data.taskDescription || data.currentTask;
 
   return (
     <div className="relative flex flex-col items-center overflow-visible" style={{ width: NODE_W, minHeight: 100 }}>
@@ -96,21 +97,25 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
         </span>
       </div>
 
-      {/* 元信息标签行：agentType + executionMode + 进程 */}
+      {/* 元信息标签行：scene + agentType + executionMode + 进程 */}
       <div className="flex items-center gap-1 mt-0.5 flex-wrap justify-center">
+        {data.scene && (
+          <span className="text-[7px] px-1 py-0 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 truncate max-w-[80px]">
+            {data.scene}
+          </span>
+        )}
         {data.agentType && (
-          <span className="text-[7px] px-1 py-0 rounded bg-blue-500/10 text-blue-400/70">
-            {data.agentType}
+          <span className={`text-[7px] px-1 py-0 rounded ${
+            data.agentType === 'temporary'
+              ? 'bg-orange-500/10 text-orange-400/70'
+              : 'bg-blue-500/10 text-blue-400/70'
+          }`}>
+            {getAgentTypeLabel(data.agentType)}
           </span>
         )}
         {data.executionMode && (
           <span className="text-[7px] px-1 py-0 rounded bg-amber-500/10 text-amber-400/70">
             {data.executionMode === 'acp' ? 'acp' : 'proc'}
-          </span>
-        )}
-        {data.currentTask && (
-          <span className="text-[7px] px-1 py-0 rounded bg-cyan-500/10 text-cyan-400/70 truncate max-w-[70px]">
-            {data.currentTask.slice(0, 30)}
           </span>
         )}
       </div>
@@ -142,15 +147,33 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
       )}
 
       {/* ─── 左侧：聊天气泡 ─── */}
-      {hasChat && chatText && (
+      {/* 任务气泡（黄色边框）— 分配了任务但尚未开始思考 */}
+      {showTaskBubble && (
         <div
-          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-green-500/40 shadow-glass-sm min-w-[110px] max-w-[150px]"
-          style={{ zIndex: 10 }}
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-yellow-500/40 shadow-glass-sm w-[140px]"
+          style={{ zIndex: 20 }}
         >
-          <span className="text-[6px] text-muted-foreground/50 uppercase tracking-wider">{chatLabel}</span>
+          <span className="text-[6px] text-yellow-400/70 uppercase tracking-wider">任务</span>
           <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
-            {chatText.slice(-120)}
+            {taskText!.slice(-120)}
           </p>
+          {/* 小箭头 → 指向头像 */}
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-yellow-500/40" />
+        </div>
+      )}
+
+      {/* 思考气泡（绿色边框）— 正在思考 */}
+      {showThoughtBubble && (
+        <div
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-green-500/40 shadow-glass-sm w-[140px]"
+          style={{ zIndex: 20 }}
+        >
+          <span className="text-[6px] text-muted-foreground/50 uppercase tracking-wider">思考</span>
+          <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
+            {liveThinkingText!.slice(-120)}
+          </p>
+          {/* 小箭头 → 指向头像 */}
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-green-500/40" />
         </div>
       )}
 
@@ -158,17 +181,12 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
       {hasRightSide && (
         <div
           className="absolute top-0 left-full ml-0 flex flex-col gap-0.5 max-w-[100px]"
-          style={{ zIndex: 10 }}
+          style={{ zIndex: 5 }}
         >
           {hasMoment && (
-            <div className={`inline-flex items-center gap-1 px-1 py-0.5 rounded text-[7px] whitespace-nowrap ${
-              data.currentMoment!.status === 'error' ? 'bg-destructive/15 text-destructive' :
-              data.currentMoment!.status === 'failed' ? 'bg-destructive/15 text-destructive' :
-              active ? 'bg-primary/15 text-primary' :
-              'bg-success/15 text-success'
-            }`}>
+            <div className={`inline-flex items-center gap-1 px-1 py-0.5 rounded text-[7px] whitespace-nowrap ${getMomentColor(data.currentMoment!.status)}`}>
               <span>{data.currentMoment!.label}</span>
-              {active && data.currentMoment!.startTime ? (
+              {isMomentActive(data.currentMoment!.status) && data.currentMoment!.startTime ? (
                 <span className="opacity-50 font-mono">{formatDuration(now - data.currentMoment!.startTime)}</span>
               ) : data.currentMoment!.durationMs != null ? (
                 <span className="opacity-50 font-mono">{formatDuration(data.currentMoment!.durationMs)}</span>

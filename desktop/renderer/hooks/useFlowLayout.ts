@@ -12,9 +12,10 @@ import { applyLayout } from '../utils/flow/layout/engine';
 export function useFlowLayout(
   nodes: Node<FlowNodeData>[],
   edges: Edge[],
+  fixedPositions?: Map<string, { x: number; y: number }>,
 ): { nodes: Node<FlowNodeData>[]; edges: Edge[] } {
   return useMemo(() => {
     if (nodes.length === 0) return { nodes: [], edges: [] };
-    return applyLayout(nodes, edges);
-  }, [nodes, edges]);
+    return applyLayout(nodes, edges, fixedPositions);
+  }, [nodes, edges, fixedPositions]);
 }

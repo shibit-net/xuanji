@@ -71,13 +71,14 @@ export class TeamManager implements ITeamManager {
     agentRegistry?: AgentRegistry,
     providerManager?: ProviderManager,
     workingDir?: string,
+    teamId?: string,
   ) {
     this.mainProvider = mainProvider;
     this.registry = registry;
     this.agentConfig = agentConfig;
     this.hookRegistry = hookRegistry ?? null;
     this.depth = depth;
-    this.teamId = `team-${Date.now()}`; // 在构造时生成唯一 ID
+    this.teamId = teamId || `team-${Date.now()}`;
     this.workingDir = workingDir || process.cwd();
     this.worktreeManager = new WorktreeManager(path.join(this.workingDir, '.xuanji', 'worktrees'));
 
@@ -872,18 +873,28 @@ export class TeamManager implements ITeamManager {
       `3. task 调用格式：task({ subagent_type: "<agent-id>", scene: "<scene>", description: "..." })`,
       `4. 所有成员完成后，汇总结果并输出最终产出`,
       '',
+      '任务分配要点：',
+      '• 每个成员的 description 必须不同，根据其能力和角色分配不同的子任务',
+      '• description 中要包含该成员需要的全部上下文（子 agent 看不到父对话历史）',
+      '• 不要给多个成员分配相同的任务 — 每个成员应有独特的贡献方向',
+      '',
       '注意：task 是同步调用，等待一个成员完成后才能开始下一个。',
       '',
     ].join('\n');
 
     // ── Leader 自行通过 task 工具分配并执行 ────────────────
     // leader 会自己调 task 创建子成员，TeamManager 不再介入
-    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 通过 task 工具分配任务`);
+    // 注入委派必需的 tools：task（创建子 agent）、list_scenes（查询 scene）、match_agent（匹配 agent）
+    const leaderWithTools: TeamMember = {
+      ...leader,
+      tools: [...new Set([...(leader.tools || []), 'task', 'list_scenes', 'match_agent'])],
+    };
+    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 通过 task 工具分配任务，tools=${leaderWithTools.tools?.join(',')}`);
     const leaderResult = await TeamContextStore.run({
       teamId: this.teamId,
       parentMemberId: leader.id,
       strategy: 'hierarchical',
-    }, () => this.executeMemberTask(leader, leaderTask, [], undefined, 0, signal));
+    }, () => this.executeMemberTask(leaderWithTools, leaderTask, [], undefined, 0, signal));
     results.push(leaderResult);
 
     return results;
@@ -1025,7 +1036,7 @@ export class TeamManager implements ITeamManager {
           : member.name || member.id;
         const totalRounds = this.context!.config.maxRounds!;
 
-        let debateGoal = `⚖️ 辩论轮次 ${round + 1}/${totalRounds} —— 你是「${roleLabel}」\n\n当前任务：${goal}`;
+        let debateGoal = `⚖️ 辩论轮次 ${round + 1}/${totalRounds} —— 你是「${roleLabel}」\n\n你的具体任务（由主 agent 分配）已附在上方，请优先完成它。\n\n团队目标：${goal}`;
         if (factSummary && round === 0) {
           debateGoal += `\n\n[Judge 事实摘要 — 辩论引用基础]:\n${factSummary}\n\n📌 引用代码时请使用摘要中的行号，避免重复读取文件。仅当事摘要不足时再读取具体文件。`;
         }

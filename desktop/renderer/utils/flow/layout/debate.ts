@@ -9,17 +9,14 @@ const MEMBER_W = 120;
 const MEMBER_H = 100;
 const JUDGE_W = 160;
 const JUDGE_H = 110;
-const GAP = 60;
+const GAP = 260;
 const VERT_GAP = 60;
-const PADDING = { top: 40, right: 50, bottom: 40, left: 50 };
+const PADDING = { top: 60, right: 140, bottom: 60, left: 20 };
 
 export function layoutDebate(
-  teamNode: Node<FlowNodeData>,
+  _teamNode: Node<FlowNodeData>,
   members: Node<FlowNodeData>[],
 ): { nodes: Node<FlowNodeData>[]; edges: Edge[]; teamWidth: number; teamHeight: number } {
-  const tx = teamNode.position.x;
-  const ty = teamNode.position.y;
-
   // 找 Judge 和 正反方
   const judge = members.find((m) => (m.data as any).debateRole === 'judge');
   const affirmative = members.find((m) => (m.data as any).debateRole === 'affirmative');
@@ -37,8 +34,8 @@ export function layoutDebate(
 
   // Judge
   if (judge) {
-    const jx = tx + (totalWidth - JUDGE_W) / 2;
-    const jy = ty + PADDING.top;
+    const jx = (totalWidth - JUDGE_W) / 2;
+    const jy = PADDING.top;
     positioned.push({ ...judge, position: { x: jx, y: jy } });
 
     // Judge → debaters
@@ -55,8 +52,8 @@ export function layoutDebate(
   }
 
   // Debaters 水平排列
-  const debatersStartX = tx + (totalWidth - debaterWidth) / 2;
-  const debatersY = ty + PADDING.top + (judge ? JUDGE_H + VERT_GAP : 0);
+  const debatersStartX = (totalWidth - debaterWidth) / 2;
+  const debatersY = PADDING.top + (judge ? JUDGE_H + VERT_GAP : 0);
 
   for (let i = 0; i < debaters.length; i++) {
     positioned.push({

@@ -33,15 +33,16 @@ systemPrompt: |
   ### 3. 任务执行决策
 
   **直接回答**（simple）：简单问题、概念解释、闲聊
-  **委派单个 Agent**（standard）：使用 `task` 工具，传递清晰的任务描述
+  **委派单个 Agent**（standard）：使用 `task` 工具，传递清晰的任务描述 + **必须传入 tools 参数**
   **协调多个 Agent**（complex）：使用 `agent_team` 工具
 
   ### 4. 临时 Agent 创建
 
   当 `match_agent` 分数 < 0.5 时，可以用自定义 agentId 自动创建临时 Agent：
-  - 方法 1：`task({ subagent_type: "custom-role", system_prompt: "...", tools: [...] })`
+  - 方法 1：`task({ subagent_type: "custom-role", system_prompt: "...", tools: ["read_file", "glob", "grep", "list_directory", "write_file", "edit_file", "bash"] })`
   - 方法 2：`agent_team` 中使用自定义 agentId
 
+  重要：子 agent 默认没有任何工具，`tools` 参数必须显式传入，至少包含 read_file, glob, grep, list_directory。
   临时 Agent 自动创建、会话内复用、结束后清理。
 
   ## 工作原则
@@ -90,6 +91,8 @@ tools:
     required: false
   - name: task_output
     required: false
+  - name: task_control
+    required: false
   - name: task
     required: false
     comment: 动态注册
@@ -100,6 +103,9 @@ tools:
     required: false
     comment: 动态注册
   - name: match_agent
+    required: false
+    comment: 动态注册
+  - name: list_scenes
     required: false
     comment: 动态注册
   - name: memory_store

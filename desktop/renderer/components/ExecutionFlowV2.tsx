@@ -5,15 +5,16 @@
  * - 5 种节点类型（foreground/subagent/team/team-member/user-input）
  * - LR 布局方向，策略感知团队内部布局
  * - 统一数据流：useFlowNodes + useFlowLayout
- * - 节点不可拖拽，布局完全由状态决定
+ * - 节点可拖拽，拖拽后位置保持，新节点自动避让
  * - 终态节点保留灰显，cleared 节点自动移除
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
   Background, Controls, MiniMap,
   useNodesState, useEdgesState, ConnectionLineType,
   ReactFlowProvider, useReactFlow,
+  type NodeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -47,12 +48,50 @@ function Flow() {
   const initialized = useRef(false);
   const prevNodeCount = useRef(0);
 
-  // 新数据流：useFlowNodes → useFlowLayout
-  const { nodes: rawNodes, edges: rawEdges } = useFlowNodes();
-  const { nodes: layoutedNodes, edges: layoutedEdges } = useFlowLayout(rawNodes, rawEdges);
+  // 用户手动拖拽过的节点 ID 集合
+  const draggedNodeIds = useRef<Set<string>>(new Set());
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  // 拦截 onNodesChange，记录用户拖拽
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    for (const change of changes) {
+      if (change.type === 'position' && change.dragging) {
+        draggedNodeIds.current.add(change.id);
+      }
+    }
+    onNodesChange(changes);
+  }, [onNodesChange]);
+
+  // 清理已移除节点的拖拽记录
+  const currentNodesRef = useRef(nodes);
+  currentNodesRef.current = nodes;
+
+  // 构建固定位置映射（仅用户拖拽过的节点）
+  const fixedPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const n of currentNodesRef.current) {
+      if (draggedNodeIds.current.has(n.id)) {
+        map.set(n.id, { x: n.position.x, y: n.position.y });
+      }
+    }
+    return map;
+  }, [nodes]);
+
+  // 清理不再存在的节点
+  useEffect(() => {
+    const currentIds = new Set(nodes.map((n) => n.id));
+    for (const id of draggedNodeIds.current) {
+      if (!currentIds.has(id)) {
+        draggedNodeIds.current.delete(id);
+      }
+    }
+  }, [nodes]);
+
+  // 新数据流：useFlowNodes → useFlowLayout
+  const { nodes: rawNodes, edges: rawEdges } = useFlowNodes();
+  const { nodes: layoutedNodes, edges: layoutedEdges } = useFlowLayout(rawNodes, rawEdges, fixedPositions);
 
   // 同步布局结果到 React Flow state
   const prevNodesRef = useRef<string>('');
@@ -66,26 +105,32 @@ function Flow() {
     if (key === prevNodesRef.current) return;
     prevNodesRef.current = key;
 
-    // Debug: 打印节点信息
     flowLogger.log('ExecutionFlowV2', 'syncing nodes:',
       layoutedNodes.map(n => ({
         id: n.id, type: n.type, pos: n.position, status: (n.data as any)?.status,
       })));
 
+    // 合并布局结果：拖拽过的节点保持用户设置的位置
+    const mergedNodes = layoutedNodes.map((ln) => {
+      if (draggedNodeIds.current.has(ln.id)) {
+        const current = currentNodesRef.current.find((n) => n.id === ln.id);
+        if (current) {
+          return { ...ln, position: current.position };
+        }
+      }
+      return ln;
+    });
+
     requestAnimationFrame(() => {
-      setNodes(layoutedNodes as any);
+      setNodes(mergedNodes as any);
       setEdges(layoutedEdges as any);
     });
 
-    // 首次初始化或有新节点出现时，自动 fitView
     if (!initialized.current && layoutedNodes.length > 0) {
       initialized.current = true;
       prevNodeCount.current = nodeCount;
-      requestAnimationFrame(() => fitView({ duration: 300, padding: 0.3 }));
     } else if (initialized.current && nodeCount !== prevNodeCount.current && nodeCount > 0) {
-      // 节点数量变化时（新增/删除），重新 fitView
       prevNodeCount.current = nodeCount;
-      requestAnimationFrame(() => fitView({ duration: 300, padding: 0.3 }));
     }
   }, [layoutedNodes, layoutedEdges, setNodes, setEdges, fitView]);
 
@@ -121,18 +166,17 @@ function Flow() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         connectionLineType={ConnectionLineType.SmoothStep}
-        defaultViewport={{ x: 0, y: 0, zoom: 1.0 }}
-        minZoom={0.2}
-        maxZoom={3}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.6 }}
+        minZoom={0.1}
+        maxZoom={1.5}
         fitView
-        fitViewOptions={{ padding: 0.4 }}
+        fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}
         attributionPosition="bottom-right"
         proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={true}
       >

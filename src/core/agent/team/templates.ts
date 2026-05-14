@@ -159,7 +159,7 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
         name: 'Data Extractor',
         capabilities: ['data extraction', 'API calls', 'file parsing', 'web scraping'],
         priority: 4,
-        systemPrompt: 'Extract raw data from the source. Use appropriate tools (read_file, web_fetch, grep) to gather all required information. Output structured data.',
+        systemPrompt: 'Extract raw data from the source. Use appropriate tools (read_file, web_search, grep) to gather all required information. Output structured data.',
       },
       {
         id: 'cleaner',

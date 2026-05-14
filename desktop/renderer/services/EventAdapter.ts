@@ -31,6 +31,12 @@ export function registerEventAdapter(): void {
     return useAgentStateMachine.getState().foregroundAgentId || 'xuanji';
   }
 
+  // 异步子 agent：其文本不应直接进入对话框，而应通过 TaskCompletionHandler 汇报
+  const asyncSubAgentIds = new Set<string>();
+
+  // 待清理的 task/team：等到主 agent 的 agent:end 才统一清除
+  const pendingCleanupIds = new Set<string>();
+
   // ============================================================
   // IntentRoutingStore — 意图路由生命周期
   // ============================================================
@@ -90,6 +96,15 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:scene-list', (data: { scenes: Array<{ scene: string; description: string; keywords: string }> }) => {
     useIntentRoutingStore.getState().transition({ type: 'SET_SCENE_PROMPTS', scenes: data.scenes });
+  });
+
+  messageBus.on('agent:prompt-components', (data: { layers: Array<{ layer: number; components: Array<{ id: string; name: string }> }>; totalComponents: number; estimatedTokens: number }) => {
+    useIntentRoutingStore.getState().transition({
+      type: 'SET_PROMPT_COMPONENTS',
+      layers: data.layers,
+      totalComponents: data.totalComponents,
+      estimatedTokens: data.estimatedTokens,
+    });
   });
 
   messageBus.on('agent:intent-route', (data: {
@@ -238,6 +253,11 @@ export function registerEventAdapter(): void {
       store.transition({ type: 'FOREGROUND_COMPLETE', agentId: store.foregroundAgentId });
     }
     store.transition({ type: 'CLEANUP_COMPLETED_TASKS' });
+    // 清理 AsyncTaskStore 中待处理的 task/team
+    for (const id of pendingCleanupIds) {
+      useAsyncTaskStore.getState().transition({ type: 'TASK_CLEARED', taskId: id });
+    }
+    pendingCleanupIds.clear();
     store.transition({ type: 'CLEAR_QUEUED_MESSAGE' });
   });
 
@@ -245,8 +265,9 @@ export function registerEventAdapter(): void {
   // AgentStateMachine + AsyncTaskStore — subagent events
   // ============================================================
 
-  messageBus.on('agent:subagent-start', (data: { subAgentId: string; name: string; role?: string; task?: string; agentType?: string; parentId?: string; streamToUser?: boolean; scene?: string; executionMode?: 'acp' | 'in-process' }) => {
-    flowLogger.log('EventAdapter', 'RECV agent:subagent-start', 'subAgentId:', data.subAgentId, 'name:', data.name, 'agentType:', data.agentType, 'parentId:', data.parentId);
+  messageBus.on('agent:subagent-start', (data: { subAgentId: string; name: string; role?: string; task?: string; agentType?: string; parentId?: string; streamToUser?: boolean; scene?: string; executionMode?: 'acp' | 'in-process'; isAsync?: boolean }) => {
+    flowLogger.log('EventAdapter', 'RECV agent:subagent-start', 'subAgentId:', data.subAgentId, 'name:', data.name, 'agentType:', data.agentType, 'parentId:', data.parentId, 'isAsync:', data.isAsync);
+    if (data.isAsync) asyncSubAgentIds.add(data.subAgentId);
     const state = useAgentStateMachine.getState();
     // 如果后端 parentId 是 xuanji 或 main（占位符），替换为当前消息来源的前台 agent
     const parentId = (data.parentId && data.parentId !== 'xuanji' && data.parentId !== 'main')
@@ -260,6 +281,7 @@ export function registerEventAdapter(): void {
       agentType: data.agentType || 'temporary',
       taskType: 'task',
       executionMode: data.executionMode || 'in-process',
+      scene: data.scene,
       streamToUser: data.streamToUser,
     });
 
@@ -278,13 +300,19 @@ export function registerEventAdapter(): void {
   });
 
   messageBus.on('agent:subagent-end', (data: { subAgentId: string; success: boolean }) => {
+    const isAsync = asyncSubAgentIds.has(data.subAgentId);
+    asyncSubAgentIds.delete(data.subAgentId);
     useAgentStateMachine.getState().transition({
-      type: 'SUBAGENT_END', agentId: data.subAgentId, success: data.success,
+      type: 'SUBAGENT_END', agentId: data.subAgentId, success: data.success, isAsync,
     });
 
     const taskStore = useAsyncTaskStore.getState();
     if (taskStore.tasks[data.subAgentId]?.taskType === 'task') {
       taskStore.transition({ type: 'TASK_COMPLETED', taskId: data.subAgentId });
+      // 同步 task 推迟到主 agent 的 agent:end 再清理
+      if (!isAsync) {
+        pendingCleanupIds.add(data.subAgentId);
+      }
     }
   });
 
@@ -307,7 +335,7 @@ export function registerEventAdapter(): void {
   // AgentStateMachine + AsyncTaskStore — team events
   // ============================================================
 
-  messageBus.on('agent:team-start', (data: { teamId: string; name: string; goal?: string; strategy?: string; memberCount?: number; maxRounds?: number; members?: Array<{ id: string; name?: string; role?: string }> }) => {
+  messageBus.on('agent:team-start', (data: { teamId: string; name: string; goal?: string; strategy?: string; memberCount?: number; maxRounds?: number; members?: Array<{ id: string; name?: string; role?: string; agentType?: string; scene?: string; executionMode?: string; task?: string; stepIndex?: number; totalSteps?: number; debateRole?: string; subAgentId?: string }> }) => {
     const state = useAgentStateMachine.getState();
     const parentId = state.lastMessageAgentId || state.foregroundAgentId || undefined;
     useAgentStateMachine.getState().transition({
@@ -317,8 +345,31 @@ export function registerEventAdapter(): void {
       parentId,
       agentType: 'team',
       taskType: 'team',
-      multiAgent: { type: 'agent_team', strategy: data.strategy, teamName: data.name, goal: data.goal },
+      multiAgent: { type: 'agent_team', strategy: data.strategy, teamName: data.name, goal: data.goal, maxRounds: data.maxRounds },
     });
+
+    // 预创建所有团队成员（一起出现，未执行的保持 pending/排队中）
+    for (const m of (data.members || [])) {
+      useAgentStateMachine.getState().transition({
+        type: 'AGENT_CREATED',
+        agentId: m.subAgentId || m.id,
+        name: m.name || m.id,
+        parentId: data.teamId,
+        agentType: m.agentType || m.role || 'team-member',
+        taskType: 'team',
+        scene: m.scene,
+        executionMode: (m.executionMode as 'acp' | 'in-process') || 'acp',
+        task: m.task,
+        multiAgent: {
+          type: 'agent_team',
+          teamName: data.name,
+          memberId: m.id,
+          stepIndex: m.stepIndex,
+          totalSteps: m.totalSteps,
+          debateRole: m.debateRole as any,
+        },
+      });
+    }
 
     const members = (data.members || []).map((m) => ({
       id: m.id, name: m.name || m.id, lifecycle: 'creating' as const,
@@ -329,10 +380,13 @@ export function registerEventAdapter(): void {
     });
   });
 
-  messageBus.on('agent:team-member-start', (data: { teamId?: string; teamName?: string; memberId?: string; subAgentId?: string; name?: string; role?: string; agentType?: string; stepIndex?: number; totalSteps?: number; debateRole?: string; executionMode?: 'acp' | 'in-process' }) => {
+  messageBus.on('agent:team-member-start', (data: { teamId?: string; teamName?: string; memberId?: string; subAgentId?: string; name?: string; role?: string; agentType?: string; stepIndex?: number; totalSteps?: number; currentRound?: number; maxRounds?: number; debateRole?: string; executionMode?: 'acp' | 'in-process'; scene?: string }) => {
     const teamId = data.teamId || data.teamName || '';
     const memberId = data.subAgentId || data.memberId;
     if (!memberId) return;
+
+    // team member 输出走 team pipeline 回主 agent，不直接进对话框
+    asyncSubAgentIds.add(memberId);
 
     useAgentStateMachine.getState().transition({
       type: 'AGENT_CREATED',
@@ -341,7 +395,9 @@ export function registerEventAdapter(): void {
       parentId: data.teamName || teamId,
       agentType: data.agentType || 'team-member',
       taskType: 'team',
-      multiAgent: { type: 'agent_team', teamName: data.teamName, memberId, stepIndex: data.stepIndex, totalSteps: data.totalSteps, debateRole: data.debateRole },
+      executionMode: data.executionMode,
+      scene: data.scene,
+      multiAgent: { type: 'agent_team', teamName: data.teamName, memberId, stepIndex: data.stepIndex, totalSteps: data.totalSteps, currentRound: data.currentRound, maxRounds: data.maxRounds, debateRole: data.debateRole },
     });
 
     if (teamId) {
@@ -374,17 +430,18 @@ export function registerEventAdapter(): void {
     if (!teamId) return;
 
     const agentStore = useAgentStateMachine.getState();
-    // team 成员统一 CLEANUP（不等 AUTO_SUMMARIZE，因为 applySubAgentEnd 不再单独处理 team 成员）
+    // 成员只清理 asyncSubAgentIds，节点和 task 推迟到主 agent 的 agent:end 再清除
     const descendants = agentStore.getDescendantIds(teamId);
     for (const id of descendants) {
-      agentStore.transition({ type: 'CLEANUP', agentId: id });
+      asyncSubAgentIds.delete(id);
     }
-    agentStore.transition({ type: 'CLEANUP', agentId: teamId });
+    // 将 team 节点标记为 reporting（汇报中），供 CLEANUP_COMPLETED_TASKS 识别
+    agentStore.transition({ type: 'SUBAGENT_END', agentId: teamId, success: data.success !== false, isAsync: true });
 
     const taskStore = useAsyncTaskStore.getState();
     if (taskStore.tasks[teamId]?.taskType === 'team') {
       taskStore.transition({ type: 'TASK_COMPLETED', taskId: teamId });
-      taskStore.transition({ type: 'TASK_CLEARED', taskId: teamId });
+      pendingCleanupIds.add(teamId);
     }
   });
 
@@ -436,19 +493,29 @@ export function registerEventAdapter(): void {
   // messageStore — 消息流桥接
   // ============================================================
 
-  messageBus.on('agent:started', () => {
+  messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean }) => {
+    if (data?.isForeground === false) return;
     const msgId = generateMessageId('stream');
     const msgStore = useMessageStore.getState();
     msgStore.startStreaming(msgId);
   });
 
-  messageBus.on('agent:text', (data: string | { text: string }) => {
+  messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
+    const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
+    // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
+    if (asyncSubAgentIds.has(agentId)) return;
     useMessageStore.getState().appendStreamingText(text);
+    // 追踪当前正在输出文本到对话框的 agent，供 MessageBubble 显示编辑状态
+    useAgentStateMachine.setState({ streamingAgentId: agentId });
   });
 
-  messageBus.on('agent:end', () => {
+  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
+    // 异步子 agent 的 end 不关闭流式气泡（走 TaskCompletionHandler 汇报）
+    // 同步子 agent 和主 agent 的 end 关闭气泡
+    if (data?.agentId && asyncSubAgentIds.has(data.agentId)) return;
     useMessageStore.getState().finishStreaming();
+    useAgentStateMachine.setState({ streamingAgentId: null });
   });
 
   // ============================================================

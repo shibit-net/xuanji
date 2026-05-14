@@ -121,7 +121,7 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermissionRequirement[]> = 
 
   // 网络操作
   'web_search': ['network'],
-  'web_fetch': ['network'],
+  'web_fetch': ['network'], // backward compat — 新 agent 调 web_search
 
   // 复合权限
   'task': ['bashExec'], // SubAgent 可能执行任意操作

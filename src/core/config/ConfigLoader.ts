@@ -109,8 +109,18 @@ export class ConfigLoader implements IConfigLoader {
     return config;
   }
 
+  /** 权限默认配置（模板与迁移共用） */
+  private static PERMISSION_DEFAULTS: Record<string, any> = {
+    fileWrite: 'ask',
+    fileRead: 'always',
+    bashExec: 'ask',
+    warnLevel: 'ask',
+    confirmWrite: 'plan-only',
+    persistDecisions: true,
+  };
+
   /**
-   * 加载用户配置
+   * 加载用户配置，确保必填字段存在（缺失字段自动补全并写回磁盘）
    */
   private async loadUserConfig(): Promise<Record<string, any>> {
     const configPath = getUserConfigPath(this.userId);
@@ -120,8 +130,8 @@ export class ConfigLoader implements IConfigLoader {
       const defaultConfig: Record<string, any> = {
         provider: {},
         ui: { theme: 'dark', language: 'zh', showTokenUsage: true, showCost: true, showThinking: false },
-        permission: { fileWrite: 'ask', fileRead: 'always', bashExec: 'ask' },
-        tools: { enabled: [], permissions: { fileWrite: 'ask', fileRead: 'always', bashExec: 'ask' } },
+        permission: { ...ConfigLoader.PERMISSION_DEFAULTS },
+        tools: { enabled: [], permissions: { ...ConfigLoader.PERMISSION_DEFAULTS } },
         retry: { maxRetries: 3, initialDelay: 1000, maxDelay: 30000, backoffMultiplier: 2 },
         session: {
           autoResumeLastSession: false,
@@ -146,13 +156,44 @@ export class ConfigLoader implements IConfigLoader {
       // 支持两种格式：
       // 1. { version, userId, config: {...} }
       // 2. 直接的配置对象 {...}
+      let dirty = false;
+      let config: Record<string, any>;
+      let wrapper: { version: string; userId: string; config: Record<string, any> } | null = null;
+
       if (parsed.version && parsed.config) {
-        log.debug(`加载用户配置 (版本 ${parsed.version}): ${this.userId}`);
-        return parsed.config;
+        wrapper = parsed;
+        config = parsed.config;
       } else {
-        log.debug(`加载用户配置: ${this.userId}`);
-        return parsed;
+        config = parsed;
       }
+
+      // 补齐缺失的 permission 字段
+      if (!config.permission) {
+        config.permission = { ...ConfigLoader.PERMISSION_DEFAULTS };
+        log.info(`用户配置缺少 permission 字段，已补充默认值: ${this.userId}`);
+        dirty = true;
+      }
+
+      // 补齐缺失的 tools.permissions 字段
+      if (!config.tools?.permissions) {
+        config.tools = { ...config.tools, permissions: { ...ConfigLoader.PERMISSION_DEFAULTS } };
+        dirty = true;
+      }
+
+      if (dirty) {
+        try {
+          const toWrite = wrapper
+            ? { ...wrapper, config }
+            : config;
+          await writeFile(configPath, JSON.stringify(toWrite, null, 2), 'utf-8');
+          log.info(`用户配置已迁移，缺失字段已补充: ${configPath}`);
+        } catch (writeErr) {
+          log.warn('写回迁移配置失败:', writeErr);
+        }
+      }
+
+      log.debug(`加载用户配置: ${this.userId}`);
+      return config;
     } catch (error) {
       log.warn(`加载用户配置失败 (${this.userId}):`, error);
       return {};

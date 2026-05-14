@@ -6,6 +6,7 @@ import type { AppConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
 import { DependencyContainer } from '@/core/di';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
+import { getConfigManager } from '@/core/config/ConfigManager';
 import { setRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { ProviderManager } from '@/core/providers/ProviderManager';
 import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
@@ -24,7 +25,8 @@ import { TeamTool } from '@/core/tools/TeamTool';
 import { ListAgentsTool } from '@/core/tools/ListAgentsTool';
 import { ListScenesTool } from '@/core/tools/ListScenesTool';
 import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
-import { FilteredToolRegistry } from '@/core/tools/FilteredToolRegistry';
+import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
+import { FilteredToolRegistry, augmentToolList } from '@/core/tools/FilteredToolRegistry';
 import { getTodoManager } from '@/core/tools/TodoManager';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 
@@ -39,6 +41,8 @@ export interface SessionOptions {
   registry?: IToolRegistry;
   callbacks?: SessionCallbacks;
   projectRoot?: string;
+  embeddingProvider?: EmbeddingProviderInterface | null;
+  onMissingEmbedding?: () => void;
 }
 
 export class SessionFactory {
@@ -160,9 +164,17 @@ export class SessionFactory {
       } : undefined,
     };
 
+    // 从 agent YAML 配置获取工具白名单，自动补齐
+    const cfgMgr = getConfigManager();
+    const agentCfg = cfgMgr.getAgentConfig(this.agentId);
+    const agentTools = agentCfg?.tools
+      ? (agentCfg.tools as Array<{ name: string }>).map(t => t.name)
+      : [];
+    const augmentedTools = augmentToolList(agentTools);
+
     const trackedRegistry = new FilteredToolRegistry(
       registry,
-      null,
+      augmentedTools,
       { agentId: this.agentId, agentName: this.agentId },
       process.cwd(),
     );
@@ -261,7 +273,11 @@ export class SessionFactory {
     registry.register(listAgentsTool);
 
     const matchAgentTool = new MatchAgentTool();
-    matchAgentTool.setDependencies({ agentRegistry });
+    matchAgentTool.setDependencies({
+      agentRegistry,
+      embeddingProvider: options.embeddingProvider,
+      onMissingEmbedding: options.onMissingEmbedding,
+    });
     registry.register(matchAgentTool);
 
     const listScenesTool = new ListScenesTool();

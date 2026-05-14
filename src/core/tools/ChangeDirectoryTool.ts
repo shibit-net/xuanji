@@ -101,6 +101,7 @@ export class ChangeDirectoryTool extends BaseTool {
           const branch = execSync('git rev-parse --abbrev-ref HEAD', {
             cwd: resolvedPath,
             encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
           }).trim();
           infoLines.push(`  分支: ${branch}`);
         } catch (err) {

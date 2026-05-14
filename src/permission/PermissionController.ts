@@ -79,19 +79,7 @@ export class PermissionController implements IPermissionController {
   private planReviewHandler: PlanReviewHandler | null = null;
   private config: PermissionConfig;
 
-  /** 决策缓存最大容量 */
-  private static readonly MAX_DECISION_CACHE = 500;
-
-  /** 确认超时时间（毫秒），超时后自动拒绝 */
-  private static readonly CONFIRMATION_TIMEOUT_MS = 60_000;
-
-  /** 计划审查超时时间（毫秒），超时后自动拒绝 */
-  private static readonly PLAN_REVIEW_TIMEOUT_MS = 300_000;
-
-  /** 会话级决策缓存: cacheKey → allowed */
-  private decisionCache: Map<string, boolean> = new Map();
-
-  /** 持久化决策存储（可选） */
+  /** 持久化决策存储 */
   private decisionStore: DecisionStore | null = null;
 
   /** 权限审计 */
@@ -113,12 +101,19 @@ export class PermissionController implements IPermissionController {
   /** 当前登录用户 ID，用于决策记录的按用户隔离存储 */
   private userId: string;
 
+  private static DEFAULT_PERMISSION: PermissionConfig = {
+    fileRead: 'always',
+    fileWrite: 'ask',
+    bashExec: 'ask',
+    persistDecisions: true,
+  };
+
   constructor(config: PermissionConfig, userId?: string, eventBus?: EventBus) {
     this.userId = userId || 'default';
-    this.config = config;
+    this.config = { ...PermissionController.DEFAULT_PERMISSION, ...config };
     this.fileGuard = new FileGuard();
     this.commandGuard = new CommandGuard();
-    this.policyEngine = new PolicyEngine(config);
+    this.policyEngine = new PolicyEngine(this.config);
     this.eventBus = eventBus ?? new EventBus();
     this.permissionAudit = new PermissionAudit();
 
@@ -196,8 +191,6 @@ export class PermissionController implements IPermissionController {
   updateConfig(config: PermissionConfig): void {
     this.config = config;
     this.policyEngine.updateConfig(config);
-    // 配置变更时清空缓存
-    this.decisionCache.clear();
     // 重新初始化 DecisionStore
     this.initDecisionStore().catch(() => {});
   }
@@ -375,32 +368,11 @@ export class PermissionController implements IPermissionController {
         // 用户配置为需要确认，进入确认流程
         this.log.debug(`Warn-level operation requires confirmation: ${guardResult.description}`);
 
-        // 检查会话缓存
-        const cachedSession = this.decisionCache.get(guardResult.cacheKey);
-        if (cachedSession !== undefined) {
-          this.log.debug(`Session cache hit: ${guardResult.cacheKey} → ${cachedSession}`);
-          const result: PermissionResult = {
-            allowed: cachedSession,
-            reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
-            checkedBy: 'session-cache',
-          };
-          this.logAuditEvent(request, result, guardResult);
-          this.eventBus.emit('permission:checked', {
-            request,
-            result,
-            guardResult,
-            timestamp: new Date(),
-          });
-          return result;
-        }
-
-        // 检查持久化缓存（新增）
+        // 检查持久化缓存
         if (this.decisionStore?.isLoaded()) {
           const cachedPersist = this.decisionStore.get(guardResult.cacheKey);
           if (cachedPersist !== undefined) {
             this.log.debug(`Persistent cache hit: ${guardResult.cacheKey} → ${cachedPersist}`);
-            // 回填会话缓存
-            this.decisionCache.set(guardResult.cacheKey, cachedPersist);
             const result: PermissionResult = {
               allowed: cachedPersist,
               reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
@@ -435,32 +407,11 @@ export class PermissionController implements IPermissionController {
     }
 
     // 第 4 步: danger 级别 — 强制确认（安全兜底）
-    // 先检查会话缓存（用户之前选择了 Always/Never）
-    const cachedSession = this.decisionCache.get(guardResult.cacheKey);
-    if (cachedSession !== undefined) {
-      this.log.debug(`Session cache hit: ${guardResult.cacheKey} → ${cachedSession}`);
-      const result: PermissionResult = {
-        allowed: cachedSession,
-        reason: cachedSession ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
-        checkedBy: 'session-cache',
-      };
-      this.logAuditEvent(request, result, guardResult);
-      this.eventBus.emit('permission:checked', {
-        request,
-        result,
-        guardResult,
-        timestamp: new Date(),
-      });
-      return result;
-    }
-
-    // 检查持久化缓存（新增）
+    // 检查持久化缓存（用户之前选择了 Always/Never）
     if (this.decisionStore?.isLoaded()) {
       const cachedPersist = this.decisionStore.get(guardResult.cacheKey);
       if (cachedPersist !== undefined) {
         this.log.debug(`Persistent cache hit: ${guardResult.cacheKey} → ${cachedPersist}`);
-        // 回填会话缓存
-        this.decisionCache.set(guardResult.cacheKey, cachedPersist);
         const result: PermissionResult = {
           allowed: cachedPersist,
           reason: cachedPersist ? undefined : t('perm.denied_cache', { desc: guardResult.description }),
@@ -511,6 +462,24 @@ export class PermissionController implements IPermissionController {
   }
 
   /**
+   * 串行化用户交互：将操作加入全局确认队列，保证同一时刻只有一个交互框
+   *
+   * 权限确认、计划审查、AskUserTool 提问共享此队列，
+   * 避免多个 agent 同时弹出对话框造成 UI 混乱。
+   */
+  serialize<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.confirmationQueue = this.confirmationQueue.then(async () => {
+        try {
+          resolve(await fn());
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+
+  /**
    * 请求用户确认 (串行化)
    */
   private async requestConfirmation(
@@ -518,7 +487,6 @@ export class PermissionController implements IPermissionController {
     guardResult: GuardCheckResult,
   ): Promise<PermissionResult> {
     if (!this.confirmationHandler) {
-      // 无 UI 确认能力时，保守拒绝
       this.log.warn('No confirmation handler, denying by default');
       const result: PermissionResult = {
         allowed: false,
@@ -529,101 +497,74 @@ export class PermissionController implements IPermissionController {
       return result;
     }
 
-    // 串行化: 等待前一个确认完成后再弹出新的
-    return new Promise<PermissionResult>((resolve) => {
-      this.confirmationQueue = this.confirmationQueue.then(async () => {
-        try {
-          // 添加超时保护：60秒未响应则自动拒绝，防止 UI 崩溃导致永久阻塞
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Confirmation timeout')), PermissionController.CONFIRMATION_TIMEOUT_MS);
-          });
-          const confirmation = await Promise.race([
-            this.confirmationHandler!(request, guardResult),
-            timeoutPromise,
-          ]);
+    return this.serialize(async () => {
+      try {
+        const confirmation = await this.confirmationHandler!(request, guardResult);
 
-          // 更新缓存 (如果用户选择了 Always/Never)
-          if (confirmation.remember) {
-            if (this.decisionCache.size >= PermissionController.MAX_DECISION_CACHE) {
-              // 逐出最早的条目（FIFO），避免全量清空导致大量重新确认
-              const firstKey = this.decisionCache.keys().next().value;
-              if (firstKey !== undefined) {
-                this.decisionCache.delete(firstKey);
-              }
-            }
-            this.decisionCache.set(guardResult.cacheKey, confirmation.allowed);
-            this.log.debug(`Session cache set: ${guardResult.cacheKey} → ${confirmation.allowed}`);
+        if (confirmation.remember) {
+          if (this.decisionStore) {
+            this.decisionStore.set(guardResult.cacheKey, confirmation.allowed, request.toolName).catch((err) => {
+              this.log.warn('Failed to persist decision:', err);
+            });
+          }
 
-            // 持久化存储
-            if (this.decisionStore) {
-              this.decisionStore.set(guardResult.cacheKey, confirmation.allowed, request.toolName).catch((err) => {
-                this.log.warn('Failed to persist decision:', err);
-              });
-            }
-            
-            // 如果用户拒绝，记录到拒绝操作列表
-            if (!confirmation.allowed) {
-              this.recordDeniedOperation(
-                guardResult.category,
-                guardResult.cacheKey,
-                `用户拒绝: ${guardResult.description}`,
-                false
-              );
-
-              // 记录当前意图下被拒绝的操作类型
-              if (this.currentUserIntent && guardResult.context?.operationType) {
-                this.deniedIntentOperations.add(guardResult.context.operationType);
-                this.log.debug(`Recorded denied operation type for current intent: ${guardResult.context.operationType}`);
-              }
-            }
-          } else if (!confirmation.allowed) {
-            // 仅会话级拒绝
+          if (!confirmation.allowed) {
             this.recordDeniedOperation(
               guardResult.category,
               guardResult.cacheKey,
-              `用户拒绝（本会话）: ${guardResult.description}`,
-              true
+              `用户拒绝: ${guardResult.description}`,
+              false
             );
 
-            // 记录当前意图下被拒绝的操作类型
             if (this.currentUserIntent && guardResult.context?.operationType) {
               this.deniedIntentOperations.add(guardResult.context.operationType);
-              this.log.debug(`Recorded denied operation type for current intent (session only): ${guardResult.context.operationType}`);
+              this.log.debug(`Recorded denied operation type for current intent: ${guardResult.context.operationType}`);
             }
           }
+        } else if (!confirmation.allowed) {
+          this.recordDeniedOperation(
+            guardResult.category,
+            guardResult.cacheKey,
+            `用户拒绝（本会话）: ${guardResult.description}`,
+            true
+          );
 
-          const permResult: PermissionResult = {
-            allowed: confirmation.allowed,
-            reason: confirmation.allowed ? undefined : t('perm.denied_user', { desc: guardResult.description }),
-            checkedBy: 'user-confirmation',
-          };
-          this.logAuditEvent(request, permResult, guardResult);
-          this.eventBus.emit('permission:checked', {
-            request,
-            result: permResult,
-            guardResult,
-            rememberChoice: confirmation.remember,
-            timestamp: new Date(),
-          });
-          resolve(permResult);
-        } catch (err) {
-          // handler 异常: 自动拒绝
-          this.log.warn('Confirmation handler error, denying:', err);
-          const permResult: PermissionResult = {
-            allowed: false,
-            reason: t('perm.denied_timeout'),
-            checkedBy: 'timeout',
-          };
-          this.logAuditEvent(request, permResult, guardResult);
-          this.eventBus.emit('permission:checked', {
-            request,
-            result: permResult,
-            guardResult,
-            timestamp: new Date(),
-          });
-          resolve(permResult);
+          if (this.currentUserIntent && guardResult.context?.operationType) {
+            this.deniedIntentOperations.add(guardResult.context.operationType);
+            this.log.debug(`Recorded denied operation type for current intent (session only): ${guardResult.context.operationType}`);
+          }
         }
-      });
+
+        const permResult: PermissionResult = {
+          allowed: confirmation.allowed,
+          reason: confirmation.allowed ? undefined : t('perm.denied_user', { desc: guardResult.description }),
+          checkedBy: 'user-confirmation',
+        };
+        this.logAuditEvent(request, permResult, guardResult);
+        this.eventBus.emit('permission:checked', {
+          request,
+          result: permResult,
+          guardResult,
+          rememberChoice: confirmation.remember,
+          timestamp: new Date(),
+        });
+        return permResult;
+      } catch (err) {
+        this.log.warn('Confirmation handler error, denying:', err);
+        const permResult: PermissionResult = {
+          allowed: false,
+          reason: t('perm.denied_no_handler'),
+          checkedBy: 'handler-error',
+        };
+        this.logAuditEvent(request, permResult, guardResult);
+        this.eventBus.emit('permission:checked', {
+          request,
+          result: permResult,
+          guardResult,
+          timestamp: new Date(),
+        });
+        return permResult;
+      }
     });
   }
 
@@ -649,42 +590,22 @@ export class PermissionController implements IPermissionController {
     if (!this.planReviewHandler) {
       this.log.warn('No plan review handler, auto-approving');
       const result: PlanReviewResult = { decision: 'approve' };
-      this.eventBus.emit('plan:reviewed', {
-        plan,
-        result,
-        timestamp: new Date(),
-      });
+      this.eventBus.emit('plan:reviewed', { plan, result, timestamp: new Date() });
       return result;
     }
 
-    try {
-      // 超时保护：PLAN_REVIEW_TIMEOUT_MS 内未响应则自动拒绝，防止 UI 崩溃/用户离开导致永久阻塞
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Plan review timeout')),
-          PermissionController.PLAN_REVIEW_TIMEOUT_MS,
-        );
-      });
-      const result = await Promise.race([
-        this.planReviewHandler(plan),
-        timeoutPromise,
-      ]);
-      this.eventBus.emit('plan:reviewed', {
-        plan,
-        result,
-        timestamp: new Date(),
-      });
-      return result;
-    } catch (err) {
-      this.log.warn('Plan review timeout/error, auto-rejecting:', err);
-      const result: PlanReviewResult = { decision: 'reject' };
-      this.eventBus.emit('plan:reviewed', {
-        plan,
-        result,
-        timestamp: new Date(),
-      });
-      return result;
-    }
+    return this.serialize(async () => {
+      try {
+        const result = await this.planReviewHandler!(plan);
+        this.eventBus.emit('plan:reviewed', { plan, result, timestamp: new Date() });
+        return result;
+      } catch (err) {
+        this.log.warn('Plan review error, auto-rejecting:', err);
+        const result: PlanReviewResult = { decision: 'reject' };
+        this.eventBus.emit('plan:reviewed', { plan, result, timestamp: new Date() });
+        return result;
+      }
+    });
   }
 
   // ============================================================
@@ -702,21 +623,15 @@ export class PermissionController implements IPermissionController {
    * 删除指定决策（同时清除会话级缓存）
    */
   async deleteDecision(cacheKey: string): Promise<void> {
-    // 清除会话缓存
-    this.decisionCache.delete(cacheKey);
-    // 清除持久化存储
     if (this.decisionStore) {
       await this.decisionStore.delete(cacheKey);
     }
   }
 
   /**
-   * 清空所有决策（同时清除会话级缓存）
+   * 清空所有决策
    */
   async clearDecisions(): Promise<void> {
-    // 清空会话缓存
-    this.decisionCache.clear();
-    // 清空持久化存储
     if (this.decisionStore) {
       await this.decisionStore.clear();
     }

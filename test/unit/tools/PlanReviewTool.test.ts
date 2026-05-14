@@ -20,6 +20,7 @@ function createMockController(reviewResult: PlanReviewResult): IPermissionContro
     listDeniedOperations: vi.fn().mockReturnValue([]),
     deleteDeniedOperation: vi.fn().mockResolvedValue(undefined),
     clearDeniedOperations: vi.fn().mockResolvedValue(undefined),
+    serialize: vi.fn().mockImplementation((fn: () => Promise<any>) => fn()),
   };
 }
 

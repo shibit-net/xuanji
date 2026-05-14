@@ -20,6 +20,7 @@ export enum XuanjiEvent {
 
   // === Agent ===
   AGENT_CREATED = 'agent.created',
+  AGENT_PROMPT_COMPONENTS = 'agent.prompt.components',
   AGENT_STARTED = 'agent.started',
   AGENT_TOOL_START = 'agent.tool.start',
   AGENT_TOOL_DELTA = 'agent.tool.delta',

@@ -163,6 +163,8 @@ export class TaskOrchestrator {
     startedAt?: number;
     completedAt?: number;
     members?: TaskMember[];
+    currentRound?: number;
+    maxRounds?: number;
     error?: string;
   } {
     const task = this.tasks.get(groupId);
@@ -181,6 +183,8 @@ export class TaskOrchestrator {
       startedAt: task.startedAt,
       completedAt: task.completedAt,
       members: task.members.map(m => ({ ...m })),
+      currentRound: task.progress.currentRound,
+      maxRounds: task.progress.maxRounds,
     };
   }
 

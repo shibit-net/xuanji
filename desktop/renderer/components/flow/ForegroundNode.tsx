@@ -8,7 +8,8 @@
 import { useMemo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import {
-  getStatusVisual, isActiveStatus, isTerminalStatus,
+  getStatusVisual, isActiveStatus, isTerminalStatus, getAgentTypeLabel,
+  getMomentColor, isMomentActive,
   type ForegroundNodeData,
 } from '../../utils/flow/FlowNodeTypes';
 import { useAgentStateMachine } from '../../stores/AgentStateMachine';
@@ -24,12 +25,13 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
   const active = isActiveStatus(data.status);
   const terminal = isTerminalStatus(data.status);
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
-  const liveOutputText = useAgentStateMachine((s) => s.agentMap[id]?.currentResponse);
   const now = useRealtimeClock();
 
-  const hasThought = !!liveThinkingText && data.status === 'thinking';
-  const hasOutput = !!liveOutputText && data.status === 'writing';
-  const hasChat = hasThought || hasOutput;
+  const isThinking = data.status === 'thinking';
+  const hasThought = !!liveThinkingText && isThinking;
+  const hasTask = !!data.currentTask;
+  const showTaskBubble = hasTask && !isThinking;
+  const showThoughtBubble = hasThought && !!liveThinkingText;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = !!(data.timelineEvents && data.timelineEvents.length > 0);
   const hasRightSide = hasMoment || hasTimeline;
@@ -39,9 +41,6 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
     if (data.status === 'failed') return { icon: '✕', color: 'bg-destructive' };
     return null;
   }, [data.status]);
-
-  const chatText = hasThought ? liveThinkingText : liveOutputText;
-  const chatLabel = hasThought ? '思考' : '输出';
 
   return (
     <div className="relative flex flex-col items-center overflow-visible" style={{ width: NODE_W, minHeight: 130 }}>
@@ -133,7 +132,7 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
         )}
         {data.agentType && (
           <span className="text-[8px] px-1 py-0 rounded bg-blue-500/10 text-blue-400/70 border border-blue-500/20">
-            {data.agentType}
+            {getAgentTypeLabel(data.agentType)}
           </span>
         )}
         {data.executionMode && (
@@ -149,14 +148,28 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
       </div>
 
       {/* ─── 左侧：聊天气泡 ─── */}
-      {hasChat && chatText && (
+      {/* 任务气泡（黄色边框）— 分配了任务但尚未开始思考 */}
+      {showTaskBubble && (
+        <div
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-yellow-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
+          style={{ zIndex: 10 }}
+        >
+          <span className="text-[7px] text-yellow-400/70 uppercase tracking-wider">任务</span>
+          <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
+            {data.currentTask!.slice(-200)}
+          </p>
+        </div>
+      )}
+
+      {/* 思考气泡（绿色边框）— 正在思考 */}
+      {showThoughtBubble && (
         <div
           className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-green-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
           style={{ zIndex: 10 }}
         >
-          <span className="text-[7px] text-muted-foreground/50 uppercase tracking-wider">{chatLabel}</span>
+          <span className="text-[7px] text-muted-foreground/50 uppercase tracking-wider">思考</span>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
-            {chatText.slice(-200)}
+            {liveThinkingText!.slice(-200)}
           </p>
         </div>
       )}
@@ -169,14 +182,9 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
         >
           {/* Moment 状态指示 */}
           {hasMoment && (
-            <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] whitespace-nowrap ${
-              data.currentMoment!.status === 'error' ? 'bg-destructive/15 text-destructive' :
-              data.currentMoment!.status === 'failed' ? 'bg-destructive/15 text-destructive' :
-              active ? 'bg-primary/15 text-primary' :
-              'bg-success/15 text-success'
-            }`}>
+            <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] whitespace-nowrap ${getMomentColor(data.currentMoment!.status)}`}>
               <span>{data.currentMoment!.label}</span>
-              {active && data.currentMoment!.startTime ? (
+              {isMomentActive(data.currentMoment!.status) && data.currentMoment!.startTime ? (
                 <span className="opacity-50 font-mono">{formatDuration(now - data.currentMoment!.startTime)}</span>
               ) : data.currentMoment!.durationMs != null ? (
                 <span className="opacity-50 font-mono">{formatDuration(data.currentMoment!.durationMs)}</span>

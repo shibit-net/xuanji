@@ -9,17 +9,14 @@ const MEMBER_W = 120;
 const MEMBER_H = 100;
 const LEADER_W = 140;
 const LEADER_H = 110;
-const WORKER_GAP = 40;
+const WORKER_GAP = 260;
 const VERT_GAP = 60;
-const PADDING = { top: 40, right: 40, bottom: 40, left: 40 };
+const PADDING = { top: 60, right: 140, bottom: 60, left: 20 };
 
 export function layoutHierarchical(
-  teamNode: Node<FlowNodeData>,
+  _teamNode: Node<FlowNodeData>,
   members: Node<FlowNodeData>[],
 ): { nodes: Node<FlowNodeData>[]; edges: Edge[]; teamWidth: number; teamHeight: number } {
-  const tx = teamNode.position.x;
-  const ty = teamNode.position.y;
-
   // 找 Leader（第一个成员或名称含 leader）
   const leaderIdx = members.findIndex((m) =>
     (m.data as any).name?.toLowerCase()?.includes('leader'),
@@ -37,8 +34,8 @@ export function layoutHierarchical(
   const positioned: Node<FlowNodeData>[] = [];
 
   // Leader 水平居中于 team
-  const leaderX = tx + (totalWidth - LEADER_W) / 2;
-  const leaderY = ty + PADDING.top;
+  const leaderX = (totalWidth - LEADER_W) / 2;
+  const leaderY = PADDING.top;
 
   positioned.push({
     ...leader,
@@ -46,7 +43,7 @@ export function layoutHierarchical(
   });
 
   // Workers 水平居中排列
-  const workersStartX = tx + (totalWidth - workersWidth) / 2;
+  const workersStartX = (totalWidth - workersWidth) / 2;
   const workersY = leaderY + LEADER_H + VERT_GAP;
 
   for (let i = 0; i < workers.length; i++) {

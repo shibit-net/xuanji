@@ -84,12 +84,12 @@ export interface AgentState {
 }
 
 export type AgentEvent =
-  | { type: 'AGENT_CREATED'; agentId: string; name: string; parentId?: string; agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; multiAgent?: AgentState['multiAgent'] }
+  | { type: 'AGENT_CREATED'; agentId: string; name: string; parentId?: string; agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; scene?: string; task?: string; multiAgent?: AgentState['multiAgent'] }
   | { type: 'THINKING_DELTA'; agentId: string; content: string; taskDescription?: string }
   | { type: 'TOOL_START'; agentId: string; toolId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: 'TOOL_END'; agentId: string; toolId: string; toolName: string; result?: string; isError?: boolean }
   | { type: 'TEXT_DELTA'; agentId: string; text: string }
-  | { type: 'SUBAGENT_END'; agentId: string; success: boolean }
+  | { type: 'SUBAGENT_END'; agentId: string; success: boolean; isAsync?: boolean }
   | { type: 'AUTO_SUMMARIZE_START'; agentId: string }
   | { type: 'TASK_FAILED'; agentId: string; error?: string }
   | { type: 'CLEANUP'; agentId: string }
@@ -118,6 +118,7 @@ interface AgentStateMachineStore {
   agentMap: Record<string, AgentState>;
   foregroundAgentId: string | null;
   lastMessageAgentId: string | null;  // 最近一次发送消息时的前台 agent，供子 agent parentId 归属判断
+  streamingAgentId: string | null;   // 当前正在输出文本到对话框的 agent（同步子 agent 或主 agent）
   queuedMessageCount: number;
 
   transition: (event: AgentEvent) => void;
@@ -133,13 +134,10 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
   agentMap: {},
   foregroundAgentId: null,
   lastMessageAgentId: null,
+  streamingAgentId: null,
   queuedMessageCount: 0,
 
   transition: (event) => {
-    // 诊断日志：跟踪关键事件
-    if (event.type === 'AGENT_CREATED' || event.type === 'CLEANUP_COMPLETED_TASKS' || event.type === 'SET_FOREGROUND_AGENT') {
-      flowLogger.log('AgentStateMachine', 'transition:', event.type, (event as any).agentId || '');
-    }
     set((s) => {
       const next = { ...s.agentMap };
       let main = s.mainAgent;
@@ -155,10 +153,26 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
       }
 
       // 终态屏障：终态 agent 的非清理/非前台切换事件直接静默忽略
+      // 例外：team member 自动复活 — ACP 实时事件可能先于 agent:team-member-start 到达
       if (event.type !== 'AGENT_CREATED' && event.type !== 'CLEANUP' && event.type !== 'CLEANUP_COMPLETED_TASKS' && event.type !== 'SET_FOREGROUND_AGENT') {
         const e = event as any;
         if (e.agentId && next[e.agentId] && isTerminal(next[e.agentId].status)) {
-          return { agentMap: next, mainAgent: main };
+          const agent = next[e.agentId];
+          if (agent.taskType === 'team' && agent.agentType !== 'team') {
+            // team member：自动复活到 pending，让后续事件自然驱动状态流转
+            flowLogger.log('AgentStateMachine', 'TERMINAL_BARRIER auto-revive team member',
+              'agentId:', e.agentId, 'oldStatus:', agent.status, 'event:', event.type);
+            const revived = { ...agent };
+            revived.status = 'pending';
+            revived.currentTools = [];
+            revived.currentThought = undefined;
+            revived.currentResponse = undefined;
+            Object.assign(revived, updateMoment(agent, 'pending'));
+            next[e.agentId] = revived;
+          } else {
+            flowLogger.log('AgentStateMachine', 'TERMINAL_BARRIER blocked', event.type, 'agentId:', e.agentId, 'status:', next[e.agentId].status);
+            return { agentMap: next, mainAgent: main };
+          }
         }
       }
 
@@ -240,7 +254,7 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
     return result;
   },
 
-  clearAll: () => set({ mainAgent: null, agentMap: {}, foregroundAgentId: null, queuedMessageCount: 0 }),
+  clearAll: () => set({ mainAgent: null, agentMap: {}, foregroundAgentId: null, streamingAgentId: null, queuedMessageCount: 0 }),
 }));
 
 // ============================================================
@@ -253,7 +267,7 @@ function ensureAgent(
   agentId: string,
   name?: string,
   parentId?: string,
-  options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; multiAgent?: AgentState['multiAgent'] },
+  options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; scene?: string; multiAgent?: AgentState['multiAgent'] },
 ): { agentMap: Record<string, AgentState>; mainAgent: string | null } {
   if (agentMap[agentId]) {
     // 已存在则补全 options 中缺失的字段（解决事件时序导致的 auto-create 先于 AGENT_CREATED 到达）
@@ -264,7 +278,51 @@ function ensureAgent(
     if (options?.agentType && !existing.agentType) { patch.agentType = options.agentType; updated = true; }
     if (options?.executionMode && !existing.executionMode) { patch.executionMode = options.executionMode; updated = true; }
     if (options?.streamToUser !== undefined && existing.streamToUser === undefined) { patch.streamToUser = options.streamToUser; updated = true; }
-    if (options?.multiAgent && !existing.multiAgent?.type) { patch.multiAgent = options.multiAgent; updated = true; }
+    if (options?.multiAgent) {
+      if (!existing.multiAgent?.type) {
+        patch.multiAgent = options.multiAgent; updated = true;
+      } else {
+        // 合并字段：新增字段 + 更新 currentRound/maxRounds（辩论多轮会递增）
+        const merged = { ...existing.multiAgent };
+        let hasNew = false;
+        for (const [k, v] of Object.entries(options.multiAgent)) {
+          if (v !== undefined && (merged as any)[k] === undefined) { (merged as any)[k] = v; hasNew = true; }
+        }
+        // currentRound / maxRounds 始终取最新值（辩论多轮递增）
+        if (options.multiAgent.currentRound != null && options.multiAgent.currentRound !== merged.currentRound) {
+          merged.currentRound = options.multiAgent.currentRound; hasNew = true;
+        }
+        if (options.multiAgent.maxRounds != null && options.multiAgent.maxRounds !== merged.maxRounds) {
+          merged.maxRounds = options.multiAgent.maxRounds; hasNew = true;
+        }
+        if (hasNew) { patch.multiAgent = merged; updated = true; }
+      }
+
+      // 辩论多轮：新轮次重新激活 agent
+      const newRound = options.multiAgent.currentRound;
+      const oldRound = existing.multiAgent?.currentRound;
+      const roundAdvanced = newRound != null && (oldRound == null || newRound > oldRound);
+      if (roundAdvanced) {
+        flowLogger.log('AgentStateMachine', 'REACTIVATE debate agent',
+          'agentId:', agentId,
+          'newRound:', newRound,
+          'oldRound:', oldRound,
+          'oldStatus:', existing.status,
+          'isTerminal:', isTerminal(existing.status));
+        if (isTerminal(existing.status)) {
+          // 终态 → pending：清空上轮状态，让 THINKING_DELTA → thinking → TOOL_START → executing 自然流转
+          patch.status = 'pending';
+          patch.currentTools = [];
+          patch.currentThought = undefined;
+          patch.currentResponse = undefined;
+          Object.assign(patch, updateMoment(existing, 'pending'));
+          updated = true;
+        }
+        // 非终态（终端屏障已自动复活）：不重置，保留已积累的状态，仅更新 round 信息
+        // currentRound/maxRounds 已在合并步骤中更新
+      }
+    }
+    if (options?.scene && !existing.scene) { patch.scene = options.scene; updated = true; }
     if (parentId && !existing.parentId) { patch.parentId = parentId; updated = true; }
     if (updated) {
       const newMap = { ...agentMap, [agentId]: { ...existing, ...patch } };
@@ -283,6 +341,7 @@ function ensureAgent(
     taskType: options?.taskType,
     executionMode: options?.executionMode,
     streamToUser: options?.streamToUser,
+    scene: options?.scene,
     multiAgent: options?.multiAgent,
     stats: { tokenUsage: { input: 0, output: 0, cached: 0 }, cost: 0, toolCount: 0 },
     createdAt: Date.now(),
@@ -298,10 +357,10 @@ function updateMoment(agent: AgentState, status: AgentStatus, label?: string, ic
     pending: { label: '排队中', icon: 'hourglass_empty' },
     thinking: { label: '思考中', icon: 'psychology' },
     executing: { label: '执行中', icon: 'terminal' },
-    writing: { label: '输出中', icon: 'edit' },
-    reporting: { label: '待汇报', icon: 'summarize' },
+    writing: { label: '编写回复', icon: 'draw' },
+    reporting: { label: '汇报结果', icon: 'campaign' },
     success: { label: '已完成', icon: 'check_circle' },
-    failed: { label: '失败', icon: 'error' },
+    failed: { label: '执行失败', icon: 'error' },
     cancelled: { label: '已取消', icon: 'cancel' },
   };
 
@@ -339,14 +398,43 @@ function applyAgentCreated(
     taskType: event.taskType,
     executionMode: event.executionMode,
     streamToUser: event.streamToUser,
+    scene: event.scene,
     multiAgent: event.multiAgent,
   });
 
-  if (event.parentId && next[event.parentId]) {
-    const parent = { ...next[event.parentId] };
+  // 设置 currentTask（新创建时或已有 agent 未设置时）
+  if (event.task && result.agentMap[event.agentId]) {
+    const agent = result.agentMap[event.agentId];
+    if (!agent.currentTask) {
+      result.agentMap = { ...result.agentMap, [event.agentId]: { ...agent, currentTask: event.task } };
+    }
+  }
+
+  if (event.parentId && result.agentMap[event.parentId]) {
+    const parent = { ...result.agentMap[event.parentId] };
     if (parent.status === 'pending') {
+      // 首轮首个成员：激活 team 节点
       parent.status = 'thinking';
-      next[event.parentId] = parent;
+      result.agentMap = { ...result.agentMap, [event.parentId]: parent };
+    } else if (isTerminal(parent.status) && parent.taskType === 'team') {
+      // 新一轮：终态 team 节点重新激活
+      flowLogger.log('AgentStateMachine', 'REACTIVATE team node for new round',
+        'teamId:', event.parentId, 'oldStatus:', parent.status);
+      parent.status = 'thinking';
+      Object.assign(parent, updateMoment(parent, 'thinking'));
+      result.agentMap = { ...result.agentMap, [event.parentId]: parent };
+    }
+    // 无论 team 节点处于何种状态，只要成员轮次前进了就同步 currentRound/maxRounds
+    if (parent.taskType === 'team' && event.multiAgent?.currentRound != null) {
+      const parentRound = parent.multiAgent?.currentRound;
+      if (parentRound == null || event.multiAgent.currentRound > parentRound) {
+        parent.multiAgent = {
+          ...parent.multiAgent,
+          currentRound: event.multiAgent.currentRound,
+          maxRounds: event.multiAgent.maxRounds ?? parent.multiAgent?.maxRounds,
+        };
+        result.agentMap = { ...result.agentMap, [event.parentId]: parent };
+      }
     }
   }
 
@@ -396,7 +484,7 @@ function applyToolStart(
 
   agent.currentTools = [...agent.currentTools, tool];
   agent.status = 'executing';
-  Object.assign(agent, updateMoment(agent, 'executing', event.toolName, 'terminal'));
+  Object.assign(agent, updateMoment(agent, 'executing'));
 
   next[event.agentId] = agent;
   return { agentMap: next };
@@ -469,8 +557,16 @@ function applySubAgentEnd(
 
   if (isTerminal(agent.status)) return s;
 
-  // team 成员正常更新状态（供 React Flow 展示），但清理由 agent:team-end 统一处理
-  const newStatus: AgentStatus = event.success ? 'reporting' : 'failed';
+  // team member 且还有未执行轮次 → pending（等待下一轮），不进入终态变暗
+  const isTeamMember = agent.taskType === 'team' && agent.agentType !== 'team';
+  const hasMoreRounds = isTeamMember &&
+    agent.multiAgent?.currentRound != null &&
+    agent.multiAgent?.maxRounds != null &&
+    agent.multiAgent.currentRound < agent.multiAgent.maxRounds;
+
+  const newStatus: AgentStatus = event.success
+    ? (event.isAsync ? 'reporting' : hasMoreRounds ? 'pending' : 'success')
+    : 'failed';
   const updated = { ...agent, status: newStatus };
   Object.assign(updated, updateMoment(updated, newStatus));
 
@@ -494,7 +590,8 @@ function applyAutoSummarize(
   if (!agent) return _s;
 
   // team 成员不单独清理 — 由 agent:team-end 统一 CLEANUP
-  if (agent.taskType === 'team') return { agentMap: next };
+  // team 节点自身允许 reporting → cleared
+  if (agent.taskType === 'team' && agent.agentType !== 'team') return { agentMap: next };
 
   if (agent.status === 'success' || agent.status === 'failed' || agent.status === 'reporting') {
     const updated = { ...agent, status: 'cleared' as AgentStatus };
@@ -565,8 +662,10 @@ function applyForegroundComplete(
 ): Partial<AgentStateMachineStore> {
   const agent = next[event.agentId];
   if (!agent || isTerminal(agent.status)) return s;
-  // 前台本轮完成 → pending（等待下一轮）
-  next[event.agentId] = { ...agent, status: 'pending' as AgentStatus };
+  // 前台本轮完成 → pending（等待子任务 / 下一轮）
+  const updated = { ...agent, status: 'pending' as AgentStatus };
+  Object.assign(updated, updateMoment(updated, 'pending'));
+  next[event.agentId] = updated;
   return { agentMap: next };
 }
 
@@ -576,43 +675,67 @@ function applyCleanupCompleted(
 ): Partial<AgentStateMachineStore> {
   const activeStates: Set<AgentStatus> = new Set(['writing', 'thinking', 'executing', 'reporting']);
 
+  // Pass 1: 清理所有非前台终态 agent
   for (const [id, agent] of Object.entries(next)) {
-    if (isTerminal(agent.status)) continue;
+    if (agent.status === 'cleared') continue;
 
     const isForeground = agent.parentId === null && agent.taskType === undefined;
-    const isTeamMember = agent.taskType === 'team';
+    if (isForeground) continue;
 
-    // team 成员不在 CLEANUP_COMPLETED_TASKS 中清理 — 由 agent:team-end 统一清理
-    if (isTeamMember) continue;
-
-    if (isForeground) {
-      // 前台 agent：活跃状态 → pending（等待子 agent 全部完成）
-      if (activeStates.has(agent.status)) {
-        next[id] = { ...agent, status: 'pending' as AgentStatus };
-      }
-      // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
-      if (agent.status === 'pending') {
-        const childIds = getAllDescendantIds(next, id);
-        const allChildrenCleared = childIds.every((cid) => {
-          const child = next[cid];
-          return child && isTerminal(child.status);
-        });
-        if (allChildrenCleared) {
+    if (agent.taskType === 'team') {
+      // team 节点（agentType === 'team'）：终态 → cleared
+      if (agent.agentType === 'team') {
+        if (agent.status === 'success' || agent.status === 'failed' || agent.status === 'cancelled' || agent.status === 'reporting') {
           next[id] = { ...agent, status: 'cleared' as AgentStatus };
+        }
+      } else {
+        // team 成员：parent team 是终态/reporting → cleared
+        const parentId = agent.parentId;
+        if (parentId) {
+          const parent = next[parentId];
+          if (parent && (parent.status === 'success' || parent.status === 'failed' || parent.status === 'cancelled' || parent.status === 'cleared' || parent.status === 'reporting')) {
+            next[id] = { ...agent, status: 'cleared' as AgentStatus };
+          }
         }
       }
     } else {
-      // 后台 task 子 agent：终态或活跃 → cleared
+      // 后台 task 子 agent：仅终态 → cleared，活跃中的异步任务保留
       if (
         agent.status === 'success' ||
         agent.status === 'failed' ||
-        agent.status === 'cancelled' ||
-        activeStates.has(agent.status)
+        agent.status === 'cancelled'
       ) {
         next[id] = { ...agent, status: 'cleared' as AgentStatus };
       }
     }
   }
+
+  // Pass 2: 处理前台 agent（此时所有子 agent 已清理完毕）
+  for (const [id, agent] of Object.entries(next)) {
+    if (agent.status === 'cleared') continue;
+
+    const isForeground = agent.parentId === null && agent.taskType === undefined;
+    if (!isForeground) continue;
+
+    // 前台 agent：活跃状态 → pending（等待子 agent 全部完成）
+    if (activeStates.has(agent.status)) {
+      const updated = { ...agent, status: 'pending' as AgentStatus };
+      Object.assign(updated, updateMoment(updated, 'pending'));
+      next[id] = updated;
+    }
+    // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
+    if (next[id].status === 'pending') {
+      const childIds = getAllDescendantIds(next, id);
+      const allChildrenCleared = childIds.every((cid) => {
+        const child = next[cid];
+        return child && child.status === 'cleared';
+      });
+      if (allChildrenCleared) {
+        next[id] = { ...next[id], status: 'cleared' as AgentStatus };
+      }
+    }
+  }
+
   return { agentMap: next };
 }
 

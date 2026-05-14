@@ -17,6 +17,7 @@ import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import type { SessionStateMachine, SessionAction } from '@/core/state/SessionStateMachine';
 import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
@@ -172,18 +173,38 @@ export class ChatSession {
 
   /** 动态切换前台 agent：完整替换 AgentLoop 的 provider/systemPrompt/tools */
   async switchForegroundAgent(agentId: string, scene?: string, complexity?: string): Promise<void> {
-    const flag = process.env.USE_DYNAMIC_FOREGROUND_AGENT;
-    if (flag !== 'true') {
-      // feature flag 关闭 → 退化为简单 setCurrentAgent（只设 agentId，不重建配置）
-      this.setCurrentAgent(agentId);
-      return;
-    }
-
     try {
+      // 1. SystemPrompt：builder 分层构建（始终执行以收集 prompt 组件信息）
+      const builder = this.getLayeredPromptBuilder();
+      let systemPrompt: string | undefined;
+      if (builder) {
+        const buildListener = (event: import('@/core/prompt/types').PromptBuildEvent) => {
+          if (event.type === 'build:complete' && event.data?.layers) {
+            eventBus.emit(XuanjiEvent.AGENT_PROMPT_COMPONENTS, {
+              agentId,
+              scene: scene || '',
+              complexity: complexity || 'standard',
+              layers: event.data.layers as Array<{ layer: number; components: Array<{ id: string; name: string }> }>,
+              totalComponents: event.data.totalComponents as number,
+              estimatedTokens: event.data.estimatedTokens as number,
+            });
+          }
+        };
+        builder.addEventListener(buildListener);
+        const result = await builder.build({ scene, complexity: complexity as any });
+        builder.removeEventListener(buildListener);
+        systemPrompt = result.prompt;
+      }
+
+      const flag = process.env.USE_DYNAMIC_FOREGROUND_AGENT;
+      if (flag !== 'true') {
+        this.setCurrentAgent(agentId);
+        return;
+      }
+
       const registry = this.getAgentRegistry();
       const agentConfig = registry.get(agentId);
       if (!agentConfig) {
-        // agent 不在 Registry → 退化为简单 setCurrentAgent（不重建配置，由 AgentLoop 默认配置兜底）
         log.warn(`Agent "${agentId}" not found in registry, falling back to setCurrentAgent`);
         this.setCurrentAgent(agentId);
         return;
@@ -192,27 +213,19 @@ export class ChatSession {
       this._currentAgentId = agentId;
       log.info(`Switching foreground agent to: ${agentId} (scene=${scene}, complexity=${complexity})`);
 
-      // 1. SystemPrompt：builder 分层构建 + agent 自身的 systemPrompt 拼接
-      const builder = this.getLayeredPromptBuilder();
-      let systemPrompt: string | undefined;
-      if (builder) {
-        const result = await builder.build({ scene, complexity: complexity as any });
-        systemPrompt = result.prompt;
-      }
       if (agentConfig.systemPrompt) {
         systemPrompt = systemPrompt
           ? `${systemPrompt}\n\n${agentConfig.systemPrompt}`
           : agentConfig.systemPrompt;
       }
 
-      // 2. 工具过滤：按 agent 的 tools 配置
-      const toolNames = agentConfig.tools.filter(t => t.enabled !== false).map(t => t.name);
+      // 2. 工具过滤：按 agent 的 tools 配置 + 自动补齐
+      const yamlTools = agentConfig.tools.filter(t => t.enabled !== false).map(t => t.name);
+      const { augmentToolList } = await import('@/core/tools/FilteredToolRegistry');
+      const toolNames = augmentToolList(yamlTools, complexity);
       const baseRegistry = this.getBaseRegistry();
-      let toolRegistry: IToolRegistry = baseRegistry;
-      if (toolNames.length > 0) {
-        const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
-        toolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
-      }
+      const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
+      const toolRegistry: IToolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
 
       // 3. 应用配置到 AgentLoop
       this.agentLoop.applyAgentConfig({
@@ -369,7 +382,7 @@ export class ChatSession {
       if (!handler) return;
 
       if (handler.hasPending()) {
-        handler.checkAndAutoSummarize();
+        await handler.checkAndAutoSummarize();
       }
     } catch (err) {
       log.warn('Failed to check pending completions:', err);

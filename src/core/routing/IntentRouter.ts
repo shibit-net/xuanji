@@ -109,7 +109,7 @@ export class IntentRouter {
               confidence: topMatch.score,
               method: 'embedding',
               scene: topMatch.scene || '',
-              complexity: topMatch.complexity || 'simple',
+              complexity: topMatch.complexity || 'complex',
               reason: topMatch.reason,
             };
           }
@@ -134,7 +134,7 @@ export class IntentRouter {
     });
     onProgress?.({
       level: 'L3', status: 'done', method: 'default', durationMs: 0, success: true,
-      agentId: this.defaultAgentId, confidence: 1.0, reason: '默认路由',
+      agentId: this.defaultAgentId, confidence: 1.0, complexity: 'complex', reason: '默认路由',
     });
     return {
       agentId: this.defaultAgentId,

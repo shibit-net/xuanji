@@ -35,19 +35,33 @@ export class TaskTool extends BaseTool {
     'HOW TO USE:',
     '1. First call match_agent to find the right agent',
     '2. Then call list_scenes to pick the right scene',
-    '3. Call task with the agent_id, scene, and complete description',
+    '3. Call task with the agent_id, scene, complete description, AND tools',
     '',
-    'ASYNC (main agent, depth=0): runs in background. Do NOT query status or wait —',
-    'the system will automatically notify you when each task completes. Just continue',
-    'your current work. Completed results will be fed to you one by one.',
+    'TASK ASSIGNMENT — You are the assigner:',
+    '• The sub-agent has NO access to parent conversation history. You MUST include ALL context in description.',
+    '• Be specific: what to do, which files to touch, what output format to use, what constraints apply.',
+    '• The sub-agent will ONLY see your description + system_prompt — nothing else from the conversation.',
+    '• A vague description produces poor results. Invest time in writing a detailed task.',
     '',
-    'SYNC (sub-agent, depth>0): waits for completion and returns the result directly.',
+    'IMPORTANT — tools parameter:',
+    '• The sub-agent has NO tools by default — it starts with an empty toolbox.',
+    '• You MUST pass the `tools` parameter listing every tool the sub-agent needs.',
+    '• Minimum for any file task: read_file, glob, grep, list_directory',
+    '• For coding tasks also add: write_file, edit_file, bash',
+    '• For research tasks also add: web_fetch',
+    '• Never assume the sub-agent can access files without these tools.',
+    '',
+    'ASYNC (async=true)：后台运行，完成后系统自动通知。主 agent 默认异步，可继续处理其他输入。',
+    'SYNC (async=false)：等待子 agent 完成并直接返回结果。子 agent 输出会实时显示在对话框中。',
+    '当你需要子 agent 的输出来回答用户时，使用 async=false 同步等待。',
+    '当任务是独立的后台分析、用户不等待结果时，使用 async=true 异步执行。',
     '',
     'Example:',
     '  task({',
     '    subagent_type: "software-engineer",',
     '    scene: "write_code",',
-    '    description: "Implement auth API in src/auth/... JWT tokens, bcrypt."',
+    '    description: "Implement auth API in src/auth/... JWT tokens, bcrypt.",',
+    '    tools: ["read_file", "glob", "grep", "list_directory", "write_file", "edit_file", "bash"]',
     '  })',
 ].join('\n');
 
@@ -70,7 +84,7 @@ export class TaskTool extends BaseTool {
           '场景类型，定义子 agent 的行为模式和边界。',
           '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
           '不要自行编造 scene ID。',
-          '如无合适场景可用 "general"。',
+          '如果没有合适的场景，可以不传 scene 参数。',
         ].join('\n'),
       },
       isolation: {
@@ -89,7 +103,7 @@ export class TaskTool extends BaseTool {
       tools: {
         type: 'array',
         items: { type: 'string' },
-        description: '可用工具名称列表。临时 agent 必需，预置 agent 可选',
+        description: '子 agent 可用的工具名称列表。子 agent 默认没有任何工具，必须显式传入。至少包含 read_file, glob, grep, list_directory；编码任务加 write_file, edit_file, bash；研究任务加 web_fetch',
       },
       stream_to_user: {
         type: 'boolean',
@@ -97,7 +111,7 @@ export class TaskTool extends BaseTool {
       },
       async: {
         type: 'boolean',
-        description: '异步执行模式。主 agent 自动异步，子 agent 自动同步。一般无需设置此参数。',
+        description: '执行模式。true=异步（后台运行，完成后通知），false=同步（等待完成，输出实时显示在对话框）。主 agent 默认异步，子 agent 默认同步。当子 agent 的输出是用户当前问题所需答案时，设为 false。',
       },
     },
     required: ['description', 'subagent_type'],
@@ -170,8 +184,8 @@ export class TaskTool extends BaseTool {
     const safetyErr = this.checkSafety(params);
     if (safetyErr) return safetyErr;
 
-    // 5. 决定执行模式
-    const isAsync = this.currentDepth === 0 || input.async === true;
+    // 5. 决定执行模式：async=true 强制异步，async=false 强制同步，未指定时 depth=0 默认异步
+    const isAsync = input.async === true || (this.currentDepth === 0 && input.async !== false);
 
     if (isAsync) {
       return this.executeAsync({ ...params, role: params.role! }, input);
@@ -254,10 +268,11 @@ export class TaskTool extends BaseTool {
       );
     }
 
-    // agent_team 成员不能调 task
-    if (TeamContext.get()) {
+    // agent_team 普通成员不能调 task，但 hierarchical leader 需要 task 来委派给 workers
+    const teamCtx = TeamContext.get();
+    if (teamCtx && teamCtx.strategy !== 'hierarchical') {
       return this.error(
-        'task 不能在 agent_team 内部使用。agent_team 的成员是执行单元，不能创建子 agent。如果你是 team leader，请直接在团队中完成工作。',
+        'task 不能在 agent_team 内部使用。agent_team 的成员是执行单元，不能创建子 agent。',
       );
     }
 
@@ -322,6 +337,7 @@ export class TaskTool extends BaseTool {
             streamToUser: false,
             workingDir: savedCwd,
             subAgentId,
+            isAsync: true,
           }, abortSignal);
 
           try { process.chdir(savedCwd); } catch { /* ignore */ }
@@ -421,6 +437,7 @@ export class TaskTool extends BaseTool {
         streamToUser: params.streamToUser,
         workingDir: savedCwd,
         subAgentId,
+        isAsync: false,
       }, signal);
 
       // 恢复 cwd，防止子 agent 的 change_directory 影响父 agent

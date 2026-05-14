@@ -3,6 +3,11 @@
  * Tavily Search Adapter
  * ============================================================
  * Tavily API 适配器（专为 AI 优化的搜索引擎）
+ *
+ * 关键参数：
+ * - include_answer: true  → Tavily 返回对搜索问题的综合回答摘要
+ * - include_raw_content: true → 返回页面正文（HTML stripped）
+ * - search_depth: advanced → 更深入的抓取
  */
 
 import type { SearchEngineAdapter, SearchOptions, SearchResult } from '../types';
@@ -12,10 +17,12 @@ import { buildSearchQuery } from '../utils';
  * Tavily API 响应类型
  */
 interface TavilyResponse {
+  answer?: string;
   results: Array<{
     title: string;
     url: string;
     content: string;
+    raw_content?: string;
     score?: number;
     published_date?: string;
   }>;
@@ -51,8 +58,9 @@ export class TavilyAdapter implements SearchEngineAdapter {
       api_key: this.apiKey,
       query,
       max_results: options.maxResults ?? 5,
-      search_depth: 'basic',
-      include_answer: false,
+      search_depth: 'advanced',
+      include_answer: true,
+      include_raw_content: true,
     };
 
     // 时间范围映射
@@ -84,13 +92,21 @@ export class TavilyAdapter implements SearchEngineAdapter {
 
     const data = (await response.json()) as TavilyResponse;
 
-    return (data.results ?? []).map((r) => ({
+    const results = (data.results ?? []).map((r) => ({
       title: r.title,
       url: r.url,
       content: r.content,
       score: r.score,
       publishedDate: r.published_date ? new Date(r.published_date).getTime() : undefined,
-      source: 'tavily',
+      source: 'tavily' as const,
+      rawContent: r.raw_content,
     }));
+
+    // 将 answer 附加到第一个结果上，方便 EnhancedWebSearchTool.formatSearchOutput 读取
+    if (data.answer && results.length > 0) {
+      results[0]!.answer = data.answer;
+    }
+
+    return results;
   }
 }

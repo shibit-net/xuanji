@@ -129,7 +129,7 @@ function initChatSession(): Promise<boolean> {
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
       } else {
         // 开发环境：模板在项目源码中
-        const projectRoot = path.join(__dirname, '../../');
+        const projectRoot = path.join(__dirname, '../../../');
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'core', 'templates');
       }
 
