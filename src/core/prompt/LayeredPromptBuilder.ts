@@ -37,21 +37,13 @@ export class LayeredPromptBuilder {
   private componentsLoaded = false;
   private eventListeners: PromptBuildEventListener[] = [];
   private agentId: string = 'main';
-  private defaultComplexity: IntentComplexity = 'standard';
-  private defaultScene: SceneType | null = null;
-
   constructor(
     userId?: string,
     projectRoot?: string,
     agentId?: string,
-    options?: {
-      defaultComplexity?: IntentComplexity;
-      defaultScene?: SceneType;
-    }
+    _options?: unknown, // 保持调用兼容，已废弃
   ) {
     if (agentId) this.agentId = agentId;
-    if (options?.defaultComplexity) this.defaultComplexity = options.defaultComplexity;
-    if (options?.defaultScene) this.defaultScene = options.defaultScene;
     // 如果提供了 userId，创建用户+项目组件注册表
     if (userId) {
       this.userRegistry = new PromptComponentRegistry(userId, projectRoot);

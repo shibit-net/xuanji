@@ -548,6 +548,10 @@ export class AgentLoop {
     return this.contextManager;
   }
 
+  getToolRegistry(): IToolRegistry {
+    return this.registry;
+  }
+
   getMessageHistory(): Message[] {
     return this.contextManager.getHistory();
   }

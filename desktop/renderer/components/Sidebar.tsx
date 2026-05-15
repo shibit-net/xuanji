@@ -36,10 +36,10 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
   };
 
   return (
-    <div className="w-56 bg-bg-secondary flex flex-col border-r border-bg-tertiary">
+    <div className="w-56 bg-secondary flex flex-col border-r border-border">
       {/* 顶部：用户信息 + 下拉菜单 */}
       {isAuthenticated && user && (
-        <div className="p-4 border-b border-bg-tertiary">
+        <div className="p-4 border-b border-border">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -68,7 +68,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
       )}
 
       {/* 当前对话 */}
-      <div className="p-4 border-b border-bg-tertiary">
+      <div className="p-4 border-b border-border">
         <Button
           variant="outline"
           className="w-full flex items-center gap-3 px-3 py-2 h-auto border-primary/30 bg-primary/10 hover:bg-primary/20"
@@ -84,7 +84,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
       <div className="flex-1"></div>
 
       {/* 底部快捷入口 */}
-      <div className="border-t border-bg-tertiary p-2 space-y-1">
+      <div className="border-t border-border p-2 space-y-1">
         <Button variant="ghost" onClick={onOpenAgents} className="w-full justify-start h-9">
           <Bot size={16} className="mr-2 text-muted-foreground" />
           Agents

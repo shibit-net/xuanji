@@ -1,9 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import JSON5 from 'json5';
+import { stringify as stringifyYAML } from 'yaml';
 import type { AgentCategory, ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
-import { getUserRoot } from '@/core/config/PathManager';
+import { getUserRoot, getUserAgentsDir } from '@/core/config/PathManager';
 
 const log = logger.child({ module: 'AgentConfigManager' });
 
@@ -59,6 +60,47 @@ export class AgentConfigManager {
     } catch (error: any) {
       log.warn('加载配置覆盖失败: ' + filePath, error.message);
     }
+  }
+
+  /**
+   * 创建新的自定义 Agent — 持久化到磁盘并返回完整配置
+   */
+  async createAgent(config: Partial<ConfigurableAgentConfig>): Promise<ConfigurableAgentConfig> {
+    if (!config.id) {
+      throw new Error('Agent ID 不能为空');
+    }
+    if (!config.name) {
+      throw new Error('Agent 名称不能为空');
+    }
+
+    const { metadata, ...cleanConfig } = config as any;
+    const agentConfig: ConfigurableAgentConfig = {
+      ...cleanConfig,
+      id: config.id,
+      name: config.name || config.id,
+      description: config.description || '',
+      enabled: config.enabled !== false,
+      capabilities: config.capabilities || [],
+      systemPrompt: config.systemPrompt || null,
+      model: config.model || { primary: 'claude-sonnet-4-6', maxTokens: 32000, temperature: 0.3 },
+      tools: config.tools || [],
+      execution: config.execution || { mode: 'react', maxIterations: 20, timeout: 300000 },
+      permissions: config.permissions || { fileRead: 'always', fileWrite: 'ask', bashExec: 'ask', network: 'ask' },
+      metadata: { category: 'custom' as AgentCategory },
+    };
+
+    const agentsDir = getUserAgentsDir(this.userId);
+    await fs.mkdir(agentsDir, { recursive: true });
+    const filePath = path.join(agentsDir, config.id + '.yaml');
+
+    const toSave: any = { ...agentConfig };
+    delete toSave.metadata;
+
+    const yamlContent = stringifyYAML(toSave);
+    await fs.writeFile(filePath, yamlContent, 'utf-8');
+    log.info('创建 Agent 配置: ' + filePath);
+
+    return agentConfig;
   }
 
   getCategory(agent: ConfigurableAgentConfig): AgentCategory {

@@ -38,13 +38,13 @@ export default function ExecutionPanel() {
         {/* 进度条 */}
         {totalCount > 0 && (
           <div className="space-y-1">
-            <div className="flex justify-between text-xs text-text-secondary">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>进度</span>
               <span>
                 {completedCount} / {totalCount} ({progress.toFixed(0)}%)
               </span>
             </div>
-            <div className="h-2 bg-bg-secondary rounded-full overflow-hidden">
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${progress}%` }}
@@ -55,7 +55,7 @@ export default function ExecutionPanel() {
 
         {/* TODO 列表 */}
         {todos.length === 0 ? (
-          <div className="text-center text-sm text-text-secondary py-8">
+          <div className="text-center text-sm text-muted-foreground py-8">
             暂无 TODO 项
           </div>
         ) : (
@@ -83,7 +83,7 @@ export default function ExecutionPanel() {
 function TodoGroup({ title, todos }: { title: string; todos: TodoItem[] }) {
   return (
     <div className="space-y-2">
-      <div className="text-xs font-semibold text-text-secondary">{title}</div>
+      <div className="text-xs font-semibold text-muted-foreground">{title}</div>
       {todos.map((todo) => (
         <TodoItemComponent key={todo.id} todo={todo} />
       ))}
@@ -103,7 +103,7 @@ function TodoItemComponent({ todo }: { todo: TodoItem }) {
       case 'failed':
         return <XCircle size={14} className="text-red-500" />;
       default:
-        return <Circle size={14} className="text-text-secondary" />;
+        return <Circle size={14} className="text-muted-foreground" />;
     }
   };
 
@@ -115,7 +115,7 @@ function TodoItemComponent({ todo }: { todo: TodoItem }) {
   };
 
   return (
-    <div className="p-2 bg-bg-primary rounded">
+    <div className="p-2 bg-background rounded">
       <div
         className="flex items-start gap-2 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
@@ -130,13 +130,13 @@ function TodoItemComponent({ todo }: { todo: TodoItem }) {
           )}
         </div>
         {getDuration() && (
-          <div className="text-xs text-text-secondary">{getDuration()}</div>
+          <div className="text-xs text-muted-foreground">{getDuration()}</div>
         )}
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </div>
 
       {expanded && todo.description && (
-        <div className="mt-2 pl-6 text-xs text-text-secondary">
+        <div className="mt-2 pl-6 text-xs text-muted-foreground">
           {todo.description}
         </div>
       )}

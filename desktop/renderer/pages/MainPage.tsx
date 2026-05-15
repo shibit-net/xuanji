@@ -179,9 +179,9 @@ export default function MainPage() {
       {/* 文件树面板 */}
       {projectFilesVisible && (
         <div className="relative flex-shrink-0">
-          {/* 拖拽手柄 */}
+          {/* 拖拽手柄 — 4px 方便鼠标捕捉 */}
           <div
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary transition-colors z-10"
+            className="absolute -left-1 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/60 active:bg-primary transition-colors z-10 rounded-r-sm"
             onMouseDown={handleFilePanelResizeStart}
             style={{ userSelect: 'none' }}
           />

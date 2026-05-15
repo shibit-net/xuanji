@@ -111,7 +111,7 @@ export default function ResizeHandle({
             ? 'bg-primary'
             : isHovered
             ? 'bg-primary/60'
-            : 'bg-bg-tertiary'
+            : 'bg-muted'
         }`}
       />
 

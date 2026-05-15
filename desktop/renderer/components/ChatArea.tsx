@@ -299,16 +299,15 @@ export default function ChatArea() {
 
   return (
     <div className="flex-1 min-h-0 relative">
-      {/* 底部灰色 logo 水印 */}
-      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0 overflow-hidden">
-        <div className="w-[360px] h-[360px]">
-          <img
-            src={watermarkLogo}
-            alt=""
-            className="w-full h-full object-contain opacity-[0.08]"
-          />
-        </div>
-      </div>
+      {/* 底部灰色 logo 水印 — 用 background-image 替代 img 标签 */}
+      <div
+        className="absolute inset-0 pointer-events-none z-0 bg-no-repeat bg-center"
+        style={{
+          backgroundImage: `url(${watermarkLogo})`,
+          backgroundSize: '360px 360px',
+          opacity: 0.08,
+        }}
+      />
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -333,8 +332,8 @@ export default function ChatArea() {
             </div>
             {/* 底部装饰 */}
             <div className="absolute bottom-12 flex gap-3">
-              {['⚡', '🧠', '🔧', '🤖'].map((icon, i) => (
-                <div key={i} className="w-8 h-8 rounded-xl bg-card backdrop-blur-sm flex items-center justify-center text-sm animate-pulse" style={{ animationDelay: `${i * 0.5}s`, opacity: 0.3 }}>{icon}</div>
+              {['⚡', '🧠', '🔧', '🤖'].map((icon) => (
+                <div key={icon} className="w-8 h-8 rounded-xl bg-card backdrop-blur-sm flex items-center justify-center text-sm animate-pulse" style={{ animationDelay: `${['⚡', '🧠', '🔧', '🤖'].indexOf(icon) * 0.5}s`, opacity: 0.3 }}>{icon}</div>
               ))}
             </div>
           </div>

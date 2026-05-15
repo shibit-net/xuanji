@@ -296,6 +296,19 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
     currentUserId = uid;
     log.info('handleInit: session created successfully');
 
+    // 注册工具执行钩子 — 自动检测文件操作涉及的项目并注册到 ProjectRegistry
+    try {
+      const agentLoop = session.getAgentLoop();
+      const toolRegistry = agentLoop?.getToolRegistry();
+      if (toolRegistry && 'setOnBeforeExecute' in toolRegistry) {
+        (toolRegistry as any).setOnBeforeExecute((name: string, input: Record<string, unknown>) => {
+          detectProjectFromToolCall(name, input);
+        });
+      }
+    } catch (e) {
+      log.warn('Failed to set tool execute hook:', e);
+    }
+
     // 初始化 MatchAgentTool 的 embedding provider
     updateMatchAgentEmbedding(newSession);
 
@@ -338,6 +351,9 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
     } else {
       registerHookEventBridge();
     }
+
+    // 初始化 workspace：注册到 ProjectRegistry + 生成 XUANJI.md + 发送 project:info
+    await initWorkspace();
 
     // 发送 init-complete 通知
     channel.send('init-complete', { success: true });
@@ -703,9 +719,10 @@ async function handleAgentCreate(data: { config: any }): Promise<{ success: bool
     const configManager = (agentRegistry as any).configManager;
     if (configManager?.createAgent) {
       const agent = await configManager.createAgent(data?.config);
+      agentRegistry.register(agent);
       return { success: true, agent };
     }
-    // 回退：直接 register
+    // 回退：直接 register（仅内存）
     agentRegistry.register(data?.config);
     return { success: true, agent: data?.config };
   } catch (err) {
@@ -938,8 +955,6 @@ channel.handle('prompt-get-components', () => handlePromptGetComponents());
 channel.handle('prompt-toggle-component', (data) => handlePromptToggleComponent(data));
 channel.handle('prompt-update-component', (data) => handlePromptUpdateComponent(data));
 channel.handle('prompt-preview', (data) => handlePromptPreview(data));
-channel.handle('get-prompt-config', () => handleGetPromptConfig());
-channel.handle('save-prompt-config', (data) => handleSavePromptConfig(data));
 channel.handle('prompt-delete-component', (data) => handlePromptDeleteComponent(data));
 channel.handle('prompt-create-component', (data) => handlePromptCreateComponent(data));
 
@@ -1514,45 +1529,6 @@ async function handlePromptPreview(data: { scene?: string; complexity?: string }
       complexity: (data.complexity as any) || 'standard',
     });
     return { success: true, prompt: result.prompt, components: result.components, estimatedTokens: result.estimatedTokens };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-async function handleGetPromptConfig() {
-  try {
-    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
-    const { readFileSync, existsSync } = await import('node:fs');
-    const configPath = getUserConfigPath(currentUserId);
-    if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      const config = parsed.config || parsed;
-      return { success: true, config: config.prompt || {} };
-    }
-    return { success: true, config: {} };
-  } catch (err) {
-    return { success: true, config: {} };
-  }
-}
-
-async function handleSavePromptConfig(data: any) {
-  try {
-    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
-    const { readFileSync, writeFileSync, existsSync } = await import('node:fs');
-    const configPath = getUserConfigPath(currentUserId);
-    let wrapper: any = { version: '1', userId: currentUserId, config: {} };
-    if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      wrapper = parsed.version && parsed.config ? parsed : { version: '1', userId: currentUserId, config: parsed };
-    }
-    wrapper.config.prompt = {
-      defaultComplexity: data.defaultComplexity || 'standard',
-      defaultScene: data.defaultScene || '',
-    };
-    writeFileSync(configPath, JSON.stringify(wrapper, null, 2), 'utf-8');
-    return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -2178,8 +2154,10 @@ async function detectProjectFromToolCall(toolName: string, input: Record<string,
 
     const projectMetadata = scanner.scan(startDir);
 
-    // currentProjectRoot 始终由配置中的 workspacePath 决定
-    // 文件工具的 project:info 事件会干扰当前上下文，不在此发送
+    // 检测到有效项目且不是当前 workspace，注册到 ProjectRegistry
+    if (projectMetadata && projectMetadata.rootPath && projectMetadata.rootPath !== currentProjectRoot) {
+      await registerProjectToRegistry(projectMetadata.rootPath);
+    }
   } catch (err) {
     console.warn('[agent-bridge] 项目检测失败:', err);
   }

@@ -19,8 +19,8 @@ export type BudgetStatus =
 const YELLOW_THRESHOLD = 0.7;
 const RED_THRESHOLD = 0.9;
 
-/** 消息硬上限：超过此数量自动触发压缩，防止 OOM */
-const MAX_MESSAGES = 500;
+/** 上下文硬上限（字节）：超过此值自动触发压缩 */
+const MAX_CONTEXT_BYTES = 200_000; // ~200KB
 /** 快照最大数量 */
 const MAX_SNAPSHOTS = 10;
 
@@ -53,16 +53,34 @@ export class ContextManager {
   }
 
   private async checkAndAutoCompress(): Promise<void> {
-    if (this.messages.length > MAX_MESSAGES) {
-      // 超过硬上限，触发激进压缩（只保留最近消息），防止 OOM
-      const oldCount = this.messages.length;
-      await this.aggressiveCompress(this.tokenCounter.estimate(this.messages));
+    // 估算上下文字节数（UTF-8 编码长度），超过硬上限时触发激进压缩
+    const byteSize = this.estimateContextBytes();
+    if (byteSize > MAX_CONTEXT_BYTES) {
+      const oldTokens = this.tokenCounter.estimate(this.messages);
+      await this.aggressiveCompress(oldTokens);
       eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
-        originalTokens: oldCount,
-        compressedTokens: this.messages.length,
-        compressionRatio: (oldCount - this.messages.length) / oldCount,
+        originalTokens: oldTokens,
+        compressedTokens: this.tokenCounter.estimate(this.messages),
+        compressionRatio: 0,
       });
     }
+  }
+
+  /** 估算当前上下文的字节数（UTF-8 编码长度） */
+  private estimateContextBytes(): number {
+    let total = 0;
+    for (const msg of this.messages) {
+      if (typeof msg.content === 'string') {
+        total += Buffer.byteLength(msg.content, 'utf-8');
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.text) total += Buffer.byteLength(block.text, 'utf-8');
+          if (block.content) total += Buffer.byteLength(block.content, 'utf-8');
+          if (block.input) total += Buffer.byteLength(JSON.stringify(block.input), 'utf-8');
+        }
+      }
+    }
+    return total;
   }
 
   addUserMessage(text: string): void {

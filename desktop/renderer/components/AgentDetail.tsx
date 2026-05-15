@@ -472,11 +472,25 @@ export default function AgentDetail({ agent, onEdit, onDelete, onCopy, onTest, o
         )}
       </div>
 
-      {/* 元数据 */}
+      {/* 分类可编辑提示 */}
       {category === 'system' && (
-        <div className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-4">
-          <p className="text-sm text-gray-400">
-            ℹ️ 系统 Agent 可配置模型和 Provider，但不可修改 Prompt/工具，也不可删除。
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+          <p className="text-sm text-red-400">
+            系统 Agent：仅可编辑 Provider、模型和启用状态，不可修改 Prompt/工具，不可删除。
+          </p>
+        </div>
+      )}
+      {category === 'app' && (
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+          <p className="text-sm text-yellow-400">
+            应用 Agent：可编辑 Provider、模型、System Prompt 和工具配置，不可修改执行参数和权限。
+          </p>
+        </div>
+      )}
+      {category === 'custom' && (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+          <p className="text-sm text-green-400">
+            自定义 Agent：可编辑除 ID 外的全部字段，可删除。
           </p>
         </div>
       )}

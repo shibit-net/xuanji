@@ -5,7 +5,7 @@
 import type { AppConfig, IConfigLoader } from '@/core/types';
 import type { MCPConfig } from '@/mcp/types';
 import { getConfigManager } from './ConfigManager';
-import { getUserConfigPath } from './PathManager';
+import { getUserConfigPath, getTemplateConfigPath, getTemplateMCPPath } from './PathManager';
 import { deepMergeConfig, getByPath, setByPath } from './ProjectConfig';
 import { ConfigValidator } from './ConfigValidator';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -119,34 +119,70 @@ export class ConfigLoader implements IConfigLoader {
     persistDecisions: true,
   };
 
+  /** AppConfig 顶层 section key 列表，用于自动补全缺失配置段 */
+  private static APP_CONFIG_SECTIONS: string[] = [
+    'provider', 'ui', 'permission', 'tools', 'retry', 'skills',
+    'memory', 'agent', 'session', 'features', 'routing', 'planner',
+    'executor', 'persona', 'webSearch', 'hooks', 'logging',
+  ];
+
   /**
-   * 加载用户配置，确保必填字段存在（缺失字段自动补全并写回磁盘）
+   * 加载模板配置（纯 AppConfig 格式）
+   */
+  private async loadTemplateConfig(): Promise<Record<string, any> | null> {
+    try {
+      const tmplPath = getTemplateConfigPath();
+      if (!existsSync(tmplPath)) {
+        log.debug('模板 config.json 不存在');
+        return null;
+      }
+      const content = await readFile(tmplPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      // 支持两种格式：包装格式 { version, config: {...} } 或纯 AppConfig
+      return parsed.config || parsed;
+    } catch (error) {
+      log.warn('加载模板配置失败:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 加载用户配置，确保必填字段存在（缺失字段自动从模板补全并写回磁盘）
    */
   private async loadUserConfig(): Promise<Record<string, any>> {
     const configPath = getUserConfigPath(this.userId);
 
     if (!existsSync(configPath)) {
-      log.info(`用户配置文件不存在，创建默认配置: ${configPath}`);
-      const defaultConfig: Record<string, any> = {
+      log.info(`用户配置文件不存在，从模板创建: ${configPath}`);
+      const templateConfig = await this.loadTemplateConfig();
+
+      if (templateConfig && Object.keys(templateConfig).length > 0) {
+        // 以模板配置为基础，确保必要字段存在
+        const config = this.ensureRequiredFields(templateConfig);
+        try {
+          await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+          log.info(`从模板创建用户配置: ${configPath}`);
+        } catch (writeErr) {
+          log.warn('创建默认配置文件失败:', writeErr);
+        }
+        return config;
+      }
+
+      // 模板不可用时回退到硬编码最小默认值
+      log.warn('模板配置不可用，使用硬编码默认值');
+      const fallbackConfig = {
         provider: {},
-        ui: { theme: 'dark', language: 'zh', showTokenUsage: true, showCost: true, showThinking: false },
+        ui: { theme: 'auto', language: 'zh', showTokenUsage: true, showCost: true, showThinking: false },
         permission: { ...ConfigLoader.PERMISSION_DEFAULTS },
         tools: { enabled: [], permissions: { ...ConfigLoader.PERMISSION_DEFAULTS } },
         retry: { maxRetries: 3, initialDelay: 1000, maxDelay: 30000, backoffMultiplier: 2 },
-        session: {
-          autoResumeLastSession: false,
-          showResumeNotification: true,
-          archiveThresholds: { messageCount: 200, tokenCount: 100000, timeMinutes: 30 },
-          archiveStrategy: { keepRecentMessages: 20, generateSummary: true, extractKeyPoints: true },
-        },
       };
       try {
-        await writeFile(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
-        log.info(`默认配置已创建: ${configPath}`);
+        await writeFile(configPath, JSON.stringify(fallbackConfig, null, 2), 'utf-8');
       } catch (writeErr) {
-        log.warn('创建默认配置文件失败:', writeErr);
+        log.warn('创建回退配置文件失败:', writeErr);
       }
-      return defaultConfig;
+      return fallbackConfig;
     }
 
     try {
@@ -154,7 +190,7 @@ export class ConfigLoader implements IConfigLoader {
       const parsed = JSON.parse(content);
 
       // 支持两种格式：
-      // 1. { version, userId, config: {...} }
+      // 1. { version, userId, config: {...} }  → 旧版包装格式
       // 2. 直接的配置对象 {...}
       let dirty = false;
       let config: Record<string, any>;
@@ -167,16 +203,9 @@ export class ConfigLoader implements IConfigLoader {
         config = parsed;
       }
 
-      // 补齐缺失的 permission 字段
-      if (!config.permission) {
-        config.permission = { ...ConfigLoader.PERMISSION_DEFAULTS };
-        log.info(`用户配置缺少 permission 字段，已补充默认值: ${this.userId}`);
-        dirty = true;
-      }
-
-      // 补齐缺失的 tools.permissions 字段
-      if (!config.tools?.permissions) {
-        config.tools = { ...config.tools, permissions: { ...ConfigLoader.PERMISSION_DEFAULTS } };
+      // 从模板补全缺失的顶层 section（仅补缺失，不覆盖已有值）
+      const enriched = await this.enrichMissingSections(config);
+      if (enriched) {
         dirty = true;
       }
 
@@ -198,6 +227,58 @@ export class ConfigLoader implements IConfigLoader {
       log.warn(`加载用户配置失败 (${this.userId}):`, error);
       return {};
     }
+  }
+
+  /**
+   * 确保必要字段存在（用于新创建配置时）
+   */
+  private ensureRequiredFields(config: Record<string, any>): Record<string, any> {
+    if (!config.permission) {
+      config.permission = { ...ConfigLoader.PERMISSION_DEFAULTS };
+    }
+    if (!config.tools?.permissions) {
+      config.tools = { ...config.tools, permissions: { ...ConfigLoader.PERMISSION_DEFAULTS } };
+    }
+    return config;
+  }
+
+  /**
+   * 从模板补全缺失的顶层配置段
+   * 仅补充用户配置中不存在的 section，不覆盖已有值
+   * @returns 是否有任何字段被补全
+   */
+  private async enrichMissingSections(userConfig: Record<string, any>): Promise<boolean> {
+    const templateConfig = await this.loadTemplateConfig();
+    if (!templateConfig) return false;
+
+    let enriched = false;
+    for (const section of ConfigLoader.APP_CONFIG_SECTIONS) {
+      if (userConfig[section] === undefined && templateConfig[section] !== undefined) {
+        userConfig[section] = templateConfig[section];
+        enriched = true;
+        log.debug(`用户配置缺少 "${section}" 字段，已从模板补全`);
+      }
+    }
+
+    // 特殊处理：permission 内嵌字段补全
+    if (userConfig.permission) {
+      for (const key of Object.keys(ConfigLoader.PERMISSION_DEFAULTS)) {
+        if (userConfig.permission[key] === undefined) {
+          userConfig.permission[key] = ConfigLoader.PERMISSION_DEFAULTS[key];
+          enriched = true;
+        }
+      }
+    }
+    if (userConfig.tools?.permissions) {
+      for (const key of Object.keys(ConfigLoader.PERMISSION_DEFAULTS)) {
+        if (userConfig.tools.permissions[key] === undefined) {
+          userConfig.tools.permissions[key] = ConfigLoader.PERMISSION_DEFAULTS[key];
+          enriched = true;
+        }
+      }
+    }
+
+    return enriched;
   }
 
   /**
@@ -273,29 +354,14 @@ export class ConfigLoader implements IConfigLoader {
         }
       }
 
-      // 从 agent.prompt 读取配置
-      const promptConfig: Record<string, any> = {};
-      if (agentConfig.prompt) {
-        if (agentConfig.prompt.defaultScene) {
-          promptConfig.defaultScene = agentConfig.prompt.defaultScene;
-        }
-        if (agentConfig.prompt.defaultComplexity) {
-          promptConfig.defaultComplexity = agentConfig.prompt.defaultComplexity;
-        }
-      }
-
       log.debug(`加载 Agent 配置: ${agentId}`, {
         model: providerConfig.model,
         adapter: providerConfig.adapter,
         hasApiKey: !!providerConfig.apiKey,
         baseURL: providerConfig.baseURL,
-        prompt: promptConfig,
       });
 
       const result: Record<string, any> = { provider: providerConfig };
-      if (Object.keys(promptConfig).length > 0) {
-        result.prompt = promptConfig;
-      }
       return result;
     } catch (error) {
       log.error(`加载 Agent 配置失败:`, error);
@@ -452,15 +518,28 @@ export class ConfigLoader implements IConfigLoader {
    */
   private async createMCPConfigFromTemplate(destPath: string): Promise<void> {
     try {
-      // MCP 配置模板
-      const template: MCPConfig = {
-        servers: [],
-      };
+      // 优先从模板文件读取
+      const tmplMCPPath = getTemplateMCPPath();
+      let mcpConfig: MCPConfig = { servers: [] };
 
-      await writeFile(destPath, JSON.stringify(template, null, 2), 'utf-8');
-      log.info(`创建 MCP 配置模板: ${destPath}`);
+      if (existsSync(tmplMCPPath)) {
+        try {
+          const tmplContent = await readFile(tmplMCPPath, 'utf-8');
+          const parsed = JSON.parse(tmplContent);
+          // 过滤 _examples 等非标准字段
+          const { _examples, ...cleanConfig } = parsed;
+          if (cleanConfig.servers && Array.isArray(cleanConfig.servers)) {
+            mcpConfig = cleanConfig as MCPConfig;
+          }
+        } catch (parseErr) {
+          log.warn('解析模板 mcp.json 失败，使用空配置', parseErr);
+        }
+      }
+
+      await writeFile(destPath, JSON.stringify(mcpConfig, null, 2), 'utf-8');
+      log.info(`创建 MCP 配置文件: ${destPath}`);
     } catch (error) {
-      log.error(`创建 MCP 配置模板失败: ${destPath}`, error);
+      log.error(`创建 MCP 配置文件失败: ${destPath}`, error);
     }
   }
 }

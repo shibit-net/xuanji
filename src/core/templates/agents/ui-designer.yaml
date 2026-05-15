@@ -33,7 +33,7 @@ model:
     type: adaptive
     effort: medium
 provider:
-  adapter: openai
+  adapter: anthropic
   apiKey: ""
   baseURL: ""
 

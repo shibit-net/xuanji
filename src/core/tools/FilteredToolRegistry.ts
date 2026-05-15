@@ -55,12 +55,15 @@ const PATH_TOOLS = new Set([
   'read_file', 'write_file', 'edit_file', 'list_directory', 'grep', 'glob',
 ]);
 
+export type ToolExecuteHook = (name: string, input: Record<string, unknown>) => void;
+
 export class FilteredToolRegistry implements IToolRegistry {
   private inner: IToolRegistry;
   private allowedTools: Set<string> | null;
   private allowAll: boolean;
   private agentContext?: { agentId: string; agentName: string };
   private workingDir: string;
+  private onBeforeExecute: ToolExecuteHook | null = null;
 
   constructor(
     inner: IToolRegistry,
@@ -73,6 +76,11 @@ export class FilteredToolRegistry implements IToolRegistry {
     this.allowedTools = this.allowAll ? null : new Set(allowedTools);
     this.agentContext = agentContext;
     this.workingDir = workingDir || process.cwd();
+  }
+
+  /** 设置工具执行前回调（用于项目检测等） */
+  setOnBeforeExecute(hook: ToolExecuteHook | null): void {
+    this.onBeforeExecute = hook;
   }
 
   register(): void {
@@ -143,6 +151,8 @@ export class FilteredToolRegistry implements IToolRegistry {
         input = { ...input, path: path.resolve(this.workingDir, inputPath) };
       }
     }
+
+    this.onBeforeExecute?.(name, input);
 
     const result = await this.inner.execute(name, input, signal);
 

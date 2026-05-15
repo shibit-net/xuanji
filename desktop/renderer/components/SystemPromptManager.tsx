@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info } from 'lucide-react';
+import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
 import MilkdownEditor from './MilkdownEditor';
@@ -30,11 +30,11 @@ interface PromptComponent {
 }
 
 type LayerType = 'L0' | 'L1' | 'L2' | 'L3' | 'all';
-type TabType = 'complexity' | 'prompts' | 'projects';
+type TabType = 'prompts' | 'projects';
 
 export default function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<TabType>('complexity');
+  const [activeTab, setActiveTab] = useState<TabType>('prompts');
   const [components, setComponents] = useState<PromptComponent[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedLayer, setSelectedLayer] = useState<LayerType>('all');
@@ -43,13 +43,21 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   const [editContent, setEditContent] = useState('');
   const [editingKeywords, setEditingKeywords] = useState<string | null>(null);
   const [editKeywordsValue, setEditKeywordsValue] = useState('');
+  const [editingScenes, setEditingScenes] = useState<string | null>(null);
+  const [editScenesValue, setEditScenesValue] = useState('');
   const [previewPrompt, setPreviewPrompt] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const [previewScene, setPreviewScene] = useState('coding');
+  const [previewComplexity, setPreviewComplexity] = useState<'simple' | 'standard' | 'complex'>('standard');
 
-  // 任务复杂度配置
-  const [defaultComplexity, setDefaultComplexity] = useState<'simple' | 'standard' | 'complex'>('standard');
-  const [defaultScene, setDefaultScene] = useState<string>('');
-  const [configLoading, setConfigLoading] = useState(false);
+  // 创建 Scene 对话框
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    id: '', name: '', priority: 75, estimatedTokens: 300,
+    keywords: '', description: '', content: '',
+    suitableFor: '', requiredCapabilities: '', collaborationHint: '',
+  });
+  const [creating, setCreating] = useState(false);
 
   // 项目规则管理
   const [projects, setProjects] = useState<Array<{ path: string; name: string; hasRules: boolean }>>([]);
@@ -60,39 +68,6 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   const [editingRules, setEditingRules] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
-
-  // 加载 Prompt 配置
-  const loadPromptConfig = async () => {
-    try {
-      const result = await window.electron.getPromptConfig();
-      if (result.success && result.config) {
-        setDefaultComplexity((result.config.defaultComplexity || 'standard') as 'simple' | 'standard' | 'complex');
-        setDefaultScene(result.config.defaultScene || '');
-      }
-    } catch (err) {
-      console.error('加载 Prompt 配置失败:', err);
-    }
-  };
-
-  // 保存 Prompt 配置
-  const savePromptConfig = async () => {
-    setConfigLoading(true);
-    try {
-      const result = await window.electron.setPromptConfig({
-        defaultComplexity,
-        defaultScene: defaultScene || undefined,
-      });
-      if (result.success) {
-        toast.success('配置已保存');
-      } else {
-        toast.error(result.error || '保存失败');
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
-    } finally {
-      setConfigLoading(false);
-    }
-  };
 
   // 加载 Prompt 组件列表
   const loadComponents = async () => {
@@ -113,7 +88,6 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
   useEffect(() => {
     loadComponents();
-    loadPromptConfig();
   }, []);
 
   // 当切换到项目 tab 时加载项目列表
@@ -310,12 +284,99 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     }
   };
 
+  // 保存 scenes（L2 场景过滤标签）
+  const saveScenes = async () => {
+    if (!editingScenes) return;
+    try {
+      const scenes = editScenesValue.split(',').map(s => s.trim()).filter(Boolean);
+      const result = await window.electron.promptUpdateComponent({
+        id: editingScenes,
+        scenes,
+      } as any);
+      if (result.success) {
+        toast.success('场景标签已保存');
+        setEditingScenes(null);
+        await loadComponents();
+      } else {
+        toast.error(result.error || '保存失败');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
+    }
+  };
+
+  // 删除组件
+  const deleteComponent = async (component: PromptComponent) => {
+    if (!confirm(`确定要删除「${component.name}」吗？此操作不可恢复。`)) return;
+    try {
+      const result = await window.electron.promptDeleteComponent({ id: component.id });
+      if (result.success) {
+        toast.success('已删除');
+        await loadComponents();
+      } else {
+        toast.error(result.error || '删除失败');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败');
+    }
+  };
+
+  // 创建组件
+  const createComponent = async () => {
+    if (!createForm.id.trim() || !createForm.name.trim()) {
+      toast.error('Scene ID 和名称不能为空');
+      return;
+    }
+    setCreating(true);
+    try {
+      const payload: any = {
+        id: createForm.id.trim(),
+        name: createForm.name.trim(),
+        layer: selectedLayer,
+        priority: createForm.priority,
+        estimatedTokens: createForm.estimatedTokens,
+        content: createForm.content,
+      };
+      if (selectedLayer === 'L1') {
+        payload.scenes = [createForm.id.trim()];
+        payload.match = {
+          keywords: createForm.keywords || '.*',
+          description: createForm.description || createForm.name.trim(),
+        };
+        if (createForm.suitableFor.trim()) {
+          payload.suitableFor = createForm.suitableFor.split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+        if (createForm.requiredCapabilities.trim()) {
+          payload.requiredCapabilities = createForm.requiredCapabilities.split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+        if (createForm.collaborationHint.trim()) {
+          payload.collaborationHint = createForm.collaborationHint.trim();
+        }
+      }
+      const result = await window.electron.promptCreateComponent(payload);
+      if (result.success) {
+        toast.success('组件已创建');
+        setShowCreateDialog(false);
+        setCreateForm({ id: '', name: '', priority: 75, estimatedTokens: 300, keywords: '', description: '', content: '', suitableFor: '', requiredCapabilities: '', collaborationHint: '' });
+        await loadComponents();
+      } else {
+        toast.error(result.error || '创建失败');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '创建失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   // 预览完整 Prompt
   const handlePreview = async () => {
     try {
+      setPreviewPrompt('');
+      setShowPreview(true);
       const result = await window.electron.promptPreview({
-        scene: 'coding',
-        complexity: 'standard',
+        scene: previewScene || undefined,
+        complexity: previewComplexity,
       });
       if (result.success) {
         setPreviewPrompt(result.prompt || '');
@@ -381,6 +442,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     },
   };
 
+  // 可用的 L1 场景列表（供 L2 选择过滤标签）
+  const l1Scenes = components
+    .filter(c => c.layer === 'L1' && c.scenes)
+    .flatMap(c => c.scenes!)
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .sort();
+
   // 渲染 Prompt 管理 Tab
   const renderPromptsTab = () => (
     <div className="flex flex-1 overflow-hidden">
@@ -417,6 +485,19 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
       {/* 右侧：组件列表 */}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* 创建 Scene 按钮（仅 L1） */}
+        {selectedLayer === 'L1' && (
+          <div className="mb-4">
+            <Button
+              onClick={() => setShowCreateDialog(true)}
+              variant="ghost"
+              className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2 px-4 py-2"
+            >
+              <Plus size={16} />
+              创建 Scene
+            </Button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -503,20 +584,22 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <Button
-                                  onClick={() => toggleEnabled(component)}
-                                  variant="ghost"
-                                  size="icon"
-                                  className={`h-7 w-7 ${
-                                    component.enabled
-                                      ? 'text-green-500 hover:bg-green-500/10'
-                                      : 'text-gray-500 hover:bg-gray-500/10'
-                                  }`}
-                                  title={component.enabled ? '禁用' : '启用'}
-                                >
-                                  {component.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
-                                </Button>
-                                {!component.dynamic && (
+                                {component.layer !== 'L0' && (
+                                  <Button
+                                    onClick={() => toggleEnabled(component)}
+                                    variant="ghost"
+                                    size="icon"
+                                    className={`h-7 w-7 ${
+                                      component.enabled
+                                        ? 'text-green-500 hover:bg-green-500/10'
+                                        : 'text-gray-500 hover:bg-gray-500/10'
+                                    }`}
+                                    title={component.enabled ? '禁用' : '启用'}
+                                  >
+                                    {component.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
+                                  </Button>
+                                )}
+                                {component.layer !== 'L0' && !component.dynamic && (
                                   <Button
                                     onClick={() => isEditing ? saveEdit() : startEdit(component)}
                                     variant="ghost"
@@ -525,6 +608,17 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                     title={isEditing ? '保存' : '编辑'}
                                   >
                                     {isEditing ? <Save size={16} /> : <Edit size={16} />}
+                                  </Button>
+                                )}
+                                {component.layer !== 'L0' && (
+                                  <Button
+                                    onClick={() => deleteComponent(component)}
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-red-400 hover:bg-red-500/10"
+                                    title="删除"
+                                  >
+                                    <Trash2 size={16} />
                                   </Button>
                                 )}
                               </div>
@@ -601,15 +695,86 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                 </div>
                               )}
 
+                              {/* L2 组件显示场景过滤编辑区域 */}
+                              {component.layer === 'L2' && (
+                                <div className="bg-background rounded-lg p-3 border border-border">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <Info size={14} className="text-primary" />
+                                      <h5 className="text-sm font-medium">场景过滤标签</h5>
+                                    </div>
+                                    {editingScenes !== component.id && (
+                                      <Button
+                                        onClick={() => { setEditingScenes(component.id); setEditScenesValue((component.scenes || []).join(', ')); }}
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        title="编辑场景标签"
+                                      >
+                                        <Edit size={14} />
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground/70 mb-2">
+                                    指定哪些 L1 场景下加载此组件。留空表示所有复杂任务都加载。
+                                  </p>
+                                  {editingScenes === component.id ? (
+                                    <div className="space-y-2">
+                                      <div className="max-h-40 overflow-y-auto bg-card rounded p-2 space-y-1">
+                                        {l1Scenes.length === 0 ? (
+                                          <p className="text-xs text-muted-foreground">暂无可用 L1 场景</p>
+                                        ) : (
+                                          l1Scenes.map(scene => {
+                                            const selected = editScenesValue.split(',').map(s => s.trim()).includes(scene);
+                                            return (
+                                              <label key={scene} className="flex items-center gap-2 cursor-pointer hover:bg-background rounded px-1 py-0.5">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={selected}
+                                                  onChange={() => {
+                                                    const current = editScenesValue.split(',').map(s => s.trim()).filter(Boolean);
+                                                    const next = selected
+                                                      ? current.filter(s => s !== scene)
+                                                      : [...current, scene];
+                                                    setEditScenesValue(next.join(', '));
+                                                  }}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-xs">{scene}</span>
+                                              </label>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button onClick={saveScenes} variant="default" size="sm" className="px-3 py-1.5">保存</Button>
+                                        <Button onClick={() => setEditingScenes(null)} variant="secondary" size="sm" className="px-3 py-1.5">取消</Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {component.scenes && component.scenes.length > 0 ? (
+                                        component.scenes.map(s => (
+                                          <span key={s} className="text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">{s}</span>
+                                        ))
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">全部场景（无过滤）</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
                               {/* Prompt 内容 */}
                               <div>
                                 <h5 className="text-sm font-medium mb-2">Prompt 内容</h5>
                                 {isEditing ? (
-                                  <MilkdownEditor
+                                  <textarea
                                     value={editContent}
-                                    onChange={setEditContent}
-                                    mode="wysiwyg"
-                                    height="400px"
+                                    onChange={(e) => setEditContent(e.target.value)}
+                                    className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y"
+                                    rows={16}
+                                    style={{ minHeight: '300px' }}
                                   />
                                 ) : (
                                   <pre className="text-xs font-mono whitespace-pre-wrap bg-black/20 p-3 rounded max-h-64 overflow-auto">
@@ -628,119 +793,6 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
             })}
           </div>
         )}
-      </div>
-    </div>
-  );
-
-  // 渲染任务复杂度管理 Tab
-  const renderComplexityTab = () => (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto">
-          {/* 标题 */}
-          <div className="mb-6">
-            <h3 className="text-lg font-medium mb-2">任务复杂度配置</h3>
-            <p className="text-sm text-muted-foreground">
-              配置默认的任务复杂度和场景，影响 Prompt 组件的加载策略
-            </p>
-          </div>
-
-          {/* 复杂度说明 */}
-          <div className="mb-6 bg-card rounded-lg p-4 border border-border">
-            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-              <Info size={16} className="text-primary" />
-              复杂度级别说明
-            </h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-background rounded p-3">
-                <div className="font-medium text-green-400 mb-2">Simple (~600 tokens)</div>
-                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L3</div>
-                <div className="text-xs text-muted-foreground/70">
-                  适用场景：简单问答、信息查询、基础操作
-                </div>
-              </div>
-              <div className="bg-background rounded p-3">
-                <div className="font-medium text-blue-400 mb-2">Standard (~1400 tokens)</div>
-                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L1 + L3</div>
-                <div className="text-xs text-muted-foreground/70">
-                  适用场景：编码、调试、文件修改、常规开发任务
-                </div>
-              </div>
-              <div className="bg-background rounded p-3">
-                <div className="font-medium text-purple-400 mb-2">Complex (~2400 tokens)</div>
-                <div className="text-xs text-muted-foreground mb-2">加载层级: L0 + L1 + L2 + L3</div>
-                <div className="text-xs text-muted-foreground/70">
-                  适用场景：架构设计、大规模重构、多文件协同、复杂问题
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 配置表单 */}
-          <div className="bg-card rounded-lg p-6 border border-border">
-            <div className="space-y-6">
-              {/* 默认复杂度 */}
-              <div>
-                <label className="block text-sm font-medium mb-2">默认任务复杂度</label>
-                <select
-                  value={defaultComplexity}
-                  onChange={(e) => setDefaultComplexity(e.target.value as any)}
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
-                >
-                  <option value="simple">Simple - 简单任务</option>
-                  <option value="standard">Standard - 标准任务（推荐）</option>
-                  <option value="complex">Complex - 复杂任务</option>
-                </select>
-                <p className="text-xs text-muted-foreground/70 mt-2">
-                  设置新对话的默认复杂度级别，影响加载的 Prompt 组件数量
-                </p>
-              </div>
-
-              {/* 默认场景 */}
-              <div>
-                <label className="block text-sm font-medium mb-2">默认场景（可选）</label>
-                <input
-                  type="text"
-                  value={defaultScene}
-                  onChange={(e) => setDefaultScene(e.target.value)}
-                  placeholder="留空则自动分析场景"
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary"
-                />
-                <p className="text-xs text-muted-foreground/70 mt-2">
-                  指定默认场景（如 coding, life），留空则根据对话内容自动识别
-                </p>
-              </div>
-
-              {/* 保存按钮 */}
-              <div className="flex justify-end pt-4 border-t border-border">
-                <Button
-                  onClick={savePromptConfig}
-                  disabled={configLoading}
-                  variant="ghost"
-                  className="px-6 py-2 bg-primary/20 text-primary rounded hover:bg-primary/30 disabled:opacity-50 flex items-center gap-2"
-                >
-                  <Save size={16} />
-                  {configLoading ? '保存中...' : '保存配置'}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* 提示信息 */}
-          <div className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-            <div className="flex gap-3">
-              <Info size={16} className="text-blue-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-400">
-                <p className="font-medium mb-1">配置说明</p>
-                <ul className="text-xs space-y-1 text-blue-300">
-                  <li>• 复杂度配置会影响每次对话加载的 Prompt 组件数量和 token 消耗</li>
-                  <li>• 建议根据实际任务类型选择合适的复杂度，避免不必要的 token 浪费</li>
-                  <li>• 场景配置可以让 Agent 更好地理解任务上下文，提供更精准的响应</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -936,7 +988,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           <div>
             <h2 className="text-lg font-bold">System Prompt 管理</h2>
             <p className="text-xs text-muted-foreground">
-              管理分层 Prompt 组件 · 总计 {components.length} 个组件 · ~{totalTokens} tokens
+              总计 {components.length} 个组件 · 已启用 {components.filter(c => c.enabled).length} 个 · ~{totalTokens} tokens
+              <span className="mx-2">|</span>
+              <span className="text-red-400">L0: {components.filter(c => c.layer === 'L0').length}</span>
+              {' '}
+              <span className="text-blue-400">L1: {components.filter(c => c.layer === 'L1').length}</span>
+              {' '}
+              <span className="text-purple-400">L2: {components.filter(c => c.layer === 'L2').length}</span>
             </p>
           </div>
         </div>
@@ -977,19 +1035,6 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       {/* Tab 切换 */}
       <div className="flex border-b border-border bg-card">
         <Button
-          onClick={() => setActiveTab('complexity')}
-          variant="ghost"
-          size="sm"
-          className={`px-6 py-3 rounded-none h-auto ${
-            activeTab === 'complexity'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
-          }`}
-          style={{ borderBottomWidth: 2 }}
-        >
-          任务复杂度
-        </Button>
-        <Button
           onClick={() => setActiveTab('prompts')}
           variant="ghost"
           size="sm"
@@ -1018,7 +1063,6 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       </div>
 
       {/* Tab 内容 */}
-      {activeTab === 'complexity' && renderComplexityTab()}
       {activeTab === 'prompts' && renderPromptsTab()}
       {activeTab === 'projects' && renderProjectsTab()}
 
@@ -1026,23 +1070,157 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       {showPreview && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-card rounded-lg shadow-xl w-[90%] h-[90%] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border gap-4">
+              <h3 className="font-medium flex-shrink-0">完整 System Prompt 预览</h3>
+              <div className="flex items-center gap-3">
+                <select value={previewScene}
+                  onChange={(e) => setPreviewScene(e.target.value)}
+                  className="bg-background border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary">
+                  {l1Scenes.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select value={previewComplexity}
+                  onChange={(e) => setPreviewComplexity(e.target.value as any)}
+                  className="bg-background border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary">
+                  <option value="simple">Simple</option>
+                  <option value="standard">Standard</option>
+                  <option value="complex">Complex</option>
+                </select>
+                <Button onClick={handlePreview} variant="ghost" size="sm" className="flex items-center gap-1 px-3 py-1.5">
+                  <RefreshCw size={14} />
+                  重新生成
+                </Button>
+                <Button onClick={() => setShowPreview(false)} variant="ghost" size="icon" className="h-7 w-7">
+                  <X size={20} />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {previewPrompt ? (
+                <pre className="text-xs font-mono whitespace-pre-wrap bg-black/20 p-4 rounded h-full overflow-auto">
+                  {previewPrompt}
+                </pre>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <RefreshCw size={24} className="animate-spin text-primary" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 创建组件对话框 */}
+      {showCreateDialog && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-background rounded-lg shadow-xl border border-border w-[680px] max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="font-medium">完整 System Prompt 预览</h3>
-              <Button
-                onClick={() => setShowPreview(false)}
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-              >
+              <h3 className="font-medium">创建 Scene 组件</h3>
+              <Button onClick={() => setShowCreateDialog(false)} variant="ghost" size="icon" className="h-7 w-7">
                 <X size={20} />
               </Button>
             </div>
-            <div className="flex-1 overflow-auto p-4">
-              <MilkdownEditor
-                value={previewPrompt}
-                mode="preview"
-                height="calc(90vh - 120px)"
-              />
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              {/* 基本信息 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Scene ID *</label>
+                  <input type="text" value={createForm.id}
+                    onChange={(e) => setCreateForm({ ...createForm, id: e.target.value })}
+                    placeholder="如: write_code"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">名称 *</label>
+                  <input type="text" value={createForm.name}
+                    onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                    placeholder="如: 编写代码"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">优先级</label>
+                  <input type="number" value={createForm.priority}
+                    onChange={(e) => setCreateForm({ ...createForm, priority: parseInt(e.target.value) || 75 })}
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">预估 Tokens</label>
+                  <input type="number" value={createForm.estimatedTokens}
+                    onChange={(e) => setCreateForm({ ...createForm, estimatedTokens: parseInt(e.target.value) || 300 })}
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                </div>
+              </div>
+
+              {/* L1 场景匹配配置 */}
+              <div className="border-t border-border pt-4">
+                <h4 className="text-sm font-medium mb-3 text-primary">场景匹配配置</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">匹配关键词（正则）</label>
+                    <input type="text" value={createForm.keywords}
+                      onChange={(e) => setCreateForm({ ...createForm, keywords: e.target.value })}
+                      placeholder="如: (写|实现|创建).*(代码|功能)"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">场景描述</label>
+                    <input type="text" value={createForm.description}
+                      onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                      placeholder="如: 编写代码、实现功能"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </div>
+                </div>
+              </div>
+
+              {/* 可选配置 */}
+              <div className="border-t border-border pt-4">
+                <h4 className="text-sm font-medium mb-3 text-primary">能力与协作（可选）</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">适用场景（逗号分隔）</label>
+                    <input type="text" value={createForm.suitableFor}
+                      onChange={(e) => setCreateForm({ ...createForm, suitableFor: e.target.value })}
+                      placeholder="如: 实现新功能, 创建新组件"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">所需能力（逗号分隔）</label>
+                    <input type="text" value={createForm.requiredCapabilities}
+                      onChange={(e) => setCreateForm({ ...createForm, requiredCapabilities: e.target.value })}
+                      placeholder="如: 代码编写, 设计模式应用"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">协作提示</label>
+                    <textarea value={createForm.collaborationHint}
+                      onChange={(e) => setCreateForm({ ...createForm, collaborationHint: e.target.value })}
+                      placeholder="如: 1. 使用 explorer 探索代码&#10;2. 使用 planner 规划方案&#10;..."
+                      rows={4}
+                      className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Prompt 内容 */}
+              <div className="border-t border-border pt-4">
+                <h4 className="text-sm font-medium mb-3 text-primary">Prompt 内容</h4>
+                <textarea value={createForm.content}
+                  onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })}
+                  placeholder="输入 Prompt 内容（Markdown 格式）..."
+                  rows={12}
+                  className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y"
+                  style={{ minHeight: '200px' }} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-4 border-t border-border">
+              <Button onClick={() => setShowCreateDialog(false)} variant="ghost" className="px-4 py-2">取消</Button>
+              <Button onClick={createComponent} disabled={creating}
+                variant="ghost"
+                className="bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50 px-4 py-2 flex items-center gap-2">
+                <Plus size={16} />
+                {creating ? '创建中...' : '创建'}
+              </Button>
             </div>
           </div>
         </div>

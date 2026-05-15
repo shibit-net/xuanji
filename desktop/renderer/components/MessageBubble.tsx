@@ -119,6 +119,17 @@ interface MessageBubbleProps {
   streamingText?: string;
 }
 
+/** 文档图标 — 用于 toolSummary、SubAgentBlock、CitationChip */
+function FileIcon({ size = 14, className, simple }: { size?: number; className?: string; simple?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      {!simple && (<><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>)}
+    </svg>
+  );
+}
+
 const MessageBubble = React.memo(function MessageBubble({ message, isStreaming = false, streamingText }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -337,12 +348,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
               <Avatar seed={user?.email || user?.nickname || 'user'} size={20} className="w-5 h-5 rounded-full" />
             )
           ) : isToolSummary ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
+            <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
           ) : (
             <div className="w-5 h-5 rounded-full overflow-hidden flex-shrink-0">
               {!effectiveAgentId || effectiveAgentId === 'xuanji' ? (
@@ -454,13 +460,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
                    text-xs text-blue-400
                    transition-all duration-200 cursor-pointer"
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
+        <FileIcon size={12} className="flex-shrink-0" />
         <span className="font-medium truncate max-w-[120px]">{name}</span>
         {expanded ? <ChevronUp size={11} className="text-white/40" /> : <ChevronDown size={11} className="text-white/40" />}
       </button>
@@ -494,19 +494,13 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
                        text-xs text-blue-400
                        transition-all duration-200 cursor-pointer"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
+            <FileIcon size={11} simple className="flex-shrink-0" />
             <span className="font-medium">{name}</span>
             {expanded ? <ChevronUp size={10} className="text-white/40" /> : <ChevronDown size={10} className="text-white/40" />}
           </button>
         ) : (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06]">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
+            <FileIcon size={11} simple className="flex-shrink-0" />
             <span>{name}</span>
           </span>
         )}

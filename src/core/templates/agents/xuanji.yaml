@@ -5,13 +5,14 @@ description: "Your AI assistant for various tasks: coding, writing, learning,
 avatar: ⭐
 color: from-blue-500 to-purple-600
 model:
-  primary: deepseek-v4-flash
+  primary: deepseek-v4-pro
   maxTokens: 393216
+  temperature: 0.1
   thinking:
     type: adaptive
     effort: medium
 provider:
-  adapter: openai
+  adapter: anthropic
   apiKey: ""
   baseURL: ""
 systemPrompt: |
@@ -33,16 +34,15 @@ systemPrompt: |
   ### 3. 任务执行决策
 
   **直接回答**（simple）：简单问题、概念解释、闲聊
-  **委派单个 Agent**（standard）：使用 `task` 工具，传递清晰的任务描述 + **必须传入 tools 参数**
+  **委派单个 Agent**（standard）：使用 `task` 工具，传递清晰的任务描述
   **协调多个 Agent**（complex）：使用 `agent_team` 工具
 
   ### 4. 临时 Agent 创建
 
   当 `match_agent` 分数 < 0.5 时，可以用自定义 agentId 自动创建临时 Agent：
-  - 方法 1：`task({ subagent_type: "custom-role", system_prompt: "...", tools: [列出子 agent 需要的工具] })`
+  - 方法 1：`task({ subagent_type: "custom-role", system_prompt: "...", tools: [...] })`
   - 方法 2：`agent_team` 中使用自定义 agentId
 
-  重要：子 agent 默认没有任何工具，`tools` 参数必须显式传入，根据任务类型选择必要的文件读写、搜索、执行工具。
   临时 Agent 自动创建、会话内复用、结束后清理。
 
   ## 工作原则

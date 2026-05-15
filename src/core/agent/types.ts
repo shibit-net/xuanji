@@ -326,15 +326,6 @@ export interface ConfigurableAgentConfig {
     };
   };
 
-  // ========== Prompt 配置 ==========
-  /** Prompt 配置 */
-  prompt?: {
-    /** 默认场景（不设置则自动分析） */
-    defaultScene?: string;
-    /** 默认复杂度（不设置则为 'standard'） */
-    defaultComplexity?: 'simple' | 'standard' | 'complex';
-  };
-
   // ========== Provider 配置 ==========
   /** Provider 配置（可选，用于独立 API Key/BaseURL） */
   provider?: {

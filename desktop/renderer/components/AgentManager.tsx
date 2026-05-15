@@ -579,7 +579,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           ) : viewType === 'editor' ? (
             <AgentEditor
               agent={selectedAgent}
-              builtinAgents={agents.filter((a) => a.metadata?.category === 'app')}
+              builtinAgents={agents.filter((a) => a.metadata?.category !== 'system')}
               onSave={handleSaveAgent}
               onCancel={() => setViewType(selectedAgent ? 'detail' : null)}
             />

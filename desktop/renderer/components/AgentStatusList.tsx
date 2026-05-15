@@ -117,7 +117,7 @@ const AgentStatusList: React.FC = () => {
         </thead>
         <tbody>
           {agents.map((agent) => (
-            <tr key={agent.id} className="border-t border-border-secondary hover:bg-bg-tertiary transition-colors">
+            <tr key={agent.id} className="border-t border-border hover:bg-bg-secondary/50 transition-colors">
               <td className="px-4 py-2 font-medium text-text-primary">
                 {agent.parentId ? '└─ ' : ''}{agent.name}
               </td>

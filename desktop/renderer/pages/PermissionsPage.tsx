@@ -104,20 +104,20 @@ function DecisionsTab() {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 mb-3">
         <div className="relative flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="搜索工具或目标..."
-            className="w-full pl-8 pr-3 py-1.5 text-sm bg-bg-tertiary border border-bg-tertiary rounded focus:outline-none focus:border-primary"
+            className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
           />
         </div>
-        <select value={filter} onChange={e => setFilter(e.target.value as any)} className="px-2 py-1.5 text-sm bg-bg-tertiary border border-bg-tertiary rounded">
+        <select value={filter} onChange={e => setFilter(e.target.value as any)} className="px-2 py-1.5 text-sm bg-muted/50 border border-border rounded">
           <option value="all">全部</option>
           <option value="allow">允许</option>
           <option value="deny">拒绝</option>
         </select>
-        <button onClick={load} disabled={loading} className="p-1.5 hover:bg-bg-tertiary rounded">
+        <button onClick={load} disabled={loading} className="p-1.5 hover:bg-muted/50 rounded">
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
         <button onClick={handleClear} className="px-2 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded">
@@ -127,7 +127,7 @@ function DecisionsTab() {
 
       <div className="flex-1 overflow-y-auto space-y-2">
         {filtered.map(d => (
-          <div key={d.key} className="bg-bg-secondary rounded border border-bg-tertiary p-3">
+          <div key={d.key} className="bg-muted rounded border border-border p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -137,16 +137,16 @@ function DecisionsTab() {
                   </span>
                   <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded">{d.category}</span>
                 </div>
-                <p className="text-xs text-text-secondary truncate">{d.target}</p>
+                <p className="text-xs text-muted-foreground truncate">{d.target}</p>
                 <p className="text-xs text-text-tertiary mt-1">{new Date(d.timestamp).toLocaleString()}</p>
               </div>
-              <button onClick={() => handleDelete(d.key)} className="p-1 hover:bg-bg-tertiary rounded">
-                <Trash2 size={14} className="text-text-secondary" />
+              <button onClick={() => handleDelete(d.key)} className="p-1 hover:bg-muted/50 rounded">
+                <Trash2 size={14} className="text-muted-foreground" />
               </button>
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <p className="text-center text-text-secondary text-sm py-8">暂无决策记录</p>}
+        {filtered.length === 0 && <p className="text-center text-muted-foreground text-sm py-8">暂无决策记录</p>}
       </div>
     </div>
   );
@@ -185,17 +185,17 @@ function DeniedTab() {
 
   const filtered = filter === 'all' ? deniedOps : deniedOps.filter(d => d.category === filter);
 
-  if (loading) return <div className="p-4 text-text-secondary">加载中...</div>;
+  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex gap-2">
           {['all', 'file', 'command'].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1 rounded text-sm transition-colors ${filter === f ? 'bg-accent text-white' : 'bg-bg-secondary text-text-secondary hover:bg-bg-tertiary'}`}
+              className={`px-3 py-1 rounded text-sm transition-colors ${filter === f ? 'bg-accent text-white' : 'bg-muted text-muted-foreground hover:bg-muted/50'}`}
             >
               {f === 'all' ? '全部' : f === 'file' ? '文件' : '命令'}
             </button>
@@ -211,7 +211,7 @@ function DeniedTab() {
 
       <div className="flex-1 overflow-y-auto space-y-2 p-4">
         {filtered.map(d => (
-          <div key={d.key} className="bg-bg-secondary rounded border border-bg-tertiary p-3">
+          <div key={d.key} className="bg-muted rounded border border-border p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -220,11 +220,11 @@ function DeniedTab() {
                     {d.category}
                   </span>
                 </div>
-                <div className="text-xs text-text-secondary mb-1">
+                <div className="text-xs text-muted-foreground mb-1">
                   <span className="font-semibold">目标:</span> {d.target}
                 </div>
                 {d.reason && (
-                  <div className="text-xs text-text-secondary">
+                  <div className="text-xs text-muted-foreground">
                     <span className="font-semibold">原因:</span> {d.reason}
                   </div>
                 )}
@@ -234,10 +234,10 @@ function DeniedTab() {
               </div>
               <button
                 onClick={() => handleDelete(d.key)}
-                className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+                className="p-1 hover:bg-muted/50 rounded transition-colors"
                 title="删除"
               >
-                <Trash2 size={14} className="text-text-secondary" />
+                <Trash2 size={14} className="text-muted-foreground" />
               </button>
             </div>
           </div>
@@ -284,8 +284,8 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     }
   };
 
-  if (loading) return <div className="p-4 text-text-secondary">加载中...</div>;
-  if (!config) return <div className="p-4 text-text-secondary">无法加载配置</div>;
+  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
+  if (!config) return <div className="p-4 text-muted-foreground">无法加载配置</div>;
 
   return (
     <div className="flex flex-col h-full p-4 space-y-4 overflow-y-auto">
@@ -320,11 +320,11 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
       <div className="space-y-3">
         <div className="text-sm font-semibold text-text-primary">策略设置</div>
         <div>
-          <label className="text-xs text-text-secondary">警告级别处理</label>
+          <label className="text-xs text-muted-foreground">警告级别处理</label>
           <select
             value={config.warnLevel}
             onChange={e => setConfig({ ...config, warnLevel: e.target.value as any })}
-            className="w-full mt-1 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-sm"
+            className="w-full mt-1 px-2 py-1 bg-muted border border-border rounded text-sm"
           >
             <option value="ask">询问确认</option>
             <option value="auto-allow">自动允许</option>
@@ -345,7 +345,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         <textarea
           value={config.allowedPaths?.join('\n') || ''}
           onChange={e => setConfig({ ...config, allowedPaths: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-xs font-mono"
+          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
           placeholder="每行一个路径"
         />
       </div>
@@ -355,7 +355,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         <textarea
           value={config.deniedPaths?.join('\n') || ''}
           onChange={e => setConfig({ ...config, deniedPaths: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-xs font-mono"
+          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
           placeholder="每行一个路径"
         />
       </div>
@@ -365,7 +365,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         <textarea
           value={config.allowedCommands?.join('\n') || ''}
           onChange={e => setConfig({ ...config, allowedCommands: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-xs font-mono"
+          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
           placeholder="每行一个命令"
         />
       </div>
@@ -375,7 +375,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         <textarea
           value={config.deniedCommands?.join('\n') || ''}
           onChange={e => setConfig({ ...config, deniedCommands: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-xs font-mono"
+          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
           placeholder="每行一个命令"
         />
       </div>
@@ -430,40 +430,40 @@ const AuditTab: React.FC = () => {
     return true;
   });
 
-  if (loading) return <div className="p-4 text-text-secondary">加载中...</div>;
+  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
 
   return (
     <div className="flex flex-col h-full">
       {stats && (
-        <div className="p-4 grid grid-cols-3 gap-3 border-b border-bg-tertiary">
-          <div className="bg-bg-secondary rounded p-3">
-            <div className="text-xs text-text-secondary">总检查次数</div>
+        <div className="p-4 grid grid-cols-3 gap-3 border-b border-border">
+          <div className="bg-muted rounded p-3">
+            <div className="text-xs text-muted-foreground">总检查次数</div>
             <div className="text-xl font-semibold text-text-primary">{stats.totalChecks}</div>
           </div>
-          <div className="bg-bg-secondary rounded p-3">
-            <div className="text-xs text-text-secondary">允许率</div>
+          <div className="bg-muted rounded p-3">
+            <div className="text-xs text-muted-foreground">允许率</div>
             <div className="text-xl font-semibold text-green-400">{(stats.allowRate * 100).toFixed(1)}%</div>
           </div>
-          <div className="bg-bg-secondary rounded p-3">
-            <div className="text-xs text-text-secondary">拒绝次数</div>
+          <div className="bg-muted rounded p-3">
+            <div className="text-xs text-muted-foreground">拒绝次数</div>
             <div className="text-xl font-semibold text-red-400">{stats.deniedCount}</div>
           </div>
         </div>
       )}
 
-      <div className="p-4 border-b border-bg-tertiary space-y-2">
+      <div className="p-4 border-b border-border space-y-2">
         <input
           type="text"
           placeholder="搜索工具名..."
           value={toolFilter}
           onChange={e => setToolFilter(e.target.value)}
-          className="w-full px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-sm"
+          className="w-full px-2 py-1 bg-muted border border-border rounded text-sm"
         />
         <div className="flex gap-2">
           <select
             value={decisionFilter}
             onChange={e => setDecisionFilter(e.target.value)}
-            className="flex-1 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-sm"
+            className="flex-1 px-2 py-1 bg-muted border border-border rounded text-sm"
           >
             <option value="all">所有决策</option>
             <option value="allow">允许</option>
@@ -472,7 +472,7 @@ const AuditTab: React.FC = () => {
           <select
             value={riskFilter}
             onChange={e => setRiskFilter(e.target.value)}
-            className="flex-1 px-2 py-1 bg-bg-secondary border border-bg-tertiary rounded text-sm"
+            className="flex-1 px-2 py-1 bg-muted border border-border rounded text-sm"
           >
             <option value="all">所有风险</option>
             <option value="low">低</option>
@@ -490,7 +490,7 @@ const AuditTab: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {filtered.map((log, idx) => (
-          <div key={idx} className="bg-bg-secondary rounded border border-bg-tertiary p-3 text-xs">
+          <div key={idx} className="bg-muted rounded border border-border p-3 text-xs">
             <div className="flex items-center gap-2 mb-1">
               <span className="font-mono font-semibold">{log.toolName}</span>
               <span className={`px-2 py-0.5 rounded ${log.decision === 'allow' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -503,12 +503,12 @@ const AuditTab: React.FC = () => {
               )}
             </div>
             {log.target && (
-              <div className="text-text-secondary mb-1">
+              <div className="text-muted-foreground mb-1">
                 <span className="font-semibold">目标:</span> {log.target}
               </div>
             )}
             {log.reason && (
-              <div className="text-text-secondary mb-1">
+              <div className="text-muted-foreground mb-1">
                 <span className="font-semibold">原因:</span> {log.reason}
               </div>
             )}
@@ -532,20 +532,20 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
   const handleRefresh = () => setRefreshKey(k => k + 1);
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-bg-tertiary">
+    <div className="flex flex-col h-screen bg-background text-text-primary">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h1 className="text-lg font-semibold">权限管理</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={handleRefresh}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+            className="p-1.5 hover:bg-muted/50 rounded transition-colors"
             title="刷新"
           >
             <RefreshCw size={16} />
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+            className="p-1.5 hover:bg-muted/50 rounded transition-colors"
             title="关闭"
           >
             <X size={16} />
@@ -553,7 +553,7 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
         </div>
       </div>
 
-      <div className="flex border-b border-bg-tertiary">
+      <div className="flex border-b border-border">
         {[
           { key: 'decisions' as TabType, label: '📋 决策记录' },
           { key: 'denied' as TabType, label: '🚫 拒绝记录' },
@@ -563,7 +563,7 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm transition-colors ${activeTab === tab.key ? 'bg-bg-secondary text-text-primary border-b-2 border-accent' : 'text-text-secondary hover:bg-bg-tertiary'}`}
+            className={`px-4 py-2 text-sm transition-colors ${activeTab === tab.key ? 'bg-muted text-text-primary border-b-2 border-accent' : 'text-muted-foreground hover:bg-muted/50'}`}
           >
             {tab.label}
           </button>

@@ -202,10 +202,18 @@ export class ConfigManager {
 
   // === Template Sync ===
 
+  /**
+   * 从模板同步缺失的配置文件到用户目录
+   *
+   * - agents/、prompts/：子目录内文件级别同步（仅补缺失）
+   * - config.json、mcp.json、prompt.json：根级别文件同步（仅补缺失）
+   * - 已有文件不会被覆盖，用户自定义优先
+   */
   async syncMissingFromTemplate(): Promise<string[]> {
     this.requireUser();
     const synced: string[] = [];
 
+    // 同步子目录文件（agents/、prompts/）
     for (const sub of ['agents', 'prompts']) {
       const tmplDir = path.join(this.templateDir, sub);
       const usrDir = path.join(this.userConfigDir, sub);
@@ -219,15 +227,39 @@ export class ConfigManager {
       }
     }
 
-    const tmplSettings = path.join(this.templateDir, 'settings.json');
-    const usrSettings = path.join(this.userConfigDir, 'settings.json');
-    if (fs.existsSync(tmplSettings) && !fs.existsSync(usrSettings)) {
-      fs.copyFileSync(tmplSettings, usrSettings);
-      synced.push('settings.json');
+    // 同步根级别配置文件（仅当用户侧不存在时）
+    for (const fileName of ['config.json', 'mcp.json', 'prompt.json']) {
+      const tmplPath = path.join(this.templateDir, fileName);
+      const usrPath = path.join(this.userConfigDir, fileName);
+
+      if (!fs.existsSync(tmplPath)) continue;
+
+      // mcp.json：模板文件直接复制（不含 _examples 等非标准字段时）
+      if (!fs.existsSync(usrPath)) {
+        if (fileName === 'mcp.json') {
+          // 从模板 mcp.json 仅提取有效字段，过滤 _examples
+          const cleaned = this.cleanMCPTemplate(tmplPath);
+          fs.writeFileSync(usrPath, JSON.stringify(cleaned, null, 2), 'utf-8');
+        } else {
+          fs.copyFileSync(tmplPath, usrPath);
+        }
+        synced.push(fileName);
+      }
     }
 
-    if (synced.length > 0) log.info(`Synced ${synced.length} configs from template`);
+    if (synced.length > 0) log.info(`Synced ${synced.length} configs from template: ${synced.join(', ')}`);
     return synced;
+  }
+
+  /** 清洗 mcp.json 模板：去掉 _examples 等非标准字段 */
+  private cleanMCPTemplate(tmplPath: string): Record<string, any> {
+    try {
+      const raw = JSON.parse(fs.readFileSync(tmplPath, 'utf-8'));
+      const { _examples, ...rest } = raw;
+      return rest;
+    } catch {
+      return { servers: [] };
+    }
   }
 
   // === Private ===

@@ -218,16 +218,6 @@ export interface ElectronAPI {
     error?: string;
   }>;
 
-  // Prompt 配置管理
-  getPromptConfig: () => Promise<{
-    success: boolean;
-    config?: { defaultComplexity?: string; defaultScene?: string };
-    error?: string;
-  }>;
-  setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) => Promise<{
-    success: boolean;
-    error?: string;
-  }>;
   promptDeleteComponent: (data: { id: string }) => Promise<{
     success: boolean;
     error?: string;

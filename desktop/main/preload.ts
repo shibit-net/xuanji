@@ -122,9 +122,6 @@
     ipcRenderer.invoke('prompt-update-component', data),
   promptPreview: (data: { scene?: string; complexity?: string }) =>
     ipcRenderer.invoke('prompt-preview', data),
-  getPromptConfig: () => ipcRenderer.invoke('prompt-get-config'),
-  setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) =>
-    ipcRenderer.invoke('prompt-set-config', data),
   promptDeleteComponent: (data: { id: string }) =>
     ipcRenderer.invoke('prompt-delete-component', data),
   promptCreateComponent: (data: {

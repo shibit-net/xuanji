@@ -1,18 +1,30 @@
 {
-  "version": "1.0",
-  "userId": "177164660076560204",
-  "isTemplate": false,
-  "createdAt": "2026-04-19T00:47:31.683Z",
-  "updatedAt": "2026-04-20T07:30:00.000Z",
-  "config": {
-    "ui": {
-      "theme": "auto",
-      "language": "zh",
-      "showTokenUsage": true,
-      "showCost": true,
-      "showThinking": false
-    },
-    "permission": {
+  "provider": {},
+  "ui": {
+    "theme": "auto",
+    "language": "zh",
+    "showTokenUsage": true,
+    "showCost": true,
+    "showThinking": false
+  },
+  "permission": {
+    "fileWrite": "ask",
+    "fileRead": "always",
+    "bashExec": "ask",
+    "warnLevel": "ask",
+    "confirmWrite": "plan-only",
+    "confirmBatchWrite": false,
+    "allowedCommands": [],
+    "deniedCommands": [],
+    "allowedPaths": [],
+    "deniedPaths": [],
+    "persistDecisions": true,
+    "decisionsFile": ".xuanji/permission-decisions.db"
+  },
+  "tools": {
+    "enabled": [],
+    "schemaMode": "compact",
+    "permissions": {
       "fileWrite": "ask",
       "fileRead": "always",
       "bashExec": "ask",
@@ -23,85 +35,115 @@
       "deniedCommands": [],
       "allowedPaths": [],
       "deniedPaths": [],
-      "persistDecisions": true,
-      "decisionsFile": ".xuanji/permission-decisions.db"
+      "persistDecisions": true
     },
-    "tools": {
-      "enabled": [],
-      "schemaMode": "compact",
-      "permissions": {
-        "fileWrite": "ask",
-        "fileRead": "always",
-        "bashExec": "ask",
-        "warnLevel": "ask",
-        "confirmWrite": "plan-only",
-        "confirmBatchWrite": false,
-        "allowedCommands": [],
-        "deniedCommands": [],
-        "allowedPaths": [],
-        "deniedPaths": [],
-        "persistDecisions": true,
-        "decisionsFile": ".xuanji/permission-decisions.db"
-      },
-      "timeouts": {
-        "default": 300000,
-        "bash": 120000,
-        "webFetch": 30000,
-        "agent_team": 1800000,
-        "task": 600000,
-        "backgroundTask": 3600000
-      }
-    },
-    "retry": {
-      "maxRetries": 3,
-      "initialDelay": 1000,
-      "maxDelay": 30000,
-      "backoffMultiplier": 2,
-      "retryableStatusCodes": [429, 500, 502, 503, 529]
-    },
-    "skills": {
-      "enabled": [],
-      "disabled": [],
-      "loadCustom": true,
-      "customPath": ".xuanji/skills"
-    },
-    "memory": {
-      "enabled": true,
-      "shortTermMaxEntries": 100,
-      "longTermMaxEntries": 1000,
-      "retrieveMaxResults": 10,
-      "maxEntryLength": 500,
-      "maxPromptLength": 5000,
-      "compactionThreshold": 500,
-      "decayHalfLifeDays": 30
-    },
-    "agent": {
-      "maxIterations": null,
-      "subAgent": {
-        "maxNestingDepth": 3,
-        "maxConcurrent": 3,
-        "timeout": 300000,
-        "maxIterations": null
-      }
-    },
-    "session": {
-      "archiveThresholds": {
-        "messageCount": 50,
-        "tokenCount": 100000,
-        "timeMinutes": 120
-      },
-      "archiveStrategy": {
-        "keepRecentMessages": 10,
-        "generateSummary": true,
-        "extractKeyPoints": true
-      },
-      "autoResumeLastSession": true,
-      "memoryRetrievalCount": 20,
-      "showResumeNotification": true,
-      "maxSessions": 50
-    },
-    "features": {
-      "intentRouter": true
+    "timeouts": {
+      "default": 300000,
+      "bash": 120000,
+      "webFetch": 30000,
+      "agent_team": 1800000,
+      "task": 600000,
+      "backgroundTask": 3600000
     }
-  }
+  },
+  "retry": {
+    "maxRetries": 3,
+    "initialDelay": 1000,
+    "maxDelay": 30000,
+    "backoffMultiplier": 2,
+    "retryableStatusCodes": [429, 500, 502, 503, 529]
+  },
+  "skills": {
+    "enabled": [],
+    "disabled": [],
+    "loadCustom": true,
+    "customPath": ".xuanji/skills"
+  },
+  "memory": {
+    "enabled": true,
+    "shortTermMaxEntries": 100,
+    "longTermMaxEntries": 1000,
+    "retrieveMaxResults": 10,
+    "maxEntryLength": 500,
+    "maxPromptLength": 5000,
+    "compactionThreshold": 500,
+    "decayHalfLifeDays": 30
+  },
+  "agent": {
+    "maxIterations": null,
+    "subAgent": {
+      "maxNestingDepth": 3,
+      "maxConcurrent": 3,
+      "timeout": 300000,
+      "maxIterations": null
+    }
+  },
+  "session": {
+    "archiveThresholds": {
+      "messageCount": 50,
+      "tokenCount": 100000,
+      "timeMinutes": 120
+    },
+    "archiveStrategy": {
+      "keepRecentMessages": 10,
+      "generateSummary": true,
+      "extractKeyPoints": true
+    },
+    "autoResumeLastSession": true,
+    "showResumeNotification": true,
+    "maxSessions": 50
+  },
+  "features": {
+    "intentRouter": true
+  },
+  "routing": {
+    "mode": "auto",
+    "complexity": {
+      "minStepsForMultiAgent": 3,
+      "tokenThreshold": 50000,
+      "useAnalyzer": true,
+      "analyzerModel": "claude-haiku-4-5",
+      "cacheTTL": 300
+    },
+    "runtimeUpgrade": {
+      "enabled": true,
+      "autoConfirm": false,
+      "thresholds": {
+        "maxSteps": 20,
+        "maxTokens": 200000
+      }
+    },
+    "executionPlan": {
+      "enabled": true,
+      "requireConfirmation": true,
+      "planTimeout": 60
+    }
+  },
+  "planner": {
+    "maxSteps": 10,
+    "useAnalyzer": true
+  },
+  "executor": {
+    "maxConcurrentSubAgents": 3,
+    "maxNestingDepth": 3,
+    "stepTimeout": 300000
+  },
+  "persona": {
+    "name": "璇玑",
+    "talkStyle": "balanced"
+  },
+  "webSearch": {
+    "cacheTTL": 900000,
+    "maxResults": 5,
+    "rateLimit": 10
+  },
+  "hooks": {},
+  "logging": {
+    "mode": "home",
+    "enableFile": true,
+    "enableConsole": true,
+    "level": "info"
+  },
+  "workspacePath": "",
+  "onboardingDone": false
 }

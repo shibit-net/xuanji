@@ -195,8 +195,8 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
               className="flex-1 px-2 py-1 text-xs bg-card border border-border rounded text-foreground focus:outline-none focus:border-accent"
             >
               <option value="all">所有类别</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
+              {categories.filter(Boolean).map(cat => (
+                <option key={cat} value={cat!}>{cat}</option>
               ))}
             </select>
 

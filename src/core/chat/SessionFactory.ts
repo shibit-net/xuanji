@@ -111,10 +111,6 @@ export class SessionFactory {
         userId,
         options.projectRoot,
         this.agentId,
-        {
-          defaultComplexity: config.prompt?.defaultComplexity,
-          defaultScene: config.prompt?.defaultScene,
-        }
       );
       await builder.init();
       return builder;

@@ -251,13 +251,6 @@ export interface AppConfig {
   embedding?: EmbeddingConfig;
   /** 下载配置 */
   download?: DownloadConfig;
-  /** Prompt 配置 */
-  prompt?: {
-    /** 默认场景 */
-    defaultScene?: string;
-    /** 默认复杂度 */
-    defaultComplexity?: 'simple' | 'standard' | 'complex';
-  };
   /** UI 配置 */
   ui: UIConfig;
   /** 权限配置 */

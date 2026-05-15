@@ -95,7 +95,7 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
               className={`flex items-center justify-center gap-2 py-2 px-3 text-sm whitespace-nowrap transition-colors ${
                 activeTab === tab.id
                   ? 'bg-background text-foreground border-b-2 border-primary'
-                  : 'text-muted-foreground hover:bg-muted border-b-2 border-transparent'
+                  : 'text-muted-foreground hover:bg-bg-secondary border-b-2 border-transparent'
               }`}
             >
               {tab.icon}
@@ -410,7 +410,7 @@ function ToolsTab() {
           <>
             <div className="space-y-2 text-sm">
               {toolStats.map(([name, stat]) => (
-                <div key={name} className="flex justify-between items-center p-2 bg-bg-primary rounded">
+                <div key={name} className="flex justify-between items-center p-2 bg-background rounded">
                   <span>{toolIcons[name] || '🔧'} {name}</span>
                   <div className="flex items-center gap-2">
                     {stat.error > 0 && (
@@ -432,7 +432,7 @@ function ToolsTab() {
                     const statusColor = call.status === 'success' ? 'text-green-500' : call.status === 'error' ? 'text-red-500' : 'text-yellow-500';
 
                     return (
-                      <div key={call.id} className="bg-bg-primary rounded overflow-hidden">
+                      <div key={call.id} className="bg-background rounded overflow-hidden">
                         <Button
                           onClick={() => toggleExpand(call.id)}
                           variant="ghost"
@@ -548,7 +548,7 @@ function LogsTab() {
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-1 text-xs font-mono">
           {filteredLogs.slice().reverse().map((log, idx) => (
-            <div key={idx} className="p-2 bg-bg-primary rounded">
+            <div key={idx} className="p-2 bg-background rounded">
               <span className="text-text-secondary">{formatTime(log.timestamp)}</span>{' '}
               <span className={levelColors[log.level] || 'text-text-secondary'}>
                 {log.level.toUpperCase()}

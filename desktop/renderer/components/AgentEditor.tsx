@@ -3,10 +3,11 @@
 // ============================================================
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Trash2, AlertCircle, Loader2, Search, Download } from 'lucide-react';
+import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Trash2, AlertCircle, Loader2, Search, Download, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
 import MilkdownEditor from './MilkdownEditor';
+import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
 
 interface AgentEditorProps {
   agent: any | null;
@@ -42,8 +43,8 @@ const DEFAULT_CONFIG = {
 
   model: {
     primary: 'claude-sonnet-4-6',
-    maxTokens: 8000,
-    temperature: 0.7,
+    maxTokens: 32000,
+    temperature: 0.3,
     thinking: {
       type: 'adaptive',
       effort: 'medium',
@@ -76,10 +77,6 @@ const DEFAULT_CONFIG = {
     fileWrite: 'ask',
     bashExec: 'ask',
     network: 'ask',
-  },
-
-  metadata: {
-    category: 'custom',
   },
 };
 
@@ -130,15 +127,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const [toolSearchQuery, setToolSearchQuery] = useState('');
 
   const isCreating = !agent;
-  const category = agent?.metadata?.category || 'custom';
-  const isFieldEditable = (field: string) => {
-    if (isCreating) return true;
-    if (category === 'custom') return field !== 'id';
-    const systemEditable = ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled'];
-    const appEditable = [...systemEditable, 'model.temperature', 'systemPrompt', 'tools'];
-    const editable = category === 'system' ? systemEditable : appEditable;
-    return editable.some(f => field === f || field.startsWith(f + '.'));
-  };
+  const category: AgentCategory = agent?.metadata?.category || 'custom';
+  const canEdit = (field: string) => isFieldEditable(field, category, isCreating);
+
+  // 创建向导步骤
+  const [creationStep, setCreationStep] = useState(1);
+  const totalSteps = 4;
 
   // 本地模型状态管理
   const [localModelStatuses, setLocalModelStatuses] = useState<Record<string, { installed: boolean; downloading: boolean; progress: number }>>({});
@@ -531,7 +525,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   ) => {
     const value = field.split('.').reduce((obj, key) => obj?.[key], config);
     const error = errors[field];
-    const isDisabled = disabled ?? !isFieldEditable(field);
+    const isDisabled = disabled ?? !canEdit(field);
 
     const handleChange = (newValue: any) => {
       const keys = field.split('.');
@@ -824,33 +818,277 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             </div>
           </div>
         </div>
+      ) : isCreating ? (
+        /* 创建向导 */
+        <div className="space-y-6">
+          {/* 进度指示器 */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            {[1, 2, 3, 4].map((step) => (
+              <div key={step} className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                  step < creationStep ? 'bg-primary text-white' :
+                  step === creationStep ? 'bg-primary text-white ring-2 ring-primary/30' :
+                  'bg-bg-tertiary text-text-tertiary'
+                }`}>
+                  {step < creationStep ? <Check size={14} /> : step}
+                </div>
+                <span className={`text-xs ${step <= creationStep ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                  {step === 1 ? '身份' : step === 2 ? '大脑' : step === 3 ? '工具' : '审核'}
+                </span>
+                {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-bg-tertiary'}`} />}
+              </div>
+            ))}
+          </div>
+
+          {/* Step 1: 身份 */}
+          {creationStep === 1 && (
+            <div className="space-y-4">
+              <div className="bg-bg-secondary rounded-lg p-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Settings size={18} className="text-primary" />
+                  基础信息
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {renderFormField('Agent ID *', 'id')}
+                  {renderFormField('名称 *', 'name')}
+                </div>
+                {renderFormField('描述 *', 'description', 'textarea')}
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  {renderFormField('头像 Emoji', 'avatar')}
+                  {renderFormField('颜色', 'color')}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: 大脑 */}
+          {creationStep === 2 && (
+            <div className="space-y-4">
+              {/* 模板选择 */}
+              {builtinAgents.length > 0 && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                  <label className="block text-sm font-medium mb-2 text-blue-300">
+                    从模板开始（可选）
+                  </label>
+                  <select
+                    value={selectedTemplate}
+                    onChange={(e) => {
+                      setSelectedTemplate(e.target.value);
+                      applyTemplate(e.target.value);
+                    }}
+                    className="w-full bg-bg-primary border border-blue-500/30 rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                  >
+                    <option value="">从空白配置开始</option>
+                    {builtinAgents.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} - {template.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="bg-bg-secondary rounded-lg p-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Zap size={18} className="text-yellow-500" />
+                  模型与 System Prompt
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Provider 适配器</label>
+                    <select
+                      value={config.provider?.adapter || 'anthropic'}
+                      onChange={(e) => {
+                        setConfig({ ...config, provider: { ...config.provider, adapter: e.target.value } });
+                        loadModels(e.target.value);
+                      }}
+                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    >
+                      <option value="anthropic">Anthropic</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </div>
+                  {renderFormField('主模型', 'model.primary', 'select')}
+                </div>
+                <div className="mt-3">
+                  <label className="block text-sm font-medium mb-1">System Prompt</label>
+                  <textarea
+                    value={config.systemPrompt || ''}
+                    onChange={(e) => setConfig({ ...config, systemPrompt: e.target.value })}
+                    placeholder="定义 Agent 的角色身份、能力范围和工作原则..."
+                    rows={10}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  {renderFormField('温度 (0-1)', 'model.temperature', 'number')}
+                  {renderFormField('最大 Token', 'model.maxTokens', 'number')}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: 工具与能力 */}
+          {creationStep === 3 && (
+            <div className="space-y-4">
+              <div className="bg-bg-secondary rounded-lg p-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <FileCode size={18} className="text-green-500" />
+                  能力清单
+                </h4>
+                <textarea
+                  value={config.capabilities?.join('\n') || ''}
+                  onChange={(e) => setConfig({
+                    ...config,
+                    capabilities: e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
+                  })}
+                  placeholder="代码编写和实现&#10;代码调试和修复&#10;代码重构和优化"
+                  rows={4}
+                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                />
+              </div>
+
+              <div className="bg-bg-secondary rounded-lg p-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Database size={18} className="text-blue-500" />
+                  工具配置
+                </h4>
+                {/* 搜索和批量操作 */}
+                <div className="space-y-3 mb-4">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+                    <input
+                      type="text"
+                      placeholder="搜索工具..."
+                      value={toolSearchQuery}
+                      onChange={(e) => setToolSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 bg-bg-primary border border-bg-tertiary rounded text-sm focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={selectAllTools} className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded">全选</button>
+                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded">取消全选</button>
+                    <span className="ml-auto text-xs text-text-tertiary self-center">
+                      已启用 {(config.tools || []).filter((t: any) => t.enabled !== false).length} / {(config.tools || []).length} 个
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {Object.entries(groupedTools).map(([cat, tools]) => (
+                    <div key={cat}>
+                      <h4 className="text-sm font-medium text-text-primary mb-2 sticky top-0 bg-bg-secondary py-1">{cat}</h4>
+                      <div className="space-y-1 pl-2">
+                        {tools.map((tool: any) => {
+                          const toolConfig = (config.tools || []).find((t: any) => t.name === tool.name);
+                          const isEnabled = toolConfig ? toolConfig.enabled !== false : false;
+                          return (
+                            <div key={tool.name} className="p-2 hover:bg-bg-tertiary/50 rounded">
+                              <label className="flex items-start gap-3 cursor-pointer">
+                                <input type="checkbox" checked={isEnabled} onChange={() => toggleTool(tool.name)} className="mt-0.5 rounded" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium">{tool.name}</div>
+                                  {tool.description && <div className="text-xs text-text-tertiary mt-0.5">{tool.description}</div>}
+                                </div>
+                              </label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: 审核保存 */}
+          {creationStep === 4 && (
+            <div className="space-y-4">
+              <div className="bg-bg-secondary rounded-lg p-4">
+                <h4 className="font-medium mb-3">配置摘要</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-text-tertiary">ID</span><span className="font-mono">{config.id || '(未填写)'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">名称</span><span>{config.name || '(未填写)'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">模型</span><span className="font-mono">{config.model?.primary || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">Provider</span><span>{config.provider?.adapter || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">System Prompt</span><span>{config.systemPrompt ? `${config.systemPrompt.substring(0, 50)}...` : '(无)'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">工具数</span><span>{(config.tools || []).filter((t: any) => t.enabled !== false).length} 个</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">能力</span><span>{(config.capabilities || []).length} 项</span></div>
+                </div>
+              </div>
+
+              {/* 高级设置 */}
+              <details className="bg-bg-secondary rounded-lg p-4">
+                <summary className="font-medium cursor-pointer">高级设置</summary>
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">执行模式</label>
+                      <select value={config.execution?.mode || 'react'} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, mode: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                        <option value="react">ReAct</option>
+                        <option value="plan">Plan</option>
+                        <option value="chain">Chain</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">最大迭代</label>
+                      <input type="number" value={config.execution?.maxIterations || 20} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, maxIterations: parseInt(e.target.value) } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.streaming !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, streaming: e.target.checked } })} className="rounded" />流式输出</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.parallelTools !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, parallelTools: e.target.checked } })} className="rounded" />并行工具调用</label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">文件读取</label>
+                      <select value={config.permissions?.fileRead || 'always'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileRead: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                        <option value="always">始终允许</option><option value="ask">询问用户</option><option value="deny">禁止</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">文件写入</label>
+                      <select value={config.permissions?.fileWrite || 'ask'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileWrite: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                        <option value="always">始终允许</option><option value="ask">询问用户</option><option value="deny">禁止</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* 导航按钮 */}
+          <div className="flex justify-between pt-4 border-t border-border">
+            {creationStep > 1 ? (
+              <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2">
+                <ArrowLeft size={16} />上一步
+              </button>
+            ) : <div />}
+            {creationStep < 4 ? (
+              <button type="button" onClick={() => setCreationStep(creationStep + 1)} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm flex items-center gap-2">
+                下一步<ArrowRight size={16} />
+              </button>
+            ) : (
+              <button type="button" onClick={handleSave} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm flex items-center gap-2">
+                <Save size={16} />保存 Agent
+              </button>
+            )}
+          </div>
+        </div>
       ) : (
-        /* 表单编辑模式 */
+        /* 编辑模式 — 折叠面板 */
         <div className="space-y-4">
-          {/* 模板选择（仅创建时显示） */}
-          {isCreating && builtinAgents.length > 0 && (
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-              <label className="block text-sm font-medium mb-2 text-blue-300">
-                🎯 从模板开始（可选）
-              </label>
-              <select
-                value={selectedTemplate}
-                onChange={(e) => {
-                  setSelectedTemplate(e.target.value);
-                  applyTemplate(e.target.value);
-                }}
-                className="w-full bg-bg-primary border border-blue-500/30 rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
-              >
-                <option value="">从空白配置开始</option>
-                {builtinAgents.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} - {template.description}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-blue-300 mt-2">
-                💡 选择一个内置 Agent 作为起点，自动填充配置后您可以根据需要修改
-              </p>
+          {/* 分类提示 */}
+          {!isCreating && (
+            <div className={`rounded-lg p-3 text-xs ${
+              category === 'system' ? 'bg-red-500/10 border border-red-500/20 text-red-400' :
+              category === 'app' ? 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-400' :
+              'bg-green-500/10 border border-green-500/20 text-green-400'
+            }`}>
+              {category === 'system' && '系统 Agent：仅可编辑 Provider、模型和启用状态'}
+              {category === 'app' && '应用 Agent：可编辑 Provider、模型、System Prompt 和工具配置'}
+              {category === 'custom' && '自定义 Agent：可编辑除 ID 外的全部字段'}
             </div>
           )}
 
@@ -870,10 +1108,10 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, enabled: !config.enabled })}
-                  disabled={!isFieldEditable('enabled')}
+                  disabled={!canEdit('enabled')}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                     config.enabled !== false ? 'bg-primary' : 'bg-bg-tertiary'
-                  } ${!isFieldEditable('enabled') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${!canEdit('enabled') ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
                     className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
@@ -895,7 +1133,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   })}
                   placeholder="代码编写和实现&#10;代码调试和修复&#10;代码重构和优化"
                   rows={5}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                  disabled={!canEdit('capabilities')}
+                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-text-secondary mt-1">
                   定义 Agent 的能力范围，用于匹配和选择
@@ -949,6 +1188,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <textarea
                   value={config.systemPrompt || ''}
                   onChange={(e) => setConfig({ ...config, systemPrompt: e.target.value })}
+                  disabled={!canEdit('systemPrompt')}
                   placeholder={`你是一位经验丰富的软件工程师。
 
 ## 核心原则
@@ -966,7 +1206,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
 具体的场景指导会通过 Scene 动态加载。`}
                   rows={15}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-text-secondary mt-1">
                   支持 Markdown 格式。留空则使用默认的通用 Agent 身份。
@@ -995,7 +1235,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       // 切换 adapter 时重新加载模型列表
                       loadModels(newAdapter);
                     }}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('provider.adapter')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
@@ -1132,7 +1373,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         provider: { ...config.provider, apiKey: e.target.value },
                       })}
                       placeholder="留空使用全局配置"
-                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      disabled={!canEdit('provider.apiKey')}
+                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
@@ -1145,7 +1387,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         provider: { ...config.provider, baseURL: e.target.value },
                       })}
                       placeholder="留空使用默认地址"
-                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      disabled={!canEdit('provider.baseURL')}
+                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -1248,12 +1491,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                 key={tool.name}
                                 className="p-2 hover:bg-bg-tertiary/50 rounded"
                               >
-                                <label className="flex items-start gap-3 cursor-pointer">
+                                <label className={`flex items-start gap-3 ${canEdit('tools') ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                                   <input
                                     type="checkbox"
                                     checked={isEnabled}
                                     onChange={() => toggleTool(tool.name)}
-                                    className="mt-0.5 rounded"
+                                    disabled={!canEdit('tools')}
+                                    className="mt-0.5 rounded disabled:opacity-50"
                                   />
                                   <div className="flex-1 min-w-0">
                                     <div className="text-sm font-medium text-text-primary">{tool.name}</div>
@@ -1306,7 +1550,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, mode: e.target.value },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('execution.mode')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="react">ReAct（推荐）</option>
                     <option value="plan">Plan（规划模式）</option>
@@ -1324,7 +1569,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, maxIterations: parseInt(e.target.value) },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('execution.maxIterations')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -1338,7 +1584,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, timeout: parseInt(e.target.value) },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('execution.timeout')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -1353,7 +1600,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, streaming: e.target.checked },
                     })}
-                    className="rounded"
+                    disabled={!canEdit('execution.streaming')}
+                    className="rounded disabled:opacity-50"
                   />
                   <span className="text-sm">流式输出</span>
                 </label>
@@ -1366,7 +1614,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, parallelTools: e.target.checked },
                     })}
-                    className="rounded"
+                    disabled={!canEdit('execution.parallelTools')}
+                    className="rounded disabled:opacity-50"
                   />
                   <span className="text-sm">并行工具调用</span>
                 </label>
@@ -1379,7 +1628,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       execution: { ...config.execution, retryOnError: e.target.checked },
                     })}
-                    className="rounded"
+                    disabled={!canEdit('execution.retryOnError')}
+                    className="rounded disabled:opacity-50"
                   />
                   <span className="text-sm">错误时自动重试</span>
                 </label>
@@ -1409,11 +1659,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       permissions: { ...config.permissions, fileRead: e.target.value },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('permissions.fileRead')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">始终允许</option>
                     <option value="ask">询问用户</option>
-                    <option value="never">禁止</option>
+                    <option value="deny">禁止</option>
                   </select>
                 </div>
 
@@ -1426,11 +1677,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       permissions: { ...config.permissions, fileWrite: e.target.value },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('permissions.fileWrite')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">始终允许</option>
                     <option value="ask">询问用户</option>
-                    <option value="never">禁止</option>
+                    <option value="deny">禁止</option>
                   </select>
                 </div>
 
@@ -1443,11 +1695,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       permissions: { ...config.permissions, bashExec: e.target.value },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('permissions.bashExec')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">始终允许</option>
                     <option value="ask">询问用户</option>
-                    <option value="never">禁止</option>
+                    <option value="deny">禁止</option>
                   </select>
                 </div>
 
@@ -1460,11 +1713,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       ...config,
                       permissions: { ...config.permissions, network: e.target.value },
                     })}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    disabled={!canEdit('permissions.network')}
+                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">始终允许</option>
                     <option value="ask">询问用户</option>
-                    <option value="never">禁止</option>
+                    <option value="deny">禁止</option>
                   </select>
                 </div>
               </div>

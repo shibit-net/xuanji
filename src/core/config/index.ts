@@ -7,11 +7,3 @@ export type { UserSettings, SystemConfig, AgentConfig } from './types';
 export { ConfigLoader } from './ConfigLoader';
 export { getUserRoot, getUserConfigPath, getUserAgentsDir, getXuanjiRoot } from './PathManager';
 export { ProjectConfigWriter } from './ProjectConfigWriter';
-export { ConfigService, type IConfigSource, type ConfigWatcher } from '../../infrastructure/config/ConfigService';
-export { ConfigFactory } from '../../infrastructure/config/ConfigFactory';
-export {
-  TemplateConfigSource,
-  UserConfigSource,
-  RuntimeConfigSource,
-  MemoryConfigSource
-} from '../../infrastructure/config/ConfigSources';
