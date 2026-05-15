@@ -148,17 +148,22 @@ export default function MainPage() {
           )}
           <div className="flex items-center gap-1.5 text-[11px] text-white/40">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            <span>{currentIteration} 次迭代</span>
+            <span>{currentIteration} 轮</span>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-white/40">
-            <span className="flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1 text-amber-400/80" title="总输入 token（含缓存写入）">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
               入 {formatToken(totalTokens.input)}
             </span>
-            <span className="flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+            <span className="flex items-center gap-1 text-green-400/80" title="总输出 token">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
               出 {formatToken(totalTokens.output)}
             </span>
+            {totalTokens.input + totalTokens.output > 0 && (
+              <span className="flex items-center gap-1 text-white/60 font-medium" title="累计总 token">
+                Σ {formatToken(totalTokens.input + totalTokens.output)}
+              </span>
+            )}
           </div>
         </div>
         <ChatArea />

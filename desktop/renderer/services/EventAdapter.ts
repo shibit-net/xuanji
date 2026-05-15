@@ -18,8 +18,44 @@ import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
+import { useExecutionStore } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
+
+// 解析 TODO_PROGRESS 注释，同步到 executionStore
+function parseTodoProgress(text: string): void {
+  const regex = /<!--TODO_PROGRESS:(.*?)-->/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      const data = JSON.parse(match[1]);
+      if (!data?.items) continue;
+      const execStore = useExecutionStore.getState();
+      const existingIds = new Set(execStore.todos.map(t => t.id));
+      for (const item of data.items) {
+        if (existingIds.has(item.id)) {
+          execStore.updateTodo({
+            id: item.id,
+            status: item.status,
+            activeForm: item.activeForm,
+          });
+        } else {
+          execStore.addTodo({
+            id: item.id,
+            subject: item.title || '',
+            description: item.description || '',
+            activeForm: item.activeForm,
+          });
+          // 立即更新状态（create 默认 pending，需要同步实际状态）
+          if (item.status !== 'pending') {
+            execStore.updateTodo({ id: item.id, status: item.status });
+          }
+        }
+      }
+    } catch { /* JSON 不完整，等待后续 fragment */ }
+  }
+}
 
 let registered = false;
 
@@ -37,6 +73,9 @@ export function registerEventAdapter(): void {
   // 待清理的 task/team：等到主 agent 的 agent:end 才统一清除
   const pendingCleanupIds = new Set<string>();
 
+  // 每条消息开始时的 token 快照，用于计算该消息本身的消耗
+  let messageTokenSnapshot = { input: 0, output: 0, cached: 0 };
+
   // ============================================================
   // IntentRoutingStore — 意图路由生命周期
   // ============================================================
@@ -44,6 +83,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:intent-route:start', () => {
     flowLogger.log('EventAdapter', 'RECV agent:intent-route:start');
     useIntentRoutingStore.getState().transition({ type: 'ROUTE_START' });
+    useSessionStore.getState().addLog('info', '🎯 开始意图分析');
   });
 
   messageBus.on('agent:intent-route:progress', (data: {
@@ -112,6 +152,7 @@ export function registerEventAdapter(): void {
     complexity?: string; reason?: string; modelName?: string;
   }) => {
     flowLogger.log('EventAdapter', 'RECV agent:intent-route', 'agentId:', data.agentId, 'method:', data.method, 'scene:', data.scene);
+    useSessionStore.getState().addLog('info', `🎯 路由完成: ${data.agentId} (${data.method}, ${((data.confidence || 0) * 100).toFixed(0)}%)`);
     pendingScene = data.scene;
     pendingComplexity = data.complexity;
     useConversationStore.getState().setRoutingInfo({
@@ -178,12 +219,14 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:started', (data?: any) => {
     flowLogger.log('EventAdapter', 'RECV agent:started', 'data:', data);
     useConversationStore.getState().onAgentStarted();
+    useSessionStore.getState().addLog('info', '🤖 Agent 开始处理');
     // 不在此处 ROUTE_RESET — 意图分析结果持续展示到下一轮 ROUTE_START 自动清除
   });
 
   messageBus.on('agent:end', () => {
     flowLogger.log('EventAdapter', 'RECV agent:end — triggering cleanup');
     useConversationStore.getState().onAgentCompleted();
+    useSessionStore.getState().addLog('info', '✅ Agent 处理完成');
   });
 
   messageBus.on('agent:conversation-state', (data: { from: string; to: string }) => {
@@ -236,6 +279,27 @@ export function registerEventAdapter(): void {
     useAgentStateMachine.getState().transition({
       type: 'TOOL_START', agentId, toolId: data.id, toolName: data.name, toolInput: data.input || {},
     });
+
+    let msgStore = useMessageStore.getState();
+    // 延迟创建气泡：首个工具调用时创建，避免纯思考阶段产生空白气泡
+    if (!msgStore.currentStreamingId) {
+      msgStore.startStreaming(generateMessageId('stream'));
+      msgStore = useMessageStore.getState();
+    }
+    const streamId = msgStore.currentStreamingId!;
+    const currentMsg = msgStore.messages.find(m => m.id === streamId);
+    const toolCall: import('../stores/messageStore').ToolCall = {
+      id: data.id,
+      name: data.name,
+      status: 'running',
+      startTime: Date.now(),
+      input: data.input || {},
+    };
+    msgStore.updateMessage(streamId, {
+      toolCalls: [...(currentMsg?.toolCalls || []), toolCall],
+    });
+
+    useSessionStore.getState().addLog('tool', `🔧 ${data.name} 开始执行`);
   });
 
   messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string }) => {
@@ -243,6 +307,33 @@ export function registerEventAdapter(): void {
     useAgentStateMachine.getState().transition({
       type: 'TOOL_END', agentId, toolId: data.id, toolName: data.name, result: data.result, isError: data.isError,
     });
+
+    // 解析 todo 工具的进度数据
+    if (data.result && !data.isError) {
+      parseTodoProgress(data.result);
+    }
+
+    const msgStore = useMessageStore.getState();
+    if (msgStore.currentStreamingId) {
+      const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+      if (currentMsg?.toolCalls) {
+        const updatedCalls = currentMsg.toolCalls.map(tc =>
+          tc.id === data.id
+            ? {
+                ...tc,
+                status: data.isError ? 'error' as const : 'success' as const,
+                output: data.result ? data.result.replace(/<!--TODO_PROGRESS:.*?-->/g, '') : data.result,
+                error: data.isError ? (data.result || 'unknown error') : undefined,
+                duration: tc.startTime ? Date.now() - tc.startTime : undefined,
+              }
+            : tc
+        );
+        msgStore.updateMessage(msgStore.currentStreamingId, { toolCalls: updatedCalls });
+      }
+    }
+
+    const status = data.isError ? '❌' : '✅';
+    useSessionStore.getState().addLog('tool', `${status} ${data.name} ${data.isError ? '失败' : '完成'}`);
   });
 
   messageBus.on('agent:end', () => {
@@ -554,9 +645,17 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean }) => {
     if (data?.isForeground === false) return;
-    const msgId = generateMessageId('stream');
     const msgStore = useMessageStore.getState();
-    msgStore.startStreaming(msgId);
+    // 仅设置 thinking 状态，不创建空白气泡 — 气泡延迟到首个 agent:text 或 agent:tool-start 时创建
+    msgStore.setStatus('thinking');
+    // 快照当前全局 token 总数，后续计算该消息的增量消耗
+    const allAgents = useAgentStateMachine.getState().agentMap;
+    messageTokenSnapshot = { input: 0, output: 0, cached: 0 };
+    for (const a of Object.values(allAgents)) {
+      messageTokenSnapshot.input += a.stats.tokenUsage.input || 0;
+      messageTokenSnapshot.output += a.stats.tokenUsage.output || 0;
+      messageTokenSnapshot.cached += a.stats.tokenUsage.cached || 0;
+    }
   });
 
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
@@ -564,8 +663,15 @@ export function registerEventAdapter(): void {
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
     // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
     if (asyncSubAgentIds.has(agentId)) return;
-    const msgStore = useMessageStore.getState();
+    let msgStore = useMessageStore.getState();
+    // 延迟创建气泡：首个 text 事件时才创建，避免纯思考阶段产生空白气泡
+    if (!msgStore.currentStreamingId) {
+      msgStore.startStreaming(generateMessageId('stream'));
+      msgStore = useMessageStore.getState();
+    }
     msgStore.appendStreamingText(text);
+    // 解析 TODO_PROGRESS 注释，同步到 executionStore
+    parseTodoProgress(msgStore.currentStreamingText);
     // 首次写入时，将实际响应的 agentId 写入消息，防止流式结束后回退为 xuanji
     if (msgStore.currentStreamingId) {
       const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
@@ -577,12 +683,77 @@ export function registerEventAdapter(): void {
     useAgentStateMachine.setState({ streamingAgentId: agentId });
   });
 
+  // 计算从 snapshot 到当前全局总 token 的增量
+  function getMessageDeltaTokens() {
+    const allAgents = useAgentStateMachine.getState().agentMap;
+    let curInput = 0, curOutput = 0;
+    for (const a of Object.values(allAgents)) {
+      curInput += a.stats.tokenUsage.input || 0;
+      curOutput += a.stats.tokenUsage.output || 0;
+    }
+    return {
+      input: Math.max(0, curInput - messageTokenSnapshot.input),
+      output: Math.max(0, curOutput - messageTokenSnapshot.output),
+    };
+  }
+
+  function applyTokenUsageToAgent(tokenUsage: any, agentId: string) {
+    const sm = useAgentStateMachine.getState();
+    const agent = sm.agentMap[agentId];
+    if (!agent) return;
+    const newStats = {
+      tokenUsage: {
+        input: agent.stats.tokenUsage.input + (tokenUsage.input || 0),
+        output: agent.stats.tokenUsage.output + (tokenUsage.output || 0),
+        cached: agent.stats.tokenUsage.cached + (tokenUsage.cached || 0),
+      },
+      cost: agent.stats.cost,
+      toolCount: agent.stats.toolCount,
+    };
+    useAgentStateMachine.setState({
+      agentMap: { ...sm.agentMap, [agentId]: { ...agent, stats: newStats } },
+    });
+  }
+
+  function updateMessageDeltaTokens() {
+    const msgStore = useMessageStore.getState();
+    if (msgStore.currentStreamingId) {
+      const delta = getMessageDeltaTokens();
+      if (delta.input > 0 || delta.output > 0) {
+        msgStore.updateMessage(msgStore.currentStreamingId, { tokensUsed: delta });
+      }
+    }
+  }
+
   messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
-    // 异步子 agent 的 end 不关闭流式气泡（走 TaskCompletionHandler 汇报）
-    // 同步子 agent 和主 agent 的 end 关闭气泡
     if (data?.agentId && asyncSubAgentIds.has(data.agentId)) return;
-    useMessageStore.getState().finishStreaming();
+
+    if (data?.tokenUsage && data?.agentId) {
+      applyTokenUsageToAgent(data.tokenUsage, data.agentId);
+    }
+
+    const msgStore = useMessageStore.getState();
+
+    if (msgStore.currentStreamingId) {
+      // 有气泡：正常收尾 — 写入 token、耗时、内容
+      updateMessageDeltaTokens();
+      const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+      if (currentMsg?.timestamp) {
+        msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - currentMsg.timestamp });
+      }
+      msgStore.finishStreaming();
+    } else {
+      // 无气泡（纯思考阶段被中断或未产出内容）：直接恢复 idle
+      msgStore.setStatus('idle');
+    }
+
     useAgentStateMachine.setState({ streamingAgentId: null });
+  });
+
+  messageBus.on('agent:usage', (data?: { tokenUsage?: any; agentId?: string }) => {
+    if (!data?.tokenUsage || !data?.agentId) return;
+    applyTokenUsageToAgent(data.tokenUsage, data.agentId);
+    updateMessageDeltaTokens();
   });
 
   // ============================================================
@@ -591,14 +762,17 @@ export function registerEventAdapter(): void {
 
   messageBus.on('session:init-start', () => {
     useSessionInitStore.getState().transition({ type: 'INIT_START' });
+    useSessionStore.getState().addLog('info', '🔄 Session 初始化中...');
   });
 
   messageBus.on('session:init-complete', () => {
     useSessionInitStore.getState().transition({ type: 'INIT_COMPLETE' });
+    useSessionStore.getState().addLog('info', '✅ Session 初始化完成');
   });
 
   messageBus.on('session:init-failed', (data: { error: string }) => {
     useSessionInitStore.getState().transition({ type: 'INIT_FAILED', error: data.error });
+    useSessionStore.getState().addLog('error', `❌ Session 初始化失败: ${data.error}`);
   });
 
   messageBus.on('session:init-restarting', () => {
@@ -607,6 +781,31 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:crash', (data: { message: string }) => {
     useSessionInitStore.getState().transition({ type: 'CHILD_CRASH', message: data.message });
+    useSessionStore.getState().addLog('error', `💥 Agent 崩溃: ${data.message}`);
+  });
+
+  // ============================================================
+  // SessionStore — 权限交互 & Plan Mode
+  // ============================================================
+
+  messageBus.on('permission:request', (data: any) => {
+    useSessionStore.getState().setPermissionRequest(data);
+  });
+
+  messageBus.on('plan-review:request', (data: any) => {
+    useSessionStore.getState().setPlanReviewRequest(data);
+  });
+
+  messageBus.on('ask-user:request', (data: any) => {
+    useSessionStore.getState().setAskUserRequest(data);
+  });
+
+  messageBus.on('plan-mode:enter', () => {
+    useSessionStore.getState().setPlanMode(true);
+  });
+
+  messageBus.on('plan-mode:exit', () => {
+    useSessionStore.getState().setPlanMode(false);
   });
 
   // 所有监听器就绪后，触发 session 初始化

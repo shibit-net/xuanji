@@ -162,7 +162,6 @@ function WorkspaceTab() {
   const routeStatus = useIntentRoutingStore((s) => s.status);
   const routeResult = useIntentRoutingStore((s) => s.result);
   const stages = useIntentRoutingStore((s) => s.stages);
-  const scenePrompts = useIntentRoutingStore((s) => s.scenePrompts);
   const promptLayers = useIntentRoutingStore((s) => s.promptLayers);
   const totalComponents = useIntentRoutingStore((s) => s.totalComponents);
   const estimatedTokens = useIntentRoutingStore((s) => s.estimatedTokens);
@@ -185,9 +184,7 @@ function WorkspaceTab() {
           <div className="flex items-center gap-2">
             <Brain size={13} className="text-blue-400 flex-shrink-0" />
             <span className="text-[11px] font-semibold">意图分析</span>
-            {routeStatus === 'analyzing' ? (
-              <Loader2 size={11} className="animate-spin text-blue-400" />
-            ) : (
+            {routeStatus !== 'analyzing' && (
               <span className="text-[10px] text-green-400">完成</span>
             )}
             {stages.length > 0 && (
@@ -259,35 +256,7 @@ function WorkspaceTab() {
                   </>
                 )}
               </div>
-              {/* 第三行：匹配到的 Scene Prompt */}
-              {scenes.length > 0 && scenePrompts.length > 0 && (
-                (() => {
-                  const sceneSet = new Set(scenes);
-                  const matchedPrompts = scenePrompts.filter((sp) => sceneSet.has(sp.scene));
-                  if (matchedPrompts.length === 0) return null;
-                  return (
-                    <details className="mt-1">
-                      <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">
-                        Scene Prompt ({matchedPrompts.length})
-                      </summary>
-                      <div className="mt-1 max-h-32 overflow-y-auto space-y-1">
-                        {matchedPrompts.map((sp) => (
-                          <div key={sp.scene} className="pl-2 border-l border-white/10">
-                            <span className="text-purple-400/70">{sp.scene}</span>
-                            {sp.description && (
-                              <span className="text-white/30 ml-1.5">{sp.description}</span>
-                            )}
-                            {sp.keywords && (
-                              <span className="text-white/15 ml-1.5 text-[9px]">{sp.keywords}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  );
-                })()
-              )}
-              {/* 第四部分：已加载的 Prompt 组件分层展示 */}
+              {/* 已加载的 Prompt 组件分层展示 */}
               {promptLayers.length > 0 && (
                 <details className="mt-1">
                   <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">

@@ -9,6 +9,7 @@
  */
 
 import { exec } from 'child_process';
+import { getExecShellPath } from '@/shared/utils/crossPlatform';
 import type {
   CommandHookHandler,
   HookEventContext,
@@ -37,7 +38,7 @@ export async function executeCommandHandler(
       {
         timeout,
         env: { ...process.env, ...env },
-        shell: '/bin/sh',
+        shell: getExecShellPath(),
         maxBuffer: 1024 * 1024, // 1MB
       },
       (error, stdout, stderr) => {
@@ -87,7 +88,7 @@ export async function executeCommandHandler(
     // 超时兜底（exec 自带 timeout，但加一层保护）
     const fallbackTimer = setTimeout(() => {
       if (!child.killed) {
-        child.kill('SIGTERM');
+        child.kill();
       }
     }, timeout + 1000);
   });

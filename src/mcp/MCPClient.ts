@@ -9,6 +9,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
+import { crossPlatformKill } from '@/shared/utils/crossPlatform';
 import { sleep } from '@/shared/utils/sleep';
 import type {
   JSONRPCRequest,
@@ -196,7 +197,7 @@ export class MCPClient extends EventEmitter {
           this.process.stdout?.removeAllListeners();
           this.process.stderr?.removeAllListeners();
           this.process.removeAllListeners();
-          this.process.kill('SIGKILL');
+          crossPlatformKill(this.process, 'SIGKILL');
         } catch { /* 忽略关闭错误 */ }
         this.process = undefined;
       }
@@ -290,7 +291,7 @@ export class MCPClient extends EventEmitter {
         this.process.stdout?.removeAllListeners();
         this.process.stderr?.removeAllListeners();
         this.process.removeAllListeners();
-        this.process.kill('SIGKILL');
+        crossPlatformKill(this.process, 'SIGKILL');
       } catch { /* 忽略旧进程清理错误 */ }
       this.process = undefined;
     }
@@ -523,7 +524,7 @@ export class MCPClient extends EventEmitter {
       // 等待进程退出（最多 5 秒）
       await new Promise<void>((resolve) => {
         const forceKillTimer = setTimeout(() => {
-          try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+          try { crossPlatformKill(proc, 'SIGKILL'); } catch { /* ignore */ }
           resolve();
         }, 5000);
 
@@ -532,7 +533,7 @@ export class MCPClient extends EventEmitter {
           resolve();
         });
 
-        proc.kill('SIGTERM');
+        crossPlatformKill(proc, 'SIGTERM');
       });
     }
 

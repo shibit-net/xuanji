@@ -63,8 +63,6 @@ class ApiClient {
           if (cookies.length > 0) {
             const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
             config.headers['Cookie'] = cookieHeader;
-          } else {
-            console.log('[API Client] 警告：没有可用的 Cookie');
           }
         }
       } catch (err) {

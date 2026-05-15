@@ -43,7 +43,7 @@
   agentInit: () => ipcRenderer.invoke('agent:init'),
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
-  agentUserAction: (action: { type: string; message?: string }) =>
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }> }) =>
     ipcRenderer.invoke('agent:user-action', action),
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
   openFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
@@ -234,7 +234,7 @@
   workspaceGetGitStatus: (dirPath: string) => ipcRenderer.invoke('workspace:get-git-status', dirPath),
 
   // ============ 拖拽文件路径解析 ============
-  resolveDropPaths: (data: { names: string[] }) => ipcRenderer.invoke('workspace:resolve-drop-paths', data),
+  resolveDropPaths: (data: { fileNames: string[] }) => ipcRenderer.invoke('workspace:resolve-drop-paths', data),
 
   // ============ 通用事件监听 ============
   on: (channel: string, callback: (...args: any[]) => void) => {

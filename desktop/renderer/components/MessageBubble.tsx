@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, FileText } from 'lucide-react';
 import type { Message } from '../stores/chatStore';
 import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
@@ -41,10 +41,15 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function formatTokens(tokens: { input: number; output: number }): string {
+function formatTokens(tokens: { input: number; output: number }, showBreakdown = false): string {
   const total = tokens.input + tokens.output;
-  if (total >= 1000) return `${(total / 1000).toFixed(1)}k tokens`;
-  return `${total} tokens`;
+  const totalStr = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : `${total}`;
+  if (showBreakdown) {
+    const inputStr = tokens.input >= 1000 ? `${(tokens.input / 1000).toFixed(1)}k` : `${tokens.input}`;
+    const outputStr = tokens.output >= 1000 ? `${(tokens.output / 1000).toFixed(1)}k` : `${tokens.output}`;
+    return `${totalStr} tokens (↑${inputStr} ↓${outputStr})`;
+  }
+  return `${totalStr} tokens`;
 }
 
 function normalizeMarkdownHeadings(text: string): string {
@@ -82,35 +87,6 @@ function stripRawHtml(text: string): string {
         .replace(/<\/?(div|span|section|article)[^>]*>/gi, '');
     })
     .join('');
-}
-
-/** 流式输出统计数据 */
-function StreamingStats({ timestamp }: { timestamp: number }) {
-  const [elapsed, setElapsed] = useState(Date.now() - timestamp);
-  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
-
-  const currentTokens = useMemo(() => {
-    let input = 0, output = 0;
-    for (const a of Object.values(newAgentMap)) {
-      input += a.stats?.tokenUsage?.input || 0;
-      output += a.stats?.tokenUsage?.output || 0;
-    }
-    return { input, output, cached: 0 };
-  }, [newAgentMap]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setElapsed(Date.now() - timestamp), 1000);
-    return () => clearInterval(timer);
-  }, [timestamp]);
-
-  const totalTokens = (currentTokens?.input || 0) + (currentTokens?.output || 0);
-
-  return (
-    <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border-primary/50 text-xs text-text-tertiary">
-      <span className="flex items-center gap-1">⏱ {formatDuration(elapsed)}</span>
-      {totalTokens > 0 && <span className="flex items-center gap-1">🎯 {formatTokens({ input: currentTokens.input, output: currentTokens.output })}</span>}
-    </div>
-  );
 }
 
 interface MessageBubbleProps {
@@ -162,6 +138,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
     // 先去除原始 HTML 标签，再规范化标题，最后确保表格后有空行
     return normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
   }, [displayContent]);
+
+  // 实时耗时：流式时从 message.timestamp 实时计算，完成后用 message.duration
+  const liveDuration = useMemo(() => {
+    if (message.duration) return message.duration;
+    if (message.timestamp) return now - message.timestamp;
+    return undefined;
+  }, [message.duration, message.timestamp, now]);
 
   // 将 Milkdown 渲染出的自定义节点（subagent-ref / citation-ref span）替换为可交互组件
   useEffect(() => {
@@ -305,8 +288,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}${isStreaming ? '' : ' animate-fadeIn'}`}>
+      <div className="flex flex-col max-w-[80%] min-w-0">
       <div
-        className={`message-bubble max-w-[80%] min-w-0 ${
+        className={`message-bubble ${
           isUser
             ? 'bg-primary text-white'
             : isToolSummary
@@ -382,22 +366,36 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           )}
         </div>
 
-        {/* Moment 状态条：展示当前 agent 的运行状态 */}
-        {!isUser && !isSystem && !isToolSummary && respondingAgent?.moment && (
+        {/* 用户消息附件标签 */}
+        {isUser && message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {message.attachments.map((att, i) => (
+              <span
+                key={`${att.name}-${i}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/15 text-[11px] text-white/70"
+              >
+                <FileText size={10} className="flex-shrink-0" />
+                <span className="max-w-[140px] truncate">{att.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Moment 状态条：仅当前流式消息展示活跃状态，历史消息不再响应 agent 状态变化 */}
+        {isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
+          (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
           <div className="flex items-center gap-2 mb-2 px-1">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
               respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
                 ? 'bg-primary animate-pulse'
-                : respondingAgent.status === 'writing' || respondingAgent.status === 'reporting'
-                ? 'bg-blue-400'
-                : 'bg-success'
+                : 'bg-blue-400'
             }`} />
             <span className="text-[11px] text-muted-foreground/70">
               {respondingAgent.status === 'writing'
                 ? `${respondingAgent.name} 在编辑中`
                 : respondingAgent.moment.label}
             </span>
-            {respondingAgent.moment.startTime && (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing') ? (
+            {respondingAgent.moment.startTime ? (
               <span className="text-[10px] text-muted-foreground/40 font-mono">
                 {formatDuration(now - respondingAgent.moment.startTime)}
               </span>
@@ -426,20 +424,26 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           )}
         </div>
 
-        {/* 耗时 & Token */}
-        {!isUser && !isSystem && (message.duration || message.tokensUsed) && (
-          <div className={`flex items-center gap-3 mt-2 pt-2 border-t text-xs ${
-            isToolSummary
-              ? 'border-white/[0.06] text-white/30'
-              : 'border-border-primary/50 text-text-tertiary'
-          }`}>
-            {message.duration && <span>⏱ {formatDuration(message.duration)}</span>}
-            {message.tokensUsed && <span>{formatTokens(message.tokensUsed)}</span>}
-          </div>
-        )}
+      </div>
 
-        {!isUser && !isSystem && isStreaming && message.timestamp && (
-          <StreamingStats timestamp={message.timestamp} />
+        {/* 耗时 & Token — 气泡外部下方，流式时实时更新 */}
+        {!isUser && !isSystem && (liveDuration || message.tokensUsed) && (
+          <div className={`flex items-center gap-2.5 mt-1.5 px-2 text-[11px] font-mono ${
+            isToolSummary ? 'text-white/25' : 'text-text-tertiary/60'
+          }`}>
+            {liveDuration && (
+              <span className="inline-flex items-center gap-1">
+                <span className={`opacity-50 ${isStreaming ? 'animate-pulse' : ''}`}>⏱</span>
+                {formatDuration(liveDuration)}
+              </span>
+            )}
+            {liveDuration && message.tokensUsed && (
+              <span className="opacity-30">·</span>
+            )}
+            {message.tokensUsed && (
+              <span>{formatTokens(message.tokensUsed, true)}</span>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -76,7 +76,8 @@
       "Bash(sed -i '' '187,220d' main/agent-bridge.ts)",
       "Bash([ ! -f \"$MODEL_DIR/$file\" ])",
       "Bash(mkdir -p ~/.xuanji/embedding-models)",
-      "Bash(cp -r /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/embedding-models/Xenova ~/.xuanji/embedding-models/)"
+      "Bash(cp -r /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/embedding-models/Xenova ~/.xuanji/embedding-models/)",
+      "Read(//Users/kevinshi/.xuanji/users/**)"
     ]
   }
 }

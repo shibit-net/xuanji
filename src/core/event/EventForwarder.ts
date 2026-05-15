@@ -224,6 +224,13 @@ export class EventForwarder {
         map: (p) => ({ changes: p.changes, agentId: p.agentId }),
       },
 
+      // Token usage（每轮 LLM 调用增量）
+      {
+        event: XuanjiEvent.AGENT_USAGE,
+        channel: 'agent:usage',
+        map: (p) => ({ agentId: p.userId, tokenUsage: p.tokenUsage }),
+      },
+
       // Error
       {
         event: XuanjiEvent.AGENT_ERROR,

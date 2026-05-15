@@ -2,9 +2,10 @@
 // M6 工具系统 — 后台任务管理器
 // ============================================================
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, exec, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { getToolTimeouts, getConcurrencyConfig } from '@/core/config/RuntimeConfig';
+import { crossPlatformKill } from '@/shared/utils/crossPlatform';
 
 /** 后台任务最大生存时间 (ms) — 1 小时 */
 const MAX_TASK_LIFETIME = 3_600_000;
@@ -48,6 +49,41 @@ interface TaskEntry {
   outputSize: number;
   lifetimeTimer: ReturnType<typeof setTimeout>;
   resolvers: Array<(result: BackgroundTaskResult) => void>;
+}
+
+/**
+ * 跨平台启动后台任务子进程
+ *
+ * Windows 上优先使用 bash（Git Bash/WSL），不可用时降级为 cmd.exe /c。
+ * POSIX 上使用 bash -c。
+ */
+function spawnBackgroundTask(command: string, env?: Record<string, string>): ChildProcess {
+  const isWindows = process.platform === 'win32';
+  if (isWindows) {
+    // 检测 bash 是否可用
+    let hasBash = false;
+    try {
+      const { execSync } = require('node:child_process');
+      execSync('where bash', { stdio: 'ignore', timeout: 2000 });
+      hasBash = true;
+    } catch {
+      hasBash = false;
+    }
+    if (hasBash) {
+      return spawn('bash', ['-c', command], {
+        cwd: process.cwd(),
+        env: env ?? { ...process.env },
+      });
+    }
+    return spawn('cmd.exe', ['/q', '/c', command], {
+      cwd: process.cwd(),
+      env: env ?? { ...process.env },
+    });
+  }
+  return spawn('bash', ['-c', command], {
+    cwd: process.cwd(),
+    env: env ?? { ...process.env },
+  });
 }
 
 /**
@@ -97,10 +133,7 @@ export class BackgroundTaskManager {
     }
 
     const taskId = `task-${randomUUID().slice(0, 8)}`;
-    const proc = spawn('bash', ['-c', command], {
-      cwd: process.cwd(),
-      env: env ?? { ...process.env },
-    });
+    const proc = spawnBackgroundTask(command, env);
 
     const entry: TaskEntry = {
       taskId,
@@ -271,7 +304,7 @@ export class BackgroundTaskManager {
     for (const entry of this.tasks.values()) {
       clearTimeout(entry.lifetimeTimer);
       if (entry.status === 'running') {
-        entry.process.kill('SIGTERM');
+        entry.process.kill();
         entry.status = 'failed';
         entry.completedAt = Date.now();
       }
@@ -292,7 +325,7 @@ export class BackgroundTaskManager {
     const entry = this.tasks.get(taskId);
     if (!entry || entry.status !== 'running') return;
 
-    entry.process.kill('SIGTERM');
+    entry.process.kill();
     entry.status = 'timeout';
     entry.completedAt = Date.now();
 

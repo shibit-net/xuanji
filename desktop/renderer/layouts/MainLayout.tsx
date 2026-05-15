@@ -42,7 +42,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
   // 用户登录成功后，加载 agent 配置
   useEffect(() => {
     if (user?.userId) {
-      console.log('用户已登录，加载 agent 配置，userId:', user.userId);
       loadAgents();
     }
   }, [user?.userId, loadAgents]);

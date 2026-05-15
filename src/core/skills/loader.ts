@@ -103,9 +103,8 @@ export class SkillLoader {
     try {
       const fullPath = path.resolve(this.basePath, customPath);
       await this.loadSkillsFromDirectory(fullPath);
-    } catch (error) {
+    } catch {
       // 自定义目录不存在时，静默失败
-      // console.debug('Custom skills directory not found:', customPath);
     }
   }
 

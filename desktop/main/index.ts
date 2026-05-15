@@ -74,11 +74,8 @@ app.whenReady().then(async () => {
 
   const authState = await loadAuthState();
   setAuthState(authState);
-  console.log(`[Main] Auth state loaded: isLoggedIn=${!!authState.user?.userId}, userId=${authState.user?.userId || 'none'}`);
   registerAllIpcHandlers();
-  console.log('[Main] All IPC handlers registered');
   createWindow();
-  console.log('[Main] Window created');
 
   // 注册 token 过期回调：通知 renderer 跳转登录页
   setSessionExpiredHandler(() => {

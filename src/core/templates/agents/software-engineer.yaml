@@ -86,6 +86,10 @@ tools:
     enabled: false
   - name: ask_user
     enabled: true
+  - name: xlsx_edit
+    enabled: false
+  - name: docx_edit
+    enabled: false
 
 # 执行配置
 execution:

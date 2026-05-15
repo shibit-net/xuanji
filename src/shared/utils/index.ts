@@ -1,3 +1,4 @@
+export * from './crossPlatform';
 export * from './DiffRenderer';
 export * from './ansi';
 export * from './jsonl';

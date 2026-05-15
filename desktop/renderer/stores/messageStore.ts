@@ -6,6 +6,10 @@
 import { create } from 'zustand';
 import { useExecutionStore } from './executionStore';
 
+function stripTodoProgress(text: string): string {
+  return text.replace(/<!--TODO_PROGRESS:.*?-->/g, '').replace(/\n{3,}/g, '\n\n');
+}
+
 // ── 消息数量上限（防止 OOM）──
 const MAX_MESSAGES = 500;
 
@@ -37,6 +41,7 @@ export interface Message {
   duration?: number;
   tokensUsed?: { input: number; output: number };
   agentId?: string;
+  attachments?: import('../global').FileAttachment[];
 }
 
 export interface SubAgentReference {
@@ -138,7 +143,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     set((state) => ({
       messages: state.messages.map((msg) =>
         msg.id === s.currentStreamingId
-          ? { ...msg, content: s.currentStreamingText }
+          ? { ...msg, content: stripTodoProgress(s.currentStreamingText) }
           : msg
       ),
       currentStreamingId: null,

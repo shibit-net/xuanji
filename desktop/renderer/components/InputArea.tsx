@@ -12,7 +12,8 @@
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, StopCircle, Archive, Brain, Loader2 } from 'lucide-react';
+import { Send, StopCircle, Archive, Brain, Loader2, X, FileText } from 'lucide-react';
+import type { FileAttachment } from '../global';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
@@ -30,6 +31,7 @@ export default function InputArea() {
   const [isFlushing, setIsFlushing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const toast = useToast();
@@ -103,7 +105,9 @@ export default function InputArea() {
 
   // ─── 发送入口 ───────────────────────────────────────
   const handleSubmit = useCallback(async () => {
-    if (!input.trim() || isSending) return;
+    const hasText = input.trim().length > 0;
+    const hasAttachments = attachments.length > 0;
+    if ((!hasText && !hasAttachments) || isSending) return;
 
     // Session 未就绪时的 UX 反馈
     if (!isSessionReady) {
@@ -118,7 +122,9 @@ export default function InputArea() {
     }
 
     const content = input.trim();
+    const currentAttachments = [...attachments];
     setInput('');
+    setAttachments([]);
     setIsSending(true);
     // 立即渲染用户消息气泡
     useMessageStore.getState().addMessage({
@@ -126,30 +132,175 @@ export default function InputArea() {
       role: 'user',
       content,
       timestamp: Date.now(),
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     });
     try {
-      await window.electron.agentUserAction({ type: 'SEND_MESSAGE', message: content });
+      await window.electron.agentUserAction({
+        type: 'SEND_MESSAGE',
+        message: content,
+        attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+      });
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, isSessionReady, toast]);
+  }, [input, isSending, isSessionReady, toast, attachments]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
     window.electron.agentUserAction({ type: 'INTERRUPT' });
   }, []);
 
+  // ─── 文件附件工具函数 ─────────────────────────────
+  const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024; // 1MB
+  const MAX_BINARY_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_FILE_COUNT = 10;
+
+  // 二进制文件扩展名（后端有对应解析器）
+  const BINARY_EXTENSIONS = new Set([
+    'xlsx', 'xls', 'xlsm', 'xlt', 'xltx', 'xltm',
+    'csv', 'tsv',
+    'doc', 'docx', 'docm', 'dot', 'dotx', 'dotm',
+    'pdf',
+    'pptx', 'pptm', 'potx', 'ppsx',
+  ]);
+
+  // 二进制 MIME 类型前缀
+  const BINARY_MIME_PATTERNS = [
+    'application/vnd.openxmlformats-officedocument',
+    'application/vnd.ms-excel',
+    'application/vnd.ms-powerpoint',
+    'application/msword',
+    'application/pdf',
+    'text/csv',
+    'text/tab-separated-values',
+  ];
+
+  // 文本文件扩展名
+  const TEXT_EXTENSIONS = new Set([
+    'txt', 'md', 'json', 'js', 'ts', 'tsx', 'jsx', 'css', 'html', 'xml',
+    'yaml', 'yml', 'toml', 'ini', 'cfg', 'env', 'sh', 'bash', 'zsh',
+    'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'sql',
+    'graphql', 'vue', 'svelte', 'log', 'svg', 'properties', 'gradle',
+    'kt', 'swift', 'scala', 'r', 'm', 'mm', 'pl', 'php', 'lua', 'vim',
+    'gitignore', 'editorconfig', 'dockerfile', 'makefile',
+  ]);
+
+  function isBinaryFile(file: File): boolean {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext && BINARY_EXTENSIONS.has(ext)) return true;
+    if (file.type && BINARY_MIME_PATTERNS.some(p => file.type.startsWith(p))) return true;
+    return false;
+  }
+
+  function isTextFile(file: File): boolean {
+    if (file.type && (
+      file.type.startsWith('text/') ||
+      file.type === 'application/json' ||
+      file.type === 'application/javascript' ||
+      file.type === 'application/xml'
+    )) return true;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    return !!(ext && TEXT_EXTENSIONS.has(ext));
+  }
+
+  function isSurpportedFile(file: File): boolean {
+    return isTextFile(file) || isBinaryFile(file);
+  }
+
+  const addFiles = useCallback(async (files: FileList, filePaths?: string[]) => {
+    const newAttachments: FileAttachment[] = [];
+    let skippedUnsupported = false;
+    let skippedLarge = false;
+    let skippedCount = false;
+
+    const remaining = MAX_FILE_COUNT - attachments.length;
+    if (remaining <= 0) {
+      toast.warning(`最多添加 ${MAX_FILE_COUNT} 个附件`);
+      return;
+    }
+
+    const filesToProcess = Array.from(files).slice(0, remaining);
+    if (files.length > remaining) skippedCount = true;
+
+    for (let i = 0; i < filesToProcess.length; i++) {
+      const file = filesToProcess[i]!;
+
+      if (!isSurpportedFile(file)) {
+        skippedUnsupported = true;
+        continue;
+      }
+
+      const isBinary = isBinaryFile(file);
+      const maxSize = isBinary ? MAX_BINARY_FILE_SIZE : MAX_TEXT_FILE_SIZE;
+
+      if (file.size > maxSize) {
+        skippedLarge = true;
+        continue;
+      }
+
+      try {
+        const dropPath = filePaths?.[i];
+
+        if (isBinary) {
+          if (dropPath) {
+            // 拖放：有真实文件路径，后端直接解析
+            newAttachments.push({
+              name: file.name,
+              path: dropPath,
+              content: '',
+              size: file.size,
+            });
+          } else {
+            // 粘贴：无路径，读二进制内容并 base64 编码
+            const arrayBuffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let j = 0; j < bytes.length; j++) {
+              binary += String.fromCharCode(bytes[j]);
+            }
+            newAttachments.push({
+              name: file.name,
+              content: btoa(binary),
+              size: file.size,
+            });
+          }
+        } else {
+          // 文本文件：直接读取内容
+          const content = await file.text();
+          newAttachments.push({
+            name: file.name,
+            path: dropPath,
+            content,
+            size: file.size,
+          });
+        }
+      } catch {
+        toast.warning(`无法读取文件: ${file.name}`);
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachments(prev => [...prev, ...newAttachments]);
+    }
+    if (skippedUnsupported) toast.warning('已跳过不支持的文件类型');
+    if (skippedLarge) toast.warning(`文件过大（文本最大 1MB，二进制最大 10MB）`);
+    if (skippedCount) toast.warning(`最多添加 ${MAX_FILE_COUNT} 个附件`);
+  }, [attachments.length, toast]);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
   // ─── 拖拽文件放入 ────────────────────────────────────
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragOver(true); // 不限制 types，兼容 Electron 不同版本的格式名
+    setIsDragOver(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // 只在离开容器时取消高亮（避免子元素触发）
     if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) {
       setIsDragOver(false);
     }
@@ -160,51 +311,32 @@ export default function InputArea() {
     e.stopPropagation();
     setIsDragOver(false);
 
-    const pathList: string[] = [];
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
 
-    // 方案1（最优）: 通过 IPC 让主进程用 webUtils.getPathForFile 获取完整路径
+    // 先从 text/uri-list 提取文件路径
+    let paths: string[] | undefined;
     try {
-      if (window.electron?.resolveDropPaths) {
-        const fileNames: string[] = [];
-        for (let i = 0; i < e.dataTransfer.files.length; i++) {
-          fileNames.push(e.dataTransfer.files[i]!.name);
-        }
-        const resolved = await window.electron.resolveDropPaths({ fileNames });
-        if (resolved && resolved.length > 0) {
-          pathList.push(...resolved);
-        }
+      const uriList = e.dataTransfer.getData('text/uri-list');
+      if (uriList) {
+        paths = uriList.split('\n')
+          .map(u => u.trim())
+          .filter(u => u.startsWith('file://'))
+          .map(u => decodeURIComponent(u.slice(7)));
       }
     } catch { /* fallback */ }
 
-    // 方案2（备选）: text/uri-list（macOS Finder 携带完整 file:// 路径）
-    if (pathList.length === 0) {
-      try {
-        const uriList = e.dataTransfer.getData('text/uri-list');
-        if (uriList) {
-          for (const uri of uriList.split('\n')) {
-            const trimmed = uri.trim();
-            if (trimmed.startsWith('file://')) {
-              pathList.push(decodeURIComponent(trimmed.slice(7)));
-            }
-          }
-        }
-      } catch { /* 安全策略限制 */ }
+    await addFiles(files, paths);
+  }, [addFiles]);
+
+  // ─── 粘贴文件 ─────────────────────────────────────
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      e.preventDefault();
+      addFiles(files);
     }
-
-    // 方案3（最终降级）: 文件名
-    if (pathList.length === 0) {
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        pathList.push(e.dataTransfer.files[i]!.name);
-      }
-    }
-
-    if (pathList.length === 0) return;
-
-    setInput((prev) => {
-      const trimmed = prev.trimEnd();
-      return trimmed ? `${trimmed}\n${pathList.join('\n')}` : pathList.join('\n');
-    });
-  }, []);
+  }, [addFiles]);
 
   // ─── 键盘事件 ───────────────────────────────────────
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -264,7 +396,7 @@ export default function InputArea() {
     ? '说点什么... (有任务已取消)'
     : '说点什么...';
 
-  const isSendDisabled = !input.trim() || isSending || !isSessionReady;
+  const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
 
   return (
     <div
@@ -339,11 +471,40 @@ export default function InputArea() {
         </Button>
       </div>
 
+      {/* 附件 chip 列表 */}
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4 pb-1">
+          {attachments.map((att, i) => (
+            <span
+              key={`${att.name}-${i}`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-xs text-blue-600"
+            >
+              <FileText size={12} className="flex-shrink-0" />
+              <span className="max-w-[160px] truncate">{att.name}</span>
+              <span className="text-blue-400 flex-shrink-0">
+                {att.size < 1024
+                  ? `${att.size}B`
+                  : att.size < 1024 * 1024
+                    ? `${(att.size / 1024).toFixed(1)}KB`
+                    : `${(att.size / (1024 * 1024)).toFixed(1)}MB`}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeAttachment(i)}
+                className="ml-0.5 p-0.5 rounded hover:bg-blue-500/20 transition-colors"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* 输入区域 */}
       <div className="flex items-end gap-2 p-4 relative">
         {isDragOver && (
           <div className="absolute inset-2 flex items-center justify-center bg-blue-500/10 rounded-xl border-2 border-dashed border-blue-400 z-10 pointer-events-none">
-            <span className="text-blue-400 text-sm">释放以添加文件路径</span>
+            <span className="text-blue-400 text-sm">释放以添加文件</span>
           </div>
         )}
         <Textarea
@@ -351,6 +512,7 @@ export default function InputArea() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
           placeholder={placeholder}
@@ -361,7 +523,7 @@ export default function InputArea() {
         />
 
         {/* 停止 / 发送按钮 */}
-        {isRunning && !isAutoSummarizing && !input.trim() && !isSending ? (
+        {isRunning && !isAutoSummarizing && !input.trim() && attachments.length === 0 && !isSending ? (
           <Button
             variant="destructive"
             onClick={handleStop}
@@ -387,7 +549,7 @@ export default function InputArea() {
       {/* 底部提示 */}
       <div className="px-4 pb-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 flex-wrap">
-          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入文件追加路径</span>
+          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入/粘贴文件上传</span>
           {foregroundAgentId && foregroundAgentId !== 'xuanji' && (
             <span className="text-blue-400">· Agent: {foregroundAgentId}</span>
           )}

@@ -41,6 +41,14 @@ export interface PermissionRule {
   timestamp: number;
 }
 
+// 文件附件（拖拽/粘贴上传）
+export interface FileAttachment {
+  name: string;
+  path?: string;
+  content: string;
+  size: number;
+}
+
 // Checkpoint 项
 export interface CheckpointItem {
   id: string;
@@ -127,7 +135,7 @@ export interface ElectronAPI {
 
   // Agent 操作
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
-  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string }) => Promise<{ success: boolean; result?: any; error?: string }>;
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: FileAttachment[] }) => Promise<{ success: boolean; result?: any; error?: string }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;

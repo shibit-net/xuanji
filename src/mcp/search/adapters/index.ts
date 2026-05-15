@@ -4,7 +4,6 @@
  * ============================================================
  */
 
-export { TavilyAdapter } from './TavilyAdapter';
-export { SerperAdapter } from './SerperAdapter';
-export { BraveAdapter } from './BraveAdapter';
-export { DuckDuckGoAdapter } from './DuckDuckGoAdapter';
+export { BingAdapter } from './BingAdapter';
+export { BaiduAdapter } from './BaiduAdapter';
+export { GoogleAdapter } from './GoogleAdapter';

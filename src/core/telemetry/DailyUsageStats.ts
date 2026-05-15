@@ -206,9 +206,8 @@ export class DailyUsageStats {
 
       // 保存
       await this.saveAggregated(merged);
-    } catch (err) {
+    } catch {
       // 静默失败,不影响主流程
-      // console.error('[DailyUsageStats] aggregateAndSave failed:', err);
     }
   }
 

@@ -15,7 +15,7 @@ import { BaseTool } from '@/core/tools/BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { MemoryCache } from '../cache';
 import type { SearchEngineAdapter, SearchOptions, SearchResult, SearchProvider } from './types';
-import { TavilyAdapter, SerperAdapter, BraveAdapter, DuckDuckGoAdapter } from './adapters';
+import { BingAdapter, BaiduAdapter, GoogleAdapter } from './adapters';
 import { RateLimiter } from './RateLimiter';
 import { deduplicateResults, sortResults } from './utils';
 
@@ -27,12 +27,6 @@ export interface EnhancedWebSearchConfig {
   defaultProvider?: SearchProvider;
   /** 降级引擎列表（按优先级排序） */
   fallbackProviders?: SearchProvider[];
-  /** API Keys */
-  apiKeys?: {
-    tavily?: string;
-    serper?: string;
-    brave?: string;
-  };
   /** 缓存 TTL（毫秒，默认 900000 = 15 分钟） */
   cacheTTL?: number;
   /** 每次搜索返回的最大结果数（默认 5） */
@@ -110,8 +104,8 @@ Results are cached for 15 minutes. Use force=true to bypass cache.`;
       },
       provider: {
         type: 'string',
-        enum: ['tavily', 'serper', 'brave', 'duckduckgo'],
-        description: 'Search engine to use (auto-select if not specified)',
+        enum: ['bing', 'baidu', 'google'],
+        description: 'Search engine to use. Default: bing. Falls back to others on failure.',
       },
       force: {
         type: 'boolean',
@@ -140,9 +134,8 @@ Results are cached for 15 minutes. Use force=true to bypass cache.`;
 
     // 默认配置
     this.config = {
-      defaultProvider: config.defaultProvider ?? 'tavily',
-      fallbackProviders: config.fallbackProviders ?? ['serper', 'brave', 'duckduckgo'],
-      apiKeys: config.apiKeys ?? {},
+      defaultProvider: config.defaultProvider ?? 'bing',
+      fallbackProviders: config.fallbackProviders ?? ['google', 'baidu'],
       cacheTTL: config.cacheTTL ?? 15 * 60 * 1000,
       maxResults: config.maxResults ?? 5,
       rateLimit: config.rateLimit ?? 10,
@@ -160,12 +153,11 @@ Results are cached for 15 minutes. Use force=true to bypass cache.`;
       window: 60 * 1000,
     });
 
-    // 初始化适配器
+    // 初始化适配器（全部免费，无需 API Key）
     this.adapters = new Map<SearchProvider, SearchEngineAdapter>([
-      ['tavily' as const, new TavilyAdapter(this.config.apiKeys.tavily)],
-      ['serper' as const, new SerperAdapter(this.config.apiKeys.serper)],
-      ['brave' as const, new BraveAdapter(this.config.apiKeys.brave)],
-      ['duckduckgo' as const, new DuckDuckGoAdapter()],
+      ['bing' as const, new BingAdapter()],
+      ['baidu' as const, new BaiduAdapter()],
+      ['google' as const, new GoogleAdapter()],
     ]);
   }
 

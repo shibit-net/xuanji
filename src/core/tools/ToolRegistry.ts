@@ -34,6 +34,10 @@ import { WorktreeTool } from './WorktreeTool';
 import { LSTool } from './LSTool';
 import { MultiEditTool } from './MultiEditTool';
 import { OfficeGenerateTool } from './OfficeGenerateTool';
+import { PdfTool } from './PdfTool';
+import { XlsxEditTool } from './XlsxEditTool';
+import { DocxEditTool } from './DocxEditTool';
+import { DocToDocxTool } from './DocToDocxTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
 import { ListScenesTool } from './ListScenesTool';
@@ -369,6 +373,10 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new EnhancedWebSearchTool());
   // Office 文档生成工具
   registry.register(new OfficeGenerateTool());
+  registry.register(new PdfTool());
+  registry.register(new XlsxEditTool());
+  registry.register(new DocxEditTool());
+  registry.register(new DocToDocxTool());
   registry.register(new TaskTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;

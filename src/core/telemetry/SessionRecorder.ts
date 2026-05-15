@@ -89,10 +89,8 @@ export class SessionRecorder {
       // 追加 JSONL 行 (每条记录一行)
       const line = JSON.stringify(record) + '\n';
       await appendFile(this.getCurrentLogPath(), line, 'utf-8');
-    } catch (err) {
+    } catch {
       // 静默失败,不影响主流程
-      // 可选:记录到 logger (如果需要调试)
-      // console.error('[SessionRecorder] Failed to record:', err);
     }
   }
 

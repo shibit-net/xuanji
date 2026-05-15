@@ -326,13 +326,11 @@ function registerRefreshHandler(): void {
 /** 启动主动 token 刷新定时器（每 50 分钟刷新一次） */
 function startProactiveRefresh(): void {
   stopProactiveRefresh();
-  console.log('[Auth] 启动主动 token 刷新定时器（每 50 分钟）');
   refreshTimer = setInterval(async () => {
     if (!authState.refreshToken) {
       stopProactiveRefresh();
       return;
     }
-    console.log('[Auth] 主动刷新 token...');
     const ok = await performRefresh();
     if (!ok) {
       console.error('[Auth] 主动刷新失败，通知重新登录');

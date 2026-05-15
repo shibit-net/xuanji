@@ -580,14 +580,6 @@ function Flow() {
   // 记录 team 框拖拽时的基准偏移，用于同步移动内部成员
   const teamDragOffsets = useRef<Map<string, { dx: number; dy: number }>>(new Map());
 
-  // 🔧 调试日志
-  useEffect(() => {
-    const agents = Object.values(newAgentMap).filter(a => a.status !== 'cleared');
-    console.log('[ExecutionFlow] agentMap agents:', agents.length,
-      agents.map(a => `${a.id}:${a.status}`));
-  }, [newAgentMap]);
-
-
   // ─── 新路径：从扁平 agentMap 构建 flow ───────────────
   const buildFlowFromAgentMap = useCallback((
     agentMap: Record<string, NewAgentState>,

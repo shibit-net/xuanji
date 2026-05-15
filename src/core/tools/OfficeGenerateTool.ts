@@ -22,7 +22,7 @@ interface SheetData {
 export class OfficeGenerateTool extends BaseTool {
   readonly name = 'generate_document';
   readonly description = [
-    'Generate and save Office documents (.docx or .xlsx) from structured content.',
+    'Create NEW .docx or .xlsx files from scratch. Use this when generating a document from content (markdown for docx, rows for xlsx). To EDIT an existing file, use xlsx_edit or docx_edit instead.',
     '',
     '=== USAGE ===',
     '',
@@ -183,7 +183,7 @@ export class OfficeGenerateTool extends BaseTool {
         // 空行
         if (!trimmed) {
           if (inTable) {
-            children.push(...this.renderDocxTable(tableHeaders, tableRows));
+            children.push(...this.renderDocxTable(tableHeaders, tableRows, { Table, TableRow, TableCell, Paragraph, TextRun }));
             tableHeaders = [];
             tableRows = [];
             inTable = false;
@@ -207,7 +207,7 @@ export class OfficeGenerateTool extends BaseTool {
         }
 
         if (inTable) {
-          children.push(...this.renderDocxTable(tableHeaders, tableRows));
+          children.push(...this.renderDocxTable(tableHeaders, tableRows, { Table, TableRow, TableCell, Paragraph, TextRun }));
           tableHeaders = [];
           tableRows = [];
           inTable = false;
@@ -256,7 +256,7 @@ export class OfficeGenerateTool extends BaseTool {
       }
 
       // 关闭未关闭的表格/代码块
-      if (inTable) children.push(...this.renderDocxTable(tableHeaders, tableRows));
+      if (inTable) children.push(...this.renderDocxTable(tableHeaders, tableRows, { Table, TableRow, TableCell, Paragraph, TextRun }));
       if (inCodeBlock && codeLines.length > 0) {
         children.push(new Paragraph({
           spacing: { before: 120, after: 120 },
@@ -276,6 +276,13 @@ export class OfficeGenerateTool extends BaseTool {
 
     const doc = new Document({
       title: 'Generated Document',
+      styles: {
+        default: {
+          document: {
+            run: { font: 'Calibri', size: 22 },
+          },
+        },
+      },
       sections: [{ children }],
     });
 
@@ -321,9 +328,12 @@ export class OfficeGenerateTool extends BaseTool {
   /**
    * 渲染 docx 表格
    */
-  private renderDocxTable(headers: string[], rows: string[][]): Paragraph[] {
-    const { Table, TableRow: TblRow, TableCell: TblCell, Paragraph: P, TextRun: TR, WidthType } =
-      require('docx');
+  private renderDocxTable(
+    headers: string[],
+    rows: string[][],
+    docx: { Table: any; TableRow: any; TableCell: any; Paragraph: any; TextRun: any },
+  ): Paragraph[] {
+    const { Table, TableRow: TblRow, TableCell: TblCell, Paragraph: P, TextRun: TR } = docx;
 
     const tblRows: any[] = [];
 

@@ -29,6 +29,7 @@ export enum XuanjiEvent {
   AGENT_THINKING_DELTA = 'agent.thinking.delta',
   AGENT_FILE_CHANGES = 'agent.file.changes',
   AGENT_COMPLETED = 'agent.completed',
+  AGENT_USAGE = 'agent.usage',
   AGENT_ERROR = 'agent.error',
 
   // === Workspace Monitor ===

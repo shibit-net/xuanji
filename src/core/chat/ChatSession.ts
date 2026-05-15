@@ -82,9 +82,11 @@ export class ChatSession {
     }
   }
 
-  async run(input: string): Promise<void> {
+  async run(input: string, opts?: { fromDrain?: boolean }): Promise<void> {
     // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
-    if (this.agentLoop.getState().status !== 'idle') {
+    // fromDrain=true 时跳过守卫 —— drainPendingQueue 在 agentLoop 刚结束后调用，
+    // 不需要再次检查，且检查可能导致消息被错误重排队而永久卡死
+    if (!opts?.fromDrain && this.agentLoop.getState().status !== 'idle') {
       log.warn('run() called while AgentLoop is still running, queuing instead');
       if (this._useNewPath && this._stateMachine) {
         this._stateMachine.pendingMessages.push(input);
@@ -365,7 +367,7 @@ export class ChatSession {
           while (this._pendingQueue.length > 0) {
             combined.push(this._pendingQueue.shift()!);
           }
-          await this.run(combined.join('\n'));
+          await this.run(combined.join('\n'), { fromDrain: true });
         } catch (err) {
           log.error('Drain pending message failed:', err);
         }

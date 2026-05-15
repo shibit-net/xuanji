@@ -51,7 +51,7 @@ export interface SearchOptions {
 /**
  * 搜索引擎类型
  */
-export type SearchProvider = 'tavily' | 'serper' | 'brave' | 'duckduckgo';
+export type SearchProvider = 'bing' | 'baidu' | 'google';
 
 /**
  * 搜索引擎适配器接口

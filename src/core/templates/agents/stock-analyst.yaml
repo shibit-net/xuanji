@@ -65,6 +65,9 @@ tools:
   - name: python
     enabled: true
     description: 运行 Python 数据分析代码
+  - name: xlsx_edit
+    enabled: false
+    description: 编辑 Excel 表格数据
 
 # 执行配置
 execution:

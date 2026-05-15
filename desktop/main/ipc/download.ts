@@ -458,16 +458,29 @@ export function registerDownloadHandlers() {
   // ============ 拖拽文件路径解析 ============
   // Electron 28+ 移除了渲染进程的 File.path，必须通过主进程 webUtils 获取
   // 渲染进程发送文件名，主进程在各目录查找匹配的完整路径
-  ipcMain.handle('workspace:resolve-drop-paths', async (event, data: { fileNames: string[] }) => {
+  // 使用 app.getPath() 获取系统目录（跨平台 + 支持本地化名称）
+  ipcMain.handle('workspace:resolve-drop-paths', async (_event, data: { fileNames: string[] }) => {
     try {
+      const { app } = require('electron');
       const paths: string[] = [];
-      const homeDir = os.homedir();
+
+      // 跨平台常用目录（app.getPath 自动处理 Windows/macOS 本地化）
+      const desktopDir = app.getPath('desktop');
+      const downloadsDir = app.getPath('downloads');
+      const documentsDir = app.getPath('documents');
+      const homeDir = app.getPath('home');
 
       for (const name of data.fileNames) {
+        // 如果是绝对路径且存在，直接使用
+        if (path.isAbsolute(name) && fs.existsSync(name) && fs.statSync(name).isFile()) {
+          paths.push(name);
+          continue;
+        }
+
         const candidates = [
-          path.join(homeDir, 'Desktop', name),
-          path.join(homeDir, 'Downloads', name),
-          path.join(homeDir, 'Documents', name),
+          path.join(desktopDir, name),
+          path.join(downloadsDir, name),
+          path.join(documentsDir, name),
           path.join(homeDir, name),
           path.resolve(name),
         ];

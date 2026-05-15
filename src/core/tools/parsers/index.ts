@@ -16,6 +16,8 @@ export type ParserLoader = () => Promise<FileParser>;
  */
 export const FORMAT_PARSERS: Record<string, ParserLoader> = {
   // Office
+  '.doc':  () => import('./doc-parser').then(m => m.parseDoc),
+  '.dot':  () => import('./doc-parser').then(m => m.parseDoc),
   '.docx': () => import('./docx-parser').then(m => m.parseDocx),
   '.xlsx': () => import('./xlsx-parser').then(m => m.parseXlsx),
   '.xls':  () => import('./xlsx-parser').then(m => m.parseXls),
@@ -40,6 +42,9 @@ export const FORMAT_PARSERS: Record<string, ParserLoader> = {
   '.db':     () => import('./db-parser').then(m => m.parseDatabase),
   '.sqlite': () => import('./db-parser').then(m => m.parseDatabase),
   '.sqlite3':() => import('./db-parser').then(m => m.parseDatabase),
+
+  // PDF
+  '.pdf':  () => import('./pdf-parser').then(m => m.parsePdf),
 
   // LaTeX
   '.tex':  () => import('./tex-parser').then(m => m.parseLatex),

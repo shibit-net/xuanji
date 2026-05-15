@@ -23,6 +23,9 @@ import { EmbeddingMatcher } from '../../src/core/routing/EmbeddingMatcher.js';
 import { EmbeddingProvider } from '../../src/core/embedding/EmbeddingProvider.js';
 import { logger } from '../../src/core/logger/index.js';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { FORMAT_PARSERS } from '../../src/core/tools/parsers/index.js';
 
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
@@ -336,6 +339,37 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
       });
     });
 
+    // 注册 AskUser 处理器 — 将 Agent 的提问请求桥接到渲染进程 UI
+    session.setAskUserHandler(async (request) => {
+      const id = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return new Promise<string>((resolve) => {
+        pendingAskUsers.set(id, resolve);
+        channel.send('ask-user:request', {
+          id,
+          question: request.question,
+          options: request.options,
+          multiSelect: request.multiSelect,
+          default: request.default,
+          priority: request.context?.priority,
+          timeout: request.context?.timeout,
+          agentId: request.context?.agentId,
+          agentName: request.context?.agentName,
+        });
+      });
+    });
+
+    // 注册 EnterPlanMode 处理器 — 通知渲染进程进入计划模式（单向）
+    session.setPlanModeEnterHandler(async () => {
+      channel.send('plan-mode:enter', {});
+      return true;
+    });
+
+    // 注册 ExitPlanMode 处理器 — 通知渲染进程退出计划模式（单向）
+    session.setPlanModeExitHandler(async () => {
+      channel.send('plan-mode:exit', {});
+      return true;
+    });
+
     // 注册持久化事件桥接（Feature flag 共存）
     if (process.env.USE_EVENT_FORWARDER === 'true') {
       if (!eventForwarder) {
@@ -372,18 +406,137 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
  * 前端发送 { type: 'SEND_MESSAGE' | 'INTERRUPT', message?: string }，
  * 调用 session.userAction() 由 SessionStateMachine 驱动，替代旧 handler 分发。
  */
-async function handleUserAction(data: { type: string; message?: string }): Promise<void> {
+async function resolveBinaryAttachments(
+  attachments: Array<{ name: string; path?: string; content: string; size: number }>
+): Promise<void> {
+  for (const att of attachments) {
+    const ext = path.extname(att.name).toLowerCase();
+    if (!FORMAT_PARSERS[ext]) continue;
+    if (!att.path && !att.content) continue;
+
+    const tempFiles: string[] = [];
+    try {
+      let filePath: string;
+      if (att.path) {
+        filePath = att.path;
+      } else {
+        const buf = Buffer.from(att.content, 'base64');
+        const tmpPath = path.join(os.tmpdir(), `xuanji-attachment-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+        fs.writeFileSync(tmpPath, buf);
+        tempFiles.push(tmpPath);
+        filePath = tmpPath;
+      }
+
+      const loadParser = FORMAT_PARSERS[ext];
+      if (!loadParser) continue;
+      const parser = await loadParser();
+      const result = await parser(filePath);
+      att.content = `[Parsed from ${att.name}]\n\n${result.content}`;
+    } catch (err) {
+      log.warn(`Failed to parse binary attachment "${att.name}":`, err);
+      att.content = `[Parse error for ${att.name}: ${err instanceof Error ? err.message : String(err)}]`;
+    } finally {
+      for (const tf of tempFiles) {
+        try { fs.unlinkSync(tf); } catch { /* OS will clean up */ }
+      }
+    }
+  }
+}
+
+function formatAttachments(attachments: Array<{ name: string; path?: string; content: string; size: number }>): string {
+  if (!attachments || attachments.length === 0) return '';
+  let formatted = '<file_contents>\n';
+  for (const f of attachments) {
+    formatted += `<file name="${f.name}">\n`;
+    if (f.path) formatted += `<path>${f.path}</path>\n`;
+    formatted += '<content>\n';
+    formatted += f.content;
+    if (!f.content.endsWith('\n')) formatted += '\n';
+    formatted += '</content>\n';
+    formatted += '</file>\n';
+  }
+  formatted += '</file_contents>\n\n';
+  return formatted;
+}
+
+/**
+ * 将拖拽/粘贴的外部文件复制到工作区，确保 Agent 在 cwd 下能找到。
+ * 替换 att.path 为工作区内的路径，以便 Shell 命令和 read_file 都能正确访问。
+ */
+async function copyAttachmentsToWorkspace(
+  attachments: Array<{ name: string; path?: string; content: string; size: number }>
+): Promise<void> {
+  let workspace = currentProjectRoot;
+  if (!workspace) {
+    workspace = path.join(os.homedir(), '.xuanji', 'workspace');
+    if (!fs.existsSync(workspace)) {
+      fs.mkdirSync(workspace, { recursive: true });
+    }
+  }
+
+  for (const att of attachments) {
+    try {
+      if (att.path && fs.existsSync(att.path)) {
+        // 外部文件 → 复制到工作区
+        const absPath = path.resolve(att.path);
+        // 如果文件已在工作区内，无需复制
+        if (absPath.startsWith(workspace + path.sep) || absPath === workspace) continue;
+
+        let destName = att.name;
+        let destPath = path.join(workspace, destName);
+        // 处理重名冲突
+        let counter = 1;
+        while (fs.existsSync(destPath)) {
+          const ext = path.extname(att.name);
+          const base = path.basename(att.name, ext);
+          destName = `${base}_${counter}${ext}`;
+          destPath = path.join(workspace, destName);
+          counter++;
+        }
+        fs.copyFileSync(absPath, destPath);
+        log.info(`Copied attachment to workspace: ${absPath} → ${destPath}`);
+        att.path = destPath;
+      } else if (att.content && !att.path) {
+        // 粘贴的二进制文件（base64 内容，无路径）→ 写入工作区
+        const ext = path.extname(att.name);
+        let destPath = path.join(workspace, att.name);
+        let counter = 1;
+        while (fs.existsSync(destPath)) {
+          const base = path.basename(att.name, ext);
+          destPath = path.join(workspace, `${base}_${counter}${ext}`);
+          counter++;
+        }
+        const buf = Buffer.from(att.content, 'base64');
+        fs.writeFileSync(destPath, buf);
+        log.info(`Wrote pasted attachment to workspace: ${destPath}`);
+        att.path = destPath;
+      }
+    } catch (err) {
+      log.warn(`Failed to copy attachment "${att.name}" to workspace:`, err);
+      // 不阻塞流程，保留原始 path 继续
+    }
+  }
+}
+
+async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }> }): Promise<void> {
   if (!session) {
     log.warn('handleUserAction: session is null');
     return;
   }
   try {
-    if (data.type === 'SEND_MESSAGE' && data.message) {
+    let fullMessage = data.message || '';
+    if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length)) {
+      if (data.attachments?.length) {
+        await copyAttachmentsToWorkspace(data.attachments);
+        await resolveBinaryAttachments(data.attachments);
+      }
+      const attachmentPrefix = formatAttachments(data.attachments || []);
+      fullMessage = attachmentPrefix + (data.message || '');
       const features = session.getConfig()?.features;
       const intentEnabled = features?.enableIntentAnalysis !== false; // 默认 true
       if (intentRouter && intentEnabled) {
         channel.send('agent:intent-route:start');
-        const route = await intentRouter.route(data.message, (progress) => {
+        const route = await intentRouter.route(fullMessage, (progress) => {
           channel.send('agent:intent-route:progress', progress);
         });
         routedAgentId = route.agentId;
@@ -409,8 +562,8 @@ async function handleUserAction(data: { type: string; message?: string }): Promi
         channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji', agentType: 'system' });
       }
     }
-    log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (data.message || '').substring(0, 40));
-    await session.userAction(data);
+    log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));
+    await session.userAction({ type: data.type, message: fullMessage || data.message });
     log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
@@ -1221,6 +1374,10 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.CONVERSATION_STATE_CHANGED, (payload) => {
     safeSend({ type: 'agent:conversation-state', data: { from: payload.from, to: payload.to } });
+  });
+  eventBus.on(XuanjiEvent.AGENT_USAGE, (payload) => {
+    const agentId = (payload.userId && payload.userId !== currentUserId) ? payload.userId : routedAgentId;
+    safeSend({ type: 'agent:usage', data: { tokenUsage: payload.tokenUsage, agentId } });
   });
   eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload) => {
     const agentId = payload.userId || routedAgentId;

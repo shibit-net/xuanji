@@ -188,6 +188,15 @@
    工具类
    ============================================================ */
 
+/* Electron 无边框窗口拖拽区域 */
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
 .glass {
   @apply bg-card backdrop-blur-sm;
 }

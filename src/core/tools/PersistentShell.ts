@@ -5,10 +5,16 @@
 // 维护一个长驻 bash 子进程，cwd 和环境变量跨调用保持。
 // 使用 stdin/stdout 管道通信，通过唯一标记行分隔输出。
 //
+// 跨平台: Windows 无 bash（Git Bash/WSL）时降级为一次性 exec 模式。
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, exec, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { logger } from '@/core/logger';
+import {
+  crossPlatformKill,
+  crossPlatformInterrupt,
+  crossPlatformTerminate,
+} from '@/shared/utils/crossPlatform';
 
 const log = logger.child({ module: 'PersistentShell' });
 
@@ -35,6 +41,36 @@ export interface ShellResult {
   exitCode: number;
 }
 
+/** 检测当前平台是否支持持久化 Shell（需要 bash） */
+let _supportsPersistent: boolean | null = null;
+function supportsPersistentShell(): boolean {
+  if (_supportsPersistent !== null) return _supportsPersistent;
+  if (process.platform !== 'win32') {
+    _supportsPersistent = true;
+    return true;
+  }
+  // Windows: 检测 bash 是否可用（Git Bash 或 WSL）
+  try {
+    exec('where bash', { timeout: 3000 }, (error) => {
+      // 仅用于检测，忽略结果
+    });
+    // 更可靠的检测：尝试 spawn bash --version
+    const { execSync } = require('node:child_process');
+    execSync('where bash', { stdio: 'ignore', timeout: 3000 });
+    _supportsPersistent = true;
+    return true;
+  } catch {
+    _supportsPersistent = false;
+    log.warn('bash 不可用，PersistentShell 降级为一次性 exec 模式（cwd 不跨调用保持）');
+    return false;
+  }
+}
+
+/** 重置缓存（用于测试） */
+export function resetPersistentShellSupportCache(): void {
+  _supportsPersistent = null;
+}
+
 /**
  * 持久化 Shell — 维护长驻 bash 子进程
  *
@@ -43,6 +79,7 @@ export interface ShellResult {
  * - 通过标记行分隔每次命令的输出
  * - 超时保护
  * - 自动重启（进程异常退出时）
+ * - Windows 无 bash 时自动降级为一次性 exec
  */
 export class PersistentShell {
   private proc: ChildProcess | null = null;
@@ -62,16 +99,20 @@ export class PersistentShell {
     resolve: (result: ShellResult) => void;
     reject: (error: Error) => void;
   }> = [];
+  /** Windows 降级模式：是否使用一次性 exec 而非持久化 shell */
+  private readonly _fallbackMode: boolean;
 
   constructor(cwd?: string) {
     this.initialCwd = cwd ?? process.cwd();
     this._lastKnownCwd = this.initialCwd;
+    this._fallbackMode = !supportsPersistentShell();
   }
 
   /**
    * 确保 shell 进程已启动
    */
   private ensureRunning(): void {
+    if (this._fallbackMode) return; // 降级模式无需持久进程
     if (this.proc && !this.proc.killed && this.proc.exitCode === null) {
       return;
     }
@@ -145,6 +186,11 @@ export class PersistentShell {
    * 内部执行命令（无并发保护）
    */
   private async _executeInternal(command: string, timeout: number, cwd?: string): Promise<ShellResult> {
+    // 降级模式：使用 exec 一次性执行
+    if (this._fallbackMode) {
+      return this._executeFallback(command, timeout, cwd);
+    }
+
     // 超时后重建 Shell，防止残留 stdout 污染
     if (this._needsReset) {
       this._needsReset = false;
@@ -190,8 +236,8 @@ export class PersistentShell {
         if (settled) return;
         settled = true;
         cleanup();
-        // 超时：发送 SIGINT 终止当前命令（不杀 shell 进程）
-        proc.kill('SIGINT');
+        // 超时：中断当前命令（不杀 shell 进程）
+        crossPlatformInterrupt(proc);
         // 标记需要重建 Shell（防止残留 stdout 污染下次命令）
         this._needsReset = true;
         reject(new Error(`命令超时 (${timeout}ms)`));
@@ -266,9 +312,43 @@ export class PersistentShell {
   }
 
   /**
+   * 降级模式：使用 child_process.exec 一次性执行命令
+   */
+  private _executeFallback(command: string, timeout: number, cwd?: string): Promise<ShellResult> {
+    const workDir = cwd ?? this._lastKnownCwd;
+    return new Promise<ShellResult>((resolve) => {
+      const child = exec(
+        command,
+        {
+          cwd: workDir,
+          timeout,
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+          env: { ...process.env },
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            resolve({
+              stdout: stdout?.toString() ?? '',
+              stderr: stderr?.toString() ?? (error.message || ''),
+              exitCode: (error as any).code ?? 1,
+            });
+            return;
+          }
+          resolve({
+            stdout: stdout?.toString() ?? '',
+            stderr: stderr?.toString() ?? '',
+            exitCode: 0,
+          });
+        },
+      );
+    });
+  }
+
+  /**
    * 重置 Shell（销毁重建，恢复到最后已知的工作目录）
    */
   reset(): void {
+    if (this._fallbackMode) return; // 降级模式无需重置
     const cwdToRestore = this._lastKnownCwd;
     this.close();
     this.spawn();
@@ -290,7 +370,7 @@ export class PersistentShell {
 
     if (this.proc && !this.proc.killed) {
       this.proc.stdin?.end();
-      this.proc.kill('SIGTERM');
+      crossPlatformTerminate(this.proc);
       this.proc = null;
     }
     this._ready = false;
@@ -300,7 +380,7 @@ export class PersistentShell {
    * 是否就绪
    */
   get ready(): boolean {
-    return this._ready && this.proc !== null && !this.proc.killed;
+    return this._fallbackMode || (this._ready && this.proc !== null && !this.proc.killed);
   }
 }
 

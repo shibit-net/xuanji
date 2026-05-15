@@ -1,7 +1,6 @@
 import { app } from 'electron';
 import type { ChildProcess } from 'child_process';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
 import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
@@ -139,62 +138,16 @@ function initChatSession(): Promise<boolean> {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       });
 
-      // 解析 debug 包的日志级别
-      // 格式: "2026-05-01 01:50:49.339 xuanji:DownloadManager:info message"
-      // debug 包同时输出到 stdout 和 stderr，需要识别级别再决定前缀
-      const extractLevel = (line: string): string | null => {
-        // 匹配 debug 包格式的日志级别（如 "xuanji:DownloadManager:info message"）
-        // debug 包格式: namespace:module:level message，级别前有 2 级命名空间
-        // 注意：匹配 /\w+:\w+:(debug|info|warn|error|fatal)\s/ 确保是"两级命名空间+级别"格式
-        // 避免把消息内容（如 "agent:error"）中的 :error 误判为级别
-        const match = line.match(/\w+:\w+:(debug|info|warn|error|fatal)\s/);
-        return match ? match[1].toLowerCase() : null;
-      };
-
-      // 处理子进程 stdout 输出
+      // 子进程 stdout/stderr 直接转发到父进程控制台
+      // PinoLogger 已在子进程内完成格式化，此处只需透传
       const handleStdout = (data: Buffer) => {
-        const lines = data.toString('utf8').trim().split('\n');
-        lines.forEach(line => {
-          if (line) {
-            const level = extractLevel(line);
-            if (level === 'error' || level === 'fatal') {
-              console.error(`🟣 [Agent:stderr] ${line}`);
-            } else {
-              // pino JSONL 格式直接输出到控制台
-              try {
-                const parsed = JSON.parse(line);
-                const prefix = parsed.ns ? `[Agent:${parsed.ns}]` : '[Agent]';
-                const levelTag = parsed.level?.toUpperCase?.() || 'INFO';
-                console.log(`${prefix} ${levelTag}: ${parsed.msg}${parsed.execId ? ` (exec:${parsed.execId})` : ''}`);
-              } catch {
-                // debug 包格式或其他非 JSON 输出
-                if (level) {
-                  console.log(`[Agent:stdout] ${line}`);
-                } else {
-                  // 非 JSON 非 debug 格式的输出也打印，避免静默丢弃
-                  console.log(`[Agent:stdout] ${line}`);
-                }
-              }
-            }
-          }
-        });
+        const text = data.toString('utf8').trim();
+        if (text) console.log(text);
       };
 
-      // 处理子进程 stderr 输出（debug 包默认写到 stderr，不只是错误）
       const handleStderr = (data: Buffer) => {
-        const lines = data.toString('utf8').trim().split('\n');
-        lines.forEach(line => {
-          if (line) {
-            const level = extractLevel(line);
-            if (level === 'error' || level === 'fatal') {
-              console.error(`🚨 [Agent Error] ${line}`);
-            } else {
-              // 非 error 级别的 stderr 也可能是重要错误（如 uncaught exception 堆栈）
-              // 防止静默吞掉，统一打印到 console.warn
-              console.warn(`[Agent Stderr] ${line}`);
-            }
-          }
-        });
+        const text = data.toString('utf8').trim();
+        if (text) console.error(text);
       };
 
       agentProcess!.stdout?.on('data', handleStdout);
@@ -329,6 +282,23 @@ function initChatSession(): Promise<boolean> {
   return initializationInProgress;
 }
 
+/** 跨平台强制终止子进程 */
+function forceKillProcess(proc: ChildProcess): void {
+  if (process.platform === 'win32') {
+    // Windows: taskkill /F /T 强制终止进程树
+    try {
+      const { execSync } = require('child_process');
+      execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 3000, stdio: 'ignore' });
+    } catch {
+      // taskkill 失败时回退到 Node.js kill
+      proc.kill();
+    }
+  } else {
+    // macOS / Linux: SIGKILL 强制终止（不可捕获）
+    proc.kill('SIGKILL');
+  }
+}
+
 async function cleanupAgentProcess() {
   if (!agentProcess) return;
 
@@ -351,8 +321,8 @@ async function cleanupAgentProcess() {
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       if (agentProcess && !agentProcess.killed) {
-        console.warn('[Agent] 子进程未在 2 秒内退出，发送 SIGKILL');
-        agentProcess!.kill('SIGKILL');
+        console.warn('[Agent] 子进程未在 2 秒内退出，执行强制终止');
+        forceKillProcess(agentProcess!);
       }
       resolve();
     }, 2000);
@@ -381,6 +351,10 @@ function getAgentProcess(): ChildProcess | null {
   return agentProcess;
 }
 
+function getAgentProcessPid(): number | null {
+  return agentProcess?.pid ?? null;
+}
+
 function isSessionReady(): boolean {
   return sessionReady;
 }
@@ -406,6 +380,7 @@ export {
   cleanupAgentProcess,
   sendRequest,
   getAgentProcess,
+  getAgentProcessPid,
   isSessionReady,
   getCachedConfig,
   setCachedConfig,

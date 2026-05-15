@@ -20,10 +20,8 @@ function createWindow() {
       if (fs.existsSync(iconPath)) {
         const iconBuffer = fs.readFileSync(iconPath);
         const dockIcon = nativeImage.createFromBuffer(iconBuffer);
-        console.log('[Window] dock icon:', iconPath, 'loaded, isEmpty:', dockIcon.isEmpty(), 'size:', dockIcon.getSize());
         if (!dockIcon.isEmpty()) {
           app.dock.setIcon(dockIcon);
-          console.log('[Window] dock icon set successfully');
         }
       }
     } catch (e) {
@@ -31,13 +29,16 @@ function createWindow() {
     }
   }
 
-  mainWindow = new BrowserWindow({
+  const isMac = process.platform === 'darwin';
+
+  // macOS: hiddenInset 实现无边框 + 内嵌红绿灯
+  // Windows/Linux: frame=false 隐藏原生标题栏, 由 renderer 自定义 TitleBar 接管
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 600,
     backgroundColor: '#1E1E1E',
-    titleBarStyle: 'hiddenInset',
     show: false,
     icon: iconPath,
     webPreferences: {
@@ -45,7 +46,18 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
-  });
+  };
+
+  if (isMac) {
+    windowOptions.titleBarStyle = 'hiddenInset';
+    windowOptions.frame = true;
+  } else {
+    // Windows / Linux: 无原生边框，完全由自定义 TitleBar 控制
+    windowOptions.frame = false;
+    windowOptions.autoHideMenuBar = true;
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   // 监听加载失败
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
@@ -55,7 +67,6 @@ function createWindow() {
   // ready-to-show 时再显示窗口，避免白屏闪烁
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
-    console.log('[Window] 窗口已显示');
   });
 
   // 🔧 设置 mainWindow 到 enhancedMessageBus，使其能够转发消息到 renderer
@@ -65,13 +76,11 @@ function createWindow() {
 
   if (isDev) {
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:9100';
-    console.log(`[Window] Dev mode, loading URL: ${devUrl}`);
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
     // 使用相对路径加载 ASAR 内的 HTML（__dirname = dist-electron/）
     const distPath = path.join(__dirname, '..', 'dist', 'index.html');
-    console.log(`[Window] Prod mode, loading file: ${distPath}`);
     mainWindow.loadFile(distPath);
   }
 

@@ -43,8 +43,6 @@ export default function TodoPanel() {
       if (res.success && res.count !== undefined) {
         // 更新归档总数
         setArchivedCount((prev) => prev + res.count);
-        // 提示用户
-        // console.log(`✅ 已归档 ${res.count} 个任务`);
       }
     } catch (err) {
       console.error('归档失败:', err);

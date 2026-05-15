@@ -114,6 +114,18 @@ tools:
     required: false
   - name: web_fetch
     required: false
+  - name: web_search
+    required: false
+  - name: pdf
+    required: false
+  - name: generate_document
+    required: false
+  - name: xlsx_edit
+    required: false
+  - name: docx_edit
+    required: false
+  - name: doc_to_docx
+    required: false
   - name: notebook_edit
     required: false
   - name: worktree
@@ -150,6 +162,12 @@ capabilities:
   - Task decomposition and delegation
   - Reminder and schedule management
   - Network resource fetching
+  - Web search
+  - PDF reading and manipulation
+  - Office document generation (Word/Excel)
+  - Word document editing (docx round-trip via Markdown)
+  - Excel spreadsheet editing (cell/sheet operations)
+  - Legacy .doc to .docx conversion
 enabled: true
 metadata:
   isMainAgent: true

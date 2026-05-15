@@ -212,6 +212,12 @@ export class AgentLoop {
       onUsage: (usage) => {
         this.contextManager.recordUsage(usage);
         this.callbacks.onUsage?.(usage);
+        if (!this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_USAGE, {
+            userId: this._userId,
+            tokenUsage: usage,
+          });
+        }
       },
     });
   }
@@ -623,6 +629,9 @@ export class AgentLoop {
         onUsage: (usage) => {
           this.contextManager.recordUsage(usage);
           this.callbacks.onUsage?.(usage);
+          if (!this._suppressEventBus) {
+            eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage });
+          }
         },
       });
     }
@@ -658,6 +667,9 @@ export class AgentLoop {
       onUsage: (usage) => {
         this.contextManager.recordUsage(usage);
         this.callbacks.onUsage?.(usage);
+        if (!this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage });
+        }
       },
     });
   }

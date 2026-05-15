@@ -10,6 +10,7 @@ import path from 'node:path';
 import glob from 'fast-glob';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { getGrepConfig } from '@/core/config/RuntimeConfig';
+import { crossPlatformKill } from '@/shared/utils/crossPlatform';
 import { logger } from '@/core/logger';
 
 const MAX_MATCHES = 500;
@@ -191,7 +192,7 @@ export class GrepTool extends BaseTool {
       proc.stderr.on('data', () => {}); // 忽略 stderr
 
       const timer = setTimeout(() => {
-        proc.kill('SIGTERM');
+        crossPlatformKill(proc);
         resolve(this.error('ripgrep 搜索超时 (60s)'));
       }, 60_000);
 
