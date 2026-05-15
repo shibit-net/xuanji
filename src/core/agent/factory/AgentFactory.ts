@@ -46,6 +46,10 @@ export interface AgentCreateOptions {
   streamToUser?: boolean;
   parentAgentId?: string;
   subAgentId?: string;
+  /** 严格工具模式：仅使用 toolWhitelist，不合并 YAML config tools */
+  strictTools?: boolean;
+  /** 覆盖 maxTokens（上下文窗口大小） */
+  maxTokens?: number;
 }
 
 export interface AgentInstance {
@@ -75,6 +79,12 @@ export interface CreateAndRunOptions {
   subAgentId?: string;
   /** 异步任务：主 agent 不等待，子 agent 输出走 TaskCompletionHandler；同步任务：主 agent 阻塞等待 */
   isAsync?: boolean;
+  /** 强制走 in-process（跳过 ACP fork），用于 hierarchical leader 等需要完整工具权限的场景 */
+  forceInProcess?: boolean;
+  /** 严格工具模式：仅使用 whitelist 中的工具，不合并 YAML config tools */
+  strictTools?: boolean;
+  /** 覆盖 maxTokens（上下文窗口大小），用于层级策略 Leader 等需要更大预算的场景 */
+  maxTokens?: number;
 }
 
 export interface CreateAndRunResult {
@@ -169,8 +179,10 @@ export class AgentFactory {
     // 构建 system prompt
     const systemPrompt = await this.buildMainPrompt(agentCfg, options);
 
-    // 过滤工具
-    const allowedTools = this.resolveTools(agentCfg, options.toolWhitelist);
+    // 过滤工具（strictTools 模式下仅用 whitelist，不合并 YAML config tools）
+    const allowedTools = options.strictTools
+      ? (options.toolWhitelist || [])
+      : this.resolveTools(agentCfg, options.toolWhitelist);
     const registry = this.createFilteredRegistry(allowedTools, {
       agentId,
       workingDir: options.workingDir,
@@ -182,7 +194,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
       maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? settings.maxIterations,
       temperature: agentCfg.model?.temperature ?? settings.temperature,
-      maxTokens: agentCfg.model?.maxTokens ?? settings.maxTokens,
+      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens ?? settings.maxTokens,
     }, provider);
 
     const mainAgentId = options.subAgentId || agentId;
@@ -205,8 +217,13 @@ export class AgentFactory {
    * 创建子 Agent（用于 task/team 工具创建的临时或预置 Agent）
    */
   async createSubAgent(agentId: string, options: AgentCreateOptions): Promise<AgentInstance> {
-    const cfgMgr = getConfigManager();
-    const agentCfg = cfgMgr.getAgentConfig(agentId);
+    let agentCfg: ReturnType<ConfigManager['getAgentConfig']> = null;
+    try {
+      const cfgMgr = getConfigManager();
+      agentCfg = cfgMgr.getAgentConfig(agentId);
+    } catch (err) {
+      log.warn(`[createSubAgent] ConfigManager.getAgentConfig failed for "${agentId}":`, err);
+    }
 
     log.info(`[createSubAgent] entry`, {
       agentId,
@@ -241,13 +258,22 @@ export class AgentFactory {
         systemPrompt: '',
         workingDir: options.workingDir,
         maxIterations: options.maxIterations ?? 20,
+        maxTokens: options.maxTokens ?? (options.parentConfig as any)?.model?.maxTokens,
       }, provider);
 
-      const allowedTools = this.resolveTools((options.parentConfig as any) ?? null, options.toolWhitelist);
-      // 临时 agent 未指定工具时使用默认工具集，自动补齐管理工具
-      const effectiveTools = augmentToolList(
-        allowedTools.length > 0 ? allowedTools : DEFAULT_SUBAGENT_TOOLS,
-      );
+      const allowedTools = options.strictTools
+        ? (options.toolWhitelist || [])
+        : this.resolveTools((options.parentConfig as any) ?? null, options.toolWhitelist);
+      const effectiveTools = options.strictTools
+        ? allowedTools
+        : augmentToolList(allowedTools.length > 0 ? allowedTools : DEFAULT_SUBAGENT_TOOLS);
+      log.info(`[createSubAgent] 临时 agent 工具解析完成`, {
+        agentId,
+        strictTools: options.strictTools,
+        toolWhitelist: options.toolWhitelist,
+        resolvedTools: allowedTools,
+        effectiveTools,
+      });
       const registry = this.createFilteredRegistry(effectiveTools, {
         agentId,
         workingDir: options.workingDir,
@@ -300,9 +326,20 @@ export class AgentFactory {
     // 构建 system prompt
     const systemPrompt = await this.buildSubPrompt(agentCfg, options);
 
-    // 解析工具（合并 required 工具和 whitelist）
-    const allowedTools = this.resolveTools(agentCfg, options.toolWhitelist);
-    const registry = this.createFilteredRegistry(allowedTools, {
+    // 解析工具（strictTools 模式下仅用 whitelist，不合并 YAML 也不自动补齐）
+    const allowedTools = options.strictTools
+      ? (options.toolWhitelist || [])
+      : this.resolveTools(agentCfg, options.toolWhitelist);
+    const effectiveTools = options.strictTools ? allowedTools : augmentToolList(allowedTools);
+    log.info(`[createSubAgent] 工具解析完成`, {
+      agentId,
+      agentName: agentCfg.name,
+      strictTools: options.strictTools,
+      toolWhitelist: options.toolWhitelist,
+      resolvedTools: allowedTools,
+      effectiveTools,
+    });
+    const registry = this.createFilteredRegistry(effectiveTools, {
       agentId,
       workingDir: options.workingDir,
     });
@@ -315,7 +352,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
       maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 20,
       temperature: agentCfg.model?.temperature,
-      maxTokens: agentCfg.model?.maxTokens,
+      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens,
     }, provider);
 
     const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
@@ -368,8 +405,13 @@ export class AgentFactory {
     }
 
     // 2. 获取 agent 配置（用于 Hook 元数据）
-    const cfgMgr = getConfigManager();
-    let agentConfig = cfgMgr.getAgentConfig(agentIdOrRole);
+    let agentConfig: ReturnType<ConfigManager['getAgentConfig']> = null;
+    try {
+      const cfgMgr = getConfigManager();
+      agentConfig = cfgMgr.getAgentConfig(agentIdOrRole);
+    } catch (err) {
+      log.warn(`[createAndRun] ConfigManager.getAgentConfig failed for "${agentIdOrRole}":`, err);
+    }
     const isTemporary = this.isTemporaryAgent(agentIdOrRole);
 
     // 3. 解析 parentProvider（options 优先，其次 setters）
@@ -409,6 +451,8 @@ export class AgentFactory {
         streamToUser: options.streamToUser,
         parentAgentId: options.parentAgentId,
         subAgentId: options.subAgentId,
+        strictTools: options.strictTools,
+        maxTokens: options.maxTokens,
       });
       agentLoop = result.agentLoop;
       subAgentId = result.subAgentId;
@@ -471,7 +515,10 @@ export class AgentFactory {
       (agentConfig as any).metadata?.category === 'app' ? 'preset' : 'custom';
 
     // 子 agent 走 ACP 子进程执行，避免阻塞主进程事件循环
-    const useAcp = !!options.subAgentId && !!subAgentId;
+    // 但若当前已在 ACP worker 中，则禁止递归 fork，走 in-process
+    // forceInProcess：leader in-process 执行（需要完整工具权限），不触发 ACP fork
+    const isInAcpWorker = typeof process.send === 'function';
+    const useAcp = !options.forceInProcess && !isInAcpWorker && !!options.subAgentId && !!subAgentId;
 
     const subAgentStartPayload = {
       task: options.task,
@@ -562,13 +609,13 @@ export class AgentFactory {
       result: outputText,
       tokensUsed: state.tokenUsage,
     };
-    if (this.hookRegistry) {
-      this.hookRegistry.emit('SubAgentEnd', {
-        subAgentId,
-        data: endPayload,
-      }).catch(() => {});
-    }
     if (!options.skipSubAgentStartHook) {
+      if (this.hookRegistry) {
+        this.hookRegistry.emit('SubAgentEnd', {
+          subAgentId,
+          data: endPayload,
+        }).catch(() => {});
+      }
       eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_END, {
         subAgentId,
         data: endPayload,
@@ -604,8 +651,13 @@ export class AgentFactory {
     const acp = AcpProcessManager.getInstance();
 
     // 先查已注册 agent 的配置
-    const cfgMgr = getConfigManager();
-    const registeredConfig = cfgMgr.getAgentConfig(agentIdOrRole);
+    let registeredConfig: ReturnType<ConfigManager['getAgentConfig']> = null;
+    try {
+      const cfgMgr = getConfigManager();
+      registeredConfig = cfgMgr.getAgentConfig(agentIdOrRole);
+    } catch (err) {
+      log.warn(`[executeViaAcp] ConfigManager.getAgentConfig failed for "${agentIdOrRole}":`, err);
+    }
     const isTemporary = this.isTemporaryAgent(agentIdOrRole);
 
     // 工具解析：注册 agent 合并 YAML tools + whitelist，临时 agent 用 whitelist（兜底默认集）
@@ -644,7 +696,7 @@ export class AgentFactory {
         : undefined;
 
     const result = await acp.run(agentIdOrRole, options.task, {
-      userId: cfgMgr.getUserId() || undefined,
+      userId: (() => { try { return getConfigManager().getUserId() || undefined; } catch { return undefined; } })(),
       systemPrompt: options.systemPrompt,
       scenePrompt: options.scenePrompt,
       tools,
@@ -670,13 +722,13 @@ export class AgentFactory {
       result: result.payload.output,
       tokensUsed: result.payload.tokensUsed,
     };
-    if (this.hookRegistry) {
-      this.hookRegistry.emit('SubAgentEnd', {
-        subAgentId,
-        data: acpEndPayload,
-      }).catch(() => {});
-    }
     if (!options.skipSubAgentStartHook) {
+      if (this.hookRegistry) {
+        this.hookRegistry.emit('SubAgentEnd', {
+          subAgentId,
+          data: acpEndPayload,
+        }).catch(() => {});
+      }
       eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_END, {
         subAgentId,
         data: acpEndPayload,

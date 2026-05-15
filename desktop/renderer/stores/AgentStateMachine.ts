@@ -270,14 +270,24 @@ function ensureAgent(
   options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; scene?: string; multiAgent?: AgentState['multiAgent'] },
 ): { agentMap: Record<string, AgentState>; mainAgent: string | null } {
   if (agentMap[agentId]) {
-    // 已存在则补全 options 中缺失的字段（解决事件时序导致的 auto-create 先于 AGENT_CREATED 到达）
+    // 已存在则补全/更新字段（解决事件时序导致的 auto-create 先于 AGENT_CREATED 到达）
     const existing = agentMap[agentId];
     let updated = false;
     const patch: Partial<AgentState> = {};
+    // 层级策略占位槽激活时，占位名称（"Worker 1"）替换为实际 agent 名（"Software Engineer"）
+    if (name && existing.name !== name) {
+      patch.name = name; updated = true;
+      if (existing.name && existing.name.startsWith('Worker ')) {
+        flowLogger.log('AgentStateMachine', 'PLACEHOLDER ACTIVATED',
+          'agentId:', agentId, 'oldName:', existing.name, 'newName:', name);
+      }
+    }
     if (options?.taskType && !existing.taskType) { patch.taskType = options.taskType; updated = true; }
-    if (options?.agentType && !existing.agentType) { patch.agentType = options.agentType; updated = true; }
+    if (options?.agentType && existing.agentType !== options.agentType) { patch.agentType = options.agentType; updated = true; }
     if (options?.executionMode && !existing.executionMode) { patch.executionMode = options.executionMode; updated = true; }
     if (options?.streamToUser !== undefined && existing.streamToUser === undefined) { patch.streamToUser = options.streamToUser; updated = true; }
+    // scene 始终更新（占位槽无 scene，leader 分配后需要覆盖）
+    if (options?.scene && existing.scene !== options.scene) { patch.scene = options.scene; updated = true; }
     if (options?.multiAgent) {
       if (!existing.multiAgent?.type) {
         patch.multiAgent = options.multiAgent; updated = true;
@@ -402,10 +412,10 @@ function applyAgentCreated(
     multiAgent: event.multiAgent,
   });
 
-  // 设置 currentTask（新创建时或已有 agent 未设置时）
+  // 设置 currentTask（新创建时 / 层级策略 leader 重新委派时更新）
   if (event.task && result.agentMap[event.agentId]) {
     const agent = result.agentMap[event.agentId];
-    if (!agent.currentTask) {
+    if (!agent.currentTask || agent.currentTask !== event.task) {
       result.agentMap = { ...result.agentMap, [event.agentId]: { ...agent, currentTask: event.task } };
     }
   }
@@ -539,9 +549,13 @@ function applyTextDelta(
 ): Partial<AgentStateMachineStore> {
   const agent = { ...next[event.agentId] };
 
-  agent.status = 'writing';
+  // 子 agent 输出到父 agent → "汇报结果"；前台 agent 输出到用户对话框 → "编写回复"
+  const isSubAgent = agent.parentId !== null || agent.taskType !== undefined;
+  const newStatus: AgentStatus = isSubAgent ? 'reporting' : 'writing';
+
+  agent.status = newStatus;
   agent.currentResponse = (agent.currentResponse ?? '') + event.text;
-  Object.assign(agent, updateMoment(agent, 'writing'));
+  Object.assign(agent, updateMoment(agent, newStatus));
 
   next[event.agentId] = agent;
   return { agentMap: next };
@@ -683,10 +697,16 @@ function applyCleanupCompleted(
     if (isForeground) continue;
 
     if (agent.taskType === 'team') {
-      // team 节点（agentType === 'team'）：终态 → cleared
+      // team 节点（agentType === 'team'）：终态且无活跃子节点 → cleared
       if (agent.agentType === 'team') {
         if (agent.status === 'success' || agent.status === 'failed' || agent.status === 'cancelled' || agent.status === 'reporting') {
-          next[id] = { ...agent, status: 'cleared' as AgentStatus };
+          // 检查是否还有非终态子 agent——防止 team-end 提前触发导致虚线框消失
+          const hasActiveChildren = Object.entries(next).some(([cid, c]) =>
+            c.parentId === id && c.status !== 'cleared' && c.status !== 'success' && c.status !== 'failed' && c.status !== 'cancelled'
+          );
+          if (!hasActiveChildren) {
+            next[id] = { ...agent, status: 'cleared' as AgentStatus };
+          }
         }
       } else {
         // team 成员：parent team 是终态/reporting → cleared

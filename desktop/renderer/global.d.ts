@@ -207,7 +207,7 @@ export interface ElectronAPI {
     success: boolean;
     error?: string;
   }>;
-  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string }) => Promise<{
+  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string; scenes?: string[] }) => Promise<{
     success: boolean;
     error?: string;
   }>;
@@ -225,6 +225,18 @@ export interface ElectronAPI {
     error?: string;
   }>;
   setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  promptDeleteComponent: (data: { id: string }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  promptCreateComponent: (data: {
+    id: string; name: string; layer: string; priority: number;
+    estimatedTokens: number; scenes?: string[]; content: string;
+    match?: { keywords: string; description: string };
+  }) => Promise<{
     success: boolean;
     error?: string;
   }>;

@@ -311,22 +311,12 @@ export class PromptComponentRegistry {
         return;
       }
 
-      // 检查是否启用
-      if (config.enabled === false) {
-        log.debug(`组件已禁用: ${config.id}`);
-        // 如果组件存在但被禁用，触发移除事件
-        if (this.components.has(config.id) && emitEvent) {
-          this.components.delete(config.id);
-          this.emitChange({ type: 'removed', componentId: config.id });
-        }
-        return;
-      }
-
       // 检查是新增还是更新
       const isUpdate = this.components.has(config.id);
 
-      // 转换为 PromptComponent
+      // 转换为 PromptComponent（始终加载，含 enabled 状态）
       const component = this.configToComponent(config, source);
+      component.enabled = config.enabled ?? true;
       this.components.set(config.id, component);
 
       log.info(`加载${source === 'user' ? '用户' : '项目'}组件: ${config.id} (${config.name})`);
@@ -497,6 +487,35 @@ export class PromptComponentRegistry {
       log.info(`组件已保存: ${component.id}`);
     } catch (error: any) {
       log.error(`保存组件失败: ${component.id}`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 删除用户自定义组件
+   */
+  async deleteComponent(id: string): Promise<void> {
+    try {
+      const filePath = path.join(this.userPromptsDir, `${id}.yaml`);
+      await fs.unlink(filePath);
+      log.info(`组件已删除: ${id}`);
+    } catch (error: any) {
+      log.error(`删除组件失败: ${id}`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 创建新的 Prompt 组件（写入用户目录）
+   */
+  async createComponent(config: PromptComponentConfig): Promise<void> {
+    try {
+      const filePath = path.join(this.userPromptsDir, `${config.id}.yaml`);
+      const content = stringifyYAML(config);
+      await fs.writeFile(filePath, content, 'utf-8');
+      log.info(`组件已创建: ${config.id}`);
+    } catch (error: any) {
+      log.error(`创建组件失败: ${config.id}`, error.message);
       throw error;
     }
   }

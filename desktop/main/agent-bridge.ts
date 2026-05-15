@@ -940,6 +940,8 @@ channel.handle('prompt-update-component', (data) => handlePromptUpdateComponent(
 channel.handle('prompt-preview', (data) => handlePromptPreview(data));
 channel.handle('get-prompt-config', () => handleGetPromptConfig());
 channel.handle('save-prompt-config', (data) => handleSavePromptConfig(data));
+channel.handle('prompt-delete-component', (data) => handlePromptDeleteComponent(data));
+channel.handle('prompt-create-component', (data) => handlePromptCreateComponent(data));
 
 // ============ 项目管理 ============
 channel.handle('projects-list', () => handleProjectsList());
@@ -1075,6 +1077,29 @@ function registerHookEventBridge() {
   eventBus.on(XuanjiEvent.HOOK_TEAM_END, (ctx) => {
     const d = ctx.data;
     safeSend({ type: 'agent:team-end', data: { teamId: ctx.teamId, name: d.name, success: d.success, duration: d.duration, error: d.error, timedOut: (d as any).timedOut, cancelled: (d as any).cancelled } });
+  });
+
+  // TeamSubMember（层级策略 leader 动态创建 worker）
+  eventBus.on(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-submember-start', data: {
+      teamId: ctx.teamId, parentMemberId: ctx.parentMemberId,
+      memberId: d.memberId, subAgentId: d.subAgentId,
+      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
+      scene: d.scene, executionMode: d.executionMode,
+      strategy: d.strategy, teamName: d.teamName,
+      stepIndex: d.stepIndex, totalSteps: d.totalSteps,
+      systemPromptHint: d.systemPromptHint,
+    }});
+  });
+  eventBus.on(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END, (ctx) => {
+    const d = ctx.data;
+    safeSend({ type: 'agent:team-submember-end', data: {
+      teamId: ctx.teamId, parentMemberId: ctx.parentMemberId,
+      memberId: d.memberId, subAgentId: d.subAgentId,
+      memberName: d.memberName, success: d.success,
+      duration: d.duration, resultSummary: d.resultSummary,
+    }});
   });
 
   // Skill
@@ -1424,7 +1449,7 @@ async function handlePromptGetComponents() {
           layer: c.layer,
           priority: c.priority,
           estimatedTokens: c.estimatedTokens,
-          enabled: c.enabled ?? true,
+          enabled: (c.layer === 'L0' || c.layer === 'L3') ? true : (c.enabled ?? true),
           scenes: c.scenes,
           complexity: c.complexity,
           content,
@@ -1459,7 +1484,7 @@ async function handlePromptToggleComponent(data: { id: string; enabled: boolean 
   }
 }
 
-async function handlePromptUpdateComponent(data: { id: string; content?: string; keywords?: string }) {
+async function handlePromptUpdateComponent(data: { id: string; content?: string; keywords?: string; scenes?: string[] }) {
   if (!session) {
     return { success: false, error: '会话未初始化' };
   }
@@ -1468,7 +1493,7 @@ async function handlePromptUpdateComponent(data: { id: string; content?: string;
     if (!builder) {
       return { success: false, error: 'LayeredPromptBuilder 未初始化' };
     }
-    await builder.updateComponent(data.id, { content: data.content, keywords: data.keywords });
+    await builder.updateComponent(data.id, { content: data.content, keywords: data.keywords, scenes: data.scenes });
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -1495,11 +1520,81 @@ async function handlePromptPreview(data: { scene?: string; complexity?: string }
 }
 
 async function handleGetPromptConfig() {
-  return { success: true, config: {} };
+  try {
+    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+    const { readFileSync, existsSync } = await import('node:fs');
+    const configPath = getUserConfigPath(currentUserId);
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      const config = parsed.config || parsed;
+      return { success: true, config: config.prompt || {} };
+    }
+    return { success: true, config: {} };
+  } catch (err) {
+    return { success: true, config: {} };
+  }
 }
 
-async function handleSavePromptConfig(_data: any) {
-  return { success: true };
+async function handleSavePromptConfig(data: any) {
+  try {
+    const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
+    const { readFileSync, writeFileSync, existsSync } = await import('node:fs');
+    const configPath = getUserConfigPath(currentUserId);
+    let wrapper: any = { version: '1', userId: currentUserId, config: {} };
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      wrapper = parsed.version && parsed.config ? parsed : { version: '1', userId: currentUserId, config: parsed };
+    }
+    wrapper.config.prompt = {
+      defaultComplexity: data.defaultComplexity || 'standard',
+      defaultScene: data.defaultScene || '',
+    };
+    writeFileSync(configPath, JSON.stringify(wrapper, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePromptDeleteComponent(data: { id: string }) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: false, error: 'LayeredPromptBuilder 未初始化' };
+    }
+    await builder.deleteComponent(data.id);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePromptCreateComponent(data: {
+  id: string; name: string; layer: string; priority: number;
+  estimatedTokens: number; scenes?: string[]; content: string;
+  match?: { keywords: string; description: string };
+  requiredTools?: string[]; thinking?: boolean;
+  suitableFor?: string[]; requiredCapabilities?: string[];
+  collaborationHint?: string;
+}) {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const builder = session.getLayeredPromptBuilder();
+    if (!builder) {
+      return { success: false, error: 'LayeredPromptBuilder 未初始化' };
+    }
+    await builder.createComponent(data);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 // ============ 项目管理 ============

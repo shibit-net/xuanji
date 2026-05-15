@@ -57,6 +57,8 @@ export interface XuanjiEventMap {
   [XuanjiEvent.HOOK_TEAM_END]: { teamId: string; data: { name: string; success: boolean; duration: number; timedOut?: boolean; cancelled?: boolean; error?: string } };
   [XuanjiEvent.HOOK_TEAM_MEMBER_START]: { teamId: string; data: { memberId: string; subAgentId: string; name: string; role: string; task: string; agentType: string; scene?: string; executionMode?: string; strategy: string; teamName: string; stepIndex: number; totalSteps: number; currentRound?: number; maxRounds?: number; debateRole?: string; systemPromptHint?: string; recovered?: boolean } };
   [XuanjiEvent.HOOK_TEAM_MEMBER_END]: { teamId: string; data: { memberId: string; subAgentId: string; success: boolean; duration: number; resultSummary?: string; teamName?: string; retryCount?: number; failureReason?: string; recovered?: boolean } };
+  [XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START]: { teamId: string; parentMemberId: string; data: { memberId: string; subAgentId: string; name: string; role: string; task: string; agentType: string; scene?: string; executionMode?: string; strategy: string; teamName: string; stepIndex: number; totalSteps: number; systemPromptHint?: string } };
+  [XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END]: { teamId: string; parentMemberId: string; data: { memberId: string; subAgentId: string; memberName: string; success: boolean; duration: number; resultSummary?: string } };
   [XuanjiEvent.HOOK_TOOL_START]: { subAgentId: string; toolId: string; toolName: string; toolInput: Record<string, unknown> };
   [XuanjiEvent.HOOK_TOOL_END]: { subAgentId: string; toolId: string; toolName: string; toolResult: string; toolIsError: boolean };
   [XuanjiEvent.HOOK_AGENT_THINKING]: { subAgentId: string; thinkingContent: string };

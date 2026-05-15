@@ -183,6 +183,32 @@ function registerAdvancedIpcHandlers() {
     }
   });
 
+  ipcMain.handle('prompt-delete-component', async (_event, data: any) => {
+    if (!isSessionReady()) {
+      return { success: false, error: '会话未初始化' };
+    }
+
+    try {
+      return await sendRequest('prompt-delete-component', data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  });
+
+  ipcMain.handle('prompt-create-component', async (_event, data: any) => {
+    if (!isSessionReady()) {
+      return { success: false, error: '会话未初始化' };
+    }
+
+    try {
+      return await sendRequest('prompt-create-component', data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  });
+
   // ============ 项目管理 ============
   ipcMain.handle('projects-list', async () => {
     if (!isSessionReady()) {

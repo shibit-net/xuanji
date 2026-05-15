@@ -10,6 +10,8 @@ import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { logger } from '@/core/logger';
+import { FORMAT_PARSERS } from './parsers';
+import type { ParserLoader } from './parsers';
 
 const log = logger.child({ module: 'ReadTool' });
 
@@ -118,6 +120,19 @@ export class ReadTool extends BaseTool {
       if (IMAGE_EXTENSIONS.has(ext)) {
         log.debug(`Reading image file: ${filePath}`);
         return this.readImage(filePath, ext);
+      }
+
+      // 特殊格式文件（Office / Ebook / Notebook / Config / DB / LaTeX）
+      const parserLoader: ParserLoader | undefined = FORMAT_PARSERS[ext];
+      if (parserLoader) {
+        log.debug(`Reading ${ext} file via parser: ${filePath}`);
+        const parser = await parserLoader();
+        const result = await parser(filePath);
+        const output = middleTruncate(result.content, getMaxToolOutputLength());
+        return this.success(
+          `[${ext.toUpperCase()}] ${filePath}\n\n${output}`,
+          { type: ext.slice(1), ...result.metadata }
+        );
       }
 
       // 文本文件（原有逻辑）

@@ -425,6 +425,65 @@ export function registerEventAdapter(): void {
     }
   });
 
+  // ============================================================
+  // AgentStateMachine — 动态 team submember（层级策略 leader delegate worker）
+  // ============================================================
+
+  messageBus.on('agent:team-submember-start', (data: { teamId?: string; teamName?: string; parentMemberId?: string; subAgentId?: string; memberId?: string; name?: string; role?: string; task?: string; agentType?: string; scene?: string; executionMode?: string; strategy?: string; stepIndex?: number; totalSteps?: number }) => {
+    const teamId = data.teamId || data.teamName || '';
+    const memberId = data.subAgentId || data.memberId;
+    if (!memberId) return;
+
+    flowLogger.log('EventAdapter', 'team-submember-start', 'agentId:', memberId, 'name:', data.name, 'role:', data.role);
+
+    asyncSubAgentIds.add(memberId);
+
+    useAgentStateMachine.getState().transition({
+      type: 'AGENT_CREATED',
+      agentId: memberId,
+      name: data.name || memberId,
+      parentId: teamId,
+      agentType: 'team-member',
+      taskType: 'team',
+      executionMode: (data.executionMode as 'acp' | 'in-process') || 'acp',
+      scene: data.scene,
+      task: data.task,
+      multiAgent: {
+        type: 'agent_team',
+        teamName: data.teamName || teamId,
+        memberId: data.memberId || memberId,
+        stepIndex: data.stepIndex || 0,
+        totalSteps: data.totalSteps || 0,
+      },
+    });
+
+    if (teamId) {
+      const taskStore = useAsyncTaskStore.getState();
+      if (taskStore.tasks[teamId]?.lifecycle === 'creating') {
+        taskStore.transition({ type: 'TASK_STARTED', taskId: teamId, subAgentId: memberId });
+      }
+      taskStore.transition({ type: 'MEMBER_STATE_CHANGED', taskId: teamId, memberId, lifecycle: 'running' });
+    }
+  });
+
+  messageBus.on('agent:team-submember-end', (data: { teamId?: string; teamName?: string; memberId?: string; subAgentId?: string; success: boolean }) => {
+    const teamId = data.teamId || data.teamName;
+    const memberId = data.subAgentId || data.memberId;
+    if (!memberId) return;
+
+    asyncSubAgentIds.delete(memberId);
+
+    useAgentStateMachine.getState().transition({
+      type: 'SUBAGENT_END', agentId: memberId, success: data.success !== false,
+    });
+
+    if (teamId) {
+      useAsyncTaskStore.getState().transition({
+        type: 'MEMBER_STATE_CHANGED', taskId: teamId, memberId, lifecycle: 'completed',
+      });
+    }
+  });
+
   messageBus.on('agent:team-end', (data: { teamId?: string; name?: string; success?: boolean }) => {
     const teamId = data.teamId || data.name;
     if (!teamId) return;
@@ -505,7 +564,15 @@ export function registerEventAdapter(): void {
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
     // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
     if (asyncSubAgentIds.has(agentId)) return;
-    useMessageStore.getState().appendStreamingText(text);
+    const msgStore = useMessageStore.getState();
+    msgStore.appendStreamingText(text);
+    // 首次写入时，将实际响应的 agentId 写入消息，防止流式结束后回退为 xuanji
+    if (msgStore.currentStreamingId) {
+      const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+      if (currentMsg && !currentMsg.agentId) {
+        msgStore.updateMessage(msgStore.currentStreamingId, { agentId });
+      }
+    }
     // 追踪当前正在输出文本到对话框的 agent，供 MessageBubble 显示编辑状态
     useAgentStateMachine.setState({ streamingAgentId: agentId });
   });

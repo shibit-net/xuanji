@@ -166,6 +166,16 @@ export class EventForwarder {
         map: this.mapTeamMember,
       },
       {
+        event: XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START,
+        channel: 'agent:team-submember-start',
+        map: this.mapTeamMember,
+      },
+      {
+        event: XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END,
+        channel: 'agent:team-submember-end',
+        map: this.mapTeamMember,
+      },
+      {
         event: XuanjiEvent.HOOK_TEAM_END,
         channel: 'agent:team-end',
         map: this.mapTeam,

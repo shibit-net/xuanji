@@ -185,6 +185,11 @@ export class TaskOrchestrator {
       members: task.members.map(m => ({ ...m })),
       currentRound: task.progress.currentRound,
       maxRounds: task.progress.maxRounds,
+      error: task.status === 'failed'
+        ? (task.result?.content ?? '未知错误')
+        : task.status === 'cancelled'
+          ? '任务已取消'
+          : undefined,
     };
   }
 

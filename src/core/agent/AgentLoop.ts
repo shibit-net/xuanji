@@ -107,6 +107,23 @@ export class AgentLoop {
     this._abortRequested = true;
   }
 
+  /** 层级策略上下文提炼：检测 [SUMMARY]...[/SUMMARY] 标记，提取摘要并压缩 tool_result */
+  private extractAndCompressSummary(blocks: import('@/core/types').ContentBlock[]): void {
+    for (const block of blocks) {
+      if (block.type === 'text' && block.text) {
+        const match = block.text.match(/\[SUMMARY\]\s*\n([\s\S]*?)\[\/SUMMARY\]/);
+        if (match) {
+          const summary = match[1].trim();
+          if (summary) {
+            this.contextManager.compressLastSubAgentOutput(summary);
+            // 清理标记文本，避免 [SUMMARY] 块浪费后续上下文
+            block.text = block.text.replace(/\[SUMMARY\][\s\S]*?\[\/SUMMARY\]/, '').trim();
+          }
+        }
+      }
+    }
+  }
+
   /** 检查是否应停止当前 run()：优先使用 InterruptChecker，回退到 _pendingQueue 旧路径 */
   private checkShouldStop(): boolean {
     // Phase 2 路径：委托给 InterruptChecker（SessionStateMachine）
@@ -272,6 +289,9 @@ export class AgentLoop {
 
         this.contextManager.addAssistantMessage(result.contentBlocks as import('@/core/types').ContentBlock[]);
         this.contextManager.recordUsage(result.usage);
+
+        // 层级策略上下文提炼：检测 [SUMMARY]...[/SUMMARY] 标记，用摘要替换 worker 原文
+        this.extractAndCompressSummary(result.contentBlocks as import('@/core/types').ContentBlock[]);
 
         // ▶ 检查点 A：流式输出结束 — 终止或补充输入则跳出
         if (this.checkShouldStop()) break;

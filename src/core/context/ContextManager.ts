@@ -89,6 +89,24 @@ export class ContextManager {
     this.messages.push({ role: 'user', content });
   }
 
+  /** 压缩最后一条子 agent 的 tool_result：用摘要替换完整输出，释放上下文预算 */
+  compressLastSubAgentOutput(summary: string): void {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const msg = this.messages[i];
+      if (msg.role === 'user' && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'tool_result' && typeof block.content === 'string' && block.content.includes('[Sub-agent completed]')) {
+            // 提取 meta 行（保留执行统计信息）
+            const metaMatch = block.content.match(/^\[Sub-agent completed\].*?(?=\n)/);
+            const meta = metaMatch ? metaMatch[0] : '[Sub-agent completed]';
+            block.content = `${meta}\n\n[📋 执行摘要]\n${summary}`;
+            return;
+          }
+        }
+      }
+    }
+  }
+
   /** 追加一段内容到 system prompt 末尾。如果 key 已存在则替换不追加。suffix 为空字符串时清除该 key 的内容。 */
   setSystemPromptSuffix(suffix: string, key: string): void {
     if (this.messages.length > 0 && this.messages[0].role === 'system') {

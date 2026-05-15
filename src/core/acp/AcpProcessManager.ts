@@ -244,7 +244,7 @@ export class AcpProcessManager extends EventEmitter {
     const worker: AcpWorker = {
       process: child,
       id: workerId,
-      busy: false,
+      busy: true,
       idleTimer: null,
       pending: new Map(),
       createdAt: Date.now(),

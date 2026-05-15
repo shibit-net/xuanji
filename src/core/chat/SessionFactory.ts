@@ -241,7 +241,6 @@ export class SessionFactory {
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const providerManager = new ProviderManager(config);
 
-    registry.register(new TaskTool());
     const taskTool = registry.get('task') as TaskTool;
     if (taskTool && 'setDependencies' in taskTool) {
       taskTool.setDependencies({

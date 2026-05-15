@@ -584,11 +584,14 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     return Array.from(this.components.values());
   }
 
-  /** 切换组件启用/禁用 */
+  /** 切换组件启用/禁用（L1/L2 支持） */
   async toggleComponent(id: string, enabled: boolean): Promise<void> {
     const component = this.components.get(id);
     if (!component) {
       throw new Error(`Component not found: ${id}`);
+    }
+    if (component.layer !== 'L1' && component.layer !== 'L2') {
+      throw new Error('仅 L1/L2 组件支持启用/禁用切换');
     }
     component.enabled = enabled;
     if (this.userRegistry) {
@@ -597,8 +600,8 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     log.info(`Component ${id} ${enabled ? 'enabled' : 'disabled'}`);
   }
 
-  /** 更新组件内容或 keywords */
-  async updateComponent(id: string, updates: { content?: string; keywords?: string }): Promise<void> {
+  /** 更新组件内容、keywords 或 scenes */
+  async updateComponent(id: string, updates: { content?: string; keywords?: string; scenes?: string[] }): Promise<void> {
     const component = this.components.get(id);
     if (!component) {
       throw new Error(`Component not found: ${id}`);
@@ -606,11 +609,11 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
 
     if (updates.content !== undefined) {
       (component as any).content = updates.content;
+      component.render = () => updates.content!;
     }
 
     if (updates.keywords !== undefined && component.match) {
       try {
-        // 更新 keywords 正则
         component.match.keywords = new RegExp(updates.keywords, 'i');
         log.info(`Component ${id} keywords updated: ${updates.keywords}`);
       } catch (err) {
@@ -618,10 +621,77 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
       }
     }
 
+    if (updates.scenes !== undefined) {
+      component.scenes = updates.scenes;
+      log.info(`Component ${id} scenes updated: ${updates.scenes?.join(', ')}`);
+    }
+
     if (this.userRegistry) {
       await this.userRegistry.saveComponent(component);
     }
     log.info(`Component ${id} updated`);
+  }
+
+  /** 删除组件 */
+  async deleteComponent(id: string): Promise<void> {
+    const component = this.components.get(id);
+    if (!component) {
+      throw new Error(`Component not found: ${id}`);
+    }
+    if (component.layer !== 'L1' && component.layer !== 'L2') {
+      throw new Error('仅 L1/L2 组件支持删除');
+    }
+    if (this.userRegistry) {
+      await this.userRegistry.deleteComponent(id);
+    }
+    this.components.delete(id);
+    log.info(`Component ${id} deleted`);
+  }
+
+  /** 创建组件 */
+  async createComponent(config: {
+    id: string; name: string; layer: string; priority: number;
+    estimatedTokens: number; scenes?: string[]; content: string;
+    match?: { keywords: string; description: string };
+    requiredTools?: string[]; thinking?: boolean;
+    suitableFor?: string[]; requiredCapabilities?: string[];
+    collaborationHint?: string;
+  }): Promise<void> {
+    if (this.components.has(config.id)) {
+      throw new Error(`Component already exists: ${config.id}`);
+    }
+
+    const component: PromptComponent = {
+      id: config.id,
+      name: config.name,
+      layer: config.layer as PromptComponent['layer'],
+      priority: config.priority,
+      estimatedTokens: config.estimatedTokens,
+      scenes: config.scenes,
+      requiredTools: config.requiredTools,
+      source: 'user',
+      render: () => config.content,
+    };
+
+    if (config.match) {
+      component.match = {
+        keywords: new RegExp(config.match.keywords, 'i'),
+        description: config.match.description,
+        requiredCapabilities: [],
+      };
+    }
+
+    const fullConfig = {
+      ...config,
+      enabled: true,
+    };
+
+    if (this.userRegistry) {
+      await this.userRegistry.createComponent(fullConfig as any);
+    }
+
+    this.components.set(config.id, component);
+    log.info(`Component ${config.id} created`);
   }
 
   /** 获取场景组件（用于获取 collaborationHint） */

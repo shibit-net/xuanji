@@ -118,13 +118,20 @@
   promptGetComponents: () => ipcRenderer.invoke('prompt-get-components'),
   promptToggleComponent: (data: { id: string; enabled: boolean }) =>
     ipcRenderer.invoke('prompt-toggle-component', data),
-  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string }) =>
+  promptUpdateComponent: (data: { id: string; content?: string; keywords?: string; scenes?: string[] }) =>
     ipcRenderer.invoke('prompt-update-component', data),
   promptPreview: (data: { scene?: string; complexity?: string }) =>
     ipcRenderer.invoke('prompt-preview', data),
   getPromptConfig: () => ipcRenderer.invoke('prompt-get-config'),
   setPromptConfig: (data: { defaultComplexity?: string; defaultScene?: string }) =>
     ipcRenderer.invoke('prompt-set-config', data),
+  promptDeleteComponent: (data: { id: string }) =>
+    ipcRenderer.invoke('prompt-delete-component', data),
+  promptCreateComponent: (data: {
+    id: string; name: string; layer: string; priority: number;
+    estimatedTokens: number; scenes?: string[]; content: string;
+    match?: { keywords: string; description: string };
+  }) => ipcRenderer.invoke('prompt-create-component', data),
 
   // ============ 项目管理 ============
   projectsList: () => ipcRenderer.invoke('projects-list'),

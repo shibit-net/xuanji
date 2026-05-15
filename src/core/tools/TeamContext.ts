@@ -10,8 +10,11 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 export interface TeamContextData {
   teamId: string;
+  teamName: string;
   parentMemberId: string;  // leader 的 member ID
   strategy: string;
+  /** 占位槽位（有序数组），TaskTool 按 agentId 匹配复用，相同 agent 复用同一槽位 */
+  placeholderSlots?: Array<{ memberId: string; subAgentId: string; name: string; assignedAgentId?: string; assignedScene?: string }>;
 }
 
 const asyncLocalStorage = new AsyncLocalStorage<TeamContextData>();

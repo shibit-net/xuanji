@@ -36,7 +36,8 @@ class AuthService {
 
   // 刷新 Token
   async refreshToken(): Promise<ApiResponse<void>> {
-    return this.client.post<void>('/api/auth/refresh');
+    // refreshToken 用短超时（5s），避免网络不通时用户等待过久
+    return this.client.post<void>('/api/auth/refresh', undefined, { timeout: 5000 });
   }
 
   // 获取当前用户信息

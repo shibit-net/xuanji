@@ -253,13 +253,14 @@ class ApiClient {
   // 通用请求方法 - 使用 axios
   async request<T = any>(
     url: string,
-    options: { method?: string; body?: any } = {}
+    options: { method?: string; body?: any; timeout?: number } = {}
   ): Promise<ApiResponse<T>> {
     try {
       const config: AxiosRequestConfig = {
         url,
         method: (options.method || 'GET') as any,
-        data: options.body
+        data: options.body,
+        timeout: options.timeout ?? this.config.timeout,
       };
 
       const response = await this.axiosInstance.request(config);
@@ -296,24 +297,29 @@ class ApiClient {
   }
 
   // POST 请求
-  async post<T = any>(url: string, data?: any) {
+  async post<T = any>(url: string, data?: any, options?: { timeout?: number }) {
     return this.request<T>(url, {
       method: 'POST',
-      body: data
+      body: data,
+      timeout: options?.timeout,
     });
   }
 
   // PUT 请求
-  async put<T = any>(url: string, data?: any) {
+  async put<T = any>(url: string, data?: any, options?: { timeout?: number }) {
     return this.request<T>(url, {
       method: 'PUT',
-      body: data
+      body: data,
+      timeout: options?.timeout,
     });
   }
 
   // DELETE 请求
-  async delete<T = any>(url: string) {
-    return this.request<T>(url, { method: 'DELETE' });
+  async delete<T = any>(url: string, options?: { timeout?: number }) {
+    return this.request<T>(url, {
+      method: 'DELETE',
+      timeout: options?.timeout,
+    });
   }
 }
 

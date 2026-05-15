@@ -15,6 +15,8 @@ import type { SubAgentResult } from '@/core/agent/factory/AgentFactory';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 
 // ─── TaskTool ────────────────────────────────────────
 
@@ -117,7 +119,7 @@ export class TaskTool extends BaseTool {
     required: ['description', 'subagent_type'],
   };
 
-  readonly readonly = true;
+  readonly readonly = false;
 
   // ── 依赖注入 ────────────────────────────────────────
 
@@ -185,7 +187,12 @@ export class TaskTool extends BaseTool {
     if (safetyErr) return safetyErr;
 
     // 5. 决定执行模式：async=true 强制异步，async=false 强制同步，未指定时 depth=0 默认异步
-    const isAsync = input.async === true || (this.currentDepth === 0 && input.async !== false);
+    // 层级策略 leader 在 TeamContext 内调 task 委派 worker，强制同步（leader 需等待结果汇总）
+    const teamCtx = TeamContext.get();
+    const inTeam = !!teamCtx;
+    const isAsync = !inTeam && (input.async === true || (this.currentDepth === 0 && input.async !== false));
+
+    this.log.debug(`TaskTool.execute: role=${params.role}, inTeam=${inTeam}, strategy=${teamCtx?.strategy}, teamId=${teamCtx?.teamId}, currentDepth=${this.currentDepth}, isAsync=${isAsync}`);
 
     if (isAsync) {
       return this.executeAsync({ ...params, role: params.role! }, input);
@@ -309,6 +316,9 @@ export class TaskTool extends BaseTool {
     // 🔧 先生成统一的 subAgentId，后续所有 thinking/tool events 共用
     const subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
+    // 捕获 team 上下文（executeAsync 返回后上下文可能丢失，需要提前捕获）
+    const capturedTeamCtx = TeamContext.get();
+
     const result = manager.startTask({
       type: 'task',
       goal: (params.description || '').slice(0, 120),
@@ -321,6 +331,11 @@ export class TaskTool extends BaseTool {
         manager.updateMemberStatus(groupId, params.role, 'running');
 
         const savedCwd = params.cwd || process.cwd();
+
+        if (capturedTeamCtx) {
+          self.emitSubMemberStart(subAgentId, params, capturedTeamCtx);
+        }
+        const execStartTime = Date.now();
 
         try {
           // 异步执行时 stream_to_user 无意义（主 agent 不等待），强制设为 false
@@ -338,12 +353,19 @@ export class TaskTool extends BaseTool {
             workingDir: savedCwd,
             subAgentId,
             isAsync: true,
+            skipSubAgentStartHook: !!capturedTeamCtx,
           }, abortSignal);
 
           try { process.chdir(savedCwd); } catch { /* ignore */ }
 
-          // 🐛 修复: 之前用 timedOut ? 'failed' : 'completed' 忽略了 success=false 的情况
-          // 创建失败但 timedOut=false 时也会被标记为 completed
+          if (capturedTeamCtx) {
+            self.emitSubMemberEnd(subAgentId, params.role, {
+              success: execResult.success,
+              duration: execResult.duration,
+              resultSummary: (execResult.result || '').substring(0, 200),
+            }, capturedTeamCtx);
+          }
+
           const memberStatus = execResult.success ? 'completed' : 'failed';
           this.log.info(`[TaskTool] async sub-agent result`, {
             role: params.role,
@@ -362,6 +384,14 @@ export class TaskTool extends BaseTool {
           return self.formatResult(execResult, false, params.role);
         } catch (error: any) {
           try { process.chdir(savedCwd); } catch { /* ignore */ }
+
+          if (capturedTeamCtx) {
+            self.emitSubMemberEnd(subAgentId, params.role, {
+              success: false,
+              duration: Date.now() - execStartTime,
+              resultSummary: error instanceof Error ? error.message : String(error),
+            }, capturedTeamCtx);
+          }
 
           const errMsg = error instanceof Error ? error.message : String(error);
           const errStack = error instanceof Error ? error.stack : '';
@@ -422,7 +452,44 @@ export class TaskTool extends BaseTool {
 
     this.activeCount++;
     const savedCwd = params.cwd || process.cwd();
-    const subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const teamCtx = TeamContext.get();
+    // 层级策略下匹配占位槽位：同 agentId + 同 scene 复用，否则消费新槽位
+    let subAgentId: string;
+    if (teamCtx?.placeholderSlots) {
+      const scene = params.scene || '';
+      this.log.info(`[SLOT-DUMP] 匹配前 — incoming agentId="${params.role}" scene="${scene}" slots=[${teamCtx.placeholderSlots.map(s => `${s.memberId}(assigned=${s.assignedAgentId ?? 'FREE'}, scene=${s.assignedScene ?? '-'}, subAgentId=${s.subAgentId})`).join(', ')}]`);
+
+      // 1. 同 agentId + 同 scene → 复用槽位
+      let slot = teamCtx.placeholderSlots.find(s => s.assignedAgentId === params.role && s.assignedScene === scene);
+      if (slot) {
+        subAgentId = slot.subAgentId;
+        this.log.info(`[SLOT-MATCH] REUSE slot=${slot.memberId} subAgentId=${subAgentId} for agentId="${params.role}" scene="${scene}"`);
+      } else {
+        // 2. 消费下一个空闲槽位
+        slot = teamCtx.placeholderSlots.find(s => s.assignedAgentId == null);
+        if (slot) {
+          slot.assignedAgentId = params.role;
+          slot.assignedScene = scene;
+          slot.name = this.getAgentName(params.role);
+          subAgentId = slot.subAgentId;
+          this.log.info(`[SLOT-MATCH] ASSIGN slot=${slot.memberId} subAgentId=${subAgentId} to agentId="${params.role}" scene="${scene}"`);
+        } else {
+          // 3. 无可用槽位，动态创建
+          subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          this.log.info(`[SLOT-MATCH] OVERFLOW — no free slots, creating dynamic subAgentId=${subAgentId} for agentId="${params.role}" scene="${scene}"`);
+        }
+      }
+      this.log.info(`[SLOT-DUMP] 匹配后 — slots=[${teamCtx.placeholderSlots.map(s => `${s.memberId}(assigned=${s.assignedAgentId ?? 'FREE'}, scene=${s.assignedScene ?? '-'})`).join(', ')}]`);
+    } else {
+      subAgentId = `subtask-${params.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    }
+
+    if (teamCtx) {
+      this.emitSubMemberStart(subAgentId, params, teamCtx);
+    }
+
+    const startTime = Date.now();
 
     try {
       const result = await this.agentFactory!.createAndRun(params.role, {
@@ -438,12 +505,33 @@ export class TaskTool extends BaseTool {
         workingDir: savedCwd,
         subAgentId,
         isAsync: false,
+        skipSubAgentStartHook: !!teamCtx,
       }, signal);
 
       // 恢复 cwd，防止子 agent 的 change_directory 影响父 agent
       try { process.chdir(savedCwd); } catch { /* ignore */ }
 
+      this.log.debug(`executeSync: createAndRun completed, success=${result.success}, duration=${result.duration}`);
+
+      if (teamCtx) {
+        this.emitSubMemberEnd(subAgentId, params.role, {
+          success: result.success,
+          duration: result.duration,
+          resultSummary: result.result?.substring(0, 200),
+        }, teamCtx);
+      }
+
       return this.formatResult(result, params.streamToUser, params.role);
+    } catch (err) {
+      this.log.error(`executeSync: createAndRun threw error for ${subAgentId}:`, err);
+      if (teamCtx) {
+        this.emitSubMemberEnd(subAgentId, params.role, {
+          success: false,
+          duration: Date.now() - startTime,
+          resultSummary: err instanceof Error ? err.message : String(err),
+        }, teamCtx);
+      }
+      throw err;
     } finally {
       this.activeCount--;
     }
@@ -511,13 +599,27 @@ export class TaskTool extends BaseTool {
       `每条结论都要有对应引用，不能只说"有报告指出"。`,
     ].join('\n');
 
-    const content = `${meta}\n\n${streamedNote}${result.result}${referenceHint}${metadataMarker}`;
+    const summaryInstruction = (() => {
+      const teamCtx = TeamContext.get();
+      if (teamCtx?.strategy !== 'hierarchical') return '';
+      return [
+        '',
+        '---',
+        '⚠️ **上下文管理指令（你必须立即执行）**',
+        '',
+        '以上是子 agent 的完整执行输出。为节省上下文预算，请在你的回复中：',
+        '1. 以 `[SUMMARY]` 开头（单独一行）',
+        '2. 用 3-5 条要点提炼该子 agent 的关键发现和结论',
+        '3. 以 `[/SUMMARY]` 结尾（单独一行）',
+        '4. 摘要完成后正常继续你的工作（委派下一个成员或综合汇报）',
+        '',
+        '注意：摘要必须客观准确，不要遗漏关键技术细节或重要结论。',
+      ].join('\n');
+    })();
+
+    const content = `${meta}\n\n${streamedNote}${result.result}${referenceHint}${metadataMarker}${summaryInstruction}`;
 
     return this.success(content, {
-      subAgent: true,
-      agentName,
-      duration: result.duration,
-      tokensUsed: result.tokensUsed,
       timedOut: result.timedOut,
       iterations: result.iterations,
       originalOutput: result.result,
@@ -532,6 +634,62 @@ export class TaskTool extends BaseTool {
       }
     }
     return role;
+  }
+
+  // ── TeamSubMember 事件发射 ──────────────────────────
+
+  private emitSubMemberStart(
+    subAgentId: string,
+    params: { role: string; description: string; systemPrompt?: string; scene?: string; tools?: string[] },
+    teamCtx: NonNullable<ReturnType<typeof TeamContext.get>>,
+  ): void {
+    try {
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START, {
+        teamId: teamCtx.teamId,
+        parentMemberId: teamCtx.parentMemberId,
+        data: {
+          memberId: subAgentId,
+          subAgentId,
+          name: this.getAgentName(params.role),
+          role: params.role,
+          task: (params.description || '').substring(0, 200),
+          agentType: this.getAgentType(params.role),
+          scene: params.scene?.replace(/^l[12]-/, ''),
+          executionMode: 'acp',
+          strategy: teamCtx.strategy,
+          teamName: teamCtx.teamName || teamCtx.teamId,
+          stepIndex: 0,
+          totalSteps: 0,
+          systemPromptHint: params.systemPrompt?.substring(0, 100),
+        },
+      });
+    } catch (err) {
+      this.log.warn('emitSubMemberStart failed:', err);
+    }
+  }
+
+  private emitSubMemberEnd(
+    subAgentId: string,
+    role: string,
+    result: { success: boolean; duration: number; resultSummary?: string },
+    teamCtx: NonNullable<ReturnType<typeof TeamContext.get>>,
+  ): void {
+    try {
+      eventBus.emit(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END, {
+        teamId: teamCtx.teamId,
+        parentMemberId: teamCtx.parentMemberId,
+        data: {
+          memberId: subAgentId,
+          subAgentId,
+          memberName: this.getAgentName(role),
+          success: result.success,
+          duration: result.duration,
+          resultSummary: result.resultSummary?.substring(0, 200),
+        },
+      });
+    } catch (err) {
+      this.log.warn('emitSubMemberEnd failed:', err);
+    }
   }
 
   /** 从 AgentRegistry 读取 agent 的 category，映射为 agentType */

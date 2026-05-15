@@ -33,11 +33,13 @@ import { NotebookEditTool } from './NotebookEditTool';
 import { WorktreeTool } from './WorktreeTool';
 import { LSTool } from './LSTool';
 import { MultiEditTool } from './MultiEditTool';
+import { OfficeGenerateTool } from './OfficeGenerateTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
 import { ListScenesTool } from './ListScenesTool';
 import { TaskControlTool } from './TaskControlTool';
 import { ChangeDirectoryTool } from './ChangeDirectoryTool';
+import { TaskTool } from './TaskTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -365,6 +367,9 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new TaskControlTool());
   // 注册统一 web_search 工具（替代原来的 web_fetch）
   registry.register(new EnhancedWebSearchTool());
-  // TaskTool, TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
+  // Office 文档生成工具
+  registry.register(new OfficeGenerateTool());
+  registry.register(new TaskTool());
+  // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

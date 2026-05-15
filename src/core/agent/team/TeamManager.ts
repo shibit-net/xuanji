@@ -56,6 +56,7 @@ export class TeamManager implements ITeamManager {
   private teamId: string; // 团队唯一标识，在构造时生成
   private agentRegistry: AgentRegistry; // 保存 agentRegistry 引用
   private memberSubAgentIds: Map<string, string> = new Map(); // 预生成的 subAgentId 映射 (memberId → subAgentId)
+  private hierarchicalSlots: Array<{ memberId: string; subAgentId: string; name: string; assignedAgentId?: string; assignedScene?: string }> = []; // 层级策略占位槽
   private workingDir: string; // 团队工作目录（从 TeamTool._cwd 传入，避免依赖全局 process.cwd()）
   private worktreeManager: WorktreeManager; // P1-2: 工作区隔离管理
   private activeWorktrees: Map<string, WorktreeInfo> = new Map(); // P1-2: 活跃的 worktree 映射 (memberId → WorktreeInfo)
@@ -198,6 +199,16 @@ export class TeamManager implements ITeamManager {
       this.memberSubAgentIds.set(member.id, subAgentId);
     }
 
+    // 🆕 层级策略：创建 3 个空白占位槽，Leader 调 task 时按序消费
+    this.hierarchicalSlots = [];
+    if (this.context.config.strategy === 'hierarchical') {
+      for (let i = 0; i < 3; i++) {
+        const slotId = `slot-${i + 1}`;
+        const subAgentId = `subagent-slot-${i + 1}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        this.hierarchicalSlots.push({ memberId: slotId, subAgentId, name: `Worker ${i + 1}` });
+      }
+    }
+
     // P1-1: 加载历史 checkpoint，恢复已完成成员的结果
     this.recoveredCheckpoints = this.loadCheckpoints();
     const recoveredMemberIds: string[] = [];
@@ -226,49 +237,12 @@ export class TeamManager implements ITeamManager {
           name: this.context.config.name,
           goal,
           strategy: this.context.config.strategy,
-          memberCount: this.context.config.members.length,
+          memberCount: this.context!.config.strategy === 'hierarchical'
+            ? 1 + this.hierarchicalSlots.length
+            : this.context!.config.members.length,
           maxRounds: this.context.config.maxRounds,
           recoveredMembers: recoveredMemberIds, // P1-1: 从 checkpoint 恢复的成员列表
-          // 添加完整的成员列表（含预生成的 subAgentId，用于前端一次性展示所有成员）
-          members: this.context.config.members.map((member, index) => {
-            const agentConfig = this.agentRegistry.get(member.agentId);
-            const displayName = agentConfig?.name || member.name || member.id;
-            const category = agentConfig?.metadata?.category || 'custom';
-            let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
-            if (agentConfig) {
-              if (category === 'system') agentType = 'builtin';
-              else if (category === 'app') agentType = 'preset';
-              else agentType = 'custom';
-            } else {
-              agentType = 'temporary';
-            }
-
-            // 解析辩论角色（正方/反方/裁判），使前端在团队创建时即可展示
-            let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
-            if (member.systemPrompt) {
-              const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
-              if (roleMatch) {
-                debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
-              }
-            }
-
-            return {
-              id: member.id,
-              name: displayName,
-              role: member.agentId,
-              capabilities: member.capabilities,
-              stepIndex: index,
-              totalSteps: this.context!.config.members.length,
-              subAgentId: this.memberSubAgentIds.get(member.id) || '',
-              agentType,
-              strategy: this.context!.config.strategy,
-              teamName: this.context!.config.name,
-              task: (member.task || goal).substring(0, 200),
-              debateRole,
-              scene: member.scene?.replace(/^l[12]-/, ''),
-              executionMode: 'acp',
-            };
-          }),
+          members: this.buildTeamStartMembers(goal),
         },
       }).catch((err) => {
         log.debug('TeamStart hook emit failed:', err);
@@ -281,44 +255,11 @@ export class TeamManager implements ITeamManager {
           name: this.context.config.name,
           goal,
           strategy: this.context.config.strategy,
-          memberCount: this.context.config.members.length,
+          memberCount: this.context!.config.strategy === 'hierarchical'
+            ? 1 + this.hierarchicalSlots.length
+            : this.context!.config.members.length,
           maxRounds: this.context.config.maxRounds,
-          members: this.context.config.members.map((member, index) => {
-            const agentConfig = this.agentRegistry.get(member.agentId);
-            const displayName = agentConfig?.name || member.name || member.id;
-            const category = agentConfig?.metadata?.category || 'custom';
-            let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
-            if (agentConfig) {
-              if (category === 'system') agentType = 'builtin';
-              else if (category === 'app') agentType = 'preset';
-              else agentType = 'custom';
-            } else {
-              agentType = 'temporary';
-            }
-            let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
-            if (member.systemPrompt) {
-              const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
-              if (roleMatch) {
-                debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
-              }
-            }
-            return {
-              id: member.id,
-              name: displayName,
-              role: member.agentId,
-              capabilities: member.capabilities,
-              stepIndex: index,
-              totalSteps: this.context!.config.members.length,
-              subAgentId: this.memberSubAgentIds.get(member.id) || '',
-              agentType,
-              strategy: this.context!.config.strategy,
-              teamName: this.context!.config.name,
-              task: (member.task || goal).substring(0, 200),
-              debateRole,
-              scene: member.scene?.replace(/^l[12]-/, ''),
-              executionMode: 'acp',
-            };
-          }),
+          members: this.buildTeamStartMembers(goal),
         },
       });
     }
@@ -615,7 +556,7 @@ export class TeamManager implements ITeamManager {
     if (config.strategy === 'hierarchical') {
       const leaders = config.members.filter(m => m.priority && m.priority > 0);
       if (leaders.length === 0) {
-        throw new Error('Hierarchical strategy requires at least one member with priority > 0');
+        log.warn('Hierarchical strategy: no member with priority > 0, using members[0] as leader');
       }
     }
 
@@ -849,52 +790,57 @@ export class TeamManager implements ITeamManager {
     const members = this.getSortedMembers();
 
     const leader = members[0];
-    const workers = members.slice(1);
 
-    // ── 构建团队组成描述，供 Leader 分解任务 ──────────────────
-    const teamRoster = workers.map((w, i) =>
-      `  ${i + 1}. ${w.name || w.id} (id: ${w.id})` +
-      (w.capabilities.length > 0 ? ` — 能力: ${w.capabilities.join(', ')}` : '')
-    ).join('\n');
+    // ── 使用 execute() 中预创建的占位槽位（与 TeamStart 发射的成员一致）─────
+    const placeholderSlots = this.hierarchicalSlots;
 
+    // ── Leader 任务提示词 ────────────────────────────────────
     const leaderTask = [
       `团队目标：${goal}`,
       '',
-      `你的团队有 ${workers.length} 名成员：`,
-      teamRoster,
+      '你是团队 Leader，通过 task 工具动态创建 worker 来完成工作。',
       '',
-      '你的职责：分析目标，为每名成员分配具体的子任务，形成执行计划。',
+      '**工作流程：**',
+      '1. 先分析目标，确定第一步需要什么专长的 agent',
+      '2. 使用 match_agent 查找合适的 agent，再使用 list_scenes 选择合适的 scene',
+      '3. 使用 task 工具创建 worker 执行具体任务',
+      '4. 审阅返回结果，根据发现**动态调整**后续计划',
+      '5. 每个 worker 的 description 中要包含前序的**关键发现作为上下文**',
+      '6. 所有工作完成后，汇总输出最终报告',
       '',
-      '**分配方式：使用 task 工具逐个创建子成员，而不是输出文本格式的分配方案。**',
+      '**重要：不要自己执行！** 你的角色是指挥官，通过 task 工具调动 worker 完成工作。',
       '',
-      '执行步骤：',
-      `1. 分析目标，决定每个成员需要做什么、用什么 scene（通过 list_scenes 查询可用 scene）`,
-      `2. 为每个成员调用一次 task 工具执行其任务`,
-      `3. task 调用格式：task({ subagent_type: "<agent-id>", scene: "<scene>", description: "..." })`,
-      `4. 所有成员完成后，汇总结果并输出最终产出`,
+      '委派格式：',
+      '```',
+      'task({',
+      '  subagent_type: "<agent_id>",    // 来自 match_agent 的推荐',
+      '  scene: "<scene_id>",           // 来自 list_scenes 的选择',
+      '  description: "<完整任务描述，包含目标、文件路径、前序关键发现、输出格式>",',
+      '  tools: [<列出子 agent 需要的工具名称>]',
+      '})',
+      '```',
       '',
-      '任务分配要点：',
-      '• 每个成员的 description 必须不同，根据其能力和角色分配不同的子任务',
-      '• description 中要包含该成员需要的全部上下文（子 agent 看不到父对话历史）',
-      '• 不要给多个成员分配相同的任务 — 每个成员应有独特的贡献方向',
-      '',
-      '注意：task 是同步调用，等待一个成员完成后才能开始下一个。',
+      '要点：',
+      '- task 是同步调用，逐个委派，每次收到结果后先提炼摘要再决定下一步',
+      '- description 必须自包含（子 agent 看不到对话历史）',
+      '- 根据实际产出动态调配，不必严格按初始计划',
       '',
     ].join('\n');
 
-    // ── Leader 自行通过 task 工具分配并执行 ────────────────
-    // leader 会自己调 task 创建子成员，TeamManager 不再介入
-    // 注入委派必需的 tools：task（创建子 agent）、list_scenes（查询 scene）、match_agent（匹配 agent）
+    // ── Leader 走 in-process（skipAcp=true），确保拥有完整工具权限 ──
     const leaderWithTools: TeamMember = {
       ...leader,
-      tools: [...new Set([...(leader.tools || []), 'task', 'list_scenes', 'match_agent'])],
+      tools: ['task', 'list_scenes', 'match_agent'],
     };
-    log.info(`Hierarchical: Leader "${leader.name || leader.id}" 通过 task 工具分配任务，tools=${leaderWithTools.tools?.join(',')}`);
+
+    log.info(`Hierarchical: Leader "${leader.name || leader.id}" in-process with ${placeholderSlots.length} placeholder slots`);
     const leaderResult = await TeamContextStore.run({
       teamId: this.teamId,
+      teamName: this.context!.config.name,
       parentMemberId: leader.id,
       strategy: 'hierarchical',
-    }, () => this.executeMemberTask(leaderWithTools, leaderTask, [], undefined, 0, signal));
+      placeholderSlots,
+    }, () => this.executeMemberTask(leaderWithTools, leaderTask, [], undefined, 0, signal, 0, undefined, false, true, 200000));
     results.push(leaderResult);
 
     return results;
@@ -1296,6 +1242,8 @@ export class TeamManager implements ITeamManager {
     retryCount: number = 0,
     worktreePath?: string,
     preferGoal: boolean = false,
+    skipAcp: boolean = false,
+    maxTokens?: number,
   ): Promise<TaskExecutionResult> {
     const maxRetries = 1; // 失败后最多重试 1 次
     const tid = taskId ?? `task-${member.id}-${Date.now()}`;
@@ -1523,7 +1471,10 @@ export class TeamManager implements ITeamManager {
         skipSubAgentStartHook: true,
         parentAgentId: this.teamId,
         workingDir: savedCwd,
-        subAgentId,  // 🆕 传入预生成的 subAgentId，确保与 TeamMemberStart 一致
+        subAgentId,  // 预生成的 subAgentId，确保与 TeamMemberStart 一致
+        forceInProcess: skipAcp,  // leader in-process：不走 ACP
+        strictTools: skipAcp,     // leader 仅用委派工具，不合并 YAML config tools
+        maxTokens,                // 层级策略 Leader 需要更大的上下文预算
       }, signal);
 
       // 恢复 cwd，避免成员间的全局副作用
@@ -1698,9 +1649,11 @@ export class TeamManager implements ITeamManager {
     const memberCount = this.context!.config.members.length;
     const memberIndex = previousResults.length; // 已完成的成员数 = 当前成员的序号
 
-    // 层级模式：Leader 已为每个成员分配独立任务（goal 即独立任务），member.task 仅作角色参考
+    // 层级模式：goal 即委派指令，优先于 member.task（主 agent 分配的任务仅作背景参考）
     let enriched: string;
-    if (member.task && !preferGoal) {
+    if (strategy === 'hierarchical') {
+      enriched = member.task ? `${goal}\n\n主Agent建议分配给你的角色：${member.task}` : goal;
+    } else if (member.task && !preferGoal) {
       enriched = `${member.task}\n\n团队目标上下文：${goal}`;
     } else if (member.task && preferGoal) {
       enriched = `${goal}\n\n团队成员角色：${member.task}`;
@@ -2003,9 +1956,8 @@ ${enriched}`;
       }
 
       case 'hierarchical': {
-        // 🔧 层级执行：按优先级排序后，第一个是 Leader
-        // 与 validateTeamConfig 对齐：priority > 0 即为 leader
-        const isLeader = member.priority != null && member.priority > 0;
+        // Leader 始终是 members[0]（与 executeHierarchical 对齐）
+        const isLeader = memberIndex === 0;
         const leaderRatio = config.hierarchicalLeaderRatio ?? DEFAULT_TEAM_CONFIG.hierarchicalLeaderRatio;
 
         if (isLeader) {
@@ -2134,6 +2086,106 @@ ${enriched}`;
   /**
    * 获取按优先级排序的成员列表
    */
+  /**
+   * 构建 TeamStart 事件的 members 数组
+   * 层级策略：只发 leader（来自 config）+ 空白占位槽
+   * 其他策略：发 config 中的所有成员
+   */
+  private buildTeamStartMembers(goal: string): Array<{
+    id: string; name: string; role: string; capabilities: string[];
+    stepIndex: number; totalSteps: number; subAgentId: string;
+    agentType: string; strategy: string; teamName: string;
+    task: string; debateRole?: string; scene?: string; executionMode: string;
+  }> {
+    const strategy = this.context!.config.strategy;
+
+    if (strategy === 'hierarchical') {
+      // 只取 leader（第一个成员）
+      const leader = this.context!.config.members[0];
+      const leaderAgentConfig = this.agentRegistry.get(leader.agentId);
+      const leaderName = leaderAgentConfig?.name || leader.name || leader.id;
+      const totalSlots = 1 + this.hierarchicalSlots.length;
+
+      const members: Array<any> = [{
+        id: leader.id,
+        name: leaderName,
+        role: leader.agentId,
+        capabilities: leader.capabilities || [],
+        stepIndex: 0,
+        totalSteps: totalSlots,
+        subAgentId: this.memberSubAgentIds.get(leader.id) || '',
+        agentType: 'preset',
+        strategy,
+        teamName: this.context!.config.name,
+        task: (leader.task || goal).substring(0, 200),
+        scene: leader.scene?.replace(/^l[12]-/, ''),
+        executionMode: 'acp',
+      }];
+
+      // 占位槽位（空白，等待 leader 分配）
+      for (let i = 0; i < this.hierarchicalSlots.length; i++) {
+        const slot = this.hierarchicalSlots[i];
+        members.push({
+          id: slot.memberId,
+          name: slot.name,
+          role: '',
+          capabilities: [],
+          stepIndex: i + 1,
+          totalSteps: totalSlots,
+          subAgentId: slot.subAgentId,
+          agentType: 'temporary',
+          strategy,
+          teamName: this.context!.config.name,
+          task: '',
+          scene: '',
+          executionMode: 'acp',
+        });
+      }
+
+      return members;
+    }
+
+    // 非层级策略：返回 config 中的所有成员
+    return this.context!.config.members.map((member, index) => {
+      const agentConfig = this.agentRegistry.get(member.agentId);
+      const displayName = agentConfig?.name || member.name || member.id;
+      const category = agentConfig?.metadata?.category || 'custom';
+      let agentType: string;
+      if (agentConfig) {
+        if (category === 'system') agentType = 'builtin';
+        else if (category === 'app') agentType = 'preset';
+        else agentType = 'custom';
+      } else {
+        agentType = 'temporary';
+      }
+
+      let debateRole: string | undefined;
+      if (member.systemPrompt) {
+        const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+        if (roleMatch) {
+          debateRole = roleMatch[1].toLowerCase();
+        }
+      }
+
+      return {
+        id: member.id,
+        name: displayName,
+        role: member.agentId,
+        capabilities: member.capabilities || [],
+        stepIndex: index,
+        totalSteps: this.context!.config.members.length,
+        subAgentId: this.memberSubAgentIds.get(member.id) || '',
+        agentType,
+        strategy,
+        teamName: this.context!.config.name,
+        task: (member.task || goal).substring(0, 200),
+        debateRole,
+        scene: member.scene?.replace(/^l[12]-/, ''),
+        executionMode: 'acp',
+      };
+    });
+  }
+
   private getSortedMembers(): TeamMember[] {
     return [...this.context!.config.members].sort(
       (a, b) => (b.priority ?? 0) - (a.priority ?? 0)

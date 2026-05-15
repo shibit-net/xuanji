@@ -64,6 +64,8 @@ export enum XuanjiEvent {
   HOOK_TEAM_END = 'hook.team.end',
   HOOK_TEAM_MEMBER_START = 'hook.team.member.start',
   HOOK_TEAM_MEMBER_END = 'hook.team.member.end',
+  HOOK_TEAM_SUB_MEMBER_START = 'hook.team.submember.start',
+  HOOK_TEAM_SUB_MEMBER_END = 'hook.team.submember.end',
   HOOK_TOOL_START = 'hook.tool.start',
   HOOK_TOOL_END = 'hook.tool.end',
   HOOK_AGENT_THINKING = 'hook.agent.thinking',

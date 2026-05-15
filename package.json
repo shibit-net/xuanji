@@ -30,8 +30,11 @@
     "consola": "^3.4.2",
     "debug": "^4.4.3",
     "diff": "^8.0.3",
+    "docx": "^9.6.1",
     "fast-glob": "^3.3.3",
     "ignore": "^7.0.5",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
     "node-llama-cpp": "^3.18.1",
     "openai": "^6.22.0",
     "pdf-parse": "^2.4.5",
@@ -43,6 +46,7 @@
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.23.2",
     "turndown": "^7.2.2",
+    "xlsx": "^0.18.5",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
