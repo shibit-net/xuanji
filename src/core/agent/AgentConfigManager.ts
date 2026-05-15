@@ -22,6 +22,7 @@ export interface AgentOverrideConfig {
     maxTokens?: number;
     temperature?: number;
     contextSize?: number;
+    thinking?: any;
   };
   systemPrompt?: string | null;
   tools?: Array<{ name: string; description?: string; config?: Record<string, any>; enabled?: boolean }>;
@@ -190,6 +191,9 @@ export class AgentConfigManager {
       };
       if (updates.model.contextSize !== undefined) {
         override.model.contextSize = updates.model.contextSize;
+      }
+      if (updates.model.thinking) {
+        override.model.thinking = updates.model.thinking;
       }
     }
     if (category === 'app') {

@@ -167,6 +167,13 @@ export class StreamPipeline {
 
         case 'end':
           stopReason = event.stopReason || 'end_turn';
+          if (event.usage) {
+            if (event.usage.input > 0) usage.input = event.usage.input;
+            if (event.usage.output > 0) usage.output = event.usage.output;
+            if (event.usage.cacheRead) usage.cacheRead = event.usage.cacheRead;
+            if (event.usage.cacheWrite) usage.cacheWrite = event.usage.cacheWrite;
+            this.callbacks.onUsage?.(usage);
+          }
           break;
 
         case 'error':
