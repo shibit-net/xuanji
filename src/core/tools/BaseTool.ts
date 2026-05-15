@@ -113,11 +113,12 @@ export abstract class BaseTool implements Tool {
    */
   protected isSensitivePath(filePath: string): boolean {
     const resolved = resolve(filePath);
+    const sep = resolved.includes('\\') ? '\\' : '/';
     const home = homedir();
 
     // 禁止写入系统目录
     for (const dir of SENSITIVE_DIRS) {
-      if (resolved === dir || resolved.startsWith(dir + '/')) {
+      if (resolved === dir || resolved.startsWith(dir + sep)) {
         return true;
       }
     }
@@ -126,7 +127,7 @@ export abstract class BaseTool implements Tool {
     const sensitiveDotDirs = ['.ssh', '.gnupg', '.aws'];
     for (const dotDir of sensitiveDotDirs) {
       const fullDir = resolve(home, dotDir);
-      if (resolved === fullDir || resolved.startsWith(fullDir + '/')) {
+      if (resolved === fullDir || resolved.startsWith(fullDir + sep)) {
         return true;
       }
     }

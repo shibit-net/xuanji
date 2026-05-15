@@ -285,16 +285,13 @@ function initChatSession(): Promise<boolean> {
 /** 跨平台强制终止子进程 */
 function forceKillProcess(proc: ChildProcess): void {
   if (process.platform === 'win32') {
-    // Windows: taskkill /F /T 强制终止进程树
+    const { execSync } = require('child_process');
     try {
-      const { execSync } = require('child_process');
       execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 3000, stdio: 'ignore' });
     } catch {
-      // taskkill 失败时回退到 Node.js kill
-      proc.kill();
+      try { proc.kill(); } catch { /* 进程可能已退出 */ }
     }
   } else {
-    // macOS / Linux: SIGKILL 强制终止（不可捕获）
     proc.kill('SIGKILL');
   }
 }

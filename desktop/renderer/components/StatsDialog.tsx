@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useMessageStore } from '../stores/messageStore';
+import { useConfigStore } from '../stores/configStore';
 
 interface StatsDialogProps {
   onClose: () => void;
@@ -19,6 +20,8 @@ interface StatsDialogProps {
 export default function StatsDialog({ onClose }: StatsDialogProps) {
   const stats = useMessageStore((state) => state.stats);
   const messages = useMessageStore((state) => state.messages);
+  const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
+  const showCost = useConfigStore((s) => s.settings.showCost);
   const [backendStats, setBackendStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -82,6 +85,7 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
           </div>
 
           {/* Token 使用量 */}
+          {showTokenUsage && (
           <div>
             <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase">Token 使用量</div>
             <div className="grid grid-cols-2 gap-3">
@@ -99,8 +103,10 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
               </div>
             </div>
           </div>
+          )}
 
           {/* 费用 */}
+          {showCost && (
           <div>
             <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase">费用</div>
             <div className="p-3 bg-muted rounded-lg">
@@ -109,6 +115,7 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
               </div>
             </div>
           </div>
+          )}
 
           {/* 会话统计 */}
           <div>

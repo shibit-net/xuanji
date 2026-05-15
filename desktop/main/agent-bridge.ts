@@ -460,60 +460,41 @@ function formatAttachments(attachments: Array<{ name: string; path?: string; con
 }
 
 /**
- * 将拖拽/粘贴的外部文件复制到工作区，确保 Agent 在 cwd 下能找到。
- * 替换 att.path 为工作区内的路径，以便 Shell 命令和 read_file 都能正确访问。
+ * 处理拖拽/粘贴的文件附件。
+ * - 拖放文件（有真实路径）：直接使用原始路径，无需复制
+ * - 粘贴文件（base64 内容，无路径）：写入临时目录
  */
 async function copyAttachmentsToWorkspace(
   attachments: Array<{ name: string; path?: string; content: string; size: number }>
 ): Promise<void> {
-  let workspace = currentProjectRoot;
-  if (!workspace) {
-    workspace = path.join(os.homedir(), '.xuanji', 'workspace');
-    if (!fs.existsSync(workspace)) {
-      fs.mkdirSync(workspace, { recursive: true });
-    }
-  }
-
   for (const att of attachments) {
     try {
       if (att.path && fs.existsSync(att.path)) {
-        // 外部文件 → 复制到工作区
-        const absPath = path.resolve(att.path);
-        // 如果文件已在工作区内，无需复制
-        if (absPath.startsWith(workspace + path.sep) || absPath === workspace) continue;
-
-        let destName = att.name;
-        let destPath = path.join(workspace, destName);
-        // 处理重名冲突
-        let counter = 1;
-        while (fs.existsSync(destPath)) {
-          const ext = path.extname(att.name);
-          const base = path.basename(att.name, ext);
-          destName = `${base}_${counter}${ext}`;
-          destPath = path.join(workspace, destName);
-          counter++;
+        // 拖放文件：已有真实路径，直接使用，无需复制
+        att.path = path.resolve(att.path);
+        continue;
+      }
+      if (att.content && !att.path) {
+        // 粘贴的二进制文件（base64 内容，无路径）→ 写入临时目录
+        const tmpDir = path.join(os.tmpdir(), 'xuanji-attachments');
+        if (!fs.existsSync(tmpDir)) {
+          fs.mkdirSync(tmpDir, { recursive: true });
         }
-        fs.copyFileSync(absPath, destPath);
-        log.info(`Copied attachment to workspace: ${absPath} → ${destPath}`);
-        att.path = destPath;
-      } else if (att.content && !att.path) {
-        // 粘贴的二进制文件（base64 内容，无路径）→ 写入工作区
         const ext = path.extname(att.name);
-        let destPath = path.join(workspace, att.name);
+        let destPath = path.join(tmpDir, att.name);
         let counter = 1;
         while (fs.existsSync(destPath)) {
           const base = path.basename(att.name, ext);
-          destPath = path.join(workspace, `${base}_${counter}${ext}`);
+          destPath = path.join(tmpDir, `${base}_${counter}${ext}`);
           counter++;
         }
         const buf = Buffer.from(att.content, 'base64');
         fs.writeFileSync(destPath, buf);
-        log.info(`Wrote pasted attachment to workspace: ${destPath}`);
+        log.info(`Wrote pasted attachment: ${destPath}`);
         att.path = destPath;
       }
     } catch (err) {
-      log.warn(`Failed to copy attachment "${att.name}" to workspace:`, err);
-      // 不阻塞流程，保留原始 path 继续
+      log.warn(`Failed to process attachment "${att.name}":`, err);
     }
   }
 }

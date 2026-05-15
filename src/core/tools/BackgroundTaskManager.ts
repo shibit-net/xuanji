@@ -2,10 +2,10 @@
 // M6 工具系统 — 后台任务管理器
 // ============================================================
 
-import { spawn, exec, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { getToolTimeouts, getConcurrencyConfig } from '@/core/config/RuntimeConfig';
-import { crossPlatformKill } from '@/shared/utils/crossPlatform';
+import { crossPlatformKill, getPlatformShell, getShellExecArgs } from '@/shared/utils/crossPlatform';
 
 /** 后台任务最大生存时间 (ms) — 1 小时 */
 const MAX_TASK_LIFETIME = 3_600_000;
@@ -58,29 +58,7 @@ interface TaskEntry {
  * POSIX 上使用 bash -c。
  */
 function spawnBackgroundTask(command: string, env?: Record<string, string>): ChildProcess {
-  const isWindows = process.platform === 'win32';
-  if (isWindows) {
-    // 检测 bash 是否可用
-    let hasBash = false;
-    try {
-      const { execSync } = require('node:child_process');
-      execSync('where bash', { stdio: 'ignore', timeout: 2000 });
-      hasBash = true;
-    } catch {
-      hasBash = false;
-    }
-    if (hasBash) {
-      return spawn('bash', ['-c', command], {
-        cwd: process.cwd(),
-        env: env ?? { ...process.env },
-      });
-    }
-    return spawn('cmd.exe', ['/q', '/c', command], {
-      cwd: process.cwd(),
-      env: env ?? { ...process.env },
-    });
-  }
-  return spawn('bash', ['-c', command], {
+  return spawn(getPlatformShell(), getShellExecArgs(command), {
     cwd: process.cwd(),
     env: env ?? { ...process.env },
   });

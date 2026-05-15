@@ -246,7 +246,7 @@ export function registerEventAdapter(): void {
   });
 
   messageBus.on('project:info', (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => {
-    const projectName = data.rootPath.split('/').pop() || data.rootPath;
+    const projectName = data.rootPath.split(/[\\/]/).pop() || data.rootPath;
     useConversationStore.getState().setContextInfo({
       workingDirectory: data.rootPath,
       projectInfo: { name: projectName, type: data.type, hasGit: data.hasGit, rootPath: data.rootPath, gitBranch: data.gitBranch },

@@ -236,7 +236,7 @@ export class OfficeGenerateTool extends BaseTool {
           children.push(new Paragraph({
             spacing: { after: 60 },
             bullet: { level: 0 },
-            children: this.parseInlineMarkdown(trimmed.slice(2)),
+            children: this.parseInlineMarkdown(trimmed.slice(2), TextRun),
           }));
         } else if (/^\d+\.\s/.test(trimmed)) {
           const text = trimmed.replace(/^\d+\.\s+/, '');
@@ -250,7 +250,7 @@ export class OfficeGenerateTool extends BaseTool {
         } else {
           children.push(new Paragraph({
             spacing: { after: 120 },
-            children: this.parseInlineMarkdown(trimmed),
+            children: this.parseInlineMarkdown(trimmed, TextRun),
           }));
         }
       }
@@ -298,7 +298,7 @@ export class OfficeGenerateTool extends BaseTool {
   /**
    * 解析行内 Markdown：**bold** *italic* `code`
    */
-  private parseInlineMarkdown(text: string): (typeof TextRun)[] {
+  private parseInlineMarkdown(text: string, TextRun: any): any[] {
     const runs: any[] = [];
     const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
     let lastIndex = 0;

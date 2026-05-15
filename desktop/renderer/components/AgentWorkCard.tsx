@@ -13,6 +13,7 @@ import {
   Brain, Wrench, Sparkles, CheckCircle, ChevronDown, ChevronRight,
   Loader2, Zap, Clock, Tag, Layers, Server
 } from 'lucide-react';
+import { useConfigStore } from '../stores/configStore';
 import type { ToolExecution } from '../stores/AgentStateMachine';
 
 // 树节点类型（由 ActiveAgentView.buildAgentTree 构建）
@@ -64,6 +65,7 @@ interface AgentWorkCardProps {
 
 export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const showThinking = useConfigStore((s) => s.settings.showThinking);
 
   const getStatusConfig = () => {
     switch (agent.status) {
@@ -248,7 +250,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
             >
               <div className="px-4 py-3 space-y-3">
                 {/* 思考内容 */}
-                {agent.currentThought && (
+                {showThinking && agent.currentThought && (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-xs text-purple-400">
                       <Brain className="w-3.5 h-3.5" />

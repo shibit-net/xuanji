@@ -92,7 +92,7 @@ export class ContextBuilder {
       `- Node: ${process.version}`,
       `- Platform: ${process.platform}`,
       `- Arch: ${process.arch}`,
-      `- Shell: ${process.env.SHELL || 'unknown'}`,
+      `- Shell: ${process.env.SHELL || process.env.COMSPEC || 'unknown'}`,
       `- Home: ${os.homedir()}`,
     ];
     return lines.join('\n');

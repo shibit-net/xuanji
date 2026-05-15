@@ -8,6 +8,7 @@ import {
   Settings, X, Save, Database, Wrench,
   Palette, CheckCircle, AlertCircle, Zap,
 } from 'lucide-react';
+import { useConfigStore } from '../stores/configStore';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -600,6 +601,17 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
 
     if (result && !result.success) {
       throw new Error(result.error || '保存失败');
+    }
+
+    // 同步 UI 配置到 configStore，确保组件实时响应
+    if (section === 'ui') {
+      useConfigStore.getState().updateSettings({
+        theme: data.theme,
+        language: data.language,
+        showTokenUsage: data.showTokenUsage,
+        showCost: data.showCost,
+        showThinking: data.showThinking,
+      });
     }
 
     // 刷新本地配置缓存

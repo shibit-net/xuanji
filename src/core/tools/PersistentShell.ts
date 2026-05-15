@@ -14,6 +14,13 @@ import {
   crossPlatformKill,
   crossPlatformInterrupt,
   crossPlatformTerminate,
+  detectShell,
+  getPlatformShell,
+  getShellArgs,
+  getShellEnv,
+  getCdCommand,
+  getCdWithErrorHandling,
+  getMarkerCommand,
 } from '@/shared/utils/crossPlatform';
 
 const log = logger.child({ module: 'PersistentShell' });
@@ -41,34 +48,11 @@ export interface ShellResult {
   exitCode: number;
 }
 
-/** 检测当前平台是否支持持久化 Shell（需要 bash） */
-let _supportsPersistent: boolean | null = null;
+/** 检测当前平台是否支持持久化 Shell（需要 bash 或 pwsh） */
 function supportsPersistentShell(): boolean {
-  if (_supportsPersistent !== null) return _supportsPersistent;
-  if (process.platform !== 'win32') {
-    _supportsPersistent = true;
-    return true;
-  }
-  // Windows: 检测 bash 是否可用（Git Bash 或 WSL）
-  try {
-    exec('where bash', { timeout: 3000 }, (error) => {
-      // 仅用于检测，忽略结果
-    });
-    // 更可靠的检测：尝试 spawn bash --version
-    const { execSync } = require('node:child_process');
-    execSync('where bash', { stdio: 'ignore', timeout: 3000 });
-    _supportsPersistent = true;
-    return true;
-  } catch {
-    _supportsPersistent = false;
-    log.warn('bash 不可用，PersistentShell 降级为一次性 exec 模式（cwd 不跨调用保持）');
-    return false;
-  }
-}
-
-/** 重置缓存（用于测试） */
-export function resetPersistentShellSupportCache(): void {
-  _supportsPersistent = null;
+  if (process.platform !== 'win32') return true;
+  const shell = detectShell();
+  return shell === 'bash' || shell === 'pwsh';
 }
 
 /**
@@ -131,9 +115,9 @@ export class PersistentShell {
       }
     }
 
-    this.proc = spawn('bash', ['--noediting', '--noprofile', '--norc'], {
+    this.proc = spawn(getPlatformShell(), getShellArgs(), {
       cwd: this.initialCwd,
-      env: { ...cleanEnv, PS1: '', PS2: '', PROMPT_COMMAND: '' },
+      env: { ...cleanEnv, ...getShellEnv() },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -199,7 +183,7 @@ export class PersistentShell {
 
     // 如果指定了 cwd 且与 shell 当前目录不同，先 cd 切换
     if (cwd && cwd !== this._lastKnownCwd) {
-      command = `cd ${JSON.stringify(cwd)} 2>/dev/null || { echo "ERROR: Cannot cd to ${JSON.stringify(cwd)}"; exit 1; }\n${command}`;
+      command = `${getCdWithErrorHandling(cwd)}\n${command}`;
       this._lastKnownCwd = cwd;
     }
 
@@ -306,7 +290,7 @@ export class PersistentShell {
       proc.once('exit', onExit);
 
       // 写入命令：执行命令后输出标记行+退出码+当前工作目录
-      const wrappedCmd = `${command}\necho "${marker}:$?:$(pwd)"\n`;
+      const wrappedCmd = `${command}\n${getMarkerCommand(marker)}\n`;
       proc.stdin!.write(wrappedCmd);
     });
   }
@@ -354,7 +338,7 @@ export class PersistentShell {
     this.spawn();
     // 如果最后已知的 cwd 与初始 cwd 不同，在新 shell 中恢复目录
     if (cwdToRestore !== this.initialCwd && this.proc?.stdin) {
-      this.proc.stdin.write(`cd ${JSON.stringify(cwdToRestore)} 2>/dev/null\n`);
+      this.proc.stdin.write(`${getCdCommand(cwdToRestore)}\n`);
     }
   }
 

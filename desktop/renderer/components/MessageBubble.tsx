@@ -10,6 +10,7 @@ import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import { useConfigStore } from '../stores/configStore';
 import MilkdownEditor from './MilkdownEditor';
 import { Avatar } from './Avatar';
 import { isFilePath, toNativePath } from '../utils/pathUtils';
@@ -119,6 +120,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const streamingAgentId = useAgentStateMachine((s) => s.streamingAgentId);
   const effectiveAgentId = isStreaming ? (streamingAgentId || foregroundId || message.agentId) : message.agentId;
   const respondingAgent = useAgentStateMachine((s) => effectiveAgentId ? s.agentMap[effectiveAgentId] : undefined);
+  const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
+  const showThinking = useConfigStore((s) => s.settings.showThinking);
   const now = useRealtimeClock();
 
   const displayContent = isStreaming && streamingText !== undefined ? streamingText : message.content;
@@ -382,7 +385,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         )}
 
         {/* Moment 状态条：仅当前流式消息展示活跃状态，历史消息不再响应 agent 状态变化 */}
-        {isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
+        {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
           (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
           <div className="flex items-center gap-2 mb-2 px-1">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -437,10 +440,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
                 {formatDuration(liveDuration)}
               </span>
             )}
-            {liveDuration && message.tokensUsed && (
+            {liveDuration && showTokenUsage && message.tokensUsed && (
               <span className="opacity-30">·</span>
             )}
-            {message.tokensUsed && (
+            {showTokenUsage && message.tokensUsed && (
               <span>{formatTokens(message.tokensUsed, true)}</span>
             )}
           </div>

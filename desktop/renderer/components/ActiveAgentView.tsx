@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
+import { useConfigStore } from '../stores/configStore';
 import { AgentWorkCard } from './AgentWorkCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
@@ -53,6 +54,8 @@ export default function ActiveAgentView() {
   const newMainAgentId = useAgentStateMachine((state) => state.mainAgent);
 
   const mainAgent = newMainAgentId ? buildAgentTree(newAgentMap, newMainAgentId) : null;
+  const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
+  const showCost = useConfigStore((s) => s.settings.showCost);
 
   if (!mainAgent) {
     return (
@@ -102,14 +105,16 @@ export default function ActiveAgentView() {
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs text-text-secondary">
+            {showTokenUsage && (
             <div>
               Token: {stats.input + stats.output}
               {stats.cached > 0 && (
                 <span className="ml-1 text-primary">⚡{stats.cached}</span>
               )}
             </div>
+            )}
             <div>工具: {stats.toolCount}</div>
-            {stats.cost > 0 && <div>${stats.cost.toFixed(4)}</div>}
+            {showCost && stats.cost > 0 && <div>${stats.cost.toFixed(4)}</div>}
           </div>
         </div>
       </div>

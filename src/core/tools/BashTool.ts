@@ -211,11 +211,17 @@ export class BashTool extends BaseTool {
   // ============================================================
 
   /** 受限系统目录（禁止写入/删除） */
-  private static readonly RESTRICTED_PATHS = [
-    '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
-    '/System', '/Library',                          // macOS 系统目录
-    '~/.ssh', '~/.gnupg', '~/.config/systemd',     // 敏感用户目录
-  ];
+  private static readonly RESTRICTED_PATHS = process.platform === 'win32'
+    ? [
+      'C:\\Windows', 'C:\\Windows\\System32', 'C:\\Windows\\SysWOW64',
+      'C:\\Program Files', 'C:\\Program Files (x86)',
+      '~\\.ssh', '~\\AppData\\Roaming',
+    ]
+    : [
+      '/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
+      '/System', '/Library',                          // macOS 系统目录
+      '~/.ssh', '~/.gnupg', '~/.config/systemd',     // 敏感用户目录
+    ];
 
   /** 预编译的沙箱写入检测正则（按受限路径缓存） */
   private static readonly SANDBOX_PATTERNS: Map<string, RegExp[]> = BashTool.buildSandboxPatterns();

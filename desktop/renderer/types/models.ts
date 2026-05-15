@@ -15,6 +15,9 @@ export interface UserSettings {
   model: ModelConfig;
   api: APIConfig;
   permissions: PermissionConfig;
+  showTokenUsage: boolean;
+  showCost: boolean;
+  showThinking: boolean;
 }
 
 export interface ModelConfig {

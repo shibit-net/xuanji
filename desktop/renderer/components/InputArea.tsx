@@ -39,7 +39,19 @@ export default function InputArea() {
   // ─── 状态判定 ───────────────────────────────────────
   const convState = useConversationStore((s) => s.conversationState);
   const autoSummarizeActive = convState === 'outputting';
-  const isIdle = convState === 'idle' || convState === 'waiting_async';
+
+  // 检查是否有进程内 agent 仍在活跃（思考/工具/输出/汇报）
+  // 异步 ACP agent 不阻塞输入框 — 用户可以直接发送新消息
+  const isInProcessAgentActive = useAgentStateMachine((s) => {
+    for (const agent of Object.values(s.agentMap)) {
+      if (agent.executionMode === 'acp') continue;
+      if (['success', 'failed', 'cancelled', 'cleared'].includes(agent.status)) continue;
+      return true;
+    }
+    return false;
+  });
+
+  const isIdle = (convState === 'idle' || convState === 'waiting_async') && !isInProcessAgentActive;
   const isRunning = !isIdle;
   const isToolExecuting = convState === 'executing';
   const isSummarizing = convState === 'outputting';

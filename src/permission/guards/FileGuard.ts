@@ -20,45 +20,74 @@ import * as os from 'os';
 /**
  * 系统关键路径 — 操作风险极高，标记为 danger（仍可通过确认执行）
  */
-const SYSTEM_PATHS = [
-  '/etc/',
-  '/bin/',
-  '/sbin/',
-  '/usr/bin/',
-  '/usr/sbin/',
-  '/usr/lib/',
-  '/System/',
-  '/Library/',
-  '/boot/',
-  '/proc/',
-  '/sys/',
-  '/dev/',
-];
+const isWin = process.platform === 'win32';
+
+const SYSTEM_PATHS = isWin
+  ? [
+    'C:\\Windows\\',
+    'C:\\Windows\\System32\\',
+    'C:\\Windows\\SysWOW64\\',
+    'C:\\Windows\\System\\',
+    'C:\\Program Files\\',
+    'C:\\Program Files (x86)\\',
+    'C:\\ProgramData\\',
+  ]
+  : [
+    '/etc/',
+    '/bin/',
+    '/sbin/',
+    '/usr/bin/',
+    '/usr/sbin/',
+    '/usr/lib/',
+    '/System/',
+    '/Library/',
+    '/boot/',
+    '/proc/',
+    '/sys/',
+    '/dev/',
+  ];
 
 /**
  * 关键系统文件 — 写操作极度危险
  */
-const CRITICAL_WRITE_PATHS = [
-  '/etc/passwd',
-  '/etc/shadow',
-  '/etc/sudoers',
-  '/etc/hosts',
-  '/etc/hostname',
-  '/etc/resolv.conf',
-  '~/.ssh/authorized_keys',
-  '~/.ssh/config',
-];
+const CRITICAL_WRITE_PATHS = isWin
+  ? [
+    'C:\\Windows\\System32\\config\\SAM',
+    'C:\\Windows\\System32\\config\\SECURITY',
+    'C:\\Windows\\System32\\drivers\\etc\\hosts',
+    '~/.ssh/authorized_keys',
+    '~/.ssh/config',
+  ]
+  : [
+    '/etc/passwd',
+    '/etc/shadow',
+    '/etc/sudoers',
+    '/etc/hosts',
+    '/etc/hostname',
+    '/etc/resolv.conf',
+    '~/.ssh/authorized_keys',
+    '~/.ssh/config',
+  ];
 
 /**
  * 用户敏感目录 — 操作风险较高，标记为 danger
  */
-const SENSITIVE_USER_DIRS = [
-  '~/.ssh/',
-  '~/.aws/',
-  '~/.gnupg/',
-  '~/.config/',
-  '~/.kube/',
-];
+const SENSITIVE_USER_DIRS = isWin
+  ? [
+    '~\\.ssh\\',
+    '~\\.aws\\',
+    '~\\.gnupg\\',
+    '~\\AppData\\Roaming\\',
+    '~\\AppData\\Local\\',
+    '~\\.kube\\',
+  ]
+  : [
+    '~/.ssh/',
+    '~/.aws/',
+    '~/.gnupg/',
+    '~/.config/',
+    '~/.kube/',
+  ];
 
 /**
  * 敏感配置目录 — 写操作需要警告
@@ -394,6 +423,7 @@ export class FileGuard {
    */
   private isOutsideProject(normalizedPath: string): boolean {
     const projectRoot = process.cwd();
-    return !normalizedPath.startsWith(projectRoot + '/') && normalizedPath !== projectRoot;
+    const sep = normalizedPath.includes('\\') ? '\\' : '/';
+    return !normalizedPath.startsWith(projectRoot + sep) && normalizedPath !== projectRoot;
   }
 }
