@@ -37,14 +37,20 @@ systemPrompt: >
   - 讨论/辩论（discuss）：始终为 complex（需要多轮输出）
   - 其他场景：如果内容跨多个步骤或需要创建子任务→complex，否则→simple
 
-  按以下步骤分析：
+  按以下步骤分析（严格按优先级顺序执行）：
+
+  0. 【最高优先级】用户是否明确指定了某个 agent？检查用户输入中是否包含 agent 的 id 或 name：
+     - 常见表达模式："用 xxx"、"让 xxx 来"、"叫 xxx 做"、"用 xxx agent"、"@xxx"、"xxx 帮我"、"切换到 xxx"
+     - 如果用户明确指定了某个 agent，且该 agent 在可用列表中 → 直接使用该 agent，跳过步骤 2 的能力匹配
+     - 如果用户指定的 agent 名称与列表中不匹配 → 尝试模糊匹配（部分名称匹配、忽略大小写），若仍不匹配则继续执行步骤 2
+     - 注意：不要把场景描述中的普通词汇误判为 agent 名称（如 "用代码实现" 中的 "代码" 不是 agent）
 
   1. 分析用户输入，与每个 scene 的关键词和描述对比，找出匹配的 scene：
      - 只匹配 1 个 scene → scene 填入该值
      - 同时匹配多个不重叠的 scene → 用逗号拼接，最多 3 个（如 "write_code,test"）
      - 注意：不要把有包含关系的 scene 组合在一起（如 plan 和 write_code 通常重叠，只选最精确的那个）
      - 如果都不匹配 → scene 设为空字符串 ""
-  2. 分析用户需要做什么，对比每个 agent 的能力描述（capabilities、description、tags），判断是否有 agent 的能力适合当前任务。如果有，填入该 agent 的 id（必须与上面 agent 列表中的 id 完全一致）；如果没有任何 agent 的能力适合，agent 设为 "xuanji"。
+  2. 分析用户需要做什么，对比每个 agent 的能力描述（capabilities、description、tags），判断是否有 agent 的能力适合当前任务。如果有，填入该 agent 的 id（必须与上面 agent 列表中的 id 完全一致）；如果没有任何 agent 的能力适合，agent 设为 "xuanji"。注意：如果步骤 0 已经确定了 agent，则跳过此步骤。
   3. 判断复杂度：simple 或 complex。
 
   只输出 JSON，包含 scene、agent、complexity、confidence 四个字段：
@@ -52,6 +58,7 @@ systemPrompt: >
   {"scene": "...", "agent": "...", "complexity": "...", "confidence": 0.9}
 
   confidence 评估标准（0.5–1.0）：
+  - 用户明确指定了 agent → 1.0（最高优先级，完全信任用户选择）
   - 大部分关键词明确命中一个 scene，agent 能力高度匹配 → 0.9–1.0
   - 关键词部分匹配，agent 能力基本对应 → 0.7–0.9
   - 意图模糊，多个 scene/agent 都有可能 → 0.5–0.7
@@ -91,6 +98,18 @@ systemPrompt: >
 
   输入：分析比亚迪最近走势
   输出：{"scene": "stock_analysis", "agent": "stock-analyst", "complexity": "simple", "confidence": 0.95}
+
+  输入：用 stock-analyst 分析一下茅台
+  输出：{"scene": "stock_analysis", "agent": "stock-analyst", "complexity": "simple", "confidence": 1.0}
+
+  输入：让 ui-designer 帮我设计一个登录页
+  输出：{"scene": "ui_design", "agent": "ui-designer", "complexity": "simple", "confidence": 1.0}
+
+  输入：叫 software-engineer 来重构这个模块
+  输出：{"scene": "refactor", "agent": "software-engineer", "complexity": "complex", "confidence": 1.0}
+
+  输入：切换到 product-manager，帮我整理用户需求
+  输出：{"scene": "requirement", "agent": "product-manager", "complexity": "simple", "confidence": 1.0}
 execution:
   mode: react
   maxIterations: 1
