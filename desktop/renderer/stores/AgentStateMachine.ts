@@ -731,27 +731,30 @@ function applyCleanupCompleted(
   }
 
   // Pass 2: 处理前台 agent（此时所有子 agent 已清理完毕）
-  for (const [id, agent] of Object.entries(next)) {
-    if (agent.status === 'cleared') continue;
+  // 如果有排队消息，不清理前台 agent —— 队列消息 drain 后会由下一轮 agent:end 清理
+  if (_s.queuedMessageCount === 0) {
+    for (const [id, agent] of Object.entries(next)) {
+      if (agent.status === 'cleared') continue;
 
-    const isForeground = agent.parentId === null && agent.taskType === undefined;
-    if (!isForeground) continue;
+      const isForeground = agent.parentId === null && agent.taskType === undefined;
+      if (!isForeground) continue;
 
-    // 前台 agent：活跃状态 → pending（等待子 agent 全部完成）
-    if (activeStates.has(agent.status)) {
-      const updated = { ...agent, status: 'pending' as AgentStatus };
-      Object.assign(updated, updateMoment(updated, 'pending'));
-      next[id] = updated;
-    }
-    // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
-    if (next[id].status === 'pending') {
-      const childIds = getAllDescendantIds(next, id);
-      const allChildrenCleared = childIds.every((cid) => {
-        const child = next[cid];
-        return child && child.status === 'cleared';
-      });
-      if (allChildrenCleared) {
-        next[id] = { ...next[id], status: 'cleared' as AgentStatus };
+      // 前台 agent：活跃状态 → pending（等待子 agent 全部完成）
+      if (activeStates.has(agent.status)) {
+        const updated = { ...agent, status: 'pending' as AgentStatus };
+        Object.assign(updated, updateMoment(updated, 'pending'));
+        next[id] = updated;
+      }
+      // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
+      if (next[id].status === 'pending') {
+        const childIds = getAllDescendantIds(next, id);
+        const allChildrenCleared = childIds.every((cid) => {
+          const child = next[cid];
+          return child && child.status === 'cleared';
+        });
+        if (allChildrenCleared) {
+          next[id] = { ...next[id], status: 'cleared' as AgentStatus };
+        }
       }
     }
   }

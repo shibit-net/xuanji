@@ -559,6 +559,10 @@ async function handleUserAction(data: { type: string; message?: string; attachme
         });
         await session.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
         const agentConfig = session.getAgentRegistry()?.get(userAgentId);
+        const agentType = !agentConfig ? 'temporary'
+          : agentConfig.category === 'system' ? 'builtin'
+          : agentConfig.category === 'app' ? 'preset'
+          : 'custom';
         channel.send('agent:intent-route', {
           agentId: userAgentId,
           confidence: analysis.confidence,
@@ -568,13 +572,14 @@ async function handleUserAction(data: { type: string; message?: string; attachme
           reason: analysis.reason,
           modelName: analysis.modelName,
         });
-        channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: agentConfig?.category || undefined });
+        channel.send('agent:switch-foreground', { agentId: userAgentId, name: agentConfig?.name || userAgentId, agentType });
       } else {
         // 意图分析关闭 → 使用用户选择的 agent，不分析 scene/complexity
         channel.send('agent:intent-route:start');
         await session.switchForegroundAgent(userAgentId, undefined, 'complex');
+        const agentConfig = session.getAgentRegistry()?.get(userAgentId);
         channel.send('agent:intent-route', { agentId: userAgentId, confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
-        channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'system' });
+        channel.send('agent:switch-foreground', { agentId: userAgentId, name: agentConfig?.name || userAgentId, agentType: 'builtin' });
       }
     }
     log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));

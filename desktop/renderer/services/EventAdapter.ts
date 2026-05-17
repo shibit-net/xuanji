@@ -270,8 +270,22 @@ export function registerEventAdapter(): void {
   // ============================================================
 
   messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean }) => {
-    // 前台 agent：由 SET_FOREGROUND_AGENT 负责创建/维护，此处不重复创建
-    if (data?.isForeground) return;
+    // 前台 agent：由 SET_FOREGROUND_AGENT 负责创建/维护
+    // 但如果前台 agent 已被清理（队列消息 drain 时），需要复活以便后续事件不被终端屏障阻止
+    if (data?.isForeground && data.agentId) {
+      const store = useAgentStateMachine.getState();
+      const agent = store.agentMap[data.agentId];
+      if (agent && agent.status === 'cleared') {
+        flowLogger.log('EventAdapter', 'REVIVING cleared foreground on agent:started', 'agentId:', data.agentId);
+        useAgentStateMachine.setState({
+          agentMap: {
+            ...store.agentMap,
+            [data.agentId]: { ...agent, status: 'pending' },
+          },
+        });
+      }
+      return;
+    }
   });
 
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
