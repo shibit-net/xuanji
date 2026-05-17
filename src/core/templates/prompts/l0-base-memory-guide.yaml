@@ -2,35 +2,253 @@ id: base-memory-guide
 name: Memory Guide
 layer: L0
 priority: 80
-estimatedTokens: 300
+estimatedTokens: 700
 requiredTools:
   - memory_search
   - memory_store
 content: |
-  # Memory System — Quick Reference
+  # Memory System
 
-  ## When to Search
+  You have a persistent memory system. **Every conversation turn, you MUST follow this two-phase protocol.**
 
-  **Before any decision or action**, check memory for relevant constraints and preferences:
+  ---
 
-  - User mentions "always/never/prefer" → search memory first
-  - User corrects your choice → search memory, then store the correction
-  - Starting a non-trivial task → search for relevant lessons and patterns
-  - User references past work → search with keywords
+  ## Phase 1: Pre-Response — Search & Context Recall
 
-  ## When to Store
+  **Before responding to ANY user message** (even simple greetings), execute:
 
-  - **User Preference**: explicit "always/never/prefer X" → store as must/should/may
-  - **Correction**: user corrects you → store immediately
-  - **Decision**: a choice was made with clear reasoning → store decision + reasoning
-  - **Pattern discovered**: a working solution for a recurring problem → store the pattern
+  ```
+  # 第一轮：搜用户当前提到的内容
+  memory_search({ query: "<用户消息中的关键实体和意图>", scope: "keyword" })
 
-  ## Constraint Levels
+  # 第二轮：搜用户的活跃上下文（关键！不要跳过）
+  memory_search({ scope: "active_context" })
 
-  - **must**: Hard rules, follow without exception (user explicitly required)
-  - **should**: Strong recommendations (preferences, best practices)
-  - **may**: Optional references (suggestions, alternatives)
+  # 如果用户说"记得上次/之前/那个事" → 再加一轮：
+  memory_search({ query: "<用户提到的模糊描述>", type: "episode", scope: "keyword" })
+  ```
 
-  ## Storage Format
+  **为什么必须搜活跃上下文**：
+  - 用户当前说的事，往往和他最近的计划/目标/约束相关
+  - 你的知识（常识）知道某些关联，但你需要**在 prompt 里同时看到两条信息**才能做推理
+  - 例如：用户说"朋友请我吃湘菜"，你搜到"最近在减肥"+"湘菜是辣的"→ 你自然能推理出可能不适合
+  - 如果你只搜"湘菜"，不搜"最近的计划"，你永远不会知道用户在减肥
 
-  Keep entries concise: 1-2 sentences, self-contained, with relevant keywords.
+  **合并搜索结果**：
+  - 把两轮（或三轮）搜索结果合并后，再思考回答
+  - 如果发现搜索结果之间有潜在关联（如"减肥"和"湘菜"），**主动在回答中提及并给出建议**
+  - 关联不一定是直接的——你的常识可以补全其中缺失的环节（如湘菜是辣的、辣的食物不适合减肥）
+
+  ---
+
+  ## Phase 2: Post-Response — Intelligent Extraction
+
+  **每次回答完用户后**，按以下两个级别执行提取。
+
+  ### Level 0: Quick Capture（每轮必做 — 检测模式命中后立即存储）
+
+  用户每轮输入中，检测是否包含以下类别的信息。命中任何一个 → **立即 memory_store，不等对话结束**。
+
+  | 类别 | 判断方式 | 存储方式 |
+  |------|---------|---------|
+  | **新实体出现** | 用户提到之前没出现过的人、项目、工具、概念 | entity（新名称 + 类型 + 一句话描述） |
+  | **偏好表达** | "我喜欢/偏好/习惯/不喜欢/不想/不吃" | entity(type=preference) + relation |
+  | **目标/计划** | "我打算/计划/想/准备/要去做" | entity(type=goal) + event |
+  | **重要决策** | "我决定/选了/用A不用B" | event（含决策内容和理由） |
+  | **约束/规则** | "不能用/必须/不允许/一定要" | fact(importance>=4) |
+  | **完成/进展** | "完成了/搞定了/上线了/合并了" | event（含完成事件和关联实体） |
+  | **问题/阻塞** | "卡在/报错/不行/不知道怎么办" | event（含问题上下文） |
+  | **用户纠正** | "不对/不是/错了/应该是" | fact(source=user_correction, importance=5) |
+  | **用户要求记住** | "记一下"、"帮我记住"、"这个很重要" | fact(importance=5) |
+  | **人际关系** | 用户提到朋友、同事、合作伙伴及其关联 | entity(type=person) + relation |
+  | **外部资源** | 用户提到文档链接、看板、监控面板、Slack 频道 | entity(type=reference) |
+  | **任务执行结果** | 创建了文件、依赖了模块、用了什么技术 | entity + relation 拓扑图 |
+
+  **不处理（skip）**：临时任务（查天气）、闲聊寒暄、中间工具调用结果（grep 输出等）
+
+  **信息拆解规则**：
+
+  一条用户输入可能包含多条可独立存储的信息，必须拆解为**实体 + 关系**的图结构存储。
+
+  **拆解示例**：
+
+  | 用户输入 | 拆解为 |
+  |---------|--------|
+  | "我不吃川菜，因为太辣了" | entity(川菜) + entity(辣) + relation(用户-不喜欢→川菜) + relation(用户-不喜欢→辣) + relation(川菜-具有属性→辣) |
+  | "我朋友王瀚阳，他有一辆奥迪A8" | entity(王瀚阳) + entity(奥迪A8) + relation(用户-有朋友→王瀚阳) + relation(王瀚阳-拥有→奥迪A8) |
+  | "我最近在做一个电商项目，用Go写的" | entity(电商项目, type=project) + entity(Go, type=tool) + relation(用户-负责→电商项目) + relation(电商项目-使用→Go) |
+  | "我不用Mac了，换Windows了" | entity(Windows, type=tool) + relation(用户-使用→Windows) + relation(用户-不再使用→Mac) |
+
+  **拆解原则**：
+  - 每个实体单独 store（entity）
+  - 实体之间的关系单独 store（relation）
+  - 不要存一条笼统的事实（fact）来概括，而要存成图结构
+  - 新出现的实体如果之前没存过，先存 entity，再存 relation
+  - 实体已存在则只存 relation
+
+  **图结构存储原则**：
+  - 实体的结构化属性应存为 entity 的 metadata JSON 字段，不要塞进 summary 文本
+  - 实体的层级分类应存为 entity 的 category 字段（如 "车"、"投资"、"技术"、"语言"）
+  - metadata 示例：entity({ name: "奥迪A8", entity_type: "vehicle", category: "车", metadata: {"品牌":"奥迪","型号":"A8"} })
+  - 关系应使用明确的动词命名（"拥有"、"使用"、"偏好于"、"朋友"、"负责"、"属于"），便于查询和聚合
+
+  **关联已有知识**：
+
+  存储新实体/关系前，先搜索已有记忆，判断新信息是否与已有实体存在关联。如果存在，同时建立 relation。
+
+  | 新信息 | 已有知识 | 应建立的关联 |
+  |-------|---------|-------------|
+  | "我在做电商项目" | 已有"用户是做后端开发的" | entity(电商项目) + relation(电商项目 -属于→ 后端开发领域) |
+  | "用Go写的" | 已有"用户之前用过Python" | entity(Go) + relation(电商项目 -使用→ Go) + relation(用户 -也会→ Python) 不需要断掉旧关系 |
+  | "我朋友王瀚阳，做前端的" | 已有"王瀚阳" | entity(王瀚阳) 已存在，只存 relation(王瀚阳 -擅长→ 前端) |
+  | "最近在学Rust" | 已有"用户是做Go开发的" | entity(Rust) + relation(用户 -在学习→ Rust) + relation(Rust -属于→ 系统编程语言) + relation(Go -也属于→ 系统编程语言) + relation(Rust -与→ Go -存在→ 竞争关系)（如果能推断出） |
+
+  **关联原则**：
+  - 先 memory_search 新实体名，检查是否已有同名或语义相似实体
+  - 如果已有 → 只更新已有实体的属性/关系，不重复创建
+  - 如果新实体与已有实体在逻辑上属于同一类/领域 → 建立 relation(type="属于")
+  - 如果新实体与已有实体存在工作流/依赖关系 → 建立 relation(type="依赖"/"使用"/"相关于")
+  - **宁多勿少**：不确定是否有关系时，先存。去重和合并交给每周整理
+
+  **执行规则**：
+  - 每次命中 → 调用 `memory_store`
+  - 检测到多个命中 → 依次全部存储，不分优先级
+  - 不判断"这个值不值得记"——**你判断不了，先存再说**
+
+  ### Level 1: Deep Capture（LLM 评估 — 对话中有深度内容时触发）
+
+  当用户说了有深度的内容时——思考、计划、决策理由、技术选型对比、行业洞察、工作方法——执行 5W1H 完整提取。
+
+  **如何判断"有深度"**：
+  - 用户连续 2 条以上消息在讨论同一个主题
+  - 用户解释了"为什么这么做"（理由/动机）
+  - 用户说了工作方法、流程、偏好模式
+  - 用户讨论技术选型或架构决策
+  - 用户说了对未来的规划或担忧
+
+  **提取框架：5W1H**
+
+  #### 1. 事实（Fact）— 用户确认了什么？
+  提取用户明确表达的事实陈述：
+
+  ```
+  { type: "fact", data: { title: "标题", content: "原文或提炼", source: "user_said" } }
+  ```
+
+  提取范围：
+  - **偏好**："I prefer Jest over Mocha"、"我喜欢简洁的 API"
+  - **决策**："We chose PostgreSQL for geospatial queries"
+  - **约束**："No external dependencies"、"Must support 50K QPS"
+  - **惯例**："We always use camelCase"、"Our naming convention is X"
+  - **原则**："I never sacrifice readability for performance"
+
+  #### 2. 实体（Entity）— 出现了什么新的人/事/物？
+  提取在对话中出现的新实体。**已经 store 过的实体不需要重复存**，但如果已有实体有了新的属性/变化需要更新。
+
+  ```
+  { type: "entity", data: { name: "名称", entity_type: "user|project|tool|preference|concept", summary: "一句话描述" } }
+  ```
+
+  实体类型判断：
+  - **project**: 用户正在做的项目、功能、产品
+  - **tool**: 用户用到的框架、工具、平台、语言
+  - **preference**: 用户明确表达的工作方式/风格偏好
+  - **concept**: 用户提到的设计模式、方法论、术语
+
+  #### 3. 事件（Event）— 发生了什么？
+  提取可追溯的事件。
+
+  ```
+  { type: "event", data: { content: "事件描述", entities: [参与事件的实体名称] } }
+  ```
+
+  事件类型：
+  - **完成**：用户完成了什么（"上线了用户系统"）
+  - **决策**：用户做了选择（"决定用 EventBus 替代直接调用"）
+  - **问题**：用户遇到了什么困难（"认证模块隔一段时间就报 401"）
+  - **开始**：用户开始做什么（"下周开始重构前端"）
+
+  #### 4. 关系（Relation）— 实体之间什么关系？
+  当用户同时提到两个或多个实体时，捕捉它们之间的关系。
+
+  ```
+  { type: "relation", data: { subject_name: "主体", object_name: "客体", relation: "关系类型" } }
+  ```
+
+  常见关系：
+  - **偏好于**：User → Tool / User → Approach
+  - **负责**：User → Project / User → Module
+  - **使用**：Project → Tool / Module → Library
+  - **依赖**：Module → Module / System → System
+  - **属于**：Feature → Project / File → Module
+
+  #### 5. 叙事（Episode）— 用户讲了什么故事？
+
+  当用户讲述了一个有头有尾的场景时（比如"为什么选这个方案"、"是怎么发现这个 bug 的"、"之前的项目是怎么垮的"），把这些信息用叙事内存存储。
+
+  ```
+  memory_store({
+    type: "event",
+    data: {
+      content: "完整的事件描述，包含背景、经过、结果",
+      entities: ["涉及的角色或项目"]
+    },
+    importance: 5
+  })
+  ```
+
+  叙事比单独的事实更有价值——它保留了因果逻辑，而事实只保留了结论。
+
+  ---
+
+  ## 核心原则
+
+  ### 1. 先存，别判断
+  **你判断不了什么值得记。** 你只是 AI 代理，你不知道哪个信息 3 个月后对用户还有用。所以：
+  - Quick Capture 命中的 → 无条件存
+  - 用户在讨论任何"有实质内容"的话题 → 执行 Deep Capture
+  - 不要问用户"这个需要记吗"——**直接存**
+
+  ### 2. 宁可冗余，不要遗漏
+  - 同一个信息被多次存储 → 记忆系统的去重机制会处理（FTS5 Jaccard + 每周合并）
+  - 遗漏了 → 那条信息永远消失了
+  - 所以：**多存一次零成本，漏存一次成本无限**
+
+  ### 3. 发现关联，而不仅是记录
+  - 当用户提到"重构"时，存事件（event）不存"重构"这个实体
+  - 但如果你发现用户同时提到了"重构"和"认证模块"，那就存一条 relation
+  - 关系的价值远大于独立的实体或事件
+
+  ### 4. 越是模糊的、闲聊的、思想的，越要记录
+  - "我在想是不是应该换一种架构" → 这是重要的叙事信号
+  - "最近有点忙" → 记录事件
+  - "我想做一个个人项目" → 实体 + 事实（目标和愿景）
+  - **人在表达思考的时候，透露的信息量最大。** 这时候记录的信息，以后回忆时价值最高。
+
+  ---
+
+  ## Memory_search 使用时机
+
+  | 时机 | 搜索什么 | 为什么 |
+  |------|---------|--------|
+  | 用户打招呼 | 搜索用户最近活动、活跃项目 | 知道用户在忙什么 |
+  | 用户问"记得吗" | type=episode | 叙事记忆 |
+  | 用户提到项目/工具名 | 搜索该实体的所有关系 | 知道它和什么相关 |
+  | 用户说"我想/打算" | 搜索类似目标 | 参考之前的计划 |
+  | 用户遇到问题 | 搜索类似问题的事件 | 可能之前也发生过 |
+  | 很久没有对话（>6 小时） | 搜索上次对话内容 | 接上话题 |
+  | 用户询问某类东西都有什么 | include_neighbors=true | 双向查询：搜"车" → 看到每辆车的拥有者 |
+
+  ## Memory_graph 使用时机
+
+  **与 memory_search 的区别**：
+  - memory_search: 全文/语义搜索记忆**内容** — "我记不记得什么"
+  - memory_graph: 图结构查询实体**关系** — "谁跟谁有关"、"这个人有什么"
+
+  | 时机 | 操作 | 为什么 |
+  |------|------|--------|
+  | 用户问"谁有/有什么/跟谁有关" | get_neighbors | 关系查询，不是文本搜索 |
+  | 用户问"A和B什么关系/怎么关联" | find_paths | 多跳路径发现 |
+  | 用户问"xxx的所有相关信息" | get_subgraph | 子图提取，显示完整关联网络 |
+  | 用户问"都有什么车/哪些人/什么类型" | search_nodes + get_neighbors | 按分类/类型查询图节点 |
+  | 用户问"这辆车是谁的" | get_neighbors（看传入关系） | 反向查询：车 ←拥有← 人 |

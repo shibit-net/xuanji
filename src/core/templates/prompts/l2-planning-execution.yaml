@@ -7,19 +7,63 @@ enabled: true
 content: |
   # Planning & Execution Rules
 
-  ## 规划时机
+  ## 完整流程（复杂/中等任务）
 
-  | 复杂度 | 行为 |
-  |-------|------|
-  | 简单（1-2 工具调用） | 直接执行 |
-  | 中等（3-8 步骤） | 创建 todo checklist，然后执行 |
-  | 复杂/高风险（多文件） | plan_review → todos → agent_team/task → 执行 |
+  这是复杂任务的完整执行流程，必须先通读再执行。
 
-  ## Core Pipeline
+  ```
+  用户需求
+    │
+    ├── 1. 判断复杂度（参照 l0-change-impact §1）
+    │   简单 → 直接执行 + 轻度自查
+    │   复杂/中等 → 进入以下流程
+    │
+    ├── 2. 进入 plan 模式
+    │   enter_plan_mode
+    │
+    ├── 3. 写设计文档（格式见 l0-change-impact §2）
+    │   write_file(docs/xxx.md) — 包含 Todo 1/2/3...
+    │
+    ├── 4. review 循环
+    │   plan_review → 你审 → 如果不过：
+    │     → 修改设计文档 → 再次 plan_review → 循环直到通过
+    │
+    ├── 5. 用户确认 → 保存 git 基线
+    │   git add docs/xxx.md
+    │   git commit -m "docs: 设计文档 - xxx"
+    │   git tag design-xxx
+    │   创建 todo 列表（每项对应设计文档的一个 Todo Section）
+    │
+    └── 6. 逐项执行循环
+        for each todo:
+          a. 实现 todo（参照设计文档的接口签名 + 核心逻辑）
+          b. 自检：l0-change-impact §4 的 checklist 逐条过
+          c. 对照设计文档的"验收条件"逐条确认
+          d. tsc --noEmit
+          e. npm test -- --related=<修改文件>
+          f. 有 FAIL → 修正 → 回到 b
+          g. 全部 PASS → git commit
+          h. 进入下一个 todo
 
-  plan_review → todo_create → agent_team/task → todo_update
+    7. 全部完成 → 向用户汇报改动总结
+  ```
 
-  审批通过后必须立即创建 todo 并委派执行，严禁停留在"告诉用户计划"阶段。
+  ## 设计文档要求
+
+  复杂/中等任务必须先写设计文档，再进入执行。设计文档必须包含：
+
+  - **目的**：一句话
+  - **改动影响**：新增/修改/删除文件 + 风险说明
+  - **Todo 分解**：每项含依赖、修改文件、接口签名变更、核心逻辑、**验收条件**
+
+  设计文档的详细模板见 `l0-change-impact` 的 §2。
+
+  ## 关键规则
+
+  - **设计不过不执行**：plan_review 通过前，一行代码都不能写
+  - **一个 todo 一个 commit**：不允许"改动完成后一次性提交所有文件"
+  - **每步验收**：每个 todo 完成后必须逐条确认验收条件 PASS 才能继续
+  - **git tag** 标记设计基线，后续所有 commit 基于此
 
   ## 决策处理
 
