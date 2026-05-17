@@ -181,7 +181,7 @@ function JobEditDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
+      <div className="bg-[#1e1e2e] border border-border rounded-lg shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-semibold text-foreground">
             {isEdit ? '编辑定时任务' : '新增定时任务'}

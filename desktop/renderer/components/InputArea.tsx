@@ -35,6 +35,7 @@ interface AgentListItem {
   avatar?: string;
   color?: string;
   category?: string;
+  metadata?: { category?: string };
 }
 
 interface SelectedAgent {
@@ -63,6 +64,7 @@ export default function InputArea() {
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [agentList, setAgentList] = useState<AgentListItem[]>([]);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const atTriggerPosRef = useRef<number>(-1); // "@" 在 input 中的位置
 
   const toast = useToast();
@@ -103,7 +105,7 @@ export default function InputArea() {
         if (active && res.success && res.agents) {
           // 过滤掉 system 类别（scene-classifier 等）和 xuanji 自身
           const filtered = (res.agents as AgentListItem[]).filter(
-            (a) => a.category !== 'system' && a.id !== 'xuanji'
+            (a) => a.id !== 'xuanji' && a.category !== 'system' && a.metadata?.category !== 'system'
           );
           setAgentList(filtered);
         }
@@ -127,6 +129,16 @@ export default function InputArea() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAgentPicker]);
+
+  // ─── 键盘导航时滚动跟随 ──────────────────────────────
+  useEffect(() => {
+    if (!showAgentPicker || !listRef.current) return;
+    const items = listRef.current.querySelectorAll('[data-agent-item]');
+    const highlighted = items[highlightIndex] as HTMLElement | undefined;
+    if (highlighted) {
+      highlighted.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightIndex, showAgentPicker]);
 
   // ─── 过滤后的 agent 列表 ──────────────────────────────
   const filteredAgents = agentSearchQuery
@@ -790,7 +802,7 @@ export default function InputArea() {
           {showAgentPicker && (
             <div
               ref={pickerRef}
-              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden"
+              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 bg-[#1e1e2e] border border-border rounded-lg shadow-lg z-50 overflow-hidden"
             >
               {/* 搜索头 */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
@@ -801,7 +813,7 @@ export default function InputArea() {
               </div>
 
               {/* Agent 列表 */}
-              <div className="overflow-y-auto max-h-52">
+              <div ref={listRef} className="overflow-y-auto max-h-52">
                 {filteredAgents.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                     暂无可用 Agent
@@ -810,6 +822,7 @@ export default function InputArea() {
                   filteredAgents.map((agent, index) => (
                     <div
                       key={agent.id}
+                      data-agent-item
                       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
                         index === highlightIndex
                           ? 'bg-accent text-accent-foreground'
