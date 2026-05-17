@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Settings, X, Save, Database, Wrench,
   Palette, CheckCircle, AlertCircle, Zap,
+  Brain,
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 
@@ -14,7 +15,7 @@ interface SettingsPageProps {
   onClose: () => void;
 }
 
-type TabType = 'tools' | 'ui' | 'embedding' | 'features';
+type TabType = 'tools' | 'ui' | 'embedding' | 'features' | 'memory';
 
 // ============================================================
 // 通用工具
@@ -566,6 +567,182 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
 }
 
 // ============================================================
+// Tab: 记忆配置
+// ============================================================
+function MemoryTab({ config, loading, onSave }: TabProps) {
+  const [form, setForm] = useState({
+    enabled: true,
+    shortTermMaxEntries: 100,
+    longTermMaxEntries: 1000,
+    compactionThreshold: 500,
+    retrieveMaxResults: 10,
+    maxEntryLength: 500,
+    maxPromptLength: 5000,
+    decayHalfLifeDays: 30,
+    extractorModel: '',
+    extractorTemperature: 0.3,
+    extractorTimeout: 60000,
+    extractorMinConfidence: 0.6,
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (config?.memory) {
+      const m = config.memory;
+      setForm({
+        enabled: m.enabled ?? true,
+        shortTermMaxEntries: m.shortTermMaxEntries ?? 100,
+        longTermMaxEntries: m.longTermMaxEntries ?? 1000,
+        compactionThreshold: m.compactionThreshold ?? 500,
+        retrieveMaxResults: m.retrieveMaxResults ?? 10,
+        maxEntryLength: m.maxEntryLength ?? 500,
+        maxPromptLength: m.maxPromptLength ?? 5000,
+        decayHalfLifeDays: m.decayHalfLifeDays ?? 30,
+        extractorModel: m.extractorModel || '',
+        extractorTemperature: m.extractorTemperature ?? 0.3,
+        extractorTimeout: m.extractorTimeout ?? 60000,
+        extractorMinConfidence: m.extractorMinConfidence ?? 0.6,
+      });
+    }
+  }, [config]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onSave('memory', form);
+      setMessage({ type: 'success', text: '记忆配置已保存' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+
+  return (
+    <form onSubmit={handleSave} className="p-6 space-y-5">
+      <MessageBanner message={message} />
+
+      <SectionHeader title="基础设置" desc="控制记忆系统的开关和总体行为" />
+      <ToggleField
+        label="启用记忆系统"
+        value={form.enabled}
+        onChange={(v) => setForm({ ...form, enabled: v })}
+        hint="关闭后不再自动提取和存储记忆"
+      />
+
+      <SectionHeader title="容量控制" desc="管理短期和长期记忆的存储容量" />
+      <div className="grid grid-cols-2 gap-4">
+        <NumberField
+          label="短期记忆上限 (条)"
+          value={form.shortTermMaxEntries}
+          onChange={(v) => setForm({ ...form, shortTermMaxEntries: v })}
+          min={10}
+          hint="会话缓存，默认 100"
+        />
+        <NumberField
+          label="长期记忆上限 (条)"
+          value={form.longTermMaxEntries}
+          onChange={(v) => setForm({ ...form, longTermMaxEntries: v })}
+          min={100}
+          hint="持久化存储，默认 1000"
+        />
+        <NumberField
+          label="压缩触发阈值 (条)"
+          value={form.compactionThreshold}
+          onChange={(v) => setForm({ ...form, compactionThreshold: v })}
+          min={50}
+          hint="超过此数量触发记忆压缩"
+        />
+        <NumberField
+          label="衰减半衰期 (天)"
+          value={form.decayHalfLifeDays}
+          onChange={(v) => setForm({ ...form, decayHalfLifeDays: v })}
+          min={1}
+          hint="记忆重要性自然衰减周期"
+        />
+      </div>
+
+      <SectionHeader title="检索参数" desc="控制记忆检索的范围和精度" />
+      <div className="grid grid-cols-2 gap-4">
+        <NumberField
+          label="最大返回结果"
+          value={form.retrieveMaxResults}
+          onChange={(v) => setForm({ ...form, retrieveMaxResults: v })}
+          min={1}
+          hint="每次查询返回的最大记忆条数"
+        />
+        <NumberField
+          label="单条最大长度 (字符)"
+          value={form.maxEntryLength}
+          onChange={(v) => setForm({ ...form, maxEntryLength: v })}
+          min={50}
+          hint="超出截断"
+        />
+        <NumberField
+          label="Prompt 最大长度 (字符)"
+          value={form.maxPromptLength}
+          onChange={(v) => setForm({ ...form, maxPromptLength: v })}
+          min={500}
+          hint="注入提示的最大上下文长度"
+        />
+      </div>
+
+      <SectionHeader title="提取模型" desc="用于从对话中提取记忆的 LLM 配置" />
+      <div className="grid grid-cols-2 gap-4">
+        <TextField
+          label="模型名称"
+          value={form.extractorModel}
+          onChange={(v) => setForm({ ...form, extractorModel: v })}
+          placeholder="留空使用默认模型"
+          hint="可使用本地小模型 (如 qwen2.5-1.5b) 节省成本"
+        />
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground">提取温度</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="1"
+            value={form.extractorTemperature}
+            onChange={(e) => setForm({ ...form, extractorTemperature: parseFloat(e.target.value) || 0 })}
+            className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
+          />
+          <p className="text-xs text-muted-foreground/70">0-1，越低越精确</p>
+        </div>
+        <NumberField
+          label="提取超时 (毫秒)"
+          value={form.extractorTimeout}
+          onChange={(v) => setForm({ ...form, extractorTimeout: v })}
+          min={5000}
+          hint="默认 60s"
+        />
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground">最低置信度</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="1"
+            value={form.extractorMinConfidence}
+            onChange={(e) => setForm({ ...form, extractorMinConfidence: parseFloat(e.target.value) || 0 })}
+            className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
+          />
+          <p className="text-xs text-muted-foreground/70">0.6-1.0，低于此值不存储</p>
+        </div>
+      </div>
+
+      <SaveButton saving={saving} />
+    </form>
+  );
+}
+
+// ============================================================
 // 设置页面主组件
 // ============================================================
 export default function SettingsPage({ onClose }: SettingsPageProps) {
@@ -623,6 +800,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
     { id: 'features', label: '功能特性', icon: <Zap size={16} /> },
     { id: 'ui', label: '界面配置', icon: <Palette size={16} /> },
     { id: 'embedding', label: '向量配置', icon: <Database size={16} /> },
+    { id: 'memory', label: '记忆配置', icon: <Brain size={16} /> },
   ];
 
   const tabProps: TabProps = { config, loading, onSave: handleSave };
@@ -664,6 +842,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
           {activeTab === 'features' && <FeaturesTab {...tabProps} />}
           {activeTab === 'ui' && <UITab {...tabProps} />}
           {activeTab === 'embedding' && <EmbeddingTab {...tabProps} />}
+          {activeTab === 'memory' && <MemoryTab {...tabProps} />}
         </div>
       </div>
     </div>

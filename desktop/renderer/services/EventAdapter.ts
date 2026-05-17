@@ -265,6 +265,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
+    console.log(`[DIAG] EventAdapter agent:text #1: agentId=${agentId} text="${text.substring(0, 50)}" foregroundAgentId=${useAgentStateMachine.getState().foregroundAgentId}`);
     useAgentStateMachine.getState().transition({ type: 'TEXT_DELTA', agentId, text });
   });
 
@@ -661,6 +662,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
+    console.log(`[DIAG] EventAdapter agent:text #2: agentId=${agentId} text="${text.substring(0, 50)}" asyncSub=${asyncSubAgentIds.has(agentId)} currentStreamingId=${useMessageStore.getState().currentStreamingId}`);
     // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
     if (asyncSubAgentIds.has(agentId)) return;
     let msgStore = useMessageStore.getState();

@@ -77,7 +77,16 @@
       "Bash([ ! -f \"$MODEL_DIR/$file\" ])",
       "Bash(mkdir -p ~/.xuanji/embedding-models)",
       "Bash(cp -r /Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/.xuanji/embedding-models/Xenova ~/.xuanji/embedding-models/)",
-      "Read(//Users/kevinshi/.xuanji/users/**)"
+      "Read(//Users/kevinshi/.xuanji/users/**)",
+      "Bash(npm ls *)",
+      "Bash(npx tsx *)",
+      "Bash(sqlite3 *)",
+      "Bash(npx xuanji *)",
+      "Bash(kill 75039)",
+      "Bash(kill 82056 82064 82069 81320)",
+      "Bash(pkill -f 'Electron.*xuanji')",
+      "Bash(pkill -f 'vite.*desktop')",
+      "Bash(kill -9 86445 87485 87484)"
     ]
   }
 }

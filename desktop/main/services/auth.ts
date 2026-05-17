@@ -6,7 +6,7 @@ import ApiClient, { ApiResponse } from './api-client';
 export interface User {
   userId: string;
   email: string;
-  nickname?: string;
+  nickName?: string;
   avatar?: string;
   roles?: string[];
   permissions?: string[];

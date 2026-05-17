@@ -25,6 +25,8 @@ import type {
 } from './types';
 import { PromptComponentRegistry } from './PromptComponentRegistry';
 import { logger } from '@/core/logger';
+import type { MemoryManager } from '@/core/memory/MemoryManager';
+import type { PersonaConfig, PersonalityTrait } from '@/shared/types/config';
 
 const log = logger.child({ module: 'LayeredPromptBuilder' });
 
@@ -37,13 +39,17 @@ export class LayeredPromptBuilder {
   private componentsLoaded = false;
   private eventListeners: PromptBuildEventListener[] = [];
   private agentId: string = 'main';
+  private memoryManager: MemoryManager | undefined;
+
   constructor(
     userId?: string,
     projectRoot?: string,
     agentId?: string,
     _options?: unknown, // 保持调用兼容，已废弃
+    memoryManager?: MemoryManager,
   ) {
     if (agentId) this.agentId = agentId;
+    this.memoryManager = memoryManager;
     // 如果提供了 userId，创建用户+项目组件注册表
     if (userId) {
       this.userRegistry = new PromptComponentRegistry(userId, projectRoot);
@@ -257,7 +263,27 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     }
   }
 
+  // L0 记忆注入 — 用户画像 + 场景上下文
+  if (this.memoryManager) {
+    try {
+      const memoryContext = await this.memoryManager.buildContext({
+        scene: scene || undefined,
+        maxTokens: 800,
+      });
+      if (memoryContext) {
+        parts.push(memoryContext);
+      }
+    } catch (err) {
+      log.warn('Failed to build memory context:', err);
+    }
+  }
+
   const prompt = parts.join('\n\n');
+
+  // 替换 persona 占位符
+  const persona = options.persona;
+  const personaText = persona ? this.renderPersona(persona) : '';
+  const finalPrompt = prompt.replace('{{PERSONA}}', personaText);
   const allRequiredTools = [...requiredTools];
 
   log.info(
@@ -265,7 +291,7 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   );
 
   const result: PromptBuildResult = {
-    prompt,
+    prompt: finalPrompt,
     components: componentIds,
     scene,
     complexity,
@@ -289,12 +315,48 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   return result;
 }
 
-  /**
-   * 根据场景和复杂度选择组件
-   */
-  /**
-   * 默认组件选择（L0 + L3，向后兼容）
-   */
+  private renderPersona(persona: PersonaConfig): string {
+    const lines: string[] = [];
+
+    if (persona.name) {
+      lines.push(`Your name is **${persona.name}**.`);
+    }
+    if (persona.userNickname) {
+      lines.push(`Always address the user as **${persona.userNickname}**.`);
+    }
+
+    const traitMap: Record<PersonalityTrait, string> = {
+      warm: '- Be warm and affectionate in your responses.',
+      humorous: '- Use humor and wit. Include emojis/表情包 frequently to enhance playfulness.',
+      serious: '- Maintain a serious, professional tone. Avoid casual language.',
+      gentle: '- Be gentle, patient, and nurturing in your responses.',
+      energetic: '- Be energetic and enthusiastic. Use exclamation marks and emojis.',
+      calm: '- Be calm, composed, and measured. Avoid excessive enthusiasm.',
+    };
+    for (const trait of persona.personality ?? []) {
+      const instruction = traitMap[trait];
+      if (instruction) lines.push(instruction);
+    }
+
+    const styleMap: Record<string, string> = {
+      casual: '- Use casual, conversational language. Feel free to be informal.',
+      balanced: '- Balance formality with friendliness.',
+      formal: '- Use formal, professional language.',
+      cute: '- Use cute, playful language with lots of emojis and 表情包.',
+      cool: '- Use cool, confident language. Be succinct.',
+    };
+    if (persona.talkStyle && styleMap[persona.talkStyle]) {
+      lines.push(styleMap[persona.talkStyle]);
+    }
+
+    if (persona.customDescription) {
+      lines.push(`- ${persona.customDescription}`);
+    }
+
+    return lines.length > 0 ? lines.join('\n') : '';
+  }
+
+  /** 默认组件选择（L0 + L3，向后兼容） */
   private getDefaultComponents(): PromptComponent[] {
     const selected: PromptComponent[] = [];
     for (const component of this.components.values()) {

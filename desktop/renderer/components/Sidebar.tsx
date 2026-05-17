@@ -3,7 +3,7 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck } from 'lucide-react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { Avatar } from './Avatar';
 import { Button } from '@/components/ui/button';
@@ -24,10 +24,11 @@ interface SidebarProps {
   onOpenTools: () => void;
   onOpenSystemPrompt: () => void;
   onOpenMemory: () => void;
+  onOpenScheduler: () => void;
   onOpenPermissions: () => void;
 }
 
-export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenPermissions }: SidebarProps) {
+export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions }: SidebarProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
 
   const handleLogout = async () => {
@@ -100,6 +101,10 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
         <Button variant="ghost" onClick={onOpenMemory} className="w-full justify-start h-9">
           <Brain size={16} className="mr-2 text-muted-foreground" />
           Memory
+        </Button>
+        <Button variant="ghost" onClick={onOpenScheduler} className="w-full justify-start h-9">
+          <Clock size={16} className="mr-2 text-muted-foreground" />
+          定时任务
         </Button>
         <Button variant="ghost" onClick={onOpenPermissions} className="w-full justify-start h-9">
           <ShieldCheck size={16} className="mr-2 text-muted-foreground" />

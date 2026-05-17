@@ -57,6 +57,14 @@ export enum XuanjiEvent {
   // === System ===
   SYSTEM_ERROR = 'system.error',
 
+  // === Memory System ===
+  MEMORY_STORED = 'memory:stored',
+  MEMORY_SEARCHED = 'memory:searched',
+  MEMORY_EXTRACTED = 'memory:extracted',
+  MEMORY_MAINTENANCE = 'memory:maintenance',
+  MEMORY_LEARNING_PROGRESS = 'memory:learning:progress',
+  MEMORY_DELIVER_MESSAGE = 'deliver:message',
+
   // === Hook Bridge（每个 hook 类型独立 EventBus 事件）===
   HOOK_SUBAGENT_START = 'hook.subagent.start',
   HOOK_SUBAGENT_END = 'hook.subagent.end',

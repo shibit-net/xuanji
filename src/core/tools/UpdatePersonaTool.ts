@@ -48,10 +48,14 @@ export class UpdatePersonaTool implements Tool {
     },
   };
 
-  private onUpdate: (persona: PersonaConfig) => Promise<void>;
+  private onUpdate: ((persona: PersonaConfig) => Promise<void>) | null = null;
 
-  constructor(onUpdate: (persona: PersonaConfig) => Promise<void>) {
-    this.onUpdate = onUpdate;
+  constructor(onUpdate?: (persona: PersonaConfig) => Promise<void>) {
+    if (onUpdate) this.onUpdate = onUpdate;
+  }
+
+  setOnUpdate(callback: (persona: PersonaConfig) => Promise<void>): void {
+    this.onUpdate = callback;
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
@@ -64,6 +68,12 @@ export class UpdatePersonaTool implements Tool {
       if (typed.talkStyle) persona.talkStyle = typed.talkStyle;
       if (typed.customDescription) persona.customDescription = typed.customDescription;
 
+      if (!this.onUpdate) {
+        return {
+          content: 'Persona update callback not configured. Please restart the session.',
+          isError: true,
+        };
+      }
       await this.onUpdate(persona);
 
       return {

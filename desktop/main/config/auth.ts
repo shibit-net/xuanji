@@ -15,7 +15,7 @@ interface AuthState {
 
 interface SavedAccount {
   email: string;
-  nickname?: string;
+  nickName?: string;
   avatar?: string;
   lastLogin: number;
   // 不保存密码和 token！
@@ -165,7 +165,7 @@ async function saveAuthState() {
 
     const account: SavedAccount = {
       email: authState.user.email,
-      nickname: authState.user.nickname,
+      nickName: authState.user.nickName,
       avatar: authState.user.avatar,
       lastLogin: Date.now()
     };

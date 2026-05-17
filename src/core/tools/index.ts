@@ -39,6 +39,7 @@ export { DocToDocxTool } from './DocToDocxTool';
 export { ToolGateway } from './ToolGateway';
 export type { ExecutionContext, ToolMetrics, PermissionController } from './ToolGateway';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
+export { UpdatePersonaTool } from './UpdatePersonaTool';
 
 // Utils
 export { DiffRenderer } from '@/shared/utils/DiffRenderer';

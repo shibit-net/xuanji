@@ -112,6 +112,16 @@ tools:
     required: false
   - name: memory_search
     required: false
+  - name: memory_graph
+    required: false
+  - name: memory_stats
+    required: false
+  - name: update_persona
+    required: false
+  - name: learn
+    required: false
+  - name: install
+    required: false
   - name: web_fetch
     required: false
   - name: web_search
@@ -131,6 +141,8 @@ tools:
   - name: worktree
     required: false
   - name: sleep
+    required: false
+  - name: scheduler
     required: false
   - name: butler_daemon
     required: false

@@ -19,7 +19,7 @@ model:
   primary: qwen2.5-1.5b-q4
   maxTokens: 256
   temperature: 0.2
-  contextSize: 8192
+  contextSize: 32768
 tools: []
 systemPrompt: >
   你是一个任务分类器。分析用户输入，输出 JSON 包含 scene、agent、complexity 三个字段。

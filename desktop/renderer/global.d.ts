@@ -89,7 +89,11 @@ export interface ElectronAPI {
   maximize: () => void;
   close: () => void;
 
-  manualMemoryFlush: (data?: any) => Promise<{ success: boolean; error?: string }>;
+  manualMemoryFlush: (data?: any) => Promise<{
+    success: boolean;
+    result?: { entityCount: number; relationCount: number; factCount: number; eventCount: number };
+    error?: string;
+  }>;
 
   // ============================================================
   // 认证相关
@@ -278,7 +282,16 @@ export interface ElectronAPI {
   onProjectInfo: (callback: (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => void) => void;
 
   // 高级功能
-  compact: (data: any) => Promise<any>;
+  compact: (data: any) => Promise<{
+    success: boolean;
+    result?: { originalTokens: number; compressedTokens: number; compressionRatio: number; summary?: string };
+    error?: string;
+  }>;
+  contextStatus: () => Promise<{
+    success: boolean;
+    data?: { estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number };
+    error?: string;
+  }>;
   getDiagnostics: () => Promise<any>;
 
   // 权限交互
@@ -520,6 +533,201 @@ export interface ElectronAPI {
     intent: 'interrupt_replace' | 'supplement' | 'new_task';
     confidence: number;
     reasoning: string;
+  }>;
+
+  // ============ 记忆管理 ============
+  memoryStatus: () => Promise<{
+    success: boolean;
+    initialized?: boolean;
+    sessionReady?: boolean;
+    isExtracting?: boolean;
+    isCompressing?: boolean;
+    error?: string;
+  }>;
+  memoryStats: () => Promise<{
+    success: boolean;
+    stats?: {
+      entityCount: number;
+      factCount: number;
+      eventCount: number;
+      relationCount: number;
+      episodeCount: number;
+      ftsEntryCount: number;
+      dbSizeBytes: number;
+    };
+    error?: string;
+  }>;
+  memorySearch: (data: {
+    query: string;
+    source?: string;
+    scene_tag?: string;
+    limit?: number;
+    minImportance?: number;
+  }) => Promise<{
+    success: boolean;
+    results?: Array<{
+      source_table: string;
+      source_id: string;
+      title: string;
+      content: string;
+      scene_tag: string;
+      score?: number;
+    }>;
+    error?: string;
+  }>;
+  memoryEntities: (data?: {
+    type?: string;
+    scene?: string;
+    keyword?: string;
+    limit?: number;
+  }) => Promise<{
+    success: boolean;
+    entities?: Array<{
+      id: string;
+      name: string;
+      type: string;
+      summary: string;
+      belief: string | null;
+      scene_tag: string;
+      importance: number;
+      ref_count: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+    error?: string;
+  }>;
+  memoryFacts: (data?: {
+    keyword?: string;
+    scene?: string;
+    isLatest?: boolean;
+    limit?: number;
+  }) => Promise<{
+    success: boolean;
+    facts?: Array<{
+      id: string;
+      title: string;
+      content: string;
+      source: string;
+      version: number;
+      is_latest: number;
+      scene_tag: string;
+      created_at: number;
+    }>;
+    error?: string;
+  }>;
+  memoryTimeline: (data?: {
+    entityNames?: string[];
+    scene?: string;
+    from?: number;
+    to?: number;
+    limit?: number;
+  }) => Promise<{
+    success: boolean;
+    events?: Array<{
+      id: string;
+      time: number;
+      entity_ids: string;
+      content: string;
+      result: string | null;
+      importance: number;
+      scene_tag: string;
+      operator: string | null;
+      created_at: number;
+    }>;
+    error?: string;
+  }>;
+  memoryEpisodes: (data?: {
+    query?: string;
+    limit?: number;
+  }) => Promise<{
+    success: boolean;
+    episodes?: Array<{
+      id: string;
+      timestamp: number;
+      title: string;
+      narrative: string;
+      scene_tag: string;
+      importance: number;
+    }>;
+    error?: string;
+  }>;
+  memoryRelations: (data?: {
+    entityId?: string;
+    direction?: string;
+    activeOnly?: boolean;
+  }) => Promise<{
+    success: boolean;
+    relations?: Array<{
+      id: string;
+      subject_id: string;
+      object_id: string;
+      relation: string;
+      desc: string | null;
+      strength: number;
+      is_active: number;
+      scene_tag: string;
+    }>;
+    error?: string;
+  }>;
+  memoryGraphData: (data?: {
+    entityId?: string;
+    maxHops?: number;
+  }) => Promise<{
+    success: boolean;
+    nodes?: Array<{
+      id: string;
+      name: string;
+      type: string;
+      summary: string;
+      importance: number;
+    }>;
+    edges?: Array<{
+      id: string;
+      subject_id: string;
+      object_id: string;
+      relation: string;
+      strength: number;
+      is_active: number;
+    }>;
+    error?: string;
+  }>;
+  memoryDeleteEntity: (data: { id: string }) => Promise<{ success: boolean; error?: string }>;
+  memoryClearAll: () => Promise<{ success: boolean; error?: string }>;
+
+  // ============ 定时任务管理 ============
+  schedulerJobs: () => Promise<{
+    success: boolean;
+    jobs?: Array<{
+      id: string;
+      userId: string;
+      type: 'daily' | 'weekly' | 'once';
+      hour?: number;
+      minute?: number;
+      dayOfWeek?: number;
+      scheduledAt?: number;
+      action: 'learn' | 'custom';
+      params?: Record<string, any>;
+      prompt?: string;
+      enabled?: boolean;
+      executed?: boolean;
+      description?: string;
+      createdAt?: number;
+    }>;
+    error?: string;
+  }>;
+  schedulerAdd: (data: { job: any }) => Promise<{ success: boolean; error?: string }>;
+  schedulerUpdate: (data: { id: string; updates: any }) => Promise<{ success: boolean; error?: string }>;
+  schedulerRemove: (data: { id: string }) => Promise<{ success: boolean; error?: string }>;
+  schedulerLogs: (data?: { limit?: number }) => Promise<{
+    success: boolean;
+    logs?: Array<{
+      id: number;
+      job_id: string;
+      scheduled_at: number;
+      executed_at: number;
+      status: string;
+    }>;
+    error?: string;
   }>;
 
   // 调试日志

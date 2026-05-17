@@ -100,6 +100,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             onToggle={() => setSidebarVisible(!sidebarVisible)}
             onOpenAgents={() => navigate(location.pathname === '/agents' ? '/chat' : '/agents')}
             onOpenMemory={() => navigate(location.pathname === '/memory' ? '/chat' : '/memory')}
+            onOpenScheduler={() => navigate(location.pathname === '/scheduler' ? '/chat' : '/scheduler')}
             onOpenSystemPrompt={() => navigate(location.pathname === '/system-prompt' ? '/chat' : '/system-prompt')}
             onOpenPermissions={() => navigate(location.pathname === '/permissions' ? '/chat' : '/permissions')}
             onOpenSettings={() => navigate(location.pathname === '/settings' ? '/chat' : '/settings')}

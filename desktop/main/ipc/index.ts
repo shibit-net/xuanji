@@ -9,6 +9,8 @@ import { registerPermissionIpcHandlers } from './permission.js';
 import { registerLogsIpcHandlers } from './logs.js';
 import { registerAdvancedIpcHandlers } from './advanced.js';
 import { registerDownloadHandlers } from './download.js';
+import { registerMemoryIpcHandlers } from './memory.js';
+import { registerSchedulerIpcHandlers } from './scheduler.js';
 
 function registerAllIpcHandlers() {
   const safeRegister = (name: string, fn: () => void) => {
@@ -30,6 +32,8 @@ function registerAllIpcHandlers() {
   safeRegister('advanced', registerAdvancedIpcHandlers);
   safeRegister('download', registerDownloadHandlers);
   safeRegister('system', registerSystemIpcHandlers);
+  safeRegister('memory', registerMemoryIpcHandlers);
+  safeRegister('scheduler', registerSchedulerIpcHandlers);
 }
 
 export { registerAllIpcHandlers };

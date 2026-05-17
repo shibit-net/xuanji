@@ -32,6 +32,8 @@ export default function InputArea() {
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [contextUsage, setContextUsage] = useState<{ estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number } | null>(null);
+  const [memoryStatus, setMemoryStatus] = useState<{ isExtracting: boolean; isCompressing: boolean }>({ isExtracting: false, isCompressing: false });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const toast = useToast();
@@ -114,6 +116,47 @@ export default function InputArea() {
       textareaRef.current.style.height = '44px';
     }
   }, []);
+
+  // ─── 上下文字使用率轮询 ─────────────────────────────
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      if (!active || !isSessionReady) return;
+      try {
+        const res = await window.electron.contextStatus();
+        if (active && res.success && res.data) {
+          setContextUsage(res.data);
+        }
+      } catch {
+        // 忽略轮询错误
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [isSessionReady]);
+
+  // ─── 记忆状态轮询（提取/压缩竞态标记） ──────────────
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      if (!active || !isSessionReady) return;
+      try {
+        const res = await window.electron.memoryStatus();
+        if (active && res.success) {
+          setMemoryStatus({
+            isExtracting: res.isExtracting ?? false,
+            isCompressing: res.isCompressing ?? false,
+          });
+        }
+      } catch {
+        // 忽略轮询错误
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, [isSessionReady]);
 
   // ─── 发送入口 ───────────────────────────────────────
   const handleSubmit = useCallback(async () => {
@@ -363,35 +406,63 @@ export default function InputArea() {
   }, [handleSubmit, isComposing]);
 
   // ─── 工具栏 ─────────────────────────────────────────
+  const autoCompressing = memoryStatus.isCompressing && !isCompacting;
+  const autoExtracting = memoryStatus.isExtracting && !isFlushing;
+
   const handleCompact = useCallback(async () => {
-    if (isCompacting || isRunning) return;
+    if (isCompacting || isRunning || memoryStatus.isCompressing) return;
     setIsCompacting(true);
     try {
       const result = await window.electron.compact({});
-      toast[result.success ? 'success' : 'error'](
-        result.success ? '消息压缩完成' : `压缩失败: ${result.error}`
-      );
+      if (result.success && result.result) {
+        const ratio = (result.result.compressionRatio * 100).toFixed(1);
+        toast.success(
+          `压缩完成：${result.result.originalTokens} → ${result.result.compressedTokens} tokens（压缩 ${ratio}%）`
+        );
+        // 刷新上下文使用率
+        try {
+          const status = await window.electron.contextStatus();
+          if (status.success && status.data) setContextUsage(status.data);
+        } catch { /* ignore */ }
+      } else if (result.success) {
+        toast.success('上下文使用率较低，无需压缩');
+      } else {
+        toast.error(`压缩失败: ${result.error}`);
+      }
     } catch (error) {
       toast.error(`压缩失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, isRunning, toast]);
+  }, [isCompacting, isRunning, memoryStatus.isCompressing, toast]);
 
   const handleMemoryFlush = useCallback(async () => {
-    if (isFlushing || isRunning) return;
+    if (isFlushing || isRunning || memoryStatus.isExtracting) return;
     setIsFlushing(true);
     try {
       const result = await window.electron.manualMemoryFlush();
-      toast[result.success ? 'success' : 'error'](
-        result.success ? '记忆提取完成' : `记忆提取失败: ${result.error}`
-      );
+      if (result.success && result.result) {
+        const { entityCount, relationCount, factCount, eventCount } = result.result;
+        const total = entityCount + relationCount + factCount + eventCount;
+        if (total > 0) {
+          const parts = [];
+          if (entityCount > 0) parts.push(`${entityCount} 个实体`);
+          if (relationCount > 0) parts.push(`${relationCount} 条关系`);
+          if (factCount > 0) parts.push(`${factCount} 条事实`);
+          if (eventCount > 0) parts.push(`${eventCount} 个事件`);
+          toast.success(`记忆提取完成：${parts.join('，')}`);
+        } else {
+          toast.success('当前上下文中暂无值得提取的记忆');
+        }
+      } else {
+        toast.error(`记忆提取失败: ${result.error}`);
+      }
     } catch (error) {
       toast.error(`记忆提取失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsFlushing(false);
     }
-  }, [isFlushing, isRunning, toast]);
+  }, [isFlushing, isRunning, memoryStatus.isExtracting, toast]);
 
   // ─── 文案 ───────────────────────────────────────────
   const placeholder = !isSessionReady
@@ -465,21 +536,25 @@ export default function InputArea() {
           variant="ghost"
           size="sm"
           onClick={handleCompact}
-          disabled={isCompacting || isRunning}
-          title="压缩历史消息，减少 token 使用"
+          disabled={isCompacting || isRunning || memoryStatus.isCompressing}
+          title={contextUsage ? `上下文用量: ${contextUsage.estimatedTokens} / ${contextUsage.maxInputTokens} tokens (${contextUsage.usagePercent}%)` : '压缩历史消息，减少 token 使用'}
         >
           <Archive size={14} className="mr-1" />
-          {isCompacting ? '压缩中...' : '压缩消息'}
+          {isCompacting || autoCompressing ? '压缩中...' : contextUsage ? (
+            <span className={contextUsage.usagePercent > 80 ? 'text-red-400' : contextUsage.usagePercent > 50 ? 'text-yellow-400' : ''}>
+              压缩消息 ({contextUsage.usagePercent}%)
+            </span>
+          ) : '压缩消息'}
         </Button>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleMemoryFlush}
-          disabled={isFlushing || isRunning}
-          title="提取对话中的记忆，保存到长期记忆库"
+          disabled={isFlushing || isRunning || memoryStatus.isExtracting}
+          title="从当前对话中提取值得记忆的内容（实体/关系/事实/事件）"
         >
           <Brain size={14} className="mr-1" />
-          {isFlushing ? '提取中...' : '提取记忆'}
+          {isFlushing || autoExtracting ? '提取中...' : '提取记忆'}
         </Button>
       </div>
 

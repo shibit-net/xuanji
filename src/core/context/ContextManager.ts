@@ -24,9 +24,9 @@ const MAX_CONTEXT_BYTES = 200_000; // ~200KB
 /** 快照最大数量 */
 const MAX_SNAPSHOTS = 10;
 
-/** 归档代理接口：压缩时将旧消息委派给外部存储 */
+/** 归档代理接口：压缩时将旧消息委派给外部存储，返回 LLM 生成的叙事摘要 */
 export interface ArchiveDelegate {
-  archiveMessages(messages: Message[]): Promise<void>;
+  archiveMessages(messages: Message[]): Promise<string>;
 }
 
 export class ContextManager {
@@ -321,14 +321,15 @@ export class ContextManager {
       };
     }
 
-    // 归档旧消息
+    // 归档旧消息并获取 LLM 生成的叙事摘要
+    let summaryText = '';
     if (this.archiveDelegate) {
-      await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+      summaryText = await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
     }
 
     const summaryMsg: Message = {
       role: 'user',
-      content: `[上下文摘要] 之前 ${oldCount} 条消息已压缩。`,
+      content: summaryText || `[上下文摘要] 之前 ${oldCount} 条消息已压缩。`,
     };
     const compressed = [systemMsg, summaryMsg, ...this.messages.slice(boundary)];
     const compressedTokens = this.tokenCounter.estimate(compressed);
@@ -339,7 +340,7 @@ export class ContextManager {
       originalTokens,
       compressedTokens,
       compressionRatio: originalTokens > 0 ? (originalTokens - compressedTokens) / originalTokens : 0,
-      summary: `压缩了 ${oldCount} 条旧消息`,
+      summary: summaryText || `压缩了 ${oldCount} 条旧消息`,
     };
   }
 
@@ -369,11 +370,17 @@ export class ContextManager {
     boundary = this.adjustBoundaryForToolPairs(boundary);
 
     const dropped = boundary - 1;
-    // 归档旧消息
+    // 归档旧消息并获取 LLM 生成的叙事摘要
+    let summaryText = '';
     if (this.archiveDelegate) {
-      await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+      summaryText = await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
     }
-    const compressed = [systemMsg, ...this.messages.slice(boundary)];
+
+    const summaryMsg: Message = {
+      role: 'user',
+      content: summaryText || `[上下文摘要] 之前 ${dropped} 条消息已压缩。`,
+    };
+    const compressed = [systemMsg, summaryMsg, ...this.messages.slice(boundary)];
     const compressedTokens = this.tokenCounter.estimate(compressed);
 
     this.messages = compressed;
@@ -382,7 +389,7 @@ export class ContextManager {
       originalTokens,
       compressedTokens,
       compressionRatio: originalTokens > 0 ? (originalTokens - compressedTokens) / originalTokens : 0,
-      summary: `激进压缩：丢弃 ${dropped} 条旧消息`,
+      summary: summaryText || `激进压缩：丢弃 ${dropped} 条旧消息`,
     };
   }
 

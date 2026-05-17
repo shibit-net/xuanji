@@ -44,6 +44,14 @@ import { ListScenesTool } from './ListScenesTool';
 import { TaskControlTool } from './TaskControlTool';
 import { ChangeDirectoryTool } from './ChangeDirectoryTool';
 import { TaskTool } from './TaskTool';
+import { MemorySearchTool } from './MemorySearchTool';
+import { MemoryStoreTool } from './MemoryStoreTool';
+import { MemoryGraphTool } from './MemoryGraphTool';
+import { MemoryStatsTool } from './MemoryStatsTool';
+import { LearnTool } from './LearnTool';
+import { InstallTool } from './InstallTool';
+import { UpdatePersonaTool } from './UpdatePersonaTool';
+import { SchedulerTool } from './SchedulerTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -378,6 +386,17 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new DocxEditTool());
   registry.register(new DocToDocxTool());
   registry.register(new TaskTool());
+  // 记忆系统工具
+  registry.register(new MemorySearchTool());
+  registry.register(new MemoryStoreTool());
+  registry.register(new MemoryGraphTool());
+  registry.register(new MemoryStatsTool());
+  registry.register(new UpdatePersonaTool());
+  // 学习与安装工具
+  registry.register(new LearnTool());
+  registry.register(new InstallTool());
+  // 定时任务管理工具
+  registry.register(new SchedulerTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

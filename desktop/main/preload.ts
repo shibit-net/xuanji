@@ -150,6 +150,7 @@
 
   // ============ 高级功能 ============
   compact: (data: any) => ipcRenderer.invoke('compact', data),
+  contextStatus: () => ipcRenderer.invoke('context:status'),
   getDiagnostics: () => ipcRenderer.invoke('get-diagnostics'),
 
   // ============ 权限交互 ============
@@ -265,6 +266,34 @@
       ipcRenderer.removeListener('workspace:directory-changed', handler);
     }
   },
+
+  // ============ 记忆管理 ============
+  manualMemoryFlush: (data?: any) => ipcRenderer.invoke('memory:flush'),
+  memoryStatus: () => ipcRenderer.invoke('memory:status'),
+  memoryStats: () => ipcRenderer.invoke('memory:stats'),
+  memorySearch: (data: { query: string; source?: string; scene_tag?: string; limit?: number; minImportance?: number }) =>
+    ipcRenderer.invoke('memory:search', data),
+  memoryEntities: (data?: { type?: string; scene?: string; keyword?: string; limit?: number }) =>
+    ipcRenderer.invoke('memory:entities', data || {}),
+  memoryFacts: (data?: { keyword?: string; scene?: string; isLatest?: boolean; limit?: number }) =>
+    ipcRenderer.invoke('memory:facts', data || {}),
+  memoryTimeline: (data?: { entityNames?: string[]; scene?: string; from?: number; to?: number; limit?: number }) =>
+    ipcRenderer.invoke('memory:timeline', data || {}),
+  memoryEpisodes: (data?: { query?: string; limit?: number }) =>
+    ipcRenderer.invoke('memory:episodes', data || {}),
+  memoryRelations: (data?: { entityId?: string; direction?: string; activeOnly?: boolean }) =>
+    ipcRenderer.invoke('memory:relations', data || {}),
+  memoryGraphData: (data?: { entityId?: string; maxHops?: number }) =>
+    ipcRenderer.invoke('memory:graph-data', data || {}),
+  memoryDeleteEntity: (data: { id: string }) => ipcRenderer.invoke('memory:delete-entity', data),
+  memoryClearAll: () => ipcRenderer.invoke('memory:clear-all'),
+
+  // ============ 定时任务管理 ============
+  schedulerJobs: () => ipcRenderer.invoke('scheduler:jobs'),
+  schedulerAdd: (data: { job: any }) => ipcRenderer.invoke('scheduler:add', data),
+  schedulerUpdate: (data: { id: string; updates: any }) => ipcRenderer.invoke('scheduler:update', data),
+  schedulerRemove: (data: { id: string }) => ipcRenderer.invoke('scheduler:remove', data),
+  schedulerLogs: (data?: { limit?: number }) => ipcRenderer.invoke('scheduler:logs', data || {}),
 
   // ============ 调试日志（写入磁盘文件） ============
   debugLog: (message: string) => ipcRenderer.invoke('debug:log', message),

@@ -11,9 +11,26 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-// 主进程的 DownloadManager（用于主进程触发的下载）
-// 不恢复任务，避免与子进程重复
-const mainDownloadManager = DownloadManager.getInstance(false);
+// 先注册事件转发（必须在 DownloadManager 实例化之前，否则 loadState() 恢复的下载事件无法转发到渲染进程）
+const downloadEvents = ['task-created', 'task-started', 'task-progress', 'task-completed', 'task-failed', 'task-cancelled'] as const;
+let eventsForwarded = false;
+
+function forwardDownloadEvents() {
+  if (eventsForwarded) return;
+  eventsForwarded = true;
+  downloadEvents.forEach((eventName) => {
+    mainDownloadManager.on(eventName, (task) => {
+      const allWindows = BrowserWindow.getAllWindows();
+      allWindows.forEach((win) => {
+        win.webContents.send('download:event', { type: eventName, task });
+      });
+    });
+  });
+}
+
+// 主进程的 DownloadManager，启用任务持久化（主进程使用独立状态文件 download-state-main.json）
+const mainDownloadManager = DownloadManager.getInstance(true);
+forwardDownloadEvents();
 
 // 缓存子进程的当前工作目录（由 agent-bridge 通过 workspace:directory-changed 事件更新）
 let agentCwd: string | null = null;
@@ -70,38 +87,7 @@ const MODEL_IDS: Record<string, string> = {
   'glm4-9b-q4': 'hf:mradermacher/glm-4-9b-chat-GGUF:glm-4-9b-chat.Q4_K_M.gguf',
 };
 
-// 转发主进程 DownloadManager 事件到渲染进程
-let mainEventsForwarded = false;
-
-
 export function registerDownloadHandlers() {
-
-  // 转发主进程 DownloadManager 事件到渲染进程（只注册一次）
-  if (!mainEventsForwarded) {
-    mainEventsForwarded = true;
-
-    // 所有下载事件类型
-    const downloadEvents = [
-      'task-created',
-      'task-started',
-      'task-progress',
-      'task-completed',
-      'task-failed',
-      'task-cancelled',
-    ];
-
-    // 转发主进程下载事件
-    downloadEvents.forEach((eventName) => {
-      mainDownloadManager.on(eventName, (task) => {
-        const allWindows = BrowserWindow.getAllWindows();
-        allWindows.forEach((win) => {
-          win.webContents.send('download:event', { type: eventName, task });
-        });
-      });
-    });
-
-    // 注意：子进程的下载事件转发在 agent/index.ts 中的 agent channel 创建时注册
-  }
 
   // 获取所有下载任务（聚合主进程和子进程）
   ipcMain.handle('download:get-tasks', async () => {

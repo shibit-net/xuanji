@@ -41,13 +41,17 @@ export class EnhancedMessageChannel extends MessageChannel {
     // 🔧 监听所有从子进程收到的消息，自动转发到renderer
     if (this.autoForwardToRenderer) {
       EventEmitter.prototype.on.call(this, 'message', (msg: any) => {
+        console.log(`[DIAG] EnhancedMessageBus auto-forward: type=${msg.type} hasMainWindow=${!!this.mainWindow} windowDestroyed=${this.mainWindow?.isDestroyed()}`);
         // 转发到renderer
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           try {
             this.mainWindow.webContents.send(msg.type, msg.data);
+            console.log(`[DIAG] EnhancedMessageBus forwarded to renderer: ${msg.type}`);
           } catch (err) {
             console.error(`[EnhancedMessageBus] 转发到renderer失败 (${msg.type}):`, err);
           }
+        } else {
+          console.log(`[DIAG] EnhancedMessageBus SKIP forward (no mainWindow or destroyed): type=${msg.type} hasMainWindow=${!!this.mainWindow}`);
         }
       });
     }

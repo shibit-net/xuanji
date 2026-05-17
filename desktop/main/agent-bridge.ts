@@ -26,6 +26,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { FORMAT_PARSERS } from '../../src/core/tools/parsers/index.js';
+import { getMemoryManager } from '../../src/core/memory/globals.js';
+import { TokenCounter } from '../../src/core/context/TokenCounter.js';
 
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
@@ -47,7 +49,7 @@ let eventForwarder: EventForwarder | null = null;
 // 主进程端会使用 EnhancedMessageChannel 来接收和转发消息
 const channel = new ChildMessageChannel({
   name: 'agent-child',
-  enableLogging: false,
+  enableLogging: true,
 });
 
 const log = logger.child({ module: 'agent-bridge' });
@@ -123,8 +125,8 @@ const pendingAskUsers = new Map<string, (result: any) => void>();
  * 初始化 ChatSession
  */
 
-/** 更新 MatchAgentTool 的 embedding provider，模型不存在时触发下载 */
-function updateMatchAgentEmbedding(sess: ChatSession): void {
+/** 更新 MatchAgentTool 的 embedding provider + MemoryManager 的 SemanticIndex，模型不存在时触发下载 */
+async function updateMatchAgentEmbedding(sess: ChatSession): Promise<void> {
   try {
     // 始终尝试创建 EmbeddingProvider（使用默认模型），不依赖 globalConfig.embedding
     const candidate = new EmbeddingProvider();
@@ -137,6 +139,21 @@ function updateMatchAgentEmbedding(sess: ChatSession): void {
           embeddingProvider: candidate,
         });
         log.info('updateMatchAgentEmbedding: EmbeddingProvider injected into MatchAgentTool');
+      }
+
+      // 同时创建 SemanticIndex 并注入到 MemoryManager，启用语义向量搜索
+      const agentLoop = sess.getAgentLoop();
+      const contextManager = agentLoop?.getContextManager();
+      const memoryManager = (contextManager as any)?.archiveDelegate;
+      if (memoryManager && !memoryManager.semanticIndex) {
+        const { SemanticIndex } = await import('../../src/core/memory/SemanticIndex.js');
+        const { getUserMemoryDir } = await import('../../src/core/config/PathManager.js');
+        const memDir = getUserMemoryDir(currentUserId);
+        if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
+        const semanticIndex = new SemanticIndex(candidate, memDir);
+        await semanticIndex.init();
+        memoryManager.semanticIndex = semanticIndex;
+        log.info('updateMatchAgentEmbedding: SemanticIndex injected into MemoryManager');
       }
     } else {
       const globalConfig = sess.getConfig();
@@ -240,7 +257,7 @@ async function rebuildIntentRouter(): Promise<void> {
     log.info('rebuildIntentRouter: IntentRouter rebuilt successfully');
 
     // 同步更新 MatchAgentTool 的 embedding provider
-    updateMatchAgentEmbedding(session);
+    await updateMatchAgentEmbedding(session);
 
     // 将场景列表发送到渲染进程，供意图分析面板展示
     if (promptBuilder) {
@@ -256,10 +273,10 @@ async function rebuildIntentRouter(): Promise<void> {
   }
 }
 
-async function handleInit(userId?: string): Promise<{ success: boolean; error?: string }> {
+async function handleInit(userId?: string, userName?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const uid = userId || currentUserId || 'default';
-    log.info(`handleInit: creating session for userId=${uid}`);
+    log.info(`handleInit: creating session for userId=${uid}, userName=${userName || '(none)'}`);
 
     // 在创建 session 之前，先切换到配置的 workspace 目录
     // 确保 FilteredToolRegistry.workingDir 指向 workspace 而非项目根目录
@@ -281,6 +298,7 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
 
     const factory = new SessionFactory(uid);
     const newSession = await factory.create({
+      userName,
       callbacks: {
         onAutoSummarize: (subAgentId?: string, groupId?: string) => {
           channel.send('agent:auto-summarize-start', { subAgentId, groupId });
@@ -317,6 +335,18 @@ async function handleInit(userId?: string): Promise<{ success: boolean; error?: 
 
     // 初始化 IntentRouter（hot-reload: rebuildIntentRouter 复用）
     await rebuildIntentRouter();
+
+    // 接线 Scheduler sessionTrigger：定时任务触发时走完整消息处理流（意图路由 → 前台切换 → React Flow 节点 → userAction）
+    const scheduler = (newSession as any)._scheduler;
+    if (scheduler) {
+      scheduler.sessionTrigger = async (message: string) => {
+        log.info(`[Scheduler] Triggering full agent session: "${message.slice(0, 80)}"`);
+        await handleUserAction({ type: 'SEND_MESSAGE', message, attachments: [] });
+      };
+      log.info('Scheduler sessionTrigger wired via handleUserAction');
+    } else {
+      log.warn('Scheduler not found on session, sessionTrigger not wired');
+    }
 
     // 注册权限确认处理器 — 将子进程的权限请求桥接到渲染进程 UI
     session.setConfirmationHandler(async (request, guardResult) => {
@@ -650,6 +680,9 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         case 'features':
           partial.features = data.sectionData;
           break;
+        case 'memory':
+          partial.memory = data.sectionData;
+          break;
       }
 
       if (Object.keys(partial).length > 0) {
@@ -911,7 +944,12 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
         const providerManager = new ProviderManager(newConfig);
         const agentConfigWithOverride = agentRegistry.get(agentId);
         const newProvider = providerManager.getProvider(agentConfigWithOverride);
-        session.getAgentLoop().updateProvider(newProvider);
+        session.getAgentLoop().applyAgentConfig({
+          provider: newProvider,
+          model: newConfig.provider.model,
+          apiKey: (newConfig.provider as any).apiKey,
+          baseURL: (newConfig.provider as any).baseURL,
+        });
 
         log.info(`Agent ${agentId} config updated and provider reloaded: model=${newConfig.provider.model}`);
       } catch (reloadErr) {
@@ -967,16 +1005,66 @@ function handleToolsList(): { success: boolean; tools?: any[]; error?: string } 
 /**
  * 压缩会话上下文
  */
-async function handleCompact(data?: any): Promise<{ success: boolean; error?: string }> {
+async function handleCompact(data?: any): Promise<{
+  success: boolean;
+  result?: { originalTokens: number; compressedTokens: number; compressionRatio: number; summary?: string };
+  error?: string;
+}> {
   if (!session) {
     return { success: false, error: '会话未初始化' };
   }
   try {
     const agentLoop = session.getAgentLoop();
     if (typeof (agentLoop as any).compact === 'function') {
-      await (agentLoop as any).compact(data);
+      const result = await (agentLoop as any).compact(data);
+      if (result) {
+        return {
+          success: true,
+          result: {
+            originalTokens: result.originalTokens,
+            compressedTokens: result.compressedTokens,
+            compressionRatio: result.compressionRatio,
+            summary: result.summary,
+          },
+        };
+      }
+      return { success: true };
     }
-    return { success: true };
+    return { success: false, error: 'AgentLoop 不支持 compact' };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 获取上下文使用状态
+ */
+function handleContextStatus(): {
+  success: boolean;
+  data?: { estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number };
+  error?: string;
+} {
+  if (!session) {
+    return { success: false, error: '会话未初始化' };
+  }
+  try {
+    const contextManager = (session as any).agentLoop?.getContextManager?.();
+    if (!contextManager) {
+      return { success: false, error: '上下文管理器未初始化' };
+    }
+    const messages = contextManager.getMessages();
+    const estimatedTokens = new TokenCounter().estimate(messages);
+    const maxInputTokens = new TokenCounter().getMaxInputTokens();
+    const usagePercent = maxInputTokens > 0 ? Math.round((estimatedTokens / maxInputTokens) * 100) : 0;
+    return {
+      success: true,
+      data: {
+        estimatedTokens,
+        maxInputTokens,
+        usagePercent,
+        messageCount: messages.length,
+      },
+    };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -1004,7 +1092,7 @@ async function handleGetDiagnostics(): Promise<{ success: boolean; diagnostics?:
 // 初始化 Session
 channel.handle('init', async (data) => {
   log.info('init called with userId:', data?.userId);
-  const result = await handleInit(data?.userId);
+  const result = await handleInit(data?.userId, data?.userName);
   log.info('init completed:', JSON.stringify(result));
   return result;
 });
@@ -1082,6 +1170,7 @@ channel.handle('tools-list', () => handleToolsList());
 
 // ============ 高级功能 ============
 channel.handle('compact', (data) => handleCompact(data));
+channel.handle('context-status', () => handleContextStatus());
 channel.handle('get-diagnostics', () => handleGetDiagnostics());
 
 // ============ Prompt 配置管理 ============
@@ -1151,6 +1240,269 @@ channel.handle('download-clear-finished', () => {
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
+  }
+});
+
+// ============ 记忆管理 ============
+
+// 手动触发记忆提取（从当前会话中提取记忆）
+channel.handle('memory-flush', async () => {
+  if (!session) return { success: false, error: '会话未初始化' };
+  try {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    const contextManager = (session as any).agentLoop?.getContextManager?.();
+    if (!contextManager) return { success: false, error: '上下文管理器未初始化' };
+    const messages = contextManager.getMessages();
+    if (messages.length === 0) return { success: false, error: '暂无消息可提取' };
+    const result = await mm.extractFromSession(messages);
+    return {
+      success: true,
+      result: result || { entityCount: 0, relationCount: 0, factCount: 0, eventCount: 0 },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+//
+channel.handle('memory-status', () => {
+  const mm = getMemoryManager();
+  return {
+    success: true,
+    initialized: !!mm,
+    sessionReady: !!session,
+    isExtracting: mm?.isExtracting ?? false,
+    isCompressing: mm?.isCompressing ?? false,
+    error: mm ? null : 'MemoryManager 未注册 — 请检查日志中的 "Failed to initialize MemoryManager" 警告',
+  };
+});
+
+channel.handle('memory-stats', () => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化 — MemoryManager 未注册，请查看控制台日志了解具体原因' };
+  try {
+    return { success: true, stats: mm.getStats() };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-search', async (data: { query: string; source?: string; scene_tag?: string; limit?: number; minImportance?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const results = await mm.search({
+      query: data.query,
+      source: (data.source as any) || 'all',
+      scene_tag: data.scene_tag,
+      limit: data.limit || 50,
+      minImportance: data.minImportance,
+    });
+    return { success: true, results };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-entities', (data: { type?: string; scene?: string; keyword?: string; limit?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const entities = mm.searchEntities({
+      type: data.type,
+      scene: data.scene,
+      keyword: data.keyword,
+      limit: data.limit || 100,
+    });
+    return { success: true, entities };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-facts', (data: { keyword?: string; scene?: string; isLatest?: boolean; limit?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const facts = mm.searchFacts({
+      keyword: data.keyword,
+      scene: data.scene,
+      isLatest: data.isLatest ?? true,
+      limit: data.limit || 100,
+    });
+    return { success: true, facts };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-timeline', async (data: { entityNames?: string[]; scene?: string; from?: number; to?: number; limit?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const events = await mm.getTimeline({
+      entityNames: data.entityNames,
+      scene: data.scene,
+      from: data.from,
+      to: data.to,
+      limit: data.limit || 50,
+    });
+    return { success: true, events };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-episodes', async (data: { query?: string; scene_tag?: string; limit?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    let episodes: any[] = [];
+    if (mm.episodicMemory) {
+      episodes = await mm.episodicMemory.search(data.query || '', data.limit || 20);
+    }
+    return { success: true, episodes };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-relations', async (data: { entityId?: string; direction?: string; activeOnly?: boolean }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    if (data.entityId) {
+      const relations = await mm.getRelations(data.entityId, {
+        direction: (data.direction as any) || 'both',
+        activeOnly: data.activeOnly ?? true,
+      });
+      return { success: true, relations };
+    }
+    // 无 entityId 时返回所有活跃关系
+    const entities = mm.searchEntities({ limit: 500 });
+    const relations: any[] = [];
+    const seen = new Set<string>();
+    for (const e of entities) {
+      const rels = await mm.getRelations(e.id, { direction: 'both', activeOnly: true });
+      for (const r of rels) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          relations.push(r);
+        }
+      }
+    }
+    return { success: true, relations };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-graph-data', async (data: { entityId?: string; maxHops?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const entities = mm.searchEntities({ limit: 500 });
+    // 获取所有实体的关系
+    const relations: any[] = [];
+    const seen = new Set<string>();
+    for (const e of entities) {
+      const entityRels = await mm.getRelations(e.id, { direction: 'both', activeOnly: true });
+      for (const rel of entityRels) {
+        if (!seen.has(rel.id)) {
+          seen.add(rel.id);
+          relations.push(rel);
+        }
+      }
+    }
+    return { success: true, nodes: entities, edges: relations };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-delete-entity', async (data: { id: string }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    await mm.deleteEntity(data.id);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('memory-clear-all', async () => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    // 清空所有类型的记忆数据
+    const entities = mm.searchEntities({ limit: 10000 });
+    for (const e of entities) {
+      try { await mm.deleteEntity(e.id); } catch { /* skip */ }
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ============ Scheduler 管理 ============
+channel.handle('scheduler-jobs', () => {
+  const mm = getMemoryManager();
+  const scheduler = (mm as any)?.scheduler;
+  if (!scheduler) return { success: false, error: '调度器未初始化' };
+  try {
+    return { success: true, jobs: scheduler.getJobs() };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('scheduler-add', async (data: { job: any }) => {
+  const mm = getMemoryManager();
+  const scheduler = (mm as any)?.scheduler;
+  if (!scheduler) return { success: false, error: '调度器未初始化' };
+  try {
+    await scheduler.addCron(data.job);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('scheduler-update', async (data: { id: string; updates: any }) => {
+  const mm = getMemoryManager();
+  const scheduler = (mm as any)?.scheduler;
+  if (!scheduler) return { success: false, error: '调度器未初始化' };
+  try {
+    await scheduler.updateCron(data.id, data.updates);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('scheduler-remove', async (data: { id: string }) => {
+  const mm = getMemoryManager();
+  const scheduler = (mm as any)?.scheduler;
+  if (!scheduler) return { success: false, error: '调度器未初始化' };
+  try {
+    await scheduler.removeCron(data.id);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('scheduler-logs', (data: { limit?: number }) => {
+  const mm = getMemoryManager();
+  const scheduler = (mm as any)?.scheduler;
+  if (!scheduler) return { success: false, error: '调度器未初始化' };
+  try {
+    return { success: true, logs: scheduler.getLogs(data.limit || 50) };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 });
 
@@ -1336,6 +1688,7 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
+    log.info(`[DIAG] agent-bridge AGENT_TEXT_DELTA: payload.agentId=${payload.agentId} currentUserId=${currentUserId} routedAgentId=${routedAgentId} → agentId=${agentId} text="${(payload.text || '').substring(0, 50)}"`);
     safeSend({ type: 'agent:text', data: { text: payload.text, agentId } });
   });
   eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (payload) => {
