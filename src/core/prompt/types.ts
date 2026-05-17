@@ -180,4 +180,6 @@ export interface LayeredPromptBuildOptions {
   toolList?: any[];
   /** 应用配置（传给 PromptComponent.render 的 context） */
   config?: import('@/core/types').AppConfig;
+  /** Persona 配置（机器人性格/称呼等） */
+  persona?: import('@/shared/types/config').PersonaConfig;
 }

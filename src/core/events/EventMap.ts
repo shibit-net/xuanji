@@ -10,7 +10,7 @@ import { XuanjiEvent } from '@/core/events/events';
 export interface XuanjiEventMap {
   [XuanjiEvent.CONVERSATION_STATE_CHANGED]: { from: string; to: string };
   [XuanjiEvent.USER_INPUT_RECEIVED]: { text: string; userId?: string };
-  [XuanjiEvent.INTENT_ANALYZED]: { scene: string; complexity: string; agent: string; confidence: number };
+  [XuanjiEvent.INTENT_ANALYZED]: { scene: string; complexity: string; confidence: number };
 
   // === 任务管理中心 ===
   [XuanjiEvent.ASYNC_TASK_STARTED]: { groupId: string; type: string };
@@ -40,7 +40,7 @@ export interface XuanjiEventMap {
   [XuanjiEvent.PROVIDER_FALLBACK_TRIGGERED]: { from: string; to: string; reason: string };
 
   [XuanjiEvent.CONTEXT_COMPRESSION_STARTED]: { reason: string };
-  [XuanjiEvent.CONTEXT_COMPRESSION_DONE]: { originalTokens: number; compressedTokens: number; ratio: number };
+  [XuanjiEvent.CONTEXT_COMPRESSION_DONE]: { originalTokens: number; compressedTokens: number; compressionRatio: number };
   [XuanjiEvent.TOKEN_BUDGET_WARNING]: { level: string; usage: number };
 
   [XuanjiEvent.SESSION_SAVED]: { sessionId: string };
@@ -48,6 +48,14 @@ export interface XuanjiEventMap {
   [XuanjiEvent.SESSION_SWITCHED]: { sessionId: string };
 
   [XuanjiEvent.SYSTEM_ERROR]: { error: string; context?: any };
+
+  // === Memory System ===
+  [XuanjiEvent.MEMORY_STORED]: { type: 'entity' | 'fact' | 'event' | 'relation'; id: string; scene_tag: string };
+  [XuanjiEvent.MEMORY_SEARCHED]: { query: string; type: string; resultCount: number };
+  [XuanjiEvent.MEMORY_EXTRACTED]: { sessionId: string; entityCount: number; factCount: number; eventCount: number };
+  [XuanjiEvent.MEMORY_MAINTENANCE]: { action: string; detail?: string };
+  [XuanjiEvent.MEMORY_LEARNING_PROGRESS]: { goal: string; stage: 'started' | 'completed' | 'error'; depth?: string; result?: any; error?: string };
+  [XuanjiEvent.MEMORY_DELIVER_MESSAGE]: { userId: string; message: string; source: string };
 
   // Hook 事件 — 每个 hook 类型独立，payload = HookEventContext 展开
   [XuanjiEvent.HOOK_SUBAGENT_START]: { subAgentId: string; data: { task: string; depth: number; role: string; name: string; agentType: string; parentAgentId: string; streamToUser: boolean; scene?: string; executionMode: 'acp' | 'in-process' } };
@@ -70,7 +78,7 @@ export interface XuanjiEventMap {
   [XuanjiEvent.HOOK_COMPACT_POST]: { originalTokens: number; compressedTokens: number; compressionRatio: number };
   [XuanjiEvent.HOOK_ERROR]: { errorMessage: string; errorStack?: string };
   [XuanjiEvent.HOOK_MODEL_CLASSIFIER_START]: { userInput: string; model: string };
-  [XuanjiEvent.HOOK_MODEL_CLASSIFIER_END]: { userInput: string; model: string; agent: string; scene: string; complexity: string; durationMs: number };
+  [XuanjiEvent.HOOK_MODEL_CLASSIFIER_END]: { userInput: string; model: string; scene: string; complexity: string; durationMs: number };
   [XuanjiEvent.HOOK_INTENT_ANALYSIS_START]: { userInput: string };
   [XuanjiEvent.HOOK_INTENT_ANALYSIS_END]: { userInput: string; scene: string; complexity: string; confidence: number; matchMethod: string; intentClassifier: string };
   [XuanjiEvent.HOOK_TASK_PLANNING_START]: { userInput: string; scene: string; complexity: string };

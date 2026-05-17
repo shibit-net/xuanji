@@ -34,6 +34,7 @@ interface ExecutionStore {
     status?: TodoItem['status'];
     activeForm?: string;
   }) => void;
+  replaceTodos: (todos: TodoItem[]) => void;
 
   reset: () => void;
 }
@@ -91,5 +92,9 @@ export const useExecutionStore = create<ExecutionStore>((set, get) => ({
 
   reset: () => {
     set({ todos: [] });
+  },
+
+  replaceTodos: (todos) => {
+    set({ todos });
   },
 }));

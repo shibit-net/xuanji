@@ -292,8 +292,8 @@ export class SessionManager {
    * 归档消息到 JSONL 文件（实现 ArchiveDelegate 接口）
    * 由 ContextManager 在压缩前调用，确保旧消息不会永久丢失
    */
-  async archiveMessages(messages: Message[]): Promise<void> {
-    if (!this.activeSessionId || messages.length === 0) return;
+  async archiveMessages(messages: Message[]): Promise<string> {
+    if (!this.activeSessionId || messages.length === 0) return '';
 
     try {
       const archivePath = path.join(
@@ -310,8 +310,10 @@ export class SessionManager {
         stream.on('error', reject);
       });
       log.debug(`Archived ${messages.length} messages for session ${this.activeSessionId}`);
+      return `[上下文摘要] 之前 ${messages.length} 条消息已归档。`;
     } catch (err) {
       log.warn('Failed to archive messages:', err);
+      return '';
     }
   }
 

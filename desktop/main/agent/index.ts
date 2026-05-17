@@ -79,6 +79,7 @@ function initChatSession(): Promise<boolean> {
       }
 
       const userId = authState.user.userId;
+      const nickname = authState.user.nickName || '';
 
       // 通知 renderer 初始化开始
       const mainWindow = getMainWindow();
@@ -235,7 +236,7 @@ function initChatSession(): Promise<boolean> {
       // 创建并绑定 agent 消息通道时，已经启用了自动转发功能
 
       // 发送 init 消息触发子进程初始化，并传递 userId
-      agentChannel.send('init', { userId });
+      agentChannel.send('init', { userId, userName: nickname });
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {

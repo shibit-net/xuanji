@@ -91,6 +91,19 @@ function registerAdvancedIpcHandlers() {
     }
   });
 
+  ipcMain.handle('context:status', async () => {
+    if (!isSessionReady()) {
+      return { success: false, error: '会话未初始化' };
+    }
+
+    try {
+      return await sendRequest('context-status');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  });
+
   ipcMain.handle('get-diagnostics', async () => {
     if (!isSessionReady()) {
       return { success: false, error: '会话未初始化' };

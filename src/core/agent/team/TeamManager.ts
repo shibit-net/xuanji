@@ -28,6 +28,7 @@ import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { AgentRegistry } from '../AgentRegistry';
 import type { ProviderManager } from '@/core/providers/ProviderManager';
+import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { DEFAULT_TEAM_CONFIG } from './types';
 import type { SubAgentResult } from '../factory/AgentFactory';
 import { AgentFactory } from '../factory/AgentFactory';
@@ -73,6 +74,7 @@ export class TeamManager implements ITeamManager {
     providerManager?: ProviderManager,
     workingDir?: string,
     teamId?: string,
+    layeredPromptBuilder?: LayeredPromptBuilder,
   ) {
     this.mainProvider = mainProvider;
     this.registry = registry;
@@ -90,6 +92,7 @@ export class TeamManager implements ITeamManager {
     this.agentRegistry = agentRegistry; // 保存引用
 
     this.agentFactory = new AgentFactory(registry);
+    if (layeredPromptBuilder) this.agentFactory.setLayeredPromptBuilder(layeredPromptBuilder);
     if (hookRegistry) this.agentFactory.setHookRegistry(hookRegistry);
     this.agentFactory.setParentProvider(mainProvider);
     this.agentFactory.setParentConfig(agentConfig);

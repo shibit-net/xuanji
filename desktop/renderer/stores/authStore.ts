@@ -42,6 +42,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   isLoadingAccounts: false,
 
   login: async (email: string, password: string) => {
+    if (!window.electron?.authLogin) {
+      set({ error: '应用未就绪' });
+      return false;
+    }
     set({ isLoading: true, error: null });
     try {
       const result = await window.electron.authLogin(email, password);
@@ -72,6 +76,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   logout: async () => {
+    if (!window.electron?.authLogout) {
+      set({ isAuthenticated: false, user: null });
+      return;
+    }
     try {
       await window.electron.authLogout();
       set({ isAuthenticated: false, user: null });
@@ -84,6 +92,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   checkAuth: async () => {
+    if (!window.electron?.authCheck) {
+      set({ isLoading: false, isAuthenticated: false, user: null });
+      return;
+    }
     set({ isLoading: true });
     try {
       const result = await window.electron.authCheck();
@@ -110,6 +122,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   clearError: () => set({ error: null }),
 
   loadSavedAccounts: async () => {
+    if (!window.electron?.authGetSavedAccounts) {
+      set({ isLoadingAccounts: false, savedAccounts: [] });
+      return;
+    }
     set({ isLoadingAccounts: true });
     try {
       const accounts = await window.electron.authGetSavedAccounts();
@@ -123,6 +139,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   removeAccount: async (email: string) => {
+    if (!window.electron?.authRemoveAccount) {
+      return false;
+    }
     try {
       const result = await window.electron.authRemoveAccount(email);
       if (result.success) {

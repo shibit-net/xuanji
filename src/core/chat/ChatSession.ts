@@ -103,6 +103,12 @@ export class ChatSession {
     try {
       await this.callbacks?.onBeforeExecution?.(input);
 
+      // 自动加载记忆上下文：在 agent 执行前搜索相关记忆并注入 system prompt
+      await this.autoLoadMemoryContext(input);
+
+      // 纠错检测：在 agent 执行前检测用户纠正意图
+      this.detectCorrection(input);
+
       if (this._useNewPath && this._stateMachine) {
         this._stateMachine.transition({ type: 'AGENT_STARTED' });
       } else {
@@ -125,6 +131,11 @@ export class ChatSession {
             this.stateTracker.transitionTo('executing');
           }
           sessionCallbacks?.onToolStart?.(id, name, input);
+        },
+        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+          // PostToolUse 兜底：检测子 Agent 工具完成，触发 LLM 记忆提取
+          this.postToolUseFallback(name, { id, result, isError });
+          sessionCallbacks?.onToolEnd?.(id, name, result, isError);
         },
       } as any);
       log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
@@ -162,7 +173,143 @@ export class ChatSession {
         this.drainPendingQueue();
       }
       throw error;
+    } finally {
+      // 异步提取会话记忆，不阻塞用户
+      this.scheduleMemoryExtraction();
     }
+  }
+
+  /**
+   * PostToolUse 兜底：子 Agent（task/agent_team）完成时检测 LLM 是否调了 memory_store。
+   * 如果未调用且结果包含有意义的信息，通过 HookRegistry.emit 触发异步提取。
+   */
+  private postToolUseFallback(toolName: string, _ctx: { id: string; result: string; isError: boolean }): void {
+    const subAgentTools = ['task', 'agent_team'];
+    if (!subAgentTools.includes(toolName)) return;
+
+    const contextManager = this.agentLoop.getContextManager();
+    const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+    if (!memoryManager) return;
+
+    // 检查是否最近已经调了 memory_store
+    if (memoryManager.wasMemoryStoredRecently(`posttooluse:${toolName}`, 60000)) return;
+
+    // 标记以防止同一轮重复触发
+    memoryManager.recordToolCall('posttooluse_dedup', undefined, `posttooluse:${toolName}`);
+
+    // 异步提取
+    setTimeout(() => {
+      const messages = contextManager.getMessages().slice(-10);
+      if (messages.length > 0) {
+        memoryManager.extractFromSession(messages).catch(err => {
+          log.error('PostToolUse fallback extraction failed:', err);
+        });
+      }
+    }, 3000);
+  }
+
+  /**
+   * 自动加载记忆上下文：每轮对话开始前搜索相关记忆并注入 system prompt。
+   * 确保 agent 无需主动调用 memory_search 即可获取相关上下文。
+   */
+  private async autoLoadMemoryContext(input: string): Promise<void> {
+    try {
+      const contextManager = this.agentLoop.getContextManager();
+      const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+      if (!memoryManager) return;
+
+      // 并行：搜索相关记忆 + 时间感知
+      const [results] = await Promise.all([
+        memoryManager.search({ query: input, limit: 5 }),
+      ]);
+
+      // 时间感知（CareManager）
+      let timeContext = '';
+      const careManager = (memoryManager as any).careManager;
+      if (careManager) {
+        try {
+          // 从 session 获取上次活跃时间
+          const lastActiveAt = (this as any)._lastActiveAt || Date.now() - 3600000;
+          const awareness = careManager.buildTimeAwareness(lastActiveAt);
+          if (awareness) {
+            timeContext = `\n\n${awareness}`;
+          }
+        } catch { /* ok */ }
+      }
+      (this as any)._lastActiveAt = Date.now();
+
+      if (results.length === 0 && !timeContext) {
+        contextManager.setSystemPromptSuffix('', 'memory-context');
+        return;
+      }
+
+      const sourceLabels: Record<string, string> = { entities: '实体', facts: '事实', events: '事件', episodes: '叙事' };
+      const lines = results.slice(0, 5).map((r: any) => {
+        const source = sourceLabels[r.source_table] || r.source_table;
+        return `- [${source}] ${r.title}: ${r.content}`;
+      });
+
+      const memorySection = lines.length > 0
+        ? `## Relevant Memory (auto-loaded)\n${lines.join('\n')}\n\nApply these remembered facts and preferences in your response. If they conflict with the user's current request, follow the user's latest instruction and store the correction.`
+        : '';
+
+      const suffix = `${memorySection}${timeContext}`;
+      contextManager.setSystemPromptSuffix(suffix, 'memory-context');
+    } catch (err) {
+      // 记忆加载失败不应阻塞对话
+      log.warn('autoLoadMemoryContext failed:', err);
+    }
+  }
+
+  /**
+   * 纠错检测：检测用户消息中的纠正意图（"不对"、"不是"、"错了"等），
+   * 以 importance=5 自动存储纠正记忆，确保 agent 不会重复犯错。
+   * 设计文档：docs/memory-system-part-4-correction.md §2.2
+   */
+  private detectCorrection(input: string): void {
+    const correctionPatterns = [
+      /(?:不对|不是|错了|错误|更正|纠正)(?:\s*[，,]\s*)(.+)/,
+      /(?:应该说?|正确(?:的|说法)?是?|应该是)\s*(.+)/,
+      /(?:记住|记着|别忘了|以后)\s*(.+)/,
+    ];
+
+    for (const pattern of correctionPatterns) {
+      const match = input.match(pattern);
+      if (!match) continue;
+
+      const correction = match[1]?.trim();
+      if (!correction || correction.length < 3) continue;
+
+      log.info(`Correction detected: "${correction}"`);
+
+      // 异步存储，不阻塞用户
+      const contextManager = this.agentLoop.getContextManager();
+      const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+      if (memoryManager) {
+        memoryManager.storeFact({
+          title: `用户纠正: ${correction.slice(0, 80)}`,
+          content: `用户说: "${input.slice(0, 200)}"。纠正内容: ${correction}`,
+          source: 'user_correction',
+        }).catch(err => log.error('Correction storage failed:', err));
+      }
+      break;
+    }
+  }
+
+  /** 异步提取会话记忆，延迟 5 秒执行 */
+  private scheduleMemoryExtraction(): void {
+    const contextManager = this.agentLoop.getContextManager();
+    const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+    if (!memoryManager) return;
+
+    const messages = contextManager.getMessages();
+    if (messages.length === 0) return;
+
+    setTimeout(() => {
+      memoryManager.extractFromSession(messages).catch(err => {
+        log.error('Session memory extraction failed:', err);
+      });
+    }, 5000);
   }
 
   /** 由 IntentRouter 调用，设置当前执行的 agentId。

@@ -73,16 +73,32 @@ export class ConfigManager {
     const agentsDir = path.join(this.userConfigDir, 'agents');
     if (!fs.existsSync(agentsDir)) return [];
 
-    return fs.readdirSync(agentsDir)
-      .filter(f => f.endsWith('.json') || f.endsWith('.yaml') || f.endsWith('.yml'))
-      .map(f => {
-        try {
-          const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
-          const config = f.endsWith('.json') ? JSON.parse(content) : parseYaml(content);
-          return this.applyAgentOverride(config as AgentConfig) as AgentConfig;
-        } catch { return null; }
-      })
-      .filter((c): c is AgentConfig => c !== null);
+    // 按 agentId 分组收集 YAML（模板基准）和 JSON（用户覆盖）
+    // 避免同一 agentId 的 .yaml 和 .json 因 fs.readdirSync 顺序不确定而随机返回
+    const yamlConfigs = new Map<string, AgentConfig>();
+    const jsonConfigs = new Map<string, AgentConfig>();
+
+    for (const f of fs.readdirSync(agentsDir)) {
+      const isJson = f.endsWith('.json');
+      if (!isJson && !f.endsWith('.yaml') && !f.endsWith('.yml')) continue;
+      try {
+        const content = fs.readFileSync(path.join(agentsDir, f), 'utf-8');
+        const config = (isJson ? JSON.parse(content) : parseYaml(content)) as AgentConfig;
+        (isJson ? jsonConfigs : yamlConfigs).set(config.id, config);
+      } catch { /* skip malformed */ }
+    }
+
+    // 合并：YAML 为基础，JSON 字段覆盖（保留 YAML 中未在 JSON 出现的默认字段如 tools）
+    const merged = new Map<string, AgentConfig>();
+    for (const [id, yaml] of yamlConfigs) {
+      merged.set(id, yaml);
+    }
+    for (const [id, json] of jsonConfigs) {
+      const yaml = merged.get(id);
+      merged.set(id, yaml ? { ...yaml, ...json } : json);
+    }
+
+    return [...merged.values()].map(c => this.applyAgentOverride(c));
   }
 
   getAgentConfig(agentId: string): AgentConfig | null {

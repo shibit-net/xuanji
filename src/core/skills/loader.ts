@@ -37,10 +37,15 @@ export class SkillLoader {
     const {
       loadBuiltin = true,
       loadCustom = true,
-      customPath = path.join(homedir(), '.xuanji', 'skills'),
+      customPath: rawPath = path.join(homedir(), '.xuanji', 'skills'),
       filter,
       timeout = 30000,
     } = options;
+
+    // 展开 ~ 为实际 home 目录
+    const customPath = rawPath.startsWith('~/')
+      ? path.join(homedir(), rawPath.slice(2))
+      : rawPath;
 
     const loadPromises: Promise<void>[] = [];
 
@@ -50,6 +55,8 @@ export class SkillLoader {
 
     if (loadCustom) {
       loadPromises.push(this.loadCustomSkills(customPath));
+      loadPromises.push(this.loadLearnedSkills(customPath));
+      loadPromises.push(this.loadInstalledSkills(customPath));
     }
 
     // 设置超时
@@ -105,6 +112,30 @@ export class SkillLoader {
       await this.loadSkillsFromDirectory(fullPath);
     } catch {
       // 自定义目录不存在时，静默失败
+    }
+  }
+
+  /**
+   * 加载自学习 Skill (learned/)
+   */
+  private async loadLearnedSkills(customPath: string): Promise<void> {
+    try {
+      const learnedDir = path.join(customPath, 'learned');
+      await this.loadSkillsFromDirectory(learnedDir);
+    } catch {
+      // 目录不存在时静默跳过
+    }
+  }
+
+  /**
+   * 加载外部安装的 Skill (installed/)
+   */
+  private async loadInstalledSkills(customPath: string): Promise<void> {
+    try {
+      const installedDir = path.join(customPath, 'installed');
+      await this.loadSkillsFromDirectory(installedDir);
+    } catch {
+      // 目录不存在时静默跳过
     }
   }
 

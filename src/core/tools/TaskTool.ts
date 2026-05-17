@@ -53,10 +53,10 @@ export class TaskTool extends BaseTool {
     '• For research tasks also add: web_fetch',
     '• Never assume the sub-agent can access files without these tools.',
     '',
-    'ASYNC (async=true)：后台运行，完成后系统自动通知。主 agent 默认异步，可继续处理其他输入。',
-    'SYNC (async=false)：等待子 agent 完成并直接返回结果。子 agent 输出会实时显示在对话框中。',
-    '当你需要子 agent 的输出来回答用户时，使用 async=false 同步等待。',
-    '当任务是独立的后台分析、用户不等待结果时，使用 async=true 异步执行。',
+    'ASYNC (async=true): Runs in background. System notifies on completion. Main agent defaults to async to handle other input.',
+    'SYNC (async=false): Waits for sub-agent and returns results directly. Output streams in real-time.',
+    'Use async=false when you need the sub-agent output to answer the user.',
+    'Use async=true for independent background analysis where the user is not waiting.',
     '',
     'Example:',
     '  task({',
@@ -74,46 +74,46 @@ export class TaskTool extends BaseTool {
     properties: {
       description: {
         type: 'string',
-        description: '完整任务描述（子 agent 无法访问父对话历史，须包含目标、背景、文件路径、输出格式）',
+        description: 'Complete task description (sub-agent has NO access to parent conversation — include goals, context, file paths, output format)',
       },
       subagent_type: {
         type: 'string',
-        description: 'Agent ID（必需）。优先使用 match_agent 推荐结果；分数 < 0.5 时使用自定义 ID 并搭配 system_prompt + tools',
+        description: 'Agent ID (required). Use match_agent result when score >= 0.5; use custom ID with system_prompt + tools when score < 0.5',
       },
       scene: {
         type: 'string',
         description: [
-          '场景类型，定义子 agent 的行为模式和边界。',
-          '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
-          '不要自行编造 scene ID。',
-          '如果没有合适的场景，可以不传 scene 参数。',
+          'Scene type defining sub-agent behavior and boundaries.',
+          '**Must query list_scenes first and pick a valid scene ID**.',
+          'Do not invent scene IDs.',
+          'Omit if no suitable scene exists.',
         ].join('\n'),
       },
       isolation: {
         type: 'string',
         enum: ['none', 'worktree'],
-        description: '隔离模式。worktree 创建临时 git worktree。默认 none',
+        description: 'Isolation mode. worktree creates a temporary git worktree. Default: none',
       },
       timeout: {
         type: 'number',
-        description: '超时（毫秒），默认 1800000（30分钟）',
+        description: 'Timeout in milliseconds. Default: 1800000 (30 minutes)',
       },
       system_prompt: {
         type: 'string',
-        description: '自定义系统提示词。临时 agent 必需（定义角色和专长），预置 agent 可选（覆盖默认）',
+        description: 'Custom system prompt. Required for temporary agents (defines role and expertise). Optional for preset agents (overrides default)',
       },
       tools: {
         type: 'array',
         items: { type: 'string' },
-        description: '子 agent 可用的工具名称列表。子 agent 默认没有任何工具，必须显式传入。至少包含 read_file, glob, grep, list_directory；编码任务加 write_file, edit_file, bash；研究任务加 web_fetch',
+        description: 'List of tool names available to the sub-agent. Sub-agents have NO tools by default — must be explicitly provided. Minimum: read_file, glob, grep, list_directory. Coding: add write_file, edit_file, bash. Research: add web_fetch',
       },
       stream_to_user: {
         type: 'boolean',
-        description: '子 agent 输出是否直送用户。true=独立任务输出直达用户，false=多 agent 协作由主 agent 整合',
+        description: 'Whether sub-agent output streams directly to user. true = independent task output goes to user. false = multi-agent collaboration, main agent integrates',
       },
       async: {
         type: 'boolean',
-        description: '执行模式。true=异步（后台运行，完成后通知），false=同步（等待完成，输出实时显示在对话框）。主 agent 默认异步，子 agent 默认同步。当子 agent 的输出是用户当前问题所需答案时，设为 false。',
+        description: 'Execution mode. true = async (background, notification on completion). false = sync (wait for completion, output streams in real-time). Main agent defaults to async, sub-agents default to sync. Set false when the sub-agent output is the answer the user needs.',
       },
     },
     required: ['description', 'subagent_type'],
@@ -144,6 +144,7 @@ export class TaskTool extends BaseTool {
     hookRegistry?: HookRegistry;
     depth?: number;
     agentId?: string;
+    layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
   }): void {
     this.providerManager = deps.providerManager;
     this.agentRegistry = deps.agentRegistry;
@@ -156,6 +157,9 @@ export class TaskTool extends BaseTool {
 
     if (!this.agentFactory) {
       this.agentFactory = new AgentFactory(this.registry);
+    }
+    if (deps.layeredPromptBuilder) {
+      this.agentFactory.setLayeredPromptBuilder(deps.layeredPromptBuilder);
     }
     if (this.parentProvider) {
       this.agentFactory.setParentProvider(this.parentProvider);
@@ -279,7 +283,7 @@ export class TaskTool extends BaseTool {
     const teamCtx = TeamContext.get();
     if (teamCtx && teamCtx.strategy !== 'hierarchical') {
       return this.error(
-        'task 不能在 agent_team 内部使用。agent_team 的成员是执行单元，不能创建子 agent。',
+        'task cannot be used inside agent_team. agent_team members are execution units and cannot create sub-agents.',
       );
     }
 
@@ -409,7 +413,7 @@ export class TaskTool extends BaseTool {
           onProgress({ phase: 'synthesizing', completedMembers: 0 });
 
           return {
-            content: `后台任务执行失败: ${errMsg}`,
+            content: `Background task execution failed: ${errMsg}`,
             isError: true,
             metadata: {
               agentName: self.getAgentName(params.role),
@@ -543,17 +547,18 @@ export class TaskTool extends BaseTool {
     const safeDesc = description || '';
     return this.success(
       [
-        '[Task 已启动 - 后台运行]',
-        `任务组 ID: ${groupId}`,
+        '[Task Started - Running in Background]',
+        `Group ID: ${groupId}`,
         `Agent: ${this.getAgentName(role)}`,
-        `任务: ${safeDesc.slice(0, 200)}`,
+        `Task: ${safeDesc.slice(0, 200)}`,
         '',
-        '注意：异步任务不支持 stream_to_user。后台任务完成后系统会自动通知你汇总结果。',
+        '⛔ Your turn ends NOW. Do NOT continue executing. Stop immediately.',
         '',
-        '不要主动查询任务状态或等待——系统会逐个通知你。继续做你当前的工作即可。',
+        'The system will notify you when the background task completes. Only then should you resume your unfinished work.',
+        'Until you receive the system notification, DO NOT query task status. End your response right now.',
         '',
-        '重要：异步任务的输出结果用户不可见，系统只会通过内部上下文告诉你。',
-        '你必须口头向用户汇报结果，不能说"已经呈现在上下文"之类的话。',
+        'IMPORTANT: Async task output is not visible to the user. The system will inject results into your context.',
+        'When notified, you MUST report the results to the user verbally. Never say "the results are shown above."',
         '',
         '---',
       ].join('\\\\n'),
@@ -590,13 +595,13 @@ export class TaskTool extends BaseTool {
     const referenceHint = [
       '',
       '---',
-      `⚠️ 当你向上汇报此子agent的执行结果时，必须为每条关键发现附带可点击引用。`,
-      `引用格式（直接写在正文中，不要放在代码块或引用块里）：`,
+      `⚠️ When reporting this sub-agent's results to the user, every key finding MUST include a clickable citation.`,
+      `Citation format (write inline, NOT inside code blocks or blockquotes):`,
       '',
-      `📎 [${agentName}]："从上方输出中逐字复制一句原话"`,
+      `📎 [${agentName}]: "Copy a sentence verbatim from the output above"`,
       '',
-      `引用名称必须是 "${agentName}"，否则用户无法点击查看完整输出。`,
-      `每条结论都要有对应引用，不能只说"有报告指出"。`,
+      `The citation name MUST be "${agentName}", otherwise the user cannot click to view the full output.`,
+      `Every conclusion needs a corresponding citation. Never say "a report indicates" without a citation.`,
     ].join('\n');
 
     const summaryInstruction = (() => {
@@ -605,15 +610,15 @@ export class TaskTool extends BaseTool {
       return [
         '',
         '---',
-        '⚠️ **上下文管理指令（你必须立即执行）**',
+        '⚠️ **Context Management Directive (execute immediately)**',
         '',
-        '以上是子 agent 的完整执行输出。为节省上下文预算，请在你的回复中：',
-        '1. 以 `[SUMMARY]` 开头（单独一行）',
-        '2. 用 3-5 条要点提炼该子 agent 的关键发现和结论',
-        '3. 以 `[/SUMMARY]` 结尾（单独一行）',
-        '4. 摘要完成后正常继续你的工作（委派下一个成员或综合汇报）',
+        'Above is the complete output from a sub-agent. To save context budget, in your response:',
+        '1. Begin with `[SUMMARY]` on its own line',
+        '2. Summarize the sub-agent\'s key findings in 3-5 bullet points',
+        '3. End with `[/SUMMARY]` on its own line',
+        '4. After the summary, continue your work (delegate next member or synthesize report)',
         '',
-        '注意：摘要必须客观准确，不要遗漏关键技术细节或重要结论。',
+        'Note: Summary must be objective and accurate. Do not omit critical technical details or key conclusions.',
       ].join('\n');
     })();
 

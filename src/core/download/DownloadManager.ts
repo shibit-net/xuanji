@@ -14,7 +14,13 @@ import { logger } from '../logger/index.js';
 import { homedir } from 'node:os';
 const log = logger.child({ module: 'DownloadManager' });
 
-const DOWNLOAD_STATE_FILE = path.join(homedir(), '.xuanji', 'download-state.json');
+const DOWNLOAD_STATE_DIR = path.join(homedir(), '.xuanji');
+// 主进程和子进程使用独立状态文件，避免重复恢复
+function getStateFilePath(): string {
+  // Electron 主进程 process.type === 'browser'，子进程为 'worker' 或其他
+  const suffix = (process as any).type === 'browser' ? 'main' : 'child';
+  return path.join(DOWNLOAD_STATE_DIR, `download-state-${suffix}.json`);
+}
 
 export interface DownloadTask {
   id: string;
@@ -60,7 +66,7 @@ export class DownloadManager extends EventEmitter {
     this.instanceId = ++DownloadManager.instanceCounter;
     this.shouldRestoreTasks = shouldRestoreTasks;
     log.info(`[DownloadManager] 创建实例 #${this.instanceId}, shouldRestoreTasks=${shouldRestoreTasks}`);
-    log.info(`[DownloadManager] Constructor called, DOWNLOAD_STATE_FILE=${DOWNLOAD_STATE_FILE}, shouldRestoreTasks=${shouldRestoreTasks}`);
+    log.info(`[DownloadManager] Constructor called, getStateFilePath()=${getStateFilePath()}, shouldRestoreTasks=${shouldRestoreTasks}`);
     if (shouldRestoreTasks) {
       this.loadState();
     }
@@ -92,13 +98,13 @@ export class DownloadManager extends EventEmitter {
    */
   private loadState(): void {
     try {
-      log.info(`[DownloadManager] Loading state from: ${DOWNLOAD_STATE_FILE}`);
-      if (!fs.existsSync(DOWNLOAD_STATE_FILE)) {
+      log.info(`[DownloadManager] Loading state from: ${getStateFilePath()}`);
+      if (!fs.existsSync(getStateFilePath())) {
         log.info('[DownloadManager] No state file found, starting fresh');
         return;
       }
 
-      const data = fs.readFileSync(DOWNLOAD_STATE_FILE, 'utf-8');
+      const data = fs.readFileSync(getStateFilePath(), 'utf-8');
       const savedTasks: DownloadTask[] = JSON.parse(data);
       log.info(`[DownloadManager] Found ${savedTasks.length} saved tasks`);
 
@@ -140,13 +146,13 @@ export class DownloadManager extends EventEmitter {
     }
 
     try {
-      const dir = path.dirname(DOWNLOAD_STATE_FILE);
+      const dir = path.dirname(getStateFilePath());
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
       const tasks = Array.from(this.tasks.values());
-      fs.writeFileSync(DOWNLOAD_STATE_FILE, JSON.stringify(tasks, null, 2), 'utf-8');
+      fs.writeFileSync(getStateFilePath(), JSON.stringify(tasks, null, 2), 'utf-8');
       log.info(`[DownloadManager] Saved ${tasks.length} tasks to state file`);
     } catch (err) {
       log.warn('[DownloadManager] Failed to save state:', err);

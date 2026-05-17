@@ -6,8 +6,22 @@
 import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/core/types';
 import { LocalModelLoader } from '@/core/agent/dispatch/LocalModelLoader';
 import { logger } from '@/core/logger';
+import { homedir } from 'node:os';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 const log = logger.child({ module: 'LocalLlamaAdapter' });
+
+const MODEL_DIR = path.join(homedir(), '.xuanji', 'models');
+
+// 预置模型文件名到 ID 的映射（用于去重和显示名）
+const PRESET_FILENAMES = new Set([
+  'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+  'chatglm3-6b.Q4_K_M.gguf',
+  'chatglm3-6b.Q3_K_M.gguf',
+  'glm-4-9b-chat.Q4_K_M.gguf',
+]);
 
 // 本地可用模型列表（预置）
 export const LOCAL_LLAMA_MODELS = [
@@ -28,15 +42,36 @@ const MODEL_IDS: Record<LocalLlamaModelType, string> = {
   'glm4-9b-q4': 'hf:mradermacher/glm-4-9b-chat-GGUF:glm-4-9b-chat.Q4_K_M.gguf',
 };
 
+/** 扫描模型目录获取用户自行下载的 GGUF 文件名 */
+function scanDownloadedModels(): string[] {
+  try {
+    if (!fs.existsSync(MODEL_DIR)) return [];
+    return fs.readdirSync(MODEL_DIR)
+      .filter((f) => f.endsWith('.gguf') && !PRESET_FILENAMES.has(f));
+  } catch {
+    return [];
+  }
+}
+
 export class LocalLlamaAdapter implements ILLMProvider {
   readonly name = 'local-llama';
-  readonly models: string[] = [...LOCAL_LLAMA_MODELS];
+
+  /** 动态模型列表 = 预置 + 扫描到的用户下载模型 */
+  get models(): string[] {
+    const scanned = scanDownloadedModels();
+    return [...LOCAL_LLAMA_MODELS, ...scanned];
+  }
 
   private loaders = new Map<string, LocalModelLoader>();
 
   isSupported(model: string): boolean {
+    // 用户自行下载的 .gguf 文件
     if (model.endsWith('.gguf')) return true;
-    return LOCAL_LLAMA_MODELS.includes(model as LocalLlamaModelType);
+    // 预置模型
+    if ((LOCAL_LLAMA_MODELS as readonly string[]).includes(model)) return true;
+    // 扫描到的模型
+    const scanned = scanDownloadedModels();
+    return scanned.includes(model);
   }
 
   private getLoader(model: string, systemPrompt?: string, contextSize?: number): LocalModelLoader {

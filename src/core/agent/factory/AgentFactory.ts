@@ -15,7 +15,7 @@ import { getConfigManager, type ConfigManager } from '@/core/config/ConfigManage
 import { ProviderPool } from '@/core/providers/ProviderPool';
 import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
 import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
-import type { PromptComposer, ComposeContext, SubAgentComposeContext } from '@/core/prompt/PromptComposer';
+import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
@@ -106,14 +106,13 @@ interface PooledAgent {
 
 export class AgentFactory {
   private providerPool: ProviderPool;
-  private promptComposer: PromptComposer | null = null;
+  private layeredPromptBuilder: LayeredPromptBuilder | null = null;
   private baseRegistry: IToolRegistry;
   private agentPool = new Map<string, PooledAgent>();
   private maxPoolSize = 10;
   private maxIdleMs = 5 * 60 * 1000;
   private hookRegistry: HookRegistry | null = null;
   private temporaryAgents = new Map<string, ConfigurableAgentConfig>();
-  private scenePromptCache = new Map<string, string>();
   private _parentProvider?: ILLMProvider;
   private _parentConfig?: AgentConfig;
 
@@ -135,8 +134,8 @@ export class AgentFactory {
     );
   }
 
-  setPromptComposer(composer: PromptComposer): void {
-    this.promptComposer = composer;
+  setLayeredPromptBuilder(builder: LayeredPromptBuilder): void {
+    this.layeredPromptBuilder = builder;
   }
 
   setHookRegistry(hooks: HookRegistry): void {
@@ -382,29 +381,7 @@ export class AgentFactory {
     const startTime = Date.now();
     let subAgentId: string | null = null;
 
-    // 1. 场景 prompt 加载
-    const scenesToLoad = options.scenes && options.scenes.length > 0
-      ? options.scenes
-      : options.scene ? [options.scene] : [];
-    if (scenesToLoad.length > 0 && !options.scenePrompt && this.promptComposer) {
-      try {
-        const loadedScenes: string[] = [];
-        for (const rawScene of scenesToLoad) {
-          const normalizedScene = rawScene.replace(/^l[12]-/, '');
-          const sceneContent = await this.loadScenePrompt(normalizedScene);
-          if (sceneContent) {
-            loadedScenes.push(sceneContent);
-          }
-        }
-        if (loadedScenes.length > 0) {
-          options.scenePrompt = loadedScenes.join('\n\n');
-        }
-      } catch (err) {
-        log.warn(`Failed to load scene prompts:`, err);
-      }
-    }
-
-    // 2. 获取 agent 配置（用于 Hook 元数据）
+    // 1. 获取 agent 配置（用于 Hook 元数据）
     let agentConfig: ReturnType<ConfigManager['getAgentConfig']> = null;
     try {
       const cfgMgr = getConfigManager();
@@ -456,6 +433,11 @@ export class AgentFactory {
       });
       agentLoop = result.agentLoop;
       subAgentId = result.subAgentId;
+
+      // 将 layered prompt 注入 options，确保 ACP 子进程也能使用
+      if (!options.systemPrompt && result.config.systemPrompt) {
+        options.systemPrompt = result.config.systemPrompt;
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -926,38 +908,6 @@ export class AgentFactory {
 
   // ─── Private ────────────────────────────────────────────
 
-  /** 加载场景 prompt（带缓存） */
-  private async loadScenePrompt(scene: string): Promise<string | undefined> {
-    const cached = this.scenePromptCache.get(scene);
-    if (cached !== undefined) return cached || undefined;
-
-    if (!this.promptComposer) {
-      this.scenePromptCache.set(scene, '');
-      return undefined;
-    }
-
-    try {
-      const l1Components = (this.promptComposer as any).l1Components;
-      if (!l1Components) {
-        this.scenePromptCache.set(scene, '');
-        return undefined;
-      }
-
-      for (const comp of l1Components.values()) {
-        if (comp.scenes?.includes(scene)) {
-          const content = await comp.render({});
-          this.scenePromptCache.set(scene, content || '');
-          return content || undefined;
-        }
-      }
-      this.scenePromptCache.set(scene, '');
-      return undefined;
-    } catch {
-      this.scenePromptCache.set(scene, '');
-      return undefined;
-    }
-  }
-
   private generateTempSystemPrompt(role: string, capabilities: string[], taskDescription?: string): string {
     const prompt = `你是一位 ${role}。
 
@@ -1000,40 +950,36 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     agentCfg: NonNullable<ReturnType<ConfigManager['getAgentConfig']>>,
     options: AgentCreateOptions,
   ): Promise<string> {
-    // Agent 自身的 systemPrompt
-    let prompt = (agentCfg as any).systemPrompt || '';
-
-    if (this.promptComposer) {
-      const composed = await this.promptComposer.composeForMainAgent({
-        userMessage: options.taskDescription || '',
+    if (this.layeredPromptBuilder) {
+      const result = await this.layeredPromptBuilder.build({
         scene: options.scene || 'coding',
         complexity: options.complexity || 'standard',
-        agent: agentCfg.id,
-        intentHint: '',
       });
-      prompt = composed.systemPrompt + '\n\n' + prompt;
+      return result.prompt;
     }
 
-    return prompt;
+    return (agentCfg as any).systemPrompt || '';
   }
 
   private async buildSubPrompt(
     agentCfg: NonNullable<ReturnType<ConfigManager['getAgentConfig']>>,
     options: AgentCreateOptions,
   ): Promise<string> {
-    let prompt = (agentCfg as any).systemPrompt || '';
+    let prompt = '';
 
-    if (this.promptComposer) {
-      const composed = await this.promptComposer.composeForSubAgent({
+    if (this.layeredPromptBuilder) {
+      const result = await this.layeredPromptBuilder.buildForSubAgent({
         agentId: agentCfg.id,
+        agentConfig: agentCfg,
         scene: options.scene || 'coding',
-        taskDescription: options.taskDescription || '',
-        depth: options.depth ?? 0,
+        includeProjectContext: true,
       });
-      prompt = composed.systemPrompt + '\n\n' + prompt;
+      prompt = result.prompt;
+    } else {
+      prompt = (agentCfg as any).systemPrompt || '';
     }
 
-    prompt += `\n\n---\n# SubAgent 模式\nDepth: ${options.depth ?? 0}, Role: ${agentCfg.id}\n不要提出澄清问题，专注于完成分配的任务。`;
+    prompt += `\n\n---\n# SubAgent Mode\nDepth: ${options.depth ?? 0}, Role: ${agentCfg.id}\nDo not ask clarifying questions. Focus on completing the assigned task.`;
 
     return prompt;
   }

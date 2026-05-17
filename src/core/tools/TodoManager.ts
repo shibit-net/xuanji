@@ -449,7 +449,9 @@ export class TodoManager {
     const todos = Array.from(this.todos.values())
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
-    if (todos.length === 0) return '';
+    if (todos.length === 0) {
+      return '\n<!--TODO_PROGRESS:{"completed":0,"total":0,"items":[]}-->';
+    }
 
     const completed = todos.filter((t) => t.status === 'completed').length;
     const total = todos.length;

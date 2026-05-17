@@ -18,43 +18,55 @@ import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
-import { useExecutionStore } from '../stores/executionStore';
+import { useExecutionStore, type TodoItem } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
 
 // 解析 TODO_PROGRESS 注释，同步到 executionStore
+// 采用全量同步策略：取最后一个完整 JSON，替换整个 store 的 todos
 function parseTodoProgress(text: string): void {
   const regex = /<!--TODO_PROGRESS:(.*?)-->/g;
   let match: RegExpExecArray | null;
+  let lastData: { completed: number; total: number; items: Array<{ id: string; title: string; description: string; status: string; activeForm?: string }> } | null = null;
+
   while ((match = regex.exec(text)) !== null) {
     try {
-      const data = JSON.parse(match[1]);
-      if (!data?.items) continue;
-      const execStore = useExecutionStore.getState();
-      const existingIds = new Set(execStore.todos.map(t => t.id));
-      for (const item of data.items) {
-        if (existingIds.has(item.id)) {
-          execStore.updateTodo({
-            id: item.id,
-            status: item.status,
-            activeForm: item.activeForm,
-          });
-        } else {
-          execStore.addTodo({
-            id: item.id,
-            subject: item.title || '',
-            description: item.description || '',
-            activeForm: item.activeForm,
-          });
-          // 立即更新状态（create 默认 pending，需要同步实际状态）
-          if (item.status !== 'pending') {
-            execStore.updateTodo({ id: item.id, status: item.status });
-          }
-        }
-      }
+      lastData = JSON.parse(match[1]);
     } catch { /* JSON 不完整，等待后续 fragment */ }
   }
+
+  if (!lastData) return;
+
+  const execStore = useExecutionStore.getState();
+  const existingMap = new Map(execStore.todos.map(t => [t.id, t]));
+
+  const newTodos = lastData.items.map((item) => {
+    const existing = existingMap.get(item.id);
+    if (existing) {
+      return {
+        ...existing,
+        subject: item.title || existing.subject,
+        description: item.description || existing.description,
+        status: (item.status as TodoItem['status']) || existing.status,
+        activeForm: item.activeForm ?? existing.activeForm,
+        startedAt: item.status === 'in_progress' && !existing.startedAt ? Date.now() : existing.startedAt,
+        completedAt: (item.status === 'completed' || item.status === 'failed') && !existing.completedAt ? Date.now() : existing.completedAt,
+      };
+    }
+    return {
+      id: item.id,
+      subject: item.title || '',
+      description: item.description || '',
+      status: (item.status as TodoItem['status']) || 'pending',
+      activeForm: item.activeForm,
+      createdAt: Date.now(),
+      startedAt: item.status === 'in_progress' ? Date.now() : undefined,
+      completedAt: item.status === 'completed' || item.status === 'failed' ? Date.now() : undefined,
+    };
+  });
+
+  execStore.replaceTodos(newTodos);
 }
 
 let registered = false;
@@ -258,13 +270,28 @@ export function registerEventAdapter(): void {
   // ============================================================
 
   messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean }) => {
-    // 前台 agent：由 SET_FOREGROUND_AGENT 负责创建/维护，此处不重复创建
-    if (data?.isForeground) return;
+    // 前台 agent：由 SET_FOREGROUND_AGENT 负责创建/维护
+    // 但如果前台 agent 已被清理（队列消息 drain 时），需要复活以便后续事件不被终端屏障阻止
+    if (data?.isForeground && data.agentId) {
+      const store = useAgentStateMachine.getState();
+      const agent = store.agentMap[data.agentId];
+      if (agent && agent.status === 'cleared') {
+        flowLogger.log('EventAdapter', 'REVIVING cleared foreground on agent:started', 'agentId:', data.agentId);
+        useAgentStateMachine.setState({
+          agentMap: {
+            ...store.agentMap,
+            [data.agentId]: { ...agent, status: 'pending' },
+          },
+        });
+      }
+      return;
+    }
   });
 
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
+    console.log(`[DIAG] EventAdapter agent:text #1: agentId=${agentId} text="${text.substring(0, 50)}" foregroundAgentId=${useAgentStateMachine.getState().foregroundAgentId}`);
     useAgentStateMachine.getState().transition({ type: 'TEXT_DELTA', agentId, text });
   });
 
@@ -661,6 +688,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
+    console.log(`[DIAG] EventAdapter agent:text #2: agentId=${agentId} text="${text.substring(0, 50)}" asyncSub=${asyncSubAgentIds.has(agentId)} currentStreamingId=${useMessageStore.getState().currentStreamingId}`);
     // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
     if (asyncSubAgentIds.has(agentId)) return;
     let msgStore = useMessageStore.getState();

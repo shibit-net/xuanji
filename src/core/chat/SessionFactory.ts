@@ -135,11 +135,11 @@ export class SessionFactory {
     // 4.5. 注册 AgentFactory（统一 Agent 创建入口）
     this.container.registerSingleton('agentFactory', () => new AgentFactory(registry));
 
-    // 5. 注册高级工具
-    await this.registerAdvancedTools(config, options, agentId);
-
-    // 6. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
+    // 5. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
     const layeredPromptBuilder = await this.container.resolve('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+
+    // 6. 注册高级工具（传入 layeredPromptBuilder，确保 sub-agent 也能用分层 prompt）
+    await this.registerAdvancedTools(config, options, agentId, layeredPromptBuilder);
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
 
@@ -286,7 +286,7 @@ export class SessionFactory {
     return session;
   }
 
-  private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string): Promise<void> {
+  private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string, layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder): Promise<void> {
     const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
     const provider = await this.container.resolve<ILLMProvider>('provider');
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
@@ -304,6 +304,7 @@ export class SessionFactory {
         parentProvider: provider,
         hookRegistry,
         agentId,
+        layeredPromptBuilder,
       });
     }
 
@@ -317,6 +318,7 @@ export class SessionFactory {
         registry,
         agentConfig: config.provider,
         hookRegistry,
+        layeredPromptBuilder,
       });
     }
 

@@ -6,12 +6,15 @@
 
 import { logger } from '@/core/logger/index.js';
 import { DownloadManager } from '@/core/download/DownloadManager.js';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 const log = logger.child({ module: 'LocalModelLoader' });
 
 const MODEL_DIR = path.join(homedir(), '.xuanji', 'models');
+
+/** GGUF 文件魔数：GGUF 格式以 "GGUF" 开头（0x47 0x47 0x55 0x46） */
+const GGUF_MAGIC = Buffer.from([0x47, 0x47, 0x55, 0x46]);
 
 export interface ModelConfig {
   /** 模型 ID，支持格式:
@@ -144,6 +147,32 @@ export class LocalModelLoader {
   }
 
   /**
+   * 校验 GGUF 文件，检查魔数和最小文件大小
+   */
+  private validateGgufFile(filePath: string): void {
+    const stat = fs.statSync(filePath);
+    // GGUF 最小头部: magic(4) + version(4) + tensor_count(8) + metadata_kv_count(8) = 24 字节
+    if (stat.size < 24) {
+      throw new Error(
+        `模型文件太小 (${stat.size} bytes)，可能下载不完整。请删除后重新下载: ${filePath}`
+      );
+    }
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const header = Buffer.alloc(4);
+      fs.readSync(fd, header, 0, 4, 0);
+      if (!header.equals(GGUF_MAGIC)) {
+        throw new Error(
+          `不是有效的 GGUF 文件: ${filePath}。文件头: ${header.toString('hex')}，期望: ${GGUF_MAGIC.toString('hex')}`
+        );
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  /**
    * 检查模型是否已下载
    */
   isDownloaded(): boolean {
@@ -189,6 +218,9 @@ export class LocalModelLoader {
     const modelPath = await this.downloadModelIfNeeded(this.config.modelId);
     log.info(`Model path resolved: ${modelPath}`);
 
+    // 校验 GGUF 文件头
+    this.validateGgufFile(modelPath);
+
     log.info('Importing node-llama-cpp...');
     const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
     log.info('node-llama-cpp imported successfully');
@@ -196,16 +228,35 @@ export class LocalModelLoader {
     log.info(`Loading model: ${this.config.modelId}...`);
     const startTime = Date.now();
 
-    log.info('Calling getLlama()...');
-    this.llama = await getLlama();
-    log.info('getLlama() done');
+    // 使用 auto 自动检测 GPU：有 GPU 用 GPU，没有则 CPU 降级
+    log.info('Calling getLlama() with gpu=auto...');
+    this.llama = await getLlama({ gpu: 'auto' as const });
+    const gpuType = (this.llama as any).gpu;
+    log.info(`getLlama() done, gpu=${gpuType || 'cpu'}`);
 
     log.info('Loading model file into memory...');
-    this.model = await this.llama.loadModel({ modelPath });
+    try {
+      const loadModelOpts: Record<string, any> = { modelPath };
+      // macOS Metal 有 GPU 命令缓冲超时限制，大模型全层放 GPU 会触发
+      // kIOAccelCommandBufferCallbackErrorTimeout，仅当 GPU 可用时限制层数
+      if (platform() === 'darwin' && gpuType === 'metal') {
+        loadModelOpts.gpuLayers = 20;
+        log.info('macOS Metal detected, limiting gpuLayers to 20 to avoid GPU timeout');
+      }
+      this.model = await this.llama.loadModel(loadModelOpts);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('corrupted') || msg.includes('incomplete') || msg.includes('not within the file bounds')) {
+        throw new Error(
+          `模型文件损坏或不完整，请删除后重新下载: ${modelPath}\n原始错误: ${msg}`
+        );
+      }
+      throw err;
+    }
     log.info('Model file loaded');
 
     log.info('Creating context...');
-    const contextSize = this.config.contextSize || 2048;
+    const contextSize = this.config.contextSize || 4096;
     this.context = await this.model.createContext({ contextSize });
     log.info('Context created');
 

@@ -1,8 +1,8 @@
 /**
  * SceneClassifier — LLM 驱动的意图分类器。
  *
- * 读取 scene-classifier agent 配置，注入 agent/scene 列表，调用非流式 LLM completion，
- * 解析 JSON 输出得到 { scene, agent, complexity }。
+ * 读取 scene-classifier agent 配置，注入 scene 列表，调用非流式 LLM completion，
+ * 解析 JSON 输出得到 { scene, complexity }。
  *
  * 失败（LLM 不可用、超时、解析错误）时返回 null，由 IntentRouter 降级到 L2。
  */
@@ -84,15 +84,13 @@ export class SceneClassifier {
 
     this.classifierConfig = classifierConfig;
 
-    // 注入模板变量
-    const agentList = this.agentRegistry.getAgentListForClassifier();
+    // 注入模板变量（只需要 SCENE_LIST，不再需要 AGENT_LIST）
     const sceneList = this.buildSceneList();
 
     this.systemPrompt = (classifierConfig.systemPrompt || '')
-      .replace(/\{\{AGENT_LIST\}\}/g, agentList)
       .replace(/\{\{SCENE_LIST\}\}/g, sceneList);
 
-    // 创建 provider（ProviderManager 负责 agent/global 配置合并，支持所有 adapter）
+    // 创建 provider
     const providerManager = new ProviderManager(this.globalConfig);
     this.provider = providerManager.getProvider(classifierConfig);
 
@@ -131,19 +129,8 @@ export class SceneClassifier {
 
       log.info(`SceneClassifier raw output: ${raw.substring(0, 300)}`);
 
-      const agentId = result.agent || '';
-      if (!agentId) return null;
-
-      // 校验 agent 是否存在
-      const agentExists = !!this.agentRegistry.get(agentId);
-      if (!agentExists) {
-        log.debug(`SceneClassifier: agent "${agentId}" not found`);
-        return null;
-      }
-
       return {
         scene: this.validateScene(result.scene),
-        agent: agentId,
         complexity: result.complexity === 'complex' ? 'complex' : 'simple',
         confidence: result.confidence ?? 0.8,
         modelName: this.classifierConfig?.model?.primary,
@@ -226,7 +213,7 @@ export class SceneClassifier {
   }
 
   /** 从 LLM 输出中提取 JSON */
-  private parseJSON(raw: string): { scene?: string; agent?: string; complexity?: string; confidence?: number } | null {
+  private parseJSON(raw: string): { scene?: string; complexity?: string; confidence?: number } | null {
     // 1. 直接解析
     try {
       return JSON.parse(raw);

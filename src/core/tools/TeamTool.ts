@@ -102,7 +102,7 @@ export class TeamTool extends BaseTool {
       },
       goal: {
         type: 'string',
-        description: '团队总目标（WHAT the team should achieve as a whole）。注意：这是团队级别的目标，不是每个成员的任务。每个成员的具体分工通过 members[].task 单独分配。子 agent 无法访问父对话历史，必须包含所有必要的上下文：文件路径、约束条件、输出格式',
+        description: 'Team overall goal (WHAT the team should achieve as a whole). Note: this is the team-level objective, NOT each member\'s task. Assign individual tasks via members[].task. Sub-agents have NO access to parent conversation history — include ALL context: file paths, constraints, output format',
       },
       strategy: {
         type: 'string',
@@ -111,54 +111,54 @@ export class TeamTool extends BaseTool {
       },
       members: {
         type: 'array',
-        description: '团队成员数组。每个成员是执行具体子任务的工作 agent，需有明确分工',
+        description: 'Team member array. Each member is a worker agent executing a specific sub-task with clear division of work',
         items: {
           type: 'object',
           properties: {
-            id: { type: 'string', description: '成员唯一标识，使用短小的角色名（如 "quality"、"security"）' },
+            id: { type: 'string', description: 'Unique member identifier. Use short role names (e.g. "quality", "security")' },
             agent_id: {
               type: 'string',
               description: [
-                '必须来自 match_agent 的结果。不能自行编造。',
-                '- 分数 >= 0.5：直接使用 match_agent 返回的 agent ID',
-                '- 分数 < 0.5：使用自定义 ID 并必须提供 system_prompt（创建临时 agent）',
-                '- 同领域多视角：使用同一 agent ID + 不同 scene/system_prompt',
+                'Must come from match_agent results. Do not invent agent IDs.',
+                '- Score >= 0.5: use the agent ID from match_agent directly',
+                '- Score < 0.5: use a custom ID and must provide system_prompt (creates temporary agent)',
+                '- Multi-perspective on same domain: use same agent ID + different scene/system_prompt',
               ].join('\n'),
             },
-            name: { type: 'string', description: '成员显示名（可选），如 "Security Reviewer"' },
-            capabilities: { type: 'array', items: { type: 'string' }, description: '成员能力列表（可选）' },
-            priority: { type: 'number', description: '优先级（hierarchical 策略需要，leader 设 >= 8）' },
-            task: { type: 'string', description: '成员的具体工作任务（WHAT to do）。由你（主 agent）分配，每个成员必须有独特、可执行的任务。不同成员的任务必须有明确区分，禁止多个成员使用相同或高度相似的任务描述' },
+            name: { type: 'string', description: 'Member display name (optional), e.g. "Security Reviewer"' },
+            capabilities: { type: 'array', items: { type: 'string' }, description: 'Member capability list (optional)' },
+            priority: { type: 'number', description: 'Priority (required for hierarchical strategy, leader set >= 8)' },
+            task: { type: 'string', description: 'Member\'s specific task (WHAT to do). Assigned by you (main agent). Each member must have a unique, executable task. Never give multiple members the same or highly similar task descriptions' },
             scene: {
               type: 'string',
               description: [
-                '场景类型，决定子 agent 加载哪组 L1 prompt。',
-                '**必须通过 list_scenes 查询后选择合适的 scene ID 填入**。',
-                '不要自行编造 scene ID。',
-                '如果没有合适的场景，可以不传 scene 参数。',
+                'Scene type, determines which L1 prompt the sub-agent loads.',
+                '**Must query list_scenes first and pick a valid scene ID**.',
+                'Do not invent scene IDs.',
+                'Omit if no suitable scene exists.',
               ].join('\n'),
             },
             system_prompt: {
               type: 'string',
-              description: '角色行为引导（HOW to behave）。由你（主 agent）编写，用于定义成员的立场、思维方式和行为边界。临时 agent 必需，预置 agent 可选。辩论策略需包含 [debate_role:affirmative|negative|judge] 标记以指定立场',
+              description: 'Role behavior guidance (HOW to behave). Written by you (main agent) to define the member\'s stance, mindset, and boundaries. Required for temporary agents, optional for preset agents. Debate strategy: include [debate_role:affirmative|negative|judge] tag to specify stance',
             },
-            tools: { type: 'array', items: { type: 'string' }, description: '成员可用工具列表。子 agent 默认没有任何工具，强烈建议显式传入。至少包含 read_file, glob, grep, list_directory；编码任务加 write_file, edit_file, bash' },
-            timeout: { type: 'number', description: '成员超时（毫秒）。不推荐设置，系统会自动分配' },
+            tools: { type: 'array', items: { type: 'string' }, description: 'List of tool names available to this member. Sub-agents have NO tools by default — strongly recommended to provide explicitly. Minimum: read_file, glob, grep, list_directory. Coding: add write_file, edit_file, bash' },
+            timeout: { type: 'number', description: 'Member timeout in milliseconds. Not recommended to set — system auto-allocates' },
           },
           required: ['id'],
         },
       },
-      max_rounds: { type: 'number', description: '最大协作轮次（默认 5）' },
+      max_rounds: { type: 'number', description: 'Max collaboration rounds (default: 5)' },
       timeout: {
         type: 'number',
         description: [
-          '团队总超时（毫秒），硬限制。不设置时自动计算。',
-          '建议值：代码审查 30-60分钟、辩论共识 1.5小时+、大型重构 2-3小时。',
+          'Team total timeout in milliseconds (hard limit). Auto-calculated if not set.',
+          'Suggestions: code review 30-60min, debate consensus 1.5h+, large refactor 2-3h.',
         ].join(' '),
       },
       async: {
         type: 'boolean',
-        description: '异步执行模式。主 agent 自动异步，子 agent 自动同步。一般无需设置此参数。',
+        description: 'Async execution mode. Main agent auto-async, sub-agent auto-sync. Generally no need to set this.',
       },
     },
     required: ['team_name', 'goal', 'strategy', 'members'],
@@ -175,6 +175,7 @@ export class TeamTool extends BaseTool {
   private currentDepth = 0;
   private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
   private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
+  private layeredPromptBuilder: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null = null;
 
   setDependencies(deps: {
     provider: ILLMProvider;
@@ -184,6 +185,7 @@ export class TeamTool extends BaseTool {
     depth?: number;
     agentRegistry?: import('@/core/agent/AgentRegistry').AgentRegistry | null;
     providerManager?: import('@/core/providers/ProviderManager').ProviderManager | null;
+    layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
   }): void {
     this.mainProvider = deps.provider;
     this.registry = deps.registry;
@@ -192,6 +194,7 @@ export class TeamTool extends BaseTool {
     this.currentDepth = deps.depth ?? 0;
     this.agentRegistry = deps.agentRegistry ?? null;
     this.providerManager = deps.providerManager ?? null;
+    this.layeredPromptBuilder = deps.layeredPromptBuilder ?? null;
   }
 
   // ── 主入口 ──────────────────────────────────────────
@@ -203,7 +206,7 @@ export class TeamTool extends BaseTool {
 
     // 2. 嵌套检查
     if (TeamContext.get()) {
-      return this.error('agent_team 不能在另一个 agent_team 内部使用。请直接在团队中完成工作，或让主 agent 再创建一个独立的 agent_team。');
+      return this.error('agent_team cannot be nested inside another agent_team. Complete work directly in the current team, or have the main agent create an independent agent_team.');
     }
 
     // 3. 参数解析
@@ -509,6 +512,7 @@ export class TeamTool extends BaseTool {
       this.providerManager!,
       cwd,
       teamId,
+      this.layeredPromptBuilder ?? undefined,
     );
   }
 
@@ -521,25 +525,25 @@ export class TeamTool extends BaseTool {
     const memberList = parsed.membersInput.map(m => m.name ?? m.id).join(', ');
     return this.success(
       [
-        '[Agent Team 已启动 - 后台运行]',
-        `任务组 ID: ${groupId}`,
-        `团队: ${parsed.teamName}`,
-        `策略: ${parsed.strategy}`,
-        `成员 (${parsed.membersInput.length}): ${memberList}`,
-        `目标: ${parsed.goal.slice(0, 150)}`,
+        '[Agent Team Started - Running in Background]',
+        `Group ID: ${groupId}`,
+        `Team: ${parsed.teamName}`,
+        `Strategy: ${parsed.strategy}`,
+        `Members (${parsed.membersInput.length}): ${memberList}`,
+        `Goal: ${parsed.goal.slice(0, 150)}`,
         '',
-        '注意：Agent Team 不支持 stream_to_user。团队完成后系统会自动通知你汇总结果。',
+        '⛔ Your turn ends NOW. Do NOT continue executing. Stop immediately.',
         '',
-        '不要主动查询任务状态或等待——系统会逐个通知你。继续做你当前的工作即可。',
+        'The system will notify you when the team completes. Until then, DO NOT query task status. End your response right now.',
         '',
-        '重要：异步任务的输出结果用户不可见，系统只会通过内部上下文告诉你。',
-        '你必须口头向用户汇报结果，不能说"已经呈现在上下文"之类的话。',
+        'IMPORTANT: Async task output is not visible to the user. The system will inject results into your context.',
+        'When notified, you MUST report the results to the user verbally. Never say "the results are shown above."',
         '',
         '---',
-        '需要时可使用以下指令：',
-        `- 查询进度: task_control({ action: "status", groupId: "${groupId}" })`,
-        `- 取消任务: task_control({ action: "cancel", groupId: "${groupId}" })`,
-        `- 查看所有后台任务: task_control({ action: "list" })`,
+        'Commands available after notification:',
+        `- Check progress: task_control({ action: "status", groupId: "${groupId}" })`,
+        `- Cancel: task_control({ action: "cancel", groupId: "${groupId}" })`,
+        `- List all: task_control({ action: "list" })`,
       ].join('\n'),
       {
         taskAsync: true,
@@ -574,11 +578,11 @@ export class TeamTool extends BaseTool {
         let line = `${status} ${name}: ${duration}s, ${r.tokensUsed.input + r.tokensUsed.output} tokens`;
         if (r.retryCount && r.retryCount > 0) {
           line += r.success
-            ? `（经 ${r.retryCount} 次重试后成功）`
-            : `（已重试 ${r.retryCount} 次）`;
+            ? ` (succeeded after ${r.retryCount} retries)`
+            : ` (failed after ${r.retryCount} retries)`;
         }
         if (!r.success && r.failureCategory) {
-          line += ` — 失败原因: ${r.failureCategory}`;
+          line += ` — Failure: ${r.failureCategory}`;
         }
         return line;
       })
@@ -596,10 +600,10 @@ export class TeamTool extends BaseTool {
       '',
       '---',
       retryAdvice,
-      '⚠️ 当你向用户总结团队执行结果时，必须为每位成员的关键发现附带可点击引用。引用格式（直接写在正文中，不要放在代码块或引用块里）：',
-      '📎 [成员名称]："从该成员输出中逐字复制一句原话"',
+      '⚠️ When reporting team results to the user, every key finding from each member MUST include a clickable citation. Citation format (write inline, NOT inside code blocks or blockquotes):',
+      '📎 [member name]: "Copy a sentence verbatim from that member\'s output"',
       '',
-      '引用名称必须与上方成员摘要中显示的名称完全一致，否则用户无法点击查看完整输出。',
+      'The citation name must exactly match the member name shown in the summary above, otherwise the user cannot click to view the full output.',
     ].join('\n');
 
     const citations = result.memberResults.map(r => ({
@@ -632,15 +636,15 @@ export class TeamTool extends BaseTool {
     if (result.timedOut) {
       const successCount = result.memberResults.filter(r => r.success).length;
       const lines = [
-        '⏱️ 团队执行超时。建议重试策略：',
-        '  1. 优先：再次调用 agent_team 并增大 timeout 参数（建议至少翻倍）',
-        `     - 当前耗时: ${Math.floor((result.duration || 0) / 1000)}s`,
-        `     - 建议设置 timeout: ${Math.floor((result.duration || 60_000) / 1000) * 2 * 1000} 或更大`,
+        '⏱️ Team execution timed out. Suggested retry strategy:',
+        '  1. Preferred: call agent_team again with a larger timeout (recommend at least double)',
+        `     - Current duration: ${Math.floor((result.duration || 0) / 1000)}s`,
+        `     - Suggested timeout: ${Math.floor((result.duration || 60_000) / 1000) * 2 * 1000} or larger`,
       ];
       if (successCount > 0) {
-        lines.push(`     - ${successCount}/${result.memberResults.length} 位成员成功完成，结果已保存至 checkpoint，重试时可恢复`);
+        lines.push(`     - ${successCount}/${result.memberResults.length} members completed successfully. Results saved to checkpoint — recoverable on retry.`);
       }
-      lines.push('  2. 备选：如果超时由某个特定阶段导致，可用 task 工具单独重试该阶段');
+      lines.push('  2. Fallback: if timeout was caused by a specific stage, use task tool to retry that stage individually');
       return lines.join('\n');
     }
 
@@ -651,20 +655,20 @@ export class TeamTool extends BaseTool {
 
       if (categories.has('stage_disconnect') || categories.has('output_truncated')) {
         return [
-          '⚠️ 团队执行失败（阶段衔接/输出截断）。建议重试策略：',
-          '  1. 优先：用 task 工具单独重新执行失败的阶段',
-          `     - 失败成员: ${failedIds}`,
-          '     - 提供更明确的任务描述和完整的文件路径',
-          '     - 单阶段成功后再考虑重新运行完整 pipeline',
-          '  2. 备选：再次调用 agent_team，但增加各成员的 timeout',
+          '⚠️ Team execution failed (stage disconnect / output truncated). Suggested retry strategy:',
+          '  1. Preferred: use task tool to re-execute failed stages individually',
+          `     - Failed members: ${failedIds}`,
+          '     - Provide clearer task descriptions with complete file paths',
+          '     - Re-run full pipeline after individual stages succeed',
+          '  2. Fallback: call agent_team again with increased per-member timeout',
         ].join('\n');
       }
 
       return [
-        '⚠️ 团队执行失败。建议重试策略：',
-        '  1. 优先：再次调用 agent_team，调整成员配置或任务描述后重试',
-        '  2. 备选：如果仅个别成员失败且问题明确，可用 task 工具单独重试该成员的任务',
-        `     - 失败成员: ${failedIds}`,
+        '⚠️ Team execution failed. Suggested retry strategy:',
+        '  1. Preferred: call agent_team again after adjusting member config or task descriptions',
+        '  2. Fallback: if only individual members failed with clear reasons, use task tool to retry those specific tasks',
+        `     - Failed members: ${failedIds}`,
       ].join('\n');
     }
 

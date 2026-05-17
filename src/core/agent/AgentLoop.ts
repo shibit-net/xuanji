@@ -194,6 +194,7 @@ export class AgentLoop {
 
     this.streamPipeline.on({
       onText: (text) => {
+        this.log.info(`[DIAG] AgentLoop onText called: len=${text.length} text="${text.substring(0, 50)}"`);
         this._streamingOutputStarted = true;
         this._hasOutputInThisRun = true;
         this.callbacks.onText?.(text);
@@ -585,6 +586,8 @@ export class AgentLoop {
     systemPrompt?: string;
     toolRegistry?: IToolRegistry;
     model?: string;
+    apiKey?: string;
+    baseURL?: string;
     maxIterations?: number;
     temperature?: number;
     maxTokens?: number;
@@ -611,6 +614,7 @@ export class AgentLoop {
       });
       this.streamPipeline.on({
         onText: (text) => {
+          this.log.info(`[DIAG] AgentLoop onText(applyAgentConfig) called: len=${text.length} text="${text.substring(0, 50)}"`);
           this._streamingOutputStarted = true;
           this._hasOutputInThisRun = true;
           this.callbacks.onText?.(text);
@@ -645,6 +649,12 @@ export class AgentLoop {
     if (cfg.model) {
       this.config.model = cfg.model;
     }
+    if (cfg.apiKey !== undefined) {
+      (this.config as any).apiKey = cfg.apiKey;
+    }
+    if (cfg.baseURL !== undefined) {
+      (this.config as any).baseURL = cfg.baseURL;
+    }
     if (cfg.maxIterations !== undefined) {
       this.config.maxIterations = cfg.maxIterations;
     }
@@ -657,20 +667,6 @@ export class AgentLoop {
   }
 
   updateProvider(provider: ILLMProvider): void {
-    this.provider = provider;
-    this.streamPipeline = new StreamPipeline(provider);
-    this.streamPipeline.on({
-      onText: (text) => this.callbacks.onText?.(text),
-      onThinking: (thinking) => this.callbacks.onThinking?.(thinking),
-      onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
-      onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
-      onUsage: (usage) => {
-        this.contextManager.recordUsage(usage);
-        this.callbacks.onUsage?.(usage);
-        if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage });
-        }
-      },
-    });
+    this.applyAgentConfig({ provider });
   }
 }
