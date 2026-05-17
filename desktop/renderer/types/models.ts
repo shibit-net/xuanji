@@ -8,7 +8,7 @@
 // ============================================================
 
 export interface UserSettings {
-  language: 'zh-CN' | 'en-US';
+  language: 'zh' | 'en';
   theme: 'light' | 'dark' | 'auto';
   fontSize: number;
   workspacePath: string;

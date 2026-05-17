@@ -53,7 +53,7 @@ interface ConfigState {
 }
 
 const defaultSettings: UserSettings = {
-  language: 'zh-CN',
+  language: 'zh',
   theme: 'dark',
   fontSize: 14,
   workspacePath: '',
@@ -95,7 +95,7 @@ export const useConfigStore = create<ConfigState>()(
             const c = result.config;
             set({
               settings: {
-                language: (c.ui?.language as 'zh-CN' | 'en-US') || 'zh-CN',
+                language: (c.ui?.language as 'zh' | 'en') || 'zh',
                 theme: (c.ui?.theme as 'light' | 'dark') || 'dark',
                 fontSize: 14,
                 workspacePath: (c.workspacePath as string) || '',

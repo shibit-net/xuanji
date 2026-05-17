@@ -4,6 +4,8 @@
 
 import { Minus, Square, X, FolderTree } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 
 interface TitleBarProps {
   onCompact?: () => void;
@@ -14,6 +16,8 @@ interface TitleBarProps {
 }
 
 export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowStats, onShowDiagnostics: _onShowDiagnostics, onToggleRightPanel, onToggleProjectFiles }: TitleBarProps) {
+  const language = useConfigStore((s) => s.settings.language);
+
   const handleMinimize = () => {
     window.electron?.minimize();
   };
@@ -33,7 +37,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
 
       {/* 中间：应用名称 */}
       <div className="flex items-center gap-2">
-        <div className="text-primary font-bold text-lg">璇玑</div>
+        <div className="text-primary font-bold text-lg">{getDesktopLabel('titlebar.app_name', language)}</div>
       </div>
 
       {/* 右侧：工具按钮 + 窗口控制 */}
@@ -44,7 +48,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
             variant="ghost"
             size="icon"
             onClick={onToggleProjectFiles}
-            title="项目文件"
+            title={getDesktopLabel('titlebar.project_files', language)}
             className="h-7 w-7"
           >
             <FolderTree size={14} />
@@ -57,7 +61,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
             variant="ghost"
             size="icon"
             onClick={onToggleRightPanel}
-            title="监控面板"
+            title={getDesktopLabel('titlebar.monitor', language)}
             className="h-7 w-7"
           >
             <Square size={14} />
@@ -70,7 +74,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
           variant="ghost"
           size="icon"
           onClick={handleMinimize}
-          title="最小化"
+          title={getDesktopLabel('titlebar.minimize', language)}
           className="h-7 w-7"
         >
           <Minus size={14} />
@@ -79,7 +83,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
           variant="ghost"
           size="icon"
           onClick={handleMaximize}
-          title="最大化"
+          title={getDesktopLabel('titlebar.maximize', language)}
           className="h-7 w-7"
         >
           <Square size={14} />
@@ -88,7 +92,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
           variant="ghost"
           size="icon"
           onClick={handleClose}
-          title="关闭"
+          title={getDesktopLabel('titlebar.close', language)}
           className="h-7 w-7 hover:bg-red-500/80 hover:text-white"
         >
           <X size={14} />

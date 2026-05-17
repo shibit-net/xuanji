@@ -10,6 +10,8 @@ import {
   Brain,
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
+import { setLanguage } from '@/core/i18n';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -122,6 +124,7 @@ function ToggleField({ label, value, onChange, hint }: {
 }
 
 function SaveButton({ saving }: { saving: boolean }) {
+  const language = useConfigStore((s) => s.settings.language);
   return (
     <div className="pt-4 border-t border-border">
       <Button
@@ -132,7 +135,7 @@ function SaveButton({ saving }: { saving: boolean }) {
         className="flex items-center gap-2"
       >
         <Save size={16} />
-        <span>{saving ? '保存中...' : '保存配置'}</span>
+        <span>{saving ? getDesktopLabel('settings.saving', language) : getDesktopLabel('settings.save', language)}</span>
       </Button>
     </div>
   );
@@ -156,6 +159,7 @@ function MessageBanner({ message }: { message: { type: 'success' | 'error'; text
 // Tab: 工具配置
 // ============================================================
 function ToolsTab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     timeoutBash: 120000,
     timeoutWebFetch: 30000,
@@ -219,16 +223,16 @@ function ToolsTab({ config, loading, onSave }: TabProps) {
           maxFiles: form.globMaxFiles,
         },
       });
-      setMessage({ type: 'success', text: '工具配置已保存并立即生效' });
+      setMessage({ type: 'success', text: getDesktopLabel('settings.tools.saved', currentLang) });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -270,6 +274,7 @@ function ToolsTab({ config, loading, onSave }: TabProps) {
 // Tab: 功能特性
 // ============================================================
 function FeaturesTab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     enableIntentAnalysis: true,
   });
@@ -292,16 +297,16 @@ function FeaturesTab({ config, loading, onSave }: TabProps) {
       await onSave('features', {
         enableIntentAnalysis: form.enableIntentAnalysis,
       });
-      setMessage({ type: 'success', text: '功能设置已保存' });
+      setMessage({ type: 'success', text: getDesktopLabel('settings.features.saved', currentLang) });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -322,6 +327,7 @@ function FeaturesTab({ config, loading, onSave }: TabProps) {
 // Tab: 界面配置
 // ============================================================
 function UITab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     theme: 'auto',
     language: 'en',
@@ -360,35 +366,35 @@ function UITab({ config, loading, onSave }: TabProps) {
         showThinking: form.showThinking,
         workspacePath: form.workspacePath,
       });
-      setMessage({ type: 'success', text: '界面配置已保存' });
+      setMessage({ type: 'success', text: getDesktopLabel('settings.ui.saved', currentLang) });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
       <MessageBanner message={message} />
 
-      <SectionHeader title="外观" />
+      <SectionHeader title={getDesktopLabel('settings.ui.appearance', currentLang)} />
       <SelectField
-        label="主题"
+        label={getDesktopLabel('settings.ui.theme', currentLang)}
         value={form.theme}
         onChange={(v) => setForm({ ...form, theme: v })}
         options={[
-          { value: 'auto', label: '跟随系统' },
-          { value: 'dark', label: '深色' },
-          { value: 'light', label: '浅色' },
+          { value: 'auto', label: getDesktopLabel('settings.ui.theme_auto', currentLang) },
+          { value: 'dark', label: getDesktopLabel('settings.ui.theme_dark', currentLang) },
+          { value: 'light', label: getDesktopLabel('settings.ui.theme_light', currentLang) },
         ]}
       />
 
       <SelectField
-        label="语言"
+        label={getDesktopLabel('settings.ui.language', currentLang)}
         value={form.language}
         onChange={(v) => setForm({ ...form, language: v })}
         options={[
@@ -398,17 +404,17 @@ function UITab({ config, loading, onSave }: TabProps) {
       />
 
       <TextField
-        label="工作目录"
+        label={getDesktopLabel('settings.ui.workspace_dir', currentLang)}
         value={form.workspacePath}
         onChange={(v) => setForm({ ...form, workspacePath: v })}
-        placeholder="留空使用默认 ~/.xuanji/workspace/"
-        hint="xuanji 的开发编辑工作的基础目录，修改后重启生效"
+        placeholder={getDesktopLabel('settings.ui.workspace_dir_hint', currentLang)}
+        hint={getDesktopLabel('settings.ui.workspace_dir_restart', currentLang)}
       />
 
-      <SectionHeader title="显示选项" desc="控制聊天界面的信息展示" />
-      <ToggleField label="显示 Token 用量" value={form.showTokenUsage} onChange={(v) => setForm({ ...form, showTokenUsage: v })} />
-      <ToggleField label="显示费用" value={form.showCost} onChange={(v) => setForm({ ...form, showCost: v })} />
-      <ToggleField label="显示思考过程" value={form.showThinking} onChange={(v) => setForm({ ...form, showThinking: v })} hint="开启后显示 Agent 的 Extended Thinking 内容" />
+      <SectionHeader title={getDesktopLabel('settings.ui.display_options', currentLang)} desc={getDesktopLabel('settings.ui.display_options_desc', currentLang)} />
+      <ToggleField label={getDesktopLabel('settings.ui.show_token_usage', currentLang)} value={form.showTokenUsage} onChange={(v) => setForm({ ...form, showTokenUsage: v })} />
+      <ToggleField label={getDesktopLabel('settings.ui.show_cost', currentLang)} value={form.showCost} onChange={(v) => setForm({ ...form, showCost: v })} />
+      <ToggleField label={getDesktopLabel('settings.ui.show_thinking', currentLang)} value={form.showThinking} onChange={(v) => setForm({ ...form, showThinking: v })} hint={getDesktopLabel('settings.ui.show_thinking_hint', currentLang)} />
 
       <SaveButton saving={saving} />
     </form>
@@ -419,6 +425,7 @@ function UITab({ config, loading, onSave }: TabProps) {
 // Tab: Embedding 配置 (保持原有逻辑)
 // ============================================================
 function EmbeddingTab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     model: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
     dimensions: 384,
@@ -466,10 +473,10 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     setMessage(null);
     try {
       await onSave('embedding', form);
-      setMessage({ type: 'success', text: 'Embedding 配置已保存' });
+      setMessage({ type: 'success', text: getDesktopLabel('settings.embedding.saved', currentLang) });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
     } finally {
       setSaving(false);
     }
@@ -502,17 +509,17 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
   };
 
   const handleUninstallModel = async () => {
-    if (!confirm('确定要卸载此模型吗？')) return;
+    if (!confirm(getDesktopLabel('settings.embedding.uninstall_confirm', currentLang))) return;
     setUninstalling(true);
     setMessage(null);
     try {
       const result = await window.electron.downloadUninstallEmbeddingModel(form.model);
       if (result.success) {
-        setMessage({ type: 'success', text: '模型已卸载' });
+        setMessage({ type: 'success', text: getDesktopLabel('settings.embedding.uninstalled', currentLang) });
         setTimeout(() => setMessage(null), 3000);
         checkModelInstallation();
       } else {
-        throw new Error(result.error || '卸载失败');
+        throw new Error(result.error || getDesktopLabel('settings.embedding.uninstall_failed', currentLang));
       }
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '卸载失败' });
@@ -521,7 +528,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -570,6 +577,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
 // Tab: 记忆配置
 // ============================================================
 function MemoryTab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     enabled: true,
     shortTermMaxEntries: 100,
@@ -613,16 +621,16 @@ function MemoryTab({ config, loading, onSave }: TabProps) {
     setMessage(null);
     try {
       await onSave('memory', form);
-      setMessage({ type: 'success', text: '记忆配置已保存' });
+      setMessage({ type: 'success', text: getDesktopLabel('settings.memory.saved', currentLang) });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-6 text-muted-foreground text-sm">加载中...</div>;
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-5">
@@ -749,6 +757,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('tools');
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const language = useConfigStore((s) => s.settings.language);
 
   useEffect(() => {
     loadConfig();
@@ -777,11 +786,15 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
     });
 
     if (result && !result.success) {
-      throw new Error(result.error || '保存失败');
+      throw new Error(result.error || getDesktopLabel('settings.save_failed', language));
     }
 
     // 同步 UI 配置到 configStore，确保组件实时响应
     if (section === 'ui') {
+      // 同步核心 i18n 模块（用于 CLI 端输出）
+      if (data.language) {
+        setLanguage(data.language as 'zh' | 'en');
+      }
       useConfigStore.getState().updateSettings({
         theme: data.theme,
         language: data.language,
@@ -796,11 +809,11 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
   };
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: 'tools', label: '工具配置', icon: <Wrench size={16} /> },
-    { id: 'features', label: '功能特性', icon: <Zap size={16} /> },
-    { id: 'ui', label: '界面配置', icon: <Palette size={16} /> },
-    { id: 'embedding', label: '向量配置', icon: <Database size={16} /> },
-    { id: 'memory', label: '记忆配置', icon: <Brain size={16} /> },
+    { id: 'tools', label: getDesktopLabel('settings.tools', language), icon: <Wrench size={16} /> },
+    { id: 'features', label: getDesktopLabel('settings.features', language), icon: <Zap size={16} /> },
+    { id: 'ui', label: getDesktopLabel('settings.ui', language), icon: <Palette size={16} /> },
+    { id: 'embedding', label: getDesktopLabel('settings.embedding', language), icon: <Database size={16} /> },
+    { id: 'memory', label: getDesktopLabel('settings.memory', language), icon: <Brain size={16} /> },
   ];
 
   const tabProps: TabProps = { config, loading, onSave: handleSave };
@@ -811,9 +824,9 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
       <div className="h-12 border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
           <Settings size={18} />
-          <h1 className="text-base font-semibold">设置</h1>
+          <h1 className="text-base font-semibold">{getDesktopLabel('settings.title', language)}</h1>
         </div>
-        <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title="关闭">
+        <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title={getDesktopLabel('settings.close', language)}>
           <X size={16} />
         </Button>
       </div>

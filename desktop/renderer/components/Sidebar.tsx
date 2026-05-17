@@ -5,6 +5,8 @@
 
 import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 import { Avatar } from './Avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,6 +32,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions }: SidebarProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
+  const language = useConfigStore((s) => s.settings.language);
 
   const handleLogout = async () => {
     await logout();
@@ -61,7 +64,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
             <DropdownMenuContent align="start" className="w-48">
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut size={16} className="mr-2 text-muted-foreground" />
-                退出登录
+                {getDesktopLabel('sidebar.logout', language)}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -88,31 +91,31 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
       <div className="border-t border-border p-2 space-y-1">
         <Button variant="ghost" onClick={onOpenAgents} className="w-full justify-start h-9">
           <Bot size={16} className="mr-2 text-muted-foreground" />
-          Agents
+          {getDesktopLabel('sidebar.agents', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenTools} className="w-full justify-start h-9">
           <Wrench size={16} className="mr-2 text-muted-foreground" />
-          Tools
+          {getDesktopLabel('sidebar.tools', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenSystemPrompt} className="w-full justify-start h-9">
           <FileText size={16} className="mr-2 text-muted-foreground" />
-          System Prompt
+          {getDesktopLabel('sidebar.system_prompt', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenMemory} className="w-full justify-start h-9">
           <Brain size={16} className="mr-2 text-muted-foreground" />
-          Memory
+          {getDesktopLabel('sidebar.memory', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenScheduler} className="w-full justify-start h-9">
           <Clock size={16} className="mr-2 text-muted-foreground" />
-          定时任务
+          {getDesktopLabel('sidebar.scheduler', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenPermissions} className="w-full justify-start h-9">
           <ShieldCheck size={16} className="mr-2 text-muted-foreground" />
-          权限管理
+          {getDesktopLabel('sidebar.permissions', language)}
         </Button>
         <Button variant="ghost" onClick={onOpenSettings} className="w-full justify-start h-9">
           <Settings size={16} className="mr-2 text-muted-foreground" />
-          设置
+          {getDesktopLabel('sidebar.settings', language)}
         </Button>
         <Button
           variant="ghost"
@@ -120,7 +123,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
           className="w-full justify-start h-9"
         >
           <HelpCircle size={16} className="mr-2 text-muted-foreground" />
-          帮助
+          {getDesktopLabel('sidebar.help', language)}
         </Button>
       </div>
     </div>

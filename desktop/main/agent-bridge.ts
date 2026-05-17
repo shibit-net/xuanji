@@ -560,8 +560,8 @@ async function handleUserAction(data: { type: string; message?: string; attachme
         await session.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
         const agentConfig = session.getAgentRegistry()?.get(userAgentId);
         const agentType = !agentConfig ? 'temporary'
-          : agentConfig.category === 'system' ? 'builtin'
-          : agentConfig.category === 'app' ? 'preset'
+          : (agentConfig as any).metadata?.category === 'system' ? 'builtin'
+          : (agentConfig as any).metadata?.category === 'app' ? 'preset'
           : 'custom';
         channel.send('agent:intent-route', {
           agentId: userAgentId,

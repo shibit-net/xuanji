@@ -544,10 +544,11 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
   async buildForSubAgent(options: {
     agentId: string;
     agentConfig: any; // ConfigurableAgentConfig
+    scene?: string;
     includeProjectContext?: boolean;
     parentContext?: PromptBuildContext;
   }): Promise<PromptBuildResult> {
-    const { agentId, agentConfig, includeProjectContext = false, parentContext } = options;
+    const { agentId, agentConfig, scene, includeProjectContext = false, parentContext } = options;
 
     if (!this.componentsLoaded) {
       await this.init();
@@ -564,11 +565,9 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     let thinking: any = undefined;
     let estimatedTokens = 0;
 
-    // 1. 加载 L0 基础层（base-identity, base-task-execution，来自 YAML）
-    const baseComponents = ['base-identity', 'base-task-execution'];
-    for (const componentId of baseComponents) {
-      const component = this.components.get(componentId);
-      if (component) {
+    // 1. 加载所有 L0 组件（排除 main-agent，那是主 agent 独有的调度规则）
+    for (const component of this.components.values()) {
+      if (component.layer === 'L0' && component.id !== 'main-agent') {
         selectedComponents.push(component);
         estimatedTokens += component.estimatedTokens;
         if (component.requiredTools) {
@@ -580,7 +579,23 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
       }
     }
 
-    // 2. 加载 L3 项目层（可选）
+    // 2. 加载 L1 scene 组件（子 agent 也需要场景心智模型）
+    if (scene && scene !== 'general') {
+      for (const component of this.components.values()) {
+        if (component.layer === 'L1' && component.scenes?.includes(scene)) {
+          selectedComponents.push(component);
+          estimatedTokens += component.estimatedTokens;
+          if (component.requiredTools) {
+            component.requiredTools.forEach((tool) => requiredTools.add(tool));
+          }
+          if (component.thinking && !thinking) {
+            thinking = component.thinking;
+          }
+        }
+      }
+    }
+
+    // 3. 加载 L3 项目层（可选）
     if (includeProjectContext) {
       const l3Component = this.components.get('l3-project');
       if (l3Component) {
@@ -592,10 +607,10 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
       }
     }
 
-    // 3. 按优先级排序
+    // 4. 按优先级排序
     selectedComponents.sort((a, b) => b.priority - a.priority);
 
-    // 4. 渲染所有组件
+    // 5. 渲染所有组件
     const renderedParts: string[] = [];
     for (const component of selectedComponents) {
       try {
@@ -608,14 +623,13 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
       }
     }
 
-    // 5. 添加角色专用 prompt（如果存在）
+    // 6. 添加角色专用 prompt（如果存在）
     if (agentConfig.systemPrompt && agentConfig.systemPrompt.trim()) {
       renderedParts.push(agentConfig.systemPrompt.trim());
-      // 角色专用 prompt 预估 token 数（粗略估计）
       estimatedTokens += Math.ceil(agentConfig.systemPrompt.length / 4);
     }
 
-    // 6. 合并为最终 prompt
+    // 7. 合并为最终 prompt
     const finalPrompt = renderedParts.join('\n\n');
 
     log.debug(
@@ -625,8 +639,8 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     return {
       prompt: finalPrompt,
       components: selectedComponents.map((c) => c.id),
-      scene: null, // 子 Agent 不使用场景
-      complexity: 'standard', // 子 Agent 默认 standard
+      scene: scene || null,
+      complexity: 'standard',
       requiredTools: Array.from(requiredTools),
       thinking,
       estimatedTokens,
