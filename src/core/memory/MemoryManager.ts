@@ -1858,9 +1858,9 @@ ${text}`;
       model: cheapConfig.model || 'deepseek-v4-pro',
       apiKey: cheapConfig.apiKey,
       baseURL: cheapConfig.baseURL,
-      temperature: cheapConfig.temperature ?? 0.2,
-      maxTokens: cheapConfig.maxTokens ?? 512,
-      maxIterations: 3,
+      temperature: cheapConfig.temperature ?? 0.3,
+      maxTokens: cheapConfig.maxTokens ?? 2048,
+      maxIterations: 5,
       systemPrompt,
     };
 
