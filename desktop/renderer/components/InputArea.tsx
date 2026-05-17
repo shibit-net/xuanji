@@ -590,28 +590,7 @@ export default function InputArea() {
     }
   }, [isFlushing, isRunning, memoryStatus.isExtracting, toast]);
 
-  // ─── 文案 ───────────────────────────────────────────
-  const placeholder = !isSessionReady
-    ? sessionStatus === 'initializing' ? '会话初始化中...'
-      : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
-      : '正在连接服务...'
-    : isAutoSummarizing
-    ? '说点什么... (后台汇总中)'
-    : isRunning
-    ? '说点什么... (工作执行中，消息将自动排队)'
-    : runningTaskCount > 0
-    ? '说点什么... (后台任务运行中)'
-    : cancelledTaskCount > 0
-    ? '说点什么... (有任务已取消)'
-    : '说点什么... (输入 @ 选择 Agent)';
-
-  const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
-
-  // 当前实际使用的 agent（用户选择或默认）
-  const effectiveAgentId = selectedAgent?.id || DEFAULT_AGENT.id;
-  const effectiveAgentName = selectedAgent?.name || DEFAULT_AGENT.name;
-
-  // 后台任务追踪
+  // ─── 后台任务追踪 ──────────────────────────────────
   const runningTaskCount = useAsyncTaskStore((s) => {
     let count = 0;
     for (const t of Object.values(s.tasks)) {
@@ -638,6 +617,27 @@ export default function InputArea() {
   });
   const cancelledTaskCount = useAsyncTaskStore((s) => s.getCancelledCount());
   const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
+
+  // ─── 文案 ───────────────────────────────────────────
+  const placeholder = !isSessionReady
+    ? sessionStatus === 'initializing' ? '会话初始化中...'
+      : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
+      : '正在连接服务...'
+    : isAutoSummarizing
+    ? '说点什么... (后台汇总中)'
+    : isRunning
+    ? '说点什么... (工作执行中，消息将自动排队)'
+    : runningTaskCount > 0
+    ? '说点什么... (后台任务运行中)'
+    : cancelledTaskCount > 0
+    ? '说点什么... (有任务已取消)'
+    : '说点什么... (输入 @ 选择 Agent)';
+
+  const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
+
+  // 当前实际使用的 agent（用户选择或默认）
+  const effectiveAgentId = selectedAgent?.id || DEFAULT_AGENT.id;
+  const effectiveAgentName = selectedAgent?.name || DEFAULT_AGENT.name;
 
   return (
     <div
