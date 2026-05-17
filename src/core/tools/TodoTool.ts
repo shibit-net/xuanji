@@ -251,7 +251,7 @@ export class TodoClearTool extends BaseTool {
       const manager = getTodoManager();
       const oldCount = Array.from(manager['todos'].values()).length;
       await manager.startTurn();
-      return this.success(`✅ 已清空 ${oldCount} 个旧任务，可以创建新任务了`);
+      return this.success(`✅ 已清空 ${oldCount} 个旧任务，可以创建新任务了${manager.formatProgress()}`);
     } catch (err) {
       return this.error(`清空任务失败: ${err instanceof Error ? err.message : String(err)}`);
     }

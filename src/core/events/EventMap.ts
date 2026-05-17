@@ -10,7 +10,7 @@ import { XuanjiEvent } from '@/core/events/events';
 export interface XuanjiEventMap {
   [XuanjiEvent.CONVERSATION_STATE_CHANGED]: { from: string; to: string };
   [XuanjiEvent.USER_INPUT_RECEIVED]: { text: string; userId?: string };
-  [XuanjiEvent.INTENT_ANALYZED]: { scene: string; complexity: string; agent: string; confidence: number };
+  [XuanjiEvent.INTENT_ANALYZED]: { scene: string; complexity: string; confidence: number };
 
   // === 任务管理中心 ===
   [XuanjiEvent.ASYNC_TASK_STARTED]: { groupId: string; type: string };
@@ -78,7 +78,7 @@ export interface XuanjiEventMap {
   [XuanjiEvent.HOOK_COMPACT_POST]: { originalTokens: number; compressedTokens: number; compressionRatio: number };
   [XuanjiEvent.HOOK_ERROR]: { errorMessage: string; errorStack?: string };
   [XuanjiEvent.HOOK_MODEL_CLASSIFIER_START]: { userInput: string; model: string };
-  [XuanjiEvent.HOOK_MODEL_CLASSIFIER_END]: { userInput: string; model: string; agent: string; scene: string; complexity: string; durationMs: number };
+  [XuanjiEvent.HOOK_MODEL_CLASSIFIER_END]: { userInput: string; model: string; scene: string; complexity: string; durationMs: number };
   [XuanjiEvent.HOOK_INTENT_ANALYSIS_START]: { userInput: string };
   [XuanjiEvent.HOOK_INTENT_ANALYSIS_END]: { userInput: string; scene: string; complexity: string; confidence: number; matchMethod: string; intentClassifier: string };
   [XuanjiEvent.HOOK_TASK_PLANNING_START]: { userInput: string; scene: string; complexity: string };

@@ -9,10 +9,14 @@
 //   outputting        → 追加到队列，等当前 run 结束后消费
 //
 // 纯停止（无输入时按停止按钮）→ agentInterrupt() → agentLoop.stop()
+//
+// @ Agent 选择器：输入 "@" 触发 agent 下拉菜单，选择后以 chip 展示。
+// 默认 xuanji（不显示 chip），选择其他 agent 时显示 chip。
+// 意图分析开关仅影响意图分析执行，不影响 agent 选择。
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, StopCircle, Archive, Brain, Loader2, X, FileText } from 'lucide-react';
+import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search } from 'lucide-react';
 import type { FileAttachment } from '../global';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
@@ -23,6 +27,22 @@ import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useToast } from './Toast';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+
+interface AgentListItem {
+  id: string;
+  name: string;
+  description: string;
+  avatar?: string;
+  color?: string;
+  category?: string;
+}
+
+interface SelectedAgent {
+  id: string;
+  name: string;
+}
+
+const DEFAULT_AGENT: SelectedAgent = { id: 'xuanji', name: 'xuanji' };
 
 export default function InputArea() {
   const [input, setInput] = useState('');
@@ -36,14 +56,21 @@ export default function InputArea() {
   const [memoryStatus, setMemoryStatus] = useState<{ isExtracting: boolean; isCompressing: boolean }>({ isExtracting: false, isCompressing: false });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // ─── @ Agent 选择器状态 ─────────────────────────────
+  const [selectedAgent, setSelectedAgent] = useState<SelectedAgent | null>(null); // null = 默认 xuanji
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [agentSearchQuery, setAgentSearchQuery] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const [agentList, setAgentList] = useState<AgentListItem[]>([]);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const atTriggerPosRef = useRef<number>(-1); // "@" 在 input 中的位置
+
   const toast = useToast();
 
   // ─── 状态判定 ───────────────────────────────────────
   const convState = useConversationStore((s) => s.conversationState);
   const autoSummarizeActive = convState === 'outputting';
 
-  // 检查是否有进程内 agent 仍在活跃（思考/工具/输出/汇报）
-  // 异步 ACP agent 不阻塞输入框 — 用户可以直接发送新消息
   const isInProcessAgentActive = useAgentStateMachine((s) => {
     for (const agent of Object.values(s.agentMap)) {
       if (agent.executionMode === 'acp') continue;
@@ -67,39 +94,154 @@ export default function InputArea() {
   // ─── 前台 Agent ──────────────────────────────────────
   const foregroundAgentId = useAgentStateMachine((s) => s.foregroundAgentId);
 
-  // ─── 后台任务追踪 ───
-  // 生命周期: creating → running → completed/cancelled → cleared
-  const runningTaskCount = useAsyncTaskStore((s) => {
-    let count = 0;
-    for (const t of Object.values(s.tasks)) {
-      if (t.lifecycle === 'cleared') continue;
-      if (t.taskType === 'task') {
-        if (t.lifecycle === 'creating' || t.lifecycle === 'running') count++;
-      } else {
-        if (t.members.some(m => m.lifecycle === 'creating' || m.lifecycle === 'running')) count++;
+  // ─── 加载 Agent 列表 ──────────────────────────────────
+  useEffect(() => {
+    let active = true;
+    const loadAgents = async () => {
+      try {
+        const res = await window.electron.agentList();
+        if (active && res.success && res.agents) {
+          // 过滤掉 system 类别（scene-classifier 等）和 xuanji 自身
+          const filtered = (res.agents as AgentListItem[]).filter(
+            (a) => a.category !== 'system' && a.id !== 'xuanji'
+          );
+          setAgentList(filtered);
+        }
+      } catch {
+        // 忽略加载失败
+      }
+    };
+    loadAgents();
+    return () => { active = false; };
+  }, []);
+
+  // ─── 点击外部关闭选择器 ──────────────────────────────
+  useEffect(() => {
+    if (!showAgentPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowAgentPicker(false);
+        setAgentSearchQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAgentPicker]);
+
+  // ─── 过滤后的 agent 列表 ──────────────────────────────
+  const filteredAgents = agentSearchQuery
+    ? agentList.filter(
+        (a) =>
+          a.name.toLowerCase().includes(agentSearchQuery.toLowerCase()) ||
+          a.id.toLowerCase().includes(agentSearchQuery.toLowerCase()) ||
+          (a.description || '').toLowerCase().includes(agentSearchQuery.toLowerCase())
+      )
+    : agentList;
+
+  // ─── 选择 Agent ──────────────────────────────────────
+  const selectAgent = useCallback((agent: AgentListItem) => {
+    setSelectedAgent({ id: agent.id, name: agent.name });
+    setShowAgentPicker(false);
+    setAgentSearchQuery('');
+
+    // 移除 input 中的 "@" 及后续搜索文字
+    const pos = atTriggerPosRef.current;
+    if (pos >= 0) {
+      setInput((prev) => {
+        // 找到 "@" 之后下一个空格或结尾的位置
+        const afterAt = prev.substring(pos);
+        const spaceIdx = afterAt.indexOf(' ');
+        const endPos = spaceIdx === -1 ? prev.length : pos + spaceIdx;
+        return prev.substring(0, pos) + prev.substring(endPos);
+      });
+    }
+    atTriggerPosRef.current = -1;
+    textareaRef.current?.focus();
+  }, []);
+
+  // ─── 取消选择 ──────────────────────────────────────
+  const clearSelectedAgent = useCallback(() => {
+    setSelectedAgent(null); // 恢复默认 xuanji
+  }, []);
+
+  // ─── 处理输入变化 + @ 检测 ─────────────────────────
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setInput(newValue);
+
+    // IME 组合输入期间不触发 @ 检测
+    if (isComposing) return;
+
+    // 检测 @ 触发：查找最近的 @ 位置
+    const cursorPos = e.target.selectionStart || 0;
+    const textBeforeCursor = newValue.substring(0, cursorPos);
+
+    // 找到光标前最近的 @ 字符（前面是空格、开头或换行）
+    const atMatch = textBeforeCursor.match(/(?:^|[\s\n])@([^\s]*)$/);
+
+    if (atMatch) {
+      const atPos = cursorPos - atMatch[1].length - 1;
+      atTriggerPosRef.current = atPos;
+      setAgentSearchQuery(atMatch[1] || '');
+      setShowAgentPicker(true);
+      setHighlightIndex(0);
+    } else {
+      // 没有匹配的 @ → 关闭选择器
+      if (showAgentPicker) {
+        setShowAgentPicker(false);
+        setAgentSearchQuery('');
+        atTriggerPosRef.current = -1;
       }
     }
-    return count;
-  });
-  const completedTaskCount = useAsyncTaskStore((s) => {
-    let count = 0;
-    for (const t of Object.values(s.tasks)) {
-      if (t.lifecycle === 'cleared') continue;
-      if (t.taskType === 'task') {
-        if (t.lifecycle === 'completed' || t.lifecycle === 'cancelled') count++;
-      } else {
-        if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed' || m.lifecycle === 'cancelled')) count++;
+  }, [isComposing, showAgentPicker]);
+
+  // ─── 键盘事件 ───────────────────────────────────────
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // @ 选择器键盘导航
+    if (showAgentPicker && filteredAgents.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightIndex((prev) => (prev + 1) % filteredAgents.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightIndex((prev) => (prev - 1 + filteredAgents.length) % filteredAgents.length);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        selectAgent(filteredAgents[highlightIndex]!);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowAgentPicker(false);
+        setAgentSearchQuery('');
+        atTriggerPosRef.current = -1;
+        return;
       }
     }
-    return count;
-  });
-  const cancelledTaskCount = useAsyncTaskStore((s) => s.getCancelledCount());
-  const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
+
+    // 发送
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+      e.preventDefault();
+      handleSubmit();
+    }
+    if (e.key === 'Escape') {
+      setInput('');
+      textareaRef.current?.blur();
+    }
+    // Backspace：输入框为空且有选中 agent → 取消选择
+    if (e.key === 'Backspace' && input === '' && selectedAgent) {
+      e.preventDefault();
+      clearSelectedAgent();
+    }
+  }, [showAgentPicker, filteredAgents, highlightIndex, selectAgent, isComposing, input, selectedAgent, clearSelectedAgent]);
 
   // ─── 自动调整 textarea 高度 ─────────────────────────
   useEffect(() => {
     if (textareaRef.current) {
-      // 内容少时固定高度，超出时自动增长
       const baseScroll = textareaRef.current.scrollHeight;
       if (baseScroll <= 44) {
         textareaRef.current.style.height = '44px';
@@ -110,7 +252,6 @@ export default function InputArea() {
     }
   }, [input]);
 
-  // 首次 mount 时固定为一行高度
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = '44px';
@@ -178,9 +319,13 @@ export default function InputArea() {
 
     const content = input.trim();
     const currentAttachments = [...attachments];
+    // 获取当前选中的 agent（默认 xuanji）
+    const agentId = selectedAgent?.id || DEFAULT_AGENT.id;
+
     setInput('');
     setAttachments([]);
     setIsSending(true);
+
     // 立即渲染用户消息气泡
     useMessageStore.getState().addMessage({
       id: generateMessageId('user'),
@@ -189,16 +334,18 @@ export default function InputArea() {
       timestamp: Date.now(),
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     });
+
     try {
       await window.electron.agentUserAction({
         type: 'SEND_MESSAGE',
         message: content,
         attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+        agentId,
       });
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, isSessionReady, toast, attachments]);
+  }, [input, isSending, isSessionReady, toast, attachments, selectedAgent]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
@@ -206,11 +353,10 @@ export default function InputArea() {
   }, []);
 
   // ─── 文件附件工具函数 ─────────────────────────────
-  const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024; // 1MB
-  const MAX_BINARY_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024;
+  const MAX_BINARY_FILE_SIZE = 10 * 1024 * 1024;
   const MAX_FILE_COUNT = 10;
 
-  // 二进制文件扩展名（后端有对应解析器）
   const BINARY_EXTENSIONS = new Set([
     'xlsx', 'xls', 'xlsm', 'xlt', 'xltx', 'xltm',
     'csv', 'tsv',
@@ -219,7 +365,6 @@ export default function InputArea() {
     'pptx', 'pptm', 'potx', 'ppsx',
   ]);
 
-  // 二进制 MIME 类型前缀
   const BINARY_MIME_PATTERNS = [
     'application/vnd.openxmlformats-officedocument',
     'application/vnd.ms-excel',
@@ -230,7 +375,6 @@ export default function InputArea() {
     'text/tab-separated-values',
   ];
 
-  // 文本文件扩展名
   const TEXT_EXTENSIONS = new Set([
     'txt', 'md', 'json', 'js', 'ts', 'tsx', 'jsx', 'css', 'html', 'xml',
     'yaml', 'yml', 'toml', 'ini', 'cfg', 'env', 'sh', 'bash', 'zsh',
@@ -298,7 +442,6 @@ export default function InputArea() {
 
         if (isBinary) {
           if (dropPath) {
-            // 拖放：有真实文件路径，后端直接解析
             newAttachments.push({
               name: file.name,
               path: dropPath,
@@ -306,7 +449,6 @@ export default function InputArea() {
               size: file.size,
             });
           } else {
-            // 粘贴：无路径，读二进制内容并 base64 编码
             const arrayBuffer = await file.arrayBuffer();
             const bytes = new Uint8Array(arrayBuffer);
             let binary = '';
@@ -320,7 +462,6 @@ export default function InputArea() {
             });
           }
         } else {
-          // 文本文件：直接读取内容
           const content = await file.text();
           newAttachments.push({
             name: file.name,
@@ -369,7 +510,6 @@ export default function InputArea() {
     const files = e.dataTransfer.files;
     if (files.length === 0) return;
 
-    // 先从 text/uri-list 提取文件路径
     let paths: string[] | undefined;
     try {
       const uriList = e.dataTransfer.getData('text/uri-list');
@@ -384,7 +524,6 @@ export default function InputArea() {
     await addFiles(files, paths);
   }, [addFiles]);
 
-  // ─── 粘贴文件 ─────────────────────────────────────
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const files = e.clipboardData?.files;
     if (files && files.length > 0) {
@@ -392,18 +531,6 @@ export default function InputArea() {
       addFiles(files);
     }
   }, [addFiles]);
-
-  // ─── 键盘事件 ───────────────────────────────────────
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
-      e.preventDefault();
-      handleSubmit();
-    }
-    if (e.key === 'Escape') {
-      setInput('');
-      textareaRef.current?.blur();
-    }
-  }, [handleSubmit, isComposing]);
 
   // ─── 工具栏 ─────────────────────────────────────────
   const autoCompressing = memoryStatus.isCompressing && !isCompacting;
@@ -419,7 +546,6 @@ export default function InputArea() {
         toast.success(
           `压缩完成：${result.result.originalTokens} → ${result.result.compressedTokens} tokens（压缩 ${ratio}%）`
         );
-        // 刷新上下文使用率
         try {
           const status = await window.electron.contextStatus();
           if (status.success && status.data) setContextUsage(status.data);
@@ -477,9 +603,41 @@ export default function InputArea() {
     ? '说点什么... (后台任务运行中)'
     : cancelledTaskCount > 0
     ? '说点什么... (有任务已取消)'
-    : '说点什么...';
+    : '说点什么... (输入 @ 选择 Agent)';
 
   const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
+
+  // 当前实际使用的 agent（用户选择或默认）
+  const effectiveAgentId = selectedAgent?.id || DEFAULT_AGENT.id;
+  const effectiveAgentName = selectedAgent?.name || DEFAULT_AGENT.name;
+
+  // 后台任务追踪
+  const runningTaskCount = useAsyncTaskStore((s) => {
+    let count = 0;
+    for (const t of Object.values(s.tasks)) {
+      if (t.lifecycle === 'cleared') continue;
+      if (t.taskType === 'task') {
+        if (t.lifecycle === 'creating' || t.lifecycle === 'running') count++;
+      } else {
+        if (t.members.some(m => m.lifecycle === 'creating' || m.lifecycle === 'running')) count++;
+      }
+    }
+    return count;
+  });
+  const completedTaskCount = useAsyncTaskStore((s) => {
+    let count = 0;
+    for (const t of Object.values(s.tasks)) {
+      if (t.lifecycle === 'cleared') continue;
+      if (t.taskType === 'task') {
+        if (t.lifecycle === 'completed' || t.lifecycle === 'cancelled') count++;
+      } else {
+        if (t.members.length > 0 && t.members.every(m => m.lifecycle === 'completed' || m.lifecycle === 'cancelled')) count++;
+      }
+    }
+    return count;
+  });
+  const cancelledTaskCount = useAsyncTaskStore((s) => s.getCancelledCount());
+  const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
 
   return (
     <div
@@ -492,7 +650,7 @@ export default function InputArea() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* 后台任务提示栏 — 多态：运行中/等待汇报/已取消/混合态 */}
+      {/* 后台任务提示栏 */}
       {hasBackgroundTasks && (
         <div className={`flex items-center gap-2 px-4 py-1 border-b ${
           runningTaskCount > 0
@@ -594,20 +752,99 @@ export default function InputArea() {
             <span className="text-blue-400 text-sm">释放以添加文件</span>
           </div>
         )}
-        <Textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onCompositionStart={() => setIsComposing(true)}
-          onCompositionEnd={() => setIsComposing(false)}
-          placeholder={placeholder}
-          disabled={isSending}
-          className="flex-1 resize-none"
-          rows={1}
-          style={{ maxHeight: '150px' }}
-        />
+
+        <div className="flex-1 relative">
+          {/* Agent chip + 输入框 */}
+          <div className="flex items-start gap-2 flex-wrap">
+            {/* 选中的 Agent chip（非默认 xuanji 时显示） */}
+            {selectedAgent && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-xs text-purple-600 shrink-0 mt-1.5">
+                <span className="font-medium">@{effectiveAgentName}</span>
+                <button
+                  type="button"
+                  onClick={clearSelectedAgent}
+                  className="ml-0.5 p-0.5 rounded hover:bg-purple-500/20 transition-colors"
+                  title="取消选择，恢复默认 xuanji"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              placeholder={placeholder}
+              disabled={isSending}
+              className="flex-1 resize-none"
+              rows={1}
+              style={{ maxHeight: '150px' }}
+            />
+          </div>
+
+          {/* @ Agent 选择器弹出层 */}
+          {showAgentPicker && (
+            <div
+              ref={pickerRef}
+              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden"
+            >
+              {/* 搜索头 */}
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+                <Search size={14} className="text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground">
+                  {agentSearchQuery ? `搜索: "${agentSearchQuery}"` : '选择 Agent'}
+                </span>
+              </div>
+
+              {/* Agent 列表 */}
+              <div className="overflow-y-auto max-h-52">
+                {filteredAgents.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                    暂无可用 Agent
+                  </div>
+                ) : (
+                  filteredAgents.map((agent, index) => (
+                    <div
+                      key={agent.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                        index === highlightIndex
+                          ? 'bg-accent text-accent-foreground'
+                          : 'hover:bg-accent/50'
+                      }`}
+                      onClick={() => selectAgent(agent)}
+                      onMouseEnter={() => setHighlightIndex(index)}
+                    >
+                      {/* Avatar */}
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                        {(agent.avatar || agent.name).substring(0, 2)}
+                      </span>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{agent.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {agent.description || agent.id}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* 底部提示 */}
+              {filteredAgents.length > 0 && (
+                <div className="px-3 py-1.5 border-t border-border bg-muted/30 text-xs text-muted-foreground flex items-center gap-3">
+                  <span>↑↓ 导航</span>
+                  <span>↵ 选择</span>
+                  <span>Esc 关闭</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* 停止 / 发送按钮 */}
         {isRunning && !isAutoSummarizing && !input.trim() && attachments.length === 0 && !isSending ? (
@@ -636,9 +873,9 @@ export default function InputArea() {
       {/* 底部提示 */}
       <div className="px-4 pb-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 flex-wrap">
-          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 拖入/粘贴文件上传</span>
-          {foregroundAgentId && foregroundAgentId !== 'xuanji' && (
-            <span className="text-blue-400">· Agent: {foregroundAgentId}</span>
+          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 输入 @ 选择Agent · 拖入/粘贴文件上传</span>
+          {effectiveAgentId !== 'xuanji' && (
+            <span className="text-purple-400">· Agent: @{effectiveAgentName}</span>
           )}
         </div>
         {isAutoSummarizing && <span className="ml-2 text-blue-500">· 后台任务结果汇总中</span>}

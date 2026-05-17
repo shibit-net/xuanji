@@ -1,27 +1,28 @@
 /**
- * IntentRouter — 三级意图路由。
+ * IntentRouter — 意图分析（scene + complexity）。
  *
  * L1: LLM 意图分析 (SceneClassifier)
- * L2: keyword + capability 匹配 (EmbeddingMatcher)
- * L3: xuanji 兜底
+ * L2: 语义向量匹配 (EmbeddingMatcher)
+ * L3: 默认兜底
+ *
+ * 注意：IntentRouter 不再负责 agent 路由，agent 由用户通过输入框 @ 选择器指定。
  */
 
 import { SceneClassifier } from './SceneClassifier';
 import { EmbeddingMatcher } from './EmbeddingMatcher';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { IntentRoute, RouteProgress } from './types';
+import type { SceneAnalysis, RouteProgress } from './types';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'IntentRouter' });
 
-export type { IntentRoute } from './types';
+export type { SceneAnalysis } from './types';
 
 export class IntentRouter {
   private sceneClassifier: SceneClassifier;
   private embeddingMatcher: EmbeddingMatcher;
   private agentRegistry: AgentRegistry;
-  readonly defaultAgentId = 'xuanji';
 
   constructor(deps: {
     sceneClassifier: SceneClassifier;
@@ -34,7 +35,8 @@ export class IntentRouter {
     this.agentRegistry = deps.agentRegistry;
   }
 
-  async route(message: string, onProgress?: (progress: RouteProgress) => void): Promise<IntentRoute> {
+  /** 分析用户消息，返回 scene + complexity（不再返回 agent） */
+  async analyze(message: string, onProgress?: (progress: RouteProgress) => void): Promise<SceneAnalysis> {
     // L1: LLM 意图分析
     const l1Start = Date.now();
     const l1ModelName = this.sceneClassifier.getModelName();
@@ -43,36 +45,25 @@ export class IntentRouter {
       const result = await this.sceneClassifier.classify(message);
       const l1Duration = Date.now() - l1Start;
       if (result) {
-        // 校验 agent 存在
-        if (this.agentRegistry.get(result.agent)) {
-          onProgress?.({
-            level: 'L1', status: 'done', method: 'llm', durationMs: l1Duration, success: true,
-            agentId: result.agent, scene: result.scene, complexity: result.complexity, confidence: result.confidence,
-            modelName: result.modelName,
-          });
-          return {
-            agentId: result.agent,
-            confidence: result.confidence,
-            method: 'llm',
-            scene: result.scene,
-            complexity: result.complexity,
-            modelName: result.modelName,
-          };
-        }
-
         onProgress?.({
-          level: 'L1', status: 'done', method: 'llm', durationMs: l1Duration, success: false,
-          agentId: result.agent, scene: result.scene, reason: `Agent "${result.agent}" 不存在`,
+          level: 'L1', status: 'done', method: 'llm', durationMs: l1Duration, success: true,
+          scene: result.scene, complexity: result.complexity, confidence: result.confidence,
           modelName: result.modelName,
         });
-        log.debug(`L1 agent "${result.agent}" not found, falling back to L2`);
-      } else {
-        onProgress?.({
-          level: 'L1', status: 'done', method: 'llm', durationMs: l1Duration, success: false,
-          reason: 'LLM 未返回有效结果',
-          modelName: l1ModelName,
-        });
+        return {
+          scene: result.scene,
+          complexity: result.complexity,
+          confidence: result.confidence,
+          method: 'llm',
+          modelName: result.modelName,
+        };
       }
+
+      onProgress?.({
+        level: 'L1', status: 'done', method: 'llm', durationMs: l1Duration, success: false,
+        reason: 'LLM 未返回有效结果',
+        modelName: l1ModelName,
+      });
     } catch (err) {
       const l1Duration = Date.now() - l1Start;
       onProgress?.({
@@ -80,10 +71,10 @@ export class IntentRouter {
         reason: err instanceof Error ? err.message : 'LLM 调用异常',
         modelName: l1ModelName,
       });
-      log.warn('L1 intent classification failed, falling back to L2:', err);
+      log.warn('L1 intent analysis failed, falling back to L2:', err);
     }
 
-    // L2: 语义向量匹配（无 embedding 模型时直接降级 L3）
+    // L2: 语义向量匹配 scene（无 embedding 模型时直接降级 L3）
     if (!this.embeddingMatcher.hasEmbedder) {
       onProgress?.({
         level: 'L2', status: 'done', method: 'embedding', durationMs: 0, success: false,
@@ -97,22 +88,18 @@ export class IntentRouter {
         const l2Duration = Date.now() - l2Start;
         if (matches.length > 0 && matches[0].score >= 0.35) {
           const topMatch = matches[0];
-          if (this.agentRegistry.get(topMatch.agentId)) {
-            onProgress?.({
-              level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: true,
-              agentId: topMatch.agentId, confidence: topMatch.score, matchCount: matches.length,
-              topMatch: topMatch.agentId, reason: topMatch.reason,
-              scene: topMatch.scene, complexity: topMatch.complexity,
-            });
-            return {
-              agentId: topMatch.agentId,
-              confidence: topMatch.score,
-              method: 'embedding',
-              scene: topMatch.scene || '',
-              complexity: topMatch.complexity || 'complex',
-              reason: topMatch.reason,
-            };
-          }
+          onProgress?.({
+            level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: true,
+            scene: topMatch.scene, complexity: topMatch.complexity, confidence: topMatch.score,
+            matchCount: matches.length, reason: topMatch.reason,
+          });
+          return {
+            scene: topMatch.scene || '',
+            complexity: topMatch.complexity || 'complex',
+            confidence: topMatch.score,
+            method: 'embedding',
+            reason: topMatch.reason,
+          };
         }
         onProgress?.({
           level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
@@ -122,27 +109,26 @@ export class IntentRouter {
         const l2Duration = Date.now() - l2Start;
         onProgress?.({
           level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
-          reason: err instanceof Error ? err.message : '关键词匹配异常',
+          reason: err instanceof Error ? err.message : '语义匹配异常',
         });
         log.warn('L2 embedding match failed, falling back to default:', err);
       }
     }
 
-    // L3: xuanji 兜底
+    // L3: 默认兜底
     onProgress?.({
       level: 'L3', status: 'start', method: 'default', durationMs: 0, success: false,
     });
     onProgress?.({
       level: 'L3', status: 'done', method: 'default', durationMs: 0, success: true,
-      agentId: this.defaultAgentId, confidence: 1.0, complexity: 'complex', reason: '默认路由',
+      complexity: 'complex', reason: '默认分析',
     });
     return {
-      agentId: this.defaultAgentId,
-      confidence: 1.0,
-      method: 'default',
       scene: '',
       complexity: 'complex',
-      reason: '默认路由',
+      confidence: 1.0,
+      method: 'default',
+      reason: '默认分析',
     };
   }
 }

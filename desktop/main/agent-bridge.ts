@@ -529,7 +529,7 @@ async function copyAttachmentsToWorkspace(
   }
 }
 
-async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }> }): Promise<void> {
+async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; agentId?: string }): Promise<void> {
   if (!session) {
     log.warn('handleUserAction: session is null');
     return;
@@ -543,34 +543,38 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       }
       const attachmentPrefix = formatAttachments(data.attachments || []);
       fullMessage = attachmentPrefix + (data.message || '');
+
+      // 用户选择的 agent（默认 xuanji）
+      const userAgentId = data.agentId || 'xuanji';
+      routedAgentId = userAgentId;
+
       const features = session.getConfig()?.features;
       const intentEnabled = features?.enableIntentAnalysis !== false; // 默认 true
+
       if (intentRouter && intentEnabled) {
+        // 意图分析：只获取 scene + complexity，agent 由用户选择
         channel.send('agent:intent-route:start');
-        const route = await intentRouter.route(fullMessage, (progress) => {
+        const analysis = await intentRouter.analyze(fullMessage, (progress) => {
           channel.send('agent:intent-route:progress', progress);
         });
-        routedAgentId = route.agentId;
-        await session.switchForegroundAgent(route.agentId, route.scene, route.complexity);
-        const agentConfig = session.getAgentRegistry()?.get(route.agentId);
-        // 先发送路由结果（展示面板），再发送前台切换（React Flow 节点）
+        await session.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
+        const agentConfig = session.getAgentRegistry()?.get(userAgentId);
         channel.send('agent:intent-route', {
-          agentId: route.agentId,
-          confidence: route.confidence,
-          method: route.method,
-          scene: route.scene,
-          complexity: route.complexity,
-          reason: route.reason,
-          modelName: route.modelName,
+          agentId: userAgentId,
+          confidence: analysis.confidence,
+          method: analysis.method,
+          scene: analysis.scene,
+          complexity: analysis.complexity,
+          reason: analysis.reason,
+          modelName: analysis.modelName,
         });
-        channel.send('agent:switch-foreground', { agentId: route.agentId, name: route.agentId, agentType: agentConfig?.category || undefined });
+        channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: agentConfig?.category || undefined });
       } else {
-        // 意图分析关闭或未初始化 → 直接使用 xuanji
-        routedAgentId = 'xuanji';
+        // 意图分析关闭 → 使用用户选择的 agent，不分析 scene/complexity
         channel.send('agent:intent-route:start');
-        await session.switchForegroundAgent('xuanji', undefined, 'complex');
-        channel.send('agent:intent-route', { agentId: 'xuanji', confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
-        channel.send('agent:switch-foreground', { agentId: 'xuanji', name: 'xuanji', agentType: 'system' });
+        await session.switchForegroundAgent(userAgentId, undefined, 'complex');
+        channel.send('agent:intent-route', { agentId: userAgentId, confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
+        channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'system' });
       }
     }
     log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));
@@ -1110,8 +1114,8 @@ channel.handle('analyze-intent', async (prompt) => {
     return { success: false, error: 'IntentRouter 未初始化' };
   }
   try {
-    const route = await intentRouter.route(prompt);
-    return { success: true, route };
+    const analysis = await intentRouter.analyze(prompt);
+    return { success: true, analysis };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
@@ -1632,7 +1636,7 @@ function registerHookEventBridge() {
     safeSend({ type: 'workspace:model-classifier-start', data: { userInput: ctx.userInput, model: ctx.model, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
   });
   eventBus.on(XuanjiEvent.HOOK_MODEL_CLASSIFIER_END, (ctx) => {
-    safeSend({ type: 'workspace:model-classifier-end', data: { userInput: ctx.userInput, model: ctx.model, agent: ctx.agent, scene: ctx.scene, complexity: ctx.complexity, durationMs: ctx.durationMs, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
+    safeSend({ type: 'workspace:model-classifier-end', data: { userInput: ctx.userInput, model: ctx.model, scene: ctx.scene, complexity: ctx.complexity, durationMs: ctx.durationMs, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
   });
   eventBus.on(XuanjiEvent.HOOK_INTENT_ANALYSIS_START, (ctx) => {
     safeSend({ type: 'workspace:intent-analysis-start', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });

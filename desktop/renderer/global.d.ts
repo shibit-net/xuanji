@@ -139,7 +139,7 @@ export interface ElectronAPI {
 
   // Agent 操作
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
-  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: FileAttachment[] }) => Promise<{ success: boolean; result?: any; error?: string }>;
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: FileAttachment[]; agentId?: string }) => Promise<{ success: boolean; result?: any; error?: string }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
