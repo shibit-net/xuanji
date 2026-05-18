@@ -140,174 +140,27 @@ npm run build:gui:win    # Windows
 
 ### 1. Agent ReAct 循环
 
-```mermaid
-flowchart TD
-    A[用户输入] --> B[ContextManager 添加消息]
-    B --> C{上下文预算检查}
-    C -->|Yellow| D[轻度压缩]
-    C -->|Red| E[激进压缩]
-    C -->|Green| F[调用 LLM]
-    D --> F
-    E --> F
-    F --> G[StreamPipeline 流式处理]
-    G --> H{响应类型}
-    H -->|文本| I[输出文本给用户]
-    H -->|工具调用| J[ToolGateway 批量执行]
-    J --> K{工具类型}
-    K -->|只读| L[并行执行]
-    K -->|写入| M[串行执行]
-    L --> N[结果反馈 ContextManager]
-    M --> N
-    N --> O{卡住检测}
-    O -->|检测到循环| P[警告并退出]
-    O -->|正常| C
-    I --> Q[返回结果]
-    P --> Q
-```
+![flowchart TD](https://mermaid.ink/img/eJxtkt9P2lAUx_-Vkz7Pf8CHJRMEf4CyzZflrg-NXJWktEvThS0tCWZiEcS6QFyMBscczJk53BKhUJV_hnNb_ouF3i6BZY_fcz7nnO895xrCppqmwrywJau5zR1J02Ej-loBAHhGvPoVK_X8xxoWWyLMzT2FBRJRFZ2-05OSIm1TDVjPxfJn1i2x3Y7I6xYCMmKMnPLIqbATa_xlz_v5iV0W2EUrz5nIhDFfUVlWcyZEif_g4qCNRxXv_rs4jbygaRMWCRsW_OHZf_JxjVLFhBjxbz949StIJJJhPhrYiHGxOC1igYiTl7pGpWwq84bKGYUCu9vFexu_7nnH-2GPeEAuGVir4qDu_XKxUQlfsBSMZycWO_9hwjKZbMkacO25p3x14jSLvRYWe9ynCStkQ1XluKTTnPQe2EF_bNns4JvfPAyLVoLZqwYvm5m9yvvZ137HNSFBsN_1m4cz1SGyf4rFlglJMnJ-_4skggFrxHNrrHGOdnXcLsHseUMyyUku1gKxbmC1OXqwJ1e9--trne8kCGHpFh-vvaOOCSni37TxYxn73XGhgNZAnMFvLtFxTIjw4HLQ_jnxh3U8a3BvIZ_iKeGJkKVaVsqkhXlD0HdodvJ_03RLeivrQj7_B2njPf4)
 
 ### 2. 会话生命周期
 
-```mermaid
-flowchart TD
-    A[SessionFactory.createSession] --> B[DI 容器注册依赖]
-    B --> C[加载配置模板]
-    C --> D[初始化 ProviderPool]
-    D --> E[创建 ToolRegistry]
-    E --> F[注册 MCP 服务器]
-    F --> G[初始化记忆系统]
-    G --> H[创建 AgentFactory]
-    H --> I[返回 ChatSession]
-
-    I --> J[用户发送消息]
-    J --> K[AgentLoop 执行]
-    K --> L[SessionManager.save]
-
-    L --> M{会话结束?}
-    M -->|否| J
-    M -->|是| N[持久化最终状态]
-    N --> O[清理资源]
-```
+![flowchart TD](https://mermaid.ink/img/eJxN0stOAjEUBuBXaWatPoALDRcREJSou8qigQokMDXDiDFAAomQEYeI0RARRmWjswITAl5G5GVoZ3gLYynqtv-X87cnzUsxEsfSqnSYJiexJFJUsO89kAEAwAX3cDabIrIPxVSinK7EFIxULA6jYHl5DbihNwBo7522TDYwaVWffhnOsBmdT3Bz44G09uiMx7NK3R73mNllxkQADwdeSDWDPl9QvQkiCsml4liJEJIWyMvRBqRam1ofYJ-Q9C5OpLKqcirEBhc-OL8CCHsigHXqtNalLVMQHyebf01O74VOqvbAsq0HYTa58S-KXAksq-LtQvi5CEBnckPb98CTROpiHQfynAQ4CUL7xmTaK728mpXKbKSxcl_MCHKwBfn4ECFHgJ0_O11dxFs8Di12H0YySmBlJYty-LcjxE04P_28c_qGbV0z42G9OM_CP1mBNp4KIPj_hN32C2AbMr08fa9Qvck6JdvS7NqIlcqiepuP3YHsrWI3qs7wjH00otKSlMFKBqXi0mpeUpM48_Nb4vgQHadVqVj8BrGG8Lk)
 
 ### 3. 工具执行中间件管道
 
-```mermaid
-flowchart LR
-    A[ToolRegistry.execute] --> B[ErrorHandling]
-    B --> C[Logging]
-    C --> D[Timeout<br/>300s default]
-    D --> E[AbortCheck]
-    E --> F[PlanMode<br/>拦截写操作]
-    F --> G[Permission<br/>双层验证]
-    G --> H[Tool.execute]
-
-    G -->|拒绝| I[返回权限错误]
-    F -->|Plan Mode| J[返回拦截提示]
-```
+![flowchart LR](https://mermaid.ink/img/eJxNkMFKw0AURX9lmLXVgrsihTZNW6VCKd1Ns0iTaRJMZmAyQaXpQgURWmnRboLWlbjoJrhVxJ8x0-QvJGPUbu8977173xga1MSwAkcuPTVsnXHQ6Q0IAADUUJ9St4ctx-fsfBefYSPgWAOlUhXUkcoYZW2dmK5DLO1noi49BXWoZf2rilQbqO94mAb8YMj2qvvlsg9MPNIDlxdYQ2Iqqg0p44qNjZPCUKXRRF1XJ8fUxHKBmL6Im3VyHYn726-PxwJtSrSFuph5ju87lEg4mc-S18tsPUvji4JsSbItK_5VG5AtMxTTu837KgSHKP1cJg9PYnWVRYtsGaVxvH0vzIOBPFkIjn5ZGU_MF5vnNw3uQA8zT3dMWBlDbmMvf3jRHk4m33GCky8)
 
 ### 4. 多智能体团队协作
 
-```mermaid
-flowchart TD
-    A[team Tool 调用] --> B{协作策略}
-    B -->|sequential| C[串行执行成员<br/>输出→输入]
-    B -->|parallel| D[并行执行<br/>独立任务]
-    B -->|hierarchical| E[Leader 分派<br/>子成员执行]
-    B -->|debate| F[多 Agent 讨论<br/>达成共识]
-    B -->|pipeline| G[流水线<br/>逐步加工]
-
-    C --> H[TeamManager]
-    D --> H
-    E --> H
-    F --> H
-    G --> H
-
-    H --> I[AgentFactory<br/>创建子 Agent]
-    I --> J[AgentLoop<br/>执行任务]
-    J --> K[结果聚合]
-    K --> L[返回汇总结果]
-```
+![flowchart TD](https://mermaid.ink/img/eJxVkl1LAkEUhv_KsNdF9xFBapZld95NXky7p1zYD5s2IlyhiMy-aEuLyIiCpKA0jT5d0v8Szu72L2JnLPRmmJf3fc6cc5icJJsKSKPSomauyRlCLZSKzRsIITSBLSA6SpmmhoLGll--T6Ph4XEUybHDo-7XpV8780-reRGOhJa9AsurYFgq0WwUxd2P5-DmwNu9C8-iw47PxxboyHjQLrGd1nfhJLxsV9P9BbKEEk0DzUYxzD7f_nEO-vuP_sN-13XZ3s0AlVGBEipnVDl8eBIngShAESsWvJc2R1nNER2IcgO0AgvEAhvFMbu9QBNLYFgoqN8H9Vav3XaIbjeDp8Jgr2oWNNUAG01h73XTa7z4rQ5HfjYcr1Zle9fsPRxPQFG-vGmcAqLPEYMsAe2ViwlHiMl-Ee8XU39CyGkuE5g3HCeyZdJ1MWuxwtwWqzlilt4jCR6fEfGkaWZ5VqxjYKUzPDiLfbfkXV0GmxfMKfasWW4lcdAps8qV19zxNlwRS0tDkg5UJ6oijeYkKwN6-KkUWCSrmiXl87_fdQO-)
 
 ### 5. 记忆系统 ER 图
 
-```mermaid
-erDiagram
-    ENTITY {
-        string id PK
-        string type "person/project/concept/file/tool"
-        string name
-        string summary
-        string category
-        json metadata
-        int importance "0-100"
-        datetime created_at
-        datetime updated_at
-    }
-
-    FACT {
-        string id PK
-        string entity_id FK
-        string content
-        string category
-        json evidence
-        float confidence "0-1"
-        datetime timestamp
-    }
-
-    RELATION {
-        string id PK
-        string subject_id FK
-        string relation_type "depends_on/part_of/uses/creates/..."
-        string object_id FK
-        float strength "0-1"
-        json evidence
-        datetime created_at
-    }
-
-    EVENT {
-        string id PK
-        string type "user_action/tool_call/agent_decision/..."
-        string description
-        json context
-        json related_entities
-        datetime timestamp
-    }
-
-    EPISODE {
-        string id PK
-        string title
-        string summary
-        json key_events
-        json participants
-        datetime start_time
-        datetime end_time
-    }
-
-    ENTITY ||--o{ FACT : "has"
-    ENTITY ||--o{ RELATION : "subject"
-    ENTITY ||--o{ RELATION : "object"
-    ENTITY ||--o{ EVENT : "involved_in"
-    EPISODE ||--o{ EVENT : "contains"
-```
+![erDiagram](https://mermaid.ink/img/eJyVVNGK2zAQ_BWh5yZOX_N29HwQWnJHGwoFg9hKa0dXa2WkdWjI5d-L7DSXxE5x_WDknZGlmR3pILU3KJcSw6OFKoArSAgh8vVmtfkhDv1XeiIHS5WwRrx8HlR536AoZIMhesqa4F9Rc6Y9aWw4K22NGXtfF3Iwk8DhoBhb5yDsB3UNjJW_BF6jJ-GQwQDDe9kSC-saHxhIp50tZh8Xi8vlDTCydSh0QGA0CngEbBtzBR4L6gdPD582k91BYst7ZY14GoLaEyPxVK24swZJX3hW1h44_abskV7tqNb0igyuuVHzNf_ysFk9rycriu3P1OE7kgLWwNaTOsXCYINkokrRgMDKl1kbMWa99TGbz-cjyfCjS_RqIwekirdDrXdMutvuswf593w9vaUnZW3EoEAnsV3AlYa6zqBCYmVQ25iAcXkGow62SVNvdt8l4jffVDtT0aguTBbjf7Q3f1l9e37Mp4uzXE84lN22fuFe4Q6J4w2QOm21beAKOu81ckpCGo6ASOYCetfRX0pvb7OZP_RHcCkKuYX4199rxjnWiXWK7ASm_wexT0liWdr5eodGWTpTTz4PuKmjYCkWUn6QDoMDa-TyIHmLLl2-Bktoa5bH4x-1kbX5)
 
 ### 6. MCP 市场集成流程
 
-```mermaid
-flowchart TD
-    A[InstallTool / SkillInstaller] --> B[TiangongMarket.search]
-    B --> C{找到包?}
-    C -->|否| D[返回搜索结果]
-    C -->|是| E[getInstallConfig]
-    E --> F[download tar.gz]
-    F --> G[解压到 ~/.xuanji/mcp/或skills/]
-    G --> H{MCP 还是 Skill?}
-    H -->|MCP| I[npm install --production]
-    I --> J[解析 configTemplate]
-    J --> K[MCPManager.addServer]
-    H -->|Skill| L[写入 JSON 到 installed/]
-    L --> M[SkillRegistry.register]
-    K --> N[返回成功]
-    M --> N
-```
+![flowchart TD](https://mermaid.ink/img/eJxNUs1O2zAcf5W_cl6TOwfQCF8tTVfR3kwPVuymAceuHHeMNd0N1LEJVQKhIlCRQLAjHHabtD6N0z7GFMeduFn-fVseOqEg1FlzukychD0sFbS3DjkAwEdU5anCjLWFYOBB6zhmzF5R2YFKZR02UTvGPBI8CrA8pspNKZZhr1M6bBqOP8y__9XjN_3zbGNUAn4BZHryksEWWs6v9d0sn9wvfj8u_lzls_vOe1Y-fc1gG0VU2Wxf8G4cWc62idhBRJxwJjABhaUbfbXojkF30fLXk778ocdv8M1zvwwwP4q9JOx7-fgmLValnhXsGsHeMPCbsJxP8-lrOXtVfM9UCvxmBlXE-wnEZSeoVPpSkEGoYsGtV9V41YrwfDaB0NRu06TPsKKWUzOcfRT4zQBzHFHpYkJaVH6msvM-0rTIoI70-a0-e4Za61MDikG2ACWrCXVjGSCjOKBRnCp56kpz-G-6b0iN1duPJ_riwUJBCTkfnITKBMfEWRs6qkeT4pcQ2sUDppzR6B8hBc-W)
 
 ## 工具矩阵
 
