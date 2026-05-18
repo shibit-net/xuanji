@@ -6,6 +6,7 @@
 
 export * from './types';
 export * from './cache';
+export * from './config';
 export * from './MCPClient';
 export * from './MCPSSEClient';
 export * from './HttpMCPClient';
@@ -15,3 +16,4 @@ export * from './MCPToolAdapter';
 export * from './tools';
 export * from './transports';
 export * from './search';
+export * from './market';

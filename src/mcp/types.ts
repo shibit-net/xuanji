@@ -265,6 +265,23 @@ export interface MCPServerConfig {
 
   /** 请求超时（毫秒）— http/sse 模式可选 */
   timeout?: number;
+
+  // ────────── Marketplace 相关 ──────────
+
+  /** 来源标记: builtin(内置) | project(项目配置) | marketplace(市场安装) | custom(自定义) */
+  source?: 'builtin' | 'project' | 'marketplace' | 'custom';
+
+  /** 天工坊 packageId（从 marketplace 安装时填充） */
+  packageId?: string;
+
+  /** 安装时的版本号 */
+  installedVersion?: string;
+
+  /** 本地安装路径 */
+  installPath?: string;
+
+  /** 安装时间 (ISO 8601) */
+  installedAt?: string;
 }
 
 /**
@@ -282,6 +299,16 @@ export interface MCPConfig {
 
   /** 全局环境变量 */
   env?: Record<string, string>;
+
+  /** 天工坊 marketplace 配置 */
+  marketplace?: {
+    /** Starship 天工坊 API 基础 URL */
+    baseUrl: string;
+    /** 鉴权 API Key（私有包需要） */
+    apiKey?: string;
+    /** 是否启用 marketplace（默认 true） */
+    enabled?: boolean;
+  };
 }
 
 // ============================================================

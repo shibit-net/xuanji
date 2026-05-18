@@ -38,6 +38,7 @@ import { MemoryManager } from '@/core/memory/MemoryManager';
 import { registerMemoryManager } from '@/core/memory/globals';
 import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
+import { MCPManager, TiangongMarket, MCPInstaller } from '@/mcp';
 
 const log = logger.child({ module: 'SessionFactory' });
 
@@ -126,6 +127,30 @@ export class SessionFactory {
       await builder.init();
       return builder;
     });
+
+    // 3.5. MCP 商城模块
+    // mcpManager 是 MCP 运行时的统一入口（单例）
+    this.container.register('mcpManager', () => MCPManager.getInstance());
+    log.debug('MCPManager registered');
+
+    // tiangongMarket + mcpInstaller 仅在配置了 marketplace baseUrl 时才注册
+    const marketplaceConfig = config.mcp?.marketplace;
+    if (marketplaceConfig?.enabled !== false && marketplaceConfig?.baseUrl) {
+      this.container.register('tiangongMarket', () => new TiangongMarket({
+        baseUrl: marketplaceConfig.baseUrl,
+        apiKey: marketplaceConfig.apiKey,
+      }));
+      log.debug('TiangongMarket registered');
+
+      this.container.register('mcpInstaller', async () => {
+        const market = await this.container.resolve<TiangongMarket>('tiangongMarket');
+        const mgr = await this.container.resolve<MCPManager>('mcpManager');
+        return new MCPInstaller(market, mgr);
+      });
+      log.debug('MCPInstaller registered');
+    } else {
+      log.debug('Marketplace config not found or disabled — skipping TiangongMarket/MCPInstaller');
+    }
 
     // 4. 注入权限控制器
     const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
