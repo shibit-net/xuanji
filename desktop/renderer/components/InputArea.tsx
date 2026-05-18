@@ -74,12 +74,11 @@ export default function InputArea() {
   const autoSummarizeActive = convState === 'outputting';
 
   const isInProcessAgentActive = useAgentStateMachine((s) => {
-    for (const agent of Object.values(s.agentMap)) {
-      if (agent.executionMode === 'acp') continue;
-      if (['success', 'failed', 'cancelled', 'cleared'].includes(agent.status)) continue;
-      return true;
-    }
-    return false;
+    // 输入框状态仅跟前台 agent 挂钩，后台异步 agent 不影响输入可用性
+    const agent = s.foregroundAgentId ? s.agentMap[s.foregroundAgentId] : undefined;
+    if (!agent || agent.executionMode === 'acp') return false;
+    if (['success', 'failed', 'cancelled', 'cleared', 'pending'].includes(agent.status)) return false;
+    return true;
   });
 
   const isIdle = (convState === 'idle' || convState === 'waiting_async') && !isInProcessAgentActive;
@@ -87,6 +86,13 @@ export default function InputArea() {
   const isToolExecuting = convState === 'executing';
   const isSummarizing = convState === 'outputting';
   const isAutoSummarizing = autoSummarizeActive;
+
+  // 意图分析/路由完成后 agent 开始执行时，清除发送中状态，让输入框跟随前台 agent 状态
+  useEffect(() => {
+    if (convState === 'executing' && isSending) {
+      setIsSending(false);
+    }
+  }, [convState, isSending]);
 
   // ─── Session 状态 ──────────────────────────────────────
   const sessionStatus = useSessionInitStore((s) => s.status);

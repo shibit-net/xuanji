@@ -38,7 +38,7 @@ import { MemoryManager } from '@/core/memory/MemoryManager';
 import { registerMemoryManager } from '@/core/memory/globals';
 import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
-import { MCPManager, TiangongMarket, MCPInstaller } from '@/mcp';
+import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
 import { SkillInstaller, SkillRegistry } from '@/core/skills';
 
 const log = logger.child({ module: 'SessionFactory' });
@@ -161,6 +161,14 @@ export class SessionFactory {
         return new SkillInstaller(market, registry);
       });
       log.debug('SkillInstaller registered');
+
+      this.container.register('updateChecker', async () => {
+        const market = await this.container.resolve<TiangongMarket>('tiangongMarket');
+        const mgr = await this.container.resolve<MCPManager>('mcpManager');
+        const registry = await this.container.resolve<SkillRegistry>('skillRegistry');
+        return new UpdateChecker(market, mgr, registry);
+      });
+      log.debug('UpdateChecker registered');
     } else {
       log.debug('Marketplace config not found or disabled — skipping TiangongMarket/MCPInstaller');
     }
@@ -183,7 +191,7 @@ export class SessionFactory {
 
     // 7. 创建 StateTracker（旧路径）/ SessionStateMachine（新路径）
     const stateTracker = new StateTracker();
-    const useStateMachine = process.env.USE_SESSION_STATE_MACHINE === 'true';
+    const useStateMachine = process.env.USE_SESSION_STATE_MACHINE !== 'false';
     const stateMachine = useStateMachine ? new SessionStateMachine() : undefined;
 
     // 8. 获取 TaskOrchestrator 单例（统一后台任务管理器）
@@ -313,6 +321,34 @@ export class SessionFactory {
         isRunning: () => (agentLoop as any).running ?? false,
       };
       log.info('TaskCompletionHandler onRun + onAutoSummarize + onCitationData hooked');
+    }
+
+    // 15.5. 接线：异步任务生命周期 → SessionStateMachine
+    // 确保 _pendingAsyncTaskIds 正确追踪异步任务，handleAgentCompleted() 能正确进入 waiting_async
+    if (stateMachine) {
+      // 异步子 agent 启动时注册到状态机
+      const unsubStart = eventBus.on(XuanjiEvent.HOOK_SUBAGENT_START, (ctx: any) => {
+        if (ctx?.data?.isAsync) {
+          stateMachine.registerAsyncTask(ctx.subAgentId);
+        }
+      });
+      // 异步任务完成时通知状态机
+      const unsubComplete = eventBus.on(XuanjiEvent.ASYNC_TASK_COMPLETED, (payload: any) => {
+        const taskId = payload?.subAgentId || payload?.groupId;
+        if (taskId) {
+          stateMachine.completeAsyncTask(taskId);
+          stateMachine.transition({ type: 'ASYNC_TASK_COMPLETED', taskId });
+        }
+      });
+      const unsubFail = eventBus.on(XuanjiEvent.ASYNC_TASK_FAILED, (payload: any) => {
+        const taskId = payload?.subAgentId || payload?.groupId;
+        if (taskId) {
+          stateMachine.completeAsyncTask(taskId);
+          stateMachine.transition({ type: 'ASYNC_TASK_COMPLETED', taskId });
+        }
+      });
+      // 将取消订阅挂在 session 上，session 销毁时清理
+      (session as any)._stateMachineEventUnsubs = [unsubStart, unsubComplete, unsubFail];
     }
 
     // 16. 将 scheduler 挂到 session 上，供 agent-bridge 接线 sessionTrigger

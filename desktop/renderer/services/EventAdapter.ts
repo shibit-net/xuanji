@@ -22,6 +22,7 @@ import { useExecutionStore, type TodoItem } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
+import { hasUnclosedMarkdownStructure } from '../utils/markdownUtils';
 
 // 解析 TODO_PROGRESS 注释，同步到 executionStore
 // 采用全量同步策略：取最后一个完整 JSON，替换整个 store 的 todos
@@ -69,6 +70,25 @@ function parseTodoProgress(text: string): void {
   execStore.replaceTodos(newTodos);
 }
 
+function extractSubAgentMetadata(text: string): void {
+  const match = text.match(/<!--\s*SUB_AGENT_METADATA:\s*(.+?)\s*-->/);
+  if (!match) return;
+  try {
+    const meta = JSON.parse(match[1]);
+    const agentName = meta.agentName || 'unknown';
+    useCitationStore.getState().addCitation(agentName, {
+      agentId: agentName,
+      agentName,
+      files: [],
+      summary: meta.summary,
+      timestamp: Date.now(),
+      originalOutput: meta.originalOutput,
+      duration: meta.duration,
+      tokensUsed: meta.tokensUsed,
+    });
+  } catch { /* 元数据不完整，忽略 */ }
+}
+
 let registered = false;
 
 export function registerEventAdapter(): void {
@@ -81,6 +101,9 @@ export function registerEventAdapter(): void {
 
   // 异步子 agent：其文本不应直接进入对话框，而应通过 TaskCompletionHandler 汇报
   const asyncSubAgentIds = new Set<string>();
+
+  // 所有子 agent（同步+异步）：其 agent:end 不应触发主 agent 的完成逻辑
+  const subAgentIds = new Set<string>();
 
   // 待清理的 task/team：等到主 agent 的 agent:end 才统一清除
   const pendingCleanupIds = new Set<string>();
@@ -221,7 +244,9 @@ export function registerEventAdapter(): void {
   });
 
   messageBus.on('agent:queue-consumed', () => {
-    useAgentStateMachine.getState().transition({ type: 'CLEAR_QUEUED_MESSAGE' });
+    const store = useAgentStateMachine.getState();
+    store.transition({ type: 'CLEAR_QUEUED_MESSAGE' });
+    store.transition({ type: 'CLEANUP_COMPLETED_TASKS' });
   });
 
   // ============================================================
@@ -230,12 +255,16 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:started', (data?: any) => {
     flowLogger.log('EventAdapter', 'RECV agent:started', 'data:', data);
+    // 异步子 agent 启动不应重置 convState，否则会覆盖主 agent 已完成后的 idle/waiting_async 状态
+    if (data?.isForeground === false) return;
     useConversationStore.getState().onAgentStarted();
     useSessionStore.getState().addLog('info', '🤖 Agent 开始处理');
     // 不在此处 ROUTE_RESET — 意图分析结果持续展示到下一轮 ROUTE_START 自动清除
   });
 
-  messageBus.on('agent:end', () => {
+  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
+    // 子 agent（同步或异步）结束不应重置 convState，只有主 agent 结束时才触发
+    if (data?.agentId && subAgentIds.has(data.agentId)) return;
     flowLogger.log('EventAdapter', 'RECV agent:end — triggering cleanup');
     useConversationStore.getState().onAgentCompleted();
     useSessionStore.getState().addLog('info', '✅ Agent 处理完成');
@@ -303,11 +332,20 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:tool-start', (data: { id: string; name: string; input: any; agentId?: string }) => {
     const agentId = data.agentId || getDefaultAgentId();
+    const isAsync = asyncSubAgentIds.has(agentId);
+    // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
     useAgentStateMachine.getState().transition({
       type: 'TOOL_START', agentId, toolId: data.id, toolName: data.name, toolInput: data.input || {},
     });
 
+    if (isAsync) return;
+
     let msgStore = useMessageStore.getState();
+    // 气泡拆分：tool 调用前若有已闭合 markdown 结构的文本，封口当前气泡，开新泡放 tool
+    if (msgStore.currentStreamingId && msgStore.currentStreamingText && !hasUnclosedMarkdownStructure(msgStore.currentStreamingText)) {
+      msgStore.finishStreaming();
+      msgStore = useMessageStore.getState();
+    }
     // 延迟创建气泡：首个工具调用时创建，避免纯思考阶段产生空白气泡
     if (!msgStore.currentStreamingId) {
       msgStore.startStreaming(generateMessageId('stream'));
@@ -331,13 +369,18 @@ export function registerEventAdapter(): void {
 
   messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string }) => {
     const agentId = data.agentId || getDefaultAgentId();
+    const isAsync = asyncSubAgentIds.has(agentId);
+    // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
     useAgentStateMachine.getState().transition({
       type: 'TOOL_END', agentId, toolId: data.id, toolName: data.name, result: data.result, isError: data.isError,
     });
 
+    if (isAsync) return;
+
     // 解析 todo 工具的进度数据
     if (data.result && !data.isError) {
       parseTodoProgress(data.result);
+      extractSubAgentMetadata(data.result);
     }
 
     const msgStore = useMessageStore.getState();
@@ -363,7 +406,9 @@ export function registerEventAdapter(): void {
     useSessionStore.getState().addLog('tool', `${status} ${data.name} ${data.isError ? '失败' : '完成'}`);
   });
 
-  messageBus.on('agent:end', () => {
+  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
+    // 子 agent（同步或异步）结束不应触发前台清理
+    if (data?.agentId && subAgentIds.has(data.agentId)) return;
     flowLogger.log('EventAdapter', 'RECV agent:end (cleanup) — foreground:', useAgentStateMachine.getState().foregroundAgentId);
     const store = useAgentStateMachine.getState();
     // 客户端合成：前台完成后回 pending（后端不知道 foregroundAgentId）
@@ -376,7 +421,7 @@ export function registerEventAdapter(): void {
       useAsyncTaskStore.getState().transition({ type: 'TASK_CLEARED', taskId: id });
     }
     pendingCleanupIds.clear();
-    store.transition({ type: 'CLEAR_QUEUED_MESSAGE' });
+    // CLEAR_QUEUED_MESSAGE 移至 queue:consumed handler，避免 agent:end 过早清零
   });
 
   // ============================================================
@@ -386,6 +431,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:subagent-start', (data: { subAgentId: string; name: string; role?: string; task?: string; agentType?: string; parentId?: string; streamToUser?: boolean; scene?: string; executionMode?: 'acp' | 'in-process'; isAsync?: boolean }) => {
     flowLogger.log('EventAdapter', 'RECV agent:subagent-start', 'subAgentId:', data.subAgentId, 'name:', data.name, 'agentType:', data.agentType, 'parentId:', data.parentId, 'isAsync:', data.isAsync);
     if (data.isAsync) asyncSubAgentIds.add(data.subAgentId);
+    subAgentIds.add(data.subAgentId);
     const state = useAgentStateMachine.getState();
     // 如果后端 parentId 是 xuanji 或 main（占位符），替换为当前消息来源的前台 agent
     const parentId = (data.parentId && data.parentId !== 'xuanji' && data.parentId !== 'main')
@@ -399,6 +445,7 @@ export function registerEventAdapter(): void {
       agentType: data.agentType || 'temporary',
       taskType: 'task',
       executionMode: data.executionMode || 'in-process',
+      isAsync: data.isAsync,
       scene: data.scene,
       streamToUser: data.streamToUser,
     });
@@ -420,6 +467,7 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:subagent-end', (data: { subAgentId: string; success: boolean }) => {
     const isAsync = asyncSubAgentIds.has(data.subAgentId);
     asyncSubAgentIds.delete(data.subAgentId);
+    subAgentIds.delete(data.subAgentId);
     useAgentStateMachine.getState().transition({
       type: 'SUBAGENT_END', agentId: data.subAgentId, success: data.success, isAsync,
     });
@@ -514,6 +562,7 @@ export function registerEventAdapter(): void {
       agentType: data.agentType || 'team-member',
       taskType: 'team',
       executionMode: data.executionMode,
+      isAsync: true,
       scene: data.scene,
       multiAgent: { type: 'agent_team', teamName: data.teamName, memberId, stepIndex: data.stepIndex, totalSteps: data.totalSteps, currentRound: data.currentRound, maxRounds: data.maxRounds, debateRole: data.debateRole },
     });
@@ -564,6 +613,7 @@ export function registerEventAdapter(): void {
       agentType: 'team-member',
       taskType: 'team',
       executionMode: (data.executionMode as 'acp' | 'in-process') || 'acp',
+      isAsync: true,
       scene: data.scene,
       task: data.task,
       multiAgent: {
@@ -754,7 +804,7 @@ export function registerEventAdapter(): void {
   }
 
   messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
-    if (data?.agentId && asyncSubAgentIds.has(data.agentId)) return;
+    if (data?.agentId && subAgentIds.has(data.agentId)) return;
 
     if (data?.tokenUsage && data?.agentId) {
       applyTokenUsageToAgent(data.tokenUsage, data.agentId);
@@ -763,13 +813,20 @@ export function registerEventAdapter(): void {
     const msgStore = useMessageStore.getState();
 
     if (msgStore.currentStreamingId) {
-      // 有气泡：正常收尾 — 写入 token、耗时、内容
-      updateMessageDeltaTokens();
       const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
-      if (currentMsg?.timestamp) {
-        msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - currentMsg.timestamp });
+      const hasToolCalls = currentMsg?.toolCalls && currentMsg.toolCalls.length > 0;
+      const hasContent = msgStore.currentStreamingText.trim().length > 0;
+
+      if (!hasContent && !hasToolCalls) {
+        // 思考阶段被中断，无任何产出 → 移除空白气泡
+        msgStore.cancelStreaming();
+      } else {
+        updateMessageDeltaTokens();
+        if (currentMsg?.timestamp) {
+          msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - currentMsg.timestamp });
+        }
+        msgStore.finishStreaming();
       }
-      msgStore.finishStreaming();
     } else {
       // 无气泡（纯思考阶段被中断或未产出内容）：直接恢复 idle
       msgStore.setStatus('idle');

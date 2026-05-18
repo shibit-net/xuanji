@@ -138,6 +138,10 @@ export class AgentLoop {
         this.running = false;
         return true;
       }
+      if (this._interruptChecker.shouldStopAtCheckpoint?.()) {
+        this.running = false;
+        return true;
+      }
       return false;
     }
 
@@ -283,6 +287,8 @@ export class AgentLoop {
           model: (this.config as any).model?.primary || (this.config as any).model || '',
           apiKey: (this.config as any).apiKey || '',
           baseURL: (this.config as any).baseURL || '',
+          maxTokens: this.config.maxTokens,
+          thinking: this.thinkingConfig || (this.config as any).thinking,
         };
         this.log.info(`[DIAG] AgentLoop.run: calling streamPipeline.execute, model=${streamConfig.model} apiKey=${streamConfig.apiKey.substring(0, 8)}... baseURL=${streamConfig.baseURL} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
@@ -331,9 +337,6 @@ export class AgentLoop {
           agentId: this._userId ?? 'default',
           workingDir: this.config.workingDir,
         });
-
-        // ▶ 检查点 B：工具调用结束 — 终止或补充输入则跳出
-        if (this.checkShouldStop()) break;
 
         const toolExecDurationMs = Date.now() - toolExecStartTime;
 
@@ -391,6 +394,9 @@ export class AgentLoop {
             'delegation-complete',
           );
         }
+
+        // ▶ 检查点 B：工具调用结束 — 终止或补充输入则跳出（必须在 addToolResults 之后，防止工具结果丢失）
+        if (this.checkShouldStop()) break;
 
         // ── 卡住检测 ──
         for (const tc of result.toolCalls) {

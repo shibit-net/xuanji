@@ -40,7 +40,14 @@ export interface CitationReferenceNode {
 
 // 📎 [名称]：\"引用原文\"  或  📎 [名称]:\"引用原文\"
 // 支持中英文引号："" '' \"\" 「」 直单引号 '
-const CITATION_REGEX = /\u{1F4CE}\s*\[([^\]]+)\]\s*[：:]\s*["'\u201C\u2018\u300C](.+?)["'\u201D\u2019\u300D]/u;
+// 使用显式引号对匹配，防止中文文本中的「」被误判为引用结束符
+const CITATION_REGEX = /📎\s*\[([^\]]+)\]\s*[：:]\s*(?:"([^"]*)"|'([^']*)'|\u201C([^\u201D]*)\u201D|\u2018([^\u2019]*)\u2019|\u300C([^\u300D]*)\u300D)/u;
+
+/** 从多个交替捕获组中提取匹配的引用文本 */
+function extractQuotedText(match: RegExpExecArray): string {
+  // 交替捕获组：index 2=", 3=', 4=", 5=', 6=「」
+  return match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? '';
+}
 
 export const remarkSubAgentReference = $remark(
   'subAgentReference',
@@ -55,7 +62,7 @@ export const remarkSubAgentReference = $remark(
         const citationMatch = CITATION_REGEX.exec(text);
         if (citationMatch) {
           const agentName = citationMatch[1].trim();
-          const quotedText = citationMatch[2].trim();
+          const quotedText = extractQuotedText(citationMatch).trim();
           const matchStart = citationMatch.index;
           const matchEnd = matchStart + citationMatch[0].length;
 

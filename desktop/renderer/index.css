@@ -141,6 +141,112 @@
     -webkit-user-select: text;
   }
 
+  /* 流式 markdown 渲染（marked.js 输出，与 Milkdown 预览视觉一致） */
+  .markdown-streaming-body {
+    line-height: 1.625;
+    word-break: break-word;
+  }
+  .markdown-streaming-body p {
+    margin: 0.25rem 0;
+  }
+  .markdown-streaming-body p:first-child {
+    margin-top: 0;
+  }
+  .markdown-streaming-body p:last-child {
+    margin-bottom: 0;
+  }
+  .markdown-streaming-body strong {
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+  .markdown-streaming-body em {
+    font-style: italic;
+  }
+  .markdown-streaming-body code {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.8em;
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    background: hsl(var(--muted));
+    color: #e2e8f0;
+  }
+  .markdown-streaming-body pre {
+    margin: 0.5rem 0;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    overflow-x: auto;
+  }
+  .markdown-streaming-body pre code {
+    padding: 0;
+    background: none;
+    font-size: 0.8125rem;
+    color: hsl(var(--foreground));
+  }
+  .markdown-streaming-body ul,
+  .markdown-streaming-body ol {
+    margin: 0.25rem 0;
+    padding-left: 1.25rem;
+  }
+  .markdown-streaming-body li {
+    margin: 0.125rem 0;
+  }
+  .markdown-streaming-body h1,
+  .markdown-streaming-body h2,
+  .markdown-streaming-body h3,
+  .markdown-streaming-body h4 {
+    margin: 0.5rem 0 0.25rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+  .markdown-streaming-body h1 { font-size: 1.25rem; }
+  .markdown-streaming-body h2 { font-size: 1.125rem; }
+  .markdown-streaming-body h3 { font-size: 1rem; }
+  .markdown-streaming-body h4 { font-size: 0.9375rem; }
+  .markdown-streaming-body blockquote {
+    margin: 0.25rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid hsl(var(--primary) / 0.5);
+    color: hsl(var(--muted-foreground));
+  }
+  .markdown-streaming-body a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+  }
+  .markdown-streaming-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    font-size: 0.875rem;
+  }
+  .markdown-streaming-body th {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+  .markdown-streaming-body td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    color: hsl(var(--muted-foreground));
+    word-break: break-word;
+  }
+  .markdown-streaming-body tr:nth-child(even) td {
+    background: hsl(var(--secondary));
+  }
+  .markdown-streaming-body hr {
+    margin: 0.5rem 0;
+    border: none;
+    border-top: 1px solid hsl(var(--border));
+  }
+  .markdown-streaming-body img {
+    max-width: 100%;
+    border-radius: 0.5rem;
+  }
+
   /* toolSummary 中的文件路径 code — 可点击打开文件 */
   .tool-summary-filepath {
     display: inline-flex;

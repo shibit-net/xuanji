@@ -11,7 +11,7 @@ export class TokenCounter {
   private reservedOutputTokens: number;
   private totalUsage: TokenUsage = { input: 0, output: 0 };
 
-  constructor(maxContextTokens = 200_000, reservedOutputTokens = 8192) {
+  constructor(maxContextTokens = 1_000_000, reservedOutputTokens = 8192) {
     this.maxContextTokens = maxContextTokens;
     this.reservedOutputTokens = reservedOutputTokens;
   }

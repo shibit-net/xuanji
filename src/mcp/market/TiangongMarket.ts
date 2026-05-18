@@ -103,6 +103,7 @@ export interface UpdateCheckItem {
   hasUpdate: boolean;
   currentVersion: string;
   latestVersion: string;
+  changelog?: string;
   downloadUrl?: string;
   sha256?: string;
   fileSize?: number;
@@ -213,6 +214,7 @@ interface UpdateCheckResultRaw {
   hasUpdate: boolean;
   currentVersion: string;
   latestVersion: string;
+  changelog?: string;
   downloadUrl?: string;
   sha256?: string;
   fileSize?: number;

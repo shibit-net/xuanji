@@ -31,3 +31,11 @@ export type {
   InstallerSearchOptions,
   InstallerSearchResult,
 } from './MCPInstaller';
+
+export {
+  UpdateChecker,
+} from './UpdateChecker';
+export type {
+  UpdateCheckResult,
+  InstalledPackage,
+} from './UpdateChecker';

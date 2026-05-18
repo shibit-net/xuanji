@@ -59,7 +59,7 @@ export const useConversationStore = create<ConversationStoreState>((set, get) =>
   },
 
   onAgentCompleted: () => {
-    set({ status: 'idle', processing: false });
+    set({ status: 'idle', conversationState: 'idle', processing: false });
   },
 
   setConversationState: (conversationState) => set({ conversationState }),

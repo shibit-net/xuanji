@@ -109,8 +109,8 @@
       "enabled": true,
       "autoConfirm": false,
       "thresholds": {
-        "maxSteps": 20,
-        "maxTokens": 200000
+        "maxSteps": 100,
+        "maxTokens": 1000000
       }
     },
     "executionPlan": {

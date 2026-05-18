@@ -21,13 +21,17 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
   const active = isActiveStatus(data.status);
   const terminal = isTerminalStatus(data.status);
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
+  const liveResponseText = useAgentStateMachine((s) => s.agentMap[id]?.currentResponse);
   const now = useRealtimeClock();
 
   const isThinking = data.status === 'thinking';
+  const isReporting = data.status === 'reporting';
   const hasThought = !!liveThinkingText && isThinking;
+  const hasReport = !!liveResponseText && isReporting;
   const hasTask = !!(data.taskDescription || data.currentTask);
   const showTaskBubble = hasTask && data.status === 'pending';
   const showThoughtBubble = hasThought && !!liveThinkingText;
+  const showReportingBubble = hasReport && !!liveResponseText;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = !!(data.timelineEvents && data.timelineEvents.length > 0);
   const hasRightSide = hasMoment || hasTimeline;
@@ -118,6 +122,11 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
             {data.executionMode === 'acp' ? 'acp' : 'proc'}
           </span>
         )}
+        {data.isAsync !== undefined && (
+          <span className={`text-[7px] px-1 py-0 rounded ${data.isAsync ? 'bg-orange-500/15 text-orange-400/80' : 'bg-blue-500/10 text-blue-400/70'}`}>
+            {data.isAsync ? 'async' : 'sync'}
+          </span>
+        )}
       </div>
 
       {/* 角色标签 */}
@@ -174,6 +183,21 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
           </p>
           {/* 小箭头 → 指向头像 */}
           <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-green-500/40" />
+        </div>
+      )}
+
+      {/* 汇报气泡（琥珀色边框）— 异步任务完成后汇报结果 */}
+      {showReportingBubble && (
+        <div
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-amber-400/50 shadow-glass-sm w-[140px]"
+          style={{ zIndex: 20 }}
+        >
+          <span className="text-[6px] text-amber-400/70 uppercase tracking-wider">汇报</span>
+          <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
+            {liveResponseText!.slice(-120)}
+          </p>
+          {/* 小箭头 → 指向头像 */}
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-amber-400/50" />
         </div>
       )}
 

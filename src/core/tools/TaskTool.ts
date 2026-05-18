@@ -385,7 +385,7 @@ export class TaskTool extends BaseTool {
           manager.updateMemberStatus(groupId, params.role, memberStatus);
           onProgress({ phase: 'synthesizing', completedMembers: execResult.success ? 1 : 0 });
 
-          return self.formatResult(execResult, false, params.role);
+          return self.formatResult(execResult, false, params.role, true);
         } catch (error: any) {
           try { process.chdir(savedCwd); } catch { /* ignore */ }
 
@@ -525,7 +525,7 @@ export class TaskTool extends BaseTool {
         }, teamCtx);
       }
 
-      return this.formatResult(result, params.streamToUser, params.role);
+      return this.formatResult(result, params.streamToUser, params.role, false);
     } catch (err) {
       this.log.error(`executeSync: createAndRun threw error for ${subAgentId}:`, err);
       if (teamCtx) {
@@ -571,7 +571,7 @@ export class TaskTool extends BaseTool {
     );
   }
 
-  private formatResult(result: SubAgentResult, streamToUser?: boolean, role?: string): ToolResult {
+  private formatResult(result: SubAgentResult, streamToUser?: boolean, role?: string, isAsync?: boolean): ToolResult {
     const agentName = role ? this.getAgentName(role) : 'unknown-agent';
 
     const meta = [
@@ -582,17 +582,36 @@ export class TaskTool extends BaseTool {
       result.timedOut ? '⚠️ Timed out' : '',
     ].filter(Boolean).join(' | ');
 
-    const streamedNote = streamToUser
-      ? `[Sub-agent output was displayed to the user in real-time — reference it if needed but do NOT repeat it verbatim.]\n\n`
+    const isSync = isAsync === false;
+    const teamCtx = TeamContext.get();
+    const inHierarchicalTeam = teamCtx?.strategy === 'hierarchical';
+
+    // 同步任务：输出已通过对话框实时展示给用户，主 agent 不应再主动总结。
+    // 但输出仍需保留在上下文中，以便用户后续追问时主 agent 能引用。
+    // 策略：在输出前放置醒目的"用户已阅"标记，让 LLM 先看到指令再看内容。
+    const isSyncNonTeam = isSync && !inHierarchicalTeam;
+    const outputBlock = `\n\n${result.result}`;
+
+    const streamedNote = (streamToUser && !isSync)
+      ? `\n\n[Sub-agent output was displayed to the user in real-time — reference it if needed but do NOT repeat it verbatim.]\n`
       : '';
 
+    const syncHint = isSyncNonTeam ? [
+      '---',
+      '⚠️ **用户已在对话框中实时看到了子Agent的完整输出，不要在本次回复中总结或复述。**',
+      '以下是存档副本，仅当用户后续明确追问其中内容时才能引用。',
+      `（${agentName}，约 ${Math.round((result.result?.length || 0) / 1000)}k 字符）`,
+      '---',
+    ].join('\n') : '';
+
     const metadataMarker = `\n\n<!-- SUB_AGENT_METADATA: ${JSON.stringify({
+      agentName,
       duration: result.duration,
       tokensUsed: result.tokensUsed,
       originalOutput: result.result,
     })} -->`;
 
-    const referenceHint = [
+    const referenceHint = isSync ? '' : [
       '',
       '---',
       `⚠️ When reporting this sub-agent's results to the user, every key finding MUST include a clickable citation.`,
@@ -622,7 +641,10 @@ export class TaskTool extends BaseTool {
       ].join('\n');
     })();
 
-    const content = `${meta}\n\n${streamedNote}${result.result}${referenceHint}${metadataMarker}${summaryInstruction}`;
+    // 同步任务：syncHint（不要复述）必须放在 outputBlock 之前，让 LLM 先看到指令
+    const content = isSyncNonTeam
+      ? `${meta}\n\n${syncHint}\n\n${result.result}${referenceHint}${metadataMarker}${summaryInstruction}`
+      : `${meta}${outputBlock}${streamedNote}${referenceHint}${metadataMarker}${summaryInstruction}`;
 
     return this.success(content, {
       timedOut: result.timedOut,

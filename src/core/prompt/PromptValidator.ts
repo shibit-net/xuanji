@@ -18,7 +18,7 @@ export class PromptValidator {
   private maxTokens: number;
   private maxComponents: number;
 
-  constructor(maxTokens = 200_000, maxComponents = 20) {
+  constructor(maxTokens = 1_000_000, maxComponents = 20) {
     this.maxTokens = maxTokens;
     this.maxComponents = maxComponents;
   }

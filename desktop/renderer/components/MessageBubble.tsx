@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChevronDown, ChevronUp, Copy, Check, FileText } from 'lucide-react';
+import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
 import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
@@ -25,6 +26,34 @@ function useRealtimeClock() {
     return () => clearInterval(id);
   }, []);
   return now;
+}
+
+// 配置 marked：异步解析关闭，确保同步调用
+marked.setOptions({ async: false });
+
+/** rAF 节流的流式 markdown 渲染 hook — 上限 60fps，避免高频 delta 导致 React 卡顿 */
+function useStreamingMarkdown(text: string, active: boolean): string {
+  const [html, setHtml] = useState('');
+  const rafRef = useRef(0);
+  const latestRef = useRef(text);
+
+  useEffect(() => {
+    if (!active) return;
+    latestRef.current = text;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      try {
+        setHtml(marked.parse(latestRef.current, { async: false }) as string);
+      } catch {
+        setHtml(latestRef.current);
+      }
+    });
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [text, active]);
+
+  return html;
 }
 
 function getAgentDisplay(agentId: string | undefined): { name: string; agentId: string } {
@@ -136,9 +165,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
     setTimeout(() => setCopied(false), 2000);
   }, [displayContent]);
 
+  const streamingHtml = useStreamingMarkdown(typeof displayContent === 'string' ? displayContent : '', isStreaming);
   const processedContent = useMemo(() => {
     if (typeof displayContent !== 'string') return '';
-    // 先去除原始 HTML 标签，再规范化标题，最后确保表格后有空行
     return normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
   }, [displayContent]);
 
@@ -418,7 +447,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         <div ref={containerRef} className="max-w-none text-text-primary milkdown-message-content">
           {typeof displayContent === 'string' ? (
             isStreaming ? (
-              <div className="text-sm whitespace-pre-wrap">{displayContent}</div>
+              <div className="text-sm markdown-streaming-body" dangerouslySetInnerHTML={{ __html: streamingHtml }} />
             ) : (
               <MilkdownEditor value={processedContent} mode="preview" />
             )

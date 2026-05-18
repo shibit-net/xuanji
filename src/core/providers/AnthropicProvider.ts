@@ -495,7 +495,7 @@ export class AnthropicProvider extends BaseLLMProvider {
    * 上下文窗口 200k 是物理限制，非策略选择。
    */
   private calculateMaxTokens(requestedMaxTokens: number, estimatedInputTokens: number): number {
-    const contextWindow = 200_000;
+    const contextWindow = 1_000_000;
 
     // 安全边距（预留给响应元数据等）
     const safetyMargin = 1000;

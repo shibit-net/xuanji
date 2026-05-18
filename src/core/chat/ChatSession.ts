@@ -70,8 +70,8 @@ export class ChatSession {
       this.agentLoop.on(callbacks);
     }
 
-    // Feature flag 共存：USE_SESSION_STATE_MACHINE=true 且传入了 stateMachine 时走新路径
-    this._useNewPath = process.env.USE_SESSION_STATE_MACHINE === 'true' && !!stateMachine;
+    // Feature flag 共存：USE_SESSION_STATE_MACHINE !== 'false' 且传入了 stateMachine 时走新路径
+    this._useNewPath = process.env.USE_SESSION_STATE_MACHINE !== 'false' && !!stateMachine;
     if (this._useNewPath && stateMachine) {
       this._stateMachine = stateMachine;
       agentLoop.setInterruptChecker(stateMachine);
@@ -155,6 +155,8 @@ export class ChatSession {
         if (this._stateMachine.pendingMessages.length === 0) {
           eventBus.emitSync('queue:consumed');
         }
+        // 检查待处理的异步任务完成通知（auto-summarize 期间到达的 completion）
+        await this.checkPendingCompletions();
       } else {
         // 旧路径：StateTracker + drain
         this.stateTracker.transitionTo('idle');
@@ -757,6 +759,14 @@ export class ChatSession {
     log.debug('Cleaning up session');
     if (this.agentLoop) {
       this.agentLoop.stop();
+    }
+    // 清理状态机 EventBus 监听器
+    const unsubs = (this as any)._stateMachineEventUnsubs as Array<() => void> | undefined;
+    if (unsubs) {
+      for (const unsub of unsubs) {
+        try { unsub(); } catch { /* ignore */ }
+      }
+      (this as any)._stateMachineEventUnsubs = undefined;
     }
   }
 }

@@ -20,7 +20,7 @@ const YELLOW_THRESHOLD = 0.7;
 const RED_THRESHOLD = 0.9;
 
 /** 上下文硬上限（字节）：超过此值自动触发压缩 */
-const MAX_CONTEXT_BYTES = 200_000; // ~200KB
+const MAX_CONTEXT_BYTES = 1_000_000; // ~1MB
 /** 快照最大数量 */
 const MAX_SNAPSHOTS = 10;
 

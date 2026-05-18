@@ -256,7 +256,7 @@ export class AgentFactory {
       const runtimeConfig = this.buildRuntimeConfig(options.parentConfig, {
         systemPrompt: '',
         workingDir: options.workingDir,
-        maxIterations: options.maxIterations ?? 20,
+        maxIterations: options.maxIterations ?? 100,
         maxTokens: options.maxTokens ?? (options.parentConfig as any)?.model?.maxTokens,
       }, provider);
 
@@ -349,7 +349,7 @@ export class AgentFactory {
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt,
       workingDir: options.workingDir,
-      maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 20,
+      maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 100,
       temperature: agentCfg.model?.temperature,
       maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens,
     }, provider);
@@ -523,7 +523,7 @@ export class AgentFactory {
     }
     // 团队成员由 TeamMemberStart/TeamMemberEnd 管理生命周期，不发送 SubAgentStart/End
     if (!options.skipSubAgentStartHook) {
-      eventBus.emit(XuanjiEvent.HOOK_SUBAGENT_START, {
+      eventBus.emitSync(XuanjiEvent.HOOK_SUBAGENT_START, {
         subAgentId,
         data: subAgentStartPayload,
       });
@@ -861,7 +861,7 @@ export class AgentFactory {
       ],
       execution: {
         mode: 'react',
-        maxIterations: 20,
+        maxIterations: 100,
         timeout: 600000,
         streaming: true,
         parallelTools: true,
@@ -1013,19 +1013,21 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     },
     _provider: ILLMProvider,
   ): AgentConfig {
-    const thinkingRaw = (agentCfg?.model as any)?.thinking;
+    const cfg = agentCfg as any;
+    const thinkingRaw = cfg?.model?.thinking;
     const thinking = thinkingRaw?.type && thinkingRaw.type !== 'disabled' ? thinkingRaw : undefined;
 
     return {
-      model: agentCfg?.model?.primary || '',
+      // 兼容两种配置结构：嵌套 ConfigurableAgentConfig (model.primary) 和扁平 ProviderConfig (model)
+      model: cfg?.model?.primary || cfg?.model || '',
       systemPrompt: overrides.systemPrompt,
       maxIterations: overrides.maxIterations,
       temperature: overrides.temperature,
-      maxTokens: overrides.maxTokens,
+      maxTokens: overrides.maxTokens ?? cfg?.maxTokens ?? cfg?.model?.maxTokens,
       thinking,
       workingDir: overrides.workingDir,
-      apiKey: agentCfg?.provider?.apiKey,
-      baseURL: agentCfg?.provider?.baseURL,
+      apiKey: cfg?.provider?.apiKey || cfg?.apiKey,
+      baseURL: cfg?.provider?.baseURL || cfg?.baseURL,
     };
   }
 

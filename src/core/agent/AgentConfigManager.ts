@@ -85,7 +85,7 @@ export class AgentConfigManager {
       systemPrompt: config.systemPrompt || null,
       model: config.model || { primary: 'claude-sonnet-4-6', maxTokens: 32000, temperature: 0.3 },
       tools: config.tools || [],
-      execution: config.execution || { mode: 'react', maxIterations: 20, timeout: 300000 },
+      execution: config.execution || { mode: 'react', maxIterations: 100, timeout: 300000 },
       permissions: config.permissions || { fileRead: 'always', fileWrite: 'ask', bashExec: 'ask', network: 'ask' },
       metadata: { category: 'custom' as AgentCategory },
     };

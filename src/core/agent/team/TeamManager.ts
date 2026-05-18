@@ -1292,7 +1292,7 @@ export class TeamManager implements ITeamManager {
             recovered: true,
           },
         }).catch(() => {});
-        eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
+        eventBus.emitSync(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
           teamId: this.teamId,
           data: {
             memberId: member.id,
@@ -1353,42 +1353,42 @@ export class TeamManager implements ITeamManager {
     const subAgentId = this.memberSubAgentIds.get(member.id) || `subagent-${normalizedAgentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     // 触发 TeamMemberStart Hook
-    if (this.hookRegistry) {
-      const category = agentConfig?.metadata?.category || 'custom';
+    const category = agentConfig?.metadata?.category || 'custom';
 
-      // 判断 Agent 类型
-      let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
-      if (agentConfig) {
-        if (category === 'system') {
-          agentType = 'builtin';
-        } else if (category === 'app') {
-          agentType = 'preset';
-        } else {
-          agentType = 'custom';
-        }
+    // 判断 Agent 类型
+    let agentType: 'preset' | 'builtin' | 'custom' | 'temporary';
+    if (agentConfig) {
+      if (category === 'system') {
+        agentType = 'builtin';
+      } else if (category === 'app') {
+        agentType = 'preset';
       } else {
-        agentType = 'temporary'; // 临时 agent（未注册）
+        agentType = 'custom';
       }
+    } else {
+      agentType = 'temporary'; // 临时 agent（未注册）
+    }
 
-      // 解析辩论角色（正方/反方/裁判）
-      let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
-      if (member.systemPrompt) {
-        const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
-        if (roleMatch) {
-          debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
-        }
+    // 解析辩论角色（正方/反方/裁判）
+    let debateRole: 'affirmative' | 'negative' | 'judge' | undefined;
+    if (member.systemPrompt) {
+      const roleMatch = member.systemPrompt.match(/\[debate_role:(affirmative|negative|judge)\]/i);
+      if (roleMatch) {
+        debateRole = roleMatch[1].toLowerCase() as 'affirmative' | 'negative' | 'judge';
       }
+    }
 
-      // 辩论模式：在 task 中标注角色，使前端思考气泡能区分正反方
-      const roleLabels: Record<string, string> = { affirmative: '正方', negative: '反方', judge: '裁判' };
-      const displayTask = (() => {
-        const base = (member.task || task).substring(0, 200);
-        if (debateRole && roleLabels[debateRole]) {
-          return `${roleLabels[debateRole]}·${base}`;
-        }
-        return base;
-      })();
+    // 辩论模式：在 task 中标注角色，使前端思考气泡能区分正反方
+    const roleLabels: Record<string, string> = { affirmative: '正方', negative: '反方', judge: '裁判' };
+    const displayTask = (() => {
+      const base = (member.task || task).substring(0, 200);
+      if (debateRole && roleLabels[debateRole]) {
+        return `${roleLabels[debateRole]}·${base}`;
+      }
+      return base;
+    })();
 
+    if (this.hookRegistry) {
       log.info(`[PIPELINE] --- TeamMemberStart 发射: memberId=${member.id}, subAgentId=${subAgentId}, name=${displayName} @ ${Date.now()}`);
       this.hookRegistry.emit('TeamMemberStart', {
         teamId: this.teamId,
@@ -1417,30 +1417,30 @@ export class TeamManager implements ITeamManager {
       }).catch((err) => {
         log.debug('TeamMemberStart hook emit failed:', err);
       });
-
-      // 通过 EventBus 发送团队成员启动事件
-      eventBus.emit(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
-        teamId: this.teamId,
-        data: {
-          memberId: member.id,
-          subAgentId,
-          name: displayName,
-          role: normalizedAgentId,
-          task: displayTask,
-          agentType,
-          scene: member.scene?.replace(/^l[12]-/, ''),
-          executionMode: 'acp',
-          strategy: this.context!.config.strategy,
-          teamName: this.context!.config.name,
-          stepIndex: memberIndex,
-          totalSteps: this.context!.config.members.length,
-          currentRound: this.context!.currentRound,
-          maxRounds: this.context!.config.maxRounds,
-          debateRole,
-          systemPromptHint: member.systemPrompt?.substring(0, 100),
-        },
-      });
     }
+
+    // 通过 EventBus 发送团队成员启动事件（独立于 hookRegistry，确保前端总能收到过滤信号）
+    eventBus.emitSync(XuanjiEvent.HOOK_TEAM_MEMBER_START, {
+      teamId: this.teamId,
+      data: {
+        memberId: member.id,
+        subAgentId,
+        name: displayName,
+        role: normalizedAgentId,
+        task: displayTask,
+        agentType,
+        scene: member.scene?.replace(/^l[12]-/, ''),
+        executionMode: 'acp',
+        strategy: this.context!.config.strategy,
+        teamName: this.context!.config.name,
+        stepIndex: memberIndex,
+        totalSteps: this.context!.config.members.length,
+        currentRound: this.context!.currentRound,
+        maxRounds: this.context!.config.maxRounds,
+        debateRole,
+        systemPromptHint: member.systemPrompt?.substring(0, 100),
+      },
+    });
 
     try {
       // 构建成员特定的任务描述（enrichTaskForMember 负责注入前序结果）

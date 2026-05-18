@@ -87,6 +87,7 @@ interface MessageStore {
   startStreaming: (messageId: string) => void;
   appendStreamingText: (text: string) => void;
   finishStreaming: () => void;
+  cancelStreaming: () => void;
 }
 
 // ============================================================
@@ -146,6 +147,17 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
           ? { ...msg, content: stripTodoProgress(s.currentStreamingText) }
           : msg
       ),
+      currentStreamingId: null,
+      currentStreamingText: '',
+      status: 'idle',
+    }));
+  },
+
+  cancelStreaming: () => {
+    const s = get();
+    if (!s.currentStreamingId) return;
+    set((state) => ({
+      messages: state.messages.filter(m => m.id !== s.currentStreamingId),
       currentStreamingId: null,
       currentStreamingText: '',
       status: 'idle',

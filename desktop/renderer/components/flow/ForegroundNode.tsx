@@ -25,13 +25,17 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
   const active = isActiveStatus(data.status);
   const terminal = isTerminalStatus(data.status);
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
+  const liveResponseText = useAgentStateMachine((s) => s.agentMap[id]?.currentResponse);
   const now = useRealtimeClock();
 
   const isThinking = data.status === 'thinking';
+  const isReporting = data.status === 'reporting';
   const hasThought = !!liveThinkingText && isThinking;
+  const hasReport = !!liveResponseText && isReporting;
   const hasTask = !!data.currentTask;
-  const showTaskBubble = hasTask && !isThinking;
+  const showTaskBubble = hasTask && !isThinking && !isReporting;
   const showThoughtBubble = hasThought && !!liveThinkingText;
+  const showReportingBubble = hasReport && !!liveResponseText;
   const hasMoment = !!data.currentMoment;
   const hasTimeline = !!(data.timelineEvents && data.timelineEvents.length > 0);
   const hasRightSide = hasMoment || hasTimeline;
@@ -170,6 +174,19 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
           <span className="text-[7px] text-muted-foreground/50 uppercase tracking-wider">思考</span>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {liveThinkingText!.slice(-200)}
+          </p>
+        </div>
+      )}
+
+      {/* 汇报气泡（琥珀色边框）— 异步任务完成后汇报结果 */}
+      {showReportingBubble && (
+        <div
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-amber-400/50 shadow-glass-sm min-w-[180px] max-w-[240px]"
+          style={{ zIndex: 10 }}
+        >
+          <span className="text-[7px] text-amber-400/70 uppercase tracking-wider">汇报</span>
+          <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
+            {liveResponseText!.slice(-200)}
           </p>
         </div>
       )}

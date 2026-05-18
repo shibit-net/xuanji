@@ -57,6 +57,7 @@ export interface SubagentNodeData extends BaseNodeData {
   scene?: string;
   taskDescription: string;
   executionMode: 'acp' | 'in-process';
+  isAsync?: boolean;
   agentType?: string;
   thinkingText?: string;
   currentTask?: string;
@@ -97,6 +98,7 @@ export interface TeamMemberNodeData extends BaseNodeData {
   scene?: string;
   agentType?: string;
   executionMode?: 'acp' | 'in-process';
+  isAsync?: boolean;
   debateRole?: 'affirmative' | 'negative' | 'judge';
   stepIndex?: number;
   taskDescription: string;
@@ -196,7 +198,7 @@ export function getStatusVisual(status: string) {
 }
 
 export function isActiveStatus(status: string): boolean {
-  return ['thinking', 'executing', 'writing'].includes(status);
+  return ['thinking', 'executing', 'writing', 'reporting'].includes(status);
 }
 
 export function isTerminalStatus(status: string): boolean {

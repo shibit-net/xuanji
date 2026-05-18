@@ -134,6 +134,20 @@ export interface Skill<T = any> extends SkillMetadata {
 
   /** 组合方法 */
   compose?: (skills: Skill[]) => string;
+
+  // ────────── Marketplace 相关 ──────────
+
+  /** 来源标记: builtin(内置) | custom(自定义) | learned(自学习) | marketplace(市场安装) */
+  source?: 'builtin' | 'custom' | 'learned' | 'marketplace';
+
+  /** 天工坊 packageId（从 marketplace 安装时填充） */
+  packageId?: string;
+
+  /** 安装时的版本号 */
+  installedVersion?: string;
+
+  /** 安装时间 (ISO 8601) */
+  installedAt?: string;
 }
 
 /**

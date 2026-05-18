@@ -51,6 +51,7 @@ export class SessionStateMachine implements InterruptChecker {
   private handlers = new Set<StateChangeHandler>();
   pendingMessages: string[] = [];
   private _abortRequested = false;
+  private _interruptAfterStream = false;
   private _textOutputStarted = false;
   private _pendingAsyncTaskIds = new Set<string>();
 
@@ -115,6 +116,10 @@ export class SessionStateMachine implements InterruptChecker {
     return this._abortRequested;
   }
 
+  shouldStopAtCheckpoint(): boolean {
+    return this._interruptAfterStream;
+  }
+
   // ============================================================
   // 辅助方法
   // ============================================================
@@ -142,6 +147,7 @@ export class SessionStateMachine implements InterruptChecker {
       case 'USER_MESSAGE':
         this._textOutputStarted = false;
         this._abortRequested = false;
+        this._interruptAfterStream = false;
         this.transitionTo('executing');
         return { type: 'RUN_AGENT', message: event.message };
 
@@ -149,6 +155,13 @@ export class SessionStateMachine implements InterruptChecker {
         // idle 时无 agent 在运行，仅排队
         if (event.message) this.pendingMessages.push(event.message);
         return { type: 'QUEUE_ONLY' };
+
+      case 'AGENT_STARTED':
+        this._textOutputStarted = false;
+        this._abortRequested = false;
+        this._interruptAfterStream = false;
+        this.transitionTo('executing');
+        return { type: 'NOOP' };
 
       default:
         return { type: 'NOOP' };
@@ -159,6 +172,7 @@ export class SessionStateMachine implements InterruptChecker {
     switch (event.type) {
       case 'USER_MESSAGE':
         this.pendingMessages.push(event.message);
+        this._abortRequested = true;
         return { type: 'QUEUE_ONLY' };
 
       case 'USER_INTERRUPT':
@@ -187,7 +201,7 @@ export class SessionStateMachine implements InterruptChecker {
     switch (event.type) {
       case 'USER_MESSAGE':
         this.pendingMessages.push(event.message);
-        this._abortRequested = true;
+        this._interruptAfterStream = true;
         return { type: 'QUEUE_ONLY' };
 
       case 'USER_INTERRUPT':
@@ -237,6 +251,13 @@ export class SessionStateMachine implements InterruptChecker {
         }
         return { type: 'RUN_AUTO_SUMMARIZE' };
 
+      case 'AGENT_STARTED':
+        this._textOutputStarted = false;
+        this._abortRequested = false;
+        this._interruptAfterStream = false;
+        this.transitionTo('executing');
+        return { type: 'NOOP' };
+
       case 'AGENT_COMPLETED':
         return this.handleAgentCompleted();
 
@@ -249,6 +270,7 @@ export class SessionStateMachine implements InterruptChecker {
   private handleAgentCompleted(): SessionAction {
     this._textOutputStarted = false;
     this._abortRequested = false;
+    this._interruptAfterStream = false;
 
     if (this.pendingMessages.length > 0) {
       // 有排队消息 → 继续运行（替代 drainPendingQueue + batch join）

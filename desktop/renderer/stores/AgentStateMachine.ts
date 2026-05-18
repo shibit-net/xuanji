@@ -60,6 +60,7 @@ export interface AgentState {
   agentType?: string;
   scene?: string;
   executionMode?: 'acp' | 'in-process';
+  isAsync?: boolean;
   streamToUser?: boolean;
   taskType?: 'task' | 'team';
   moment?: AgentMoment;
@@ -84,7 +85,7 @@ export interface AgentState {
 }
 
 export type AgentEvent =
-  | { type: 'AGENT_CREATED'; agentId: string; name: string; parentId?: string; agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; scene?: string; task?: string; multiAgent?: AgentState['multiAgent'] }
+  | { type: 'AGENT_CREATED'; agentId: string; name: string; parentId?: string; agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; isAsync?: boolean; streamToUser?: boolean; scene?: string; task?: string; multiAgent?: AgentState['multiAgent'] }
   | { type: 'THINKING_DELTA'; agentId: string; content: string; taskDescription?: string }
   | { type: 'TOOL_START'; agentId: string; toolId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: 'TOOL_END'; agentId: string; toolId: string; toolName: string; result?: string; isError?: boolean }
@@ -267,7 +268,7 @@ function ensureAgent(
   agentId: string,
   name?: string,
   parentId?: string,
-  options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; streamToUser?: boolean; scene?: string; multiAgent?: AgentState['multiAgent'] },
+  options?: { agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; isAsync?: boolean; streamToUser?: boolean; scene?: string; multiAgent?: AgentState['multiAgent'] },
 ): { agentMap: Record<string, AgentState>; mainAgent: string | null } {
   if (agentMap[agentId]) {
     // 已存在则补全/更新字段（解决事件时序导致的 auto-create 先于 AGENT_CREATED 到达）
@@ -285,6 +286,7 @@ function ensureAgent(
     if (options?.taskType && !existing.taskType) { patch.taskType = options.taskType; updated = true; }
     if (options?.agentType && existing.agentType !== options.agentType) { patch.agentType = options.agentType; updated = true; }
     if (options?.executionMode && !existing.executionMode) { patch.executionMode = options.executionMode; updated = true; }
+    if (options?.isAsync !== undefined && existing.isAsync === undefined) { patch.isAsync = options.isAsync; updated = true; }
     if (options?.streamToUser !== undefined && existing.streamToUser === undefined) { patch.streamToUser = options.streamToUser; updated = true; }
     // scene 始终更新（占位槽无 scene，leader 分配后需要覆盖）
     if (options?.scene && existing.scene !== options.scene) { patch.scene = options.scene; updated = true; }
@@ -350,6 +352,7 @@ function ensureAgent(
     agentType: options?.agentType,
     taskType: options?.taskType,
     executionMode: options?.executionMode,
+    isAsync: options?.isAsync,
     streamToUser: options?.streamToUser,
     scene: options?.scene,
     multiAgent: options?.multiAgent,
@@ -407,6 +410,7 @@ function applyAgentCreated(
     agentType: event.agentType,
     taskType: event.taskType,
     executionMode: event.executionMode,
+    isAsync: event.isAsync,
     streamToUser: event.streamToUser,
     scene: event.scene,
     multiAgent: event.multiAgent,

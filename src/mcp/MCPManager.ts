@@ -10,6 +10,7 @@ import { MCPSSEClient } from './MCPSSEClient';
 import { HttpMCPClient } from './HttpMCPClient';
 import type {
   MCPConfig,
+  MCPServerConfig,
   MCPTool,
   MCPPrompt,
   CallToolResult,
@@ -18,6 +19,7 @@ import type {
   IMCPClient,
 } from './types';
 import { logger } from '@/core/logger';
+import { mcpSettingsPersistence } from './config/settings-persistence';
 
 const log = logger.child({ module: 'MCPManager' });
 
@@ -53,9 +55,9 @@ export class MCPManager {
 
   /**
    * 初始化 MCP 管理器
-   * @param config MCP 配置
+   * @param config MCP 配置（可选，不传则从 ~/.xuanji/mcp.json 加载）
    */
-  async initialize(config: MCPConfig): Promise<void> {
+  async initialize(config?: MCPConfig): Promise<void> {
     // 并发安全：如果正在初始化，等待完成
     if (this.initPromise) {
       return this.initPromise;
@@ -66,7 +68,10 @@ export class MCPManager {
       return;
     }
 
-    this.initPromise = this._doInitialize(config);
+    // 如果未提供 config，从持久化配置加载
+    const effectiveConfig = config ?? (await this.loadFromConfig());
+
+    this.initPromise = this._doInitialize(effectiveConfig);
     try {
       await this.initPromise;
     } finally {
@@ -80,7 +85,6 @@ export class MCPManager {
   private async _doInitialize(config: MCPConfig): Promise<void> {
     this.config = config;
 
-    // 创建所有 MCPClient（但不启动）
     for (const serverConfig of config.servers) {
       if (serverConfig.disabled) {
         log.debug(`Skipping disabled server: ${serverConfig.name}`);
@@ -88,43 +92,17 @@ export class MCPManager {
       }
 
       try {
-        let client: IMCPClient;
-
-        const transport = serverConfig.transport ?? 'stdio';
-
-        if (transport === 'sse') {
-          // SSE transport
-          client = new MCPSSEClient({
-            config: serverConfig,
-            timeout: config.timeout,
-            debug: process.env.MCP_DEBUG === 'true',
-          });
-        } else if (transport === 'http') {
-          // HTTP transport
-          client = new HttpMCPClient({
-            config: serverConfig,
-            timeout: config.timeout,
-            debug: process.env.MCP_DEBUG === 'true',
-          });
-        } else {
-          // stdio transport (默认)
-          client = new MCPClient({
-            config: serverConfig,
-            timeout: config.timeout,
-            debug: process.env.MCP_DEBUG === 'true',
-          });
-        }
-
+        const client = this.createClient(serverConfig, config);
         this.clients.set(serverConfig.name, client);
 
-        // 监听重连失败事件，关闭客户端并移除不可用的服务器
+        // 监听重连失败事件
         client.on('reconnect_failed', (name: string) => {
           log.error(`MCP server "${name}" reconnect failed, closing and removing from active clients`);
           client.close().catch(() => {});
           this.clients.delete(name);
         });
 
-        // 监听重连成功事件，刷新工具 schema 并通知外部
+        // 监听重连成功事件
         client.on('reconnected', (name: string) => {
           log.info(`MCP server "${name}" reconnected, refreshing tools`);
           this.refreshServerTools(name).catch((err) => {
@@ -135,12 +113,166 @@ export class MCPManager {
         log.info(`Registered MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
       } catch (error) {
         log.warn(`Failed to register server "${serverConfig.name}":`, error);
-        // 继续注册其他服务器
       }
     }
 
     this.initialized = true;
     log.info(`Initialized with ${this.clients.size} server(s)`);
+  }
+
+  /**
+   * 创建适配的 MCP 客户端（根据 transport 类型）
+   */
+  createClient(serverConfig: MCPServerConfig, config?: MCPConfig): IMCPClient {
+    const transport = serverConfig.transport ?? 'stdio';
+    const timeout = config?.timeout;
+
+    switch (transport) {
+      case 'sse':
+        return new MCPSSEClient({
+          config: serverConfig,
+          timeout,
+          debug: process.env.MCP_DEBUG === 'true',
+        });
+      case 'http':
+        return new HttpMCPClient({
+          config: serverConfig,
+          timeout,
+          debug: process.env.MCP_DEBUG === 'true',
+        });
+      default:
+        return new MCPClient({
+          config: serverConfig,
+          timeout,
+          debug: process.env.MCP_DEBUG === 'true',
+        });
+    }
+  }
+
+  // ─── 动态服务器管理 ────────────────────────────
+
+  /**
+   * 添加一个 MCP 服务器（动态注册）
+   * - 如果已存在同名服务器，先关闭旧的再替换
+   * - 自动持久化到 ~/.xuanji/mcp.json
+   */
+  async addServer(serverConfig: MCPServerConfig): Promise<void> {
+    if (serverConfig.disabled) {
+      log.debug(`Skipping disabled server: ${serverConfig.name}`);
+      return;
+    }
+
+    // 如果已存在同名客户端，先关闭旧连接
+    const existing = this.clients.get(serverConfig.name);
+    if (existing) {
+      log.info(`Replacing existing server "${serverConfig.name}"`);
+      try {
+        await existing.close();
+      } catch (e) {
+        log.warn(`Error closing existing client for "${serverConfig.name}":`, e);
+      }
+      this.clients.delete(serverConfig.name);
+    }
+
+    // 创建新客户端
+    const client = this.createClient(serverConfig, this.config);
+    this.clients.set(serverConfig.name, client);
+
+    // 绑定事件
+    client.on('reconnect_failed', (name: string) => {
+      log.error(`MCP server "${name}" reconnect failed, closing and removing`);
+      client.close().catch(() => {});
+      this.clients.delete(name);
+      // 可选：从持久化配置中移除？这里选择保留，下次重启自动跳过
+    });
+
+    client.on('reconnected', (name: string) => {
+      log.info(`MCP server "${name}" reconnected, refreshing tools`);
+      this.refreshServerTools(name).catch((err) => {
+        log.warn(`Failed to refresh tools for "${name}" after reconnect:`, err);
+      });
+    });
+
+    // 更新内存 config
+    if (this.config) {
+      const idx = this.config.servers.findIndex(s => s.name === serverConfig.name);
+      if (idx !== -1) {
+        this.config.servers[idx] = serverConfig;
+      } else {
+        this.config.servers.push(serverConfig);
+      }
+    } else {
+      this.config = { servers: [serverConfig] };
+    }
+
+    // 持久化
+    await mcpSettingsPersistence.addServer(serverConfig);
+    log.info(`Added MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
+  }
+
+  /**
+   * 移除一个 MCP 服务器
+   * @returns 是否成功移除（false 表示该服务器不存在）
+   */
+  async removeServer(name: string): Promise<boolean> {
+    // 关闭客户端连接
+    const client = this.clients.get(name);
+    if (client) {
+      try {
+        await client.close();
+      } catch (e) {
+        log.warn(`Error closing client for "${name}":`, e);
+      }
+      this.clients.delete(name);
+    }
+
+    // 从内存 config 中移除
+    if (this.config) {
+      this.config.servers = this.config.servers.filter(s => s.name !== name);
+    }
+
+    // 从持久化中移除
+    const removed = await mcpSettingsPersistence.removeServer(name);
+    if (removed) {
+      log.info(`Removed MCP server: ${name}`);
+    }
+    return removed;
+  }
+
+  // ─── 持久化 ────────────────────────────────────
+
+  /**
+   * 从 ~/.xuanji/mcp.json 加载服务器列表
+   * 返回一个 MCPConfig，可直接用于 initialize()
+   */
+  async loadFromConfig(): Promise<MCPConfig> {
+    const servers = await mcpSettingsPersistence.listServers();
+    log.debug(`Loaded ${servers.length} server(s) from config`);
+    return { servers };
+  }
+
+  /**
+   * 将当前内存中的服务器列表写入 ~/.xuanji/mcp.json
+   */
+  async saveToConfig(): Promise<void> {
+    if (!this.config) {
+      log.warn('No config to save');
+      return;
+    }
+    // 批量写入：清空并重新添加所有服务器
+    const currentServers = await mcpSettingsPersistence.listServers();
+
+    // 移除不再存在的
+    for (const s of currentServers) {
+      if (!this.config.servers.find(cs => cs.name === s.name)) {
+        await mcpSettingsPersistence.removeServer(s.name);
+      }
+    }
+    // 添加/更新现有的
+    for (const s of this.config.servers) {
+      await mcpSettingsPersistence.addServer(s);
+    }
+    log.debug(`Saved ${this.config.servers.length} server(s) to config`);
   }
 
   /**

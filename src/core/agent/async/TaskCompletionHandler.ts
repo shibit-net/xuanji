@@ -44,6 +44,13 @@ export class TaskCompletionHandler {
     );
   }
 
+  /** 新会话复用时重置状态，防止跨会话 pendingCompletions 污染 */
+  resetForNewSession(contextManager: ContextManager): void {
+    this.pendingCompletions = [];
+    this.isAutoSummarizeRun = false;
+    this.contextManager = contextManager;
+  }
+
   /** 取消注册 EventBus 监听 */
   dispose(): void {
     for (const unsub of this.eventUnsubscribers) {
@@ -126,6 +133,12 @@ export class TaskCompletionHandler {
         });
       }
       if (citations.length > 0) this.callbacks.onCitationData?.(citations);
+    }
+
+    // 取消的任务不需要汇报，直接丢弃
+    if (result.status === 'cancelled') {
+      this.pendingCompletions.pop();
+      return;
     }
 
     // 防止 autoSummarize → onAutoSummarize → emit ASYNC_TASK_COMPLETED → handleCompletion 无限递归

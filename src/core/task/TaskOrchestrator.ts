@@ -84,6 +84,10 @@ export class TaskOrchestrator {
         isRunning: () => false,
       });
       this.taskCompletionHandler.register();
+    } else {
+      // 新会话复用单例 handler 时，清除上个会话遗留的 pendingCompletions，
+      // 并更新 contextManager 引用，防止跨会话污染导致同步 task 误触发 autoSummarize
+      this.taskCompletionHandler.resetForNewSession(contextManager);
     }
     return this.taskCompletionHandler;
   }
