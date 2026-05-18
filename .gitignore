@@ -31,3 +31,7 @@ coverage/
 
 # embedding models (downloaded at runtime)
 models/
+
+# design docs (process documents, not part of the project)
+docs/
+doc/
