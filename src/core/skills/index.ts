@@ -28,3 +28,7 @@ export { SkillLoader, getSkillLoader, resetSkillLoader } from './loader';
 
 // 导出内置 Skill 初始化函数
 export { initializeBuiltinSkills } from './builtin';
+
+// 导出 SkillInstaller（Marketplace 集成）
+export { SkillInstaller } from './SkillInstaller';
+export type { SkillInstallOptions, SkillInstallResult, SkillUninstallResult } from './SkillInstaller';

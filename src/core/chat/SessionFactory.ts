@@ -39,6 +39,7 @@ import { registerMemoryManager } from '@/core/memory/globals';
 import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
 import { MCPManager, TiangongMarket, MCPInstaller } from '@/mcp';
+import { SkillInstaller, SkillRegistry } from '@/core/skills';
 
 const log = logger.child({ module: 'SessionFactory' });
 
@@ -128,7 +129,12 @@ export class SessionFactory {
       return builder;
     });
 
-    // 3.5. MCP 商城模块
+    // 3.5. Skill 系统
+    // SkillRegistry: 所有 Skill 的唯一注册入口
+    this.container.register('skillRegistry', () => new SkillRegistry({ autoLoad: false }));
+    log.debug('SkillRegistry registered');
+
+    // 3.6. MCP 商城模块
     // mcpManager 是 MCP 运行时的统一入口（单例）
     this.container.register('mcpManager', () => MCPManager.getInstance());
     log.debug('MCPManager registered');
@@ -148,6 +154,13 @@ export class SessionFactory {
         return new MCPInstaller(market, mgr);
       });
       log.debug('MCPInstaller registered');
+
+      this.container.register('skillInstaller', async () => {
+        const market = await this.container.resolve<TiangongMarket>('tiangongMarket');
+        const registry = await this.container.resolve<SkillRegistry>('skillRegistry');
+        return new SkillInstaller(market, registry);
+      });
+      log.debug('SkillInstaller registered');
     } else {
       log.debug('Marketplace config not found or disabled — skipping TiangongMarket/MCPInstaller');
     }
