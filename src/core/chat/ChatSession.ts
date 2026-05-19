@@ -106,9 +106,6 @@ export class ChatSession {
       // 自动加载记忆上下文：在 agent 执行前搜索相关记忆并注入 system prompt
       await this.autoLoadMemoryContext(input);
 
-      // 纠错检测：在 agent 执行前检测用户纠正意图
-      this.detectCorrection(input);
-
       if (this._useNewPath && this._stateMachine) {
         this._stateMachine.transition({ type: 'AGENT_STARTED' });
       } else {
@@ -305,44 +302,6 @@ export class ChatSession {
     } catch (err) {
       // 记忆加载失败不应阻塞对话
       log.warn('autoLoadMemoryContext failed:', err);
-    }
-  }
-
-  /**
-   * 纠错检测：检测用户消息中的纠正意图（"不对"、"不是"、"错了"等），
-   * 以 importance=5 自动存储纠正记忆，确保 agent 不会重复犯错。
-   * 设计文档：docs/memory-system-part-4-correction.md §2.2
-   */
-  private detectCorrection(input: string): void {
-    const correctionPatterns = [
-      /(?:不对|不是|错了|错误|更正|纠正)(?:\s*[，,]\s*)(.+)/,
-      /(?:应该说?|正确(?:的|说法)?是?|应该是)\s*(.+)/,
-      /(?:记住|记着|别忘了|以后)\s*(.+)/,
-    ];
-
-    for (const pattern of correctionPatterns) {
-      const match = input.match(pattern);
-      if (!match) continue;
-
-      const correction = match[1]?.trim();
-      if (!correction || correction.length < 3) continue;
-
-      log.info(`Correction detected: "${correction}"`);
-
-      // 生成简洁标题：提取纠正内容的前20字作为主题
-      const topic = correction.length > 20 ? correction.slice(0, 20) + '...' : correction;
-
-      // 异步存储，不阻塞用户
-      const contextManager = this.agentLoop.getContextManager();
-      const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
-      if (memoryManager) {
-        memoryManager.storeFact({
-          title: `纠正: ${topic}`,
-          content: `用户纠正了之前的理解。正确认知: ${correction}`,
-          source: 'user_correction',
-        }).catch(err => log.error('Correction storage failed:', err));
-      }
-      break;
     }
   }
 
