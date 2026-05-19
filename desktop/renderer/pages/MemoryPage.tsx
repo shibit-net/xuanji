@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSessionInitStore } from '../stores/SessionInitStore';
 import { Button } from '@/components/ui/button';
 import {
   Brain, X, Search, Trash2, Database, GitGraph,
@@ -393,7 +394,56 @@ function Field({ label, value, children }: { label: string; value?: string; chil
   );
 }
 
-// ─── Tab: 知识图谱 ─────────────────────────────────────────
+// ─── Tab: 记忆图谱 ─────────────────────────────────────────
+//
+// 使用 Cytoscape.js 渲染实体-关系网络，采用 visionOS 风格：
+// 玻璃材质节点、微妙发光、毛玻璃面板、蓝紫渐变色彩
+
+// visionOS 风格节点色盘 — 柔和、低饱和度、玻璃感
+const GRAPH_COLORS: Record<string, string> = {
+  user: '#60a5fa',
+  feedback: '#a78bfa',
+  project: '#4ade80',
+  reference: '#fb923c',
+  tool: '#22d3ee',
+  concept: '#f472b6',
+  preference: '#fbbf24',
+  person: '#818cf8',
+};
+// 各类型浅色版本（高亮/环）
+const GRAPH_COLORS_LIGHT: Record<string, string> = {
+  user: '#93bbfd',
+  feedback: '#c4b5fd',
+  project: '#86efac',
+  reference: '#fca5a5',
+  tool: '#67e8f9',
+  concept: '#f9a8d4',
+  preference: '#fde68a',
+  person: '#a5b4fc',
+};
+
+function graphNodeColor(type: string): string {
+  return GRAPH_COLORS[type] || '#94a3b8';
+}
+function graphNodeColorLight(type: string): string {
+  return GRAPH_COLORS_LIGHT[type] || '#cbd5e1';
+}
+
+// ─── 图标：每个类型配一个小符号 ──────────────────────────────
+
+const TYPE_SYMBOLS: Record<string, string> = {
+  user: '👤',
+  feedback: '💬',
+  project: '📁',
+  reference: '🔗',
+  tool: '🔧',
+  concept: '💡',
+  preference: '⭐',
+  person: '🙂',
+};
+function typeSymbol(t: string): string {
+  return TYPE_SYMBOLS[t] || '●';
+}
 
 function GraphTab() {
   const [nodes, setNodes] = useState<any[]>([]);
@@ -401,6 +451,7 @@ function GraphTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
   useEffect(() => {
@@ -425,20 +476,35 @@ function GraphTab() {
   if (loading) return <LoadingSpinner />;
   if (error) return <ErrorBanner message={error} />;
 
-  // 活跃边
   const activeEdges = edges.filter(e => e.is_active);
 
-  // 转换为 Cytoscape 格式
+  // 关系颜色映射 — 暖冷交替，区分不同关系类型
+  const relationColors: Record<string, string> = {
+    depends_on: '#f97316',
+    part_of: '#a78bfa',
+    uses: '#22d3ee',
+    creates: '#4ade80',
+    knows: '#fbbf24',
+    influences: '#f472b6',
+    references: '#60a5fa',
+  };
+  function relColor(rel: string, strength: number): string {
+    const base = relationColors[rel] || '#94a3b8';
+    return `${base}${Math.round(strength * 255).toString(16).padStart(2, '0')}`;
+  }
+
   const elements = [
     ...nodes.map(n => ({
       data: {
         id: n.id,
-        label: n.name.length > 12 ? n.name.slice(0, 12) + '...' : n.name,
+        label: (n.name?.length ?? 0) > 18 ? n.name!.slice(0, 17) + '…' : n.name,
         fullName: n.name,
         type: n.type,
         summary: n.summary || '',
         importance: n.importance || 1,
-        color: getNodeColor(n.type),
+        color: graphNodeColor(n.type),
+        colorLight: graphNodeColorLight(n.type),
+        symbol: typeSymbol(n.type),
       },
     })),
     ...activeEdges.map(e => ({
@@ -446,59 +512,96 @@ function GraphTab() {
         id: e.id,
         source: e.subject_id,
         target: e.object_id,
-        label: e.relation,
+        label: e.relation?.replace(/_/g, ' ') || '',
+        relation: e.relation,
         strength: e.strength || 0.5,
+        relColor: relColor(e.relation, e.strength || 0.5),
       },
     })),
   ];
 
-  // Cytoscape 样式表
+  // ── Cytoscape 样式表 (visionOS 风格) ─────────────────────
+
   const stylesheet: cytoscape.StylesheetCSS[] = [
     {
       selector: 'node',
       css: {
         'background-color': 'data(color)',
+        'background-opacity': 0.15,
+        'background-blacken': 0,
+        // 节点 — 玻璃圆形
+        'shape': 'ellipse',
+        'width': 'mapData(importance, 1, 5, 36, 72)',
+        'height': 'mapData(importance, 1, 5, 36, 72)',
+        'border-width': 2,
+        'border-color': 'data(color)',
+        'border-opacity': 0.5,
+        // 标签
         'label': 'data(label)',
-        'font-size': '9px',
+        'font-size': 10,
         'color': '#e2e8f0',
         'text-valign': 'bottom',
         'text-halign': 'center',
-        'text-margin-y': 4,
-        'width': 'mapData(importance, 1, 5, 16, 36)',
-        'height': 'mapData(importance, 1, 5, 16, 36)',
-        'border-width': 2,
-        'border-color': '#1e293b',
-        'opacity': 0.9,
-        'text-outline-width': 1,
-        'text-outline-color': '#0f172a',
-        'transition-property': 'width,height,border-color,opacity',
-        'transition-duration': 200,
+        'text-margin-y': 8,
+        'font-family': 'SF Pro Text, system-ui, sans-serif',
+        'font-weight': '500',
+        'text-outline-width': 3,
+        'text-outline-color': 'rgba(13,13,18,0.85)',
+        'text-wrap': 'wrap',
+        'text-max-width': 80,
+        // 过渡
+        'transition-property': 'width,height,border-color,border-opacity,opacity',
+        'transition-duration': 250,
+        'transition-timing-function': 'ease-out',
+        // 微光晕
+        'ghost': 'yes',
+        'ghost-offset-x': 0,
+        'ghost-offset-y': 0,
+        'ghost-opacity': 0.08,
       },
     },
     {
       selector: 'node:selected',
       css: {
-        'border-color': '#fbbf24',
+        'border-color': 'data(colorLight)',
         'border-width': 3,
-        'opacity': 1,
+        'border-opacity': 0.9,
+        'ghost': 'yes',
+        'ghost-offset-x': 0,
+        'ghost-offset-y': 0,
+        'ghost-opacity': 0.2,
+      },
+    },
+    // 高重要性节点 — 发光脉冲
+    {
+      selector: 'node[importance>=4]',
+      css: {
+        'border-width': 2.5,
+        'border-opacity': 0.7,
       },
     },
     {
       selector: 'edge',
       css: {
-        'width': 'mapData(strength, 0, 1, 0.5, 3)',
-        'line-color': 'rgba(100,116,139,0.35)',
-        'target-arrow-color': 'rgba(100,116,139,0.5)',
+        'width': 'mapData(strength, 0, 1, 0.6, 2.5)',
+        'line-color': 'data(relColor)',
+        'line-opacity': 0.35,
+        'target-arrow-color': 'data(relColor)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.7,
+        'arrow-scale': 0.6,
         'curve-style': 'bezier',
+        // 边标签
         'label': 'data(label)',
-        'font-size': '7px',
+        'font-size': 8,
         'color': '#94a3b8',
-        'text-outline-width': 1,
-        'text-outline-color': '#0f172a',
+        'font-family': 'SF Pro Text, system-ui, sans-serif',
+        'text-outline-width': 2,
+        'text-outline-color': 'rgba(13,13,18,0.85)',
         'text-rotation': 'autorotate',
-        'opacity': 0.7,
+        'edge-text-rotation': 'autorotate',
+        // 过渡
+        'transition-property': 'line-color,line-opacity,width,opacity',
+        'transition-duration': 200,
       },
     },
     {
@@ -506,57 +609,101 @@ function GraphTab() {
       css: {
         'line-color': '#fbbf24',
         'target-arrow-color': '#fbbf24',
-        'opacity': 1,
+        'line-opacity': 0.9,
+        'width': 3,
       },
     },
-    // 各类型节点高亮色
-    ...Object.entries(TYPE_HEX_COLORS).map(([type, color]) => ({
+    // 类型特定的节点颜色覆盖（背景透明度保持玻璃感）
+    ...Object.entries(GRAPH_COLORS).map(([type, color]) => ({
       selector: `node[type="${type}"]`,
       css: { 'background-color': color },
     })),
   ];
 
-  const layout = {
+  const layout: cytoscape.LayoutOptions = {
     name: 'cose-bilkent',
     animate: 'end' as const,
     animationEasing: 'ease-out' as const,
-    animationDuration: 800,
+    animationDuration: 1000,
     randomize: true,
-    idealEdgeLength: 100,
-    nodeRepulsion: 6000,
-    gravity: 0.3,
-    numIter: 2000,
+    idealEdgeLength: 120,
+    nodeRepulsion: 8000,
+    gravity: 0.25,
+    numIter: 2500,
     tile: true,
     fit: true,
-    padding: 40,
+    padding: 60,
   };
 
-  // 按类型统计节点数
+  // 类型统计
   const typeCounts: Record<string, number> = {};
   nodes.forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
+  const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
 
-  // 控制按钮
-  const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.2);
-  const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() / 1.2);
-  const handleFit = () => cyRef.current?.fit(undefined, 40);
+  // ── 工具栏操作 ────────────────────────────────────────────
+  const handleZoomIn = () => {
+    const cy = cyRef.current;
+    if (cy) cy.animate({ zoom: Math.min(cy.zoom() * 1.3, 3), easing: 'ease-out', duration: 200 });
+  };
+  const handleZoomOut = () => {
+    const cy = cyRef.current;
+    if (cy) cy.animate({ zoom: Math.max(cy.zoom() / 1.3, 0.15), easing: 'ease-out', duration: 200 });
+  };
+  const handleFit = () => {
+    const cy = cyRef.current;
+    if (cy) cy.animate({ fit: { padding: 50 }, easing: 'ease-in-out-cubic', duration: 400 });
+  };
+  const handleReset = () => {
+    const cy = cyRef.current;
+    if (cy) {
+      cy.fit(undefined, 50);
+      setSelectedNode(null);
+      setHoveredNode(null);
+    }
+  };
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 relative bg-background/50 overflow-hidden">
-        {/* 工具栏 */}
-        <div className="absolute top-2 left-2 z-10 flex gap-1">
-          <button onClick={handleZoomIn}
-            className="p-1.5 rounded bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition"
-            title="放大"
-          ><ZoomIn size={14} /></button>
-          <button onClick={handleZoomOut}
-            className="p-1.5 rounded bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition"
-            title="缩小"
-          ><ZoomOut size={14} /></button>
-          <button onClick={handleFit}
-            className="p-1.5 rounded bg-card border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition"
-            title="适应屏幕"
-          ><Maximize2 size={14} /></button>
+      {/* ── 主画布区 ─────────────────────────────────────── */}
+      <div className="flex-1 relative overflow-hidden"
+        style={{ background: 'radial-gradient(ellipse at center, rgba(56,189,248,0.04) 0%, rgba(13,13,18,0) 60%)' }}
+      >
+        {/* 背景网格 */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="graph-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+              <circle cx="16" cy="16" r="0.5" fill="white" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#graph-grid)" />
+        </svg>
+
+        {/* 工具栏 — 玻璃悬浮 */}
+        <div className="absolute top-3 left-3 z-10 flex gap-1.5">
+          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+            <button onClick={handleZoomIn}
+              className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+              title="放大"
+            ><ZoomIn size={15} /></button>
+            <button onClick={handleZoomOut}
+              className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+              title="缩小"
+            ><ZoomOut size={15} /></button>
+            <span className="w-px bg-border/50 my-1" />
+            <button onClick={handleFit}
+              className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+              title="适应屏幕"
+            ><Maximize2 size={15} /></button>
+            <button onClick={handleReset}
+              className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+              title="重置视图"
+            ><RefreshCw size={15} /></button>
+          </div>
+        </div>
+
+        {/* 节点数徽标 */}
+        <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/40 text-xs text-muted-foreground">
+          {nodes.length} 节点 · {activeEdges.length} 关系
         </div>
 
         <CytoscapeComponent
@@ -564,13 +711,12 @@ function GraphTab() {
           stylesheet={stylesheet}
           layout={layout}
           style={{ width: '100%', height: '100%' }}
-          wheelSensitivity={0.3}
-          minZoom={0.15}
-          maxZoom={3}
+          wheelSensitivity={0.25}
+          minZoom={0.12}
+          maxZoom={3.5}
           cy={(cy: cytoscape.Core) => {
             cyRef.current = cy;
 
-            // 点击节点显示详情
             cy.on('tap', 'node', (evt: cytoscape.EventObject) => {
               const node = evt.target;
               setSelectedNode({
@@ -582,95 +728,189 @@ function GraphTab() {
               });
             });
 
-            // 点击背景取消选中
             cy.on('tap', (evt: cytoscape.EventObject) => {
               if (evt.target === cy) {
                 setSelectedNode(null);
               }
             });
 
-            // Hover 高亮邻接节点
+            // Hover 交互 — 邻域高亮
             cy.on('mouseover', 'node', (evt: cytoscape.EventObject) => {
-              const node = evt.target;
-              const neighborhood = node.closedNeighborhood();
-              cy.elements().not(neighborhood).style({ opacity: 0.25 });
+              const nodeId = evt.target.data('id');
+              setHoveredNode(nodeId);
+              const neighborhood = evt.target.closedNeighborhood();
+              cy.elements().difference(neighborhood).style({ opacity: 0.12 });
               neighborhood.style({ opacity: 1 });
             });
             cy.on('mouseout', 'node', () => {
+              setHoveredNode(null);
               cy.elements().style({ opacity: undefined });
             });
           }}
         />
 
-        {/* 选中节点详情面板 */}
+        {/* ── 底部节点详情面板 (玻璃) ───────────────────── */}
         {selectedNode && (
-          <div className="absolute bottom-3 left-3 right-3 p-3 rounded border border-border bg-card/95 backdrop-blur shadow-lg text-sm">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-3 h-3 rounded-full shrink-0"
-                style={{ backgroundColor: getNodeColor(selectedNode.type) }} />
-              <span className="font-medium text-foreground">{selectedNode.name}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(selectedNode.type)}`}>
-                {selectedNode.type}
-              </span>
-              <ImportanceStars value={selectedNode.importance} />
-              <button onClick={() => setSelectedNode(null)}
-                className="ml-auto text-muted-foreground hover:text-foreground">
-                <X size={14} />
+          <div className="absolute bottom-4 left-4 right-4 p-4 rounded-2xl border border-border/60 bg-card/90 backdrop-blur-xl shadow-glass-lg animate-zoom-in">
+            <div className="flex items-start gap-3">
+              {/* 节点图标 */}
+              <div
+                className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-lg shadow-glass-sm"
+                style={{
+                  background: `linear-gradient(135deg, ${graphNodeColor(selectedNode.type)}33, ${graphNodeColor(selectedNode.type)}11)`,
+                  border: `1px solid ${graphNodeColor(selectedNode.type)}44`,
+                  color: graphNodeColor(selectedNode.type),
+                }}
+              >
+                {typeSymbol(selectedNode.type)}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-foreground">{selectedNode.name}</span>
+                  <span
+                    className="text-[10px] px-2 py-0.5 rounded-full border"
+                    style={{
+                      backgroundColor: `${graphNodeColor(selectedNode.type)}18`,
+                      color: graphNodeColor(selectedNode.type),
+                      borderColor: `${graphNodeColor(selectedNode.type)}33`,
+                    }}
+                  >
+                    {selectedNode.type}
+                  </span>
+                  <ImportanceStars value={selectedNode.importance} />
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {selectedNode.summary || '(无摘要)'}
+                </p>
+
+                {/* 关联关系 */}
+                {(() => {
+                  const related = activeEdges.filter(
+                    (e: any) => e.subject_id === selectedNode.id || e.object_id === selectedNode.id
+                  );
+                  if (related.length === 0) return null;
+                  return (
+                    <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5">
+                      {related.slice(0, 8).map((e: any) => {
+                        const isOut = e.subject_id === selectedNode.id;
+                        const otherId = isOut ? e.object_id : e.subject_id;
+                        const otherNode = nodes.find(n => n.id === otherId);
+                        const clr = relationColors[e.relation] || '#94a3b8';
+                        return (
+                          <span
+                            key={e.id}
+                            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border cursor-pointer hover:opacity-80 transition-opacity"
+                            style={{
+                              backgroundColor: `${clr}10`,
+                              borderColor: `${clr}25`,
+                              color: clr,
+                            }}
+                            onClick={() => {
+                              // 跳转到该节点
+                              const target = cyRef.current?.getElementById(otherId);
+                              if (target && target.length > 0) {
+                                cyRef.current?.animate({
+                                  center: { eles: target },
+                                  zoom: 1.2,
+                                  easing: 'ease-in-out-cubic',
+                                  duration: 500,
+                                });
+                                target.emit('tap');
+                              }
+                            }}
+                          >
+                            {isOut ? '→' : '←'} {e.relation?.replace(/_/g, ' ')}
+                            {' · '}
+                            {otherNode?.name || otherId?.slice(0, 8)}
+                          </span>
+                        );
+                      })}
+                      {related.length > 8 && (
+                        <span className="text-[10px] text-muted-foreground self-center">
+                          +{related.length - 8} 更多
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              >
+                <X size={15} />
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">{selectedNode.summary}</p>
-            {/* 关联边 */}
-            {(() => {
-              const relatedEdges = activeEdges.filter(
-                e => e.subject_id === selectedNode.id || e.object_id === selectedNode.id
-              );
-              if (relatedEdges.length === 0) return null;
-              return (
-                <div className="mt-2 pt-2 border-t border-border/50">
-                  <p className="text-xs font-medium text-foreground mb-1">关联关系</p>
-                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
-                    {relatedEdges.map(e => {
-                      const isOut = e.subject_id === selectedNode.id;
-                      const otherId = isOut ? e.object_id : e.subject_id;
-                      const otherNode = nodes.find(n => n.id === otherId);
-                      const arrow = isOut ? '→' : '←';
-                      return (
-                        <div key={e.id} className="text-xs text-muted-foreground flex items-center gap-1">
-                          <span className="text-cyan-400">{arrow}</span>
-                          <span className="text-yellow-400/80">{e.relation}</span>
-                          <span className="text-cyan-400">{arrow}</span>
-                          <span style={{ color: otherNode ? getNodeColor(otherNode.type) : undefined }}>
-                            {otherNode?.name || otherId}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
+          </div>
+        )}
+
+        {/* 空状态 — 无水印 */}
+        {nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <GitGraph size={48} className="text-muted-foreground/15 mb-4" />
+            <p className="text-sm text-muted-foreground/50">暂无记忆图谱数据</p>
+            <p className="text-xs text-muted-foreground/30 mt-1">记忆将在对话过程中自动提取并构建关系网络</p>
           </div>
         )}
       </div>
 
-      {/* 右侧图例 */}
-      <aside className="w-44 border-l border-border bg-card p-3 shrink-0 overflow-y-auto">
-        <h4 className="text-xs font-semibold text-foreground mb-2">节点类型</h4>
-        <div className="space-y-1.5">
-          {Object.entries(typeCounts).map(([type, count]) => (
-            <div key={type} className="flex items-center gap-2 text-xs">
-              <span className="w-3 h-3 rounded-full shrink-0"
-                style={{ backgroundColor: getNodeColor(type) }} />
-              <span className="text-foreground">{type}</span>
-              <span className="text-muted-foreground ml-auto">{count}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 pt-3 border-t border-border">
-          <div className="text-xs text-muted-foreground">
-            <p>节点: {nodes.length}</p>
-            <p>关系: {activeEdges.length}</p>
+      {/* ── 右侧图例 (玻璃面板) ──────────────────────────── */}
+      <aside className="w-48 border-l border-border/60 bg-card/50 backdrop-blur-sm p-4 shrink-0 overflow-y-auto space-y-5">
+        {/* 图例标题 */}
+        <div>
+          <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            节点类型
+          </h4>
+          <div className="space-y-2">
+            {sortedTypes.map(([type, count]) => (
+              <div key={type} className="flex items-center gap-2.5 text-xs group cursor-default">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 shadow-sm transition-transform group-hover:scale-125"
+                  style={{ backgroundColor: graphNodeColor(type) }}
+                />
+                <span className="text-foreground/80 flex items-center gap-1.5">
+                  <span className="text-[12px]">{typeSymbol(type)}</span>
+                  {type}
+                </span>
+                <span className="text-muted-foreground/60 ml-auto tabular-nums">{count}</span>
+              </div>
+            ))}
           </div>
+        </div>
+
+        {/* 关系图例 */}
+        <div className="pt-4 border-t border-border/40">
+          <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            关系类型
+          </h4>
+          <div className="space-y-1.5">
+            {Object.entries({ depends_on: '依赖', part_of: '组成', uses: '使用', creates: '创建', knows: '认知', references: '引用' }).map(([key, label]) => (
+              <div key={key} className="flex items-center gap-2 text-[11px]">
+                <span className="w-6 h-0.5 rounded-full shrink-0" style={{ backgroundColor: relationColors[key] || '#94a3b8' }} />
+                <span className="text-foreground/70">{label}</span>
+                <span className="text-muted-foreground/50 ml-auto">{key}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 统计摘要 */}
+        <div className="pt-4 border-t border-border/40">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-2 rounded-lg bg-background/60 border border-border/30">
+              <p className="text-[10px] text-muted-foreground">节点</p>
+              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{nodes.length}</p>
+            </div>
+            <div className="p-2 rounded-lg bg-background/60 border border-border/30">
+              <p className="text-[10px] text-muted-foreground">关系</p>
+              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{activeEdges.length}</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground/50 mt-2 text-center">
+            拖拽移动 · 滚轮缩放 · 点击查看详情
+          </p>
         </div>
       </aside>
     </div>
@@ -881,21 +1121,25 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('browse');
   const [clearing, setClearing] = useState(false);
   const [memStatus, setMemStatus] = useState<{ initialized?: boolean; error?: string | null } | null>(null);
+  const sessionStatus = useSessionInitStore((s) => s.status);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await window.electron.memoryStatus();
-        if (res.success) {
-          setMemStatus({ initialized: res.initialized, error: res.error });
-        } else {
-          setMemStatus({ initialized: false, error: res.error || '状态查询失败' });
-        }
-      } catch (err) {
-        setMemStatus({ initialized: false, error: err instanceof Error ? err.message : '查询异常' });
+  const checkMemoryStatus = useCallback(async () => {
+    try {
+      const res = await window.electron.memoryStatus();
+      if (res.success) {
+        setMemStatus({ initialized: res.initialized, error: res.error });
+      } else {
+        setMemStatus({ initialized: false, error: res.error || '状态查询失败' });
       }
-    })();
+    } catch (err) {
+      setMemStatus({ initialized: false, error: err instanceof Error ? err.message : '查询异常' });
+    }
   }, []);
+
+  // 每当 session 状态变化时重新查询（初始加载 + ready/failed 时重试）
+  useEffect(() => {
+    checkMemoryStatus();
+  }, [sessionStatus, checkMemoryStatus]);
 
   const handleClearAll = async () => {
     if (!confirm('确定要清空所有记忆数据吗？此操作不可恢复。')) return;
@@ -917,7 +1161,7 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'browse', label: '记忆浏览', icon: <Brain size={16} /> },
-    { id: 'graph', label: '知识图谱', icon: <GitGraph size={16} /> },
+    { id: 'graph', label: '记忆图谱', icon: <GitGraph size={16} /> },
     { id: 'stats', label: '统计仪表盘', icon: <BarChart3 size={16} /> },
     { id: 'log', label: '操作日志', icon: <Clock size={16} /> },
   ];

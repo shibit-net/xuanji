@@ -26,7 +26,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { FORMAT_PARSERS } from '../../src/core/tools/parsers/index.js';
-import { getMemoryManager } from '../../src/core/memory/globals.js';
+import { getMemoryManager, getMemoryInitError } from '../../src/core/memory/globals.js';
 import { TokenCounter } from '../../src/core/context/TokenCounter.js';
 
 let session: ChatSession | null = null;
@@ -1283,7 +1283,7 @@ channel.handle('memory-status', () => {
     sessionReady: !!session,
     isExtracting: mm?.isExtracting ?? false,
     isCompressing: mm?.isCompressing ?? false,
-    error: mm ? null : 'MemoryManager 未注册 — 请检查日志中的 "Failed to initialize MemoryManager" 警告',
+    error: mm ? null : getMemoryInitError() || 'MemoryManager 未注册',
   };
 });
 

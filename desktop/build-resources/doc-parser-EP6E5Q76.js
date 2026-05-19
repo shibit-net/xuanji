@@ -1,0 +1,4 @@
+import{b as i}from"./chunk-UCQ6LACX.js";import{execSync as r}from"child_process";function e(t){try{return r(`textutil -convert txt -stdout ${JSON.stringify(t)}`,{encoding:"utf-8",timeout:3e4})}catch{return null}}function o(t){try{return r(`antiword ${JSON.stringify(t)}`,{encoding:"utf-8",timeout:3e4})}catch{return null}}async function l(t){let n=e(t)??o(t);if(n===null)throw new Error(`\u65E0\u6CD5\u89E3\u6790 .doc \u6587\u4EF6\uFF08\u65E7\u7248 Word \u4E8C\u8FDB\u5236\u683C\u5F0F\uFF09\u3002
+macOS: textutil \u8F6C\u6362\u5931\u8D25\uFF0C\u8BF7\u786E\u8BA4\u6587\u4EF6\u672A\u635F\u574F\u3002
+\u5176\u4ED6\u5E73\u53F0: \u8BF7\u5B89\u88C5 antiword (brew install antiword / apt install antiword)\u3002
+\u66FF\u4EE3\u65B9\u6848\uFF1A\u5C06 .doc \u53E6\u5B58\u4E3A .docx \u683C\u5F0F\u540E\u91CD\u8BD5\u3002`);return{content:n}}var u=i(()=>{});u();export{l as parseDoc};

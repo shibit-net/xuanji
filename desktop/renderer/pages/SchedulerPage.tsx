@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSessionInitStore } from '../stores/SessionInitStore';
 import { Button } from '@/components/ui/button';
 import {
   Clock, X, Plus, Trash2, RefreshCw, AlertCircle,
@@ -441,6 +442,7 @@ function JobsTab() {
   const [error, setError] = useState<string | null>(null);
   const [editJob, setEditJob] = useState<CronJob | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const sessionStatus = useSessionInitStore((s) => s.status);
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -456,7 +458,10 @@ function JobsTab() {
     }
   }, []);
 
-  useEffect(() => { loadJobs(); }, [loadJobs]);
+  // 每当 session 状态变化时重新加载（初始加载 + ready/failed 时重试）
+  useEffect(() => {
+    loadJobs();
+  }, [sessionStatus, loadJobs]);
 
   const handleToggle = async (job: CronJob) => {
     try {
@@ -645,6 +650,7 @@ function LogsTab() {
   const [logs, setLogs] = useState<SchedulerLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sessionStatus = useSessionInitStore((s) => s.status);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -660,7 +666,10 @@ function LogsTab() {
     }
   }, []);
 
-  useEffect(() => { loadLogs(); }, [loadLogs]);
+  // 每当 session 状态变化时重新加载（初始加载 + ready/failed 时重试）
+  useEffect(() => {
+    loadLogs();
+  }, [sessionStatus, loadLogs]);
 
   if (loading) return <LoadingSpinner />;
 

@@ -148,8 +148,24 @@
         "to": "dist-electron/node_modules/tree-sitter-java"
       },
       {
+        "from": "../node_modules/better-sqlite3",
+        "to": "dist-electron/node_modules/better-sqlite3"
+      },
+      {
+        "from": "./node_modules/sqlite-vec",
+        "to": "dist-electron/node_modules/sqlite-vec"
+      },
+      {
         "from": "../node_modules/node-gyp-build",
         "to": "dist-electron/node_modules/node-gyp-build"
+      },
+      {
+        "from": "../node_modules/bindings",
+        "to": "dist-electron/node_modules/bindings"
+      },
+      {
+        "from": "../node_modules/file-uri-to-path",
+        "to": "dist-electron/node_modules/file-uri-to-path"
       }
     ],
     "mac": {

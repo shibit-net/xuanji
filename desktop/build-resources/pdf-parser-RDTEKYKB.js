@@ -1,0 +1,1 @@
+import{b as o}from"./chunk-UCQ6LACX.js";import{readFile as i}from"fs/promises";async function c(a){let{PDFParse:r}=await import("pdf-parse"),s=await i(a),t=new r({data:new Uint8Array(s)});try{let e=await t.getText(),n=e.pages.length;return{content:e.text,metadata:{pages:n}}}finally{await t.destroy()}}var l=o(()=>{});l();export{c as parsePdf};

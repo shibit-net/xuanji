@@ -35,7 +35,7 @@ import { FilteredToolRegistry, augmentToolList } from '@/core/tools/FilteredTool
 import { getTodoManager } from '@/core/tools/TodoManager';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { MemoryManager } from '@/core/memory/MemoryManager';
-import { registerMemoryManager } from '@/core/memory/globals';
+import { registerMemoryManager, setMemoryInitError } from '@/core/memory/globals';
 import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
 import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
@@ -457,8 +457,9 @@ export class SessionFactory {
           }
 
           if (c?.model?.primary) {
-            const apiKey = c.provider?.apiKey || '';
-            const baseURL = c.provider?.baseURL || '';
+            // apiKey/baseURL 优先取 agent config，没有则回退到主 provider 配置
+            const apiKey = c.provider?.apiKey || config.provider.apiKey;
+            const baseURL = c.provider?.baseURL || config.provider.baseURL;
             if (!apiKey || !baseURL) {
               throw new Error(`[${agentId}] provider.apiKey 或 baseURL 未配置，请在 agent-overrides/${agentId}.json5 中设置`);
             }
@@ -712,6 +713,7 @@ export class SessionFactory {
       if (err instanceof Error && err.stack) {
         console.error('[MemoryManager] Stack:', err.stack);
       }
+      setMemoryInitError(msg);
     }
   }
 
