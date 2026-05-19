@@ -1854,23 +1854,25 @@ ${text}`;
     return null;
   }
 
-  /** 从 context-compressor agent 的响应中解析 JSON */
+  /** 从 context-compressor agent 的响应中解析 JSON。三级降级策略，每级独立 try/catch。 */
   private parseCompressionJson(response: string): { summary?: string; events?: any[]; facts?: any[] } | null {
-    try {
-      // 优先级 1：任意语言的 markdown 代码块（不限于 ```json）
-      const anyCodeBlock = response.match(/```(?:\w+)?\s*([\s\S]*?)```/);
-      if (anyCodeBlock) {
-        const inner = anyCodeBlock[1].trim();
+    // 优先级 1：遍历所有 markdown 代码块，尝试 JSON.parse
+    const codeBlockRe = /```(?:\w+)?\s*([\s\S]*?)```/g;
+    let match;
+    while ((match = codeBlockRe.exec(response)) !== null) {
+      try {
+        const inner = match[1].trim();
         if (inner.startsWith('{') || inner.startsWith('[')) {
           return JSON.parse(inner);
         }
-      }
-      // 优先级 2：从文本中提取首个完整 JSON 对象（花括号配对扫描）
+      } catch { /* 当前代码块非有效 JSON，继续下一个 */ }
+    }
+
+    // 优先级 2：花括号配对扫描，从文本中提取首个完整 JSON 对象
+    try {
       const firstBrace = response.indexOf('{');
       if (firstBrace >= 0) {
-        let depth = 0;
-        let inString = false;
-        let escaped = false;
+        let depth = 0, inString = false, escaped = false;
         for (let i = firstBrace; i < response.length; i++) {
           const ch = response[i];
           if (escaped) { escaped = false; continue; }
@@ -1881,14 +1883,16 @@ ${text}`;
           else if (ch === '}') { depth--; if (depth === 0) { return JSON.parse(response.slice(firstBrace, i + 1)); } }
         }
       }
-      // 优先级 3：直接解析整个响应
+    } catch { /* 提取出的片段非有效 JSON，降级到优先级 3 */ }
+
+    // 优先级 3：直接解析整个响应
+    try {
       const trimmed = response.trim();
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) return JSON.parse(trimmed);
-      return null;
-    } catch {
-      log.warn('Failed to parse compression agent JSON response');
-      return null;
-    }
+    } catch { /* 整个响应非纯 JSON */ }
+
+    log.warn('Failed to parse compression agent JSON response');
+    return null;
   }
 
   /** 查询已有记忆摘要，填充 prompt 中的 {{EXISTING_MEMORIES}} 占位符 */
