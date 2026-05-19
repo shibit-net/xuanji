@@ -35,6 +35,8 @@ export class SemanticIndex {
   private entries: EmbeddingEntry[] = [];
   private dimensions = 384;
   private initialized = false;
+  private lastPersistedCount = 0;
+  private dirtySinceCompact = 0;
 
   constructor(
     private provider: EmbeddingProviderInterface,
@@ -54,14 +56,17 @@ export class SemanticIndex {
 
         const buf = await readFile(dataPath);
         this.vectors = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+        this.lastPersistedCount = this.entries.length;
       } else {
         this.entries = [];
         this.vectors = null;
+        this.lastPersistedCount = 0;
       }
     } catch (err) {
       log.warn('Failed to load existing index, starting fresh:', err);
       this.entries = [];
       this.vectors = null;
+      this.lastPersistedCount = 0;
     }
 
     this.initialized = true;
@@ -77,7 +82,7 @@ export class SemanticIndex {
   }
 
   /**
-   * 索引一个文本条目，追加向量到磁盘文件
+   * 索引一个文本条目。已有条目就地更新，新条目追加入向量文件（减少写入放大）。
    */
   async index(sourceId: string, sourceTable: string, text: string): Promise<void> {
     await this.ensureInit();
@@ -85,30 +90,41 @@ export class SemanticIndex {
     const vector = await this.provider.embed(text);
     if (vector.length === 0) return;
 
-    // 移除旧条目（如果存在）
-    await this.remove(sourceId);
-
     const now = Date.now();
-    const entry: EmbeddingEntry = {
-      sourceId,
-      sourceTable,
-      offset: this.entries.length * this.dimensions,
-      length: this.dimensions,
-      textSummary: text.slice(0, 200),
-      updatedAt: now,
-    };
+    const existingIdx = this.entries.findIndex(e => e.sourceId === sourceId);
 
-    this.entries.push(entry);
-
-    // 追加到内存 vector
-    const newVector = new Float32Array(vector);
-    if (this.vectors) {
-      const combined = new Float32Array(this.vectors.length + this.dimensions);
-      combined.set(this.vectors);
-      combined.set(newVector, this.vectors.length);
-      this.vectors = combined;
+    if (existingIdx >= 0) {
+      // 已有条目：就地更新（不触发 remove 的全量复制）
+      const entry = this.entries[existingIdx];
+      entry.textSummary = text.slice(0, 200);
+      entry.updatedAt = now;
+      // 直接更新向量
+      const newVec = new Float32Array(vector);
+      if (this.vectors) {
+        this.vectors.set(newVec, entry.offset);
+      }
+      this.dirtySinceCompact++;
     } else {
-      this.vectors = newVector;
+      // 新条目：追加
+      const newVector = new Float32Array(vector);
+      const entry: EmbeddingEntry = {
+        sourceId,
+        sourceTable,
+        offset: this.entries.length * this.dimensions,
+        length: this.dimensions,
+        textSummary: text.slice(0, 200),
+        updatedAt: now,
+      };
+      this.entries.push(entry);
+
+      if (this.vectors) {
+        const combined = new Float32Array(this.vectors.length + this.dimensions);
+        combined.set(this.vectors);
+        combined.set(newVector, this.vectors.length);
+        this.vectors = combined;
+      } else {
+        this.vectors = newVector;
+      }
     }
 
     await this.persist();
@@ -204,7 +220,7 @@ export class SemanticIndex {
     const idxPath = join(dir, 'embeddings.idx');
     const dataPath = join(dir, 'embeddings.data');
 
-    // 写入索引文件
+    // 索引文件始终完整重写（小文件，~数 KB）
     const idxData = {
       version: 1,
       dimensions: this.dimensions,
@@ -212,10 +228,58 @@ export class SemanticIndex {
     };
     await writeFile(idxPath, JSON.stringify(idxData, null, 2), 'utf-8');
 
-    // 写入向量文件
+    // 向量文件：仅追加新增条目，避免全量重写
     if (this.vectors) {
-      const buf = Buffer.from(this.vectors.buffer);
-      await writeFile(dataPath, buf);
+      const dataExists = existsSync(dataPath);
+      if (dataExists && this.lastPersistedCount > 0 && this.lastPersistedCount < this.entries.length) {
+        // 追加模式：仅写入新向量
+        const newStart = this.lastPersistedCount * this.dimensions;
+        const newVecs = this.vectors.slice(newStart);
+        const { appendFile } = await import('node:fs/promises');
+        await appendFile(dataPath, Buffer.from(newVecs.buffer));
+      } else {
+        // 全量写入（首次、无历史数据、或需要 compact）
+        await writeFile(dataPath, Buffer.from(this.vectors.buffer));
+      }
     }
+
+    this.lastPersistedCount = this.entries.length;
+  }
+
+  /**
+   * Compact: 整理向量文件，移除已删除条目的碎片空间。
+   * 当 dirtySinceCompact 超过阈值（50次更新）时自动触发。
+   */
+  async compact(): Promise<void> {
+    if (this.dirtySinceCompact < 50) return;
+
+    const dir = this.memoryDir;
+    const dataPath = join(dir, 'embeddings.data');
+
+    // 重建连续向量数组（跳过空位）
+    if (!this.vectors || this.entries.length === 0) {
+      if (existsSync(dataPath)) {
+        const { unlink } = await import('node:fs/promises');
+        await unlink(dataPath).catch(() => {});
+      }
+      this.vectors = null;
+      this.lastPersistedCount = 0;
+      this.dirtySinceCompact = 0;
+      return;
+    }
+
+    const compactedLen = this.entries.length * this.dimensions;
+    const compacted = new Float32Array(compactedLen);
+    for (let i = 0; i < this.entries.length; i++) {
+      const src = this.entries[i].offset;
+      compacted.set(this.vectors.slice(src, src + this.dimensions), i * this.dimensions);
+      this.entries[i].offset = i * this.dimensions;
+    }
+    this.vectors = compacted;
+    this.lastPersistedCount = 0; // 强制下次全量写入
+    this.dirtySinceCompact = 0;
+
+    await writeFile(dataPath, Buffer.from(compacted.buffer));
+    log.info(`SemanticIndex compacted: ${this.entries.length} entries`);
   }
 }

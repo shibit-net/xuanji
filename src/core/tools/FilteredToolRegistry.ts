@@ -15,6 +15,7 @@ export const DEFAULT_SUBAGENT_TOOLS = [
   'read_file', 'glob', 'grep', 'list_directory',
   'write_file', 'edit_file', 'bash',
   'memory_search', 'memory_graph',
+  'ssh_exec', 'ssh_read', 'ssh_write', 'ssh_list',
 ];
 
 /** L2 行为层编排工具集 — 加载 L2 时自动注入 */

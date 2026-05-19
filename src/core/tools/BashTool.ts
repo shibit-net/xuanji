@@ -2,7 +2,6 @@
 // M6 工具系统 — BashTool 执行命令
 // ============================================================
 
-import { spawn } from 'node:child_process';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';

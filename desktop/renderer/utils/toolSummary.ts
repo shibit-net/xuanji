@@ -11,9 +11,14 @@ export function formatModelName(rawModel: string): string {
   return cleaned || rawModel;
 }
 
-/** 工具名称格式化：write_file → Write file */
+const ACRONYMS = new Set(['ssh', 'api', 'url', 'ui', 'ci', 'cd', 'id', 'ip', 'cpu', 'gpu', 'db', 'os', 'pdf', 'xlsx', 'docx']);
+
+/** 工具名称格式化：write_file → Write File, ssh_list → SSH List */
 export function formatToolName(name: string): string {
-  return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return name
+    .split('_')
+    .map(word => ACRONYMS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 /** 格式化场景标签：去除 l{n}- 前缀 */

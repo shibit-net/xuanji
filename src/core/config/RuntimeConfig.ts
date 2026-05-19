@@ -105,3 +105,10 @@ export function getSubAgentConfig() {
 export function getAsyncAgentConfig() {
   return _config?.agent?.asyncAgentTasks;
 }
+
+/**
+ * 获取 SSH 工具配置
+ */
+export function getSSHConfig() {
+  return _config?.tools?.ssh;
+}

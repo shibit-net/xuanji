@@ -40,6 +40,10 @@ export { ToolGateway } from './ToolGateway';
 export type { ExecutionContext, ToolMetrics, PermissionController } from './ToolGateway';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
 export { UpdatePersonaTool } from './UpdatePersonaTool';
+export { SSHExecTool } from './SSHExecTool';
+export { SSHReadTool } from './SSHReadTool';
+export { SSHWriteTool } from './SSHWriteTool';
+export { SSHListTool } from './SSHListTool';
 
 // Utils
 export { DiffRenderer } from '@/shared/utils/DiffRenderer';

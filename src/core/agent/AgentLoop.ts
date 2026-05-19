@@ -279,6 +279,12 @@ export class AgentLoop {
           }
         }
 
+        // 修复因中断/异常产生的孤立 tool_use 块，防止 API 400 错误
+        const orphanedIds = this.contextManager.repairOrphanedToolUses();
+        if (orphanedIds.length > 0) {
+          this.log.warn(`Repaired orphaned tool_use blocks: [${orphanedIds.join(', ')}]`);
+        }
+
         const messages = this.contextManager.getMessages();
         const toolSchemas: ToolSchema[] = this.registry.getSchemas();
 

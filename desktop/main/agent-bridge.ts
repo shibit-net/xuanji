@@ -587,6 +587,11 @@ async function handleUserAction(data: { type: string; message?: string; attachme
     log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
+    const errMsg = (err as Error).message || String(err);
+    // 将错误显示为对话气泡中的文本，让用户能看到异常信息
+    channel.send('agent:text', { text: `\n\n❌ **执行出错**: ${errMsg}\n\n请检查 API 配置或重试。` });
+    channel.send('agent:end', { tokenUsage: { inputTokens: 0, outputTokens: 0 } });
+    channel.send('agent:error', errMsg);
   }
 }
 

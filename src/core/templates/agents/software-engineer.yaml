@@ -90,6 +90,14 @@ tools:
     enabled: false
   - name: docx_edit
     enabled: false
+  - name: ssh_exec
+    enabled: true
+  - name: ssh_read
+    enabled: true
+  - name: ssh_write
+    enabled: true
+  - name: ssh_list
+    enabled: true
 
 # 执行配置
 execution:

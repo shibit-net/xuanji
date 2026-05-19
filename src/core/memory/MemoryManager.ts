@@ -91,6 +91,9 @@ export class MemoryManager {
   /** 上下文压缩用的 system prompt（来自 context-compressor.yaml） */
   public compressionPrompt?: string;
 
+  /** 分层 Prompt 构建器引用，用于为 memory-manager/compressor 注入 L0 基础组件 */
+  public layeredPromptBuilder?: any;
+
   /** 是否正在执行记忆提取（竞态标记，供前端按钮感知自动执行） */
   public isExtracting = false;
 
@@ -189,7 +192,6 @@ export class MemoryManager {
 
     if (currentVersion < 1) this.migrateV1();
     if (currentVersion < 2) this.migrateV2();
-    if (currentVersion < 3) this.migrateV3();
     if (currentVersion < 4) this.migrateV4();
     if (currentVersion < 5) this.migrateV5();
     if (currentVersion < 6) this.migrateV6();
@@ -274,19 +276,6 @@ export class MemoryManager {
         operator    TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS project_snapshots (
-        id              TEXT PRIMARY KEY,
-        project_id      TEXT NOT NULL REFERENCES entities(id),
-        phase           TEXT NOT NULL DEFAULT '开发',
-        status          TEXT NOT NULL DEFAULT '进行中',
-        progress_pct    INTEGER NOT NULL DEFAULT 0,
-        current_focus   TEXT,
-        blockers        TEXT,
-        next_milestone  TEXT,
-        tech_stack      TEXT,
-        snapshot_at     INTEGER NOT NULL
-      );
-
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
         source_table, source_id, title, content, scene_tag,
         tokenize='unicode61'
@@ -311,7 +300,6 @@ export class MemoryManager {
       CREATE INDEX IF NOT EXISTS idx_facts_version ON facts(title, version);
       CREATE INDEX IF NOT EXISTS idx_relchanges_subject ON relation_changes(subject_id, relation, changed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_relchanges_time ON relation_changes(changed_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_snapshots_project ON project_snapshots(project_id, snapshot_at DESC);
 
     `);
     this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (1, ?)').run(Date.now());
@@ -324,25 +312,6 @@ export class MemoryManager {
       this.db.exec(`ALTER TABLE relations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`);
     }
     this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (2, ?)').run(Date.now());
-  }
-
-  private migrateV3(): void {
-    // v3: 确保 project_snapshots 表存在（已在 v1 中创建，此处幂等）
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS project_snapshots (
-        id              TEXT PRIMARY KEY,
-        project_id      TEXT NOT NULL REFERENCES entities(id),
-        phase           TEXT NOT NULL DEFAULT '开发',
-        status          TEXT NOT NULL DEFAULT '进行中',
-        progress_pct    INTEGER NOT NULL DEFAULT 0,
-        current_focus   TEXT,
-        blockers        TEXT,
-        next_milestone  TEXT,
-        tech_stack      TEXT,
-        snapshot_at     INTEGER NOT NULL
-      );
-    `);
-    this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (3, ?)').run(Date.now());
   }
 
   private migrateV4(): void {
@@ -682,16 +651,13 @@ export class MemoryManager {
 
     this.db.prepare('UPDATE relations SET is_active = 0, updated_at = ? WHERE id = ?').run(now, old.id);
 
-    // 反查实体名称（用于可读的变更记录）
-    const subName = (this.db.prepare('SELECT name FROM entities WHERE id = ?').get(subjectId) as any)?.name ?? subjectId;
+    // 记录变更（subject_id 存实体 ID，old_value 存对象名称方便可读）
     const objName = (this.db.prepare('SELECT name FROM entities WHERE id = ?').get(objectId) as any)?.name ?? objectId;
-
-    // 记录变更
     const changeId = randomUUID();
     this.db.prepare(`
       INSERT INTO relation_changes (id, subject_id, relation, old_value, new_value, reason, changed_at, operator)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(changeId, subName, relation, objName, '', reason ?? null, now, 'agent');
+    `).run(changeId, subjectId, relation, objName, '', reason ?? null, now, 'agent');
 
     this.graph.removeEdge(subjectId, objectId, relation);
   }
@@ -757,22 +723,18 @@ export class MemoryManager {
     }
     const entityIdsStr = formatEntityIds(entityIds);
 
-    // 语义去重：搜索与新事件内容最相似的已有事件
-    let previousId: string | null = null;
-    let version = 1;
+    // 语义去重：搜索与新事件内容最相似的已有事件，命中则直接返回已有事件（SSOT）
     if (this.semanticIndex) {
       try {
         const similar = await this.semanticIndex.search(input.content, 1, MemoryManager.EVENT_DEDUP_THRESHOLD);
         const matchedEvent = similar.find((r: { source_table: string }) => r.source_table === 'events');
         if (matchedEvent) {
-          const oldEvent = this.db.prepare(
-            'SELECT id, version, is_latest FROM events WHERE id = ? AND is_latest = 1'
-          ).get(matchedEvent.id) as { id: string; version: number; is_latest: number } | undefined;
-          if (oldEvent) {
-            // 标记旧版本作废
-            this.db.prepare('UPDATE events SET is_latest = 0 WHERE id = ?').run(oldEvent.id);
-            version = oldEvent.version + 1;
-            previousId = oldEvent.id;
+          const existing = this.db.prepare(
+            'SELECT * FROM events WHERE id = ? AND is_latest = 1'
+          ).get(matchedEvent.id) as any as Event | undefined;
+          if (existing) {
+            log.debug('Event dedup: skipped duplicate, returned existing', { id: existing.id });
+            return existing;
           }
         }
       } catch (err) {
@@ -782,11 +744,11 @@ export class MemoryManager {
 
     const id = randomUUID();
     this.db.prepare(`
-      INSERT INTO events (id, time, entity_ids, content, result, importance, scene_tag, operator, version, is_latest, previous_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      INSERT INTO events (id, time, entity_ids, content, result, importance, scene_tag, operator, version, is_latest, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
     `).run(
       id, input.time ?? now, entityIdsStr, input.content, input.result ?? null,
-      input.importance ?? 3, sceneTag, input.operator ?? null, version, previousId, now
+      input.importance ?? 3, sceneTag, input.operator ?? null, now
     );
 
     const fullEvent = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as any as Event;
@@ -1021,9 +983,15 @@ export class MemoryManager {
     const now = Date.now();
     const placeholders = factIds.map(() => '?').join(',');
     this.db.prepare(`
-      UPDATE facts SET access_count = access_count + 1, last_accessed_at = ?
+      UPDATE facts SET access_count = CASE WHEN access_count < 100 THEN access_count + 1 ELSE access_count END,
+      last_accessed_at = ?
       WHERE id IN (${placeholders})
     `).run(now, ...factIds);
+  }
+
+  /** 衰减所有 fact 的 access_count，避免高频记忆永久垄断。每周维护任务调用。 */
+  decayFactAccess(): void {
+    this.db.prepare('UPDATE facts SET access_count = CAST(access_count * 0.5 AS INTEGER) WHERE access_count > 10').run();
   }
 
   /**
@@ -1106,16 +1074,52 @@ export class MemoryManager {
 
     try {
       const raw = await this.semanticIndex.search(query, limit * 2);
-      return raw
-        .filter((sr: { sourceTable: string; sourceId: string; textSummary: string; score: number }) => !source || source === 'all' || sr.sourceTable === source)
-        .map((sr: { sourceTable: string; sourceId: string; textSummary: string; score: number }) => ({
+      const filtered = raw.filter((sr: { sourceTable: string; sourceId: string; textSummary: string; score: number }) =>
+        !source || source === 'all' || sr.sourceTable === source
+      );
+
+      // 回查源表获取完整内容（语义索引 textSummary 被截断到 200 字符）
+      const tableMap: Record<string, { ids: string[]; titleField: string; contentField: string }> = {
+        entities: { ids: [], titleField: 'name', contentField: 'summary' },
+        facts: { ids: [], titleField: 'title', contentField: 'content' },
+        events: { ids: [], titleField: 'content', contentField: 'content' },
+        episodes: { ids: [], titleField: 'title', contentField: 'narrative' },
+      };
+
+      for (const sr of filtered) {
+        if (tableMap[sr.sourceTable]) {
+          tableMap[sr.sourceTable].ids.push(sr.sourceId);
+        }
+      }
+
+      // 批量查询完整内容
+      const contentMap = new Map<string, { title: string; content: string; scene_tag: string }>();
+      for (const [table, { ids, titleField, contentField }] of Object.entries(tableMap)) {
+        if (ids.length === 0) continue;
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = this.db.prepare(
+          `SELECT id, ${titleField} as title, ${contentField} as content, scene_tag FROM '${table}' WHERE id IN (${placeholders})`
+        ).all(...ids) as any[];
+        for (const row of rows) {
+          contentMap.set(row.id, {
+            title: (row.title || '').slice(0, 100),
+            content: row.content || '',
+            scene_tag: row.scene_tag || '',
+          });
+        }
+      }
+
+      return filtered.map((sr: { sourceTable: string; sourceId: string; textSummary: string; score: number }) => {
+        const full = contentMap.get(sr.sourceId);
+        return {
           source_table: sr.sourceTable,
           source_id: sr.sourceId,
-          title: sr.textSummary.slice(0, 100),
-          content: sr.textSummary,
-          scene_tag: '',
-          score: sr.score, // 余弦相似度，已 ≥ 0.5
-        }));
+          title: full?.title || sr.textSummary.slice(0, 100),
+          content: full?.content || sr.textSummary,
+          scene_tag: full?.scene_tag || '',
+          score: sr.score,
+        };
+      });
     } catch (err) {
       log.warn('Semantic search failed:', err);
       return [];
@@ -1383,6 +1387,70 @@ export class MemoryManager {
     );
   }
 
+  /** 检查指定时间窗口内是否有过任何 memory_store 调用（用于 PostToolUse 兜底检测） */
+  wasAnyMemoryStoredRecently(windowMs: number = 60000): boolean {
+    const cutoff = Date.now() - windowMs;
+    return this.recentToolCalls.some(
+      tc => tc.toolName === 'memory_store' && tc.time > cutoff
+    );
+  }
+
+  // ─── 待处理提取持久化（进程退出保护）─────────────────────
+
+  private get pendingExtractionPath(): string {
+    const lastSep = Math.max(this.dbPath.lastIndexOf('/'), this.dbPath.lastIndexOf('\\'));
+    const dir = lastSep >= 0 ? this.dbPath.slice(0, lastSep) : '.';
+    return `${dir}/extraction_pending.json`;
+  }
+
+  /** 将待提取消息持久化到文件，防止进程退出丢失 */
+  async savePendingExtraction(messages: any[]): Promise<void> {
+    try {
+      const { writeFile } = await import('node:fs/promises');
+      // 仅保存必要的文本字段
+      const compact = messages.slice(-20).map((m: any) => ({
+        role: m.role || m.type || 'unknown',
+        content: typeof m.content === 'string' ? m.content.slice(0, 500) : '',
+      }));
+      await writeFile(this.pendingExtractionPath, JSON.stringify(compact), 'utf-8');
+    } catch {
+      // 写入失败不阻塞
+    }
+  }
+
+  /** 清除待处理提取文件（提取成功后调用） */
+  async clearPendingExtraction(): Promise<void> {
+    try {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(this.pendingExtractionPath);
+    } catch {
+      // 文件不存在或已清理，忽略
+    }
+  }
+
+  /** 启动时处理遗留的待处理提取任务 */
+  async processPendingExtractions(): Promise<void> {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const { existsSync } = await import('node:fs');
+      if (!existsSync(this.pendingExtractionPath)) return;
+
+      const content = await readFile(this.pendingExtractionPath, 'utf-8');
+      const messages = JSON.parse(content);
+      if (!Array.isArray(messages) || messages.length === 0) {
+        await this.clearPendingExtraction();
+        return;
+      }
+
+      log.info(`Processing pending extraction: ${messages.length} messages`);
+      await this.extractFromSession(messages);
+      await this.clearPendingExtraction();
+    } catch {
+      // 文件损坏或处理失败，清理
+      await this.clearPendingExtraction();
+    }
+  }
+
   // ─── ArchiveDelegate (上下文压缩回调) ─────────────────────
 
   async archiveMessages(messages: any[]): Promise<string> {
@@ -1507,225 +1575,6 @@ ${text}`;
     return `之前对话摘要: ${summary.slice(0, 300)}`;
   }
 
-  // ─── 派生状态推演 ────────────────────────────────────────
-
-  private async tryUpdateProjectStatus(event: EventInput | Event): Promise<void> {
-    const content = 'content' in event ? event.content : (event as EventInput).content;
-
-    // 提取实体名称：EventInput 有 entityNames，Event 有 entity_ids（需解析回名称）
-    let entityNames: string[] = [];
-    if ('entityNames' in event) {
-      entityNames = (event as EventInput).entityNames || [];
-    } else if ('entity_ids' in event) {
-      const ids = (event as Event).entity_ids.split(',').filter(Boolean);
-      if (ids.length > 0) {
-        const placeholders = ids.map(() => '?').join(',');
-        const rows = this.db.prepare(
-          `SELECT name FROM entities WHERE id IN (${placeholders})`
-        ).all(...ids) as any[];
-        entityNames = rows.map((r: any) => r.name);
-      }
-    }
-
-    // 关键词规则：检测项目进度变化
-    const progressPatterns: Array<{ regex: RegExp; phase?: string; delta: number; status?: string }> = [
-      { regex: /完成.*需求分析|需求.*完成|需求.*确认/, phase: '设计', delta: 20 },
-      { regex: /完成.*设计|设计.*完成|架构.*确定/, phase: '开发', delta: 30 },
-      { regex: /完成.*开发|功能.*实现|代码.*完成/, delta: 15 },
-      { regex: /完成.*测试|测试.*通过|bug.*修复/, phase: '测试', delta: 10 },
-      { regex: /部署|上线|发布|release/, phase: '部署', delta: 10 },
-      { regex: /暂停|阻塞|卡住/, status: '暂停', delta: 0 },
-    ];
-
-    for (const pname of entityNames) {
-      const project = this.db.prepare(
-        "SELECT id, name FROM entities WHERE name = ? AND type = 'project'"
-      ).get(pname) as any;
-      if (!project) continue;
-
-      const lastSnapshot = this.db.prepare(
-        'SELECT * FROM project_snapshots WHERE project_id = ? ORDER BY snapshot_at DESC LIMIT 1'
-      ).get(project.id) as any;
-
-      for (const pattern of progressPatterns) {
-        if (pattern.regex.test(content)) {
-          const now = Date.now();
-          const snapshotId = randomUUID();
-          const newProgress = Math.min(100, (lastSnapshot?.progress_pct ?? 0) + pattern.delta);
-          const newPhase = pattern.phase || lastSnapshot?.phase || '开发';
-          const newStatus = (pattern as any).status || lastSnapshot?.status || '进行中';
-
-          this.db.prepare(`
-            INSERT INTO project_snapshots (id, project_id, phase, status, progress_pct, current_focus, snapshot_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(snapshotId, project.id, newPhase, newStatus, newProgress,
-            `从事件推演: ${content.slice(0, 200)}`, now);
-          break;
-        }
-      }
-    }
-  }
-
-  private async tryTrackPreferenceChange(event: EventInput | Event): Promise<void> {
-    const content = 'content' in event ? event.content : (event as EventInput).content;
-    const operator = 'operator' in event ? event.operator : (event as EventInput).operator;
-
-    const changePatterns: Array<{ regex: RegExp; relation: string; extractOld?: (m: RegExpMatchArray) => string | null; extractNew: (m: RegExpMatchArray) => string | null }> = [
-      { regex: /从\s*(\S+)\s*(?:改|换|切|迁移)(?:为|到|成)\s*(\S+)/, relation: '使用', extractOld: m => m[1], extractNew: m => m[2] },
-      { regex: /改用\s*(\S+)/, relation: '使用', extractNew: m => m[1], extractOld: () => null },
-      { regex: /不再(?:使用|喜欢|需要)\s*(\S+)/, relation: '偏好', extractOld: m => m[1], extractNew: () => null },
-      { regex: /(?:现在|改为|开始)\s*(?:使用|喜欢|偏好)\s*(\S+)/, relation: '偏好', extractNew: m => m[1], extractOld: () => null },
-    ];
-
-    for (const pattern of changePatterns) {
-      const match = content.match(pattern.regex);
-      if (!match) continue;
-
-      const oldValue = pattern.extractOld?.(match) ?? null;
-      const newValue = pattern.extractNew(match);
-      if (!newValue && !oldValue) continue;
-
-      const now = Date.now();
-      const sceneTag = 'scene_tag' in event ? event.scene_tag : '';
-
-      // 找到操作者实体 ID（用于更新 relations 表）
-      let subjectId: string | null = null;
-      if (operator) {
-        const opEntity = this.db.prepare('SELECT id FROM entities WHERE name = ?').get(operator) as any;
-        subjectId = opEntity?.id ?? null;
-      }
-
-      // 写入 relation_changes 表（subject_id 存名称，可读）
-      this.db.prepare(`
-        INSERT INTO relation_changes (id, subject_id, relation, old_value, new_value, reason, scene_tag, changed_at, operator)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(randomUUID(), operator ?? 'unknown', pattern.relation, oldValue, newValue,
-        `从事件推演: ${content.slice(0, 200)}`, sceneTag, now, operator ?? null);
-
-      // 将旧关系标记为非活跃（用 UUID 精确匹配）
-      if (oldValue) {
-        const oldEntity = this.db.prepare('SELECT id FROM entities WHERE name = ?').get(oldValue) as any;
-        if (oldEntity && subjectId) {
-          this.db.prepare(`
-            UPDATE relations SET is_active = 0, updated_at = ?
-            WHERE subject_id = ? AND object_id = ? AND relation = ?
-          `).run(now, subjectId, oldEntity.id, pattern.relation);
-        }
-      }
-
-      // 为新值创建关系
-      if (newValue && operator) {
-        this.relate({
-          subject_name: operator,
-          object_name: newValue,
-          relation: pattern.relation,
-          strength: 5,
-          scene_tag: sceneTag,
-          desc: `偏好变更: ${content.slice(0, 200)}`,
-        }).catch(err => log.error('Failed to create preference relation:', err));
-      }
-
-      log.debug('Preference change tracked:', { content, oldValue, newValue, relation: pattern.relation });
-      break;
-    }
-  }
-
-  /**
-   * 推演引擎：从用户表达中提取实体的属性（property），
-   * 然后查找具有相同属性的其他实体，推断用户可能也有类似偏好。
-   *
-   * 例如：用户说"我不吃川菜，太辣了"
-   *   → 提取 property "辣"（川菜 = 辣）
-   *   → 查找还有哪些实体具有"辣"属性（湘菜 = 辣）
-   *   → 如果用户对川菜是负面偏好，推演可能也不喜欢湘菜
-   *
-   * 使用规则引擎（无 LLM），依赖已有的 relations 表中的知识。
-   */
-  private async tryInferPreferences(event: EventInput | Event): Promise<void> {
-    const content = 'content' in event ? event.content : (event as EventInput).content;
-    const operator = 'operator' in event ? event.operator : (event as EventInput).operator;
-    if (!content || !operator) return;
-
-    // Step 1: 检测"不喜欢/不吃/不用 X，因为 Y"模式
-    // 格式1: "不[喜欢|吃|用|要] X，因为[太|很]Y"
-    // 格式2: "不[喜欢|吃|用|要] X，Y"
-    const dislikeMatch = content.match(
-      /不[喜欢吃要用]\s*(\S+?)(?:[，,]\s*(?:因为|太|很|太|非常)?\s*(.*))?/
-    );
-    if (!dislikeMatch) return;
-
-    const subjectName = operator; // 用户
-    const dislikedEntityName = dislikeMatch[1]; // 用户不喜欢的实体名（川菜）
-    const reasonClue = dislikeMatch[2]; // 理由线索（辣）
-
-    if (!reasonClue) return; // 没有理由线索，无法推演
-
-    // Step 2: 查找用户不喜欢的实体
-    const dislikedEntity = this.db.prepare(
-      'SELECT * FROM entities WHERE name = ? AND type IN (?, ?, ?) LIMIT 1'
-    ).get(dislikedEntityName, 'concept', 'preference', 'tool') as any;
-    if (!dislikedEntity) return;
-
-    // Step 3: 提取实体的属性（property）
-    // 通过 relations 表查找 X = "具有属性" = Y 的关系
-    // 例如：川菜 — 具有属性 → 辣
-    const propertyRelations = this.db.prepare(`
-      SELECT r.*, obj.name AS property_name
-      FROM relations r
-      JOIN entities obj ON obj.id = r.object_id
-      WHERE r.subject_id = ? AND r.relation IN ('具有属性', '属于', 'has_property', 'is_a')
-        AND r.is_active = 1
-    `).all(dislikedEntity.id) as any[];
-
-    if (propertyRelations.length === 0) return;
-
-    // Step 4: 查找具有相同属性的其他实体
-    // 例如：查还有哪些实体也具有"辣"属性
-    for (const propRel of propertyRelations) {
-      const propertyName = propRel.property_name;
-
-      // 查所有具有这个属性的其他实体（排除用户不喜欢那个）
-      const samePropertyEntities = this.db.prepare(`
-        SELECT e.id, e.name, e.summary
-        FROM relations r
-        JOIN entities e ON e.id = r.subject_id
-        WHERE r.object_id = ? AND r.relation IN ('具有属性', '属于', 'has_property', 'is_a')
-          AND r.is_active = 1
-          AND r.subject_id != ?
-      `).all(propRel.object_id, dislikedEntity.id) as any[];
-
-      // Step 5: 检查用户是否已经有这些实体的偏好事实
-      // 如果有，说明已经处理过，跳过
-      const existingPrefs = this.db.prepare(`
-        SELECT title FROM facts
-        WHERE title LIKE ? AND is_latest = 1 AND source = 'user_said'
-      `).all(`%${operator}%`) as any[];
-      const existingPrefTitles = new Set(existingPrefs.map((r: any) => r.title));
-
-      for (const candidate of samePropertyEntities) {
-        // 构造推断事实标题
-        const inferredTitle = `推断: ${operator} 可能不喜欢 ${candidate.name}`;
-
-        // 去重：如果已经存储过类似推断，跳过
-        const existingInferred = this.db.prepare(
-          'SELECT id FROM facts WHERE title = ? AND is_latest = 1'
-        ).get(inferredTitle) as any;
-        if (existingInferred) continue;
-
-        // 存储推断事实（低置信度）
-        await this.storeFact({
-          title: inferredTitle,
-          content: `${operator} 表示不喜欢 ${dislikedEntityName}（因为${propertyName}），${candidate.name} 也具有"${propertyName}"属性，推断 ${operator} 可能也不喜欢 ${candidate.name}`,
-          source: 'agent_discovered',
-          source_detail: `inferred_from_property:${propertyName}`,
-          scene_tag: '偏好',
-        });
-
-        log.info(`Inferred preference: ${inferredTitle}`);
-      }
-    }
-  }
-
   // ─── 图查询（委托给 MemoryGraph）──────────────────────────
 
   async findPaths(fromName: string, toName: string, maxHops: number = 4): Promise<any[]> {
@@ -1821,6 +1670,28 @@ ${text}`;
       return null;
     } finally {
       this.isExtracting = false;
+      // 提取完成后（无论成功失败）清理 pending 文件
+      this.clearPendingExtraction().catch(() => {});
+    }
+  }
+
+  /** 获取 L0 基础 prompt 组件内容（用于注入到 memory-manager / compressor agent） */
+  private async getL0PromptContent(): Promise<string> {
+    if (!this.layeredPromptBuilder) return '';
+    try {
+      const components = this.layeredPromptBuilder.getAllComponents?.() || [];
+      const l0Components = components.filter((c: any) => c.layer === 'L0' && c.id !== 'main-agent');
+      if (l0Components.length === 0) return '';
+      const parts: string[] = [];
+      for (const c of l0Components) {
+        try {
+          const rendered = await c.render({});
+          if (rendered?.trim()) parts.push(rendered.trim());
+        } catch { /* skip failed render */ }
+      }
+      return parts.join('\n\n');
+    } catch {
+      return '';
     }
   }
 
@@ -1854,6 +1725,9 @@ ${text}`;
 
     // 从 cheapLLM 提取 model 配置
     const cheapConfig = (this.cheapLLM as any)?.config ?? {};
+    // 注入 L0 基础 prompt 组件（记忆指导、格式标准化等）
+    const l0Content = await this.getL0PromptContent();
+    const fullSystemPrompt = l0Content ? `${l0Content}\n\n${systemPrompt}` : systemPrompt;
     const agentConfig: AgentConfig = {
       model: cheapConfig.model || 'deepseek-v4-pro',
       apiKey: cheapConfig.apiKey,
@@ -1861,7 +1735,7 @@ ${text}`;
       temperature: cheapConfig.temperature ?? 0.3,
       maxTokens: cheapConfig.maxTokens ?? 2048,
       maxIterations: 5,
-      systemPrompt,
+      systemPrompt: fullSystemPrompt,
     };
 
     const agentLoop = new AgentLoop(this.provider!, filteredRegistry, agentConfig);
@@ -1919,9 +1793,12 @@ ${text}`;
       process.cwd(),
     );
 
-    const systemPrompt = (this.compressionPrompt || '你是上下文压缩专家。将对话压缩为 JSON 摘要。')
+    const baseSystemPrompt = (this.compressionPrompt || '你是上下文压缩专家。将对话压缩为 JSON 摘要。')
       .replace('{{EXISTING_SUMMARY}}', existingSummary || '（无已有摘要）')
       .replace('{{NEW_MESSAGES}}', messagesText);
+    // 注入 L0 基础 prompt 组件
+    const l0Content = await this.getL0PromptContent();
+    const systemPrompt = l0Content ? `${l0Content}\n\n${baseSystemPrompt}` : baseSystemPrompt;
 
     const compConfig = (this.compressionLLM as any)?.config ?? {};
     const agentConfig: import('@/core/types').AgentConfig = {
@@ -1980,10 +1857,31 @@ ${text}`;
   /** 从 context-compressor agent 的响应中解析 JSON */
   private parseCompressionJson(response: string): { summary?: string; events?: any[]; facts?: any[] } | null {
     try {
-      // 尝试从代码块中提取 JSON
-      const codeBlock = response.match(/```json\s*([\s\S]*?)```/);
-      if (codeBlock) return JSON.parse(codeBlock[1]);
-      // 回退：直接解析整个响应
+      // 优先级 1：任意语言的 markdown 代码块（不限于 ```json）
+      const anyCodeBlock = response.match(/```(?:\w+)?\s*([\s\S]*?)```/);
+      if (anyCodeBlock) {
+        const inner = anyCodeBlock[1].trim();
+        if (inner.startsWith('{') || inner.startsWith('[')) {
+          return JSON.parse(inner);
+        }
+      }
+      // 优先级 2：从文本中提取首个完整 JSON 对象（花括号配对扫描）
+      const firstBrace = response.indexOf('{');
+      if (firstBrace >= 0) {
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let i = firstBrace; i < response.length; i++) {
+          const ch = response[i];
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\') { escaped = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { return JSON.parse(response.slice(firstBrace, i + 1)); } }
+        }
+      }
+      // 优先级 3：直接解析整个响应
       const trimmed = response.trim();
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) return JSON.parse(trimmed);
       return null;

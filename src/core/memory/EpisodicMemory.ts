@@ -14,6 +14,8 @@ import type { Episode } from '@/core/memory/types';
 const log = logger.child({ module: 'EpisodicMemory' });
 
 export class EpisodicMemory {
+  private lastEpisodeCreatedAt = 0;
+
   constructor(
     private db: Database.Database,
     private semanticIndex?: SemanticIndex,
@@ -143,7 +145,13 @@ export class EpisodicMemory {
   async createFromMessages(messages: any[], title?: string): Promise<Episode | null> {
     if (messages.length === 0) return null;
 
+    // 时间窗口去重：60 秒内不重复创建（防止多条压缩路径重复调用）
     const now = Date.now();
+    if (now - this.lastEpisodeCreatedAt < 60_000) {
+      log.debug('Skipped duplicate episode creation within 60s window');
+      return null;
+    }
+    this.lastEpisodeCreatedAt = now;
     const id = randomUUID();
 
     // 构建消息文本

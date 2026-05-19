@@ -5,6 +5,7 @@
 import type { ProviderConfig, RetryConfig } from './provider';
 import type { MCPConfig } from '@/mcp/types';
 import type { PricingConfig } from './pricing';
+import type { SSHConfig } from '@/core/ssh/types';
 
 /**
  * 路由模式配置
@@ -492,6 +493,8 @@ export interface ToolsConfig {
   glob?: GlobConfig;
   /** Bash 工具配置 */
   bash?: BashToolConfig;
+  /** SSH 工具配置 */
+  ssh?: SSHConfig;
 }
 
 /**

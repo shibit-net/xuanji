@@ -409,6 +409,70 @@ export class ContextManager {
     }
   }
 
+  /**
+   * 修复孤立 tool_use 块：扫描全部消息历史，移除没有对应 tool_result 的 tool_use 块。
+   *
+   * Anthropic API 要求每个 assistant 消息中的 tool_use 块必须在紧随其后的 user
+   * 消息中有匹配的 tool_result 块，否则返回 400 错误。
+   *
+   * 孤立块产生场景：
+   * 1. AgentLoop 在 addAssistantMessage 之后、addToolResults 之前被中断
+   * 2. 后续消息追加后，孤儿 tool_use 残留在历史中间，repairOrphanedToolUse 的末尾检查会漏掉
+   *
+   * @returns 被修复的 tool_use id 列表（用于日志）
+   */
+  repairOrphanedToolUses(): string[] {
+    const removedIds: string[] = [];
+    let i = 0;
+
+    while (i < this.messages.length) {
+      const msg = this.messages[i];
+      if (msg.role !== 'assistant' || !Array.isArray(msg.content)) {
+        i++;
+        continue;
+      }
+
+      const content = msg.content as ContentBlock[];
+      const toolUseBlocks = content.filter(b => b.type === 'tool_use' && b.id);
+      if (toolUseBlocks.length === 0) {
+        i++;
+        continue;
+      }
+
+      const toolUseIds = new Set(toolUseBlocks.map(b => b.id!));
+
+      // 检查下一条消息是否包含匹配的 tool_result
+      const next = this.messages[i + 1];
+      const hasValidResults = next
+        && next.role === 'user'
+        && Array.isArray(next.content)
+        && toolUseIds.size > 0
+        && [...toolUseIds].every(id =>
+          (next.content as ContentBlock[]).some(
+            b => b.type === 'tool_result' && b.tool_use_id === id,
+          ),
+        );
+
+      if (!hasValidResults) {
+        // 移除孤立的 tool_use 块
+        for (const id of toolUseIds) {
+          removedIds.push(id);
+        }
+        const cleaned = content.filter(b => b.type !== 'tool_use' || !b.id);
+        if (cleaned.length === 0) {
+          // 整个消息只剩 tool_use 块，移除整条消息
+          this.messages.splice(i, 1);
+          continue; // 不递增 i，继续检查同一位置的下一条消息
+        } else {
+          this.messages[i] = { ...msg, content: cleaned };
+        }
+      }
+      i++;
+    }
+
+    return removedIds;
+  }
+
   clear(): void {
     const systemMsg = this.messages.length > 0 && this.messages[0].role === 'system'
       ? [this.messages[0]]

@@ -138,6 +138,9 @@ export class ChatSession {
           sessionCallbacks?.onToolEnd?.(id, name, result, isError);
         },
       } as any);
+      // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
+      this.repairOrphanedToolUse();
+
       log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
       await this.agentLoop.run(input);
       log.info('[DIAG] ChatSession.run: agentLoop.run completed');
@@ -168,13 +171,43 @@ export class ChatSession {
       log.info('Session run completed');
     } catch (error) {
       log.error('Session run failed', error as Error);
+      const errMsg = (error as Error).message || '';
+      const isInterrupt = errMsg === 'Interrupted' || errMsg.includes('abort') || errMsg.includes('aborted');
+
       if (this._useNewPath && this._stateMachine) {
-        this._stateMachine.transition({ type: 'AGENT_COMPLETED' });
+        if (isInterrupt) {
+          // 用户打断是正常流程：先修复可能因中断产生的孤立 tool_use 块，
+          // 然后 handleAgentCompleted 消费 pendingMessages 并合并，
+          // 通过递归 run() 用修复后的上下文处理排队消息
+          this.repairOrphanedToolUse();
+          const action = this._stateMachine.transition({ type: 'AGENT_COMPLETED' });
+          if (action.type === 'RUN_AGENT') {
+            await this.run(action.message);
+            return;
+          }
+          if (this._stateMachine.pendingMessages.length === 0) {
+            eventBus.emitSync('queue:consumed');
+          }
+        } else {
+          // 真实错误（API 400 等）：清理孤儿 tool_use 块，切到 idle，
+          // 通知 UI 队列已消费（避免前端状态卡在"排队中"），
+          // 清空 pendingMessages 防止下次 userAction 合并损坏上下文
+          this.repairOrphanedToolUse();
+          this._stateMachine.transitionTo('idle');
+          this._stateMachine.pendingMessages.length = 0;
+          eventBus.emitSync('queue:consumed');
+        }
       } else {
+        // 旧路径：先清理孤儿 tool_use 块防止 drain 重复 400 错误，
+        // 再切到 idle 排空队列
+        this.repairOrphanedToolUse();
         this.stateTracker.transitionTo('idle');
         this.drainPendingQueue();
+        eventBus.emitSync('queue:consumed');
       }
-      throw error;
+      if (!isInterrupt) {
+        throw error;
+      }
     } finally {
       // 异步提取会话记忆，不阻塞用户
       this.scheduleMemoryExtraction();
@@ -191,12 +224,24 @@ export class ChatSession {
 
     const contextManager = this.agentLoop.getContextManager();
     const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
-    if (!memoryManager) return;
+    if (!memoryManager) {
+      log.debug('[PostToolUse] MemoryManager not available, skipping fallback');
+      return;
+    }
 
-    // 检查是否最近已经调了 memory_store
-    if (memoryManager.wasMemoryStoredRecently(`posttooluse:${toolName}`, 60000)) return;
+    // 检查该 tool 的 PostToolUse 是否已在 60s 内触发过（防止同一轮重复）
+    if (memoryManager.wasMemoryStoredRecently(`posttooluse:${toolName}`, 60000)) {
+      log.debug(`[PostToolUse] Fallback already triggered for ${toolName} in last 60s, skipping`);
+      return;
+    }
 
-    // 标记以防止同一轮重复触发
+    // 检查子 agent 执行期间是否已主动调过 memory_store
+    if (memoryManager.wasAnyMemoryStoredRecently(60000)) {
+      log.debug(`[PostToolUse] memory_store was called recently, skip fallback extraction for ${toolName}`);
+      return;
+    }
+
+    log.info(`[PostToolUse] Triggering fallback extraction for ${toolName}`);
     memoryManager.recordToolCall('posttooluse_dedup', undefined, `posttooluse:${toolName}`);
 
     // 异步提取
@@ -284,13 +329,16 @@ export class ChatSession {
 
       log.info(`Correction detected: "${correction}"`);
 
+      // 生成简洁标题：提取纠正内容的前20字作为主题
+      const topic = correction.length > 20 ? correction.slice(0, 20) + '...' : correction;
+
       // 异步存储，不阻塞用户
       const contextManager = this.agentLoop.getContextManager();
       const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
       if (memoryManager) {
         memoryManager.storeFact({
-          title: `用户纠正: ${correction.slice(0, 80)}`,
-          content: `用户说: "${input.slice(0, 200)}"。纠正内容: ${correction}`,
+          title: `纠正: ${topic}`,
+          content: `用户纠正了之前的理解。正确认知: ${correction}`,
           source: 'user_correction',
         }).catch(err => log.error('Correction storage failed:', err));
       }
@@ -298,7 +346,22 @@ export class ChatSession {
     }
   }
 
-  /** 异步提取会话记忆，延迟 5 秒执行 */
+  /**
+   * 修复因 AgentLoop 中断产生的孤立 tool_use 块。
+   *
+   * 当中断发生在 assistant(tool_use) 已写入但 tool_result 尚未写入之间时，
+   * 消息历史中会留下孤儿 tool_use，导致后续 API 调用返回 400。
+   * 扫描全部消息历史，检测并移除所有不配对的 tool_use 块。
+   */
+  private repairOrphanedToolUse(): void {
+    const contextManager = this.agentLoop.getContextManager();
+    const removedIds = contextManager.repairOrphanedToolUses();
+    if (removedIds.length > 0) {
+      log.info(`Repaired orphaned tool_use blocks on interrupt: [${removedIds.join(', ')}]`);
+    }
+  }
+
+  /** 异步提取会话记忆，延迟 5 秒执行。先持久化到文件防止进程退出丢失。 */
   private scheduleMemoryExtraction(): void {
     const contextManager = this.agentLoop.getContextManager();
     const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
@@ -307,6 +370,8 @@ export class ChatSession {
     const messages = contextManager.getMessages();
     if (messages.length === 0) return;
 
+    // 先持久化待提取消息到文件（进程退出保护），再异步提取
+    memoryManager.savePendingExtraction(messages).catch(() => {});
     setTimeout(() => {
       memoryManager.extractFromSession(messages).catch(err => {
         log.error('Session memory extraction failed:', err);

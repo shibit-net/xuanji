@@ -52,6 +52,10 @@ import { LearnTool } from './LearnTool';
 import { InstallTool } from './InstallTool';
 import { UpdatePersonaTool } from './UpdatePersonaTool';
 import { SchedulerTool } from './SchedulerTool';
+import { SSHExecTool } from './SSHExecTool';
+import { SSHReadTool } from './SSHReadTool';
+import { SSHWriteTool } from './SSHWriteTool';
+import { SSHListTool } from './SSHListTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -397,6 +401,11 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new InstallTool());
   // 定时任务管理工具
   registry.register(new SchedulerTool());
+  // SSH 远程工具
+  registry.register(new SSHExecTool());
+  registry.register(new SSHReadTool());
+  registry.register(new SSHWriteTool());
+  registry.register(new SSHListTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

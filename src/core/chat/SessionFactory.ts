@@ -550,7 +550,10 @@ export class SessionFactory {
       memoryManager.memoryExtractionPrompt = memoryExtractionPrompt;
       memoryManager.compressionPrompt = compressionPrompt;
       memoryManager.provider = provider;
+      memoryManager.layeredPromptBuilder = layeredPromptBuilder;
       await memoryManager.init();
+      // 处理上次未完成的记忆提取任务（进程意外退出补偿）
+      memoryManager.processPendingExtractions().catch(err => log.error('processPendingExtractions failed:', err));
 
       // 将用户 ID 注入 MemoryManager，用于知识图谱的"我"锚定
       memoryManager.setUserId(userId);
@@ -641,8 +644,10 @@ export class SessionFactory {
         });
 
         scheduler.customActions.set('memory-maintenance', async () => {
-          log.info('[Memory] Weekly maintenance triggered — sending to agent');
+          log.info('[Memory] Weekly maintenance triggered — running decay + agent tasks');
           try {
+            // 衰减高频记忆的 access_count，防止永久垄断
+            memoryManager.decayFactAccess();
             const stats = memoryManager.getStats();
             const message = `请执行记忆维护任务：
 

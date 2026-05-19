@@ -343,6 +343,12 @@ export function registerEventAdapter(): void {
     let msgStore = useMessageStore.getState();
     // 气泡拆分：tool 调用前若有已闭合 markdown 结构的文本，封口当前气泡，开新泡放 tool
     if (msgStore.currentStreamingId && msgStore.currentStreamingText && !hasUnclosedMarkdownStructure(msgStore.currentStreamingText)) {
+      // 封口前锁定当前气泡的耗时和 token 消耗，避免已闭口气泡继续计时
+      const closingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+      if (closingMsg?.timestamp) {
+        msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - closingMsg.timestamp });
+      }
+      updateMessageDeltaTokens();
       msgStore.finishStreaming();
       msgStore = useMessageStore.getState();
     }
@@ -883,6 +889,14 @@ export function registerEventAdapter(): void {
 
   messageBus.on('ask-user:request', (data: any) => {
     useSessionStore.getState().setAskUserRequest(data);
+  });
+
+  // ============================================================
+  // SessionStore — agent error
+  // ============================================================
+
+  messageBus.on('agent:error', (error: string) => {
+    useSessionStore.getState().addLog('error', `❌ Agent 错误: ${error}`);
   });
 
   messageBus.on('plan-mode:enter', () => {

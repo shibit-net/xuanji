@@ -258,6 +258,7 @@ export class MemoryGraph {
     }
 
     const queue: BfsStep[] = [{ nodeId: fromId, nodeName: this.nodes.get(fromId)?.name || '', path: [] }];
+    const queuedIds = new Set<string>([fromId]);
 
     while (queue.length > 0) {
       const current = queue.shift()!;
@@ -285,8 +286,9 @@ export class MemoryGraph {
 
         // 防止环路：检查当前路径中是否已访问过该邻居
         if (current.path.some(s => s.node.id === neighbor.node.id)) continue;
-        // 防止重复入队
-        if (queue.some(q => q.nodeId === neighbor.node.id)) continue;
+        // 防止重复入队（Set 替代 O(N) 线性扫描）
+        if (queuedIds.has(neighbor.node.id)) continue;
+        queuedIds.add(neighbor.node.id);
 
         queue.push({
           nodeId: neighbor.node.id,

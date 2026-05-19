@@ -123,6 +123,12 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermissionRequirement[]> = 
   'web_search': ['network'],
   'web_fetch': ['network'], // backward compat — 新 agent 调 web_search
 
+  // SSH 远程操作
+  'ssh_exec': ['bashExec', 'network'],
+  'ssh_read': ['fileRead', 'network'],
+  'ssh_write': ['fileWrite', 'network'],
+  'ssh_list': ['fileRead', 'network'],
+
   // 复合权限
   'task': ['bashExec'], // SubAgent 可能执行任意操作
   'agent_team': ['bashExec'], // 多 Agent 协作可能执行任意操作
