@@ -40,6 +40,8 @@ import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
 import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
 import { SkillInstaller, SkillRegistry } from '@/core/skills';
+import { InstallTool } from '@/core/tools/InstallTool';
+import { UninstallTool } from '@/core/tools/UninstallTool';
 
 const log = logger.child({ module: 'SessionFactory' });
 
@@ -413,6 +415,34 @@ export class SessionFactory {
     registry.register(listScenesTool);
 
     log.debug('Advanced tools registered (including list_agents, match_agent, and list_scenes)');
+
+    // ── 注入 InstallTool / UninstallTool 的 marketplace 依赖 ─────
+    try {
+      const tiangongMarket = await this.container.resolve<TiangongMarket>('tiangongMarket');
+      const mcpInstaller = await this.container.resolve<MCPInstaller>('mcpInstaller');
+      const skillInstaller = await this.container.resolve<SkillInstaller>('skillInstaller');
+
+      const installTool = registry.get('install') as InstallTool | undefined;
+      if (installTool && typeof (installTool as any).setDependencies === 'function') {
+        (installTool as InstallTool).setDependencies({
+          market: tiangongMarket,
+          mcpInstaller,
+          skillInstaller,
+        });
+        log.debug('InstallTool marketplace dependencies injected');
+      }
+
+      const uninstallTool = registry.get('uninstall') as UninstallTool | undefined;
+      if (uninstallTool && typeof (uninstallTool as any).setDependencies === 'function') {
+        (uninstallTool as UninstallTool).setDependencies({
+          mcpInstaller,
+          skillInstaller,
+        });
+        log.debug('UninstallTool marketplace dependencies injected');
+      }
+    } catch (err) {
+      log.debug('Marketplace not configured, InstallTool/UninstallTool running in degraded mode');
+    }
   }
 
   private async initMemoryManager(

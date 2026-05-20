@@ -405,7 +405,6 @@ export class TiangongMarket {
     body?: string,
   ): Promise<ApiResponse<T>> {
     return new Promise((resolve, reject) => {
-      const url = new URL(path, this.baseUrl);
       const client = this.isHttps ? https : http;
 
       const headers: Record<string, string> = {
@@ -422,13 +421,16 @@ export class TiangongMarket {
         headers['Content-Length'] = String(Buffer.byteLength(body));
       }
 
+      const reqOptions = {
+        hostname: this.baseUrlObj.hostname,
+        port: this.baseUrlObj.port || (this.isHttps ? 443 : 80),
+        path: this.baseUrlObj.pathname + path,
+        method,
+        headers,
+        timeout: this.timeout,
+      };
       const req = client.request(
-        url,
-        {
-          method,
-          headers,
-          timeout: this.timeout,
-        },
+        reqOptions,
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -500,8 +502,10 @@ export class TiangongMarket {
       }
 
       const req = client.get(
-        downloadUrl,
         {
+          hostname: downloadUrl.hostname,
+          port: downloadUrl.port || (downloadUrl.protocol === 'https:' ? 443 : 80),
+          path: downloadUrl.pathname + downloadUrl.search,
           headers: {
             'User-Agent': 'xuanji/0.9.0',
             ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}),

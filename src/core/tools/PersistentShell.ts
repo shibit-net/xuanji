@@ -9,11 +9,14 @@
 // node-pty 加载失败时降级为 child_process.exec（无 TTY）。
 
 import { exec } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { logger } from '@/core/logger';
 import {
   getPlatformShell,
   getShellExecArgs,
 } from '@/shared/utils/crossPlatform';
+import { chmodSync, accessSync, constants } from 'node:fs';
+import { join, dirname } from 'node:path';
 
 const log = logger.child({ module: 'PtyShell' });
 
@@ -32,13 +35,49 @@ const SENSITIVE_ENV_VARS = [
 let _ptyModule: typeof import('node-pty') | null = undefined as any;
 let _ptyLoadAttempted = false;
 
+/** 确保 spawn-helper 有执行权限（macOS 上 npm 可能丢失 x 位） */
+function ensureSpawnHelperExecutable(ptyModule: typeof import('node-pty')): boolean {
+  try {
+    // 通过 node-pty 的内部路径推断 spawn-helper 位置
+    const req = createRequire(import.meta.url);
+    const nativeModulePath = req.resolve('node-pty');
+    const ptyDir = dirname(nativeModulePath);
+    // node-pty 的 lib/unixTerminal.js 中 helperPath 在 prebuilds/<platform>-<arch>/spawn-helper
+    const helperPath = join(ptyDir, '..', 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper');
+    // 检查是否存在
+    accessSync(helperPath, constants.F_OK);
+    // 检查是否有执行权限并修复
+    try {
+      accessSync(helperPath, constants.X_OK);
+      return true; // 已有执行权限
+    } catch {
+      // 没有执行权限，尝试修复
+      chmodSync(helperPath, 0o755);
+      log.info(`Fixed spawn-helper permissions: ${helperPath}`);
+      return true;
+    }
+  } catch (err) {
+    log.error(`spawn-helper not found or not fixable: ${err}`);
+    return false;
+  }
+}
+
 function loadPty(): typeof import('node-pty') | null {
   if (!_ptyLoadAttempted) {
     _ptyLoadAttempted = true;
     try {
-      _ptyModule = require('node-pty');
-    } catch {
-      log.warn('node-pty unavailable, falling back to child_process.exec (no TTY)');
+      const req = createRequire(import.meta.url);
+      _ptyModule = req('node-pty');
+      // macOS 上 spawn-helper 可能因 npm 安装时丢失执行权限，
+      // 导致 posix_spawn 失败（Permission denied）
+      if (process.platform === 'darwin' && !ensureSpawnHelperExecutable(_ptyModule)) {
+        log.warn('node-pty spawn-helper not executable, falling back to child_process.exec');
+        _ptyModule = null;
+        return null;
+      }
+      log.info('node-pty loaded');
+    } catch (err: any) {
+      log.warn(`node-pty unavailable: ${err?.code || err?.message}`);
     }
   }
   return _ptyModule;
@@ -91,9 +130,11 @@ export class PersistentShell {
 
     const ptyMod = loadPty();
     if (!ptyMod) {
+      log.warn('[DIAG] node-pty not loaded, using executeFallback');
       return this.executeFallback(command, timeout, workDir);
     }
 
+    log.info(`[DIAG] Using node-pty, shell=${getPlatformShell()}, PATH=${process.env.PATH?.substring(0, 80)}...`);
     return this.executePty(ptyMod, command, timeout, workDir);
   }
 
@@ -124,6 +165,8 @@ export class PersistentShell {
         });
       } catch (err) {
         clearTimeout(timer);
+        const e = err as any;
+        log.error(`[DIAG] node-pty spawn FAILED: message="${e.message}", code=${e.code}, errno=${e.errno}, syscall="${e.syscall}", path="${e.path}", shell=${getPlatformShell()}`);
         reject(err instanceof Error ? err : new Error(String(err)));
         return;
       }
@@ -151,11 +194,14 @@ export class PersistentShell {
   /** 降级：child_process.exec（无 TTY） */
   private executeFallback(command: string, timeout: number, cwd: string): Promise<ShellResult> {
     return new Promise((resolve) => {
+      log.info(`[DIAG] executeFallback: PATH=${process.env.PATH?.substring(0, 80)}..., shell defaults to /bin/sh`);
       exec(
         command,
         { cwd, timeout, maxBuffer: 10 * 1024 * 1024, env: process.env as any },
         (error, stdout, stderr) => {
           if (error) {
+            const e = error as any;
+            log.error(`[DIAG] executeFallback FAILED: message="${e.message}", code=${e.code}, errno=${e.errno}, syscall="${e.syscall}", path="${e.path}", cmd="${e.cmd}"`);
             resolve({
               stdout: stdout ?? '',
               stderr: stderr ?? (error.message || ''),

@@ -50,6 +50,7 @@ import { MemoryGraphTool } from './MemoryGraphTool';
 import { MemoryStatsTool } from './MemoryStatsTool';
 import { LearnTool } from './LearnTool';
 import { InstallTool } from './InstallTool';
+import { UninstallTool } from './UninstallTool';
 import { UpdatePersonaTool } from './UpdatePersonaTool';
 import { SchedulerTool } from './SchedulerTool';
 import { SSHExecTool } from './SSHExecTool';
@@ -399,6 +400,7 @@ export function createDefaultRegistry(): ToolRegistry {
   // 学习与安装工具
   registry.register(new LearnTool());
   registry.register(new InstallTool());
+  registry.register(new UninstallTool());
   // 定时任务管理工具
   registry.register(new SchedulerTool());
   // SSH 远程工具

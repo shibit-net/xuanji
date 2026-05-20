@@ -1,0 +1,30 @@
+import { describe, it, expect } from 'vitest';
+import { TiangongMarket } from '../../src/mcp/market/TiangongMarket';
+
+describe('天工坊集成测试 - test.shibit.net', () => {
+  const market = new TiangongMarket({
+    baseUrl: 'https://test.shibit.net/api/tiangong',
+    timeout: 10000,
+  });
+
+  it('搜索 Skill - 能找到 code-review-skill', async () => {
+    const result = await market.search({ type: 'skill', pageSize: 10 });
+    expect(result.items.length).toBeGreaterThan(0);
+    const ids = result.items.map(i => i.packageId);
+    expect(ids).toContain('code-review-skill');
+  }, 15000);
+
+  it('搜索 MCP - 能找到 hello-mcp-server', async () => {
+    const result = await market.search({ type: 'mcp', pageSize: 10 });
+    expect(result.items.length).toBeGreaterThanOrEqual(3);
+    const ids = result.items.map(i => i.packageId);
+    expect(ids).toContain('hello-mcp-server');
+  }, 15000);
+
+  it('获取 Skill 详情', async () => {
+    const detail = await market.getDetail('code-review-skill');
+    expect(detail.name).toBe('代码审查助手');
+    expect(detail.type).toBe('skill');
+    expect(detail.currentVersion).toBe('1.0.0');
+  }, 15000);
+});
