@@ -27,4 +27,16 @@ describe('天工坊集成测试 - test.shibit.net', () => {
     expect(detail.type).toBe('skill');
     expect(detail.currentVersion).toBe('1.0.0');
   }, 15000);
+
+  it('P0: Skill downloadUrl 指向天工坊自身', async () => {
+    const info = await market.getDownloadInfo('code-review-skill');
+    expect(info.downloadUrl).toBeTruthy();
+    expect(info.downloadUrl).toContain('/api/tiangong/public/files/');
+  }, 15000);
+
+  it('P0: MCP downloadUrl 指向天工坊自身', async () => {
+    const info = await market.getDownloadInfo('hello-mcp-server');
+    expect(info.downloadUrl).toBeTruthy();
+    expect(info.downloadUrl).toContain('/api/tiangong/public/files/');
+  }, 15000);
 });
