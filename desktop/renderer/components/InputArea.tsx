@@ -18,7 +18,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search } from 'lucide-react';
 import type { FileAttachment } from '../global';
-import { useConversationStore } from '../stores/ConversationStore';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
@@ -69,38 +68,64 @@ export default function InputArea() {
 
   const toast = useToast();
 
-  // ─── 状态判定 ───────────────────────────────────────
-  const convState = useConversationStore((s) => s.conversationState);
-  const autoSummarizeActive = convState === 'outputting';
+  // 防重入 ref：替代依赖 state 的 isSending 检查，避免 React 批处理下的双重发送
+  const sendingRef = useRef(false);
 
-  const isInProcessAgentActive = useAgentStateMachine((s) => {
-    // 输入框状态仅跟前台 agent 挂钩，后台异步 agent 不影响输入可用性
-    const agent = s.foregroundAgentId ? s.agentMap[s.foregroundAgentId] : undefined;
+  // ─── 状态判定：仅跟随前台 Agent 状态（单向数据流） ──
+  //
+  // isRunning = 前台 agent 自身活跃
+  //           ∨ 有活跃子 agent（异步 task / team member）
+  //           ∨ 有排队消息待消费
+  //
+  // 不再依赖 ConversationStore.conversationState，消除双 Store 竞态。
+  const isRunning = useAgentStateMachine((s) => {
+    const id = s.foregroundAgentId;
+    if (!id) return false;
+    const agent = s.agentMap[id];
     if (!agent || agent.executionMode === 'acp') return false;
-    if (['success', 'failed', 'cancelled', 'cleared', 'pending'].includes(agent.status)) return false;
-    return true;
+
+    // 终态 → 真正空闲
+    if (['success', 'failed', 'cancelled', 'cleared'].includes(agent.status)) return false;
+
+    // 活跃态 → 运行中
+    if (['thinking', 'executing', 'writing', 'reporting'].includes(agent.status)) return true;
+
+    // pending：可能是等待子 agent / 排队消息，也可能是刚创建尚未启动
+    if (agent.status === 'pending') {
+      // 有排队消息 → 即将消费，视为运行中
+      if (s.queuedMessageCount > 0) return true;
+      // 有活跃子 agent（异步 task / team member）→ 等待中
+      for (const [_childId, child] of Object.entries(s.agentMap)) {
+        if (
+          child.parentId === id &&
+          !['success', 'failed', 'cancelled', 'cleared'].includes(child.status)
+        ) {
+          return true;
+        }
+      }
+      // 无子 agent 且无排队 → 刚创建尚未启动，空闲
+      return false;
+    }
+
+    return false;
   });
 
-  const isIdle = (convState === 'idle' || convState === 'waiting_async') && !isInProcessAgentActive;
-  const isRunning = !isIdle;
-  const isToolExecuting = convState === 'executing';
-  const isSummarizing = convState === 'outputting';
-  const isAutoSummarizing = autoSummarizeActive;
+  const isIdle = !isRunning;
 
-  // 意图分析/路由完成后 agent 开始执行时，清除发送中状态，让输入框跟随前台 agent 状态
-  useEffect(() => {
-    if (convState === 'executing' && isSending) {
-      setIsSending(false);
-    }
-  }, [convState, isSending]);
+  // 从 agent status 派生 UI 细节提示
+  const foregroundStatus = useAgentStateMachine((s) => {
+    const id = s.foregroundAgentId;
+    if (!id) return null;
+    return s.agentMap[id]?.status ?? null;
+  });
+  const isToolExecuting = foregroundStatus === 'executing';
+  const isOutputting = foregroundStatus === 'writing' || foregroundStatus === 'reporting' || (foregroundStatus === 'pending' && isRunning);
+  // isSending 统一由 handleSubmit 的 finally 块清退，不再依赖 convState
 
   // ─── Session 状态 ──────────────────────────────────────
   const sessionStatus = useSessionInitStore((s) => s.status);
   const sessionError = useSessionInitStore((s) => s.error);
   const isSessionReady = useSessionInitStore((s) => s.isReady());
-
-  // ─── 前台 Agent ──────────────────────────────────────
-  const foregroundAgentId = useAgentStateMachine((s) => s.foregroundAgentId);
 
   // ─── 加载 Agent 列表 ──────────────────────────────────
   useEffect(() => {
@@ -321,7 +346,7 @@ export default function InputArea() {
   const handleSubmit = useCallback(async () => {
     const hasText = input.trim().length > 0;
     const hasAttachments = attachments.length > 0;
-    if ((!hasText && !hasAttachments) || isSending) return;
+    if ((!hasText && !hasAttachments) || sendingRef.current) return;
 
     // Session 未就绪时的 UX 反馈
     if (!isSessionReady) {
@@ -343,6 +368,7 @@ export default function InputArea() {
     setInput('');
     setAttachments([]);
     setIsSending(true);
+    sendingRef.current = true;
 
     // 立即渲染用户消息气泡
     useMessageStore.getState().addMessage({
@@ -362,8 +388,9 @@ export default function InputArea() {
       });
     } finally {
       setIsSending(false);
+      sendingRef.current = false;
     }
-  }, [input, isSending, isSessionReady, toast, attachments, selectedAgent]);
+  }, [input, isSessionReady, toast, attachments, selectedAgent]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
@@ -637,12 +664,16 @@ export default function InputArea() {
   const hasBackgroundTasks = runningTaskCount > 0 || completedTaskCount > 0;
 
   // ─── 文案 ───────────────────────────────────────────
-  const placeholder = !isSessionReady
+  const placeholder = isSending
+    ? '发送中...'
+    : !isSessionReady
     ? sessionStatus === 'initializing' ? '会话初始化中...'
       : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
       : '正在连接服务...'
-    : isAutoSummarizing
-    ? '说点什么... (后台汇总中)'
+    : isOutputting
+    ? '说点什么... (文本输出中 — 消息将排队)'
+    : isToolExecuting
+    ? '说点什么... (工具执行中，消息将排队)'
     : isRunning
     ? '说点什么... (工作执行中，消息将自动排队)'
     : runningTaskCount > 0
@@ -701,7 +732,7 @@ export default function InputArea() {
           <span className={`text-xs ml-auto flex-shrink-0 ${
             runningTaskCount > 0 ? 'text-blue-400' : cancelledTaskCount > 0 ? 'text-red-400' : 'text-green-400'
           }`}>
-            {isAutoSummarizing ? '正在汇总...' : runningTaskCount > 0 ? '可直接发送新任务' : cancelledTaskCount > 0 ? '任务已取消' : '等待汇总'}
+            {isOutputting ? '文本输出中...' : runningTaskCount > 0 ? '可直接发送新任务' : cancelledTaskCount > 0 ? '任务已取消' : '等待汇总'}
           </span>
         </div>
       )}
@@ -866,7 +897,7 @@ export default function InputArea() {
         </div>
 
         {/* 停止 / 发送按钮 */}
-        {isRunning && !isAutoSummarizing && !input.trim() && attachments.length === 0 && !isSending ? (
+        {isRunning && !input.trim() && attachments.length === 0 && !isSending ? (
           <Button
             variant="destructive"
             onClick={handleStop}
@@ -884,7 +915,7 @@ export default function InputArea() {
             ) : (
               <Send size={16} className="mr-1" />
             )}
-            {isSending ? '发送中...' : '发送'}
+            {isSending ? '发送中...' : isRunning ? '排队发送' : '发送'}
           </Button>
         )}
       </div>
@@ -897,9 +928,9 @@ export default function InputArea() {
             <span className="text-purple-400">· Agent: @{effectiveAgentName}</span>
           )}
         </div>
-        {isAutoSummarizing && <span className="ml-2 text-blue-500">· 后台任务结果汇总中</span>}
-        {!isAutoSummarizing && isToolExecuting && <span className="ml-2 text-red-500">· 工具执行中</span>}
-        {!isAutoSummarizing && isSummarizing && <span className="ml-2 text-orange-500">· 流式输出中</span>}
+        {isOutputting && <span className="ml-2 text-blue-500">· 文本输出中</span>}
+        {!isOutputting && isToolExecuting && <span className="ml-2 text-red-500">· 工具执行中</span>}
+        {!isOutputting && !isToolExecuting && isRunning && <span className="ml-2 text-orange-500">· 思考中</span>}
         {isIdle && runningTaskCount > 0 && (
           <span className="ml-2 text-blue-500">· {runningTaskCount} 个后台任务运行中</span>
         )}

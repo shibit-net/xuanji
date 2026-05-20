@@ -174,8 +174,18 @@ export class SessionSummarizer {
       .map((msg, idx) => {
         const role = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Assistant' : 'System';
         const content = typeof msg.content === 'string' ? msg.content : this.extractContentText(msg.content);
+        // 跳过空内容的消息（纯工具调用气炮），避免压缩摘要出现空条目
+        const trimmed = (content || '').trim();
+        if (!trimmed) {
+          const toolNames = this.extractToolNames(msg.content);
+          if (toolNames.length > 0) {
+            return `[${idx + 1}] ${role}: [使用工具: ${toolNames.join(', ')}]`;
+          }
+          return null;
+        }
         return `[${idx + 1}] ${role}: ${content}`;
       })
+      .filter(Boolean)
       .join('\n\n');
   }
 
@@ -187,6 +197,17 @@ export class SessionSummarizer {
       .filter((block) => block.type === 'text' || block.type === 'thinking')
       .map((block) => block.text || block.thinking || '')
       .join(' ');
+  }
+
+  /**
+   * 提取消息中的工具名称列表（用于空文本消息的占位描述）
+   */
+  private extractToolNames(content: string | Array<any>): string[] {
+    if (typeof content === 'string') return [];
+    if (!Array.isArray(content)) return [];
+    return content
+      .filter((block) => block.type === 'tool_use' && block.name)
+      .map((block) => block.name);
   }
 
   /**

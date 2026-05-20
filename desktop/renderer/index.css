@@ -145,6 +145,8 @@
   .markdown-streaming-body {
     line-height: 1.625;
     word-break: break-word;
+    contain: layout style;
+    overflow-anchor: none;
   }
   .markdown-streaming-body p {
     margin: 0.25rem 0;
@@ -317,11 +319,13 @@
 
 .message-bubble {
   contain: layout style paint;
+  scrollbar-gutter: stable;
 }
 
 .message-bubble-streaming {
   contain: layout style paint;
   will-change: contents;
+  overflow-anchor: none;
 }
 
 .chat-messages-container {

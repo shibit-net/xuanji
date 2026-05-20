@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { watch, type FSWatcher } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import { promisify } from 'node:util';
@@ -76,6 +77,91 @@ export class AgentRegistry {
     if (!hasConfigFiles) {
       log.info('用户配置目录为空，正在复制内置 Agent...');
       await this.copyBuiltinAgentsToUserDir();
+    } else {
+      // 已有配置文件，同步内置系统 agent 的更新（覆盖 internal:true 的 agent）
+      await this.syncBuiltinAgents();
+    }
+  }
+
+  private get agentSyncStatePath(): string {
+    return path.join(this.userAgentsDir, '.sync-state.json');
+  }
+
+  private async loadAgentSyncState(): Promise<Record<string, string>> {
+    try { return JSON.parse(await fs.readFile(this.agentSyncStatePath, 'utf-8')); } catch { return {}; }
+  }
+
+  private async saveAgentSyncState(state: Record<string, string>): Promise<void> {
+    await fs.writeFile(this.agentSyncStatePath, JSON.stringify(state, null, 2), 'utf-8');
+  }
+
+  private computeHash(content: string): string {
+    return createHash('sha256').update(content).digest('hex').slice(0, 16);
+  }
+
+  /**
+   * 智能同步内置系统 agent（仅 internal: true）
+   *
+   * 通过 .sync-state.json 存储 hash，保护用户自定义：
+   * - 模板未变更 → 跳过
+   * - 模板变更 + 用户未自定义 → 覆盖更新
+   * - 模板变更 + 用户已自定义 → 跳过
+   */
+  private async syncBuiltinAgents(): Promise<void> {
+    if (!fsSync.existsSync(this.templateAgentsDir)) return;
+
+    const builtinFiles = await glob(this.templateAgentsDir + '/**/*.{yaml,yml}');
+    const syncState = await this.loadAgentSyncState();
+    let updated = 0, skipped = 0;
+
+    for (const srcPath of builtinFiles) {
+      try {
+        const content = await fs.readFile(srcPath, 'utf-8');
+        const config = parseYAML(content) as any;
+        if (!config?.metadata?.internal) continue;
+
+        const fileName = path.basename(srcPath);
+        const templateHash = this.computeHash(content);
+        const destPath = path.join(this.userAgentsDir, fileName);
+
+        if (!syncState[fileName]) {
+          // 新文件 / 首次同步
+          await fs.writeFile(destPath, content, 'utf-8');
+          syncState[fileName] = templateHash;
+          updated++;
+          log.info(`新增内置 Agent: ${fileName}`);
+          continue;
+        }
+
+        if (syncState[fileName] === templateHash) continue; // 模板未变更
+
+        // 模板已变更：检查用户是否自定义
+        let userContent: string;
+        try { userContent = await fs.readFile(destPath, 'utf-8'); } catch {
+          await fs.writeFile(destPath, content, 'utf-8');
+          syncState[fileName] = templateHash;
+          updated++;
+          continue;
+        }
+
+        if (this.computeHash(userContent) === syncState[fileName]) {
+          // 用户未自定义 → 安全覆盖
+          await fs.writeFile(destPath, content, 'utf-8');
+          syncState[fileName] = templateHash;
+          updated++;
+          log.info(`更新内置 Agent: ${fileName}（模板已更新，用户未自定义）`);
+        } else {
+          skipped++;
+          log.debug(`跳过内置 Agent: ${fileName}（用户已自定义）`);
+        }
+      } catch (error: any) {
+        log.error(`同步内置 Agent 失败: ${srcPath}`, error.message);
+      }
+    }
+
+    await this.saveAgentSyncState(syncState);
+    if (updated > 0 || skipped > 0) {
+      log.info(`内置 Agent 同步完成: ${updated} 更新, ${skipped} 跳过（用户自定义）`);
     }
   }
 
@@ -95,19 +181,23 @@ export class AgentRegistry {
 
     log.debug(`从模板复制 ${builtinFiles.length} 个 Agent 配置...`);
 
+    const syncState: Record<string, string> = {};
+
     for (const srcPath of builtinFiles) {
       try {
         const content = await fs.readFile(srcPath, 'utf-8');
         const fileName = path.basename(srcPath);
         const destPath = path.join(this.userAgentsDir, fileName);
 
-        // 直接复制文件内容
         await fs.writeFile(destPath, content, 'utf-8');
+        syncState[fileName] = this.computeHash(content);
         log.debug('复制 Agent 配置: ' + fileName);
       } catch (error: any) {
         log.error('复制 Agent 配置失败: ' + srcPath, error.message);
       }
     }
+
+    await this.saveAgentSyncState(syncState);
     log.debug('Agent 配置复制完成');
   }
 

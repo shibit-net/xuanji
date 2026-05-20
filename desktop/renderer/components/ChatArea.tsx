@@ -311,7 +311,7 @@ export default function ChatArea() {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="absolute inset-0 overflow-y-auto px-6 py-4 z-[1]"
+        className="absolute inset-0 overflow-y-auto px-6 py-4 z-[1]" style={{ overflowAnchor: 'none' }}
       >
         {messages.length === 0 ? (
           // 空状态 — visionOS 风格

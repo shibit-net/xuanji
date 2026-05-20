@@ -23,6 +23,7 @@ import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
 import { hasUnclosedMarkdownStructure } from '../utils/markdownUtils';
+import { generateFileChangeSummary } from '../utils/toolSummary';
 
 // 解析 TODO_PROGRESS 注释，同步到 executionStore
 // 采用全量同步策略：取最后一个完整 JSON，替换整个 store 的 todos
@@ -720,6 +721,27 @@ export function registerEventAdapter(): void {
         });
       }
     }
+  });
+
+  // ============================================================
+  // File Changes — toolSummary 气泡（edit_file / write_file / multi_edit）
+  // ============================================================
+
+  messageBus.on('agent:file-changes', (data: { changes: Array<{ filePath: string; operation: string; stats: { added: number; removed: number }; diffContent?: string }> }) => {
+    if (!data?.changes?.length) return;
+    const parts: string[] = [];
+    for (const change of data.changes) {
+      const summary = generateFileChangeSummary(change as any);
+      if (summary) parts.push(summary);
+    }
+    if (parts.length === 0) return;
+    useMessageStore.getState().addMessage({
+      id: generateMessageId('file-changes'),
+      role: 'assistant',
+      content: parts.join('\n'),
+      toolSummary: true,
+      timestamp: Date.now(),
+    });
   });
 
   // ============================================================

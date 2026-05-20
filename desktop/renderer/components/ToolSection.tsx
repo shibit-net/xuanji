@@ -6,11 +6,11 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, XCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import type { ToolExecution } from '../stores/AgentStateMachine';
+import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import type { ToolCall } from '../stores/messageStore';
 
 interface ToolSectionProps {
-  tools: ToolExecution[];
+  tools: ToolCall[];
 }
 
 export function ToolSection({ tools }: ToolSectionProps) {
@@ -23,11 +23,13 @@ export function ToolSection({ tools }: ToolSectionProps) {
   );
 }
 
-function ToolCard({ tool }: { tool: ToolExecution }) {
+function ToolCard({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false);
 
   const getStatusIcon = () => {
     switch (tool.status) {
+      case 'pending':
+        return <Clock className="w-4 h-4 text-text-secondary/50" />;
       case 'running':
         return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
       case 'success':
@@ -43,7 +45,8 @@ function ToolCard({ tool }: { tool: ToolExecution }) {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const getInputPreview = (input: Record<string, unknown>): string => {
+  const getInputPreview = (input?: Record<string, unknown>): string => {
+    if (!input) return '无参数';
     const keys = Object.keys(input);
     if (keys.length === 0) return '无参数';
 

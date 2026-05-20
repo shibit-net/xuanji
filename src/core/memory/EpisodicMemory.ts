@@ -16,6 +16,9 @@ const log = logger.child({ module: 'EpisodicMemory' });
 export class EpisodicMemory {
   private lastEpisodeCreatedAt = 0;
 
+  /** Layer 2: 获取当前会话 ID（由 MemoryManager 注入） */
+  public sessionIdProvider: (() => string | null) | null = null;
+
   constructor(
     private db: Database.Database,
     private semanticIndex?: SemanticIndex,
@@ -194,10 +197,11 @@ ${rawText.slice(0, 3000)}
     const entityNames = this.extractEntityNames(narrative);
 
     // 写入数据库
+    const sessionId = this.getSessionId();
     this.db.prepare(`
-      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '', ?, ?, ?)
-    `).run(id, now, narrativeTitle, narrative, 2, now, now);
+      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, session_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)
+    `).run(id, now, narrativeTitle, narrative, 2, sessionId, now, now);
 
     // 关联实体
     for (const ename of entityNames) {
@@ -239,10 +243,11 @@ ${rawText.slice(0, 3000)}
     const narrative = parts.join('\n');
     const narrativeTitle = title || `任务执行记录 ${new Date(now).toLocaleDateString('zh-CN')}`;
 
+    const sessionId2 = this.getSessionId();
     this.db.prepare(`
-      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '', 3, ?, ?)
-    `).run(id, now, narrativeTitle, narrative, now, now);
+      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, session_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '', 3, ?, ?, ?)
+    `).run(id, now, narrativeTitle, narrative, sessionId2, now, now);
 
     if (this.semanticIndex) {
       try {
@@ -273,10 +278,11 @@ ${rawText.slice(0, 3000)}
     const sceneTag = input.scene_tag || '';
     const importance = input.importance ?? 4;
 
+    const sessionId3 = this.getSessionId();
     this.db.prepare(`
-      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, now, title, narrative, sceneTag, importance, now, now);
+      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, session_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, now, title, narrative, sceneTag, importance, sessionId3, now, now);
 
     // 关联参与者实体
     if (input.participants && input.participants.length > 0) {
@@ -360,6 +366,13 @@ ${rawText.slice(0, 3000)}
       }
     }
     return episodes;
+  }
+
+  /**
+   * Layer 2: 从 sessionIdProvider 获取当前会话 ID
+   */
+  private getSessionId(): string | null {
+    return this.sessionIdProvider?.() ?? null;
   }
 
   /**

@@ -179,6 +179,9 @@ export class MemoryManager {
   /** 是否正在执行上下文压缩（竞态标记，供前端按钮感知自动执行） */
   public isCompressing = false;
 
+  /** 当前活跃会话 ID（由 SessionManager.save() 设置，用于 EpisodicMemory 关联） */
+  public currentSessionId: string | null = null;
+
   constructor(
     private dbPath: string,
     private cheapLLM?: any,
@@ -231,10 +234,16 @@ export class MemoryManager {
     this.graph.loadFromDB(this.db);
 
     this.episodicMemory = new EpisodicMemory(this.db, this.semanticIndex, this.cheapLLM);
+    this.episodicMemory.sessionIdProvider = () => this.currentSessionId;
     this.timelineInference = new TimelineInference(this.db);
     this.topicContinuity = new TopicContinuity(this.db, this.cheapLLM, this.semanticIndex);
     this.patternRecognizer = new PatternRecognizer(this.db);
     this.signalCollector = new ContextSignalCollector();
+
+    // 生成默认会话 ID（后续由 SessionManager.save/resume 覆写）
+    if (!this.currentSessionId) {
+      this.currentSessionId = randomUUID();
+    }
 
     this.initialized = true;
     log.info(`MemoryManager initialized: ${this.dbPath}`);
@@ -344,6 +353,7 @@ export class MemoryManager {
     if (currentVersion < 10) this.migrateV10();
     if (currentVersion < 11) this.migrateV11();
     if (currentVersion < 12) this.migrateV12();
+    if (currentVersion < 13) this.migrateV13();
 
     this.ensureFtsTriggers();
 
@@ -735,6 +745,58 @@ export class MemoryManager {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_ps_project ON project_snapshots(project_id, snapshot_at DESC)');
     this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (12, ?)').run(Date.now());
     log.info('migrateV12: added project_snapshots table');
+  }
+
+  private migrateV13(): void {
+    // Layer 0: session_events — 结构化工具调用/文件变更/错误日志
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS session_events (
+        id            TEXT PRIMARY KEY,
+        session_id    TEXT NOT NULL,
+        timestamp     INTEGER NOT NULL,
+        event_type    TEXT NOT NULL,
+        tool_name     TEXT,
+        tool_input    TEXT,
+        tool_output   TEXT,
+        file_path     TEXT,
+        exit_code     INTEGER,
+        error_msg     TEXT,
+        duration_ms   INTEGER,
+        agent_id      TEXT
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_se_session ON session_events(session_id, timestamp)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_se_type ON session_events(event_type)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_se_tool ON session_events(tool_name)');
+
+    // Layer 1: session_index — 会话元数据索引（摘要 + 关键点 + 统计）
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS session_index (
+        session_id    TEXT PRIMARY KEY,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        summary       TEXT,
+        key_points    TEXT,
+        token_usage   TEXT,
+        tool_count    INTEGER DEFAULT 0,
+        file_count    INTEGER DEFAULT 0,
+        message_count INTEGER DEFAULT 0,
+        project_dir   TEXT,
+        tags          TEXT
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_si_updated ON session_index(updated_at DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_si_project ON session_index(project_dir)');
+
+    // Layer 2: episodes 新增 session_id 外键
+    const episodeCols = this.db.prepare("PRAGMA table_info('episodes')").all() as any[];
+    if (!episodeCols.find((c: any) => c.name === 'session_id')) {
+      this.db.exec(`ALTER TABLE episodes ADD COLUMN session_id TEXT`);
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_ep_session ON episodes(session_id)');
+    }
+
+    this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (13, ?)').run(Date.now());
+    log.info('migrateV13: added session_events, session_index tables + episodes.session_id');
   }
 
   // FTS5 表元数据：驱动触发器生成 + 索引重建
@@ -2116,11 +2178,18 @@ export class MemoryManager {
 
     if (importantMessages.length === 0) return '';
 
-    // 格式化消息文本
-    const text = importantMessages.map((m: any) => {
-      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      return `[${m.role || m.type}]: ${content}`;
-    }).join('\n').slice(0, 6000);
+    // 格式化消息文本（跳过空内容气泡，避免压缩摘要出现空条目）
+    const text = importantMessages
+      .map((m: any) => {
+        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        // 跳过没有文本内容的消息（纯工具调用气泡）
+        const trimmed = (content || '').trim();
+        if (!trimmed) return null;
+        return `[${m.role || m.type}]: ${content}`;
+      })
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 6000);
 
     // 尝试使用 context-compressor agent（需要 provider）
     if (this.provider) {
@@ -2881,5 +2950,110 @@ ${text}`;
       role_context: row.role_context ?? null,
       created_at: row.created_at, updated_at: row.updated_at,
     };
+  }
+
+  // ─── 会话留存架构（Layer 0 + Layer 1）───────────────────────
+
+  /**
+   * Layer 0: 写入结构化工具调用事件
+   * 由 agent-bridge 在 AGENT_TOOL_END 时调用
+   */
+  writeSessionEvent(event: {
+    sessionId: string;
+    timestamp: number;
+    eventType: string;
+    toolName?: string;
+    toolInput?: string;
+    toolOutput?: string;
+    filePath?: string;
+    exitCode?: number;
+    errorMsg?: string;
+    durationMs?: number;
+    agentId?: string;
+  }): void {
+    if (!this.initialized) return;
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO session_events (id, session_id, timestamp, event_type, tool_name, tool_input, tool_output, file_path, exit_code, error_msg, duration_ms, agent_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, event.sessionId, event.timestamp, event.eventType,
+      event.toolName || null, event.toolInput || null, event.toolOutput || null,
+      event.filePath || null, event.exitCode ?? null, event.errorMsg || null,
+      event.durationMs ?? null, event.agentId || null,
+    );
+  }
+
+  /**
+   * Layer 1: 写入/更新会话索引
+   * 由 SessionManager.save() 调用
+   */
+  upsertSessionIndex(entry: {
+    sessionId: string;
+    createdAt: number;
+    updatedAt: number;
+    summary?: string;
+    keyPoints?: string[];
+    tokenUsage?: string;
+    toolCount?: number;
+    fileCount?: number;
+    messageCount?: number;
+    projectDir?: string;
+    tags?: string[];
+  }): void {
+    if (!this.initialized) return;
+    const keyPointsStr = entry.keyPoints?.length ? JSON.stringify(entry.keyPoints) : null;
+    const tagsStr = entry.tags?.length ? JSON.stringify(entry.tags) : null;
+    this.db.prepare(`
+      INSERT INTO session_index (session_id, created_at, updated_at, summary, key_points, token_usage, tool_count, file_count, message_count, project_dir, tags)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        updated_at = excluded.updated_at,
+        summary = COALESCE(excluded.summary, session_index.summary),
+        key_points = COALESCE(excluded.key_points, session_index.key_points),
+        token_usage = COALESCE(excluded.token_usage, session_index.token_usage),
+        tool_count = COALESCE(excluded.tool_count, session_index.tool_count),
+        file_count = COALESCE(excluded.file_count, session_index.file_count),
+        message_count = COALESCE(excluded.message_count, session_index.message_count),
+        project_dir = COALESCE(excluded.project_dir, session_index.project_dir),
+        tags = COALESCE(excluded.tags, session_index.tags)
+    `).run(
+      entry.sessionId, entry.createdAt, entry.updatedAt,
+      entry.summary || null, keyPointsStr, entry.tokenUsage || null,
+      entry.toolCount ?? null, entry.fileCount ?? null,
+      entry.messageCount ?? null, entry.projectDir || null, tagsStr,
+    );
+  }
+
+  /**
+   * Layer 0: 批量查询会话事件（供分析工具使用）
+   */
+  getSessionEvents(sessionId: string, options?: { limit?: number; eventType?: string }): any[] {
+    if (!this.initialized) return [];
+    const limit = options?.limit ?? 100;
+    if (options?.eventType) {
+      return this.db.prepare(
+        'SELECT * FROM session_events WHERE session_id = ? AND event_type = ? ORDER BY timestamp DESC LIMIT ?'
+      ).all(sessionId, options.eventType, limit);
+    }
+    return this.db.prepare(
+      'SELECT * FROM session_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?'
+    ).all(sessionId, limit);
+  }
+
+  /**
+   * Layer 1: 查询会话索引列表（供前端历史面板使用）
+   */
+  listSessionIndex(options?: { limit?: number; projectDir?: string }): any[] {
+    if (!this.initialized) return [];
+    const limit = options?.limit ?? 50;
+    if (options?.projectDir) {
+      return this.db.prepare(
+        'SELECT * FROM session_index WHERE project_dir = ? ORDER BY updated_at DESC LIMIT ?'
+      ).all(options.projectDir, limit);
+    }
+    return this.db.prepare(
+      'SELECT * FROM session_index ORDER BY updated_at DESC LIMIT ?'
+    ).all(limit);
   }
 }

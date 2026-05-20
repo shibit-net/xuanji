@@ -13,6 +13,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useConfigStore } from '../stores/configStore';
 import MilkdownEditor from './MilkdownEditor';
+import { ToolSection } from './ToolSection';
 import { Avatar } from './Avatar';
 import { isFilePath, toNativePath } from '../utils/pathUtils';
 
@@ -323,12 +324,16 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       <div className="flex flex-col max-w-[80%] min-w-0">
       <div
         className={`message-bubble ${
+          isStreaming ? 'message-bubble-streaming' : ''
+        } ${
           isUser
             ? 'bg-primary text-white'
             : isToolSummary
               ? 'bg-white/[0.04] border border-white/[0.08] backdrop-blur-sm text-text-primary'
               : 'bg-white/[0.06] text-text-primary'
-        } rounded-xl p-4 shadow-lg overflow-y-auto max-h-[60vh]`}
+        } rounded-xl p-4 shadow-lg ${
+          isStreaming ? 'overflow-hidden' : 'overflow-y-auto max-h-[60vh]'
+        }`}
         onClick={(e) => {
           // 事件委托：处理文件路径 code 点击
           const target = e.target as HTMLElement;
@@ -457,6 +462,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         </div>
 
       </div>
+
+        {/* 工具调用卡片 — 展示 bash / grep / memory_search 等工具执行详情 */}
+        {!isUser && !isSystem && !isToolSummary && message.toolCalls && message.toolCalls.length > 0 && !isStreaming && (
+          <div className="mt-3 space-y-1">
+            <ToolSection tools={message.toolCalls} />
+          </div>
+        )}
 
         {/* 耗时 & Token — 气泡外部下方，流式时实时更新 */}
         {!isUser && !isSystem && (liveDuration || message.tokensUsed) && (

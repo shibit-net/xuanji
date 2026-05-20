@@ -26,6 +26,7 @@ import type {
 } from './types.js';
 import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/core/types';
 import { logger } from '@/core/logger';
+import { getMemoryManager } from '@/core/memory/globals';
 
 const log = logger.child({ module: 'session-manager' });
 
@@ -105,6 +106,37 @@ export class SessionManager {
     await this.storage.saveSnapshot(snapshot);
     this.activeSessionId = sessionId;
 
+    // Layer 1: 写入会话索引到 MemoryManager（静默失败，不阻塞保存）
+    try {
+      const mm = getMemoryManager();
+      if (mm) {
+        // 统计工具调用次数
+        let toolCount = 0;
+        for (const msg of messages) {
+          if (msg.role === 'assistant' && Array.isArray((msg as any).toolCalls)) {
+            toolCount += (msg as any).toolCalls.length;
+          }
+        }
+
+        mm.upsertSessionIndex({
+          sessionId,
+          createdAt: metadata.createdAt,
+          updatedAt: metadata.updatedAt,
+          messageCount: metadata.messageCount,
+          projectDir: metadata.workingDirectory,
+          toolCount,
+          summary: metadata.preview || undefined,
+          keyPoints: [],
+          tokenUsage: options?.usage ? JSON.stringify(options.usage) : undefined,
+        });
+
+        // Layer 2: 设置当前会话 ID，使 EpisodicMemory 能关联 episode 到 session
+        mm.currentSessionId = sessionId;
+      }
+    } catch {
+      // MemoryManager 未初始化时静默失败
+    }
+
     return sessionId;
   }
 
@@ -123,6 +155,12 @@ export class SessionManager {
 
     // 设置为当前活跃会话
     this.activeSessionId = sessionId;
+
+    // Layer 2: 关联到 MemoryManager
+    try {
+      const mm = getMemoryManager();
+      if (mm) mm.currentSessionId = sessionId;
+    } catch { /* ignore */ }
 
     // 更新最后访问时间
     await this.storage.updateMetadata(sessionId, (meta) => ({

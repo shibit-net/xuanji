@@ -63,6 +63,7 @@ export interface AgentState {
   isAsync?: boolean;
   streamToUser?: boolean;
   taskType?: 'task' | 'team';
+  foregroundCompleted?: boolean;  // true = 已完成至少一轮 FOREGROUND_COMPLETE，等待子节点清理
   moment?: AgentMoment;
   multiAgent?: {
     type: string;
@@ -661,7 +662,7 @@ function applySetForeground(
   // 不清理旧前台 — 多个路由结果共存于 React Flow
   let mainAgent = s.mainAgent;
   if (next[event.agentId]) {
-    next[event.agentId] = { ...next[event.agentId], status: 'pending' as AgentStatus };
+    next[event.agentId] = { ...next[event.agentId], status: 'pending' as AgentStatus, foregroundCompleted: false };
     if (!mainAgent) {
       mainAgent = event.agentId;
     }
@@ -681,7 +682,7 @@ function applyForegroundComplete(
   const agent = next[event.agentId];
   if (!agent || isTerminal(agent.status)) return s;
   // 前台本轮完成 → pending（等待子任务 / 下一轮）
-  const updated = { ...agent, status: 'pending' as AgentStatus };
+  const updated = { ...agent, status: 'pending' as AgentStatus, foregroundCompleted: true };
   Object.assign(updated, updateMoment(updated, 'pending'));
   next[event.agentId] = updated;
   return { agentMap: next };
@@ -749,8 +750,14 @@ function applyCleanupCompleted(
         Object.assign(updated, updateMoment(updated, 'pending'));
         next[id] = updated;
       }
-      // 检查所有子 agent 是否已清理完毕（无子 agent 也视为清理完毕），若是则清理前台
+      // 检查所有子 agent 是否已清理完毕，若是则清理前台
+      // 例外：当前前台尚未完成过一轮（foregroundCompleted === false），保留 pending 等待首次启动
       if (next[id].status === 'pending') {
+        const isCurrentForeground = id === _s.foregroundAgentId;
+        if (isCurrentForeground && !next[id].foregroundCompleted) {
+          // 刚由 SET_FOREGROUND_AGENT 设为 pending，尚未开始执行，禁止清理
+          continue;
+        }
         const childIds = getAllDescendantIds(next, id);
         const allChildrenCleared = childIds.every((cid) => {
           const child = next[cid];

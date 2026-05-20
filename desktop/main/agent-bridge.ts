@@ -1716,6 +1716,29 @@ function registerHookEventBridge() {
   eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
     safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata } });
+
+    // Layer 0: 写入结构化工具事件到 session_events 表
+    try {
+      const mm = getMemoryManager();
+      if (mm?.currentSessionId) {
+        const durationMs = payload.metadata?.duration_ms ?? payload.metadata?.duration;
+        const toolInput = payload.metadata?.input ? (typeof payload.metadata.input === 'string' ? payload.metadata.input : JSON.stringify(payload.metadata.input)) : undefined;
+        const toolOutput = payload.result?.length ? payload.result.slice(0, 2000) : undefined;
+        mm.writeSessionEvent({
+          sessionId: mm.currentSessionId,
+          timestamp: Date.now(),
+          eventType: payload.isError ? 'tool_error' : 'tool_end',
+          toolName: payload.name,
+          toolInput,
+          toolOutput,
+          filePath: payload.metadata?.filePath || payload.metadata?.file_path,
+          exitCode: payload.metadata?.exitCode ?? payload.metadata?.exit_code,
+          errorMsg: payload.isError ? payload.result?.slice(0, 500) : undefined,
+          durationMs: typeof durationMs === 'number' ? durationMs : undefined,
+          agentId,
+        });
+      }
+    } catch { /* 静默失败，不阻塞主流程 */ }
   });
   eventBus.on(XuanjiEvent.AGENT_ERROR, (payload) => {
     safeSend({ type: 'agent:error', data: payload.error });
@@ -1733,6 +1756,23 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
     safeSend({ type: 'agent:file-changes', data: { changes: payload.changes } });
+
+    // Layer 0: 写入文件变更事件
+    try {
+      const mm = getMemoryManager();
+      if (mm?.currentSessionId && payload.changes?.length) {
+        for (const change of payload.changes) {
+          mm.writeSessionEvent({
+            sessionId: mm.currentSessionId,
+            timestamp: Date.now(),
+            eventType: 'file_change',
+            filePath: change.filePath || change.file,
+            toolInput: JSON.stringify({ operation: change.operation, stats: change.stats }),
+            toolOutput: change.diffContent?.slice(0, 2000),
+          });
+        }
+      }
+    } catch { /* 静默失败 */ }
   });
   eventBus.on(XuanjiEvent.AGENT_PROMPT_COMPONENTS, (payload) => {
     safeSend({ type: 'agent:prompt-components', data: payload });

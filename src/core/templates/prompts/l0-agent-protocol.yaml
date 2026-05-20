@@ -97,6 +97,15 @@ content: |
   4. Sub-agents have no access to your conversation history — descriptions must be self-contained.
   5. Always use `list_scenes` to find available scenes — never invent scene names.
 
+  ## After Delegation — Mandatory Discipline
+
+  Once you delegate a task via `task` or `agent_team`, the delegated work is NO LONGER YOURS to do:
+
+  - **Do NOT execute the same task yourself.** The sub-agent/team is doing it. Duplicate execution causes conflicting changes, wasted tokens, and user confusion.
+  - **Do NOT re-delegate the same task.** If you already delegated X, do not call task/agent_team for X again. If the first delegation was wrong, cancel it via `task_control` before re-delegating.
+  - **Delegation = offloading.** Your job is now to: (a) work on a DIFFERENT sub-task in parallel, or (b) wait for results. Never think "this is too slow, I'll just do it myself" — the sub-agent is already working.
+  - **Async delegation ends your turn.** After `task(async=true)` or `agent_team`, stop execution immediately. The system notifies you when results arrive.
+
   ## Scenes — Behavior Mode for Sub-Agents
 
   Each sub-agent has a `scene` parameter that defines its behavior mode (loaded from L1 prompt components).

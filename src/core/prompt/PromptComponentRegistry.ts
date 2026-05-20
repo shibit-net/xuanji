@@ -27,6 +27,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { watch, type FSWatcher } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import { promisify } from 'node:util';
 import globCb from 'glob';
@@ -186,30 +187,103 @@ export class PromptComponentRegistry {
     await this.syncNewTemplates(userFiles);
   }
 
+  private get syncStatePath(): string {
+    return path.join(this.userPromptsDir, '.sync-state.json');
+  }
+
+  private async loadSyncState(): Promise<Record<string, string>> {
+    try {
+      const raw = await fs.readFile(this.syncStatePath, 'utf-8');
+      return JSON.parse(raw) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  private async saveSyncState(state: Record<string, string>): Promise<void> {
+    await fs.writeFile(this.syncStatePath, JSON.stringify(state, null, 2), 'utf-8');
+  }
+
+  private computeHash(content: string): string {
+    return createHash('sha256').update(content).digest('hex').slice(0, 16);
+  }
+
   /**
-   * 同步模板目录中新增的 prompt 组件到用户目录
-   * 只添加用户目录中不存在的文件，不覆盖已有文件
+   * 智能同步模板目录中的内置 prompt 组件到用户目录
+   *
+   * 通过 .sync-state.json 存储每个模板的 hash 值：
+   * - 新文件：直接复制 + 记录 hash
+   * - 模板未变更：跳过（不覆盖用户可能的自定义）
+   * - 模板已变更 + 用户未自定义（用户文件 hash == 旧模板 hash）：覆盖更新
+   * - 模板已变更 + 用户已自定义（用户文件 hash != 旧模板 hash）：跳过，保护用户修改
    */
   private async syncNewTemplates(userFiles: string[]): Promise<void> {
     try {
       const templateFiles = await glob(this.templatePromptsDir + '/**/*.{yaml,yml}');
+      const syncState = await this.loadSyncState();
+
+      let synced = 0;
+      let updated = 0;
+      let skipped = 0;
 
       for (const srcPath of templateFiles) {
         const fileName = path.basename(srcPath);
         if (fileName === 'README.md') continue;
-        if (userFiles.includes(fileName)) continue; // 已存在，跳过
 
         try {
-          const content = await fs.readFile(srcPath, 'utf-8');
+          const templateContent = await fs.readFile(srcPath, 'utf-8');
+          const templateHash = this.computeHash(templateContent);
           const destPath = path.join(this.userPromptsDir, fileName);
-          await fs.writeFile(destPath, content, 'utf-8');
-          log.info(`同步新 Prompt 组件: ${fileName}`);
+
+          if (!userFiles.includes(fileName)) {
+            // 新文件：复制并记录 hash
+            await fs.writeFile(destPath, templateContent, 'utf-8');
+            syncState[fileName] = templateHash;
+            synced++;
+            continue;
+          }
+
+          // 文件已存在：检查是否需要更新
+          const storedHash = syncState[fileName];
+          if (!storedHash) {
+            // 旧版本没有 hash 记录，保守处理：跳过（可能有用户自定义）
+            skipped++;
+            log.debug(`跳过 ${fileName}：无同步状态记录（可能包含用户自定义）`);
+            continue;
+          }
+
+          if (storedHash === templateHash) {
+            // 模板未变更，跳过
+            continue;
+          }
+
+          // 模板已变更：检查用户是否自定义了文件
+          const userContent = await fs.readFile(destPath, 'utf-8');
+          const userHash = this.computeHash(userContent);
+
+          if (userHash === storedHash) {
+            // 用户文件与旧模板一致 → 用户未自定义 → 安全覆盖
+            await fs.writeFile(destPath, templateContent, 'utf-8');
+            syncState[fileName] = templateHash;
+            updated++;
+            log.info(`更新 Prompt 组件: ${fileName}（模板已更新，用户未自定义）`);
+          } else {
+            // 用户已自定义 → 保护用户修改
+            skipped++;
+            log.debug(`跳过 ${fileName}：用户已自定义修改`);
+          }
         } catch (error: any) {
           log.error(`同步文件失败: ${srcPath}`, error.message);
         }
       }
+
+      await this.saveSyncState(syncState);
+
+      if (synced > 0 || updated > 0 || skipped > 0) {
+        log.info(`Prompt 组件同步完成: ${synced} 新增, ${updated} 更新, ${skipped} 跳过（用户自定义）`);
+      }
     } catch (error: any) {
-      log.warn('同步新模板文件失败:', error.message);
+      log.warn('同步模板文件失败:', error.message);
     }
   }
 
@@ -228,6 +302,8 @@ export class PromptComponentRegistry {
 
       log.info(`从模板复制 ${templateFiles.length} 个 Prompt 组件到用户目录...`);
 
+      const syncState: Record<string, string> = {};
+
       for (const srcPath of templateFiles) {
         try {
           // 跳过 README.md
@@ -239,11 +315,15 @@ export class PromptComponentRegistry {
 
           // 直接复制文件内容
           await fs.writeFile(destPath, content, 'utf-8');
+          // 记录模板 hash，用于后续智能同步
+          syncState[fileName] = this.computeHash(content);
           log.info(`复制: ${fileName}`);
         } catch (error: any) {
           log.error(`复制文件失败: ${srcPath}`, error.message);
         }
       }
+
+      await this.saveSyncState(syncState);
 
       log.info('内置 Prompt 组件复制完成');
     } catch (error: any) {
