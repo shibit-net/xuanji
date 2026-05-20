@@ -138,42 +138,48 @@ export class MCPInstaller {
       const installConfig = await this.market.getInstallConfig(packageId, options.version);
       const effectiveVersion = installConfig.version || 'unknown';
 
-      // ── Step 2: 下载并解压 ──────────────────────────────
-      log.info(`Downloading ${packageId}@${effectiveVersion}`);
-      const { tempPath } = await this.market.download(packageId, options.version);
+      // ── Step 2: 判断安装类型 ────────────────────────────
+      const downloadInfo = await this.market.getDownloadInfo(packageId, options.version);
+      let installPath: string;
 
-      const installPath = path.join(this.installBase, packageId);
-      await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
+      if (downloadInfo.downloadUrl) {
+        // Type A: 自托管 — 下载 tar.gz → 解压 → npm install
+        log.info(`Downloading ${packageId}@${effectiveVersion}`);
+        const { tempPath } = await this.market.download(packageId, options.version);
+        installPath = path.join(this.installBase, packageId);
+        await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
+      } else if (installConfig.configTemplate) {
+        // Type B: 外部引用（npm/pip/等）— 直接从 configTemplate 注册
+        log.info(`Registering external MCP ${packageId}@${effectiveVersion} from configTemplate`);
+        installPath = path.join(this.installBase, packageId);
+        await fs.mkdir(installPath, { recursive: true });
+        await fs.writeFile(
+          path.join(installPath, '.xuanji-mcp.json'),
+          JSON.stringify({
+            packageId, version: effectiveVersion,
+            type: 'external', installedAt: new Date().toISOString(),
+          }, null, 2),
+          'utf-8',
+        );
+      } else {
+        return {
+          success: false, packageId, version: effectiveVersion,
+          installPath: '', config: {} as MCPServerConfig,
+          error: `包 "${packageId}" 不可安装：缺少文件下载地址和配置模板`,
+        };
+      }
 
       // ── Step 3: 构建配置并注册 ──────────────────────────
-      const config = this.buildServerConfig(
-        packageId,
-        effectiveVersion,
-        installPath,
-        installConfig,
-      );
-
+      const config = this.buildServerConfig(packageId, effectiveVersion, installPath, installConfig);
       await this.mcpManager.addServer(config);
       log.info(`Installed MCP server: ${config.name} (${packageId}@${effectiveVersion})`);
 
-      return {
-        success: true,
-        packageId,
-        version: effectiveVersion,
-        installPath,
-        config,
-      };
+      return { success: true, packageId, version: effectiveVersion, installPath, config };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Failed to install ${packageId}:`, err);
-      return {
-        success: false,
-        packageId,
-        version: '',
-        installPath: '',
-        config: {} as MCPServerConfig,
-        error: message,
-      };
+      return { success: false, packageId, version: '', installPath: '',
+               config: {} as MCPServerConfig, error: message };
     }
   }
 
@@ -347,9 +353,13 @@ export class MCPInstaller {
       name: template.name ?? packageId,
       transport: template.transport ?? 'stdio',
       command: template.command ?? 'node',
-      args: (template.args ?? []).map(arg =>
-        arg === '{{installPath}}' ? installPath : resolvePath(arg),
-      ),
+      args: (template.args ?? []).map(arg => {
+        if (arg === '{{installPath}}') return installPath;
+        // 仅解析看起来像文件路径的 arg（含 / \ 或以 .js/.mjs/.py 结尾）
+        if (arg.includes('/') || arg.includes('\\')) return resolvePath(arg);
+        if (arg.endsWith('.js') || arg.endsWith('.mjs') || arg.endsWith('.py')) return resolvePath(arg);
+        return arg;
+      }),
       env: template.env ?? {},
       cwd: template.cwd ? resolvePath(template.cwd) : installPath,
       sseUrl: template.sseUrl,
