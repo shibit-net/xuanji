@@ -16,6 +16,8 @@ export interface Entity {
   owner: string;
   importance: number;
   ref_count: number;
+  confidence: number;
+  evidence_count: number;
   created_at: number;
   updated_at: number;
   category: string | null;
@@ -52,6 +54,11 @@ export interface Relation {
   strength: number;
   is_active: number;
   scene_tag: string;
+  confidence: number;
+  evidence_count: number;
+  interaction_count: number;
+  last_interaction_at: number | null;
+  role_context: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -152,6 +159,8 @@ export interface Fact {
   importance: number;
   access_count: number;
   last_accessed_at: number | null;
+  confidence: number;
+  evidence_count: number;
   created_at: number;
   updated_at: number;
 }
@@ -296,6 +305,7 @@ export interface BuildContextOptions {
   scene?: string;
   maxTokens?: number;
   recentHours?: number;
+  messages?: any[];
 }
 
 // ─── 子 Agent 结果 ─────────────────────────────────────────
@@ -330,4 +340,131 @@ export interface MemoryExtractedPayload {
   entityCount: number;
   factCount: number;
   eventCount: number;
+}
+
+// ─── 时间锚点 (TimeAnchor) ───────────────────────────────────
+
+export interface TimeAnchor {
+  id: string;
+  anchor_type: 'deadline' | 'schedule' | 'periodic' | 'context_expiry';
+  target_type: 'entity' | 'fact' | 'event' | 'relation';
+  target_id: string;
+  trigger_time: number | null;
+  cron_expr: string | null;
+  grace_minutes: number;
+  last_triggered: number | null;
+  is_active: number;
+  reason: string | null;
+  conflict_group: string | null;
+  priority: number;
+  metadata: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface TimeAnchorInput {
+  anchor_type: TimeAnchor['anchor_type'];
+  target_type: TimeAnchor['target_type'];
+  target_id: string;
+  trigger_time?: number;
+  cron_expr?: string;
+  grace_minutes?: number;
+  reason?: string;
+  conflict_group?: string;
+  priority?: number;
+  metadata?: string | Record<string, unknown>;
+}
+
+// ─── 话题追踪 (TopicTracker) ─────────────────────────────────
+
+export interface TopicTracker {
+  id: string;
+  topic: string;
+  topic_type: 'goal' | 'plan' | 'interest' | 'decision_pending';
+  source_event_id: string | null;
+  status: 'open' | 'followed_up' | 'resolved' | 'abandoned';
+  priority: number;
+  context_summary: string | null;
+  mention_count: number;
+  last_mentioned_at: number;
+  last_followup_at: number | null;
+  created_at: number;
+}
+
+export interface TopicTrackerInput {
+  topic: string;
+  topic_type?: TopicTracker['topic_type'];
+  source_event_id?: string;
+  context_summary?: string;
+  priority?: number;
+}
+
+// ─── 用户画像 (UserProfile) ──────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  dimension: string;
+  summary: string;
+  confidence: number;
+  evidence_ids: string | null;
+  pending_count: number;
+  last_updated_at: number;
+  created_at: number;
+}
+
+export interface UserProfileInput {
+  dimension: string;
+  summary: string;
+  evidence_ids?: string;
+  confidence?: number;
+}
+
+// ─── 行为模式 (BehaviorPattern) ──────────────────────────────
+
+export interface BehaviorPattern {
+  id: string;
+  pattern_type: 'cycle' | 'routine' | 'preference';
+  description: string;
+  related_entity_ids: string | null;
+  confidence: number;
+  sample_count: number;
+  interval_hours: number | null;
+  last_observed: number | null;
+  next_expected: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface BehaviorPatternInput {
+  pattern_type: BehaviorPattern['pattern_type'];
+  description: string;
+  related_entity_ids?: string;
+  interval_hours?: number;
+  confidence?: number;
+}
+
+// ─── 社交群组 (Group + GroupMember) ──────────────────────────
+
+export interface Group {
+  id: string;
+  name: string;
+  type: 'social' | 'team' | 'family' | 'interest';
+  summary: string | null;
+  scene_tag: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface GroupInput {
+  name: string;
+  type?: Group['type'];
+  summary?: string;
+  scene_tag?: string;
+}
+
+export interface GroupMember {
+  group_id: string;
+  entity_id: string;
+  role: string | null;
+  joined_at: number;
 }

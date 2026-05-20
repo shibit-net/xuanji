@@ -64,6 +64,9 @@ systemPrompt: |
 
 # 工具配置
 tools:
+  - name: memory_search
+    enabled: true
+    comment: 动态注册 — 读取长期记忆上下文
   - name: read_file
     enabled: true
   - name: write_file

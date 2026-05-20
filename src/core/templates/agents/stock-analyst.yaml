@@ -53,6 +53,9 @@ systemPrompt: |
 
 # 工具配置
 tools:
+  - name: memory_search
+    enabled: true
+    comment: 动态注册 — 读取长期记忆上下文
   - name: web_search
     enabled: true
     description: 搜索最新股票行情、财经新闻、公司公告

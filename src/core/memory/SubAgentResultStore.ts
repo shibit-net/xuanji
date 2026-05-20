@@ -82,9 +82,9 @@ export class SubAgentResultStore {
               if (matchTarget.includes(lowerQuery)) {
                 results.push(parsed);
               }
-            } catch { /* skip malformed lines */ }
+            } catch { /* skip malformed lines — expected for partial writes */ }
           }
-        } catch { /* skip unreadable files */ }
+        } catch { log.debug('SubAgentResultStore: skip unreadable results file'); }
       }
 
       return results;

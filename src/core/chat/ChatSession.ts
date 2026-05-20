@@ -262,9 +262,14 @@ export class ChatSession {
       const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
       if (!memoryManager) return;
 
-      // 并行：搜索相关记忆 + 时间感知
-      const [results] = await Promise.all([
+      // 记录用户活动 + 缓存最近消息供 buildContext Stage A 使用
+      memoryManager.recordActivity();
+      memoryManager.setRecentMessages(contextManager.getMessages());
+
+      // 并行：搜索相关记忆 + 时间感知 + 轻量 buildContext
+      const [results, memoryContext] = await Promise.all([
         memoryManager.search({ query: input, limit: 5 }),
+        memoryManager.buildContext({ messages: contextManager.getMessages(), maxTokens: 400 }),
       ]);
 
       // 时间感知（CareManager）
@@ -282,12 +287,11 @@ export class ChatSession {
       }
       (this as any)._lastActiveAt = Date.now();
 
-      if (results.length === 0 && !timeContext) {
-        contextManager.setSystemPromptSuffix('', 'memory-context');
-        return;
-      }
-
-      const sourceLabels: Record<string, string> = { entities: '实体', facts: '事实', events: '事件', episodes: '叙事' };
+      const sourceLabels: Record<string, string> = {
+        entities: '实体', facts: '事实', events: '事件', episodes: '叙事',
+        topic_tracker: '话题', time_anchors: '提醒', user_profile: '画像',
+        behavior_patterns: '模式', groups: '群组',
+      };
       const lines = results.slice(0, 5).map((r: any) => {
         const source = sourceLabels[r.source_table] || r.source_table;
         return `- [${source}] ${r.title}: ${r.content}`;
@@ -297,7 +301,15 @@ export class ChatSession {
         ? `## Relevant Memory (auto-loaded)\n${lines.join('\n')}\n\nApply these remembered facts and preferences in your response. If they conflict with the user's current request, follow the user's latest instruction and store the correction.`
         : '';
 
-      const suffix = `${memorySection}${timeContext}`;
+      // 合并：搜索结果 + buildContext (Stage A/C/D/E/F 的提醒/话题/模式)
+      const buildContextSection = memoryContext || '';
+
+      if (!memorySection && !timeContext && !buildContextSection) {
+        contextManager.setSystemPromptSuffix('', 'memory-context');
+        return;
+      }
+
+      const suffix = `${memorySection}${buildContextSection}${timeContext}`;
       contextManager.setSystemPromptSuffix(suffix, 'memory-context');
     } catch (err) {
       // 记忆加载失败不应阻塞对话

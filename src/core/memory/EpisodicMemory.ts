@@ -57,7 +57,7 @@ export class EpisodicMemory {
           candidates.set(ep.id, { episode: ep, score: 0.3 });
         }
       }
-    } catch { /* FTS5 可能不可用 */ }
+    } catch { log.debug('FTS5 search unavailable for episodes, using LIKE fallback'); }
 
     // 来源 3: 实体关联
     if (opts?.entityIds && opts.entityIds.length > 0) {
@@ -341,6 +341,7 @@ ${rawText.slice(0, 3000)}
       `).all(sanitized, limit) as any[];
       return rows.map((r: any) => this.rowToEpisode(r));
     } catch {
+      log.debug('FTS5 search threw, falling back to LIKE for episodes');
       // FTS5 未覆盖 episodes 时降级到 LIKE
       const likePattern = `%${query}%`;
       const rows = this.db.prepare(

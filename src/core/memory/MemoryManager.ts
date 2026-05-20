@@ -14,6 +14,10 @@ import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { MemoryGraph, type GraphNode, type SubgraphResult } from '@/core/memory/MemoryGraph';
 import { EpisodicMemory } from '@/core/memory/EpisodicMemory';
+import { TimelineInference } from '@/core/memory/TimelineInference';
+import { TopicContinuity } from '@/core/memory/TopicContinuity';
+import { PatternRecognizer } from '@/core/memory/PatternRecognizer';
+import { ContextSignalCollector } from '@/core/memory/ContextSignalCollector';
 import type {
   Entity, EntityInput, EntityFilter,
   Relation, RelationInput, RelationInputById, RelationQuery,
@@ -26,6 +30,11 @@ import type {
   GraphNeighbor, GraphPath,
   MemoryStats, MemorySnapshot, BuildContextOptions,
   SubAgentResult,
+  UserProfile, UserProfileInput,
+  TimeAnchor, TimeAnchorInput,
+  TopicTracker, TopicTrackerInput,
+  BehaviorPattern, BehaviorPatternInput,
+  Group, GroupInput, GroupMember,
 } from '@/core/memory/types';
 
 const log = logger.child({ module: 'MemoryManager' });
@@ -59,6 +68,69 @@ function formatEntityIds(ids: string[]): string {
   return `,${ids.join(',')},`;
 }
 
+// ─── Ebbinghaus λ 推导（§3.3 四档衰减率）───────────────────
+
+/** Ebbinghaus 遗忘衰减 λ 值 */
+const EBBINGHAUS_LAMBDA = {
+  LOCKED: 0.01,       // evidence >= 5 AND confidence > 0.8
+  CORRECTION: 0.02,   // source = 'user_correction'
+  DEFAULT: 0.05,      // 默认衰减率
+  TEMPORARY: 0.1,     // confidence < 0.45 或首次 user_said
+} as const;
+
+/** Ebbinghaus 衰减阈值 */
+const EBBINGHAUS_THRESHOLD = {
+  HIGH_CONFIDENCE: 0.8,
+  LOW_CONFIDENCE: 0.45,
+  HIGH_EVIDENCE: 5,
+  MIN_CONFIDENCE: 0.1,       // 低于此值不再衰减
+  MIN_DAYS_FOR_DECAY: 1,     // 当日更新不衰减
+  MIN_CHANGE: 0.01,          // 衰减幅度小于此值不更新 DB
+} as const;
+
+/** 计算日差 ms */
+const DAY_MS = 86400000;
+
+/** facts 专用：根据 source + evidence_count + confidence 推导 λ */
+function deriveLambdaForFact(source: string, evidenceCount: number, confidence: number): number {
+  if (source === 'user_correction') return EBBINGHAUS_LAMBDA.CORRECTION;
+  if (evidenceCount >= EBBINGHAUS_THRESHOLD.HIGH_EVIDENCE && confidence > EBBINGHAUS_THRESHOLD.HIGH_CONFIDENCE) return EBBINGHAUS_LAMBDA.LOCKED;
+  if (confidence < EBBINGHAUS_THRESHOLD.LOW_CONFIDENCE) return EBBINGHAUS_LAMBDA.TEMPORARY;
+  return EBBINGHAUS_LAMBDA.DEFAULT;
+}
+
+/** entities/relations 专用：根据 evidence_count + confidence 推导 λ */
+function deriveLambdaForEntity(evidenceCount: number, confidence: number): number {
+  if (evidenceCount >= EBBINGHAUS_THRESHOLD.HIGH_EVIDENCE && confidence > EBBINGHAUS_THRESHOLD.HIGH_CONFIDENCE) return EBBINGHAUS_LAMBDA.LOCKED;
+  if (confidence < EBBINGHAUS_THRESHOLD.LOW_CONFIDENCE) return EBBINGHAUS_LAMBDA.TEMPORARY;
+  return EBBINGHAUS_LAMBDA.DEFAULT;
+}
+
+/** 从事件内容推断项目阶段（纯关键词，无 LLM） */
+function detectProjectPhase(content: string): string | null {
+  const patterns: Array<{ regex: RegExp; phase: string }> = [
+    // 复合模式优先：需求分析完成 → 设计阶段
+    { regex: /需求分析.*完成|确认了.*需求|需求.*确认|需求评审.*通过/, phase: '设计' },
+    // 设计完成 → 开发阶段
+    { regex: /设计.*完成|设计稿.*确认|方案.*通过/, phase: '开发' },
+    // 开发完成 → 测试阶段
+    { regex: /开发.*完成|编码.*完成|功能.*实现/, phase: '测试' },
+    // 测试完成 → 部署阶段
+    { regex: /测试.*通过|bug.*清零|联调.*完成/, phase: '部署' },
+    // 简单模式
+    { regex: /需求分析|需求评审/, phase: '需求' },
+    { regex: /架构设计|UI设计|详细设计|设计稿/, phase: '设计' },
+    { regex: /编码|功能开发|重构|实现/, phase: '开发' },
+    { regex: /单元测试|集成测试|联调|修.*bug/, phase: '测试' },
+    { regex: /部署|上线|发布|灰度/, phase: '部署' },
+    { regex: /交付|验收|结项/, phase: '完成' },
+  ];
+  for (const { regex, phase } of patterns) {
+    if (regex.test(content)) return phase;
+  }
+  return null;
+}
+
 // ─── MemoryManager ─────────────────────────────────────────
 
 export class MemoryManager {
@@ -69,10 +141,17 @@ export class MemoryManager {
   private userId: string = '';
   private userName: string = '';
   private userEntityId: string | null = null;
+  private lastActiveAt: number = 0;
+  private _skipPassiveInjection = false;
+  private recentMessages: any[] = [];
 
   // 可选依赖（通过 setter 注入或构造函数传入）
   public episodicMemory?: any;
   public semanticIndex?: any;
+  public timelineInference!: TimelineInference;
+  public topicContinuity!: TopicContinuity;
+  public patternRecognizer!: PatternRecognizer;
+  public signalCollector!: ContextSignalCollector;
   public subAgentStore?: any;
   public skillRegistry?: any;
   public toolRegistry?: any;
@@ -152,9 +231,73 @@ export class MemoryManager {
     this.graph.loadFromDB(this.db);
 
     this.episodicMemory = new EpisodicMemory(this.db, this.semanticIndex, this.cheapLLM);
+    this.timelineInference = new TimelineInference(this.db);
+    this.topicContinuity = new TopicContinuity(this.db, this.cheapLLM, this.semanticIndex);
+    this.patternRecognizer = new PatternRecognizer(this.db);
+    this.signalCollector = new ContextSignalCollector();
 
     this.initialized = true;
     log.info(`MemoryManager initialized: ${this.dbPath}`);
+  }
+
+  /** 每日维护任务（由 cron/scheduler 调用） */
+  runDailyMaintenance(): void {
+    if (!this.initialized) return;
+    // 模式提取（纯算法）
+    const patterns = this.patternRecognizer.extractPatterns();
+    log.info(`Daily maintenance: extracted ${patterns.length} patterns`);
+
+    // 话题自动清理
+    this.topicContinuity.autoAbandonStaleTopics(0);
+
+    // Ebbinghaus 遗忘衰减（每日执行，λ 分档控制在 >=24h 才生效）
+    this.applyEbbinghausDecay();
+  }
+
+  /**
+   * Ebbinghaus 遗忘衰减：对超过 24h 未更新的记录应用指数衰减
+   *
+   * λ 分档（§3.3）：
+   *   临时(0.1) — confidence < 0.45 或 source='user_said' 且 evidence_count=1
+   *   正常(0.05) — 默认
+   *   锁定(0.01) — evidence_count >= 5 且 confidence > 0.8
+   *   纠正(0.02) — source='user_correction'
+   */
+  private applyEbbinghausDecay(): void {
+    const now = Date.now();
+
+    const decayTable = (table: string, hasSource: boolean) => {
+      const cols = hasSource
+        ? 'id, confidence, evidence_count, source, updated_at'
+        : 'id, confidence, evidence_count, updated_at';
+      const rows = this.db.prepare(
+        `SELECT ${cols} FROM ${table} WHERE confidence > ?`
+      ).all(EBBINGHAUS_THRESHOLD.MIN_CONFIDENCE) as any[];
+
+      const update = this.db.prepare(`UPDATE ${table} SET confidence = ? WHERE id = ?`);
+      let decayedCount = 0;
+      for (const row of rows) {
+        const daysSinceUpdate = (now - row.updated_at) / DAY_MS;
+        if (daysSinceUpdate < EBBINGHAUS_THRESHOLD.MIN_DAYS_FOR_DECAY) continue;
+
+        const lambda = hasSource
+          ? deriveLambdaForFact(row.source, row.evidence_count, row.confidence)
+          : deriveLambdaForEntity(row.evidence_count, row.confidence);
+
+        const newConfidence = row.confidence * Math.exp(-lambda * daysSinceUpdate);
+        if (newConfidence < row.confidence - EBBINGHAUS_THRESHOLD.MIN_CHANGE) {
+          update.run(Math.max(EBBINGHAUS_THRESHOLD.MIN_CONFIDENCE, newConfidence), row.id);
+          decayedCount++;
+        }
+      }
+      if (decayedCount > 0) {
+        log.info(`Ebbinghaus decay: ${decayedCount} ${table} records decayed`);
+      }
+    };
+
+    decayTable('entities', false);
+    decayTable('facts', true);
+    decayTable('relations', false);
   }
 
   async close(): Promise<void> {
@@ -199,8 +342,13 @@ export class MemoryManager {
     if (currentVersion < 8) this.migrateV8();
     if (currentVersion < 9) this.migrateV9();
     if (currentVersion < 10) this.migrateV10();
+    if (currentVersion < 11) this.migrateV11();
+    if (currentVersion < 12) this.migrateV12();
 
     this.ensureFtsTriggers();
+
+    // 新表（V11）首次启动时 FTS5 触发器刚创建，将已有数据补入索引
+    this.indexNewTablesIfNeeded();
   }
 
   private migrateV1(): void {
@@ -419,41 +567,216 @@ export class MemoryManager {
     log.info('migrateV10: added importance + access_count + last_accessed_at to facts');
   }
 
+  private migrateV11(): void {
+    const runInTx = this.db.transaction(() => {
+    // ─── 3.1 现有表扩展：置信度列 ──────────────────────────────
+    const entityCols = (this.db.prepare("PRAGMA table_info('entities')").all() as any[]).map((c: any) => c.name);
+    if (!entityCols.includes('confidence')) {
+      this.db.exec('ALTER TABLE entities ADD COLUMN confidence REAL NOT NULL DEFAULT 0.6');
+    }
+    if (!entityCols.includes('evidence_count')) {
+      this.db.exec('ALTER TABLE entities ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 1');
+    }
+
+    const factCols = (this.db.prepare("PRAGMA table_info('facts')").all() as any[]).map((c: any) => c.name);
+    if (!factCols.includes('confidence')) {
+      this.db.exec('ALTER TABLE facts ADD COLUMN confidence REAL NOT NULL DEFAULT 0.6');
+    }
+    if (!factCols.includes('evidence_count')) {
+      this.db.exec('ALTER TABLE facts ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 1');
+    }
+
+    const relCols = (this.db.prepare("PRAGMA table_info('relations')").all() as any[]).map((c: any) => c.name);
+    if (!relCols.includes('confidence')) {
+      this.db.exec('ALTER TABLE relations ADD COLUMN confidence REAL NOT NULL DEFAULT 0.6');
+    }
+    if (!relCols.includes('evidence_count')) {
+      this.db.exec('ALTER TABLE relations ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!relCols.includes('interaction_count')) {
+      this.db.exec('ALTER TABLE relations ADD COLUMN interaction_count INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!relCols.includes('last_interaction_at')) {
+      this.db.exec('ALTER TABLE relations ADD COLUMN last_interaction_at INTEGER');
+    }
+    if (!relCols.includes('role_context')) {
+      this.db.exec('ALTER TABLE relations ADD COLUMN role_context TEXT');
+    }
+
+    // 置信度索引
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_facts_confidence ON facts(confidence DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_relations_confidence ON relations(confidence DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_entities_confidence ON entities(confidence DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_relations_interaction ON relations(interaction_count DESC)');
+
+    // ─── 3.2 新增表 ────────────────────────────────────────────
+
+    // time_anchors
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS time_anchors (
+        id              TEXT PRIMARY KEY,
+        anchor_type     TEXT NOT NULL,
+        target_type     TEXT NOT NULL,
+        target_id       TEXT NOT NULL,
+        trigger_time    INTEGER,
+        cron_expr       TEXT,
+        grace_minutes   INTEGER DEFAULT 0,
+        last_triggered  INTEGER,
+        is_active       INTEGER DEFAULT 1,
+        reason          TEXT,
+        conflict_group  TEXT,
+        priority        INTEGER DEFAULT 3,
+        metadata        TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_ta_trigger ON time_anchors(trigger_time, is_active)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_ta_target ON time_anchors(target_type, target_id)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_ta_group ON time_anchors(conflict_group)');
+
+    // topic_tracker
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS topic_tracker (
+        id                TEXT PRIMARY KEY,
+        topic             TEXT NOT NULL,
+        topic_type        TEXT NOT NULL DEFAULT 'goal',
+        source_event_id   TEXT,
+        status            TEXT NOT NULL DEFAULT 'open',
+        priority          INTEGER DEFAULT 3,
+        context_summary   TEXT,
+        mention_count     INTEGER DEFAULT 1,
+        last_mentioned_at INTEGER NOT NULL,
+        last_followup_at  INTEGER,
+        created_at        INTEGER NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_tt_status ON topic_tracker(status, priority DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_tt_mentioned ON topic_tracker(last_mentioned_at DESC)');
+
+    // user_profile
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS user_profile (
+        id              TEXT PRIMARY KEY,
+        dimension       TEXT NOT NULL,
+        summary         TEXT NOT NULL,
+        confidence      REAL NOT NULL DEFAULT 0.6,
+        evidence_ids    TEXT,
+        pending_count   INTEGER DEFAULT 0,
+        last_updated_at INTEGER NOT NULL,
+        created_at      INTEGER NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_up_confidence ON user_profile(confidence DESC)');
+
+    // behavior_patterns
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS behavior_patterns (
+        id                  TEXT PRIMARY KEY,
+        pattern_type        TEXT NOT NULL,
+        description         TEXT NOT NULL,
+        related_entity_ids  TEXT,
+        confidence          REAL DEFAULT 0.5,
+        sample_count        INTEGER DEFAULT 2,
+        interval_hours      INTEGER,
+        last_observed       INTEGER,
+        next_expected       INTEGER,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_bp_expected ON behavior_patterns(next_expected)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_bp_type ON behavior_patterns(pattern_type)');
+
+    // groups + group_members
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS groups (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL UNIQUE,
+        type        TEXT NOT NULL DEFAULT 'social',
+        summary     TEXT,
+        scene_tag   TEXT NOT NULL DEFAULT '',
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id    TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        entity_id   TEXT NOT NULL REFERENCES entities(id),
+        role        TEXT,
+        joined_at   INTEGER NOT NULL,
+        PRIMARY KEY (group_id, entity_id)
+      );
+    `);
+    // SQLite 不强制 FK，需 PRAGMA foreign_keys = ON（已在构造函数中设置）
+
+    this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (11, ?)').run(Date.now());
+    log.info('migrateV11: added confidence/evidence_count to entities/facts/relations + 5 new tables + indexes');
+    });
+    runInTx();
+  }
+
+  private migrateV12(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS project_snapshots (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL,
+        phase         TEXT NOT NULL,
+        status        TEXT NOT NULL DEFAULT '进行中',
+        progress_pct  INTEGER DEFAULT 0,
+        current_focus TEXT,
+        blockers      TEXT,
+        next_milestone TEXT,
+        tech_stack    TEXT,
+        snapshot_at   INTEGER NOT NULL
+      );
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_ps_project ON project_snapshots(project_id, snapshot_at DESC)');
+    this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (12, ?)').run(Date.now());
+    log.info('migrateV12: added project_snapshots table');
+  }
+
+  // FTS5 表元数据：驱动触发器生成 + 索引重建
+  private static readonly FTS_TABLES: Array<{
+    table: string;
+    titleExpr: string;   // SQL 表达式，如 "new.name" 或 "COALESCE(new.reason,'')"
+    contentExpr: string;
+    sceneExpr: string;   // SQL 表达式，如 "new.scene_tag" 或 "''"
+  }> = [
+    { table: 'entities',          titleExpr: 'new.name',              contentExpr: 'new.summary',                  sceneExpr: 'new.scene_tag' },
+    { table: 'events',            titleExpr: 'new.content',           contentExpr: 'new.content',                  sceneExpr: 'new.scene_tag' },
+    { table: 'facts',             titleExpr: 'new.title',             contentExpr: 'new.content',                  sceneExpr: 'new.scene_tag' },
+    { table: 'episodes',          titleExpr: 'new.title',             contentExpr: 'new.narrative',                sceneExpr: 'new.scene_tag' },
+    { table: 'time_anchors',      titleExpr: "COALESCE(new.reason,'')",     contentExpr: "COALESCE(new.reason,'')",      sceneExpr: "''" },
+    { table: 'topic_tracker',     titleExpr: 'new.topic',             contentExpr: "COALESCE(new.context_summary,'')", sceneExpr: "''" },
+    { table: 'user_profile',      titleExpr: 'new.dimension',         contentExpr: 'new.summary',                  sceneExpr: "''" },
+    { table: 'behavior_patterns', titleExpr: 'new.description',       contentExpr: 'new.description',              sceneExpr: "''" },
+    { table: 'groups',            titleExpr: 'new.name',              contentExpr: "COALESCE(new.summary,'')",     sceneExpr: "COALESCE(new.scene_tag,'')" },
+  ];
+
   private ensureFtsTriggers(): void {
-    // 确保 FTS5 同步触发器存在（幂等：先删除再创建）
-    const dropAndCreate = (table: string, titleCol: string, contentCol: string) => {
-      // SQLite triggers are idempotent via CREATE TRIGGER IF NOT EXISTS, but for correctness
-      // with schema changes, drop first
+    for (const { table, titleExpr, contentExpr, sceneExpr } of MemoryManager.FTS_TABLES) {
       this.db.exec(`
         DROP TRIGGER IF EXISTS ${table}_fts_insert;
         DROP TRIGGER IF EXISTS ${table}_fts_delete;
         DROP TRIGGER IF EXISTS ${table}_fts_update;
       `);
-
-      const sceneCol = table === 'facts' ? 'scene_tag' : 'scene_tag';
-
       this.db.exec(`
         CREATE TRIGGER ${table}_fts_insert AFTER INSERT ON ${table} BEGIN
           INSERT INTO memory_fts(source_table, source_id, title, content, scene_tag)
-          VALUES ('${table}', new.id, xuanji_fts_text(new.${titleCol}), xuanji_fts_text(new.${contentCol}), new.${sceneCol});
+          VALUES ('${table}', new.id, xuanji_fts_text(${titleExpr}), xuanji_fts_text(${contentExpr}), ${sceneExpr});
         END;
-
         CREATE TRIGGER ${table}_fts_delete AFTER DELETE ON ${table} BEGIN
           DELETE FROM memory_fts WHERE source_id = old.id AND source_table = '${table}';
         END;
-
         CREATE TRIGGER ${table}_fts_update AFTER UPDATE ON ${table} BEGIN
           DELETE FROM memory_fts WHERE source_id = old.id AND source_table = '${table}';
           INSERT INTO memory_fts(source_table, source_id, title, content, scene_tag)
-          VALUES ('${table}', new.id, xuanji_fts_text(new.${titleCol}), xuanji_fts_text(new.${contentCol}), new.${sceneCol});
+          VALUES ('${table}', new.id, xuanji_fts_text(${titleExpr}), xuanji_fts_text(${contentExpr}), ${sceneExpr});
         END;
       `);
-    };
-
-    dropAndCreate('entities', 'name', 'summary');
-    dropAndCreate('events', 'content', 'content');
-    dropAndCreate('facts', 'title', 'content');
-    dropAndCreate('episodes', 'title', 'narrative');
+    }
   }
 
   /** 重建 FTS5 索引：从源表重新插入，应用 CJK 分词 */
@@ -488,7 +811,92 @@ export class MemoryManager {
       insertFts.run('episodes', ep.id, cjkSplit(ep.title), cjkSplit(ep.narrative), ep.scene_tag || '');
     }
 
-    log.info(`FTS5 index rebuilt: ${entities.length}E + ${events.length}Ev + ${facts.length}F + ${episodes.length}Ep (${Date.now() - start}ms)`);
+    // 新表（V11）尚不存在时跳过，使用 sqlite_master 检测
+    const tableExists = (name: string) =>
+      this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+
+    let anchorCount = 0, topicCount = 0, profileCount = 0, patternCount = 0, groupCount = 0;
+
+    if (tableExists('time_anchors')) {
+      const anchors = this.db.prepare('SELECT id, reason FROM time_anchors').all() as any[];
+      for (const a of anchors) {
+        insertFts.run('time_anchors', a.id, cjkSplit(a.reason || ''), cjkSplit(a.reason || ''), '');
+      }
+      anchorCount = anchors.length;
+    }
+
+    if (tableExists('topic_tracker')) {
+      const topics = this.db.prepare('SELECT id, topic, context_summary FROM topic_tracker').all() as any[];
+      for (const t of topics) {
+        insertFts.run('topic_tracker', t.id, cjkSplit(t.topic), cjkSplit(t.context_summary || ''), '');
+      }
+      topicCount = topics.length;
+    }
+
+    if (tableExists('user_profile')) {
+      const profiles = this.db.prepare('SELECT id, dimension, summary FROM user_profile').all() as any[];
+      for (const p of profiles) {
+        insertFts.run('user_profile', p.id, cjkSplit(p.dimension), cjkSplit(p.summary), '');
+      }
+      profileCount = profiles.length;
+    }
+
+    if (tableExists('behavior_patterns')) {
+      const patterns = this.db.prepare('SELECT id, description FROM behavior_patterns').all() as any[];
+      for (const bp of patterns) {
+        insertFts.run('behavior_patterns', bp.id, cjkSplit(bp.description), cjkSplit(bp.description), '');
+      }
+      patternCount = patterns.length;
+    }
+
+    if (tableExists('groups')) {
+      const groups = this.db.prepare('SELECT id, name, summary, scene_tag FROM groups').all() as any[];
+      for (const g of groups) {
+        insertFts.run('groups', g.id, cjkSplit(g.name), cjkSplit(g.summary || ''), g.scene_tag || '');
+      }
+      groupCount = groups.length;
+    }
+
+    log.info(`FTS5 index rebuilt: ${entities.length}E + ${events.length}Ev + ${facts.length}F + ${episodes.length}Ep + ${anchorCount}A + ${topicCount}T + ${profileCount}P + ${patternCount}B + ${groupCount}G (${Date.now() - start}ms)`);
+  }
+
+  /** 将新表（V11）现有数据补入 FTS5 索引（仅在触发器创建后首次调用） */
+  private indexNewTablesIfNeeded(): void {
+    const insertFts = this.db.prepare(
+      'INSERT INTO memory_fts(source_table, source_id, title, content, scene_tag) VALUES (?, ?, ?, ?, ?)'
+    );
+    const tableExists = (name: string) =>
+      this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+
+    // 仅处理 FTS5 中尚未出现的新表数据
+    const needsIndex = (table: string) =>
+      this.db.prepare('SELECT 1 FROM memory_fts WHERE source_table = ? LIMIT 1').get(table) === undefined;
+
+    if (tableExists('time_anchors') && needsIndex('time_anchors')) {
+      const rows = this.db.prepare('SELECT id, reason FROM time_anchors').all() as any[];
+      for (const r of rows) insertFts.run('time_anchors', r.id, cjkSplit(r.reason || ''), cjkSplit(r.reason || ''), '');
+      if (rows.length > 0) log.info(`Indexed ${rows.length} time_anchors into FTS5`);
+    }
+    if (tableExists('topic_tracker') && needsIndex('topic_tracker')) {
+      const rows = this.db.prepare('SELECT id, topic, context_summary FROM topic_tracker').all() as any[];
+      for (const r of rows) insertFts.run('topic_tracker', r.id, cjkSplit(r.topic), cjkSplit(r.context_summary || ''), '');
+      if (rows.length > 0) log.info(`Indexed ${rows.length} topic_tracker rows into FTS5`);
+    }
+    if (tableExists('user_profile') && needsIndex('user_profile')) {
+      const rows = this.db.prepare('SELECT id, dimension, summary FROM user_profile').all() as any[];
+      for (const r of rows) insertFts.run('user_profile', r.id, cjkSplit(r.dimension), cjkSplit(r.summary), '');
+      if (rows.length > 0) log.info(`Indexed ${rows.length} user_profile rows into FTS5`);
+    }
+    if (tableExists('behavior_patterns') && needsIndex('behavior_patterns')) {
+      const rows = this.db.prepare('SELECT id, description FROM behavior_patterns').all() as any[];
+      for (const r of rows) insertFts.run('behavior_patterns', r.id, cjkSplit(r.description), cjkSplit(r.description), '');
+      if (rows.length > 0) log.info(`Indexed ${rows.length} behavior_patterns into FTS5`);
+    }
+    if (tableExists('groups') && needsIndex('groups')) {
+      const rows = this.db.prepare('SELECT id, name, summary, scene_tag FROM groups').all() as any[];
+      for (const r of rows) insertFts.run('groups', r.id, cjkSplit(r.name), cjkSplit(r.summary || ''), r.scene_tag || '');
+      if (rows.length > 0) log.info(`Indexed ${rows.length} groups into FTS5`);
+    }
   }
 
   // ─── Entity CRUD ─────────────────────────────────────────
@@ -506,9 +914,15 @@ export class MemoryManager {
     ).get(input.name, input.type) as { id: string } | undefined;
 
     if (existing) {
+      // 仅当 summary/content 实际变化时才增加 evidence（防止相同内容重复 upsert 导致证据膨胀）
+      const prev = this.db.prepare('SELECT summary, belief FROM entities WHERE id = ?').get(existing.id) as any;
+      const contentChanged = !prev || prev.summary !== input.summary || prev.belief !== (input.belief ?? null);
+      const confIncr = contentChanged ? MemoryManager.CONFIDENCE_INCREMENT_CHANGED : MemoryManager.CONFIDENCE_INCREMENT_UNCHANGED;
       this.db.prepare(`
         UPDATE entities SET summary = ?, belief = ?, scene_tag = ?, importance = ?,
-          category = ?, metadata = ?, updated_at = ?
+          category = ?, metadata = ?,
+          evidence_count = evidence_count + ${contentChanged ? 1 : 0},
+          confidence = MIN(1.0, confidence + ${confIncr}), updated_at = ?
         WHERE id = ?
       `).run(
         input.summary, input.belief ?? null, sceneTag,
@@ -622,16 +1036,23 @@ export class MemoryManager {
     ).get(subjectId, objectId, input.relation) as { id: string } | undefined;
 
     if (dup) {
+      // interaction_count 始终 +1（追踪引用频率），confidence 仅在 desc/strength 变化时显著增加
+      const prevRel = this.db.prepare('SELECT desc, strength FROM relations WHERE id = ?').get(dup.id) as any;
+      const relChanged = !prevRel || prevRel.desc !== (input.desc ?? null) || prevRel.strength !== (input.strength ?? 3);
+      const relConfIncr = relChanged ? MemoryManager.CONFIDENCE_INCREMENT_CHANGED : MemoryManager.CONFIDENCE_INCREMENT_UNCHANGED;
       this.db.prepare(`
-        UPDATE relations SET strength = ?, desc = ?, updated_at = ? WHERE id = ?
-      `).run(input.strength ?? 3, input.desc ?? null, now, dup.id);
+        UPDATE relations SET strength = ?, desc = ?, interaction_count = interaction_count + 1,
+          last_interaction_at = ?,
+          confidence = MIN(1.0, confidence + ${relConfIncr}), updated_at = ? WHERE id = ?
+      `).run(input.strength ?? 3, input.desc ?? null, now, now, dup.id);
       return this.db.prepare('SELECT * FROM relations WHERE id = ?').get(dup.id) as any as Relation;
     }
 
     this.db.prepare(`
-      INSERT INTO relations (id, subject_id, object_id, relation, desc, strength, scene_tag, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, subjectId, objectId, input.relation, input.desc ?? null, input.strength ?? 3, sceneTag, now, now);
+      INSERT INTO relations (id, subject_id, object_id, relation, desc, strength, scene_tag,
+        confidence, evidence_count, interaction_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+    `).run(id, subjectId, objectId, input.relation, input.desc ?? null, input.strength ?? 3, sceneTag, MemoryManager.DEFAULT_CONFIDENCE, now, now);
 
     const rel = this.db.prepare('SELECT * FROM relations WHERE id = ?').get(id) as any;
     this.graph.addEdge({
@@ -649,7 +1070,7 @@ export class MemoryManager {
 
     if (!old) return;
 
-    this.db.prepare('UPDATE relations SET is_active = 0, updated_at = ? WHERE id = ?').run(now, old.id);
+    this.db.prepare('UPDATE relations SET is_active = 0, confidence = confidence * ?, updated_at = ? WHERE id = ?').run(MemoryManager.DEACTIVATE_CONFIDENCE_MULTIPLIER, now, old.id);
 
     // 记录变更（subject_id 存实体 ID，old_value 存对象名称方便可读）
     const objName = (this.db.prepare('SELECT name FROM entities WHERE id = ?').get(objectId) as any)?.name ?? objectId;
@@ -826,10 +1247,11 @@ export class MemoryManager {
       this.db.prepare('UPDATE facts SET is_latest = 0, updated_at = ? WHERE title = ? AND is_latest = 1').run(now, input.title);
 
       this.db.prepare(`
-        INSERT INTO facts (id, title, content, source, source_detail, version, is_latest, scene_tag, related_entity_ids, creator, importance, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+        INSERT INTO facts (id, title, content, source, source_detail, version, is_latest, scene_tag,
+          related_entity_ids, creator, importance, confidence, evidence_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(id, input.title, input.content, input.source ?? 'user_said', input.source_detail ?? null,
-        newVersion, sceneTag, relatedEntityIds, input.creator ?? null, 3, now, now);
+        newVersion, sceneTag, relatedEntityIds, input.creator ?? null, 3, MemoryManager.DEFAULT_CONFIDENCE, now, now);
 
       const fact = this.db.prepare('SELECT * FROM facts WHERE id = ?').get(id) as any as Fact;
       this.semanticIndex?.index(fact.id, 'facts', `${fact.title} ${fact.content}`).catch((err: any) => log.warn('Semantic index failed:', err));
@@ -837,10 +1259,11 @@ export class MemoryManager {
     }
 
     this.db.prepare(`
-      INSERT INTO facts (id, title, content, source, source_detail, version, is_latest, scene_tag, related_entity_ids, creator, importance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)
+      INSERT INTO facts (id, title, content, source, source_detail, version, is_latest, scene_tag,
+        related_entity_ids, creator, importance, confidence, evidence_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(id, input.title, input.content, input.source ?? 'user_said', input.source_detail ?? null,
-      sceneTag, relatedEntityIds, input.creator ?? null, 3, now, now);
+      sceneTag, relatedEntityIds, input.creator ?? null, 3, MemoryManager.DEFAULT_CONFIDENCE, now, now);
 
     const fact = this.db.prepare('SELECT * FROM facts WHERE id = ?').get(id) as any as Fact;
     this.semanticIndex?.index(fact.id, 'facts', `${fact.title} ${fact.content}`).catch((err: any) => log.warn('Semantic index failed:', err));
@@ -861,7 +1284,7 @@ export class MemoryManager {
 
   async rollbackFact(title: string, version: number): Promise<Fact> {
     const now = Date.now();
-    this.db.prepare('UPDATE facts SET is_latest = 0 WHERE title = ? AND is_latest = 1').run(title);
+    this.db.prepare('UPDATE facts SET is_latest = 0, confidence = confidence * ? WHERE title = ? AND is_latest = 1').run(MemoryManager.ROLLBACK_CONFIDENCE_MULTIPLIER, title);
     this.db.prepare('UPDATE facts SET is_latest = 1, updated_at = ? WHERE title = ? AND version = ?').run(now, title, version);
     return this.db.prepare('SELECT * FROM facts WHERE title = ? AND is_latest = 1').get(title) as any as Fact;
   }
@@ -908,11 +1331,108 @@ export class MemoryManager {
     return this.db.prepare(sql).all(...params) as any as Fact[];
   }
 
+  // ─── UserProfile ────────────────────────────────────────────
+
+  /** 自上次画像更新以来累积新证据计数器 +1 */
+  bumpProfilePending(dimension: string): void {
+    this.db.prepare(
+      'UPDATE user_profile SET pending_count = pending_count + 1 WHERE dimension = ?'
+    ).run(dimension);
+  }
+
+  /** 创建或刷新用户画像条目（LLM 生成摘要后调用，清零 pending_count） */
+  upsertUserProfile(input: UserProfileInput): UserProfile {
+    const now = Date.now();
+    const existing = this.db.prepare(
+      'SELECT id FROM user_profile WHERE dimension = ?'
+    ).get(input.dimension) as { id: string } | undefined;
+
+    if (existing) {
+      this.db.prepare(`
+        UPDATE user_profile SET summary = ?, evidence_ids = ?, pending_count = 0,
+          confidence = ?, last_updated_at = ?
+        WHERE id = ?
+      `).run(input.summary, input.evidence_ids ?? null, input.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, now, existing.id);
+      return this.db.prepare('SELECT * FROM user_profile WHERE id = ?').get(existing.id) as any as UserProfile;
+    }
+
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO user_profile (id, dimension, summary, evidence_ids, confidence, last_updated_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, input.dimension, input.summary, input.evidence_ids ?? null, input.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, now, now);
+    return this.db.prepare('SELECT * FROM user_profile WHERE id = ?').get(id) as any as UserProfile;
+  }
+
+  // ─── TimeAnchor ──────────────────────────────────────────────
+
+  addTimeAnchor(input: TimeAnchorInput): TimeAnchor {
+    return this.timelineInference!.addAnchor(input);
+  }
+
+  // ─── TopicTracker ────────────────────────────────────────────
+
+  upsertTopic(input: TopicTrackerInput): TopicTracker {
+    return this.topicContinuity!.upsertTopic({
+      topic: input.topic,
+      topicType: input.topic_type ?? 'interest',
+      priority: input.priority ?? 3,
+      contextSummary: input.context_summary,
+    });
+  }
+
+  async findEntityByName(name: string): Promise<Entity | null> {
+    return this.resolveEntity(name);
+  }
+
+  // ─── BehaviorPattern ─────────────────────────────────────────
+
+  upsertBehaviorPattern(input: BehaviorPatternInput): BehaviorPattern {
+    const now = Date.now();
+    const existing = this.db.prepare(
+      'SELECT id FROM behavior_patterns WHERE description = ?'
+    ).get(input.description) as { id: string } | undefined;
+
+    if (existing) {
+      this.db.prepare(`
+        UPDATE behavior_patterns SET sample_count = sample_count + 1, confidence = ?,
+          interval_hours = ?, last_observed = ?, next_expected = ?, updated_at = ?
+        WHERE id = ?
+      `).run(input.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, input.interval_hours ?? null, now, input.interval_hours ? now + input.interval_hours * 3600000 : null, now, existing.id);
+      return this.db.prepare('SELECT * FROM behavior_patterns WHERE id = ?').get(existing.id) as any as BehaviorPattern;
+    }
+
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO behavior_patterns (id, pattern_type, description, related_entity_ids,
+        confidence, sample_count, interval_hours, last_observed, next_expected, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+    `).run(id, input.pattern_type, input.description, input.related_entity_ids ?? null,
+      input.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, input.interval_hours ?? null, now,
+      input.interval_hours ? now + input.interval_hours * 3600000 : null, now, now);
+    return this.db.prepare('SELECT * FROM behavior_patterns WHERE id = ?').get(id) as any as BehaviorPattern;
+  }
+
+  // ─── 置信度 & 证据常量 ───────────────────────────────────
+
+  /** 新实体/事实/关系的默认置信度 */
+  private static readonly DEFAULT_CONFIDENCE = 0.6;
+  /** 内容变化时置信度增量 */
+  private static readonly CONFIDENCE_INCREMENT_CHANGED = 0.05;
+  /** 内容未变时置信度增量（仅更新引用计数） */
+  private static readonly CONFIDENCE_INCREMENT_UNCHANGED = 0.01;
+  /** 关系失效时置信度乘数 */
+  private static readonly DEACTIVATE_CONFIDENCE_MULTIPLIER = 0.3;
+  /** 事实回滚时置信度乘数 */
+  private static readonly ROLLBACK_CONFIDENCE_MULTIPLIER = 0.5;
+
   // ─── 融合搜索（语义向量 + FTS5 加权） ──────────────────
 
   /** 语义/FTS5 融合权重，参照 OpenClaw 默认 7:3 */
   private static readonly VECTOR_WEIGHT = 0.7;
   private static readonly FTS5_WEIGHT = 0.3;
+  /** FTS5 融合时保留 FTS5 内容的长度阈值（语义内容 < FTS5 * 阈值时替换） */
+  private static readonly FTS5_CONTENT_LENGTH_THRESHOLD = 0.7;
 
   async search(options: MemorySearchOptions): Promise<MemorySearchResult[]> {
     const { query, source, scene_tag, scope, limit = 10, minImportance } = options;
@@ -945,9 +1465,14 @@ export class MemoryManager {
       const existing = fused.get(key);
       if (existing) {
         existing.ftsScore = normFts[i];
-        // 更新 content 为 FTS5 的完整内容（语义索引 textSummary 被截断到 200 字符）
-        existing.r.content = r.content;
-        existing.r.scene_tag = r.scene_tag;
+        // 仅当语义搜索内容明显被截断时才用 FTS5 补充（FTS5 content 含 CJK 分词空格，语义 lookback 已获取清洁内容）
+        if (existing.r.content.length < r.content.length * MemoryManager.FTS5_CONTENT_LENGTH_THRESHOLD) {
+          existing.r.content = r.content;
+        }
+        // 语义搜索新表 lookback 返回空 scene_tag，FTS5 可能有实际值
+        if (!existing.r.scene_tag && r.scene_tag) {
+          existing.r.scene_tag = r.scene_tag;
+        }
       } else {
         fused.set(key, { r, semanticScore: 0, ftsScore: normFts[i] });
       }
@@ -1084,6 +1609,11 @@ export class MemoryManager {
         facts: { ids: [], titleField: 'title', contentField: 'content' },
         events: { ids: [], titleField: 'content', contentField: 'content' },
         episodes: { ids: [], titleField: 'title', contentField: 'narrative' },
+        time_anchors: { ids: [], titleField: 'reason', contentField: 'reason' },
+        topic_tracker: { ids: [], titleField: 'topic', contentField: 'context_summary' },
+        user_profile: { ids: [], titleField: 'dimension', contentField: 'summary' },
+        behavior_patterns: { ids: [], titleField: 'description', contentField: 'description' },
+        groups: { ids: [], titleField: 'name', contentField: 'summary' },
       };
 
       for (const sr of filtered) {
@@ -1094,11 +1624,14 @@ export class MemoryManager {
 
       // 批量查询完整内容
       const contentMap = new Map<string, { title: string; content: string; scene_tag: string }>();
+      // 新表（V11）没有 scene_tag 列，分开处理避免 SQL 错误
+      const tablesWithoutSceneTag = new Set(['time_anchors', 'topic_tracker', 'user_profile', 'behavior_patterns']);
       for (const [table, { ids, titleField, contentField }] of Object.entries(tableMap)) {
         if (ids.length === 0) continue;
         const placeholders = ids.map(() => '?').join(',');
+        const sceneCol = tablesWithoutSceneTag.has(table) ? `'' as scene_tag` : 'scene_tag';
         const rows = this.db.prepare(
-          `SELECT id, ${titleField} as title, ${contentField} as content, scene_tag FROM '${table}' WHERE id IN (${placeholders})`
+          `SELECT id, ${titleField} as title, ${contentField} as content, ${sceneCol} FROM '${table}' WHERE id IN (${placeholders})`
         ).all(...ids) as any[];
         for (const row of rows) {
           contentMap.set(row.id, {
@@ -1217,7 +1750,7 @@ export class MemoryManager {
 
       let parsedMetadata: Record<string, unknown> | null = null;
       if (entity.metadata) {
-        try { parsedMetadata = JSON.parse(entity.metadata); } catch { /* ignore */ }
+        try { parsedMetadata = JSON.parse(entity.metadata); } catch { /* metadata 非有效 JSON，降级为 null */ }
       }
 
       enriched.push({
@@ -1262,23 +1795,96 @@ export class MemoryManager {
   // ─── Prompt 注入 ──────────────────────────────────────────
 
   async buildContext(options: BuildContextOptions = {}): Promise<string | null> {
-    const { scene, maxTokens = 800, recentHours = 24 } = options;
+    if (!this.initialized) return null;
+    const { scene, maxTokens = 800, recentHours = 24, messages: optMessages } = options;
     const parts: string[] = [];
     const now = Date.now();
+    const messages = optMessages ?? this.recentMessages;
 
-    // L0: 用户核心画像（top-5 preference entities）
+    // 每次调用重置剪枝标志，防止上次高 toolDensity 泄漏（Stage A 会重新设置）
+    this._skipPassiveInjection = false;
+
+    // Stage A: 上下文信号采集（纯统计，<1ms）
+    if (messages && messages.length > 0) {
+      const signals = this.signalCollector.collect(messages, this.lastActiveAt, scene ?? '');
+      const signalLines: string[] = [];
+      if (signals.idleHours > 24) {
+        signalLines.push(`用户已离线 ${signals.idleHours.toFixed(1)} 小时`);
+      }
+      if (signals.toolDensity === 'high') {
+        signalLines.push('当前工具调用密度高，减少主动行为');
+      }
+      if (signalLines.length > 0) {
+        parts.push('## 上下文信号\n');
+        for (const line of signalLines) {
+          parts.push(`- ${line}`);
+        }
+        parts.push('');
+      }
+      // 高工具密度时跳过 Stage E/F（剪枝）
+      this._skipPassiveInjection = signals.toolDensity === 'high';
+    }
+
+    // Stage D: 用户画像摘要（entities preference + user_profile 维度）
     const prefs = this.db.prepare(
       `SELECT name, summary, belief FROM entities WHERE type = 'preference' ORDER BY importance DESC LIMIT 5`
     ).all() as any[];
-    if (prefs.length > 0) {
+    const profiles = this.db.prepare(
+      `SELECT dimension, summary FROM user_profile WHERE confidence >= 0.5 ORDER BY last_updated_at DESC LIMIT 8`
+    ).all() as any[];
+    if (prefs.length > 0 || profiles.length > 0) {
       parts.push('## 用户画像\n');
       for (const p of prefs) {
         parts.push(`- **${p.name}**: ${p.summary}${p.belief ? ` (核心信念: ${p.belief})` : ''}`);
       }
+      for (const p of profiles) {
+        // 避免与 entities preference 冗余
+        const dup = prefs.some((ep: any) => ep.name === p.dimension || (ep.summary && ep.summary.includes(p.dimension)));
+        if (!dup) {
+          parts.push(`- [${p.dimension}] ${p.summary}`);
+        }
+      }
       parts.push('');
     }
 
-    // L1: 场景相关记忆
+    // Stage C: 时间锚点检查（不可跳过）
+    const upcoming = this.timelineInference.checkUpcoming(24);
+    if (upcoming.length > 0) {
+      parts.push('## 即将到期的提醒\n');
+      for (const r of upcoming) {
+        const hoursLeft = Math.round(r.triggerIn / 3600000 * 10) / 10;
+        parts.push(`- [${r.priority >= 4 ? '高优先' : '提醒'}] ${r.description} (${hoursLeft}小时后)`);
+      }
+      parts.push('');
+    }
+
+    // Stage E: 待跟进话题（高工具密度时跳过）
+    if (!this._skipPassiveInjection) {
+      const pendingTopics = this.topicContinuity.getPendingTopics(5);
+      if (pendingTopics.length > 0) {
+        parts.push('## 待跟进话题\n');
+        for (const t of pendingTopics) {
+          const statusLabel = t.status === 'followed_up' ? '已跟进' : '待跟进';
+          const typeLabel = { goal: '目标', plan: '计划', interest: '兴趣', decision_pending: '待决策' }[t.topicType] || '话题';
+          parts.push(`- [${statusLabel}][${typeLabel}] ${t.topic}${t.contextSummary ? ` — ${t.contextSummary.slice(0, 100)}` : ''}`);
+        }
+        parts.push('');
+      }
+    }
+
+    // Stage F: 行为偏差检测（高工具密度时跳过）
+    if (!this._skipPassiveInjection) {
+      const missed = this.patternRecognizer.detectMissedBehaviors();
+      if (missed.length > 0) {
+        parts.push('## 行为偏差\n');
+        for (const m of missed.slice(0, 3)) {
+          parts.push(`- ${m.suggestion}`);
+        }
+        parts.push('');
+      }
+    }
+
+    // Stage B: 场景相关记忆（语义搜索 + FTS5 RRF 融合）
     let sceneCondition = '';
     const sceneParams: any[] = [];
     if (scene) {
@@ -1369,7 +1975,40 @@ export class MemoryManager {
   // ─── Agent 事件处理 ──────────────────────────────────────
 
   async handleEventFromAgent(input: EventInput): Promise<Event> {
-    return this.recordEvent(input);
+    const event = await this.recordEvent(input);
+    const now = Date.now();
+
+    // ── 项目状态推演：检测 project 类型实体的事件，创建快照 ──
+    if (input.entityNames && input.entityNames.length > 0) {
+      for (const ename of input.entityNames) {
+        const entity = await this.resolveEntity(ename);
+        if (!entity || entity.type !== 'project') continue;
+
+        const phase = detectProjectPhase(input.content);
+        if (phase) {
+          const snapId = randomUUID();
+          this.db.prepare(`
+            INSERT INTO project_snapshots (id, project_id, phase, status, current_focus, snapshot_at)
+            VALUES (?, ?, ?, '进行中', ?, ?)
+          `).run(snapId, entity.id, phase, input.content.slice(0, 200), now);
+        }
+      }
+    }
+
+    // ── 偏好变更推演：检测 "改用/换成/切换" 模式 ──
+    if (input.operator) {
+      const changeMatch = input.content.match(/(?:改用|换成|切换到)\s*(.+)/);
+      if (changeMatch) {
+        const newValue = changeMatch[1].trim();
+        const changeId = randomUUID();
+        this.db.prepare(`
+          INSERT INTO relation_changes (id, subject_id, relation, old_value, new_value, reason, changed_at, operator)
+          VALUES (?, ?, 'preference', '', ?, ?, ?, ?)
+        `).run(changeId, input.operator, newValue, '事件推演：偏好变更', now, input.operator);
+      }
+    }
+
+    return event;
   }
 
   recordToolCall(toolName: string, sessionId?: string, dedupKey?: string): void {
@@ -1378,6 +2017,16 @@ export class MemoryManager {
     if (this.recentToolCalls.length > 50) {
       this.recentToolCalls = this.recentToolCalls.slice(-50);
     }
+  }
+
+  /** 记录用户活跃时间（每次用户消息时调用） */
+  recordActivity(): void {
+    this.lastActiveAt = Date.now();
+  }
+
+  /** 缓存最近消息供 ContextSignalCollector 使用（每次对话轮次前由 ChatSession 调用） */
+  setRecentMessages(messages: any[]): void {
+    this.recentMessages = messages.slice(-20);
   }
 
   wasMemoryStoredRecently(dedupKey: string, windowMs: number = 300000): boolean {
@@ -1414,6 +2063,7 @@ export class MemoryManager {
       }));
       await writeFile(this.pendingExtractionPath, JSON.stringify(compact), 'utf-8');
     } catch {
+      log.warn('savePendingExtraction: file write failed, memory extraction may be lost');
       // 写入失败不阻塞
     }
   }
@@ -1424,7 +2074,7 @@ export class MemoryManager {
       const { unlink } = await import('node:fs/promises');
       await unlink(this.pendingExtractionPath);
     } catch {
-      // 文件不存在或已清理，忽略
+      // 文件不存在或已清理 — 预期行为，无需告警
     }
   }
 
@@ -1446,6 +2096,7 @@ export class MemoryManager {
       await this.extractFromSession(messages);
       await this.clearPendingExtraction();
     } catch {
+      log.warn('processPendingExtractions: recovery failed, clearing stale file');
       // 文件损坏或处理失败，清理
       await this.clearPendingExtraction();
     }
@@ -1906,6 +2557,23 @@ ${text}`;
         'SELECT title, content FROM facts WHERE is_latest = 1 ORDER BY updated_at DESC LIMIT 10'
       ).all() as Array<{ title: string; content: string }>;
 
+      // V11 新表查询：表可能不存在于旧数据库，需要 tableExists 保护
+      const te = (name: string) => this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+
+      const topics = te('topic_tracker') ? this.db.prepare(
+        `SELECT topic, topic_type, context_summary FROM topic_tracker
+         WHERE status IN ('open', 'followed_up') ORDER BY last_mentioned_at DESC LIMIT 10`
+      ).all() as Array<{ topic: string; topic_type: string; context_summary: string | null }> : [];
+
+      const anchors = te('time_anchors') ? this.db.prepare(
+        `SELECT anchor_type, reason, trigger_time FROM time_anchors
+         WHERE is_active = 1 ORDER BY created_at DESC LIMIT 10`
+      ).all() as Array<{ anchor_type: string; reason: string | null; trigger_time: number | null }> : [];
+
+      const profiles = te('user_profile') ? this.db.prepare(
+        'SELECT dimension, summary FROM user_profile ORDER BY last_updated_at DESC LIMIT 10'
+      ).all() as Array<{ dimension: string; summary: string }> : [];
+
       const parts: string[] = [];
       if (entities.length > 0) {
         parts.push('## 已知实体');
@@ -1919,8 +2587,48 @@ ${text}`;
           parts.push(`- ${f.title}: ${f.content}`);
         }
       }
+      if (topics.length > 0) {
+        parts.push('## 已知话题');
+        for (const t of topics) {
+          parts.push(`- [${t.topic_type}] ${t.topic}${t.context_summary ? ` — ${t.context_summary.slice(0, 120)}` : ''}`);
+        }
+      }
+      if (anchors.length > 0) {
+        parts.push('## 已知时间锚点');
+        for (const a of anchors) {
+          const timeStr = a.trigger_time ? new Date(a.trigger_time).toISOString().slice(0, 10) : '无具体时间';
+          parts.push(`- [${a.anchor_type}] ${a.reason || '(无描述)'} (${timeStr})`);
+        }
+      }
+      if (profiles.length > 0) {
+        parts.push('## 已知用户画像');
+        for (const p of profiles) {
+          parts.push(`- [${p.dimension}] ${p.summary}`);
+        }
+      }
+      // 行为模式（去重用）
+      const behaviorPatterns = te('behavior_patterns') ? this.db.prepare(
+        'SELECT pattern_type, description FROM behavior_patterns ORDER BY updated_at DESC LIMIT 5'
+      ).all() as Array<{ pattern_type: string; description: string }> : [];
+      if (behaviorPatterns.length > 0) {
+        parts.push('## 已知行为模式');
+        for (const bp of behaviorPatterns) {
+          parts.push(`- [${bp.pattern_type}] ${bp.description}`);
+        }
+      }
+      // 群组（去重用）
+      const groupRows = te('groups') ? this.db.prepare(
+        'SELECT name, type, summary FROM groups ORDER BY updated_at DESC LIMIT 5'
+      ).all() as Array<{ name: string; type: string; summary: string | null }> : [];
+      if (groupRows.length > 0) {
+        parts.push('## 已知群组');
+        for (const g of groupRows) {
+          parts.push(`- ${g.name} (${g.type})${g.summary ? `: ${g.summary}` : ''}`);
+        }
+      }
       return parts.join('\n');
     } catch {
+      log.warn('buildExistingMemoryContext failed, extraction will lack dedup context');
       return '';
     }
   }
@@ -1935,11 +2643,11 @@ ${text}`;
     let episodeCount = 0;
     try {
       episodeCount = (this.db.prepare('SELECT COUNT(*) as n FROM episodes').get() as any).n;
-    } catch { /* episodes 表可能不存在 */ }
+    } catch { log.debug('getStats: episodes table not found'); }
     let ftsEntryCount = 0;
     try {
       ftsEntryCount = (this.db.prepare('SELECT COUNT(*) as n FROM memory_fts').get() as any).n;
-    } catch { /* FTS5 表可能为空 */ }
+    } catch { log.debug('getStats: memory_fts table not found'); }
 
     let dbSizeBytes = 0;
     try {
@@ -2155,6 +2863,7 @@ ${text}`;
       summary: row.summary, belief: row.belief,
       scene_tag: row.scene_tag ?? '', owner: row.owner ?? 'user',
       importance: row.importance ?? 3, ref_count: row.ref_count ?? 0,
+      confidence: row.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, evidence_count: row.evidence_count ?? 1,
       created_at: row.created_at, updated_at: row.updated_at,
       category: row.category ?? null, metadata: row.metadata ?? null,
     };
@@ -2165,7 +2874,12 @@ ${text}`;
       id: row.id, subject_id: row.subject_id, object_id: row.object_id,
       relation: row.relation, desc: row.desc,
       strength: row.strength ?? 3, is_active: row.is_active ?? 1,
-      scene_tag: row.scene_tag ?? '', created_at: row.created_at, updated_at: row.updated_at,
+      scene_tag: row.scene_tag ?? '',
+      confidence: row.confidence ?? MemoryManager.DEFAULT_CONFIDENCE, evidence_count: row.evidence_count ?? 1,
+      interaction_count: row.interaction_count ?? 1,
+      last_interaction_at: row.last_interaction_at ?? null,
+      role_context: row.role_context ?? null,
+      created_at: row.created_at, updated_at: row.updated_at,
     };
   }
 }

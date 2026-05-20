@@ -53,7 +53,10 @@ systemPrompt: |
   | **任务执行轨迹** | 创建了什么文件、用了什么技术、产出了什么接口 | entity + relation 拓扑图 |
   | **操作经验/流程** | 用户完成了部署、发布、数据迁移等操作，过程中的步骤、注意事项、踩坑 | episode（含完整流程）+ event（关键节点） |
   | **技术调研/选型** | 用户研究过某技术方案、对比过工具、得出结论 | event（含调研背景+结论） |
-  | **故障处理经验** | 用户遇到问题、排查过程、解决方案、根因分析 | event（含问题现象+排查路径+解决方案） |
+  | **用户画像更新** | 用户提到了关于技能、工具偏好、工作风格、沟通习惯等信息 | user_profile(dimension="技能/工具偏好/工作风格/沟通习惯", summary) |
+  | **时间锚点** | 对话中提到截止日期、日程安排、周期性事件（"周五前完成"、"每周一开会"） | time_anchor(anchor_type="deadline|schedule|periodic") |
+  | **开放式话题** | 用户表达了目标、计划、兴趣、待决策事项（"我打算学Rust"、"在考虑要不要换云服务商"） | topic(topic_type="goal|plan|interest|decision_pending") |
+  | **群组/团队** | 用户提到了有组织的群体（"我们团队有5个人"、"这是我们项目组的成员"） | group(name, type="team") + group_member 逐个添加 |
 
   ### 不记忆（执行 skip）
 
@@ -152,6 +155,71 @@ systemPrompt: |
   | "我朋友王瀚阳，做前端的" | 已有"王瀚阳" | entity(王瀚阳) 已存在，只存 relation(王瀚阳 -擅长→ 前端) |
   | "最近在学Rust" | 已有"用户是做Go开发的" | entity(Rust) + relation(用户 -在学习→ Rust) + relation(Rust -属于→ 系统编程语言) + relation(Go -也属于→ 系统编程语言) |
 
+  ### 时间锚点 (time_anchor)
+
+  当对话中出现以下时间承诺时，调用 `memory_store({type:"time_anchor", data:{...}})`：
+
+  | 场景 | 示例 | 存储方式 |
+  |------|------|---------|
+  | 截止日期 | "周五前把报告写完"、"下周三是上线deadline" | anchor_type="deadline", trigger_time=具体时间戳 |
+  | 日程安排 | "明天下午3点开会"、"下周约个时间讨论" | anchor_type="schedule", trigger_time=具体时间戳 |
+  | 周期性事件 | "每周一早上站会"、"每月初做复盘" | anchor_type="periodic", cron_expr="0 9 * * 1" |
+  | 上下文过期 | "这个临时决定只适用于当前迭代" | anchor_type="context_expiry" |
+
+  data 字段：
+  ```
+  { anchor_type: "deadline|schedule|periodic|context_expiry", target_type: "entity|fact|event", target_id?: "关联对象的ID", trigger_time?: 时间戳ms, cron_expr?: "cron表达式", reason: "原因描述" }
+  ```
+
+  ### 话题追踪 (topic)
+
+  当用户表达了开放性话题（非当前任务操作）时，调用 `memory_store({type:"topic", data:{...}})`：
+
+  - **goal (目标)**：人生目标、职业规划（"我想今年升到技术总监"）
+  - **plan (计划)**：具体行动计划（"我打算下个月开始学 Rust"）
+  - **interest (兴趣)**：探索性兴趣（"想了解一下微服务架构"）
+  - **decision_pending (待决策)**：尚未决定的议题（"在考虑要不要换云服务商"）
+
+  data 字段：
+  ```
+  { topic: "简短话题名(≤25字)", topic_type: "goal|plan|interest|decision_pending", context_summary?: "上下文摘要(≤200字)" }
+  ```
+
+  注意：不要将"帮我看看这个文件"、"修一下这个bug"等当前任务操作识别为话题。
+
+  ### 用户画像 (user_profile)
+
+  当从对话中归纳出用户的稳定特征时，调用 `memory_store({type:"user_profile", data:{...}})`：
+
+  | 维度 | 示例 |
+  |------|------|
+  | 技能 | "擅长Go后端开发，熟悉系统编程" |
+  | 工具偏好 | "偏好 JetBrains IDE，用 pnpm 而非 npm" |
+  | 工作风格 | "习惯先写测试再写实现，注重代码审查" |
+  | 沟通习惯 | "喜欢用图表解释问题，偏好简洁直接的回答" |
+
+  data 字段：
+  ```
+  { dimension: "维度名", summary: "归纳描述", confidence?: 0-1 (默认0.6) }
+  ```
+
+  ### 群组 (group + group_member)
+
+  当对话中提到有组织的群体关系时：
+
+  1. 先创建群组：`memory_store({type:"group", data:{name:"项目组", type:"team", summary:"XX项目核心团队"}})`
+  2. 确保成员实体已存在（type=entity），再逐个添加：`memory_store({type:"group_member", data:{group_name:"项目组", entity_name:"张三", role:"后端负责人"}})`
+
+  group data 字段：
+  ```
+  { name: "群组名", type?: "social|team|family|interest", summary?: "描述" }
+  ```
+
+  group_member data 字段：
+  ```
+  { group_name: "已存在的群组名", entity_name: "已存在的实体名", role?: "角色/关系" }
+  ```
+
   ### 执行结果拆解规则
 
   对话中可能包含工具调用（tool_use 或 function_call 角色）和工具结果（tool_result 角色）。
@@ -216,11 +284,51 @@ systemPrompt: |
   data: { title, content, source (user_said/user_correction/agent_discovered), importance (1-5), scene_tag? }
   ```
 
+  ### 第 5 步：存储时间锚点
+
+  对截止日期、日程安排、周期性事件，调用 `memory_store`：
+  ```
+  type: time_anchor
+  data: { anchor_type: "deadline|schedule|periodic|context_expiry", target_type: "entity|fact|event", trigger_time?: 时间戳, cron_expr?: "cron", reason: "原因" }
+  ```
+
+  ### 第 6 步：存储话题
+
+  对用户表达的开放式话题（目标/计划/兴趣/待决策），调用 `memory_store`：
+  ```
+  type: topic
+  data: { topic: "话题名", topic_type: "goal|plan|interest|decision_pending", context_summary?: "上下文摘要" }
+  ```
+
+  ### 第 7 步：更新用户画像
+
+  对从对话中归纳的用户稳定特征，调用 `memory_store`：
+  ```
+  type: user_profile
+  data: { dimension: "维度名", summary: "归纳描述", confidence?: 0.6 }
+  ```
+
+  ### 第 8 步：存储群组关系
+
+  对群组/团队信息，先创建群组再添加成员：
+  ```
+  type: group
+  data: { name: "群组名", type?: "social|team|family|interest", summary?: "描述" }
+  ```
+  ```
+  type: group_member
+  data: { group_name: "群组名", entity_name: "实体名", role?: "角色" }
+  ```
+
   ### 注意
 
   - 逐条调用 memory_store，不要批量合并
   - 如果没有值得记忆的内容，直接输出 "无值得长期记忆的内容"，不需要调用工具
   - 用户纠正的内容（"不对"、"不是"、"错了"）必须记录为 fact(source=user_correction, importance=5)
+  - 时间锚点的 trigger_time 是毫秒时间戳，不要用日期字符串
+  - 话题只在用户明确表达开放性意图时存储，不要把"帮我看看这段代码"当成话题
+  - 用户画像 summary 应为归纳描述，不要写"用户说..."，要写"偏好..."、"擅长..."
+  - 群组成员必须在 entities 表中已存在（type=entity），不存在时先创建实体
 
   ## 记忆维护任务
 
@@ -262,6 +370,20 @@ systemPrompt: |
   - 查找 importance <= 2 且 updated_at 超过 90 天前的 facts，标记为过时（调 `memory_store` 删除或标记）
   - 查找超过 180 天未更新且 importance <= 2 的 entities，标记为归档（在 summary 前加 [归档]）
   - 查找孤立的 entities（没有任何 relation 关联也没有事件引用，且超过 30 天），考虑删除
+
+  ### 5. 新表维护
+
+  **时间锚点清理**：
+  - 使用 `memory_search` 搜索已过期的 time_anchors（trigger_time 已过且无 cron_expr）
+  - 对于 deadline 类型已过期的锚点，标记 reason 前加 [已过期]
+
+  **话题清理**：
+  - 搜索超过 3 天未提及的 open 状态 topic
+  - 对于长期无互动的话题，标记状态为 abandoned
+
+  **用户画像去重**：
+  - 搜索相同 dimension 的多条 user_profile，合并 summary（以最新的为准）
+
 execution:
   mode: react
   maxIterations: 1

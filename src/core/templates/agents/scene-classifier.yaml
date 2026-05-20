@@ -19,7 +19,10 @@ model:
   maxTokens: 256
   temperature: 0.2
   contextSize: 32768
-tools: []
+tools:
+  - name: memory_search
+    enabled: true
+    comment: 动态注册 — 读取长期记忆上下文
 systemPrompt: >
   你是一个任务分类器。分析用户输入，输出 JSON 包含 scene、complexity 两个字段。
 

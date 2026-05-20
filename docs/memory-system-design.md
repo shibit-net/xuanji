@@ -310,24 +310,11 @@ CREATE INDEX idx_bp_type     ON behavior_patterns(pattern_type);
 
 #### groups + group_members — 社交群组
 
-```sql
-CREATE TABLE IF NOT EXISTS groups (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,
-  type        TEXT NOT NULL DEFAULT 'social',  -- 'social' | 'team' | 'family' | 'interest'
-  summary     TEXT,
-  scene_tag   TEXT NOT NULL DEFAULT '',
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
-);
+> **降级说明**：初始设计中包含完整的群组管理。实际审查后认为这套逻辑对个人 AI 管家过于沉重，当前实现中 **已删除 `SocialGraph.ts` 独立类和 `groups`/`group_members` 表**。社交维度通过 `relations` 表的 `role_context` 和 `interaction_count` 两列承载，约等于一条 SQL 的成本。
 
-CREATE TABLE IF NOT EXISTS group_members (
-  group_id    TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-  entity_id   TEXT NOT NULL REFERENCES entities(id),
-  role        TEXT,                       -- 'lead' | 'member' | 'guest'
-  joined_at   INTEGER NOT NULL,
-  PRIMARY KEY (group_id, entity_id)
-);
+```sql
+-- 此段 DDL 已从 migrateV11 中移除。保留文档记录为将来可能的扩展参考。
+-- 替代方案：relations 表的 role_context 列 + interaction_count 列
 ```
 
 ### 3.3 置信度演化规则（纯算法）
@@ -432,7 +419,7 @@ rollbackFact(title, version):
     │  后台聚合触发（跨会话）        │
     │  └─ 每周维护任务              │──→ PatternRecognizer      ─→ behavior_patterns
     │                                  TopicContinuity           topic_tracker
-    │                                  SocialGraph               relations.*
+    │                                  SocialGraph（已降级，见 §5.5） | relations.*
     │                                  ConfidenceEngine          confidence
     └─────────────────────────────┘
 ```
@@ -671,7 +658,7 @@ Agent 所有调用都失败 → 不阻塞 extractFromSession 的 return
 |--------|---------|------|------|
 | PatternRecognizer | 每日 | events 表（仅 user_said/archive） | behavior_patterns |
 | TopicContinuity | 每日 | events → 话题检测 | topic_tracker 状态更新 |
-| SocialGraph | 每周 | relations + user_profile | interaction_count 更新 |
+| 社交维度 | 无需独立任务 | relations 写入时自增 | role_context / interaction_count |
 | ConfidenceEngine | 每日 | 所有表 | confidence 衰减 |
 
 这些不是"实时"的——它们由调度器驱动，是**数据质量维护**而非**记忆录入**。
@@ -696,7 +683,7 @@ LLM 对话
        │           PatternRecognizer.extract() → behavior_patterns
        │           TopicContinuity.markStale() → topic_tracker status
        └── 每周: user_profile 更新（pending_count >= 3 的维度）
-                   SocialGraph 社交强度评估
+                   社交维度 role_context 列由 LLM 写入
 ```
 
 ### 4.6 与现有系统集成
@@ -705,14 +692,23 @@ LLM 对话
 
 | 文件 | 变更 |
 |------|------|
-| `memory-manager.yaml` | systemPrompt 增加 §4.3.2 的提取优先级和质量门控 |
+| `memory-manager.yaml` | systemPrompt 精简（删除与 `l0-base-memory-guide.yaml` 重复的提取指导） |
 | `MemoryManager.ts` | `extractFromSession()` 增加 `TopicContinuity.extractTopics()` 调用 |
 | `MemoryManager.ts` | `storeFact()`/`upsertEntity()` 增加 `pending_count++` 逻辑 |
 | `ChatSession.ts` | **删除 `detectCorrection()`**（41 行硬编码正则 + 调用） |
 
+**读权限修正**：所有前台 agent（coder、stock-analyst 等）应增加 `memory_search` 工具，使其在切换到前台时能感知记忆上下文。`memory_store` 不开放——只有 xuanji 和 memory-manager 写入记忆。
+
+| agent yaml | 变更 |
+|-----------|------|
+| `software-engineer.yaml` | tools 增加 `memory_search` |
+| `stock-analyst.yaml` | tools 增加 `memory_search` |
+| `ui-designer.yaml` | tools 增加 `memory_search` |
+| `product-manager.yaml` | tools 增加 `memory_search` |
+
 **不影响**：
 - L0/L1/L2 YAML 组件不需要修改
-- 子 agent 不需要修改（子 agent 不执行记忆提取）
+- 子 agent 不需要修改（子 agent 不执行记忆读写）
 - buildContext 不需要修改（录入和检索是分离的）
 
 ### 4.7 已清理的技术债：`detectCorrection()`
@@ -760,9 +756,10 @@ const correctionPatterns = [
 | `TimelineInference.ts` | ~200 | time_anchors CRUD + 到期检查 + 冲突检测 |
 | `TopicContinuity.ts` | ~200 | topic_tracker 话题检测 + 状态管理 |
 | `PatternRecognizer.ts` | ~250 | events 表模式提取 + 偏差检测 |
-| `SocialGraph.ts` | ~100 | groups + group_members 管理 + 社交强度 |
 
 **ConfidenceEngine 不独立成文件**：置信度是 entities/facts/relations 的行列属性，直接在 `MemoryManager` 的 CRUD 方法中写入。
+
+**SocialGraph 不独立成文件**：社交维度通过 `relations` 表的 `role_context` 和 `interaction_count` 两列承载（migrateV11 中已增加），查询走通用 `getRelations()` + `role_context` 过滤，不需要独立类。
 
 ### 5.2 TimelineInference
 
@@ -865,42 +862,14 @@ confidence 上限 0.8（保留不确定性给 LLM 决策）
 
 **每日运行**（非每周）的原因：daily routine 的偏差检测需要小时级精度。每周一次会导致"连续错过 2 次"= 2 周延迟，失去管家的及时性。
 
-### 5.5 SocialGraph
+### 5.5 社交维度
 
-```typescript
-class SocialGraph {
-  constructor(private db: Database.Database) {}
+社交维度**不设独立类**，通过 `relations` 表的 `role_context` 和 `interaction_count` 两列承载：
 
-  async addGroup(input): Promise<Group>;
-  async addMember(groupId, entityId, role): Promise<void>;
-  async getSocialContext(entityName: string): Promise<SocialContext>;
-}
-```
+- `role_context` — 关系语境（'work' / 'life' / 'sports'），由 LLM 在调用 `relate()` 时写入。查询走 `MemoryManager.getRelations()` + `role_context` 过滤
+- `interaction_count` — 在 `relate()` 写入时自动 +1。无独立维护任务
 
-**interaction_count 触发条件**：
-
-当以下任一情况发生时，increment interaction_count：
-1. LLM 创建 relation 类型为 'collaborates_with' | 'reports_to' | 'friends_with'
-   → interaction_count += 1
-2. memory_store 存储的 event/entity 包含该人物实体名
-   → interaction_count += 1（每 session 最多一次）
-3. SemanticIndex 搜索命中该人物 entity 且用户消息中提到互动
-   → 需要 cheapLLM 判断（session-end 异步）
-
-**无触发条件时 interaction_count 默认 1。**
-
-**社交强度评估**（每周维护任务）：
-
-```
-对 relations WHERE role_context IS NOT NULL:
-  活跃度 = interaction_count / max(1, (now - last_interaction_at) / 86400000) * 30
-  活跃度 > 5 → 'high'
-  活跃度 1-5 → 'normal'
-  活跃度 < 1 → 'cooling'
-  如果活跃度 < 0.3 且 interaction_count <= 2 → 标记为"可能已冷却"
-
-SocialGraph.getSocialContext(name) 返回包含活跃度标签的社交关系列表。
-```
+**降级原因**：初始设计中包含完整的 `SocialGraph.ts` 独立类、`groups` + `group_members` 表、每周社交强度评估。审查后认为这套逻辑更适合 CRM 场景，对个人 AI 管家过于沉重。两个列带来的数据足以支持"这个人跟我是工作关系还是朋友"这类查询。
 
 ### 5.6 buildContext 配套：ContextSignalCollector
 
@@ -1061,20 +1030,232 @@ memory_store({
 
 ---
 
-## 九、实现计划
+## 九、升级实施计划
 
-| Phase | 内容 | 工作量 | 依赖 |
-|-------|------|--------|------|
-| **Phase 0** | fix P11 (parseCompressionJson) + verify P6 | 0.5d | — |
-| **Phase 1** | xuanji.yaml systemPrompt 增强 | 0.5d | — |
-| **Phase 2** | 迁移 v11: 置信度列 + 新表 DDL | 1d | Phase 0 |
-| **Phase 3** | TimelineInference + buildContext Stage A-C | 2d | Phase 2 |
-| **Phase 4** | user_profile 生成 + buildContext Stage D | 1d | Phase 2 |
-| **Phase 5** | TopicContinuity + buildContext Stage E | 1.5d | Phase 2 |
-| **Phase 6** | SocialGraph + PatternRecognizer + 调度任务 | 2d | Phase 2 |
-| **总计** | | **~8.5d** | |
+### 9.1 总览
 
-Phase 顺序的考量：Phase 1（纯 prompt 工程，不改代码）在 Day 1 就能交付"管家感"的核心体验——即使后面的数据层还没建完，xuanji 的对话语气和记忆纪律已经升级了。Phase 2-6 逐步增强管家"知道什么"。
+整个升级分为 6 个 Phase + 1 个预备 Phase，共约 10 天。
+
+```
+Phase 0 (0.5d)  预备：清理已知技术债
+    ↓
+Phase 1 (0.5d)  Prompt 增强：管家人格上线
+    ↓
+Phase 2 (1.5d)  存储层：迁移 v11 + 新表 DDL
+    ↓
+Phase 3 (1d)    时间感知：TimelineInference + buildContext Stage C
+    ↓
+Phase 4 (1d)    话题延续：TopicContinuity + buildContext Stage E
+    ↓
+Phase 5 (1.5d)   推理引擎：PatternRecognizer + 社交列运维 + 调度任务
+    ↓
+Phase 6 (2d)    行为层：记忆录入管道完善 + ContextSignalCollector + 行为原语对齐
+```
+
+每个 Phase 的设计原则：
+- **可独立上线** — 每个 Phase 完成即可部署，不依赖后续 Phase
+- **向后兼容** — 新表/新列通过 migrateV11 增量迁移，不影响旧数据
+- **可回滚** — 每个 Phase 的代码变更不超过 3 个文件
+
+---
+
+### 9.2 Phase 0 — 预备：清理已知技术债
+
+**工作量**: 0.5d | **已完成**: `detectCorrection()` 删除（ChatSession.ts -41 行）
+
+| 任务 | 文件 | 工作量 |
+|------|------|--------|
+| 00. ✅ 删除 `detectCorrection()`（3 条正则 + 调用） | `ChatSession.ts` | 已做 |
+| 01. fix P11: parseCompressionJson 增加 ``` 代码块提取降级 | `MemoryManager.ts` parseCompressionJson | 0.25d |
+| 02. verify P6: 审计 `wasMemoryStoredRecently` dedupKey 传递路径 | `MemoryStoreTool.ts` + `ChatSession.ts` | 0.25d |
+
+**验收标准**：
+- P11: context-compressor agent 输出 markdown 混合 JSON 时不再静默降级
+- P6: 确认 PostToolUse 兜底链路的 `dedupKey` 参数正确传递
+
+---
+
+### 9.3 Phase 1 — Prompt 增强：管家人格上线
+
+**工作量**: 0.5d | **不涉及代码变更**，纯 prompt 工程
+
+| 任务 | 文件 | 工作量 |
+|------|------|--------|
+| 1.1 追加管家人格段落 | `xuanji.yaml` systemPrompt（§2.2 的三个段落） | 0.25d |
+| 1.2 增强记忆纪律段落 | `xuanji.yaml` systemPrompt（§4.2.4 的 Phase 2 指导） | 0.25d |
+
+**验收标准**：
+- xuanji 前台对话中，回复语气更自然（附时间来源、不刻意说"我记得"）
+- 纠正检测不再依赖正则，走 LLM 语义判断
+- 其他 agent（coder / ui-designer）前台时无变化（不加载 xuanji.yaml）
+
+**回滚方案**：恢复 `xuanji.yaml` 的旧 systemPrompt。纯文本变更，无数据影响。
+
+---
+
+### 9.4 Phase 2 — 存储层：迁移 v11 + 新表 DDL
+
+**工作量**: 1.5d | **数据层变更，0 风险回滚**
+
+| 任务 | 文件 | 工作量 | 步骤 |
+|------|------|--------|------|
+| 2.1 新增 migrateV11 DDL | `MemoryManager.ts` | 0.5d | 写 DDL（7 条 ALTER TABLE + 5 张新表 + 索引），放在 `migrateV10` 之后 |
+| 2.2 置信度写入逻辑 | `MemoryManager.ts` | 0.5d | 在 `upsertEntity()` / `storeFact()` / `relate()` / `deactivateRelation()` / `rollbackFact()` 中增加 confidence + evidence_count 更新逻辑 |
+| 2.3 pending_count 递增 | `MemoryManager.ts` | 0.25d | 在 `storeFact()` / `upsertEntity()` 中增加 `user_profile.pending_count++` 逻辑（前缀匹配 dimension） |
+| 2.4 新增类型定义 | `types.ts` | 0.25d | 新增 `TimeAnchor` / `UserProfile` / `BehaviorPattern` / `Group` / `GroupMember` / `TopicTracker` 接口 |
+
+**费用计算**: 5 张新表，按平均每张 200 条记录估算，SQLite 新增 ~50KB。现有 memory.db 通常在 1-5MB，总体增长 <10%。
+
+**验收标准**：
+- 启动时 migrateV11 成功执行，schema_version = 11
+- 执行 `memory_store({ type: 'fact', ... })` 后，facts 表 confidence = 0.6
+- 执行同一条 `memory_store` 两次后，evidence_count = 2
+- `user_profile` 表在相关写入后 `pending_count` 递增
+
+**回滚方案**：
+```sql
+-- 降级到 v10 的 DDL（保留表和数据，只删索引确保下次迁移幂等）
+DROP INDEX IF EXISTS idx_facts_confidence;
+DROP INDEX IF EXISTS idx_relations_confidence;
+DROP INDEX IF EXISTS idx_entities_confidence;
+DROP INDEX IF EXISTS idx_relations_interaction;
+DELETE FROM schema_version WHERE version = 11;
+```
+新表（`time_anchors` / `topic_tracker` / `user_profile` / `behavior_patterns`）的数据有则保留，无则空表不影响旧逻辑。
+
+---
+
+### 9.5 Phase 3 — 时间感知：TimelineInference
+
+**工作量**: 1d | **新文件，无侵入**
+
+| 任务 | 文件 | 工作量 | 步骤 |
+|------|------|--------|------|
+| 3.1 新建 TimelineInference | `src/core/memory/TimelineInference.ts` | 0.5d | 实现 `addAnchor()` / `checkUpcoming()` / `detectConflicts()` |
+| 3.2 注入 MemoryManager | `MemoryManager.ts` | 0.25d | MemoryManager 新增 `timelineInference` 属性，init() 时创建 |
+| 3.3 buildContext Stage C | `MemoryManager.ts` `buildContext()` | 0.25d | 调用 `timelineInference.checkUpcoming(24)`，注入结果到 prompt |
+
+**验收标准**：
+- 通过 `memory_store` 写入一条带时间锚点的事实后，`time_anchors` 表有记录
+- 会话开头，如果 24 小时内有到期事务，prompt 中出现 `【提醒】` 段
+- 冲突检测：同一时间段的两个锚点被标记为冲突
+
+---
+
+### 9.6 Phase 4 — 话题延续：TopicContinuity
+
+**工作量**: 1d | **新文件 + extractFromSession 增强**
+
+| 任务 | 文件 | 工作量 | 步骤 |
+|------|------|--------|------|
+| 4.1 新建 TopicContinuity | `src/core/memory/TopicContinuity.ts` | 0.5d | 实现 `extractTopics()`（关键词初筛 + cheapLLM 确认）/ `getPendingTopics()` / `markStale()` |
+| 4.2 注入 MemoryManager | `MemoryManager.ts` | 0.25d | MemoryManager 新增 `topicContinuity` 属性，init() 时创建 |
+| 4.3 extractFromSession 集成 | `MemoryManager.ts` `extractFromSession()` | 0.25d | 在提取完成后调用 `topicContinuity.extractTopics(messages)` |
+
+**验收标准**：
+- 会话包含"想学 Rust" → session-end 后 `topic_tracker` 新增一条 `status=open` 记录
+- 会话包含"帮我看下这个报错" → 不被创建为话题
+- 连续 3 次会话未提及某话题 → `status` 变为 `abandoned`
+
+---
+
+### 9.7 Phase 5 — 推理引擎 + 调度任务
+
+**工作量**: 1.5d | **两个新文件 + Scheduler 增强**
+
+| 任务 | 文件 | 工作量 | 步骤 |
+|------|------|--------|------|
+| 5.1 新建 PatternRecognizer | `src/core/memory/PatternRecognizer.ts` | 0.75d | 实现 `extractPatterns()`（只扫 user_said/archive event）/ `detectMissedBehaviors()` / 每日调度 |
+| 5.2 relations 社交列运维 | `MemoryManager.ts` | 0.25d | `interaction_count` 在每次 `relate()` 写入时 +1，`role_context` 由 LLM 通过 `memory_store` 写入。**不设 SocialGraph 独立类、不设 groups/group_members 表** |
+| 5.3 user_profile 更新任务 | `MemoryManager.ts` 或新文件 | 0.25d | 每周任务：查 `pending_count >= 3` → cheapLLM 生成摘要 → 更新 `summary` + `pending_count = 0` |
+| 5.4 调度器注册 | `SessionFactory.ts` 或 `Scheduler.ts` | 0.25d | 注册 2 个 system cronjob（每日 + 每周） |
+| 5.5 confidence 衰减任务 | `MemoryManager.ts` | 0.25d | `decayAll()` 方法实现 Ebbinghaus 指数衰减 |
+
+**社交图谱降级说明**：最初设计中包含 `SocialGraph.ts` 独立类、`groups` + `group_members` 表、每周社交强度评估。审查后认为这套逻辑更适合 CRM 场景，对个人 AI 管家过于沉重。降级方案：
+- 保留 `role_context` 列（一条 ALTER TABLE，零维护成本）
+- 保留 `interaction_count` 列（`relate()` 时自动 +1，无独立任务）
+- **删除** `SocialGraph.ts` 独立类（~140 行）
+- **删除** `groups` + `group_members` 表（2 张表）
+- **删除** 每周社交强度评估任务
+- 社交上下文查询走通用 `getRelations()` + `role_context` 过滤即可
+
+**验收标准**：
+- PatternRecognizer: 同一时段事件 ≥3 次 → `behavior_patterns` 新增 `pattern_type=cycle`
+- `role_context` 和 `interaction_count` 在 `relate()` 写入时被填充
+- user_profile: 在相关特征积累 3 条证据后自动更新摘要
+- 置信度: `confidence *= e^(-0.05)` 正确计算
+
+---
+
+### 9.8 Phase 6 — 行为层对齐 + 记忆录入管道完善
+
+**工作量**: 2d | **接口对齐 + memory-manager.yaml 增强 + 所有 agent yaml**
+
+| 任务 | 文件 | 工作量 | 步骤 |
+|------|------|--------|------|
+| 6.1 ContextSignalCollector | `MemoryManager.ts` `buildContext()` 内新增 Stage A | 0.5d | 纯统计：对话频率/消息长度/工具调用密度/上次活跃时间/当前场景 |
+| 6.2 memory-manager.yaml prompt 精简 | `memory-manager.yaml` | 0.5d | 删除与 `l0-base-memory-guide.yaml` 重复的提取指导，保留会话完整性审查 + 数据维护 + 话题确认职责 |
+| 6.3 buildContext Stage B/D/E/F 对齐 | `MemoryManager.ts` `buildContext()` | 0.5d | Stage B（RRF 语义检索）+ D（user_profile）+ E（topic_tracker）+ F（behavior_patterns） |
+| 6.4 前台 agent 读权限对齐 | 4 个 yaml 文件 | 0.25d | `software-engineer.yaml` / `stock-analyst.yaml` / `ui-designer.yaml` / `product-manager.yaml` 增加 `memory_search` 工具 |
+| 6.5 学习反馈闭环 | `MemoryManager.ts` + 调度任务 | 0.25d | 每周扫描 events(scene_tag=反馈) → 聚类 → 动态调整行为优先级 |
+
+**验收标准**：
+- buildContext 输出的 prompt 中包含对话信号（toolDensity / dialogFrequency）
+- xuanji 前台时 buildContext 注入完整（提醒+话题+画像+偏差）
+- 其他 agent 前台时 buildContext 仅注入通用检索结果
+- 用户连续 3 次忽略同类提醒 → 该提醒优先级自动降级
+
+---
+
+### 9.9 依赖关系图
+
+```
+Phase 0 ──────────────────────────────────────────────────
+  │
+  ├── Phase 1（纯 prompt，无依赖）
+  │
+  ├── Phase 2（存储层，无外部依赖）
+  │     │
+  │     ├── Phase 3（TimelineInference，依赖 Phase 2）
+  │     │
+  │     ├── Phase 4（TopicContinuity，依赖 Phase 2）
+  │     │
+  │     └── Phase 5（PatternRecognizer + 社交列运维，依赖 Phase 2）
+  │            │
+  │            └── Phase 6（行为层对齐，依赖 Phase 3+4+5）
+  │
+  └── 所有 Phase 完成后 → deploy
+```
+
+**关键路径**: Phase 0 → Phase 2 → Phase 5 → Phase 6（约 5 天）
+**旁路**: Phase 1（0.5d）+ Phase 3（1d）+ Phase 4（1d）可并行执行
+
+---
+
+### 9.10 回滚策略
+
+每个 Phase 独立回滚：
+
+| Phase | 回滚操作 | 数据影响 |
+|-------|---------|---------|
+| 0 | git revert ChatSession.ts 变更 | 无 |
+| 1 | 恢复 xuanji.yaml 旧 systemPrompt | 无 |
+| 2 | git revert migrateV11 + 新表 DDL（schema_version 回退到 10） | 新表数据可保留，旧逻辑忽略新表 |
+| 3 | git remove TimelineInference.ts + revert buildContext | 无（新表数据被忽略） |
+| 4 | git remove TopicContinuity.ts + revert extractFromSession | 无 |
+| 5 | git remove PatternRecognizer.ts + revert scheduler | 无 |
+| 6 | git revert buildContext + memory-manager.yaml | 无 |
+
+---
+
+### 9.11 测试策略
+
+| 类型 | 覆盖范围 | 方式 | 频次 |
+|------|---------|------|------|
+| 迁移测试 | migrateV11 幂等性 | 备份现有 memory.db → 启动 xuanji → 检查 schema_version | 每次 Phase 2 变更 |
+| 功能测试 | 各 Phase 验收标准 | 手动执行对应场景 + 检查 SQLite 表 | 每个 Phase 完成时 |
+| 回归测试 | 记忆搜索/存储 | 执行旧场景（记忆搜索、session-end extraction）确认未退化 | Phase 2+4+6 |
+| prompt 测试 | Prompt 输出检查 | 检查 buildContext 输出是否包含预期段落 | Phase 1+6 |
 
 ---
 

@@ -644,12 +644,20 @@ export class SessionFactory {
         });
 
         scheduler.customActions.set('memory-maintenance', async () => {
-          log.info('[Memory] Weekly maintenance triggered — running decay + agent tasks');
+          log.info('[Memory] Daily maintenance triggered');
           try {
-            // 衰减高频记忆的 access_count，防止永久垄断
             memoryManager.decayFactAccess();
+            memoryManager.runDailyMaintenance();
+          } catch (err) {
+            log.error('[Memory] Daily maintenance failed:', err);
+          }
+        });
+
+        scheduler.customActions.set('weekly-maintenance', async () => {
+          log.info('[Memory] Weekly maintenance triggered');
+          try {
             const stats = memoryManager.getStats();
-            const message = `请执行记忆维护任务：
+            const message = `请执行每周记忆维护任务：
 
 ## 当前记忆统计
 - 实体数: ${stats.entityCount}
@@ -661,17 +669,15 @@ export class SessionFactory {
 请委派记忆管理机器人完成以下任务：
 
 1. **去重**：查找 name+type 重复的实体，合并为一个，更新所有关联关系
-2. **合并**：查找 content 相似度高的 facts（Jaccard > 0.8），合并为单一事实
-3. **关联**：检查是否存在以下情况，如果有则建立 relation：
-   - 两个实体有相同或相似的 category 但没有关联关系 → 建立 relation(实体A -同属于→ 类别)
-   - 事件中提到的实体之间没有明确的关系 → 根据事件上下文推断并建立
-   - 用户频繁同时提到两个实体（多次共现）→ 建立 relation(实体A -相关于→ 实体B)
-4. **清理**：标记 importance <= 2 且超过 90 天未更新的低价值数据`;
+2. **合并**：查找 content 相似度高的 facts，合并为单一事实
+3. **关联**：检查同 category 实体是否缺少 relation，事件中实体之间是否缺关系
+4. **清理**：标记 importance <= 2 且超过 90 天未更新的低价值数据
+5. **画像更新**：检查 user_profile 中 pending_count >= 3 的维度，重新生成摘要`;
 
             if (scheduler.sessionTrigger) {
               await scheduler.sessionTrigger(message);
             } else {
-              log.warn('[Memory] No sessionTrigger available for maintenance');
+              log.warn('[Memory] No sessionTrigger available for weekly LLM tasks');
             }
           } catch (err) {
             log.error('[Memory] Weekly maintenance failed:', err);
@@ -690,13 +696,27 @@ export class SessionFactory {
           system: true,
         });
         await scheduler.addCron({
-          id: 'memory-maintenance',
+          id: 'memory-maintenance-daily',
           userId,
           type: 'daily',
           hour: 3,
           minute: 0,
           action: 'custom',
           params: { handler: 'memory-maintenance' },
+          description: '每日记忆维护：置信度衰减 + 行为模式提取 + 话题静默标记',
+          system: true,
+        });
+
+        await scheduler.addCron({
+          id: 'memory-maintenance-weekly',
+          userId,
+          type: 'weekly',
+          hour: 4,
+          minute: 0,
+          dayOfWeek: 1, // 周一
+          action: 'custom',
+          params: { handler: 'weekly-maintenance' },
+          description: '每周记忆维护：用户画像更新 + LLM 深度清理',
           system: true,
         });
 

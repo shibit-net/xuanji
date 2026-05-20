@@ -47,7 +47,7 @@ describe('MemoryManager', () => {
   // ─── 初始化 & Schema ─────────────────────────────────────
 
   describe('init', () => {
-    it('应创建 8 张业务表 + schema_version + FTS5 表', () => {
+    it('应创建核心业务表 + schema_version + FTS5 表', () => {
       const tables = manager.dbInstance.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
       ).all() as any[];
@@ -58,19 +58,26 @@ describe('MemoryManager', () => {
       expect(names).toContain('relation_changes');
       expect(names).toContain('events');
       expect(names).toContain('facts');
-      expect(names).toContain('project_snapshots');
       expect(names).toContain('episodes');
       expect(names).toContain('episode_entities');
       expect(names).toContain('schema_version');
       expect(names).toContain('memory_fts');
+      // V11 新增
+      expect(names).toContain('time_anchors');
+      expect(names).toContain('topic_tracker');
+      expect(names).toContain('user_profile');
+      expect(names).toContain('behavior_patterns');
+      expect(names).toContain('groups');
+      expect(names).toContain('group_members');
     });
 
-    it('schema_version 应包含 v1-v6 迁移', () => {
+    it('schema_version 应包含 v1-v11 迁移', () => {
       const rows = manager.dbInstance.prepare(
         'SELECT version FROM schema_version ORDER BY version'
       ).all() as any[];
       const versions = rows.map((r: any) => r.version);
-      for (let v = 1; v <= 6; v++) {
+      // V3 已跳过，V1-V2 + V4-V11 均应存在
+      for (const v of [1, 2, 4, 5, 6, 7, 8, 9, 10, 11]) {
         expect(versions).toContain(v);
       }
     });

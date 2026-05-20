@@ -2,7 +2,7 @@ id: base-memory-guide
 name: Memory Guide
 layer: L0
 priority: 80
-estimatedTokens: 700
+estimatedTokens: 1100
 requiredTools:
   - memory_search
   - memory_store
@@ -65,6 +65,10 @@ content: |
   | **任务执行结果** | 创建了文件、依赖了模块、用了什么技术 | entity + relation 拓扑图 |
   | **操作经验/流程** | 完成了部署、发布、迁移、故障排查等操作（无论成功或失败） | episode（含步骤+注意事项+踩坑记录）|
   | **技术调研** | 研究/对比/评估了技术方案、框架、工具 | event（含调研背景+对比结论+选择理由）|
+  | **时间锚点** | "下次/每周/月底/到时候/别忘了/提醒我" 或对话中自然出现的未来时间承诺 | time_anchor（anchor_type=commitment/deadline/reminder/anniversary）|
+  | **开放式话题** | "我想学/想试/想了解/有空去/考虑要不要/打算研究" — 表达了长期兴趣但未立即行动 | topic（topic_type=goal/plan/interest/decision_pending）|
+  | **用户画像更新** | 用户自述了身份、角色、能力、局限、性格特质、生活环境 | user_profile（dimension 如 "技能"、"工作角色"、"个人偏好模式"）|
+  | **群组/团队** | 用户提到了团队、工作组、公司部门、社群、家庭等多人组织 | group + group_member（先建 group，再 add member 关联成员实体）|
 
   **不处理（skip）**：临时任务（查天气）、闲聊寒暄、中间工具调用结果（grep 输出等）
 
@@ -200,6 +204,64 @@ content: |
   ```
 
   叙事比单独的事实更有价值——它保留了因果逻辑，而事实只保留了结论。
+
+  #### 6. 时间锚点（Time Anchor）— 用户承诺了什么未来的事？
+
+  当用户表达了未来某个时间点要做的事、或需要被提醒的事时，创建时间锚点。
+
+  ```
+  { type: "time_anchor", data: { anchor_type: "commitment|deadline|reminder|anniversary", target_type: "event|entity", target_id: "关联实体或事件ID", trigger_time: "触发时间戳", reason: "为什么需要这个锚点" } }
+  ```
+
+  锚点类型：
+  - **commitment**: 用户承诺要做的事（"下周五前把报告交给你"）
+  - **deadline**: 明确截止日期（"6月1号前必须上线"）
+  - **reminder**: 周期性提醒（"每周一早上站会"）
+  - **anniversary**: 纪念日/周年提醒（"去年这时候我们刚开始做这个项目"）
+
+  #### 7. 话题追踪（Topic）— 用户在关注什么？
+
+  当用户表达了长期兴趣、正在思考的问题、想探索的方向但尚未形成具体计划时，记录为话题。
+
+  ```
+  { type: "topic", data: { topic: "简短话题名", topic_type: "goal|plan|interest|decision_pending", context_summary: "用户说了什么" } }
+  ```
+
+  话题类型：
+  - **goal**: 用户想达成的目标（"我想成为一个更好的架构师"）
+  - **plan**: 正在酝酿的计划（"我考虑今年换工作"）
+  - **interest**: 感兴趣的方向（"最近对 Rust 有点兴趣"）
+  - **decision_pending**: 待做的决策（"还在想要不要买那个显示器"）
+
+  话题不需要立刻有行动——它的价值在于**跨会话追踪**，让 AI 在合适时主动跟进。
+
+  #### 8. 用户画像（User Profile）— 用户是个什么样的人？
+
+  当用户自述了身份、技能、偏好模式、性格特质、生活/工作状态时，更新画像。
+
+  ```
+  { type: "user_profile", data: { dimension: "维度名（如 技能/角色/工作方式/沟通偏好）", summary: "一句话画像描述" } }
+  ```
+
+  常见维度：
+  - **技能**: "精通 Go，熟悉 Python，不会前端"
+  - **角色**: "后端工程师，在某公司负责基础设施"
+  - **工作方式**: "喜欢先写测试再写代码，偏好异步沟通"
+  - **个性特质**: "完美主义，喜欢把事情做到极致"
+  - **生活状态**: "最近在搬家，时间比较紧张"
+
+  #### 9. 群组（Group）— 用户周围有哪些组织？
+
+  当用户提到团队、部门、项目组、社群、家庭等多人组织时，记录群组结构。
+
+  ```
+  { type: "group", data: { name: "群组名称", type: "team|department|community|family|project", summary: "一句话描述" } }
+  ```
+
+  群组成员关系通过 group_member 关联已有实体：
+  ```
+  { type: "group_member", data: { group_name: "群组名称", entity_name: "成员实体名", role: "角色（如 组长/成员/负责人）" } }
+  ```
 
   ---
 
