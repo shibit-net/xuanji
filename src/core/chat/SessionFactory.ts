@@ -39,7 +39,7 @@ import { registerMemoryManager, setMemoryInitError } from '@/core/memory/globals
 import { UpdatePersonaTool } from '@/core/tools/UpdatePersonaTool';
 import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
 import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
-import { SkillInstaller, SkillRegistry } from '@/core/skills';
+import { SkillInstaller, SkillRegistry, SkillSandbox } from '@/core/skills';
 import { InstallTool } from '@/core/tools/InstallTool';
 import { UninstallTool } from '@/core/tools/UninstallTool';
 
@@ -163,6 +163,11 @@ export class SessionFactory {
         return new SkillInstaller(market, registry);
       });
       log.debug('SkillInstaller registered');
+
+      this.container.register('skillSandbox', async () => {
+        return new SkillSandbox();
+      });
+      log.debug('SkillSandbox registered');
 
       this.container.register('updateChecker', async () => {
         const market = await this.container.resolve<TiangongMarket>('tiangongMarket');

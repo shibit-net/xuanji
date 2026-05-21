@@ -21,7 +21,8 @@ export type {
 export { SkillRegistry, getSkillRegistry, resetSkillRegistry } from './registry';
 
 // 导出 SkillValidator
-export { SkillValidator } from './validator';
+export { SkillValidator, checkCodeSafety } from './validator';
+export type { CodeSafetyResult } from './validator';
 
 // 导出 SkillLoader
 export { SkillLoader, getSkillLoader, resetSkillLoader } from './loader';
@@ -32,3 +33,6 @@ export { initializeBuiltinSkills } from './builtin';
 // 导出 SkillInstaller（Marketplace 集成）
 export { SkillInstaller } from './SkillInstaller';
 export type { SkillInstallOptions, SkillInstallResult, SkillUninstallResult } from './SkillInstaller';
+
+// 导出 SkillSandbox（安全沙箱）
+export { SkillSandbox, getSkillSandbox, resetSkillSandbox } from './SkillSandbox';

@@ -2,11 +2,90 @@
  * ============================================================
  * Skill System - Validator
  * ============================================================
- * 验证 Skill 的有效性和依赖关系
+ * 验证 Skill 的有效性和依赖关系。
+ * 同时包含代码安全扫描，用于 action/workflow Skill 的
+ * 第三方 .js 代码校验。
  */
 
 import type { Skill, SkillValidationResult } from './types';
 import { SkillRegistry } from './registry';
+
+// ============================================================
+// Code Safety Scanner (for action/workflow tar.gz skills)
+// ============================================================
+
+/**
+ * 代码安全扫描结果
+ */
+export interface CodeSafetyResult {
+  /** 是否安全 */
+  safe: boolean;
+  /** 被拦截的模块/模式列表 */
+  blocked: string[];
+  /** 警告（允许但记录） */
+  warnings: string[];
+}
+
+/** 禁止的 import/require 模式 */
+const BLOCKED_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /require\s*\(\s*['"]child_process['"]\s*\)/, label: 'child_process' },
+  { pattern: /from\s+['"]child_process['"]/, label: 'child_process (ESM import)' },
+  { pattern: /require\s*\(\s*['"]vm['"]\s*\)/, label: 'vm' },
+  { pattern: /from\s+['"]vm['"]/, label: 'vm (ESM import)' },
+  { pattern: /require\s*\(\s*['"]worker_threads['"]\s*\)/, label: 'worker_threads' },
+  { pattern: /from\s+['"]worker_threads['"]/, label: 'worker_threads (ESM import)' },
+  { pattern: /require\s*\(\s*['"]worker_threads['"]\s*\)/, label: 'worker_threads' },
+  { pattern: /\beval\s*\(/, label: 'eval()' },
+  { pattern: /\bnew\s+Function\s*\(/, label: 'new Function()' },
+];
+
+/** 警告但不拦截的模式 */
+const WARNING_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /require\s*\(\s*['"]fs['"]\s*\)/, label: 'fs (CommonJS)' },
+  { pattern: /from\s+['"]fs['"]/, label: 'fs (ESM import)' },
+  { pattern: /require\s*\(\s*['"]fs\/promises['"]\s*\)/, label: 'fs/promises' },
+  { pattern: /from\s+['"]fs\/promises['"]/, label: 'fs/promises (ESM import)' },
+  { pattern: /require\s*\(\s*['"]http['"]\s*\)/, label: 'http' },
+  { pattern: /from\s+['"]http['"]/, label: 'http (ESM import)' },
+  { pattern: /require\s*\(\s*['"]https['"]\s*\)/, label: 'https' },
+  { pattern: /from\s+['"]https['"]/, label: 'https (ESM import)' },
+  { pattern: /require\s*\(\s*['"]net['"]\s*\)/, label: 'net' },
+  { pattern: /from\s+['"]net['"]/, label: 'net (ESM import)' },
+  { pattern: /process\.env/, label: 'process.env' },
+];
+
+/**
+ * 扫描源代码，检测禁止的模式（child_process, vm, eval 等）。
+ *
+ * 用途：在导入第三方 action/workflow Skill 的 .js 代码前进行安全检查。
+ * 注意：此扫描基于静态正则匹配，不能提供 100% 的安全保证。
+ * Worker 沙箱提供第二层运行时隔离。
+ *
+ * @param source - 待扫描的 JavaScript 源代码
+ * @returns 扫描结果，包含 safe 状态和拦截/警告列表
+ */
+export function checkCodeSafety(source: string): CodeSafetyResult {
+  const blocked: string[] = [];
+  const warnings: string[] = [];
+
+  for (const { pattern, label } of BLOCKED_PATTERNS) {
+    if (pattern.test(source)) {
+      blocked.push(label);
+    }
+  }
+
+  for (const { pattern, label } of WARNING_PATTERNS) {
+    if (pattern.test(source)) {
+      warnings.push(label);
+    }
+  }
+
+  return {
+    safe: blocked.length === 0,
+    blocked,
+    warnings,
+  };
+}
 
 /**
  * Skill 验证器

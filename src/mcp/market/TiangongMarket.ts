@@ -96,6 +96,8 @@ export interface DownloadInfo {
   fileSize: number;
   version: string;
   versionId: number;
+  /** 包类型（Starship 返回），用于 skill 安装管道路由 */
+  packageType?: 'skill:json' | 'skill:tar';
 }
 
 export interface UpdateCheckItem {
@@ -207,6 +209,7 @@ interface DownloadInfoRaw {
   fileSize: number;
   version: string;
   versionId: number;
+  packageType?: string;
 }
 
 interface UpdateCheckResultRaw {
@@ -344,7 +347,13 @@ export class TiangongMarket {
     }
     const path = `/public/download?${params.toString()}`;
     const raw = await this.get<DownloadInfoRaw>(path);
-    return this.unwrap(raw);
+    const data = this.unwrap(raw);
+    return {
+      ...data,
+      packageType: (data.packageType === 'skill:json' || data.packageType === 'skill:tar')
+        ? data.packageType
+        : undefined,
+    };
   }
 
   /**

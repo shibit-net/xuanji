@@ -2,18 +2,25 @@
  * ============================================================
  * Skill System — SkillInstaller
  * ============================================================
- * 从天工坊 Marketplace 安装 Skill JSON/YAML 文件到
+ * 从天工坊 Marketplace 安装 Skill 文件到
  * ~/.xuanji/skills/installed/，并注册到 SkillRegistry。
+ *
+ * 支持两种安装模式：
+ *   - skill:json — JSON 文件下载（prompt 类型）
+ *   - skill:tar — tar.gz 管道（action/workflow 类型）
  */
 
 import { homedir } from 'node:os';
-import { promises as fs } from 'node:fs';
+import { promises as fs, createReadStream, createWriteStream } from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
+import { execSync } from 'node:child_process';
 import type { Skill } from './types';
 import type { SkillRegistry } from './registry';
 import type { TiangongMarket, DownloadInfo } from '@/mcp/market/TiangongMarket';
+import { checkCodeSafety } from './validator';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillInstaller' });
@@ -86,7 +93,13 @@ export class SkillInstaller {
       return { success: false, error: `获取下载信息失败: ${msg}` };
     }
 
-    // 2. 下载 JSON 文件
+    // 2. 判断安装模式
+    const pkgType = this.detectPackageType(downloadInfo);
+    if (pkgType === 'skill:tar') {
+      return this.installFromTar(packageId, downloadInfo);
+    }
+
+    // 3. JSON 管道（现有流程）
     let rawContent: string;
     try {
       rawContent = await this.downloadText(downloadInfo.downloadUrl);
@@ -180,10 +193,11 @@ export class SkillInstaller {
   }
 
   /**
-   * 卸载 marketplace 安装的 Skill
+   * 卸载 marketplace 安装的 Skill。
    *
-   * 1. SkillRegistry.unregister()
-   * 2. 删除 ~/.xuanji/skills/installed/{packageId}.json
+   * 自动识别安装模式：
+   *   - JSON：删除 {packageId}.json
+   *   - tar：删除整个目录 + node_modules
    */
   async uninstall(skillId: string): Promise<SkillUninstallResult> {
     const skill = this.registry.get(skillId);
@@ -194,21 +208,34 @@ export class SkillInstaller {
       return { success: false, error: `Skill "${skillId}" 不是 marketplace 安装的` };
     }
 
+    const packageId = skill.packageId ?? skillId;
+
     // 从注册表移除
     this.registry.unregister(skillId);
 
-    // 删除文件
-    const packageId = skill.packageId ?? skillId;
-    const filePath = path.join(this.installDir, `${packageId}.json`);
+    // 检测安装模式
+    const tarDir = path.join(this.installDir, packageId);
+    const jsonFile = path.join(this.installDir, `${packageId}.json`);
+    const manifestFile = path.join(tarDir, 'manifest.json');
+
     try {
-      await fs.unlink(filePath);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn(`Failed to remove skill file ${filePath}: ${msg}`);
-      // 文件删除失败不算硬错误 — 注册表已经移除了
+      // 检查 manifest.json → tar 安装模式
+      await fs.access(manifestFile);
+      // tar 模式：递归删除整个目录
+      await fs.rm(tarDir, { recursive: true, force: true });
+      log.info(`Skill "${skillId}" uninstalled (tar mode), removed: ${tarDir}`);
+    } catch {
+      // JSON 模式：删除单个 JSON 文件
+      try {
+        await fs.unlink(jsonFile);
+        log.info(`Skill "${skillId}" uninstalled (json mode), removed: ${jsonFile}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(`Failed to remove skill file ${jsonFile}: ${msg}`);
+        // 文件删除失败不算硬错误
+      }
     }
 
-    log.info(`Skill "${skillId}" uninstalled`);
     return { success: true };
   }
 
@@ -292,5 +319,283 @@ export class SkillInstaller {
     } catch {
       return location;
     }
+  }
+
+  // ============================================================
+  // Package type detection
+  // ============================================================
+
+  /**
+   * 检测包安装模式。
+   * 优先使用 API 返回的 packageType，fallback 用 URL 后缀判断。
+   */
+  private detectPackageType(info: DownloadInfo): 'skill:json' | 'skill:tar' {
+    if (info.packageType) return info.packageType;
+    // Fallback: 通过下载 URL 后缀判断
+    if (info.downloadUrl.endsWith('.tar.gz')) return 'skill:tar';
+    return 'skill:json';
+  }
+
+  // ============================================================
+  // Tar.gz install pipeline (Todo 2)
+  // ============================================================
+
+  /**
+   * tar.gz 安装管道（action/workflow Skill）。
+   *
+   * 流程：
+   *  2. 下载 tar.gz 到临时目录
+   *  3. SHA256 校验
+   *  4. 预读 package.json（不解压全量）
+   *  5. 解压到安装目录
+   *  6. npm install --production --ignore-scripts
+   *  (后续步骤在 Todo 3-4: 代码扫描 → import() 冒烟 → 注册)
+   */
+  private async installFromTar(
+    packageId: string,
+    downloadInfo: DownloadInfo,
+  ): Promise<SkillInstallResult> {
+    const skillDir = path.join(this.installDir, packageId);
+    const tmpDir = path.join(this.installDir, '.tmp');
+    const tarFile = path.join(tmpDir, `${packageId}-${downloadInfo.version}.tar.gz`);
+
+    try {
+      // 2. 下载 tar.gz
+      log.info(`Downloading skill tar.gz: ${packageId}`);
+      await fs.mkdir(tmpDir, { recursive: true });
+      await this.downloadBinary(downloadInfo.downloadUrl, tarFile, 60_000);
+
+      // 3. SHA256 校验
+      if (downloadInfo.sha256) {
+        log.info(`Verifying SHA256 for ${packageId}`);
+        const actualHash = await this.sha256File(tarFile);
+        if (actualHash !== downloadInfo.sha256) {
+          await this.cleanup(tmpDir, tarFile);
+          return {
+            success: false,
+            error: `SHA256 校验失败: 期望 ${downloadInfo.sha256}, 实际 ${actualHash}`,
+          };
+        }
+        log.info(`SHA256 verified: ${packageId}`);
+      }
+
+      // 4. 预读 package.json
+      let pkgJson: Record<string, unknown>;
+      try {
+        const pkgContent = execSync(
+          `tar -xzf "${tarFile}" -O package.json`,
+          { encoding: 'utf-8', timeout: 10_000, maxBuffer: 1024 * 1024 },
+        );
+        pkgJson = JSON.parse(pkgContent);
+      } catch {
+        await this.cleanup(tmpDir, tarFile);
+        return { success: false, error: 'tar.gz 中缺少有效的 package.json' };
+      }
+
+      // 校验 xuanji-skill 字段
+      const skillMeta = pkgJson['xuanji-skill'] as Record<string, unknown> | undefined;
+      if (!skillMeta || typeof skillMeta.id !== 'string') {
+        await this.cleanup(tmpDir, tarFile);
+        return { success: false, error: 'package.json 缺少 xuanji-skill.id 字段' };
+      }
+      if (!['action', 'workflow'].includes(String(skillMeta.category))) {
+        await this.cleanup(tmpDir, tarFile);
+        return { success: false, error: `无效的 category: ${skillMeta.category}（期望 action 或 workflow）` };
+      }
+      const skillId = skillMeta.id;
+
+      // 5. 解压到安装目录
+      await fs.mkdir(skillDir, { recursive: true });
+      try {
+        execSync(
+          `tar -xzf "${tarFile}" -C "${skillDir}" --strip-components=1`,
+          { timeout: 30_000, maxBuffer: 1024 * 1024 },
+        );
+      } catch (err) {
+        await this.cleanup(tmpDir, tarFile);
+        await fs.rm(skillDir, { recursive: true, force: true }).catch(() => {});
+        const msg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: `解压失败: ${msg}` };
+      }
+
+      // 6. npm install
+      try {
+        log.info(`Running npm install for ${packageId}...`);
+        execSync('npm install --production --ignore-scripts', {
+          cwd: skillDir,
+          timeout: 120_000,
+          maxBuffer: 1024 * 1024,
+          encoding: 'utf-8',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(`npm install failed for ${packageId}: ${msg}`);
+        // npm install 失败不是硬错误 — 可能包已预打包依赖
+      }
+
+      // 7. 代码安全扫描
+      const mainFile = String(pkgJson.main ?? 'index.js');
+      const mainPath = path.join(skillDir, mainFile);
+      let source: string;
+      try {
+        source = await fs.readFile(mainPath, 'utf-8');
+      } catch {
+        await this.cleanup(tmpDir, tarFile);
+        return { success: false, error: `找不到入口文件: ${mainFile}` };
+      }
+      const safetyResult = checkCodeSafety(source);
+      if (!safetyResult.safe) {
+        await this.cleanup(tmpDir, tarFile);
+        return {
+          success: false,
+          error: `代码安全扫描失败: ${safetyResult.blocked.join(', ')}`,
+        };
+      }
+      if (safetyResult.warnings.length > 0) {
+        log.warn(`Code safety warnings for ${packageId}: ${safetyResult.warnings.join(', ')}`);
+      }
+
+      // 8. 冒烟测试：import() 试加载
+      log.info(`Smoke testing skill: ${skillId}`);
+      try {
+        const module = await import(mainPath);
+        const skillExport = module.default ?? module;
+        if (typeof skillExport.execute !== 'function') {
+          await this.cleanup(tmpDir, tarFile);
+          return { success: false, error: '入口文件缺少 export default { execute }' };
+        }
+        if (skillExport.id !== skillId) {
+          await this.cleanup(tmpDir, tarFile);
+          return { success: false, error: `id 不匹配: 期望 ${skillId}, 实际 ${skillExport.id}` };
+        }
+      } catch (err) {
+        await this.cleanup(tmpDir, tarFile);
+        const msg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: `冒烟测试失败: ${msg}` };
+      }
+
+      // 9. 构建 Skill 对象并注册
+      const skill: Skill = {
+        id: skillId,
+        name: String(skillMeta.name ?? skillId),
+        version: downloadInfo.version,
+        description: String(skillMeta.description ?? ''),
+        category: skillMeta.category as 'action' | 'workflow',
+        tags: Array.isArray(skillMeta.tags) ? skillMeta.tags.map(String) : [],
+        author: typeof skillMeta.author === 'string' ? skillMeta.author : undefined,
+        parameters: skillMeta.parameters as Skill['parameters'],
+        requiredTools: Array.isArray(skillMeta.requiredTools)
+          ? skillMeta.requiredTools.map(String)
+          : undefined,
+        source: 'marketplace',
+        packageId,
+        installedVersion: downloadInfo.version,
+        installedAt: new Date().toISOString(),
+        // execute 方法由 SkillSandbox 在运行时通过 Worker 加载
+      };
+
+      this.registry.register(skill);
+
+      // 10. 写入 manifest.json
+      const manifest = {
+        skillId,
+        packageId,
+        version: downloadInfo.version,
+        installedAt: new Date().toISOString(),
+        installMode: 'tar',
+      };
+      await fs.writeFile(
+        path.join(skillDir, 'manifest.json'),
+        JSON.stringify(manifest, null, 2),
+        'utf-8',
+      );
+
+      // 11. 清理临时文件
+      await this.cleanup(tmpDir, tarFile);
+
+      log.info(`Skill "${skillId}" installed successfully from tar.gz to ${skillDir}`);
+      return {
+        success: true,
+        skillId,
+        version: downloadInfo.version,
+        filePath: skillDir,
+      };
+    } catch (err) {
+      await this.cleanup(tmpDir, tarFile).catch(() => {});
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`installFromTar failed for ${packageId}: ${msg}`);
+      return { success: false, error: `tar.gz 安装失败: ${msg}` };
+    }
+  }
+
+  /**
+   * 下载二进制文件到指定路径
+   */
+  private downloadBinary(urlStr: string, dest: string, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url = new URL(urlStr);
+      const client = url.protocol === 'https:' ? https : http;
+
+      const req = client.get(
+        url,
+        {
+          headers: { 'User-Agent': 'xuanji/0.9.0' },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const { statusCode } = res;
+          if (!statusCode) { reject(new Error('No status code')); return; }
+
+          if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
+            const redirect = this.resolveRedirect(res.headers.location, url);
+            this.downloadBinary(redirect, dest, timeoutMs).then(resolve).catch(reject);
+            return;
+          }
+
+          if (statusCode < 200 || statusCode >= 300) {
+            reject(new Error(`HTTP ${statusCode}`));
+            return;
+          }
+
+          const file = createWriteStream(dest);
+          res.pipe(file);
+          file.on('finish', () => { file.close(); resolve(); });
+          file.on('error', reject);
+          res.on('error', reject);
+        },
+      );
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error(`下载超时 (${timeoutMs}ms)`));
+      });
+    });
+  }
+
+  /**
+   * 计算文件的 SHA256 哈希
+   */
+  private sha256File(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = createReadStream(filePath);
+      stream.on('data', (chunk) => { hash.update(chunk); });
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+  }
+
+  /**
+   * 清理临时目录和文件
+   */
+  private async cleanup(tmpDir: string, tarFile: string): Promise<void> {
+    try { await fs.unlink(tarFile); } catch {}
+    try {
+      const remaining = await fs.readdir(tmpDir);
+      if (remaining.length === 0) {
+        await fs.rmdir(tmpDir);
+      }
+    } catch {}
   }
 }
