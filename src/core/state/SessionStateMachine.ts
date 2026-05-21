@@ -1,8 +1,10 @@
 /**
  * SessionStateMachine — 替代 StateTracker + _pendingQueue + interrupt() 50ms 轮询。
  *
- * 4 状态：idle / executing / outputting / waiting_async
- * 6 事件 → 返回 SessionAction 驱动 ChatSession 行为。
+ * 5 状态：idle / thinking / executing / outputting / waiting_async
+ * thinking: Agent 在思考（LLM 流式推理），可快速中断
+ * executing: Agent 在工具执行中，需等待工具完成后中断
+ * 7 事件 → 返回 SessionAction 驱动 ChatSession 行为。
  * 同时实现 InterruptChecker 接口供 AgentLoop 查询中断状态。
  */
 
@@ -17,12 +19,13 @@ const log = logger.child({ module: 'SessionStateMachine' });
 // 状态 / 事件 / Action 定义
 // ============================================================
 
-export type SessionState = 'idle' | 'executing' | 'outputting' | 'waiting_async';
+export type SessionState = 'idle' | 'thinking' | 'executing' | 'outputting' | 'waiting_async';
 
 export type SessionEvent =
   | { type: 'USER_MESSAGE'; message: string }
   | { type: 'USER_INTERRUPT'; message?: string }
   | { type: 'AGENT_STARTED' }
+  | { type: 'AGENT_TOOL_STARTED' }
   | { type: 'AGENT_TEXT_STARTED' }
   | { type: 'AGENT_COMPLETED' }
   | { type: 'ASYNC_TASK_COMPLETED'; taskId: string };
@@ -95,6 +98,8 @@ export class SessionStateMachine implements InterruptChecker {
     switch (this.state) {
       case 'idle':
         return this.handleInIdle(event);
+      case 'thinking':
+        return this.handleInThinking(event);
       case 'executing':
         return this.handleInExecuting(event);
       case 'outputting':
@@ -148,7 +153,7 @@ export class SessionStateMachine implements InterruptChecker {
         this._textOutputStarted = false;
         this._abortRequested = false;
         this._interruptAfterStream = false;
-        this.transitionTo('executing');
+        this.transitionTo('thinking');
         return { type: 'RUN_AGENT', message: event.message };
 
       case 'USER_INTERRUPT':
@@ -160,7 +165,41 @@ export class SessionStateMachine implements InterruptChecker {
         this._textOutputStarted = false;
         this._abortRequested = false;
         this._interruptAfterStream = false;
+        this.transitionTo('thinking');
+        return { type: 'NOOP' };
+
+      default:
+        return { type: 'NOOP' };
+    }
+  }
+
+  private handleInThinking(event: SessionEvent): SessionAction {
+    switch (event.type) {
+      case 'USER_MESSAGE':
+        // 思考中 → 直接中断并排队执行（LLM 流会快速响应 abort）
+        this.pendingMessages.push(event.message);
+        this._abortRequested = true;
+        return { type: 'QUEUE_ONLY' };
+
+      case 'USER_INTERRUPT':
+        if (event.message) this.pendingMessages.push(event.message);
+        this._abortRequested = true;
+        return { type: 'ABORT_AGENT' };
+
+      case 'AGENT_TOOL_STARTED':
         this.transitionTo('executing');
+        return { type: 'NOOP' };
+
+      case 'AGENT_TEXT_STARTED':
+        this._textOutputStarted = true;
+        this.transitionTo('outputting');
+        return { type: 'NOOP' };
+
+      case 'AGENT_COMPLETED':
+        return this.handleAgentCompleted();
+
+      case 'ASYNC_TASK_COMPLETED':
+        this._pendingAsyncTaskIds.delete(event.taskId);
         return { type: 'NOOP' };
 
       default:
@@ -171,6 +210,7 @@ export class SessionStateMachine implements InterruptChecker {
   private handleInExecuting(event: SessionEvent): SessionAction {
     switch (event.type) {
       case 'USER_MESSAGE':
+        // 工具执行中 → 排队等待工具完成后执行
         this.pendingMessages.push(event.message);
         this._abortRequested = true;
         return { type: 'QUEUE_ONLY' };
@@ -226,7 +266,7 @@ export class SessionStateMachine implements InterruptChecker {
       case 'USER_MESSAGE':
         this._textOutputStarted = false;
         this._abortRequested = false;
-        this.transitionTo('executing');
+        this.transitionTo('thinking');
         return { type: 'RUN_AGENT', message: event.message };
 
       case 'USER_INTERRUPT':
@@ -243,7 +283,7 @@ export class SessionStateMachine implements InterruptChecker {
           // 所有异步任务完成，且有排队消息 → 继续运行
           this._textOutputStarted = false;
           this._abortRequested = false;
-          this.transitionTo('executing');
+          this.transitionTo('thinking');
           return {
             type: 'RUN_AGENT',
             message: this.consumePendingMessages(),
@@ -255,7 +295,7 @@ export class SessionStateMachine implements InterruptChecker {
         this._textOutputStarted = false;
         this._abortRequested = false;
         this._interruptAfterStream = false;
-        this.transitionTo('executing');
+        this.transitionTo('thinking');
         return { type: 'NOOP' };
 
       case 'AGENT_COMPLETED':
@@ -274,7 +314,7 @@ export class SessionStateMachine implements InterruptChecker {
 
     if (this.pendingMessages.length > 0) {
       // 有排队消息 → 继续运行（替代 drainPendingQueue + batch join）
-      this.transitionTo('executing');
+      this.transitionTo('thinking');
       return { type: 'RUN_AGENT', message: this.consumePendingMessages() };
     }
     if (this._pendingAsyncTaskIds.size > 0) {

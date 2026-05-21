@@ -13,7 +13,6 @@ import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useConfigStore } from '../stores/configStore';
 import MilkdownEditor from './MilkdownEditor';
-import { ToolSection } from './ToolSection';
 import { Avatar } from './Avatar';
 import { isFilePath, toNativePath } from '../utils/pathUtils';
 
@@ -463,15 +462,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
       </div>
 
-        {/* 工具调用卡片 — 展示 bash / grep / memory_search 等工具执行详情 */}
-        {!isUser && !isSystem && !isToolSummary && message.toolCalls && message.toolCalls.length > 0 && !isStreaming && (
-          <div className="mt-3 space-y-1">
-            <ToolSection tools={message.toolCalls} />
-          </div>
-        )}
-
-        {/* 耗时 & Token — 气泡外部下方，流式时实时更新 */}
-        {!isUser && !isSystem && (liveDuration || message.tokensUsed) && (
+        {/* 耗时 & Token — 气泡外部下方，流式时实时更新；toolSummary 不展示耗时（独立 diff 气泡无需计时） */}
+        {!isUser && !isSystem && !isToolSummary && (liveDuration || message.tokensUsed) && (
           <div className={`flex items-center gap-2.5 mt-1.5 px-2 text-[11px] font-mono ${
             isToolSummary ? 'text-white/25' : 'text-text-tertiary/60'
           }`}>

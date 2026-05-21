@@ -22,7 +22,6 @@ import { useExecutionStore, type TodoItem } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
-import { hasUnclosedMarkdownStructure } from '../utils/markdownUtils';
 import { generateFileChangeSummary } from '../utils/toolSummary';
 
 // 解析 TODO_PROGRESS 注释，同步到 executionStore
@@ -341,35 +340,21 @@ export function registerEventAdapter(): void {
 
     if (isAsync) return;
 
-    let msgStore = useMessageStore.getState();
-    // 气泡拆分：tool 调用前若有已闭合 markdown 结构的文本，封口当前气泡，开新泡放 tool
-    if (msgStore.currentStreamingId && msgStore.currentStreamingText && !hasUnclosedMarkdownStructure(msgStore.currentStreamingText)) {
-      // 封口前锁定当前气泡的耗时和 token 消耗，避免已闭口气泡继续计时
-      const closingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
-      if (closingMsg?.timestamp) {
-        msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - closingMsg.timestamp });
+    const isEditTool = data.name === 'edit_file' || data.name === 'write_file' || data.name === 'multi_edit';
+
+    if (isEditTool) {
+      // 编辑类工具：封口当前文本气泡，后续由 agent:file-changes 创建独立 diff 气泡
+      const msgStore = useMessageStore.getState();
+      if (msgStore.currentStreamingId) {
+        const closingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+        if (closingMsg?.timestamp) {
+          msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - closingMsg.timestamp });
+        }
+        updateMessageDeltaTokens();
+        msgStore.finishStreaming();
       }
-      updateMessageDeltaTokens();
-      msgStore.finishStreaming();
-      msgStore = useMessageStore.getState();
     }
-    // 延迟创建气泡：首个工具调用时创建，避免纯思考阶段产生空白气泡
-    if (!msgStore.currentStreamingId) {
-      msgStore.startStreaming(generateMessageId('stream'));
-      msgStore = useMessageStore.getState();
-    }
-    const streamId = msgStore.currentStreamingId!;
-    const currentMsg = msgStore.messages.find(m => m.id === streamId);
-    const toolCall: import('../stores/messageStore').ToolCall = {
-      id: data.id,
-      name: data.name,
-      status: 'running',
-      startTime: Date.now(),
-      input: data.input || {},
-    };
-    msgStore.updateMessage(streamId, {
-      toolCalls: [...(currentMsg?.toolCalls || []), toolCall],
-    });
+    // 非编辑工具：不在对话框中展示，不产生任何气泡
 
     useSessionStore.getState().addLog('tool', `🔧 ${data.name} 开始执行`);
   });
@@ -390,24 +375,7 @@ export function registerEventAdapter(): void {
       extractSubAgentMetadata(data.result);
     }
 
-    const msgStore = useMessageStore.getState();
-    if (msgStore.currentStreamingId) {
-      const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
-      if (currentMsg?.toolCalls) {
-        const updatedCalls = currentMsg.toolCalls.map(tc =>
-          tc.id === data.id
-            ? {
-                ...tc,
-                status: data.isError ? 'error' as const : 'success' as const,
-                output: data.result ? data.result.replace(/<!--TODO_PROGRESS:.*?-->/g, '') : data.result,
-                error: data.isError ? (data.result || 'unknown error') : undefined,
-                duration: tc.startTime ? Date.now() - tc.startTime : undefined,
-              }
-            : tc
-        );
-        msgStore.updateMessage(msgStore.currentStreamingId, { toolCalls: updatedCalls });
-      }
-    }
+    // 编辑类工具的 diff 展示由 agent:file-changes 事件驱动，此处无需更新消息
 
     const status = data.isError ? '❌' : '✅';
     useSessionStore.getState().addLog('tool', `${status} ${data.name} ${data.isError ? '失败' : '完成'}`);
@@ -841,15 +809,14 @@ export function registerEventAdapter(): void {
     const msgStore = useMessageStore.getState();
 
     if (msgStore.currentStreamingId) {
-      const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
-      const hasToolCalls = currentMsg?.toolCalls && currentMsg.toolCalls.length > 0;
       const hasContent = msgStore.currentStreamingText.trim().length > 0;
 
-      if (!hasContent && !hasToolCalls) {
+      if (!hasContent) {
         // 思考阶段被中断，无任何产出 → 移除空白气泡
         msgStore.cancelStreaming();
       } else {
         updateMessageDeltaTokens();
+        const currentMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
         if (currentMsg?.timestamp) {
           msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - currentMsg.timestamp });
         }

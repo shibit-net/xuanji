@@ -118,9 +118,18 @@ export default function InputArea() {
     if (!id) return null;
     return s.agentMap[id]?.status ?? null;
   });
-  const isToolExecuting = foregroundStatus === 'executing';
-  const isOutputting = foregroundStatus === 'writing' || foregroundStatus === 'reporting' || (foregroundStatus === 'pending' && isRunning);
+  const isOutputting = foregroundStatus === 'writing' || foregroundStatus === 'reporting';
   // isSending 统一由 handleSubmit 的 finally 块清退，不再依赖 convState
+
+  // 前台 agent 从空闲变活跃 → 后端已开始处理消息，清退 isSending 恢复输入框
+  const prevIsRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (!prevIsRunningRef.current && isRunning && isSending) {
+      setIsSending(false);
+      sendingRef.current = false;
+    }
+    prevIsRunningRef.current = isRunning;
+  }, [isRunning, isSending]);
 
   // ─── Session 状态 ──────────────────────────────────────
   const sessionStatus = useSessionInitStore((s) => s.status);
@@ -670,12 +679,14 @@ export default function InputArea() {
     ? sessionStatus === 'initializing' ? '会话初始化中...'
       : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
       : '正在连接服务...'
-    : isOutputting
-    ? '说点什么... (文本输出中 — 消息将排队)'
-    : isToolExecuting
+    : foregroundStatus === 'writing' || foregroundStatus === 'reporting'
+    ? '说点什么... (文本输出中，消息将排队)'
+    : foregroundStatus === 'executing'
     ? '说点什么... (工具执行中，消息将排队)'
-    : isRunning
-    ? '说点什么... (工作执行中，消息将自动排队)'
+    : foregroundStatus === 'thinking'
+    ? '说点什么... (思考中，消息将中断并执行)'
+    : foregroundStatus === 'pending' && isRunning
+    ? '说点什么... (可直接发送)'
     : runningTaskCount > 0
     ? '说点什么... (后台任务运行中)'
     : cancelledTaskCount > 0
@@ -915,7 +926,13 @@ export default function InputArea() {
             ) : (
               <Send size={16} className="mr-1" />
             )}
-            {isSending ? '发送中...' : isRunning ? '排队发送' : '发送'}
+            {isSending
+              ? '发送中...'
+              : foregroundStatus === 'thinking'
+                ? '中断并发送'
+                : isRunning
+                  ? '排队发送'
+                  : '发送'}
           </Button>
         )}
       </div>
@@ -928,9 +945,15 @@ export default function InputArea() {
             <span className="text-purple-400">· Agent: @{effectiveAgentName}</span>
           )}
         </div>
-        {isOutputting && <span className="ml-2 text-blue-500">· 文本输出中</span>}
-        {!isOutputting && isToolExecuting && <span className="ml-2 text-red-500">· 工具执行中</span>}
-        {!isOutputting && !isToolExecuting && isRunning && <span className="ml-2 text-orange-500">· 思考中</span>}
+        {foregroundStatus === 'writing' || foregroundStatus === 'reporting' ? (
+          <span className="ml-2 text-blue-500">· 文本输出中</span>
+        ) : foregroundStatus === 'executing' ? (
+          <span className="ml-2 text-red-500">· 工具执行中</span>
+        ) : foregroundStatus === 'thinking' ? (
+          <span className="ml-2 text-orange-500">· 思考中</span>
+        ) : foregroundStatus === 'pending' && isRunning ? (
+          <span className="ml-2 text-yellow-500">· 等待中</span>
+        ) : null}
         {isIdle && runningTaskCount > 0 && (
           <span className="ml-2 text-blue-500">· {runningTaskCount} 个后台任务运行中</span>
         )}

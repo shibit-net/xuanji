@@ -27,7 +27,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { FORMAT_PARSERS } from '../../src/core/tools/parsers/index.js';
 import { getMemoryManager, getMemoryInitError } from '../../src/core/memory/globals.js';
-import { TokenCounter } from '../../src/core/context/TokenCounter.js';
+
 
 let session: ChatSession | null = null;
 let currentUserId: string | null = null;
@@ -1066,9 +1066,10 @@ function handleContextStatus(): {
     if (!contextManager) {
       return { success: false, error: '上下文管理器未初始化' };
     }
+    // 使用 ContextManager 自身的 TokenCounter，保证与预算检查一致的估算结果
+    const estimatedTokens = contextManager.getTokenCount();
+    const maxInputTokens = contextManager.getMaxInputTokens();
     const messages = contextManager.getMessages();
-    const estimatedTokens = new TokenCounter().estimate(messages);
-    const maxInputTokens = new TokenCounter().getMaxInputTokens();
     const usagePercent = maxInputTokens > 0 ? Math.round((estimatedTokens / maxInputTokens) * 100) : 0;
     return {
       success: true,

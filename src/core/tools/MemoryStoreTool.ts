@@ -82,7 +82,16 @@ export class MemoryStoreTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const memoryType = input.type as string;
-    const data = input.data as Record<string, any>;
+    let rawData = input.data;
+    // LLM 经常把 data 序列化成 JSON 字符串，自动解析
+    if (typeof rawData === 'string') {
+      try {
+        rawData = JSON.parse(rawData as string);
+      } catch {
+        return this.error(`data 字段必须是对象，不能是字符串。收到: ${(rawData as string).slice(0, 200)}。正确格式: memory_store({type:"${memoryType}", data:{...}})，注意 data 是嵌套对象，不要包在引号里。`);
+      }
+    }
+    const data = rawData as Record<string, any>;
     const sceneTag = input.scene_tag as string | undefined;
     const importance = (input.importance as number) ?? 3;
 
@@ -97,11 +106,25 @@ export class MemoryStoreTool extends BaseTool {
       return this.success('该记忆已在最近 5 分钟内存储过，跳过重复写入。', { dedup: true });
     }
 
+    const example = (type: string) => {
+      const map: Record<string, string> = {
+        entity: `memory_store({type:"entity", data:{name:"实体名", entity_type:"project|tool|person|preference|concept", summary:"一句话描述"}})`,
+        fact: `memory_store({type:"fact", data:{title:"事实标题(≤25字)", content:"完整内容", source:"agent_discovered"}})`,
+        event: `memory_store({type:"event", data:{content:"事件描述", entities:["关联实体名"], progress_pct:50, phase:"当前阶段", blockers:"阻塞项", next_milestone:"下一步"}})`,
+        relation: `memory_store({type:"relation", data:{subject_name:"主体名", object_name:"客体名", relation:"关系动词"}})`,
+        time_anchor: `memory_store({type:"time_anchor", data:{anchor_type:"deadline|schedule|periodic", target_type:"entity|fact|event", trigger_time:时间戳ms, reason:"原因"}})`,
+        topic: `memory_store({type:"topic", data:{topic:"话题名", topic_type:"goal|plan|interest|decision_pending"}})`,
+        user_profile: `memory_store({type:"user_profile", data:{dimension:"维度名", summary:"画像描述"}})`,
+      };
+      return map[type] || '';
+    };
+
     try {
       switch (memoryType) {
         case 'entity': {
           if (!data.name || !data.entity_type || !data.summary) {
-            return this.error('entity 类型需要 name, entity_type, summary 字段');
+            const missing = [!data.name && 'name', !data.entity_type && 'entity_type', !data.summary && 'summary'].filter(Boolean).join(', ');
+            return this.error(`entity 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('entity')}。请修正后重试。`);
           }
           const entity = await manager.upsertEntity({
             name: data.name,
@@ -124,7 +147,8 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'fact': {
           if (!data.title || !data.content) {
-            return this.error('fact 类型需要 title, content 字段');
+            const missing = [!data.title && 'title', !data.content && 'content'].filter(Boolean).join(', ');
+            return this.error(`fact 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('fact')}。请修正后重试。`);
           }
           const fact = await manager.storeFact({
             title: data.title,
@@ -143,7 +167,7 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'event': {
           if (!data.content) {
-            return this.error('event 类型需要 content 字段');
+            return this.error(`event 缺少必填字段: content。收到: ${JSON.stringify(data)}。正确格式: ${example('event')}。请修正后重试。`);
           }
           const event = await manager.handleEventFromAgent({
             entityNames: data.entities ?? [],
@@ -164,7 +188,8 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'relation': {
           if (!data.subject_name || !data.object_name || !data.relation) {
-            return this.error('relation 类型需要 subject_name, object_name, relation 字段');
+            const missing = [!data.subject_name && 'subject_name', !data.object_name && 'object_name', !data.relation && 'relation'].filter(Boolean).join(', ');
+            return this.error(`relation 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('relation')}。请修正后重试。`);
           }
           const relation = await manager.relate({
             subject_name: data.subject_name,
@@ -185,7 +210,8 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'time_anchor': {
           if (!data.anchor_type || !data.target_type) {
-            return this.error('time_anchor 类型需要 anchor_type, target_type 字段');
+            const missing = [!data.anchor_type && 'anchor_type', !data.target_type && 'target_type'].filter(Boolean).join(', ');
+            return this.error(`time_anchor 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('time_anchor')}。请修正后重试。`);
           }
           const anchor = manager.addTimeAnchor({
             anchor_type: data.anchor_type,
@@ -206,7 +232,7 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'topic': {
           if (!data.topic) {
-            return this.error('topic 类型需要 topic 字段');
+            return this.error(`topic 缺少必填字段: topic。收到: ${JSON.stringify(data)}。正确格式: ${example('topic')}。请修正后重试。`);
           }
           const topicResult = manager.upsertTopic({
             topic: data.topic,
@@ -224,7 +250,8 @@ export class MemoryStoreTool extends BaseTool {
 
         case 'user_profile': {
           if (!data.dimension || !data.summary) {
-            return this.error('user_profile 类型需要 dimension, summary 字段');
+            const missing = [!data.dimension && 'dimension', !data.summary && 'summary'].filter(Boolean).join(', ');
+            return this.error(`user_profile 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('user_profile')}。请修正后重试。`);
           }
           const result = manager.upsertUserProfile({
             dimension: data.dimension,
@@ -240,10 +267,11 @@ export class MemoryStoreTool extends BaseTool {
         }
 
         default:
-          return this.error(`不支持的记忆类型: ${memoryType}。支持: entity, fact, event, relation, time_anchor, topic, user_profile`);
+          return this.error(`不支持的记忆类型 "${memoryType}"。支持: entity, fact, event, relation, time_anchor, topic, user_profile。请修正 type 后重试。`);
       }
     } catch (err) {
-      return this.error(`记忆存储失败: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      return this.error(`记忆存储异常: ${msg}。请检查 data 字段格式是否符合 schema 要求，修正后重试。`);
     }
   }
 }

@@ -7,6 +7,7 @@
 import type { ILLMProvider, Message, ToolSchema, ToolCall, TokenUsage } from '@/core/types';
 import type { StreamEvent } from '@/shared/types/provider';
 import type { ProviderConfig } from '@/shared/types/provider';
+import { isContentTooLargeError } from '@/core/providers/RetryPolicy';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'StreamPipeline' });
@@ -55,7 +56,13 @@ export class StreamPipeline {
   async execute(
     messages: Message[],
     toolSchemas: ToolSchema[],
-    options?: { signal?: AbortSignal; maxRetries?: number; config?: ProviderConfig },
+    options?: {
+      signal?: AbortSignal;
+      maxRetries?: number;
+      config?: ProviderConfig;
+      /** 当检测到上下文过长错误时调用，返回 true 表示已压缩可重试 */
+      onContentTooLarge?: () => Promise<boolean>;
+    },
   ): Promise<StreamResult> {
     const maxRetries = options?.maxRetries ?? 3;
     let lastError: Error | null = null;
@@ -74,6 +81,16 @@ export class StreamPipeline {
         if (lastError.message === 'Interrupted' || lastError.name === 'AbortError') {
           throw lastError;
         }
+
+        // 上下文过长错误：自动压缩后重试
+        if (isContentTooLargeError(lastError) && options?.onContentTooLarge) {
+          log.warn(`Content too large detected, attempting auto-compression before retry ${attempt + 1}`);
+          const compressed = await options.onContentTooLarge();
+          if (compressed) {
+            log.info(`Context compressed, retrying stream`);
+          }
+        }
+
         log.warn(`Stream attempt ${attempt + 1}/${maxRetries + 1} failed: ${lastError.message}`);
         if (attempt < maxRetries) {
           await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 10000)));

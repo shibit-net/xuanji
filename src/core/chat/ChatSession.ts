@@ -75,6 +75,19 @@ export class ChatSession {
     if (this._useNewPath && stateMachine) {
       this._stateMachine = stateMachine;
       agentLoop.setInterruptChecker(stateMachine);
+
+      // 监听工具执行开始/结束，驱动状态机 thinking ⇄ executing
+      eventBus.on(XuanjiEvent.AGENT_TOOL_START, (_payload) => {
+        if (stateMachine.getState() === 'thinking') {
+          stateMachine.transition({ type: 'AGENT_TOOL_STARTED' });
+        }
+      });
+      eventBus.on(XuanjiEvent.AGENT_TOOL_END, (_payload) => {
+        if (stateMachine.getState() === 'executing') {
+          stateMachine.transitionTo('thinking');
+        }
+      });
+
       log.info('ChatSession initialized with SessionStateMachine (new path)');
     } else {
       agentLoop.setPendingQueue(this._pendingQueue);

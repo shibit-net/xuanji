@@ -18,6 +18,7 @@ export interface UserSettings {
   showTokenUsage: boolean;
   showCost: boolean;
   showThinking: boolean;
+  showToolCallDetails: boolean;
 }
 
 export interface ModelConfig {

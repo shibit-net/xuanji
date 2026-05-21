@@ -260,22 +260,24 @@ export class AgentLoop {
 
       this.contextManager.addUserMessage(userMessage);
 
-      let budgetCompacted = false;
+      let lastCompressIteration = 0;
 
       while (this.running && this.currentIteration < maxIterations) {
         if (signal?.aborted) break;
         this.currentIteration++;
         this.log.info(`[Iteration ${this.currentIteration}] Starting LLM call (tools: ${this.registry.getSchemas().length})`);
 
-        if (!budgetCompacted && this.contextManager.getHistoryLength() > 10) {
+        // 每次迭代都检查预算，允许重复压缩（冷却 3 轮避免连续压缩）
+        if (this.contextManager.getHistoryLength() > 10 && this.currentIteration - lastCompressIteration > 3) {
           const budget = this.contextManager.checkBudget();
           if (budget.level === 'red') {
             this.callbacks.onInfo?.('💰 Token 用量较高，正在压缩上下文...');
             await this.contextManager.compress('aggressive');
-            budgetCompacted = true;
+            lastCompressIteration = this.currentIteration;
           } else if (budget.level === 'yellow') {
             this.callbacks.onInfo?.(budget.suggestion ?? '');
             await this.contextManager.compress('summarize_early');
+            lastCompressIteration = this.currentIteration;
           }
         }
 
@@ -301,6 +303,12 @@ export class AgentLoop {
           signal: signal,
           maxRetries: 3,
           config: streamConfig,
+          onContentTooLarge: async () => {
+            this.log.warn('API 返回上下文过长错误，自动触发激进压缩');
+            this.callbacks.onInfo?.('⚠️ 上下文过长，自动压缩后重试...');
+            await this.contextManager.compress('aggressive');
+            return true;
+          },
         });
         this.log.info(`[DIAG] AgentLoop.run: streamPipeline.execute returned, contentBlocks=${result.contentBlocks?.length || 0} toolCalls=${result.toolCalls?.length || 0} stopReason=${result.stopReason}`);
 

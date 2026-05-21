@@ -368,7 +368,7 @@ function ensureAgent(
 
 function updateMoment(agent: AgentState, status: AgentStatus, label?: string, icon?: string): AgentState {
   const momentLabels: Record<string, { label: string; icon?: string }> = {
-    pending: { label: '排队中', icon: 'hourglass_empty' },
+    pending: { label: '等待中', icon: 'hourglass_empty' },
     thinking: { label: '思考中', icon: 'psychology' },
     executing: { label: '执行中', icon: 'terminal' },
     writing: { label: '编写回复', icon: 'draw' },

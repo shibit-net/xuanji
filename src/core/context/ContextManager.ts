@@ -484,6 +484,10 @@ export class ContextManager {
     return this.tokenCounter.estimate(this.messages);
   }
 
+  getMaxInputTokens(): number {
+    return this.tokenCounter.getMaxInputTokens();
+  }
+
   recordUsage(usage: TokenUsage): void {
     this.tokenCounter.recordUsage(usage);
   }

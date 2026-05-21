@@ -60,6 +60,7 @@ const defaultSettings: UserSettings = {
   showTokenUsage: true,
   showCost: true,
   showThinking: false,
+  showToolCallDetails: false,
   model: {
     defaultModel: 'claude-3-5-haiku-20241022',
     temperature: 1.0,
@@ -102,6 +103,7 @@ export const useConfigStore = create<ConfigState>()(
                 showTokenUsage: c.ui?.showTokenUsage ?? true,
                 showCost: c.ui?.showCost ?? true,
                 showThinking: c.ui?.showThinking ?? false,
+                showToolCallDetails: c.ui?.showToolCallDetails ?? false,
                 model: {
                   defaultModel: c.provider?.model || 'claude-3-5-haiku-20241022',
                   temperature: c.provider?.temperature ?? 1.0,
@@ -133,6 +135,7 @@ export const useConfigStore = create<ConfigState>()(
           if (settings.showTokenUsage !== undefined) uiData.showTokenUsage = newSettings.showTokenUsage;
           if (settings.showCost !== undefined) uiData.showCost = newSettings.showCost;
           if (settings.showThinking !== undefined) uiData.showThinking = newSettings.showThinking;
+          if (settings.showToolCallDetails !== undefined) uiData.showToolCallDetails = newSettings.showToolCallDetails;
 
           const providerData: Record<string, unknown> = {};
           if (settings.model?.defaultModel !== undefined) providerData.model = newSettings.model.defaultModel;

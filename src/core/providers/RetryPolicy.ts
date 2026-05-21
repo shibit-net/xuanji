@@ -166,11 +166,16 @@ export function isContentTooLargeError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
     // HTTP 413
-    if ('status' in error && (error as { status: number }).status === 413) return true;
+    const status = 'status' in error ? (error as { status: number }).status : undefined;
+    if (status === 413) return true;
+    // 400 + 上下文关键词（Anthropic/DeepSeek 上下文过长时返回 400）
+    if (status === 400 && (msg.includes('too large') || msg.includes('too long') || msg.includes('context_length_exceeded') || msg.includes('prompt too long') || msg.includes('token'))) return true;
     // 消息级检测
     if (msg.includes('413') || msg.includes('content too large') || msg.includes('payload too large')) return true;
     if (msg.includes('context_length_exceeded') || msg.includes('maximum context length') || msg.includes('prompt too long')) return true;
-    if (msg.includes('too many tokens') || msg.includes('token limit') || msg.includes('too long')) return true;
+    if (msg.includes('too many tokens') || msg.includes('token limit')) return true;
+    // DeepSeek/代理层静默拒绝：流建立后无数据返回，通常是上下文过大导致
+    if (msg.includes('request ended without sending any chunks')) return true;
   }
   return false;
 }
