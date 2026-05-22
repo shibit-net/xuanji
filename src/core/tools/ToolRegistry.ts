@@ -132,6 +132,8 @@ class AbortCheckMiddleware implements IMiddleware<ToolContext, ToolResult> {
  */
 export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
+  /** 追踪所有 MCP 来源的工具名（格式: serverName:toolName），用于增量同步时 diff */
+  private _mcpToolNames = new Set<string>();
   private permissionController?: IPermissionController;
   private _planMode: boolean = false;
   private pipeline: MiddlewarePipeline<ToolContext, ToolResult>;
@@ -280,6 +282,47 @@ export class ToolRegistry implements IToolRegistry {
     }
 
     return cloned;
+  }
+
+  /**
+   * 同步 MCP 工具到注册表（增量 diff）
+   *
+   * 从 MCPManager 拉取所有 MCP 服务器的工具列表，
+   * 与当前注册的 MCP 工具做 diff：新增的注册，移除的注销。
+   */
+  async syncMCPTools(mcpManager: import('@/mcp/MCPManager').MCPManager): Promise<void> {
+    const { MCPToolAdapter } = await import('@/mcp/MCPToolAdapter');
+
+    // 1. 获取当前所有 MCP 工具
+    const allMCPTools = await mcpManager.getAllTools();
+    const currentMCPNames = new Set(allMCPTools.map(t => `${t.serverName}:${t.tool.name}`));
+
+    // 2. Diff: 移除已不存在的 MCP 工具
+    for (const name of this._mcpToolNames) {
+      if (!currentMCPNames.has(name)) {
+        this.unregister(name);
+        this._mcpToolNames.delete(name);
+        this.log.debug(`[MCP sync] Unregistered: ${name}`);
+      }
+    }
+
+    // 3. Diff: 注册新的 MCP 工具
+    for (const { serverName, tool: mcpTool } of allMCPTools) {
+      const toolName = `${serverName}:${mcpTool.name}`;
+      if (!this._mcpToolNames.has(toolName)) {
+        const adapter = new MCPToolAdapter(serverName, mcpTool);
+        // 如果已有同名非 MCP 工具，跳过（内置工具优先）
+        if (this.tools.has(toolName) && !this._mcpToolNames.has(toolName)) {
+          this.log.warn(`[MCP sync] Tool name conflict: "${toolName}" already registered (non-MCP), skipping`);
+          continue;
+        }
+        this.register(adapter);
+        this._mcpToolNames.add(toolName);
+        this.log.debug(`[MCP sync] Registered: ${toolName}`);
+      }
+    }
+
+    this.log.info(`[MCP sync] Synced ${this._mcpToolNames.size} MCP tool(s)`);
   }
 
   /**

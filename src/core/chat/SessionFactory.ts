@@ -366,6 +366,22 @@ export class SessionFactory {
       (session as any)._scheduler = this._scheduler;
     }
 
+    // 17. MCP 工具热重载 — 初始同步 + 监听变更（无需重启 xuanji）
+    try {
+      const mcpManager = await this.container.resolve<MCPManager>('mcpManager');
+      if (mcpManager && typeof (registry as any).syncMCPTools === 'function') {
+        await (registry as any).syncMCPTools(mcpManager);
+        mcpManager.onToolsChangedSubscribe(() => {
+          (registry as any).syncMCPTools(mcpManager).catch((err: Error) =>
+            log.warn('[MCP hot-reload] syncMCPTools failed:', err),
+          );
+        });
+        log.info('[MCP hot-reload] Initialized — tools will auto-sync on MCP changes');
+      }
+    } catch {
+      // mcpManager 未注册（无 marketplace 配置），跳过
+    }
+
     log.info('Session created successfully');
     return session;
   }

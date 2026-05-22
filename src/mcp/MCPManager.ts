@@ -40,6 +40,23 @@ export class MCPManager {
   /** reconnect 后工具变更回调 */
   onToolsChanged?: (serverName: string) => void;
 
+  /** 工具变更监听器列表（支持多路监听） */
+  private onToolsChangedListeners = new Set<(serverName: string) => void>();
+
+  /** 注册工具变更监听器 */
+  onToolsChangedSubscribe(listener: (serverName: string) => void): () => void {
+    this.onToolsChangedListeners.add(listener);
+    return () => { this.onToolsChangedListeners.delete(listener); };
+  }
+
+  /** 通知所有工具变更监听器 */
+  private notifyToolsChanged(serverName: string): void {
+    this.onToolsChanged?.(serverName);
+    for (const listener of this.onToolsChangedListeners) {
+      try { listener(serverName); } catch (e) { /* ignore */ }
+    }
+  }
+
   private constructor() {
     // 私有构造函数，防止外部实例化
   }
@@ -210,6 +227,9 @@ export class MCPManager {
     // 持久化
     await mcpSettingsPersistence.addServer(serverConfig);
     log.info(`Added MCP server: ${serverConfig.name} (transport: ${serverConfig.transport ?? 'stdio'})`);
+
+    // 通知外部工具已变更
+    this.notifyToolsChanged(serverConfig.name);
   }
 
   /**
@@ -237,6 +257,11 @@ export class MCPManager {
     const removed = await mcpSettingsPersistence.removeServer(name);
     if (removed) {
       log.info(`Removed MCP server: ${name}`);
+    }
+
+    // 通知外部工具已变更（即使持久化删除失败，内存中已移除）
+    if (this.clients.size > 0 || removed) {
+      this.notifyToolsChanged(name);
     }
     return removed;
   }
@@ -494,7 +519,7 @@ export class MCPManager {
       log.info(`Refreshed tools for "${serverName}"`);
 
       // 通知外部工具已变更
-      this.onToolsChanged?.(serverName);
+      this.notifyToolsChanged(serverName);
     } catch (error) {
       log.warn(`Failed to refresh tools for "${serverName}":`, error);
     }

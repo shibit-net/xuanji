@@ -149,10 +149,14 @@ export class MCPInstaller {
         installPath = path.join(this.installBase, packageId);
         await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
       } else if (installConfig.configTemplate) {
-        // Type B: 外部引用（npm/pip/等）— 直接从 configTemplate 注册
-        log.info(`Registering external MCP ${packageId}@${effectiveVersion} from configTemplate`);
+        // Type B: 外部引用（npm/pip/等）— npm install + 注册
+        log.info(`Installing external MCP ${packageId}@${effectiveVersion}`);
         installPath = path.join(this.installBase, packageId);
         await fs.mkdir(installPath, { recursive: true });
+
+        // 初始化 package.json 并安装 npm 包
+        await this.npmInitAndInstall(installPath, packageId, timeout);
+
         await fs.writeFile(
           path.join(installPath, '.xuanji-mcp.json'),
           JSON.stringify({
@@ -287,6 +291,63 @@ export class MCPInstaller {
       child.on('timeout', () => {
         child.kill('SIGTERM');
         reject(new Error(`npm install timed out after ${timeout}ms`));
+      });
+    });
+  }
+
+  /**
+   * 初始化 package.json 并安装 npm 包
+   *
+   * 用于 Type B（外部包）：在 installPath 下创建 package.json
+   * 并执行 npm install {packageId}。
+   */
+  private async npmInitAndInstall(
+    installPath: string,
+    packageId: string,
+    timeout: number,
+  ): Promise<void> {
+    // 创建最小 package.json（如果不存在）
+    const pkgJsonPath = path.join(installPath, 'package.json');
+    try {
+      await fs.access(pkgJsonPath);
+    } catch {
+      await fs.writeFile(
+        pkgJsonPath,
+        JSON.stringify({ private: true, name: packageId.replace('/', '-') }, null, 2),
+        'utf-8',
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      log.debug(`npm install ${packageId} in ${installPath}`);
+      const child = spawn('npm', ['install', packageId, '--no-audit', '--no-fund'], {
+        cwd: installPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout,
+        env: { ...process.env },
+      });
+
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('error', (err) => {
+        reject(new Error(`npm install ${packageId} failed to start: ${err.message}`));
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          const lastLine = stderr.trim().split('\n').pop() || '';
+          reject(new Error(`npm install ${packageId} exited with code ${code}: ${lastLine}`));
+        }
+      });
+
+      child.on('timeout', () => {
+        child.kill('SIGTERM');
+        reject(new Error(`npm install ${packageId} timed out after ${timeout}ms`));
       });
     });
   }
