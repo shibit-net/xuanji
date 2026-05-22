@@ -1,5 +1,6 @@
 import { defineConfig } from 'tsup';
 import path from 'path';
+import fs from 'fs';
 import { buildAliases } from '../tsup-aliases';
 
 export default defineConfig({
@@ -44,7 +45,13 @@ export default defineConfig({
     aliases['electron'] = path.resolve(__dirname, 'main', 'electron-stub.ts');
     options.alias = aliases;
     options.banner = {
-      js: `import{createRequire}from'module';const require=createRequire(import.meta.url);`,
+      js: `import{createRequire}from'module';import{fileURLToPath}from'url';import{dirname}from'path';const __filename=fileURLToPath(import.meta.url);const __dirname=dirname(__filename);const require=createRequire(import.meta.url);`,
     };
+  },
+  async onSuccess() {
+    const src = path.resolve(__dirname, '..', 'src', 'core', 'skills', 'skill-worker.js');
+    const dest = path.resolve(__dirname, 'dist-electron', 'skill-worker.js');
+    fs.copyFileSync(src, dest);
+    console.log('[agent-bridge] skill-worker.js copied to dist-electron/');
   },
 });

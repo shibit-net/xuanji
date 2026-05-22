@@ -118,14 +118,9 @@
         "from": "dist-electron",
         "to": "dist-electron",
         "filter": [
-          "*.mjs"
-        ]
-      },
-      {
-        "from": "dist-electron",
-        "to": "dist-electron",
-        "filter": [
-          "*.node"
+          "*.mjs",
+          "*.node",
+          "skill-worker.js"
         ]
       },
       {
