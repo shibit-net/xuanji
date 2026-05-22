@@ -15,7 +15,7 @@
  * 零外部依赖 — 使用 Node.js 内置模块。
  */
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { exec as execCb, spawn } from 'node:child_process';
@@ -85,6 +85,14 @@ export class MCPInstaller {
     this.installBase = installBase ?? path.join(os.homedir(), '.xuanji', 'mcp');
   }
 
+  /**
+   * 将 packageId 转为安全的文件系统路径
+   * @scope/name → @scope-name（避免 npm 将目录名误解析为 scoped package 路径）
+   */
+  private getInstallPath(packageId: string): string {
+    return path.join(this.installBase, packageId.replace(/\//g, '-'));
+  }
+
   // ============================================================
   // Public API
   // ============================================================
@@ -146,12 +154,12 @@ export class MCPInstaller {
         // Type A: 自托管 — 下载 tar.gz → 解压 → npm install
         log.info(`Downloading ${packageId}@${effectiveVersion}`);
         const { tempPath } = await this.market.download(packageId, options.version);
-        installPath = path.join(this.installBase, packageId);
+        installPath = this.getInstallPath(packageId);
         await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
       } else if (installConfig.configTemplate) {
         // Type B: 外部引用（npm/pip/等）— npm install + 注册
         log.info(`Installing external MCP ${packageId}@${effectiveVersion}`);
-        installPath = path.join(this.installBase, packageId);
+        installPath = this.getInstallPath(packageId);
         await fs.mkdir(installPath, { recursive: true });
 
         // 初始化 package.json 并安装 npm 包
@@ -182,6 +190,16 @@ export class MCPInstaller {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Failed to install ${packageId}:`, err);
+
+      // 清理残留的安装目录
+      const targetPath = this.getInstallPath(packageId);
+      try {
+        await fs.rm(targetPath, { recursive: true, force: true });
+        log.debug(`Cleaned up failed install directory: ${targetPath}`);
+      } catch {
+        // 清理失败不阻塞错误返回
+      }
+
       return { success: false, packageId, version: '', installPath: '',
                config: {} as MCPServerConfig, error: message };
     }
@@ -258,6 +276,41 @@ export class MCPInstaller {
   }
 
   /**
+   * 将 npm stderr 输出转为可读的错误信息
+   */
+  private formatNpmError(stderr: string, code: number, packageId?: string): string {
+    const output = stderr.trim();
+
+    // 404: 包不存在
+    if (/E404|404 Not Found/i.test(output)) {
+      const pkg = packageId || '该包';
+      return `npm 包 "${pkg}" 在 registry 中不存在 (404)`;
+    }
+
+    // EACCES / permission
+    if (/EACCES|permission denied/i.test(output)) {
+      return 'npm install 权限不足，请检查文件目录权限';
+    }
+
+    // ENOTFOUND / network
+    if (/ENOTFOUND|getaddrinfo/i.test(output)) {
+      return '无法连接 npm registry，请检查网络连接';
+    }
+
+    // ETIMEDOUT
+    if (/ETIMEDOUT|timed out/i.test(output)) {
+      return `npm install 超时 (${code})，请检查网络或重试`;
+    }
+
+    // 提取最后一行有效错误
+    const lines = output.split('\n').filter(l => l.trim());
+    const lastLine = lines.pop() || '';
+    // 过滤掉 npm 的 verbose 前缀（如 "npm error"）
+    const cleanLast = lastLine.replace(/^npm\s+(error|ERR!)\s*/i, '').trim();
+    return `npm install 失败 (exit code ${code})${cleanLast ? ': ' + cleanLast : ''}`;
+  }
+
+  /**
    * 执行 npm install
    */
   private npmInstall(cwd: string, timeout: number): Promise<void> {
@@ -282,9 +335,7 @@ export class MCPInstaller {
         if (code === 0) {
           resolve();
         } else {
-          // npm 经常输出 warning 到 stderr，不一定是失败
-          const lastLine = stderr.trim().split('\n').pop() || '';
-          reject(new Error(`npm install exited with code ${code}: ${lastLine}`));
+          reject(new Error(this.formatNpmError(stderr, code ?? 1)));
         }
       });
 
@@ -298,16 +349,20 @@ export class MCPInstaller {
   /**
    * 初始化 package.json 并安装 npm 包
    *
-   * 用于 Type B（外部包）：在 installPath 下创建 package.json
-   * 并执行 npm install {packageId}。
+   * 用于 Type B（外部包）：在 installPath/app 子目录下创建 package.json
+   * 并执行 npm install {packageId}。使用 app 子目录避免 cwd 路径中的
+   * scoped package 名（如 @playwright/mcp）被 npm 误解析为本地路径。
    */
   private async npmInitAndInstall(
     installPath: string,
     packageId: string,
     timeout: number,
   ): Promise<void> {
-    // 创建最小 package.json（如果不存在）
-    const pkgJsonPath = path.join(installPath, 'package.json');
+    // 使用 app 子目录避免 npm 路径歧义
+    const appDir = path.join(installPath, 'app');
+    await fs.mkdir(appDir, { recursive: true });
+
+    const pkgJsonPath = path.join(appDir, 'package.json');
     try {
       await fs.access(pkgJsonPath);
     } catch {
@@ -319,9 +374,9 @@ export class MCPInstaller {
     }
 
     return new Promise((resolve, reject) => {
-      log.debug(`npm install ${packageId} in ${installPath}`);
+      log.debug(`npm install ${packageId} in ${appDir}`);
       const child = spawn('npm', ['install', packageId, '--no-audit', '--no-fund'], {
-        cwd: installPath,
+        cwd: appDir,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout,
         env: { ...process.env },
@@ -340,8 +395,7 @@ export class MCPInstaller {
         if (code === 0) {
           resolve();
         } else {
-          const lastLine = stderr.trim().split('\n').pop() || '';
-          reject(new Error(`npm install ${packageId} exited with code ${code}: ${lastLine}`));
+          reject(new Error(this.formatNpmError(stderr, code ?? 1, packageId)));
         }
       });
 
@@ -356,12 +410,14 @@ export class MCPInstaller {
    * 清理安装目录
    */
   private async cleanupInstall(packageId: string): Promise<void> {
-    const installPath = path.join(this.installBase, packageId);
-    try {
-      await fs.rm(installPath, { recursive: true, force: true });
-      log.info(`Removed install directory: ${installPath}`);
-    } catch (err) {
-      log.warn(`Failed to remove install directory ${installPath}:`, err);
+    // 兼容新旧两种路径格式（/ → - 迁移）
+    const oldPath = path.join(this.installBase, packageId);
+    const newPath = this.getInstallPath(packageId);
+    for (const installPath of [oldPath, newPath]) {
+      try {
+        await fs.rm(installPath, { recursive: true, force: true });
+        log.info(`Removed install directory: ${installPath}`);
+      } catch { /* 目录不存在则跳过 */ }
     }
   }
 
@@ -416,13 +472,21 @@ export class MCPInstaller {
       command: template.command ?? 'node',
       args: (template.args ?? []).map(arg => {
         if (arg === '{{installPath}}') return installPath;
-        // 仅解析看起来像文件路径的 arg（含 / \ 或以 .js/.mjs/.py 结尾）
-        if (arg.includes('/') || arg.includes('\\')) return resolvePath(arg);
+        // 只解析明确是文件路径的 arg：
+        //   - 以 / ~ ./ ../ 开头 → 绝对/显式相对路径
+        //   - 以 .js/.mjs/.py 结尾 → 脚本文件
+        // 注意：scoped npm 包名（如 @playwright/mcp）含 / 但不是文件路径，不应解析
+        if (arg.startsWith('/') || arg.startsWith('~') || arg.startsWith('./') || arg.startsWith('../')) return resolvePath(arg);
         if (arg.endsWith('.js') || arg.endsWith('.mjs') || arg.endsWith('.py')) return resolvePath(arg);
         return arg;
       }),
       env: template.env ?? {},
-      cwd: template.cwd ? resolvePath(template.cwd) : installPath,
+      cwd: template.cwd ? resolvePath(template.cwd)
+          : (() => {
+              // Type B 包使用 app/ 子目录避免 scoped package 路径冲突
+              try { const appDir = path.join(installPath, 'app'); if (existsSync(appDir)) return appDir; } catch {}
+              return installPath;
+            })(),
       sseUrl: template.sseUrl,
       httpUrl: template.httpUrl,
       url: template.url,
