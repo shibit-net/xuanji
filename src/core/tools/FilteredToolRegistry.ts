@@ -93,15 +93,22 @@ export class FilteredToolRegistry implements IToolRegistry {
     throw new Error('FilteredToolRegistry does not support unregister()');
   }
 
+  /** MCP 工具命名格式: serverName:toolName，始终可用，不参与白名单过滤 */
+  private isMCPTool(name: string): boolean {
+    return name.includes(':');
+  }
+
   get(name: string): any | undefined {
-    if (this.allowAll) return this.inner.get(name);
+    if (this.allowAll || this.isMCPTool(name)) return this.inner.get(name);
     if (!this.allowedTools!.has(name)) return undefined;
     return this.inner.get(name);
   }
 
   getAll(): any[] {
     if (this.allowAll) return this.inner.getAll();
-    return this.inner.getAll().filter((t: any) => this.allowedTools!.has(t.name));
+    return this.inner.getAll().filter((t: any) =>
+      this.allowedTools!.has(t.name) || this.isMCPTool(t.name)
+    );
   }
 
   getSchemas(): any[] {
@@ -113,7 +120,7 @@ export class FilteredToolRegistry implements IToolRegistry {
   }
 
   has(name: string): boolean {
-    if (this.allowAll) return this.inner.has(name);
+    if (this.allowAll || this.isMCPTool(name)) return this.inner.has(name);
     if (!this.allowedTools!.has(name)) return false;
     return this.inner.has(name);
   }
@@ -124,7 +131,7 @@ export class FilteredToolRegistry implements IToolRegistry {
   }
 
   async execute(name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-    if (!this.allowAll && !this.allowedTools!.has(name)) {
+    if (!this.allowAll && !this.allowedTools!.has(name) && !this.isMCPTool(name)) {
       return {
         content: `Tool "${name}" is not available in this sub-agent.`,
         isError: true,

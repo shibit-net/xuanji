@@ -69,6 +69,14 @@ export class StreamPipeline {
 
     log.info(`[DIAG] StreamPipeline.execute: calling provider.stream, model=${options?.config?.model} provider=${this.provider?.name || 'unknown'} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
 
+    if (!this.provider || typeof this.provider.stream !== 'function') {
+      throw new Error(
+        `Provider "${this.provider?.name || 'unknown'}" (${typeof this.provider}) does not implement stream(). ` +
+        `Available keys: ${this.provider ? Object.keys(this.provider).join(', ') || 'none' : 'null/undefined'}. ` +
+        `Please check the provider configuration.`
+      );
+    }
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (options?.signal?.aborted) throw new Error('Aborted');
       try {
