@@ -248,8 +248,12 @@ export class SessionFactory {
       log.warn('Failed to build initial system prompt:', err);
     }
 
-    // 合并 agent 配置工具 + prompt 要求的工具，再自动补齐
-    const allTools = [...new Set([...agentTools, ...promptRequiredTools])];
+    // 合并 agent 配置工具 + prompt 要求的工具 + MCP 工具，再自动补齐
+    // MCP 工具（命名格式 serverName:toolName）由用户通过天工坊安装，应自动可用
+    const mcpToolNames = registry.getAll()
+      .filter((t: any) => t.name.includes(':'))
+      .map((t: any) => t.name);
+    const allTools = [...new Set([...agentTools, ...promptRequiredTools, ...mcpToolNames])];
     const augmentedTools = augmentToolList(allTools);
 
     const trackedRegistry = new FilteredToolRegistry(
@@ -366,21 +370,8 @@ export class SessionFactory {
       (session as any)._scheduler = this._scheduler;
     }
 
-    // 17. MCP 工具热重载 — 初始同步 + 监听变更（无需重启 xuanji）
-    try {
-      const mcpManager = await this.container.resolve<MCPManager>('mcpManager');
-      if (mcpManager && typeof (registry as any).syncMCPTools === 'function') {
-        await (registry as any).syncMCPTools(mcpManager);
-        mcpManager.onToolsChangedSubscribe(() => {
-          (registry as any).syncMCPTools(mcpManager).catch((err: Error) =>
-            log.warn('[MCP hot-reload] syncMCPTools failed:', err),
-          );
-        });
-        log.info('[MCP hot-reload] Initialized — tools will auto-sync on MCP changes');
-      }
-    } catch {
-      // mcpManager 未注册（无 marketplace 配置），跳过
-    }
+    // 17. MCP 工具热重载 — 延迟到 init-complete 之后（避免阻塞会话初始化）
+    // 见 agent-bridge.ts handleInit 中的 scheduleMCPToolSync()
 
     log.info('Session created successfully');
     return session;

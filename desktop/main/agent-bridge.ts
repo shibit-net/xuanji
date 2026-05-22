@@ -422,6 +422,9 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     // 发送 init-complete 通知
     channel.send('init-complete', { success: true });
 
+    // 异步同步 MCP 工具（不在 SessionFactory.create() 中阻塞初始化）
+    scheduleMCPToolSync(newSession);
+
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -2312,6 +2315,30 @@ function handlePlanReviewResponse(data: any) {
     pendingPlanReviews.delete(data.id);
     resolve(data.result);
   }
+}
+
+/**
+ * 延迟同步 MCP 工具到 ToolRegistry（不阻塞会话初始化）
+ */
+function scheduleMCPToolSync(sess: ChatSession) {
+  // 使用 setImmediate 确保在 init-complete 之后的下一个事件循环中执行
+  setImmediate(async () => {
+    try {
+      const registry = sess.getBaseRegistry();
+      const mcpManager = sess.getMCPManager();
+      if (mcpManager && typeof (registry as any).syncMCPTools === 'function') {
+        await (registry as any).syncMCPTools(mcpManager);
+        mcpManager.onToolsChangedSubscribe(() => {
+          (registry as any).syncMCPTools(mcpManager).catch((err: Error) =>
+            log.warn('[MCP hot-reload] syncMCPTools failed:', err),
+          );
+        });
+        log.info('[MCP hot-reload] Initialized — tools will auto-sync on MCP changes');
+      }
+    } catch (err) {
+      log.warn('[MCP hot-reload] Failed to sync MCP tools:', err);
+    }
+  });
 }
 
 function handleAskUserResponse(data: any) {
