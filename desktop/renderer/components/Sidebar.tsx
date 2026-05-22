@@ -18,8 +18,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 // 应用图标
-import appLogo from '../assets/logos/04e91e5e62d18be6f5969ca4fc7cfb99.png';
-
 interface SidebarProps {
   onToggle: () => void;
   onOpenSettings: () => void;
@@ -36,6 +34,11 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
   const { user, isAuthenticated, logout } = useAuthStore();
   const language = useConfigStore((s) => s.settings.language);
   const { sessions, activeSessionId, setActiveSession, setSetupDialogOpen } = usePlatformStore();
+
+  // 点击 Xuanji 回到本地对话
+  const handleXuanjiClick = () => {
+    setActiveSession(null);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -76,14 +79,24 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
 
       {/* 当前对话 */}
       <div className="p-4 border-b border-border space-y-2">
+        {/* Xuanji 本地对话 */}
         <Button
           variant="outline"
           className="w-full flex items-center gap-3 px-3 py-2 h-auto border-primary/30 bg-primary/10 hover:bg-primary/20"
+          onClick={handleXuanjiClick}
         >
-          <div className="w-[18px] h-[18px] rounded-full overflow-hidden flex-shrink-0">
-            <img src={appLogo} alt="Xuanji" className="w-full h-full object-cover" />
-          </div>
           <span className="text-sm font-medium text-primary">Xuanji</span>
+        </Button>
+
+        {/* 添加远端入口 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setSetupDialogOpen(true)}
+        >
+          <Plus size={14} />
+          [+ 添加远端]
         </Button>
 
         {/* 远端会话列表 */}
@@ -106,17 +119,6 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
             )}
           </Button>
         ))}
-
-        {/* 添加远端按钮 */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setSetupDialogOpen(true)}
-        >
-          <Plus size={14} />
-          [+ 添加远端]
-        </Button>
       </div>
 
       {/* 间隔 */}

@@ -33,6 +33,7 @@ interface MilkdownEditorProps {
   onChange?: (value: string) => void;
   mode: 'wysiwyg' | 'preview';
   height?: string;
+  onReady?: () => void;
 }
 
 /** 代码块复制按钮 — 用 React portal 渲染到每个 <pre> 上 */
@@ -394,14 +395,20 @@ function showMermaidPreview(code: string, svgHtml: string) {
   });
 }
 
-function MilkdownEditorInner({ value, onChange, mode }: Omit<MilkdownEditorProps, 'height'>) {
+function MilkdownEditorInner({ value, onChange, mode, onReady }: Omit<MilkdownEditorProps, 'height'> & { onReady?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const readyFired = useRef(false);
   const handleChange = useCallback(
     (markdown: string) => {
       onChange?.(markdown);
     },
     [onChange],
   );
+
+  // 重置 ready 标记
+  useEffect(() => {
+    readyFired.current = false;
+  }, [mode, value]);
 
   const editorFactory = useMemo(
     () => (container: HTMLElement) => {
@@ -438,6 +445,33 @@ function MilkdownEditorInner({ value, onChange, mode }: Omit<MilkdownEditorProps
   );
 
   useEditor(editorFactory, [mode, value]);
+
+  // 检测 ProseMirror 挂载后触发 onReady
+  useEffect(() => {
+    if (!onReady || readyFired.current || !containerRef.current) return;
+
+    const observer = new MutationObserver(() => {
+      if (containerRef.current?.querySelector('.ProseMirror') && !readyFired.current) {
+        readyFired.current = true;
+        onReady();
+        observer.disconnect();
+      }
+    });
+    observer.observe(containerRef.current, { childList: true, subtree: true });
+
+    const timer = setTimeout(() => {
+      if (!readyFired.current) {
+        readyFired.current = true;
+        onReady();
+      }
+      observer.disconnect();
+    }, 500);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [onReady, mode, value]);
 
   // 预览模式下给代码块注入复制按钮
   useCodeBlockCopyButtons(containerRef, mode === 'preview');

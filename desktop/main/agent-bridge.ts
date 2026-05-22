@@ -11,6 +11,8 @@
 import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
 import type { ChatSession } from '../../src/core/chat/ChatSession.js';
 import type { UserConfirmation } from '../../src/permission/types.js';
+import { AgentGatewayImpl } from '../../src/platform/AgentGateway.js';
+import { SessionRouter } from '../../src/platform/SessionRouter.js';
 import { getTodoManager } from '../../src/core/tools/TodoManager.js';
 import { ChildMessageChannel } from './ipc/MessageBus.js';
 import { DownloadManager } from '../../src/core/download/DownloadManager.js';
@@ -315,6 +317,20 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     });
     session = newSession;
     currentUserId = uid;
+
+    // 从配置初始化核心 i18n 语言
+    try {
+      const { setLanguage } = await import('../../src/core/i18n/index.js');
+      const config = newSession.getConfig();
+      const lang = config?.ui?.language;
+      if (lang === 'zh' || lang === 'en') {
+        setLanguage(lang);
+        log.info(`Language initialized: ${lang}`);
+      }
+    } catch (e) {
+      // i18n 初始化失败不阻塞启动
+    }
+
     log.info('handleInit: session created successfully');
 
     // 注册工具执行钩子 — 自动检测文件操作涉及的项目并注册到 ProjectRegistry
@@ -425,6 +441,9 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     // 异步同步 MCP 工具（不在 SessionFactory.create() 中阻塞初始化）
     scheduleMCPToolSync(newSession);
 
+    // 初始化远端平台消息处理（agent-bridge 收到平台消息后自动处理）
+    initPlatformMessageHandler(newSession);
+
     return { success: true };
   } catch (err) {
     const msg = err instanceof Error ? (err.message || '(no message)') : String(err);
@@ -433,6 +452,64 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
   }
 }
 
+// ─── 远端平台消息自动处理 ─────────────────────────────────
+
+let platformGateway: AgentGatewayImpl | null = null;
+
+function initPlatformMessageHandler(sess: ChatSession): void {
+  const agentLoop = sess.getAgentLoop();
+  if (!agentLoop) {
+    log.warn('AgentLoop not available, skipping platform message handler');
+    return;
+  }
+
+  const sessionRouter = new SessionRouter();
+  platformGateway = new AgentGatewayImpl(agentLoop, sessionRouter);
+
+  // 注册 platform:message 处理器
+  channel.handle('platform:message', async (data: {
+    id: string;
+    sessionKey: string;
+    platform: string;
+    text: string;
+    userId: string;
+    chatId: string;
+    chatType: string;
+  }) => {
+    try {
+      log.info(`[DIAG] Child received platform:message: ${data.id} platform=${data.platform} sessionKey=${data.sessionKey}`);
+
+      const reply = await platformGateway!.process({
+        id: data.id,
+        platform: data.platform,
+        chatType: data.chatType as 'private' | 'group',
+        chatId: data.chatId,
+        userId: data.userId,
+        userName: data.userId,
+        text: data.text,
+        sessionKey: data.sessionKey,
+      }, { sessionKey: data.sessionKey });
+
+      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}"`);
+
+      // 将回复发回主进程
+      channel.send('platform:reply', {
+        sessionKey: data.sessionKey,
+        platform: data.platform,
+        chatId: data.chatId,
+        text: reply.text,
+      });
+
+      log.info(`[DIAG] Platform reply sent to main: platform=${data.platform} chatId=${data.chatId}`);
+      return { success: true };
+    } catch (err) {
+      log.error(`[DIAG] Platform message processing failed: ${(err as Error).message}`);
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
+  log.info('Platform message handler registered');
+}
 
 /**
  * 统一用户操作入口（Phase 2 新路径）。
@@ -605,7 +682,18 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       }
     }
 
-    await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks });
+    // 标记本地会话，确保 agent 事件路由到本地 UI
+    const agentLoop = session.getAgentLoop();
+    if (agentLoop) {
+      agentLoop.setSessionKey('local');
+    }
+    try {
+      await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks });
+    } finally {
+      if (agentLoop) {
+        agentLoop.setSessionKey(null);
+      }
+    }
     log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
@@ -2234,25 +2322,25 @@ function registerHookEventBridge() {
   eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
     const agentId = payload.userId || routedAgentId;
     const isForeground = !payload.userId || payload.userId === currentUserId;
-    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} agentId=${agentId} isForeground=${isForeground}`);
-    safeSend({ type: 'agent:started', data: { model: payload.model, agentId, isForeground } });
+    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} agentId=${agentId} isForeground=${isForeground} sessionKey=${payload.sessionKey}`);
+    safeSend({ type: 'agent:started', data: { model: payload.model, agentId, isForeground, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
     log.info(`[DIAG] agent-bridge AGENT_TEXT_DELTA: payload.agentId=${payload.agentId} currentUserId=${currentUserId} routedAgentId=${routedAgentId} → agentId=${agentId} text="${(payload.text || '').substring(0, 50)}"`);
-    safeSend({ type: 'agent:text', data: { text: payload.text, agentId } });
+    safeSend({ type: 'agent:text', data: { text: payload.text, agentId, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:thinking', data: { content: payload.content, agentId } });
+    safeSend({ type: 'agent:thinking', data: { content: payload.content, agentId, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_TOOL_START, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:tool-start', data: { id: payload.id, name: payload.name, input: payload.input, agentId } });
+    safeSend({ type: 'agent:tool-start', data: { id: payload.id, name: payload.name, input: payload.input, agentId, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata, contentBlocks: payload.contentBlocks } });
+    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata, contentBlocks: payload.contentBlocks, sessionKey: payload.sessionKey } });
 
     // Layer 0: 写入结构化工具事件到 session_events 表
     try {
@@ -2285,14 +2373,14 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.AGENT_USAGE, (payload) => {
     const agentId = (payload.userId && payload.userId !== currentUserId) ? payload.userId : routedAgentId;
-    safeSend({ type: 'agent:usage', data: { tokenUsage: payload.tokenUsage, agentId } });
+    safeSend({ type: 'agent:usage', data: { tokenUsage: payload.tokenUsage, agentId, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload) => {
     const agentId = payload.userId || routedAgentId;
-    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage, agentId } });
+    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage, agentId, sessionKey: payload.sessionKey } });
   });
   eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
-    safeSend({ type: 'agent:file-changes', data: { changes: payload.changes } });
+    safeSend({ type: 'agent:file-changes', data: { changes: payload.changes, sessionKey: payload.sessionKey } });
 
     // Layer 0: 写入文件变更事件
     try {

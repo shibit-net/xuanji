@@ -13,6 +13,7 @@ import AskUserDialog from '../components/AskUserDialog';
 import StatsDialog from '../components/StatsDialog';
 import DiagnosticsDialog from '../components/DiagnosticsDialog';
 import PlatformSetupDialog from '../components/PlatformSetupDialog';
+import { usePlatformEvents } from '../hooks/usePlatformEvents';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
@@ -33,6 +34,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { user } = useAuthStore();
   const { loadAgents } = useConfigStore();
   const { setupDialogOpen } = usePlatformStore();
+  const activeSessionId = usePlatformStore((s) => s.activeSessionId);
+
+  // 监听远端平台 IPC 事件
+  usePlatformEvents();
 
   // 权限交互状态
   const permissionRequest = useSessionStore((state) => state.permissionRequest);
@@ -42,7 +47,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const setPlanReviewRequest = useSessionStore((state) => state.setPlanReviewRequest);
   const setAskUserRequest = useSessionStore((state) => state.setAskUserRequest);
 
-  // 用户登录成功后，加载 agent 配置
+  // 用户登录成功后，加载 agent 配置（UI 设置由 SessionInit 同步）
   useEffect(() => {
     if (user?.userId) {
       loadAgents();
@@ -112,7 +117,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           />
         )}
 
-        {/* 页面内容 */}
+        {/* 页面内容 — 始终渲染 MainPage，监控面板保持可见 */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {children}
         </div>

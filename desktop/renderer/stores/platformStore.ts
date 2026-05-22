@@ -15,6 +15,7 @@ export interface RemoteSession {
   unreadCount: number;
   lastMessage?: string;
   lastTime?: number;
+  lastActiveAt?: number;
   sessionKey: string;
   userId: string;
   chatId: string;

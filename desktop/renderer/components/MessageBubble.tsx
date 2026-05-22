@@ -34,26 +34,26 @@ function useRealtimeClock(active: boolean) {
 // 配置 marked：异步解析关闭，确保同步调用
 marked.setOptions({ async: false });
 
-/** rAF 节流的流式 markdown 渲染 hook — 上限 60fps，避免高频 delta 导致 React 卡顿 */
+/** rAF 节流的流式 markdown 渲染 hook — 上限 60fps，跳过相同长度文本避免父组件重渲染误触发 */
 function useStreamingMarkdown(text: string, active: boolean): string {
   const [html, setHtml] = useState('');
   const rafRef = useRef(0);
-  const latestRef = useRef(text);
+  const lastTextLen = useRef(0);
 
   useEffect(() => {
     if (!active) return;
-    latestRef.current = text;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (text.length === lastTextLen.current) return;
+    lastTextLen.current = text.length;
+
+    cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       try {
-        setHtml(marked.parse(latestRef.current, { async: false }) as string);
+        setHtml(marked.parse(text, { async: false }) as string);
       } catch {
-        setHtml(latestRef.current);
+        setHtml(text);
       }
     });
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return () => cancelAnimationFrame(rafRef.current);
   }, [text, active]);
 
   return html;
@@ -142,19 +142,32 @@ function FileIcon({ size = 14, className, simple }: { size?: number; className?:
 /** 图片内容块 — 支持点击放大，Lightbox 通过 Portal 渲染到 body */
 function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }> }) {
   const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [aspect, setAspect] = useState<number | null>(null);
   const src = `data:${block.mimeType};base64,${block.data}`;
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setAspect(img.naturalWidth / img.naturalHeight);
+    img.src = src;
+  }, [src]);
+
+  const paddingBottom = aspect ? `${(1 / aspect) * 100}%` : '25%';
 
   return (
     <>
       <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20 cursor-pointer
                       hover:border-white/[0.15] transition-all duration-200 group relative"
-           onClick={() => setExpanded(true)}>
-        <img
-          src={src}
-          alt="截图"
-          className="w-full max-h-[400px] object-contain"
-          loading="lazy"
-        />
+           onClick={() => setExpanded(true)}
+           style={{ maxHeight: '400px' }}>
+        <div style={{ paddingBottom, position: 'relative', minHeight: '100px' }}>
+          <img
+            src={src}
+            alt="截图"
+            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setLoaded(true)}
+          />
+        </div>
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity
                         bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1">
           <Maximize2 size={12} className="text-white/70" />
@@ -162,7 +175,6 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
         </div>
       </div>
 
-      {/* Lightbox — Portal 到 body，脱离气泡 overflow 容器 */}
       {expanded && createPortal(
         <div
           className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center
@@ -300,9 +312,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   }, [message.duration, message.timestamp, now]);
 
   // 将 Milkdown 渲染出的自定义节点（subagent-ref / citation-ref span）替换为可交互组件
+  // 流式过程中跳过：此时用 marked 渲染，没有 SubAgentRef span 需要替换
   useEffect(() => {
     const container = containerRef.current;
     if (!container || isUser || isSystem) return;
+    if (isStreaming) return;
 
     const roots: Array<ReturnType<typeof createRoot>> = [];
     let enhanced = false;
@@ -385,7 +399,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             if (text.startsWith('@@')) return 'color:#94a3b8;';
             return '';
           })();
-          return `<span style="display:block;${lineStyle}padding:0 4px;border-radius:2px;">${line}</span>`;
+          return `<div style="display:block;${lineStyle}padding:0 4px;border-radius:2px;min-height:1.5em;">${line}</div>`;
         }).join('\n');
         code.innerHTML = enhanced2;
       });
@@ -436,7 +450,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       observer.disconnect();
       roots.forEach((r) => r.unmount());
     };
-  }, [processedContent, isUser, isSystem]);
+  }, [processedContent, isUser, isSystem, isStreaming]);
 
   if (isSystem) {
     return (
@@ -547,31 +561,44 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           </div>
         )}
 
-        {/* Moment 状态条：仅当前流式消息展示活跃状态，历史消息不再响应 agent 状态变化 */}
-        {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
-          (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
-                ? 'bg-primary animate-pulse'
-                : 'bg-blue-400'
-            }`} />
-            <span className="text-[11px] text-muted-foreground/70">
-              {respondingAgent.status === 'writing'
-                ? `${respondingAgent.name} 在编辑中`
-                : respondingAgent.moment.label}
-            </span>
-            {respondingAgent.moment.startTime ? (
-              <span className="text-[10px] text-muted-foreground/40 font-mono">
-                {formatDuration(now - respondingAgent.moment.startTime)}
+        {/* Moment 状态条：始终渲染容器锁定高度，visibility 控制显隐 */}
+        <div
+          className="flex items-center gap-2 mb-2 px-1 min-h-[24px]"
+          style={{
+            visibility:
+              showThinking && isStreaming && !isUser && !isSystem && !isToolSummary &&
+              respondingAgent?.moment &&
+              (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' ||
+               respondingAgent.status === 'writing' || respondingAgent.status === 'reporting')
+                ? 'visible'
+                : 'hidden',
+          }}
+        >
+          {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
+            (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
+            <>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
+                  ? 'bg-primary animate-pulse'
+                  : 'bg-blue-400'
+              }`} />
+              <span className="text-[11px] text-muted-foreground/70">
+                {respondingAgent.status === 'writing'
+                  ? `${respondingAgent.name} 在编辑中`
+                  : respondingAgent.moment.label}
               </span>
-            ) : respondingAgent.moment.duration != null ? (
-              <span className="text-[10px] text-muted-foreground/40 font-mono">
-                {formatDuration(respondingAgent.moment.duration)}
-              </span>
-            ) : null}
-          </div>
-        )}
+              {respondingAgent.moment.startTime ? (
+                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                  {formatDuration(now - respondingAgent.moment.startTime)}
+                </span>
+              ) : respondingAgent.moment.duration != null ? (
+                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                  {formatDuration(respondingAgent.moment.duration)}
+                </span>
+              ) : null}
+            </>
+          )}
+        </div>
 
         {!isUser && message.statusHint && (
           <div className="mb-2 text-xs text-text-secondary animate-pulse">{message.statusHint}</div>

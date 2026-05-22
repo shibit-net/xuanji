@@ -59,6 +59,19 @@ export class AgentLoop {
   private thinkingConfig: import('@/core/types').ThinkingConfig | undefined = undefined;
   private _userId?: string;
 
+  /** 当前执行归属的会话键 — "local" 或平台 sessionKey，null 表示未设置 */
+  private _currentSessionKey: string | null = null;
+
+  setSessionKey(key: string | null): void {
+    // 执行中不允许覆盖，防止异步间隙被其他调用方改写 sessionKey
+    if (this.running) return;
+    this._currentSessionKey = key;
+  }
+
+  getSessionKey(): string | null {
+    return this._currentSessionKey;
+  }
+
   // 卡住检测
   private _lastToolNames: string[] = [];
   private _lastFileReads: string[] = [];
@@ -203,13 +216,13 @@ export class AgentLoop {
         this._hasOutputInThisRun = true;
         this.callbacks.onText?.(text);
         if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
+          eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId, sessionKey: this._currentSessionKey });
         }
       },
       onThinking: (thinking) => {
         this.callbacks.onThinking?.(thinking);
         if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
+          eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId, sessionKey: this._currentSessionKey });
         }
       },
       onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
@@ -221,6 +234,7 @@ export class AgentLoop {
           eventBus.emitSync(XuanjiEvent.AGENT_USAGE, {
             userId: this._userId,
             tokenUsage: usage,
+            sessionKey: this._currentSessionKey,
           });
         }
       },
@@ -248,6 +262,7 @@ export class AgentLoop {
     eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
       userId: this._userId,
       model: this.config.model,
+      sessionKey: this._currentSessionKey,
     });
 
     try {
@@ -343,6 +358,7 @@ export class AgentLoop {
             name: tc.name,
             input: tc.input,
             agentId: this._userId,
+            sessionKey: this._currentSessionKey,
           });
         }
 
@@ -365,6 +381,7 @@ export class AgentLoop {
               result: toolResult.content,
               isError: toolResult.isError,
               agentId: this._userId,
+              sessionKey: this._currentSessionKey,
               metadata: toolResult.metadata,
               contentBlocks: toolResult.contentBlocks,
             });
@@ -379,6 +396,7 @@ export class AgentLoop {
           eventBus.emitSync(XuanjiEvent.AGENT_FILE_CHANGES, {
             changes: fileChanges,
             userId: this._userId,
+            sessionKey: this._currentSessionKey,
           });
         }
 
@@ -512,6 +530,7 @@ export class AgentLoop {
       eventBus.emitSync(XuanjiEvent.AGENT_ERROR, {
         error: err.message,
         userId: this._userId,
+        sessionKey: this._currentSessionKey,
       });
 
       this.callbacks.onError?.(err);
@@ -524,6 +543,7 @@ export class AgentLoop {
         userId: this._userId,
         iterations: this.currentIteration,
         tokenUsage: this.contextManager.getTokenUsage(),
+        sessionKey: this._currentSessionKey,
       });
     }
   }
@@ -640,13 +660,13 @@ export class AgentLoop {
           this._hasOutputInThisRun = true;
           this.callbacks.onText?.(text);
           if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId });
+            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId, sessionKey: this._currentSessionKey });
           }
         },
         onThinking: (thinking) => {
           this.callbacks.onThinking?.(thinking);
           if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId });
+            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId, sessionKey: this._currentSessionKey });
           }
         },
         onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
@@ -655,7 +675,7 @@ export class AgentLoop {
           this.contextManager.recordUsage(usage);
           this.callbacks.onUsage?.(usage);
           if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage });
+            eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage, sessionKey: this._currentSessionKey });
           }
         },
       });

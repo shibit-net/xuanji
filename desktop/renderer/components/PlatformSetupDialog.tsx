@@ -51,11 +51,62 @@ export default function PlatformSetupDialog() {
   const [selected, setSelected] = useState<PlatformType | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [connecting, setConnecting] = useState(false);
+  const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [scanStatus, setScanStatus] = useState<string>('');
   const { setSetupDialogOpen, addSession } = usePlatformStore();
 
   const handleSelect = (type: PlatformType) => {
     setSelected(type);
     setFormData({});
+    setScanStatus('');
+
+    if (type === 'wechat') {
+      loadWechatQR();
+    }
+  };
+
+  const loadWechatQR = async () => {
+    setQrCodeImg(null);
+    setQrCodeUrl(null);
+    setScanStatus('正在获取二维码...');
+    try {
+      const result = await window.electron.platformWechatQR();
+      if (result.success && result.qrcodeUrl) {
+        setQrCodeUrl(result.qrcodeUrl);
+        setQrCodeImg(result.qrcodeImgBase64 || null);
+        setScanStatus('请使用微信扫码');
+        // 自动开始轮询
+        startWechatScan(result.qrcodeUrl);
+      } else {
+        setScanStatus(`获取二维码失败: ${result.error || '未知错误'}`);
+      }
+    } catch (err) {
+      setScanStatus(`获取二维码失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const startWechatScan = async (qrcode: string) => {
+    setConnecting(true);
+    try {
+      setScanStatus('等待扫码...');
+      const result = await window.electron.platformWechatScan({ qrcodeUrl: qrcode });
+      if (result.success) {
+        if (result.sessions) {
+          for (const s of result.sessions) {
+            addSession(s);
+          }
+        }
+        setSetupDialogOpen(false);
+      } else {
+        setScanStatus(`扫码失败: ${result.error || '未知错误'}`);
+        // 允许重新获取二维码
+        setConnecting(false);
+      }
+    } catch (err) {
+      setScanStatus(`扫码失败: ${err instanceof Error ? err.message : String(err)}`);
+      setConnecting(false);
+    }
   };
 
   const handleBack = () => {
@@ -69,22 +120,23 @@ export default function PlatformSetupDialog() {
 
     setConnecting(true);
     try {
-      // TODO: 调用 Electron IPC 启用平台 adapter
-      // await window.electron.platformEnable(selected!, formData);
-      // 临时模拟成功
-      addSession({
-        id: `${selected}-${Date.now()}`,
+      const result = await window.electron.platformEnable({
         platform: selected!,
-        name: formData.name || info.name,
-        status: 'connecting',
-        unreadCount: 0,
-        sessionKey: `${selected}:private:${formData.name || 'unknown'}`,
-        userId: formData.name || 'unknown',
-        chatId: formData.name || 'unknown',
+        config: formData,
       });
-      setSetupDialogOpen(false);
+
+      if (result.success) {
+        if (result.sessions) {
+          for (const s of result.sessions) {
+            addSession(s);
+          }
+        }
+        setSetupDialogOpen(false);
+      } else {
+        alert(`连接失败: ${result.error || '未知错误'}`);
+      }
     } catch (err) {
-      console.error('Failed to connect platform:', err);
+      alert(`连接失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setConnecting(false);
     }
@@ -139,16 +191,29 @@ export default function PlatformSetupDialog() {
 
               {selected === 'wechat' ? (
                 // 微信扫码
-                <div className="text-center py-8">
-                  <div className="w-48 h-48 mx-auto mb-4 bg-muted rounded-lg flex items-center justify-center">
-                    <QrCode size={64} className="text-muted-foreground" />
+                <div className="text-center py-6">
+                  <div className="w-48 h-48 mx-auto mb-4 bg-white rounded-lg flex items-center justify-center border-2 border-border">
+                    {qrCodeUrl ? (
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://liteapp.weixin.qq.com/q/7GiQu1?qrcode=${qrCodeUrl}&bot_type=3`)}`}
+                        alt="微信二维码"
+                        className="w-44 h-44 object-contain"
+                      />
+                    ) : (
+                      <QrCode size={64} className="text-muted-foreground" />
+                    )}
                   </div>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    请使用微信 8.0.70+ 扫描二维码
+                  <p className="text-sm text-muted-foreground mb-2">
+                    请使用微信扫码登录
                   </p>
-                  <Button onClick={handleConnect} disabled={connecting}>
-                    {connecting ? '等待扫码...' : '模拟连接'}
-                  </Button>
+                  <p className={`text-xs mb-4 ${connecting ? 'text-blue-500 animate-pulse' : scanStatus.includes('失败') ? 'text-red-500' : 'text-muted-foreground'}`}>
+                    {scanStatus || '准备获取二维码'}
+                  </p>
+                  {!connecting && scanStatus.includes('失败') && (
+                    <Button onClick={loadWechatQR} size="sm" variant="outline">
+                      重新获取二维码
+                    </Button>
+                  )}
                 </div>
               ) : (
                 // 配置表单

@@ -48,3 +48,13 @@ export function setLanguage(lang: Language): void {
 export function getLanguage(): Language {
   return currentLang;
 }
+
+/**
+ * 从应用配置初始化语言（启动时调用一次）
+ */
+export function initLanguage(config?: { ui?: { language?: string } } | null): void {
+  const lang = config?.ui?.language;
+  if (lang === 'zh' || lang === 'en') {
+    currentLang = lang;
+  }
+}

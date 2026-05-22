@@ -104,6 +104,7 @@ export class ContextManager {
 
   addToolResults(results: Map<string, ToolResult>): void {
     const content: ContentBlock[] = [];
+    const imageMessages: Message[] = [];
     for (const [id, result] of results) {
       content.push({
         type: 'tool_result',
@@ -111,8 +112,28 @@ export class ContextManager {
         content: result.content,
         is_error: result.isError,
       });
+      // 将 tool result 中的图片 contentBlocks 作为独立的 user message 注入，
+      // 确保 OpenAI/Anthropic provider 的 convertMessage 能正确识别并传递给 LLM
+      if (result.contentBlocks && result.contentBlocks.length > 0) {
+        for (const block of result.contentBlocks) {
+          if (block.type === 'image' && block.data) {
+            imageMessages.push({
+              role: 'user',
+              content: [{
+                type: 'image' as const,
+                data: block.data,
+                mimeType: block.mimeType || 'image/png',
+              }],
+            });
+          }
+        }
+      }
     }
     this.messages.push({ role: 'user', content });
+    // 图片跟在 tool_result 消息之后，LLM 在下一轮推理时能同时看到工具结果和图片内容
+    if (imageMessages.length > 0) {
+      this.messages.push(...imageMessages);
+    }
   }
 
   /** 压缩最后一条子 agent 的 tool_result：用摘要替换完整输出，释放上下文预算 */

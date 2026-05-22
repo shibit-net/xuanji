@@ -760,20 +760,31 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
   const language = useConfigStore((s) => s.settings.language);
 
   useEffect(() => {
-    loadConfig();
+    loadConfigWithRetry();
   }, []);
 
-  const loadConfig = async () => {
+  const loadConfigWithRetry = async (retries = 0) => {
     setLoading(true);
     try {
       const result = await window.electron.settingsGetFullConfig?.();
       if (result?.success && result.config) {
         setConfig(result.config);
+        setLoading(false);
+        return;
+      }
+      // Session 未初始化，每秒重试（最多 30 次）
+      if (retries < 30) {
+        setTimeout(() => loadConfigWithRetry(retries + 1), 1000);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.error('加载配置失败:', err);
-    } finally {
-      setLoading(false);
+      if (retries < 30) {
+        setTimeout(() => loadConfigWithRetry(retries + 1), 1000);
+      } else {
+        setLoading(false);
+      }
     }
   };
 

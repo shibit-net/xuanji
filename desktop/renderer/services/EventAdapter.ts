@@ -23,6 +23,7 @@ import { useExecutionStore, type TodoItem } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
+import { useConversationHub } from '../stores/conversationHub';
 import { generateFileChangeSummary } from '../utils/toolSummary';
 
 // 解析 TODO_PROGRESS 注释，同步到 executionStore
@@ -258,15 +259,35 @@ export function registerEventAdapter(): void {
     flowLogger.log('EventAdapter', 'RECV agent:started', 'data:', data);
     // 异步子 agent 启动不应重置 convState，否则会覆盖主 agent 已完成后的 idle/waiting_async 状态
     if (data?.isForeground === false) return;
+
+    const sessionKey = data?.sessionKey;
+    // 远端会话：更新 ConversationHub
+    if (sessionKey && sessionKey !== 'local') {
+      const hub = useConversationHub.getState();
+      hub.ensureConversation(sessionKey);
+      hub.onAgentStarted(sessionKey);
+      useSessionStore.getState().addLog('info', '🤖 Agent 开始处理 (远端)');
+      return;
+    }
+
     useConversationStore.getState().onAgentStarted();
     useSessionStore.getState().addLog('info', '🤖 Agent 开始处理');
     // 不在此处 ROUTE_RESET — 意图分析结果持续展示到下一轮 ROUTE_START 自动清除
   });
 
-  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
+  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string; sessionKey?: string }) => {
     // 子 agent（同步或异步）结束不应重置 convState，只有主 agent 结束时才触发
     if (data?.agentId && subAgentIds.has(data.agentId)) return;
     flowLogger.log('EventAdapter', 'RECV agent:end — triggering cleanup');
+
+    const sessionKey = data?.sessionKey;
+    // 远端会话：更新 ConversationHub
+    if (sessionKey && sessionKey !== 'local') {
+      useConversationHub.getState().onAgentCompleted(sessionKey);
+      useSessionStore.getState().addLog('info', '✅ Agent 处理完成 (远端)');
+      return;
+    }
+
     useConversationStore.getState().onAgentCompleted();
     useSessionStore.getState().addLog('info', '✅ Agent 处理完成');
   });
@@ -339,7 +360,7 @@ export function registerEventAdapter(): void {
     useAgentStateMachine.getState().transition({ type: 'THINKING_DELTA', agentId, content });
   });
 
-  messageBus.on('agent:tool-start', (data: { id: string; name: string; input: any; agentId?: string }) => {
+  messageBus.on('agent:tool-start', (data: { id: string; name: string; input: any; agentId?: string; sessionKey?: string }) => {
     const agentId = data.agentId || getDefaultAgentId();
     const isAsync = asyncSubAgentIds.has(agentId);
     // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
@@ -349,18 +370,23 @@ export function registerEventAdapter(): void {
 
     if (isAsync) return;
 
+    const sessionKey = data.sessionKey;
     const isEditTool = data.name === 'edit_file' || data.name === 'write_file' || data.name === 'multi_edit';
 
     if (isEditTool) {
       // 编辑类工具：封口当前文本气泡，后续由 agent:file-changes 创建独立 diff 气泡
-      const msgStore = useMessageStore.getState();
-      if (msgStore.currentStreamingId) {
-        const closingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
-        if (closingMsg?.timestamp) {
-          msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - closingMsg.timestamp });
+      if (sessionKey && sessionKey !== 'local') {
+        useConversationHub.getState().finishStreaming(sessionKey);
+      } else {
+        const msgStore = useMessageStore.getState();
+        if (msgStore.currentStreamingId) {
+          const closingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+          if (closingMsg?.timestamp) {
+            msgStore.updateMessage(msgStore.currentStreamingId, { duration: Date.now() - closingMsg.timestamp });
+          }
+          updateMessageDeltaTokens();
+          msgStore.finishStreaming();
         }
-        updateMessageDeltaTokens();
-        msgStore.finishStreaming();
       }
     }
     // 非编辑工具：不在对话框中展示，不产生任何气泡
@@ -368,7 +394,7 @@ export function registerEventAdapter(): void {
     useSessionStore.getState().addLog('tool', `🔧 ${data.name} 开始执行`);
   });
 
-  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string; contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }> }) => {
+  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string; sessionKey?: string; contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }> }) => {
     const agentId = data.agentId || getDefaultAgentId();
     const isAsync = asyncSubAgentIds.has(agentId);
     // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
@@ -378,16 +404,26 @@ export function registerEventAdapter(): void {
 
     if (isAsync) return;
 
+    const sessionKey = data.sessionKey;
+
     // 图片内容块：追加到当前流式消息（支持 read_file 读图片后在对话框中展示）
     if (data.contentBlocks && data.contentBlocks.length > 0) {
       const imageBlocks = data.contentBlocks.filter(b => b.type === 'image');
       if (imageBlocks.length > 0) {
-        const msgStore = useMessageStore.getState();
-        if (!msgStore.currentStreamingId) {
-          msgStore.startStreaming(generateMessageId('stream'));
-        }
-        for (const block of imageBlocks) {
-          msgStore.appendContentBlock(msgStore.currentStreamingId!, block);
+        if (sessionKey && sessionKey !== 'local') {
+          const hub = useConversationHub.getState();
+          hub.ensureConversation(sessionKey);
+          for (const block of imageBlocks) {
+            hub.appendContentBlock(sessionKey, block);
+          }
+        } else {
+          const msgStore = useMessageStore.getState();
+          if (!msgStore.currentStreamingId) {
+            msgStore.startStreaming(generateMessageId('stream'));
+          }
+          for (const block of imageBlocks) {
+            msgStore.appendContentBlock(msgStore.currentStreamingId!, block);
+          }
         }
       }
     }
@@ -718,7 +754,7 @@ export function registerEventAdapter(): void {
   // File Changes — toolSummary 气泡（edit_file / write_file / multi_edit）
   // ============================================================
 
-  messageBus.on('agent:file-changes', (data: { changes: Array<{ filePath: string; operation: string; stats: { added: number; removed: number }; diffContent?: string }> }) => {
+  messageBus.on('agent:file-changes', (data: { changes: Array<{ filePath: string; operation: string; stats: { added: number; removed: number }; diffContent?: string }>; sessionKey?: string }) => {
     if (!data?.changes?.length) return;
     const parts: string[] = [];
     for (const change of data.changes) {
@@ -726,6 +762,21 @@ export function registerEventAdapter(): void {
       if (summary) parts.push(summary);
     }
     if (parts.length === 0) return;
+
+    const sessionKey = data.sessionKey;
+    if (sessionKey && sessionKey !== 'local') {
+      const hub = useConversationHub.getState();
+      hub.ensureConversation(sessionKey);
+      hub.addMessage(sessionKey, {
+        id: generateMessageId('file-changes'),
+        role: 'assistant',
+        content: parts.join('\n'),
+        toolSummary: true,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
     useMessageStore.getState().addMessage({
       id: generateMessageId('file-changes'),
       role: 'assistant',
@@ -739,8 +790,25 @@ export function registerEventAdapter(): void {
   // messageStore — 消息流桥接
   // ============================================================
 
-  messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean }) => {
+  messageBus.on('agent:started', (data: { model?: string; agentId?: string; isForeground?: boolean; sessionKey?: string }) => {
     if (data?.isForeground === false) return;
+
+    const sessionKey = data?.sessionKey;
+    // 远端会话：快照 token 到 ConversationHub
+    if (sessionKey && sessionKey !== 'local') {
+      const hub = useConversationHub.getState();
+      hub.ensureConversation(sessionKey);
+      const allAgents = useAgentStateMachine.getState().agentMap;
+      let snapshot = { input: 0, output: 0, cached: 0 };
+      for (const a of Object.values(allAgents)) {
+        snapshot.input += a.stats.tokenUsage.input || 0;
+        snapshot.output += a.stats.tokenUsage.output || 0;
+        snapshot.cached += a.stats.tokenUsage.cached || 0;
+      }
+      hub.setTokenSnapshot(sessionKey, snapshot);
+      return;
+    }
+
     const msgStore = useMessageStore.getState();
     // 仅设置 thinking 状态，不创建空白气泡 — 气泡延迟到首个 agent:text 或 agent:tool-start 时创建
     msgStore.setStatus('thinking');
@@ -754,12 +822,26 @@ export function registerEventAdapter(): void {
     }
   });
 
-  messageBus.on('agent:text', (data: string | { text: string; agentId?: string }) => {
+  messageBus.on('agent:text', (data: string | { text: string; agentId?: string; sessionKey?: string }) => {
     const text = typeof data === 'string' ? data : data.text;
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
-    console.log(`[DIAG] EventAdapter agent:text #2: agentId=${agentId} text="${text.substring(0, 50)}" asyncSub=${asyncSubAgentIds.has(agentId)} currentStreamingId=${useMessageStore.getState().currentStreamingId}`);
+    const sessionKey = typeof data === 'object' ? data.sessionKey : undefined;
+    console.log(`[DIAG] EventAdapter agent:text #2: agentId=${agentId} sessionKey=${sessionKey} text="${text.substring(0, 50)}" asyncSub=${asyncSubAgentIds.has(agentId)} currentStreamingId=${useMessageStore.getState().currentStreamingId}`);
     // 异步子 agent 的文本走 TaskCompletionHandler 汇报，不直接进入对话框
     if (asyncSubAgentIds.has(agentId)) return;
+
+    // 远端会话：路由到 ConversationHub
+    if (sessionKey && sessionKey !== 'local') {
+      const hub = useConversationHub.getState();
+      hub.ensureConversation(sessionKey);
+      if (!hub.conversations[sessionKey]?.currentStreamingId) {
+        hub.startStreaming(sessionKey);
+      }
+      hub.appendStreamingText(sessionKey, text);
+      useAgentStateMachine.setState({ streamingAgentId: agentId });
+      return;
+    }
+
     let msgStore = useMessageStore.getState();
     // 延迟创建气泡：首个 text 事件时才创建，避免纯思考阶段产生空白气泡
     if (!msgStore.currentStreamingId) {
@@ -822,11 +904,19 @@ export function registerEventAdapter(): void {
     }
   }
 
-  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
+  messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string; sessionKey?: string }) => {
     if (data?.agentId && subAgentIds.has(data.agentId)) return;
 
     if (data?.tokenUsage && data?.agentId) {
       applyTokenUsageToAgent(data.tokenUsage, data.agentId);
+    }
+
+    const sessionKey = data?.sessionKey;
+    // 远端会话：完成 ConversationHub 流式输出
+    if (sessionKey && sessionKey !== 'local') {
+      useConversationHub.getState().finishStreaming(sessionKey);
+      useAgentStateMachine.setState({ streamingAgentId: null });
+      return;
     }
 
     const msgStore = useMessageStore.getState();
@@ -853,10 +943,13 @@ export function registerEventAdapter(): void {
     useAgentStateMachine.setState({ streamingAgentId: null });
   });
 
-  messageBus.on('agent:usage', (data?: { tokenUsage?: any; agentId?: string }) => {
+  messageBus.on('agent:usage', (data?: { tokenUsage?: any; agentId?: string; sessionKey?: string }) => {
     if (!data?.tokenUsage || !data?.agentId) return;
     applyTokenUsageToAgent(data.tokenUsage, data.agentId);
-    updateMessageDeltaTokens();
+    // 仅本地会话更新消息 token 增量
+    if (!data?.sessionKey || data.sessionKey === 'local') {
+      updateMessageDeltaTokens();
+    }
   });
 
   // ============================================================

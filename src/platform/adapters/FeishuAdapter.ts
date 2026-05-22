@@ -7,10 +7,13 @@
  * 设计文档：docs/platform-integration-design.md §5.2
  */
 
-import { createHmac, createHash, randomBytes } from 'crypto';
+import { createHmac } from 'crypto';
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import type { PlatformAdapter, PlatformMessage, FeishuConfig } from '../types.js';
+import type { CredentialManager } from '../auth/CredentialManager.js';
 import type { WebhookHandler, WebhookRequest, WebhookResponse } from '../http/WebhookServer.js';
-import { webhookOk, webhookError } from '../http/WebhookServer.js';
+import { webhookOk } from '../http/WebhookServer.js';
 import { buildSessionKey } from '../SessionRouter.js';
 import { logger } from '@/core/logger';
 
@@ -21,10 +24,11 @@ export class FeishuAdapter implements PlatformAdapter {
   lastActivity = 0;
 
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
-  private tenantAccessToken: string | null = null;
-  private tokenExpiresAt = 0;
+  private credentials: CredentialManager;
 
-  constructor(private config: FeishuConfig) {}
+  constructor(private config: FeishuConfig, credentials: CredentialManager) {
+    this.credentials = credentials;
+  }
 
   // ── Webhook Handler ──────────────────────────────────────
 
@@ -38,24 +42,20 @@ export class FeishuAdapter implements PlatformAdapter {
   private async handleWebhook(req: WebhookRequest): Promise<WebhookResponse> {
     this.lastActivity = Date.now();
 
-    // URL 验证（首次配置飞书会发 challenge）
     try {
       const body = JSON.parse(req.body);
       if (body.challenge) {
         return { statusCode: 200, body: JSON.stringify({ challenge: body.challenge }) };
       }
 
-      // 验证签名
       const timestamp = (req.headers['x-lark-request-timestamp'] || '') as string;
       const nonce = (req.headers['x-lark-request-nonce'] || '') as string;
       const signature = (req.headers['x-lark-signature'] || '') as string;
 
-      // 简化验证（正式环境需要严格校验）
       if (signature && !this.verifySignature(timestamp, nonce, req.body, signature)) {
         log.warn('Invalid feishu signature');
       }
 
-      // 处理事件
       if (body.header?.event_type === 'im.message.receive_v1') {
         const msg = this.parseMessage(body);
         if (msg) {
@@ -114,19 +114,19 @@ export class FeishuAdapter implements PlatformAdapter {
   // ── 发送消息 ─────────────────────────────────────────────
 
   async start(): Promise<void> {
-    await this.refreshToken();
+    this.credentials.registerRefresher('feishu', () => this.doRefreshToken());
   }
 
   async stop(): Promise<void> {
-    this.tenantAccessToken = null;
+    this.credentials.clearToken('feishu');
   }
 
   async ping(): Promise<void> {
-    await this.ensureToken();
+    await this.credentials.getToken('feishu');
   }
 
   async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('feishu');
     const body: Record<string, unknown> = {
       receive_id: options.chatId,
       msg_type: 'text',
@@ -154,8 +154,7 @@ export class FeishuAdapter implements PlatformAdapter {
   }
 
   async sendMarkdown(options: { chatId: string; content: string; replyTo?: string }): Promise<string> {
-    // 飞书使用 post 富文本模拟 Markdown
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('feishu');
     const body = {
       receive_id: options.chatId,
       msg_type: 'post',
@@ -188,27 +187,71 @@ export class FeishuAdapter implements PlatformAdapter {
   }
 
   async sendImage(options: { chatId: string; imagePath: string; replyTo?: string }): Promise<string> {
-    throw new Error('Feishu sendImage not implemented yet');
+    const token = await this.credentials.getToken('feishu');
+
+    // 1. 上传图片获取 image_key
+    const fileBuffer = readFileSync(options.imagePath);
+    const fileName = basename(options.imagePath);
+    const boundary = `--FeishuUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image_type"\r\n\r\nmessage\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/images',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.code !== 0) {
+      throw new Error(`Feishu image upload failed: ${uploadData.msg}`);
+    }
+
+    // 2. 发送图片消息
+    const sendBody = {
+      receive_id: options.chatId,
+      msg_type: 'image',
+      content: JSON.stringify({ image_key: uploadData.data.image_key }),
+    };
+
+    const sendRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.code !== 0) {
+      throw new Error(`Feishu sendImage failed: ${sendData.msg}`);
+    }
+
+    return sendData.data?.message_id || '';
   }
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
   }
 
-  // ── Token 管理 ───────────────────────────────────────────
+  // ── Token 刷新（委托给 CredentialManager）──────────────────
 
-  private async ensureToken(): Promise<string> {
-    if (this.tenantAccessToken && Date.now() < this.tokenExpiresAt - 300_000) {
-      return this.tenantAccessToken;
-    }
-    await this.refreshToken();
-    if (!this.tenantAccessToken) {
-      throw new Error('Failed to get feishu tenant access token');
-    }
-    return this.tenantAccessToken;
-  }
-
-  private async refreshToken(): Promise<void> {
+  private async doRefreshToken(): Promise<{ token: string; expiresIn: number }> {
     const { app_id, app_secret } = this.config;
     const response = await fetch(
       'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
@@ -224,8 +267,7 @@ export class FeishuAdapter implements PlatformAdapter {
       throw new Error(`Feishu get token failed: ${data.msg}`);
     }
 
-    this.tenantAccessToken = data.tenant_access_token;
-    this.tokenExpiresAt = Date.now() + data.expire * 1000;
     log.info('Feishu tenant access token refreshed');
+    return { token: data.tenant_access_token, expiresIn: data.expire };
   }
 }

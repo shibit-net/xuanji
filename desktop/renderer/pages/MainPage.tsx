@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import ChatArea from '../components/ChatArea';
+import RemoteChatArea from '../components/RemoteChatArea';
 import RightPanel from '../components/RightPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
@@ -14,6 +15,7 @@ import { Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useSessionInitStore } from '../stores/SessionInitStore';
+import { usePlatformStore } from '../stores/platformStore';
 import { registerEventAdapter } from '../services/EventAdapter';
 
 function formatToken(n: number): string {
@@ -119,11 +121,15 @@ export default function MainPage() {
     e.preventDefault();
   };
 
+  // 远端会话：替换对话框，监控面板保持可见
+  const activeSessionId = usePlatformStore((s) => s.activeSessionId);
+
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* 中间内容区 — 对话框 */}
       <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
-        {/* 全局状态栏 */}
+        {/* 全局状态栏 — 远端会话时仍显示 token 统计 */}
+        {!activeSessionId && (
         <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-white/[0.02]">
           {/* Session 状态指示器 */}
           {sessionStatus !== 'ready' && (
@@ -166,9 +172,10 @@ export default function MainPage() {
             )}
           </div>
         </div>
-        <ChatArea />
+        )}
+        {activeSessionId ? <RemoteChatArea /> : <ChatArea />}
         <TodoPanel />
-        <InputArea />
+        {!activeSessionId && <InputArea />}
       </div>
 
       {/* 监控面板 — 与对话框 1:1 占比 */}

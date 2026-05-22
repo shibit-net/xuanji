@@ -53,23 +53,27 @@ export class AgentGatewayImpl implements AgentGateway {
     const historyMessages = this.sessionRouter.loadHistory(sessionKey);
 
     // 3. 设置历史消息到 AgentLoop（如果有 restore 能力）
-    // 注意：当前 AgentLoop 不支持直接注入历史消息到 context
-    // 暂时将最近的历史消息拼到 user message 中
     const fullMessage = this.buildFullMessage(enhancedMessage, historyMessages);
 
     // 4. 记忆上下文（按 userId 查询跨平台共享记忆）
     const memoryContext = await this.loadMemoryContext(msg);
 
-    // 5. 调用 AgentLoop（通过回调收集输出）
-    const response = await this.runAgentLoop(fullMessage);
+    // 5. 标记 AgentLoop 当前会话键，确保事件正确路由
+    this.agentLoop.setSessionKey(sessionKey);
+    try {
+      // 6. 调用 AgentLoop（通过回调收集输出）
+      const response = await this.runAgentLoop(fullMessage);
 
-    // 6. 保存消息到历史
-    this.sessionRouter.saveMessages(sessionKey, [
-      { role: 'user', content: msg.text, timestamp: Date.now() },
-      { role: 'assistant', content: response.text, timestamp: Date.now() },
-    ]);
+      // 7. 保存消息到历史
+      this.sessionRouter.saveMessages(sessionKey, [
+        { role: 'user', content: msg.text, timestamp: Date.now() },
+        { role: 'assistant', content: response.text, timestamp: Date.now() },
+      ]);
 
-    return response;
+      return response;
+    } finally {
+      this.agentLoop.setSessionKey(null);
+    }
   }
 
   // ── AgentLoop 调用 ────────────────────────────────────────

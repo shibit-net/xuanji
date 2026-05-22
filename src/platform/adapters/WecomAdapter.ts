@@ -8,6 +8,8 @@
  */
 
 import { createHash, createDecipheriv, randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import type { PlatformAdapter, PlatformMessage, WecomConfig } from '../types.js';
 import type { WebhookHandler, WebhookRequest, WebhookResponse } from '../http/WebhookServer.js';
 import { webhookOk, webhookError } from '../http/WebhookServer.js';
@@ -22,8 +24,6 @@ export class WecomAdapter implements PlatformAdapter {
   lastActivity = 0;
 
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
-  private accessToken: string | null = null;
-  private tokenExpiresAt = 0;
 
   constructor(
     private config: WecomConfig,
@@ -139,19 +139,19 @@ export class WecomAdapter implements PlatformAdapter {
   // ── 发送消息 ─────────────────────────────────────────────
 
   async start(): Promise<void> {
-    await this.refreshToken();
+    this.credentials.registerRefresher('wecom', () => this.doRefreshToken());
   }
 
   async stop(): Promise<void> {
-    this.accessToken = null;
+    this.credentials.clearToken('wecom');
   }
 
   async ping(): Promise<void> {
-    await this.ensureToken();
+    await this.credentials.getToken('wecom');
   }
 
   async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('wecom');
     const body: Record<string, unknown> = {
       touser: options.chatId,
       msgtype: 'text',
@@ -177,7 +177,7 @@ export class WecomAdapter implements PlatformAdapter {
   }
 
   async sendMarkdown(options: { chatId: string; content: string; replyTo?: string }): Promise<string> {
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('wecom');
     const body = {
       touser: options.chatId,
       msgtype: 'markdown',
@@ -203,28 +203,65 @@ export class WecomAdapter implements PlatformAdapter {
   }
 
   async sendImage(options: { chatId: string; imagePath: string; replyTo?: string }): Promise<string> {
-    // 图片需要先上传获取 media_id
-    throw new Error('Wecom sendImage not implemented yet');
+    const token = await this.credentials.getToken('wecom');
+
+    // 1. 上传图片获取 media_id
+    const fileBuffer = readFileSync(options.imagePath);
+    const fileName = basename(options.imagePath);
+    const boundary = `--WecomUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=image`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.errcode !== 0) {
+      throw new Error(`Wecom image upload failed: ${uploadData.errmsg}`);
+    }
+
+    // 2. 发送图片消息
+    const sendBody = {
+      touser: options.chatId,
+      msgtype: 'image',
+      image: { media_id: uploadData.media_id },
+      agentid: this.config.agent_id,
+    };
+
+    const sendRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.errcode !== 0) {
+      throw new Error(`Wecom sendImage failed: ${sendData.errmsg}`);
+    }
+
+    return sendData.msgid || '';
   }
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
   }
 
-  // ── Token 管理 ───────────────────────────────────────────
+  // ── Token 刷新（委托给 CredentialManager）──────────────────
 
-  private async ensureToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiresAt - 300_000) {
-      return this.accessToken;
-    }
-    await this.refreshToken();
-    if (!this.accessToken) {
-      throw new Error('Failed to get wecom access token');
-    }
-    return this.accessToken;
-  }
-
-  private async refreshToken(): Promise<void> {
+  private async doRefreshToken(): Promise<{ token: string; expiresIn: number }> {
     const { corp_id, secret } = this.config;
     const response = await fetch(
       `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${corp_id}&corpsecret=${secret}`,
@@ -235,9 +272,8 @@ export class WecomAdapter implements PlatformAdapter {
       throw new Error(`Wecom gettoken failed: ${data.errmsg}`);
     }
 
-    this.accessToken = data.access_token;
-    this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     log.info('Wecom access token refreshed');
+    return { token: data.access_token, expiresIn: data.expires_in };
   }
 
   // ── 辅助函数 ─────────────────────────────────────────────

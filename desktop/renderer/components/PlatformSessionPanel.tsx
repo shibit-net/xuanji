@@ -4,6 +4,7 @@
  * 设计文档：docs/platform-integration-design.md §9.4
  */
 
+import { useState } from 'react';
 import { Wifi, WifiOff, Send, Maximize2, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type RemoteSession } from '../stores/platformStore';
@@ -13,7 +14,8 @@ interface PlatformSessionPanelProps {
 }
 
 export default function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
-  const { getMessages, removeSession } = usePlatformStore();
+  const { getMessages, removeSession, sessions } = usePlatformStore();
+  const [replyText, setReplyText] = useState('');
 
   if (!session) {
     return (
@@ -25,13 +27,22 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
   }
 
   const messages = getMessages(session.sessionKey);
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    await window.electron.platformDisable(session.platform);
     removeSession(session.id);
   };
 
-  const handleTestSend = async () => {
-    // TODO: 通过 IPC 调用 adapter.sendText()
-    console.log('Test send to:', session.sessionKey);
+  const handleSendReply = async () => {
+    if (!replyText.trim()) return;
+    try {
+      await window.electron.platformSendReply({
+        sessionKey: session.sessionKey,
+        text: replyText,
+      });
+      setReplyText('');
+    } catch (err) {
+      console.error('Failed to send reply:', err);
+    }
   };
 
   return (
@@ -63,25 +74,21 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
         </div>
       </div>
 
-      {/* 操作按钮 */}
+      {/* 快捷回复 */}
       <div className="p-3 border-b border-border space-y-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start"
-          onClick={handleTestSend}
-        >
-          <Send size={14} className="mr-2" />
-          测试发送
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start"
-        >
-          <Maximize2 size={14} className="mr-2" />
-          查看原始消息
-        </Button>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="flex-1 px-2 py-1 text-xs border border-border rounded bg-background"
+            placeholder="输入回复..."
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSendReply(); }}
+          />
+          <Button variant="outline" size="sm" onClick={handleSendReply} disabled={!replyText.trim()}>
+            <Send size={14} />
+          </Button>
+        </div>
         <Button
           variant="outline"
           size="sm"

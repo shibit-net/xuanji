@@ -10,6 +10,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { setLanguage, initLanguage } from '@/core/i18n';
 import type {
   UserSettings,
   ModelConfig,
@@ -94,9 +95,11 @@ export const useConfigStore = create<ConfigState>()(
             ?? await window.electron.settingsGetConfig?.();
           if (result?.success && result.config) {
             const c = result.config;
+            const language = (c.ui?.language as 'zh' | 'en') || 'zh';
+            setLanguage(language);
             set({
               settings: {
-                language: (c.ui?.language as 'zh' | 'en') || 'zh',
+                language,
                 theme: (c.ui?.theme as 'light' | 'dark') || 'dark',
                 fontSize: 14,
                 workspacePath: (c.workspacePath as string) || '',

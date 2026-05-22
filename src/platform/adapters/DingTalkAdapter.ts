@@ -8,9 +8,12 @@
  */
 
 import { createHmac } from 'crypto';
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import type { PlatformAdapter, PlatformMessage, DingTalkConfig } from '../types.js';
+import type { CredentialManager } from '../auth/CredentialManager.js';
 import type { WebhookHandler, WebhookRequest, WebhookResponse } from '../http/WebhookServer.js';
-import { webhookOk, webhookError } from '../http/WebhookServer.js';
+import { webhookOk } from '../http/WebhookServer.js';
 import { buildSessionKey } from '../SessionRouter.js';
 import { logger } from '@/core/logger';
 
@@ -21,11 +24,12 @@ export class DingTalkAdapter implements PlatformAdapter {
   lastActivity = 0;
 
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
-  private accessToken: string | null = null;
-  private tokenExpiresAt = 0;
+  private credentials: CredentialManager;
   private sessionWebhooks = new Map<string, string>();
 
-  constructor(private config: DingTalkConfig) {}
+  constructor(private config: DingTalkConfig, credentials: CredentialManager) {
+    this.credentials = credentials;
+  }
 
   // ── Webhook Handler ──────────────────────────────────────
 
@@ -42,14 +46,12 @@ export class DingTalkAdapter implements PlatformAdapter {
     try {
       const body = JSON.parse(req.body);
 
-      // 验证签名
       const timestamp = (req.headers['timestamp'] || '') as string;
       const sign = (req.headers['sign'] || '') as string;
       if (!this.verifySignature(timestamp, sign)) {
         log.warn('Invalid dingtalk signature');
       }
 
-      // 保存 sessionWebhook 用于回复
       if (body.sessionWebhook) {
         this.sessionWebhooks.set(body.conversationId, body.sessionWebhook);
       }
@@ -90,7 +92,7 @@ export class DingTalkAdapter implements PlatformAdapter {
   // ── 签名验证 ─────────────────────────────────────────────
 
   private verifySignature(timestamp: string, sign: string): boolean {
-    if (!timestamp || !sign) return true; // 测试模式跳过验证
+    if (!timestamp || !sign) return true;
 
     const { client_secret } = this.config;
     const stringToSign = `${timestamp}\n${client_secret}`;
@@ -104,21 +106,20 @@ export class DingTalkAdapter implements PlatformAdapter {
 
   async start(): Promise<void> {
     if (this.config.client_id && this.config.client_secret) {
-      await this.refreshToken();
+      this.credentials.registerRefresher('dingtalk', () => this.doRefreshToken());
     }
   }
 
   async stop(): Promise<void> {
-    this.accessToken = null;
+    this.credentials.clearToken('dingtalk');
     this.sessionWebhooks.clear();
   }
 
   async ping(): Promise<void> {
-    // 钉钉没有专门的 ping 接口
+    // nop — token 懒加载
   }
 
   async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
-    // 优先使用 sessionWebhook（方式一：简易回复）
     const sessionWebhook = this.sessionWebhooks.get(options.chatId);
     if (sessionWebhook) {
       const response = await fetch(sessionWebhook, {
@@ -137,8 +138,7 @@ export class DingTalkAdapter implements PlatformAdapter {
       return data.msgid || '';
     }
 
-    // 方式二：使用 token 主动推送
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('dingtalk');
     const body = {
       robotCode: `ding_${this.config.client_id}`,
       userId: options.chatId,
@@ -163,7 +163,7 @@ export class DingTalkAdapter implements PlatformAdapter {
   }
 
   async sendMarkdown(options: { chatId: string; content: string; replyTo?: string }): Promise<string> {
-    const token = await this.ensureToken();
+    const token = await this.credentials.getToken('dingtalk');
     const body = {
       robotCode: `ding_${this.config.client_id}`,
       userId: options.chatId,
@@ -188,29 +188,64 @@ export class DingTalkAdapter implements PlatformAdapter {
   }
 
   async sendImage(options: { chatId: string; imagePath: string; replyTo?: string }): Promise<string> {
-    throw new Error('DingTalk sendImage not implemented yet');
+    const token = await this.credentials.getToken('dingtalk');
+
+    // 1. 上传图片获取 media_id
+    const fileBuffer = readFileSync(options.imagePath);
+    const fileName = basename(options.imagePath);
+    const boundary = `--DingTalkUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=image`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.errcode !== 0) {
+      throw new Error(`DingTalk image upload failed: ${uploadData.errmsg}`);
+    }
+
+    // 2. 发送图片消息
+    const sendBody = {
+      robotCode: `ding_${this.config.client_id}`,
+      userId: options.chatId,
+      msgKey: 'sampleImageMsg',
+      msgParam: JSON.stringify({ media_id: uploadData.media_id }),
+    };
+
+    const sendRes = await fetch('https://oapi.dingtalk.com/v1.0/robot/botSend', {
+      method: 'POST',
+      headers: {
+        'x-acs-dingtalk-access-token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sendBody),
+    });
+
+    const sendData = await sendRes.json() as any;
+    if (!sendRes.ok) {
+      throw new Error(`DingTalk sendImage failed: ${JSON.stringify(sendData)}`);
+    }
+    return sendData.processQueryKey || '';
   }
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
   }
 
-  // ── Token 管理 ───────────────────────────────────────────
+  // ── Token 刷新（委托给 CredentialManager）──────────────────
 
-  private async ensureToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiresAt - 300_000) {
-      return this.accessToken;
-    }
-    await this.refreshToken();
-    if (!this.accessToken) {
-      throw new Error('Failed to get dingtalk access token');
-    }
-    return this.accessToken;
-  }
-
-  private async refreshToken(): Promise<void> {
-    // 钉钉 access_token 获取方式因版本而异
-    // 旧版: https://oapi.dingtalk.com/gettoken
+  private async doRefreshToken(): Promise<{ token: string; expiresIn: number }> {
     const { client_id, client_secret } = this.config;
     const response = await fetch(
       `https://oapi.dingtalk.com/gettoken?appkey=${client_id}&appsecret=${client_secret}`,
@@ -221,8 +256,7 @@ export class DingTalkAdapter implements PlatformAdapter {
       throw new Error(`DingTalk gettoken failed: ${data.errmsg}`);
     }
 
-    this.accessToken = data.access_token;
-    this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     log.info('DingTalk access token refreshed');
+    return { token: data.access_token, expiresIn: data.expires_in };
   }
 }

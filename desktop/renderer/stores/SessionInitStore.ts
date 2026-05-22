@@ -85,10 +85,34 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
       const result = await window.electron.agentInit();
       if (result.success) {
         get().transition({ type: 'INIT_COMPLETE' });
-        if (result.config?.model) {
+
+        // 从初始化返回的配置同步 configStore
+        if (result.config) {
+          const config = result.config;
+          const { useConfigStore } = await import('./configStore');
+          const { setLanguage } = await import('@/core/i18n');
+          const language = (config.ui?.language as 'zh' | 'en') || 'zh';
+          setLanguage(language);
+          useConfigStore.getState().updateSettings({
+            language,
+            theme: (config.ui?.theme as 'light' | 'dark') || 'dark',
+            workspacePath: config.workspacePath || '',
+            showTokenUsage: config.ui?.showTokenUsage ?? true,
+            showCost: config.ui?.showCost ?? true,
+            showThinking: config.ui?.showThinking ?? false,
+          });
+
+          if (config.provider?.model) {
+            useConfigStore.getState().updateModelConfig({
+              defaultModel: config.provider.model,
+              temperature: config.provider.temperature,
+              maxTokens: config.provider.maxTokens,
+            });
+          }
+
           const { useMessageStore } = await import('./messageStore');
           useMessageStore.setState((s) => ({
-            stats: { ...s.stats, model: result.config.model },
+            stats: { ...s.stats, model: config.provider?.model || s.stats.model },
           }));
         }
       } else {

@@ -6,6 +6,7 @@ import { Minus, Square, X, FolderTree } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
+import appLogo from '../assets/logos/04e91e5e62d18be6f5969ca4fc7cfb99.png';
 
 interface TitleBarProps {
   onCompact?: () => void;
@@ -35,8 +36,9 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
       {/* 左侧：占位 */}
       <div className="w-20"></div>
 
-      {/* 中间：应用名称 */}
+      {/* 中间：Logo + 应用名称 */}
       <div className="flex items-center gap-2">
+        <img src={appLogo} alt="Xuanji" className="w-5 h-5 rounded" />
         <div className="text-primary font-bold text-lg">{getDesktopLabel('titlebar.app_name', language)}</div>
       </div>
 

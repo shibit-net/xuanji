@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
 import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
+import { initAgentBridgeForwarding } from '../ipc/platform.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -205,6 +206,9 @@ function initChatSession(): Promise<boolean> {
         enableLogging: false,
       });
       agentChannel.attach(agentProcess!);
+
+      // 初始化平台回复转发（依赖 agent 通道，必须在此处注册）
+      initAgentBridgeForwarding();
 
       // 🔧 注册子进程下载事件转发
       const { BrowserWindow } = require('electron');

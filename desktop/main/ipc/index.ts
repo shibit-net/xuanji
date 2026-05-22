@@ -12,6 +12,7 @@ import { registerDownloadHandlers } from './download.js';
 import { registerMemoryIpcHandlers } from './memory.js';
 import { registerSchedulerIpcHandlers } from './scheduler.js';
 import { registerMcpIpcHandlers } from './mcp.js';
+import { registerPlatformIpcHandlers } from './platform.js';
 
 function registerAllIpcHandlers() {
   const safeRegister = (name: string, fn: () => void) => {
@@ -36,6 +37,7 @@ function registerAllIpcHandlers() {
   safeRegister('memory', registerMemoryIpcHandlers);
   safeRegister('scheduler', registerSchedulerIpcHandlers);
   safeRegister('mcp', registerMcpIpcHandlers);
+  safeRegister('platform', registerPlatformIpcHandlers);
 }
 
 export { registerAllIpcHandlers };

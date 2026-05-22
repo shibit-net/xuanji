@@ -122,7 +122,7 @@ export class EventForwarder {
       {
         event: XuanjiEvent.AGENT_THINKING_DELTA,
         channel: 'agent:thinking',
-        map: (p) => ({ content: p.content, agentId: p.agentId }),
+        map: (p) => ({ content: p.content, agentId: p.agentId, sessionKey: p.sessionKey }),
       },
       {
         event: XuanjiEvent.HOOK_AGENT_THINKING,
@@ -134,7 +134,7 @@ export class EventForwarder {
       {
         event: XuanjiEvent.AGENT_TEXT_DELTA,
         channel: 'agent:text',
-        map: (p) => ({ text: p.text, agentId: p.agentId }),
+        map: (p) => ({ text: p.text, agentId: p.agentId, sessionKey: p.sessionKey }),
       },
 
       // Tool
@@ -221,14 +221,14 @@ export class EventForwarder {
       {
         event: XuanjiEvent.AGENT_FILE_CHANGES,
         channel: 'agent:citation',
-        map: (p) => ({ changes: p.changes, agentId: p.agentId }),
+        map: (p) => ({ changes: p.changes, agentId: p.agentId, sessionKey: p.sessionKey }),
       },
 
       // Token usage（每轮 LLM 调用增量）
       {
         event: XuanjiEvent.AGENT_USAGE,
         channel: 'agent:usage',
-        map: (p) => ({ agentId: p.userId, tokenUsage: p.tokenUsage }),
+        map: (p) => ({ agentId: p.userId, tokenUsage: p.tokenUsage, sessionKey: p.sessionKey }),
       },
 
       // Error
@@ -255,6 +255,7 @@ export class EventForwarder {
     id: p.id,
     name: p.name,
     agentId: p.agentId,
+    sessionKey: p.sessionKey,
     ...(p.input ? { input: p.input } : {}),
     ...(p.result !== undefined ? { result: p.result, isError: p.isError } : {}),
   });

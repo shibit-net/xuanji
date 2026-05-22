@@ -122,8 +122,10 @@ function Flow() {
     });
 
     requestAnimationFrame(() => {
-      setNodes(mergedNodes as any);
-      setEdges(layoutedEdges as any);
+      requestAnimationFrame(() => {
+        setNodes(mergedNodes as any);
+        setEdges(layoutedEdges as any);
+      });
     });
 
     if (!initialized.current && layoutedNodes.length > 0) {

@@ -36,8 +36,8 @@ export class PlatformRouter implements WorkerReplyHandler {
 
   private channelPrompts = new Map<string, Map<string, string>>();
 
-  constructor(db?: Database) {
-    this.sessionRouter = new SessionRouter();
+  constructor(db?: Database, dataDir?: string) {
+    this.sessionRouter = new SessionRouter(dataDir);
     this.credentials = new CredentialManager();
     this.circuitBreaker = new PlatformCircuitBreaker();
 
@@ -54,6 +54,12 @@ export class PlatformRouter implements WorkerReplyHandler {
     adapter.onMessage((msg) => {
       this.onMessage(msg);
     });
+  }
+
+  /** 预注册远端会话（扫码连接成功后调用，确保侧边栏立即可见） */
+  registerSession(platform: RemoteSession['platform'], chatId: string): void {
+    const sessionKey = buildSessionKey({ platform, chatType: 'private', chatId });
+    this.sessionRouter.registerSession(sessionKey, chatId);
   }
 
   getAdapter(platform: string): PlatformAdapter | undefined {
@@ -250,22 +256,17 @@ export class PlatformRouter implements WorkerReplyHandler {
 
   listSessions(): RemoteSession[] {
     const sessions: RemoteSession[] = [];
-    for (const sessionKey of this.sessionRouter.getActiveSessions()) {
-      const parts = sessionKey.split(':');
-      const platform = parts[0];
-      const chatId = this.sessionRouter.getChatId(sessionKey);
-
-      if (!chatId) continue;
-
+    for (const { sessionKey, chatId, lastActiveAt } of this.sessionRouter.getActiveSessionEntries()) {
       sessions.push({
         id: sessionKey,
-        platform: platform as RemoteSession['platform'],
+        platform: sessionKey.split(':')[0] as RemoteSession['platform'],
         name: chatId,
-        status: this.adapters.has(platform) ? 'online' : 'offline',
+        status: this.adapters.has(sessionKey.split(':')[0]) ? 'online' : 'offline',
         unreadCount: 0,
         sessionKey,
         userId: '',
         chatId,
+        lastActiveAt,
       });
     }
     return sessions;

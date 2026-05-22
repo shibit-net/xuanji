@@ -323,6 +323,34 @@
   tiangongCheckUpdates: () => ipcRenderer.invoke('tiangong:checkUpdates'),
   tiangongDeletePackage: (data: { id: number }) => ipcRenderer.invoke('tiangong:deletePackage', data),
 
+  // ============ 远端平台接入 ============
+  platformEnable: (data: { platform: string; config: Record<string, any> }) =>
+    ipcRenderer.invoke('platform:enable', data),
+  platformDisable: (platform: string) =>
+    ipcRenderer.invoke('platform:disable', platform),
+  platformStatus: () =>
+    ipcRenderer.invoke('platform:status'),
+  platformHealth: () =>
+    ipcRenderer.invoke('platform:health'),
+  platformSendReply: (data: { sessionKey: string; text: string }) =>
+    ipcRenderer.invoke('platform:send-reply', data),
+  platformUpdatePrompt: (data: { platform: string; chatId: string; prompt: string }) =>
+    ipcRenderer.invoke('platform:update-prompt', data),
+  platformWechatQR: () =>
+    ipcRenderer.invoke('platform:wechat-qr'),
+  platformWechatScan: (data: { qrcodeUrl: string }) =>
+    ipcRenderer.invoke('platform:wechat-scan', data),
+
+  onPlatformMessageReceived: (callback: (data: any) => void) => {
+    ipcRenderer.on('platform:message-received', (_event, data) => callback(data));
+  },
+  onPlatformMessageSent: (callback: (data: any) => void) => {
+    ipcRenderer.on('platform:message-sent', (_event, data) => callback(data));
+  },
+  onPlatformSessionUpdated: (callback: (data: any) => void) => {
+    ipcRenderer.on('platform:session-updated', (_event, data) => callback(data));
+  },
+
   // ============ 调试日志（写入磁盘文件） ============
   debugLog: (message: string) => ipcRenderer.invoke('debug:log', message),
 });

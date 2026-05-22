@@ -852,6 +852,60 @@ export interface ElectronAPI {
     error?: string;
   }>;
 
+  // ============ 远端平台接入 ============
+  platformEnable: (data: { platform: string; config: Record<string, any> }) => Promise<{
+    success: boolean;
+    sessions?: Array<{
+      id: string;
+      platform: string;
+      name: string;
+      status: string;
+      unreadCount: number;
+      sessionKey: string;
+      userId: string;
+      chatId: string;
+    }>;
+    error?: string;
+  }>;
+  platformDisable: (platform: string) => Promise<{ success: boolean; error?: string }>;
+  platformStatus: () => Promise<{
+    success: boolean;
+    sessions?: Array<any>;
+    health?: Array<any>;
+    error?: string;
+  }>;
+  platformHealth: () => Promise<{
+    success: boolean;
+    health?: Array<{ platform: string; status: string; lastError?: string }>;
+    error?: string;
+  }>;
+  platformSendReply: (data: { sessionKey: string; text: string }) => Promise<{ success: boolean; error?: string }>;
+  platformUpdatePrompt: (data: { platform: string; chatId: string; prompt: string }) => Promise<{ success: boolean; error?: string }>;
+  platformWechatQR: () => Promise<{ success: boolean; qrcodeUrl?: string; qrcodeImgBase64?: string; error?: string }>;
+  platformWechatScan: (data: { qrcodeUrl: string }) => Promise<{ success: boolean; token?: any; sessions?: any[]; error?: string }>;
+
+  onPlatformMessageReceived: (callback: (data: {
+    id: string;
+    sessionKey: string;
+    platform: string;
+    text: string;
+    role: string;
+    timestamp: number;
+    userName?: string;
+  }) => void) => void;
+  onPlatformMessageSent: (callback: (data: {
+    sessionKey: string;
+    platform: string;
+    text: string;
+    role: string;
+    timestamp: number;
+  }) => void) => void;
+  onPlatformSessionUpdated: (callback: (data: {
+    sessionKey: string;
+    platform: string;
+    status: string;
+  }) => void) => void;
+
   // 调试日志
   debugLog: (message: string) => Promise<{ success: boolean; error?: string }>;
 
