@@ -248,8 +248,45 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const streamingHtml = useStreamingMarkdown(typeof displayContent === 'string' ? displayContent : '', isStreaming);
   const processedContent = useMemo(() => {
     if (typeof displayContent !== 'string') return '';
-    return normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
-  }, [displayContent]);
+    let text = normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
+
+    // 解析 LLM 输出的本地图片路径 → base64 data URI
+    // 从工具调用中获取 ReadTool 返回的 contentBlocks（含 base64 图片数据）
+    const tools = respondingAgent?.currentTools;
+    if (tools && tools.length > 0) {
+      // 构建 filePath → data URI 映射
+      const imageMap = new Map<string, string>();
+      for (const tc of tools) {
+        const filePath = tc.input?.path as string | undefined;
+        if (filePath && tc.contentBlocks) {
+          for (const block of tc.contentBlocks) {
+            if (block.type === 'image') {
+              imageMap.set(filePath, `data:${block.mimeType};base64,${block.data}`);
+            }
+          }
+        }
+      }
+      // 替换 Markdown 图片语法中的本地路径
+      if (imageMap.size > 0) {
+        text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, path) => {
+          // 精确路径匹配
+          for (const [filePath, dataUri] of imageMap) {
+            if (path === filePath || filePath === path) return `![${alt}](${dataUri})`;
+          }
+          // 文件名匹配（处理 LLM 用相对路径或仅文件名的情况）
+          const pathBasename = path.split('/').pop();
+          if (pathBasename) {
+            for (const [filePath, dataUri] of imageMap) {
+              if (filePath.split('/').pop() === pathBasename) return `![${alt}](${dataUri})`;
+            }
+          }
+          return match;
+        });
+      }
+    }
+
+    return text;
+  }, [displayContent, respondingAgent?.currentTools]);
 
   // 实时耗时：流式时从 message.timestamp 实时计算，完成后用 message.duration
   const liveDuration = useMemo(() => {
@@ -529,22 +566,19 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
         {/* 消息内容 — 流式时纯文本渲染，完成后 Milkdown 渲染 */}
         <div ref={containerRef} className="max-w-none text-text-primary milkdown-message-content">
-          {message.contentBlocks && message.contentBlocks.length > 0 ? (
-            <ContentBlocksRenderer
-              blocks={message.contentBlocks}
-              processedContent={processedContent}
-              isStreaming={isStreaming}
-              containerRef={containerRef}
-            />
-          ) : typeof displayContent === 'string' ? (
+          {typeof displayContent === 'string' && displayContent.length > 0 ? (
             isStreaming ? (
               <div className="text-sm markdown-streaming-body" dangerouslySetInnerHTML={{ __html: streamingHtml }} />
             ) : (
               <MilkdownEditor value={processedContent} mode="preview" />
             )
-          ) : (
+          ) : !displayContent && (
             <div className="text-sm">[复杂内容]</div>
           )}
+          {/* 图片块 — 附加在文本下方，支持点击放大 */}
+          {message.contentBlocks?.filter(b => b.type === 'image').map((block, i) => (
+            <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
+          ))}
         </div>
 
       </div>

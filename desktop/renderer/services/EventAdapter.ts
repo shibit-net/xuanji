@@ -368,15 +368,29 @@ export function registerEventAdapter(): void {
     useSessionStore.getState().addLog('tool', `🔧 ${data.name} 开始执行`);
   });
 
-  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string }) => {
+  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string; contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }> }) => {
     const agentId = data.agentId || getDefaultAgentId();
     const isAsync = asyncSubAgentIds.has(agentId);
     // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
     useAgentStateMachine.getState().transition({
-      type: 'TOOL_END', agentId, toolId: data.id, toolName: data.name, result: data.result, isError: data.isError,
+      type: 'TOOL_END', agentId, toolId: data.id, toolName: data.name, result: data.result, isError: data.isError, contentBlocks: data.contentBlocks,
     });
 
     if (isAsync) return;
+
+    // 图片内容块：追加到当前流式消息（支持 read_file 读图片后在对话框中展示）
+    if (data.contentBlocks && data.contentBlocks.length > 0) {
+      const imageBlocks = data.contentBlocks.filter(b => b.type === 'image');
+      if (imageBlocks.length > 0) {
+        const msgStore = useMessageStore.getState();
+        if (!msgStore.currentStreamingId) {
+          msgStore.startStreaming(generateMessageId('stream'));
+        }
+        for (const block of imageBlocks) {
+          msgStore.appendContentBlock(msgStore.currentStreamingId!, block);
+        }
+      }
+    }
 
     // 解析 todo 工具的进度数据
     if (data.result && !data.isError) {
