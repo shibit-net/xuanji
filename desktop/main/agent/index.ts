@@ -124,7 +124,8 @@ function initChatSession(): Promise<boolean> {
       if (!isDev) {
         const resourcesPath = process.resourcesPath!;
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
-        spawnEnv.NODE_PATH = unpackedModules;
+        const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');
+        spawnEnv.NODE_PATH = `${extraModules}${path.delimiter}${unpackedModules}`;
         // 模板文件通过 extraResources 打包到 Resources/templates/
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
       } else {
