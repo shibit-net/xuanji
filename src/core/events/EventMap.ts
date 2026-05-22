@@ -87,4 +87,12 @@ export interface XuanjiEventMap {
   [XuanjiEvent.HOOK_TASK_EXECUTION_END]: { userInput: string; results: any[]; summary: string };
   [XuanjiEvent.HOOK_RESULT_AGGREGATION_START]: Record<string, never>;
   [XuanjiEvent.HOOK_RESULT_AGGREGATION_END]: { results: any[] };
+
+  // === Platform Integration ===
+  [XuanjiEvent.PLATFORM_MESSAGE_RECEIVED]: { sessionKey: string; platform: string; text: string; userId: string };
+  [XuanjiEvent.PLATFORM_MESSAGE_SENT]: { sessionKey: string; platform: string; text: string };
+  [XuanjiEvent.PLATFORM_STATUS_CHANGED]: { platform: string; status: 'online' | 'offline' | 'connecting' };
+  [XuanjiEvent.PLATFORM_ERROR]: { platform: string; error: string; sessionKey?: string };
+  [XuanjiEvent.PLATFORM_HEALTH_CHECK]: { results: import('@/platform/types.js').PlatformHealth[] };
+  [XuanjiEvent.PLATFORM_SESSION_UPDATED]: { sessionKey: string; session: import('@/platform/types.js').RemoteSession };
 }

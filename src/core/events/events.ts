@@ -95,4 +95,12 @@ export enum XuanjiEvent {
   HOOK_TASK_EXECUTION_END = 'hook.task-execution.end',
   HOOK_RESULT_AGGREGATION_START = 'hook.result-aggregation.start',
   HOOK_RESULT_AGGREGATION_END = 'hook.result-aggregation.end',
+
+  // === Platform Integration ===
+  PLATFORM_MESSAGE_RECEIVED = 'platform.message.received',
+  PLATFORM_MESSAGE_SENT = 'platform.message.sent',
+  PLATFORM_STATUS_CHANGED = 'platform.status.changed',
+  PLATFORM_ERROR = 'platform.error',
+  PLATFORM_HEALTH_CHECK = 'platform.health.check',
+  PLATFORM_SESSION_UPDATED = 'platform.session.updated',
 }
