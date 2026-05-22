@@ -5,3 +5,4 @@
 export type { SandboxConfig, SandboxExecutor, ShellResult } from './SandboxExecutor';
 export { SeatbeltExecutor } from './SeatbeltExecutor';
 export { BubblewrapExecutor } from './BubblewrapExecutor';
+export { NoopSandboxExecutor } from './NoopSandboxExecutor';

@@ -236,7 +236,7 @@ function WorkspaceTab() {
                 {scenes.length > 0 && (
                   <span className="flex items-center gap-0.5">
                     {scenes.map((s, i) => (
-                      <span key={s}>
+                      <span key={`${s}-${i}`}>
                         {i > 0 && <span className="text-white/15">,</span>}
                         <span className="text-purple-400/80">{s}</span>
                       </span>

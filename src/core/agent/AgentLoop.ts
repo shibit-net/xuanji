@@ -30,7 +30,7 @@ export interface AgentCallbacks {
   onThinking?: (thinking: string) => void;
   onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
   onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
-  onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>) => void;
+  onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>, contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }>) => void;
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
   onFileChanges?: (changes: import('@/core/types').FileChange[]) => void;
   onUsage?: (usage: TokenUsage) => void;
@@ -232,7 +232,7 @@ export class AgentLoop {
   }
 
   /** 运行一轮对话（纯 ReAct 循环） */
-  async run(userMessage: string, signal?: AbortSignal): Promise<void> {
+  async run(userMessage: string, signal?: AbortSignal, imageBlocks?: Array<{ data: string; mimeType: string }>): Promise<void> {
     if (this.running) {
       this.log.warn('run() called while already running, ignoring');
       return;
@@ -258,7 +258,7 @@ export class AgentLoop {
         (permCtrl.setCurrentUserIntent as (msg: string) => void)(userMessage);
       }
 
-      this.contextManager.addUserMessage(userMessage);
+      this.contextManager.addUserMessage(userMessage, imageBlocks);
 
       let lastCompressIteration = 0;
 
@@ -358,7 +358,7 @@ export class AgentLoop {
         for (const tc of result.toolCalls) {
           const toolResult = resultsMap.get(tc.id);
           if (toolResult) {
-            this.callbacks.onToolEnd?.(tc.id, tc.name, toolResult.content, toolResult.isError, toolResult.metadata);
+            this.callbacks.onToolEnd?.(tc.id, tc.name, toolResult.content, toolResult.isError, toolResult.metadata, toolResult.contentBlocks);
             eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
               id: tc.id,
               name: tc.name,
@@ -366,6 +366,7 @@ export class AgentLoop {
               isError: toolResult.isError,
               agentId: this._userId,
               metadata: toolResult.metadata,
+              contentBlocks: toolResult.contentBlocks,
             });
             if ((toolResult as any).fileChanges?.length > 0) {
               fileChanges.push(...(toolResult as any).fileChanges);

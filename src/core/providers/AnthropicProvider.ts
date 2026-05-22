@@ -3,7 +3,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { Message, ToolSchema, ProviderConfig, StreamEvent, TokenUsage } from '@/core/types';
+import type { Message, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, ContentBlock } from '@/core/types';
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
@@ -62,6 +62,24 @@ export class AnthropicProvider extends BaseLLMProvider {
     tools: ToolSchema[],
     config: ProviderConfig,
   ): AsyncIterable<StreamEvent> {
+    // 图片块转为 Anthropic source 格式
+    const convertAnthropicContent = (content: Message['content']) => {
+      if (typeof content === 'string') return content;
+      if (!Array.isArray(content)) return content;
+      return content.map((block: ContentBlock) => {
+        if (block.type === 'image') {
+          return {
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: block.mimeType || 'image/png',
+              data: block.data || '',
+            },
+          };
+        }
+        return block as any;
+      });
+    };
     const client = this.getClient(config);
 
     // 分离 system prompt 和普通消息
@@ -84,8 +102,8 @@ export class AnthropicProvider extends BaseLLMProvider {
       messages: chatMessages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         // Anthropic API 原生支持 content 为 string 或 ContentBlock[]
-        // 直接传递，无需 cast（类型兼容）
-        content: m.content as string | Anthropic.MessageParam['content'],
+        // 图片 ContentBlock 需转为 Anthropic 的 {type:'image', source:{...}} 格式
+        content: convertAnthropicContent(m.content),
       })),
       ...(systemBlocks.length > 0 ? { system: systemBlocks } : {}),
       ...(tools.length > 0 ? {

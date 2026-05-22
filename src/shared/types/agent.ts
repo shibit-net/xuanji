@@ -12,7 +12,7 @@ export type MessageRole = 'system' | 'user' | 'assistant';
 /**
  * 内容块类型
  */
-export type ContentBlockType = 'text' | 'thinking' | 'reasoning' | 'tool_use' | 'tool_result';
+export type ContentBlockType = 'text' | 'thinking' | 'reasoning' | 'tool_use' | 'tool_result' | 'image';
 
 /**
  * 内容块
@@ -30,6 +30,10 @@ export interface ContentBlock {
   tool_use_id?: string;
   content?: string;
   is_error?: boolean;
+  /** 图片内容块：base64 数据 */
+  data?: string;
+  /** 图片内容块：MIME 类型，如 image/png */
+  mimeType?: string;
 }
 
 /**

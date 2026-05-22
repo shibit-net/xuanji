@@ -38,6 +38,12 @@ export class CheapLLMProvider implements CheapLLM {
     const messages = [{ role: 'user' as const, content: prompt }];
 
     try {
+      if (!this.provider || typeof this.provider.stream !== 'function') {
+        throw new Error(
+          `CheapLLMProvider: wrapped provider "${this.provider?.name || 'unknown'}" does not implement stream(). ` +
+          `Available keys: ${this.provider ? Object.keys(this.provider).join(', ') || 'none' : 'null/undefined'}.`
+        );
+      }
       const stream = this.provider.stream(messages, [], this.config);
       let result = '';
 

@@ -133,6 +133,18 @@ function ToolCard({ tool }: { tool: ToolCall }) {
                 </div>
               )}
 
+              {/* 图片输出 */}
+              {(tool as any).contentBlocks?.filter((b: any) => b.type === 'image').map((block: any, i: number) => (
+                <div key={`img-${i}`}>
+                  <div className="text-xs text-text-secondary mb-1">截图</div>
+                  <img
+                    src={`data:${block.mimeType};base64,${block.data}`}
+                    alt="工具截图"
+                    className="w-full max-h-[400px] object-contain rounded-lg border border-white/[0.08]"
+                  />
+                </div>
+              ))}
+
               {/* 错误 */}
               {tool.error && (
                 <div>

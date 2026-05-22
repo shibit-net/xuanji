@@ -120,8 +120,8 @@ async function handleRun(requestId: string, payload: AcpRunRequest['payload']): 
       onToolStart: (id, name, input) => {
         sendEvent(requestId, 'tool_start', { id, name, input });
       },
-      onToolEnd: (id, name, result, isError, metadata) => {
-        sendEvent(requestId, 'tool_end', { id, name, result, isError, metadata });
+      onToolEnd: (id, name, result, isError, metadata, contentBlocks) => {
+        sendEvent(requestId, 'tool_end', { id, name, result, isError, metadata, contentBlocks });
       },
       onToolDelta: (id, name, receivedBytes) => {
         sendEvent(requestId, 'tool_delta', { id, name, receivedBytes });

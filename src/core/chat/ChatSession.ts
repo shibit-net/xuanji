@@ -43,6 +43,7 @@ export class ChatSession {
   // Phase 2 状态机路径
   private _stateMachine: SessionStateMachine | null = null;
   private _useNewPath: boolean = false;
+  private _pendingImageBlocks?: Array<{ data: string; mimeType: string }>;
 
   constructor(
     agentLoop: AgentLoop,
@@ -96,6 +97,8 @@ export class ChatSession {
   }
 
   async run(input: string, opts?: { fromDrain?: boolean }): Promise<void> {
+    const imageBlocks = opts?.fromDrain ? undefined : this._pendingImageBlocks;
+    this._pendingImageBlocks = undefined;
     // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
     // fromDrain=true 时跳过守卫 —— drainPendingQueue 在 agentLoop 刚结束后调用，
     // 不需要再次检查，且检查可能导致消息被错误重排队而永久卡死
@@ -142,17 +145,17 @@ export class ChatSession {
           }
           sessionCallbacks?.onToolStart?.(id, name, input);
         },
-        onToolEnd: (id: string, name: string, result: string, isError: boolean) => {
+        onToolEnd: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>, contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }>) => {
           // PostToolUse 兜底：检测子 Agent 工具完成，触发 LLM 记忆提取
           this.postToolUseFallback(name, { id, result, isError });
-          sessionCallbacks?.onToolEnd?.(id, name, result, isError);
+          sessionCallbacks?.onToolEnd?.(id, name, result, isError, metadata, contentBlocks);
         },
       } as any);
       // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
       this.repairOrphanedToolUse();
 
       log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
-      await this.agentLoop.run(input);
+      await this.agentLoop.run(input, undefined, imageBlocks);
       log.info('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint
@@ -458,7 +461,10 @@ export class ChatSession {
    * 不再强制中断当前工具执行。用户新消息会被注入到 AgentLoop 的迭代边界检查点。
    * 终止请使用 stop() 或 requestAbort()。
    */
-  handleUserInput(input: string): 'running' | 'queued' | 'interrupted' {
+  handleUserInput(input: string, imageBlocks?: Array<{ data: string; mimeType: string }>): 'running' | 'queued' | 'interrupted' {
+    if (imageBlocks) {
+      this._pendingImageBlocks = imageBlocks;
+    }
     const state = this.stateTracker.getState();
     const agentLoopStatus = this.agentLoop.getState().status;
     log.info(`[DIAG] handleUserInput: state=${state} agentLoopStatus=${agentLoopStatus} _useNewPath=${this._useNewPath} _stateMachine=${!!this._stateMachine} input="${input.substring(0, 60)}"`);
@@ -505,11 +511,15 @@ export class ChatSession {
    * flag off 时委托旧方法 (handleUserInput / interrupt)。
    * flag on 时走状态机 transition → 执行 SessionAction。
    */
-  async userAction(action: { type: string; message?: string }): Promise<void> {
+  async userAction(action: { type: string; message?: string; imageBlocks?: Array<{ data: string; mimeType: string }> }): Promise<void> {
+    // 存储 imageBlocks 供 run() 使用（新旧路径均需）
+    if (action.imageBlocks) {
+      this._pendingImageBlocks = action.imageBlocks;
+    }
     if (!this._useNewPath || !this._stateMachine) {
       // 回退到旧路径
       if (action.type === 'SEND_MESSAGE' && action.message) {
-        this.handleUserInput(action.message);
+        this.handleUserInput(action.message, action.imageBlocks);
       } else if (action.type === 'INTERRUPT') {
         this.interrupt(action.message ?? '');
       }

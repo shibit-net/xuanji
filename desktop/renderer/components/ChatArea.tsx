@@ -79,7 +79,7 @@ const VirtualMessageList = memo(function VirtualMessageList({
     count: stableCount > 0 ? stableCount : 1,
     getScrollElement,
     estimateSize,
-    overscan: 10,
+    overscan: 5,
   });
 
   if (!ready) {

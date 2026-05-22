@@ -80,14 +80,11 @@ export interface ToolResult {
   metadata?: Record<string, unknown>;
   /** 文件变更信息（用于 UI 展示 diff） */
   fileChanges?: FileChange[];
-  /** 多模态内容块（如图片），用于 Vision API */
+  /** 多模态内容块（如图片），扁平格式，前后端共用 */
   contentBlocks?: Array<{
     type: 'image';
-    source: {
-      type: 'base64';
-      media_type: string;
-      data: string;
-    };
+    mimeType: string;
+    data: string;
   }>;
 }
 

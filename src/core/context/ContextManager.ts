@@ -83,8 +83,16 @@ export class ContextManager {
     return total;
   }
 
-  addUserMessage(text: string): void {
-    this.messages.push({ role: 'user', content: text });
+  addUserMessage(text: string, imageBlocks?: Array<{ data: string; mimeType: string }>): void {
+    if (imageBlocks && imageBlocks.length > 0) {
+      const content: ContentBlock[] = [
+        { type: 'text', text },
+        ...imageBlocks.map(b => ({ type: 'image' as const, data: b.data, mimeType: b.mimeType }) as ContentBlock),
+      ];
+      this.messages.push({ role: 'user', content });
+    } else {
+      this.messages.push({ role: 'user', content: text });
+    }
     // fire-and-forget: addMessage 是同步调用路径，自动压缩异步执行
     this.checkAndAutoCompress().catch(() => {});
   }

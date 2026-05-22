@@ -285,6 +285,10 @@
     ipcRenderer.invoke('memory:relations', data || {}),
   memoryGraphData: (data?: { entityId?: string; maxHops?: number }) =>
     ipcRenderer.invoke('memory:graph-data', data || {}),
+  memoryGraphSearch: (data: { query: string; limit?: number }) =>
+    ipcRenderer.invoke('memory:graph-search', data),
+  memoryGraphNeighborhood: (data: { entityId: string; maxHops?: number }) =>
+    ipcRenderer.invoke('memory:graph-neighborhood', data),
   memoryDeleteEntity: (data: { id: string }) => ipcRenderer.invoke('memory:delete-entity', data),
   memoryClearAll: () => ipcRenderer.invoke('memory:clear-all'),
 

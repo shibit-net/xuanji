@@ -427,8 +427,8 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error('handleInit failed:', msg);
+    const msg = err instanceof Error ? (err.message || '(no message)') : String(err);
+    log.error('handleInit failed:', msg, err instanceof Error ? err.stack : '');
     return { success: false, error: msg };
   }
 }
@@ -532,19 +532,21 @@ async function copyAttachmentsToWorkspace(
   }
 }
 
-async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; agentId?: string }): Promise<void> {
+async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>; imageBlocks?: Array<{ data: string; mimeType: string }>; agentId?: string }): Promise<void> {
   if (!session) {
     log.warn('handleUserAction: session is null');
     return;
   }
   try {
     let fullMessage = data.message || '';
-    if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length)) {
-      if (data.attachments?.length) {
-        await copyAttachmentsToWorkspace(data.attachments);
-        await resolveBinaryAttachments(data.attachments);
+    if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length || data.imageBlocks?.length)) {
+      // 分离非图片附件（图片已由前端分离为 imageBlocks）
+      const fileAttachments = (data.attachments || []).filter(a => !a.mimeType?.startsWith('image/'));
+      if (fileAttachments.length > 0) {
+        await copyAttachmentsToWorkspace(fileAttachments);
+        await resolveBinaryAttachments(fileAttachments);
       }
-      const attachmentPrefix = formatAttachments(data.attachments || []);
+      const attachmentPrefix = formatAttachments(fileAttachments);
       fullMessage = attachmentPrefix + (data.message || '');
 
       // 用户选择的 agent（默认 xuanji）
@@ -603,7 +605,7 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       }
     }
 
-    await session.userAction({ type: data.type, message: fullMessage || data.message });
+    await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks });
     log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
@@ -1456,6 +1458,42 @@ channel.handle('memory-graph-data', async (data: { entityId?: string; maxHops?: 
   }
 });
 
+// ─── 图搜索（模糊匹配实体名称）───────────────────────────
+channel.handle('memory-graph-search', async (data: { query: string; limit?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const results = mm.graph.searchNodes(data.query).slice(0, data.limit || 20);
+    return { success: true, nodes: results };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ─── 邻域展开（K 跳子图提取）───────────────────────────
+channel.handle('memory-graph-neighborhood', async (data: { entityId: string; maxHops?: number }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const subgraph = mm.graph.extractSubgraph(data.entityId, data.maxHops ?? 1);
+    return { success: true, centerId: data.entityId, nodes: subgraph.nodes, edges: subgraph.edges };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ─── 查询一批节点之间的所有边（间接关系展示）─────────────
+channel.handle('memory-graph-edges-between', async (data: { nodeIds: string[] }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const edges = mm.graph.getEdgesBetween(data.nodeIds);
+    return { success: true, edges };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 channel.handle('memory-delete-entity', async (data: { id: string }) => {
   const mm = getMemoryManager();
   if (!mm) return { success: false, error: '记忆系统未初始化' };
@@ -2214,23 +2252,7 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata } });
-
-    // 检测工具结果中的图片数据，发送到前端渲染
-    try {
-      if (payload.result && typeof payload.result === 'string') {
-        const parsed = JSON.parse(payload.result);
-        if (parsed?.contentBlocks && Array.isArray(parsed.contentBlocks)) {
-          for (const block of parsed.contentBlocks) {
-            if (block.type === 'image' && block.source?.data) {
-              safeSend({ type: 'agent:content-block', data: {
-                block: { type: 'image', data: block.source.data, mimeType: block.source.media_type || 'image/png' }
-              }});
-            }
-          }
-        }
-      }
-    } catch (_) { /* result 不是 JSON，跳过 */ }
+    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata, contentBlocks: payload.contentBlocks } });
 
     // Layer 0: 写入结构化工具事件到 session_events 表
     try {

@@ -155,7 +155,7 @@ export default function InputArea() {
     };
     loadAgents();
     return () => { active = false; };
-  }, []);
+  }, [isSessionReady]);
 
   // ─── 点击外部关闭选择器 ──────────────────────────────
   useEffect(() => {
@@ -374,6 +374,13 @@ export default function InputArea() {
     // 获取当前选中的 agent（默认 xuanji）
     const agentId = selectedAgent?.id || DEFAULT_AGENT.id;
 
+    // 分离图片和非图片附件
+    const imageAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('image/'));
+    const fileAttachments = currentAttachments.filter(a => !a.mimeType?.startsWith('image/'));
+    const imageBlocks = imageAttachments.length > 0
+      ? imageAttachments.map(a => ({ data: a.content, mimeType: a.mimeType!, name: a.name }))
+      : undefined;
+
     setInput('');
     setAttachments([]);
     setIsSending(true);
@@ -392,7 +399,8 @@ export default function InputArea() {
       await window.electron.agentUserAction({
         type: 'SEND_MESSAGE',
         message: content,
-        attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+        attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+        imageBlocks,
         agentId,
       });
     } finally {
@@ -417,6 +425,7 @@ export default function InputArea() {
     'doc', 'docx', 'docm', 'dot', 'dotx', 'dotm',
     'pdf',
     'pptx', 'pptm', 'potx', 'ppsx',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg',
   ]);
 
   const BINARY_MIME_PATTERNS = [
@@ -427,6 +436,7 @@ export default function InputArea() {
     'application/pdf',
     'text/csv',
     'text/tab-separated-values',
+    'image/',
   ];
 
   const TEXT_EXTENSIONS = new Set([
@@ -443,6 +453,10 @@ export default function InputArea() {
     if (ext && BINARY_EXTENSIONS.has(ext)) return true;
     if (file.type && BINARY_MIME_PATTERNS.some(p => file.type.startsWith(p))) return true;
     return false;
+  }
+
+  function isImageFile(file: File): boolean {
+    return file.type.startsWith('image/');
   }
 
   function isTextFile(file: File): boolean {
@@ -495,12 +509,14 @@ export default function InputArea() {
         const dropPath = filePaths?.[i];
 
         if (isBinary) {
+          const isImage = isImageFile(file);
           if (dropPath) {
             newAttachments.push({
               name: file.name,
               path: dropPath,
               content: '',
               size: file.size,
+              ...(isImage ? { mimeType: file.type } : {}),
             });
           } else {
             const arrayBuffer = await file.arrayBuffer();
@@ -513,6 +529,7 @@ export default function InputArea() {
               name: file.name,
               content: btoa(binary),
               size: file.size,
+              ...(isImage ? { mimeType: file.type } : {}),
             });
           }
         } else {
@@ -814,22 +831,22 @@ export default function InputArea() {
         )}
 
         <div className="flex-1 relative">
-          {/* Agent chip + 输入框 */}
+          {/* 选中的 Agent chip — 显示在输入框上方 */}
+          {selectedAgent && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 mb-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400">
+              <span className="font-medium">@{effectiveAgentName}</span>
+              <button
+                type="button"
+                onClick={clearSelectedAgent}
+                className="ml-0.5 p-0.5 rounded hover:bg-purple-500/20 transition-colors"
+                title="取消选择，恢复默认 xuanji"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {/* 输入框 */}
           <div className="flex items-start gap-2 flex-wrap">
-            {/* 选中的 Agent chip（非默认 xuanji 时显示） */}
-            {selectedAgent && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-xs text-purple-600 shrink-0 mt-1.5">
-                <span className="font-medium">@{effectiveAgentName}</span>
-                <button
-                  type="button"
-                  onClick={clearSelectedAgent}
-                  className="ml-0.5 p-0.5 rounded hover:bg-purple-500/20 transition-colors"
-                  title="取消选择，恢复默认 xuanji"
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            )}
             <Textarea
               ref={textareaRef}
               value={input}

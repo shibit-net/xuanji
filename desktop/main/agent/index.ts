@@ -241,7 +241,7 @@ function initChatSession(): Promise<boolean> {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('ChatSession 初始化超时'));
-        }, 30000);
+        }, 60000);
 
         const checkReady = () => {
           if (sessionReady) {

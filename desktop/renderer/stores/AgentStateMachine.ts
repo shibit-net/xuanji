@@ -46,6 +46,7 @@ export interface ToolExecution {
   endTime?: number;
   duration?: number;
   error?: string;
+  contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }>;
 }
 
 export interface AgentState {
@@ -89,7 +90,7 @@ export type AgentEvent =
   | { type: 'AGENT_CREATED'; agentId: string; name: string; parentId?: string; agentType?: string; taskType?: 'task' | 'team'; executionMode?: 'acp' | 'in-process'; isAsync?: boolean; streamToUser?: boolean; scene?: string; task?: string; multiAgent?: AgentState['multiAgent'] }
   | { type: 'THINKING_DELTA'; agentId: string; content: string; taskDescription?: string }
   | { type: 'TOOL_START'; agentId: string; toolId: string; toolName: string; toolInput: Record<string, unknown> }
-  | { type: 'TOOL_END'; agentId: string; toolId: string; toolName: string; result?: string; isError?: boolean }
+  | { type: 'TOOL_END'; agentId: string; toolId: string; toolName: string; result?: string; isError?: boolean; contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }> }
   | { type: 'TEXT_DELTA'; agentId: string; text: string }
   | { type: 'SUBAGENT_END'; agentId: string; success: boolean; isAsync?: boolean }
   | { type: 'AUTO_SUMMARIZE_START'; agentId: string }
@@ -515,7 +516,7 @@ function applyToolEnd(
 
   const updatedTools = agent.currentTools.map((t) =>
     t.id === event.toolId
-      ? { ...t, status: event.isError ? ('error' as const) : ('success' as const), output: event.result, endTime: Date.now() }
+      ? { ...t, status: event.isError ? ('error' as const) : ('success' as const), output: event.result, contentBlocks: event.contentBlocks, endTime: Date.now() }
       : t,
   );
 

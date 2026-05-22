@@ -98,7 +98,7 @@ describe('ReadTool', () => {
       // 验证 contentBlocks 包含结构化 Vision 数据
       expect(result.contentBlocks).toBeDefined();
       expect(result.contentBlocks![0].type).toBe('image');
-      expect(result.contentBlocks![0].source.media_type).toBe('image/png');
+      expect(result.contentBlocks![0].mimeType).toBe('image/png');
     });
 
     it('应识别 JPG 文件', async () => {

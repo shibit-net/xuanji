@@ -387,14 +387,11 @@ export class ReadTool extends BaseTool {
         sizeKB,
         base64Length: base64.length,
       },
-      // 结构化 Vision content block，Anthropic API 可直接识别
+      // 扁平格式 contentBlocks，前后端共用
       contentBlocks: [{
         type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mimeType,
-          data: base64,
-        },
+        mimeType,
+        data: base64,
       }],
     };
   }

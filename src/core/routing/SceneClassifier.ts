@@ -156,6 +156,10 @@ export class SceneClassifier {
 
     const streamPromise = (async () => {
       try {
+        if (typeof provider.stream !== 'function') {
+          log.warn('SceneClassifier: provider does not implement stream()');
+          return null;
+        }
         for await (const event of provider.stream(messages, [], providerConfig)) {
           if (event.type === 'text_delta') {
             text += event.text;

@@ -78,7 +78,11 @@ export class SSHExecTool extends BaseTool {
 
     if (runInBackground) {
       const escapedCmd = command.replace(/'/g, "'\\''");
-      const bgCommand = `nohup bash -c '${escapedCmd}' > /tmp/xuanji-ssh-bg-${Date.now()}.log 2>&1 & echo "PID:$!"`;
+      // 使用 shell 的临时目录（${TMPDIR:-/tmp}）而非硬编码 /tmp/
+      // macOS 默认 TMPDIR=/var/folders/...，Linux 默认 /tmp/
+      // TMPDIR 环境变量通常由 SSH 会话继承
+      const logFile = `xuanji-ssh-bg-${Date.now()}.log`;
+      const bgCommand = `nohup bash -c '${escapedCmd}' > "\${TMPDIR:-/tmp}/${logFile}" 2>&1 & echo "PID:$!"`;
       try {
         const result = await manager.exec(hostId, bgCommand, 10000);
         return this.success(`Remote background task started on "${hostId}".\nCommand: ${command}\n${result.stdout.trim()}`);

@@ -2475,8 +2475,8 @@ ${text}`;
       systemPrompt: fullSystemPrompt,
     };
 
-    const provider = this.cheapLLM ?? this.provider!;
-    const agentLoop = new AgentLoop(provider, filteredRegistry, agentConfig);
+    // 始终使用真正的 ILLMProvider，CheapLLMProvider 没有 stream() 方法
+    const agentLoop = new AgentLoop(this.provider!, filteredRegistry, agentConfig);
 
     await new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => {

@@ -15,6 +15,7 @@ import type { AppConfig, ILLMProvider, ProviderConfig } from '@/core/types';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 import { AnthropicProvider } from './AnthropicProvider';
 import { OpenAIProvider } from './OpenAIProvider';
+import { GeminiProvider } from './GeminiProvider';
 import { LocalLlamaAdapter } from './LocalLlamaAdapter';
 import { logger } from '@/core/logger';
 
@@ -98,6 +99,8 @@ export class ProviderManager {
     switch (adapter) {
       case 'anthropic':
         return new AnthropicProvider();
+      case 'gemini':
+        return new GeminiProvider();
       case 'local-llama':
         return new LocalLlamaAdapter();
       case 'openai':

@@ -483,7 +483,7 @@ export class AgentFactory {
           this.hookRegistry.emit('ToolStart', { subAgentId, toolId: id, toolName: name, toolInput: input }).catch(() => {});
         }
       },
-      onToolEnd: (id, name, result, isError) => {
+      onToolEnd: (id, name, result, isError, metadata, contentBlocks) => {
         if (this.hookRegistry) {
           this.hookRegistry.emit('ToolEnd', { subAgentId, toolId: id, toolName: name, toolResult: result, toolIsError: isError }).catch(() => {});
         }

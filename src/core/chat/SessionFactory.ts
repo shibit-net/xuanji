@@ -60,6 +60,101 @@ export interface SessionOptions {
   onMissingEmbedding?: () => void;
 }
 
+/**
+ * 构建 MCP Tools 的 system prompt 段
+ * 按 MCP 服务器分组，提示 LLM 使用 mcp_call 统一入口调用
+ */
+function buildMCPSystemPromptSection(registry: IToolRegistry): string {
+  const mcpSchemas = (registry as any).getMCPSchemas?.() ?? [];
+  if (mcpSchemas.length === 0) return '';
+
+  const sections: string[] = [
+    '',
+    '## MCP Tools',
+    '',
+    'Use the `mcp_call` tool to access MCP (Model Context Protocol) tools from installed servers.',
+    'Call syntax: `mcp_call(server="<name>", tool="<name>", arguments={...})`.',
+    '',
+    'Available MCP servers and tools:',
+    '',
+  ];
+
+  // 按 server 分组
+  const byServer = new Map<string, typeof mcpSchemas>();
+  for (const s of mcpSchemas) {
+    const group = byServer.get(s.serverName) ?? [];
+    group.push(s);
+    byServer.set(s.serverName, group);
+  }
+
+  for (const [serverName, tools] of byServer) {
+    sections.push(`### Server: \`${serverName}\``);
+    sections.push('');
+    for (const t of tools) {
+      sections.push(`#### \`${t.toolName}\``);
+      sections.push(t.description || '');
+      if (t.inputSchema) {
+        sections.push('```json');
+        sections.push(JSON.stringify(t.inputSchema, null, 2));
+        sections.push('```');
+      }
+      sections.push('');
+    }
+  }
+
+  return sections.join('\n');
+}
+
+/**
+ * 构建 Skills 的 system prompt 段
+ * 按分类分组，提示 LLM 使用 skill_call 统一入口调用
+ */
+function buildSkillSystemPromptSection(skillRegistry: any): string {
+  if (!skillRegistry) return '';
+  const skills: any[] = skillRegistry.list?.() ?? [];
+  const enabled = skills.filter((s: any) => s.enabled !== false);
+  if (enabled.length === 0) return '';
+
+  // 按 category 分组
+  const byCategory = new Map<string, any[]>();
+  for (const s of enabled) {
+    const cat = s.category || 'other';
+    const group = byCategory.get(cat) ?? [];
+    group.push(s);
+    byCategory.set(cat, group);
+  }
+
+  const catLabels: Record<string, string> = {
+    workflow: 'Workflow — multi-step automated tasks (e.g., git commit, review PR)',
+    prompt: 'Prompt — content/template rendering for system prompt injection',
+    action: 'Action — single-step operations',
+  };
+
+  const sections: string[] = [
+    '',
+    '## Skills',
+    '',
+    'Use the `skill_call` tool to invoke an installed Skill.',
+    'Call syntax: `skill_call(skillId="<id>", params={...})`.',
+    '',
+    'Available Skills:',
+    '',
+  ];
+
+  for (const [category, catSkills] of byCategory) {
+    const label = catLabels[category] || category;
+    sections.push(`### ${label}`);
+    sections.push('');
+    for (const s of catSkills) {
+      const cmd = s.slashCommand ? ` (command: \`${s.slashCommand}\`)` : '';
+      sections.push(`- **${s.name}** \`${s.id}\`${cmd} — ${s.description || ''}`);
+    }
+    sections.push('');
+  }
+
+  return sections.join('\n');
+}
+
 export class SessionFactory {
   private container: DependencyContainer;
   private userId: string;
@@ -248,32 +343,41 @@ export class SessionFactory {
       log.warn('Failed to build initial system prompt:', err);
     }
 
+    // 同步 MCP 工具元数据到 registry（必须在构建 system prompt 之前完成）
+    // agent-bridge 中的 scheduleMCPToolSync 也会调用，但通过 setImmediate 延迟执行，
+    // 如果此处不等同步完成，system prompt 中将没有 MCP 工具列表，LLM 无法发现 MCP 工具
+    try {
+      await (registry as any).syncMCPTools(MCPManager.getInstance());
+    } catch (err) {
+      log.warn('Failed to sync MCP tools during session creation:', err);
+    }
+
     // 注入 MCP 工具 schema 到 system prompt（LLM 需要看到参数定义才能调用）
     if (systemPrompt) {
-      const mcpTools = registry.getAll().filter((t: any) => t.name.includes(':'));
-      if (mcpTools.length > 0) {
-        const sections: string[] = ['', '## MCP Tools', '', 'MCP tools installed from marketplace. Use `serverName:toolName` format.', ''];
-        for (const tool of mcpTools) {
-          const schema = tool.input_schema;
-          sections.push(`### ${tool.name}`);
-          sections.push(tool.description || '');
-          if (schema) {
-            sections.push('```json');
-            sections.push(JSON.stringify(schema, null, 2));
-            sections.push('```');
-          }
-          sections.push('');
-        }
-        systemPrompt += '\n' + sections.join('\n');
+      const mcpSection = buildMCPSystemPromptSection(registry);
+      if (mcpSection) {
+        systemPrompt += '\n' + mcpSection;
       }
     }
 
-    // 合并 agent 配置工具 + prompt 要求的工具 + MCP 工具，再自动补齐
-    // MCP 工具（命名格式 serverName:toolName）由用户通过天工坊安装，应自动可用
-    const mcpToolNames = registry.getAll()
-      .filter((t: any) => t.name.includes(':'))
-      .map((t: any) => t.name);
-    const allTools = [...new Set([...agentTools, ...promptRequiredTools, ...mcpToolNames])];
+    // 注入 Skills 到 system prompt
+    let skillRegistry: any = null;
+    try { skillRegistry = await this.container.resolve('skillRegistry'); } catch { /* not registered */ }
+    if (systemPrompt && skillRegistry) {
+      const skillSection = buildSkillSystemPromptSection(skillRegistry);
+      if (skillSection) {
+        systemPrompt += '\n' + skillSection;
+      }
+    }
+
+    // 合并 agent 配置工具 + prompt 要求的工具 + MCP/Skill gateway，再自动补齐
+    // mcp_call/skill_call 始终可用：有 MCP/Skill 时正常工作，没有时返回友好错误提示
+    const mcpSchemas = (registry as any).getMCPSchemas?.() ?? [];
+    const mcpGatewayTools = mcpSchemas.length > 0 ? ['mcp_call'] : [];
+    const skillCount = skillRegistry?.list?.().filter((s: any) => s.enabled !== false).length ?? 0;
+    const skillGatewayTools = skillCount > 0 ? ['skill_call'] : [];
+    const alwaysAvailable = ['mcp_call', 'skill_call', 'skill_manage', 'mcp_settings', 'uninstall'];
+    const allTools = [...new Set([...agentTools, ...promptRequiredTools, ...mcpGatewayTools, ...skillGatewayTools, ...alwaysAvailable])];
     const augmentedTools = augmentToolList(allTools);
 
     const trackedRegistry = new FilteredToolRegistry(
@@ -319,21 +423,9 @@ export class SessionFactory {
           if (prompt.prompt) {
             let updatedPrompt = prompt.prompt;
             // MCP 工具 schema 注入
-            const mcpTools = registry.getAll().filter((t: any) => t.name.includes(':'));
-            if (mcpTools.length > 0) {
-              const sections: string[] = ['', '## MCP Tools', '', 'MCP tools installed from marketplace. Use `serverName:toolName` format.', ''];
-              for (const tool of mcpTools) {
-                const schema = tool.input_schema;
-                sections.push(`### ${tool.name}`);
-                sections.push(tool.description || '');
-                if (schema) {
-                  sections.push('```json');
-                  sections.push(JSON.stringify(schema, null, 2));
-                  sections.push('```');
-                }
-                sections.push('');
-              }
-              updatedPrompt += '\n' + sections.join('\n');
+            const mcpSection = buildMCPSystemPromptSection(registry);
+            if (mcpSection) {
+              updatedPrompt += '\n' + mcpSection;
             }
             agentLoop.getContextManager().updateSystemPrompt(updatedPrompt);
             log.info('System prompt updated with new persona');
@@ -683,16 +775,20 @@ export class SessionFactory {
       // ─── 注入 Skills & MCP 依赖到 MemoryManager（供 agent-bridge IPC 访问） ───
       try {
         memoryManager.skillRegistry = await this.container.resolve<SkillRegistry>('skillRegistry');
-      } catch { /* skillRegistry 未注册 */ }
+      } catch (err) { log.warn('skillRegistry not registered:', err); }
       try {
         memoryManager.mcpManager = await this.container.resolve<MCPManager>('mcpManager');
-        await memoryManager.mcpManager.initialize();
-      } catch { /* mcpManager 未注册或初始化失败 */ }
+        // MCP 初始化可能很慢（串行启动多个服务器），用 10 秒超时防止阻塞
+        await Promise.race([
+          memoryManager.mcpManager.initialize(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('MCP init timeout (10s)')), 10000)),
+        ]);
+      } catch (err) { log.warn('mcpManager not registered or init failed:', err); }
       try {
         memoryManager.tiangongMarket = await this.container.resolve<TiangongMarket>('tiangongMarket');
         memoryManager.mcpInstaller = await this.container.resolve<MCPInstaller>('mcpInstaller');
         memoryManager.skillInstaller = await this.container.resolve<SkillInstaller>('skillInstaller');
-      } catch { /* tiangong 未配置 */ }
+      } catch (err) { log.warn('tiangong dependencies not configured:', err); }
 
       // 通过 EventBus 监听 Agent 工具结束事件，桥接到 SubAgentResultStore
       const subAgentToolNames = ['task', 'agent_team'];
@@ -764,6 +860,14 @@ export class SessionFactory {
           try { tiangongMarket = await this.container.resolve<TiangongMarket>('tiangongMarket'); } catch { /* 未配置 */ }
           skillManageTool.setDependencies({ skillRegistry, tiangongMarket });
           log.debug('SkillManageTool dependencies injected');
+        }
+
+        // ─── 注入 SkillCallTool 依赖 ───────────────────────────────
+        const skillCallTool = toolRegistry.get('skill_call') as any;
+        if (skillCallTool && typeof skillCallTool.setDependencies === 'function') {
+          const skillRegistry = await this.container.resolve<SkillRegistry>('skillRegistry');
+          skillCallTool.setDependencies({ skillRegistry });
+          log.debug('SkillCallTool dependencies injected');
         }
 
         // ─── 桥接 AGENT_COMPLETED → ExperienceCrystallizer ──────────

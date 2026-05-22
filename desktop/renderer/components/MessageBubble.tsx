@@ -4,7 +4,8 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X, Maximize2, Minimize2 } from 'lucide-react';
 import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';
@@ -20,12 +21,13 @@ import { isFilePath, toNativePath } from '../utils/pathUtils';
 // 主 agent 头像
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 
-function useRealtimeClock() {
+function useRealtimeClock(active: boolean) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    if (!active) return;
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
-  }, []);
+  }, [active]);
   return now;
 }
 
@@ -137,7 +139,7 @@ function FileIcon({ size = 14, className, simple }: { size?: number; className?:
   );
 }
 
-/** 图片内容块 — 支持点击放大 / Lightbox */
+/** 图片内容块 — 支持点击放大，Lightbox 通过 Portal 渲染到 body */
 function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }> }) {
   const [expanded, setExpanded] = useState(false);
   const src = `data:${block.mimeType};base64,${block.data}`;
@@ -155,15 +157,15 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
         />
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity
                         bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1">
-          <ImageIcon size={12} className="text-white/70" />
+          <Maximize2 size={12} className="text-white/70" />
           <span className="text-[10px] text-white/70">点击放大</span>
         </div>
       </div>
 
-      {/* Lightbox */}
-      {expanded && (
+      {/* Lightbox — Portal 到 body，脱离气泡 overflow 容器 */}
+      {expanded && createPortal(
         <div
-          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center
+          className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center
                      animate-fadeIn cursor-zoom-out"
           onClick={() => setExpanded(false)}
         >
@@ -177,8 +179,10 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
             src={src}
             alt="截图（放大）"
             className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -231,7 +235,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const respondingAgent = useAgentStateMachine((s) => effectiveAgentId ? s.agentMap[effectiveAgentId] : undefined);
   const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
   const showThinking = useConfigStore((s) => s.settings.showThinking);
-  const now = useRealtimeClock();
+  const now = useRealtimeClock(isStreaming);
 
   const displayContent = isStreaming && streamingText !== undefined ? streamingText : message.content;
 
@@ -301,8 +305,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
     if (!container || isUser || isSystem) return;
 
     const roots: Array<ReturnType<typeof createRoot>> = [];
+    let enhanced = false;
 
     function enhance() {
+      if (enhanced) return;
+      // 检查容器是否仍在 DOM 中
+      if (!container || !document.contains(container)) return;
+
       roots.forEach((r) => r.unmount());
       roots.length = 0;
 
@@ -310,47 +319,55 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       const nameCounts: Record<string, number> = {};
 
       // 处理子 Agent 块引用
-      container!.querySelectorAll('span[data-type="subagent-ref"]').forEach((el) => {
-        const span = el as HTMLSpanElement;
-        const name = span.dataset.name || '';
-        const index = nameCounts[name] || 0;
-        nameCounts[name] = index + 1;
+      const subagentSpans = container.querySelectorAll('span[data-type="subagent-ref"]');
+      if (subagentSpans.length > 0) {
+        enhanced = true;
+        subagentSpans.forEach((el) => {
+          const span = el as HTMLSpanElement;
+          const name = span.dataset.name || '';
+          const index = nameCounts[name] || 0;
+          nameCounts[name] = index + 1;
 
-        const state = useCitationStore.getState();
-        const list = state.citations[name];
-        const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
+          const state = useCitationStore.getState();
+          const list = state.citations[name];
+          const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
 
-        const anchor = document.createElement('span');
-        anchor.style.cssText = 'display:inline-block;vertical-align:middle;';
-        span.replaceWith(anchor);
-        const root = createRoot(anchor);
-        root.render(<SubAgentBlock name={name} citation={citation} />);
-        roots.push(root);
-      });
+          const anchor = document.createElement('span');
+          anchor.style.cssText = 'display:inline-block;vertical-align:middle;';
+          span.replaceWith(anchor);
+          const root = createRoot(anchor);
+          root.render(<SubAgentBlock name={name} citation={citation} />);
+          roots.push(root);
+        });
+      }
 
       // 处理引用语法（同名引用同理按顺序匹配）
-      const citationCounts: Record<string, number> = {};
-      container!.querySelectorAll('span[data-type="citation-ref"]').forEach((el) => {
-        const span = el as HTMLSpanElement;
-        const name = span.dataset.name || '';
-        const quote = span.dataset.quote || '';
-        const index = citationCounts[name] || 0;
-        citationCounts[name] = index + 1;
+      const citationSpans = container.querySelectorAll('span[data-type="citation-ref"]');
+      if (citationSpans.length > 0) {
+        enhanced = true;
+        const citationCounts: Record<string, number> = {};
+        citationSpans.forEach((el) => {
+          const span = el as HTMLSpanElement;
+          const name = span.dataset.name || '';
+          const quote = span.dataset.quote || '';
+          const index = citationCounts[name] || 0;
+          citationCounts[name] = index + 1;
 
-        const state = useCitationStore.getState();
-        const list = state.citations[name];
-        const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
+          const state = useCitationStore.getState();
+          const list = state.citations[name];
+          const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
 
-        const anchor = document.createElement('span');
-        anchor.style.cssText = 'display:inline;';
-        span.replaceWith(anchor);
-        const root = createRoot(anchor);
-        root.render(<CitationChip name={name} quote={quote} citation={citation} />);
-        roots.push(root);
-      });
+          const anchor = document.createElement('span');
+          anchor.style.cssText = 'display:inline;';
+          span.replaceWith(anchor);
+          const root = createRoot(anchor);
+          root.render(<CitationChip name={name} quote={quote} citation={citation} />);
+          roots.push(root);
+        });
+      }
 
       // 处理 diff 代码块着色（查找所有代码块，根据内容判断是否为 diff）
-      container!.querySelectorAll('pre code').forEach((el) => {
+      container.querySelectorAll('pre code').forEach((el) => {
         const code = el as HTMLElement;
         if (code.dataset.diffEnhanced) return;
         const html = code.innerHTML;
@@ -360,7 +377,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         if (!isDiff) return;
         code.dataset.diffEnhanced = 'true';
         const codeLines = html.split(/\n|<br\s*\/?>/gi).filter(Boolean);
-        const enhanced = codeLines.map((line) => {
+        const enhanced2 = codeLines.map((line) => {
           const text = line.replace(/<[^>]*>/g, '').trim();
           const lineStyle = (() => {
             if (text.startsWith('+')) return 'color:#4ade80;background:rgba(74,222,128,0.08);';
@@ -370,12 +387,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           })();
           return `<span style="display:block;${lineStyle}padding:0 4px;border-radius:2px;">${line}</span>`;
         }).join('\n');
-        code.innerHTML = enhanced;
+        code.innerHTML = enhanced2;
       });
 
       // 处理 toolSummary 消息中的文件路径 code 元素 — 标记为可点击，CSS 负责样式
-      // 事件委托在 MessageBubble 外层由点击事件处理
-      container!.querySelectorAll('code').forEach((el) => {
+      container.querySelectorAll('code').forEach((el) => {
         const code = el as HTMLElement;
         if (code.dataset.fileLinked || code.closest('pre')) return;
         const text = code.textContent?.trim() || '';
@@ -388,31 +404,28 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       });
     }
 
-    // 多级重试，确保 Milkdown 渲染完成后一定能替换引用标签
-    // Milkdown 的 ProseMirror 创建是异步的，可能比 React effect 慢
-    const retryDelays = [200, 600, 1500, 4000];
+    // 2 级重试，确保 Milkdown 渲染完成后替换引用标签
+    const retryDelays = [150, 500];
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     function scheduleRetry(delay: number) {
       const timer = setTimeout(() => {
-        // 检查容器中是否有引用 span，有才执行 enhance（避免空跑）
-        const hasSpans = container!.querySelector('span[data-type="subagent-ref"], span[data-type="citation-ref"]');
-        if (hasSpans) {
-          enhance();
-        }
+        if (enhanced || !container || !document.contains(container)) return;
+        const hasSpans = container.querySelector('span[data-type="subagent-ref"], span[data-type="citation-ref"]');
+        if (hasSpans) enhance();
       }, delay);
       timers.push(timer);
     }
 
     retryDelays.forEach(scheduleRetry);
 
-    // MutationObserver：Milkdown 异步渲染完成后自动触发
+    // MutationObserver：Milkdown 异步渲染完成后自动触发，仅观察至 enhance 完成
     let observerRaf = 0;
     const observer = new MutationObserver(() => {
-      // 用 rAF 防抖，避免 ProseMirror 连续更新时高频触发
+      if (enhanced) return;
       cancelAnimationFrame(observerRaf);
       observerRaf = requestAnimationFrame(() => {
-        enhance();
+        if (!enhanced) enhance();
       });
     });
     observer.observe(container, { childList: true, subtree: true });
@@ -566,6 +579,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
         {/* 消息内容 — 流式时纯文本渲染，完成后 Milkdown 渲染 */}
         <div ref={containerRef} className="max-w-none text-text-primary milkdown-message-content">
+          {/* 图片块 — 渲染在文本上方（LLM 回复中通常用"上图"指代），跳过已在 markdown 中内联的图片 */}
+          {message.contentBlocks?.filter(b => b.type === 'image').filter(block => {
+            const imgBlock = block as Extract<ContentBlock, { type: 'image' }>;
+            const dataUri = `data:${imgBlock.mimeType};base64,${imgBlock.data}`;
+            return !processedContent.includes(dataUri);
+          }).map((block, i) => (
+            <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
+          ))}
           {typeof displayContent === 'string' && displayContent.length > 0 ? (
             isStreaming ? (
               <div className="text-sm markdown-streaming-body" dangerouslySetInnerHTML={{ __html: streamingHtml }} />
@@ -575,10 +596,6 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           ) : !displayContent && (
             <div className="text-sm">[复杂内容]</div>
           )}
-          {/* 图片块 — 附加在文本下方，支持点击放大 */}
-          {message.contentBlocks?.filter(b => b.type === 'image').map((block, i) => (
-            <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
-          ))}
         </div>
 
       </div>
@@ -607,74 +624,139 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   );
 });
 
-/** 子 Agent 块引用 — 可展开/收起（visionOS 玻璃拟态风格） */
+/** 子 Agent 块引用 — 点击弹出 Modal 展示子 agent 详细输出 */
 function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentReference | null }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <span className="inline-flex flex-col my-1.5">
+    <span className="inline-flex my-1.5">
       <button
-        onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg
-                   bg-white/[0.06] hover:bg-white/[0.1]
-                   border border-white/[0.1] hover:border-white/[0.15]
+        onClick={() => citation && setExpanded(true)}
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg
+                   bg-white/[0.06] border border-white/[0.1]
                    text-xs text-blue-400
-                   transition-all duration-200 cursor-pointer"
+                   transition-all duration-200
+                   ${citation ? 'hover:bg-white/[0.1] hover:border-white/[0.15] cursor-pointer' : 'cursor-default opacity-50'}`}
       >
         <FileIcon size={12} className="flex-shrink-0" />
         <span className="font-medium truncate max-w-[120px]">{name}</span>
-        {expanded ? <ChevronUp size={11} className="text-white/40" /> : <ChevronDown size={11} className="text-white/40" />}
+        {citation && <ChevronDown size={11} className="text-white/40" />}
       </button>
-      {expanded && citation && (
-        <div className="mt-1.5 ml-1 rounded-xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm p-3 max-h-60 overflow-y-auto">
-          <div className="text-xs text-white/70 whitespace-pre-wrap font-mono leading-relaxed">{citation.originalOutput}</div>
-          <div className="mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-white/30 flex items-center gap-3">
-            <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
-            <span>●</span>
-            <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
+
+      {/* Modal — Portal 到 body */}
+      {expanded && citation && createPortal(
+        <div
+          className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-sm flex items-center justify-center
+                     animate-fadeIn cursor-pointer"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-bg-primary border border-white/[0.1] rounded-2xl shadow-2xl
+                       flex flex-col overflow-hidden cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary">{name}</h3>
+                  <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
+                    <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
+                    <span>●</span>
+                    <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpanded(false)}
+                className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors"
+              >
+                <X size={18} className="text-white/50" />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="overflow-y-auto p-5 flex-1">
+              <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
+                {citation.originalOutput || citation.summary || '(无输出)'}
+              </pre>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </span>
   );
 }
 
-/** 引用语法 —— 可点击查看完整输出（visionOS 玻璃拟态风格） */
+/** 引用语法 — 点击弹出 Modal 查看完整输出 */
 function CitationChip({ name, quote, citation }: { name: string; quote: string; citation: SubAgentReference | null }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <span className="inline-flex flex-col my-0.5">
-      <span className="inline-flex items-baseline gap-1 text-sm leading-relaxed">
-        {citation ? (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg
-                       bg-white/[0.06] hover:bg-white/[0.1]
-                       border border-white/[0.1] hover:border-white/[0.15]
-                       text-xs text-blue-400
-                       transition-all duration-200 cursor-pointer"
+    <span className="inline-flex items-baseline gap-1 text-sm leading-relaxed my-0.5">
+      {citation ? (
+        <button
+          onClick={() => setExpanded(true)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg
+                     bg-white/[0.06] hover:bg-white/[0.1]
+                     border border-white/[0.1] hover:border-white/[0.15]
+                     text-xs text-blue-400
+                     transition-all duration-200 cursor-pointer"
+        >
+          <FileIcon size={11} simple className="flex-shrink-0" />
+          <span className="font-medium">{name}</span>
+        </button>
+      ) : (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06]">
+          <FileIcon size={11} simple className="flex-shrink-0" />
+          <span>{name}</span>
+        </span>
+      )}
+      <span className="text-white/50">：{quote}</span>
+
+      {/* Modal — Portal 到 body */}
+      {expanded && citation && createPortal(
+        <div
+          className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-sm flex items-center justify-center
+                     animate-fadeIn cursor-pointer"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-bg-primary border border-white/[0.1] rounded-2xl shadow-2xl
+                       flex flex-col overflow-hidden cursor-default"
+            onClick={(e) => e.stopPropagation()}
           >
-            <FileIcon size={11} simple className="flex-shrink-0" />
-            <span className="font-medium">{name}</span>
-            {expanded ? <ChevronUp size={10} className="text-white/40" /> : <ChevronDown size={10} className="text-white/40" />}
-          </button>
-        ) : (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06]">
-            <FileIcon size={11} simple className="flex-shrink-0" />
-            <span>{name}</span>
-          </span>
-        )}
-        <span className="text-white/50">：{quote}</span>
-        {expanded && citation && (
-          <span className="block w-full mt-1.5 ml-1 rounded-xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-sm p-3 max-h-60 overflow-y-auto">
-            <span className="text-xs text-white/70 whitespace-pre-wrap font-mono leading-relaxed">{citation.originalOutput}</span>
-            <span className="block mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-white/30 flex items-center gap-3">
-              ⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s&nbsp;●&nbsp;{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens
-            </span>
-          </span>
-        )}
-      </span>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary">{name}</h3>
+                  <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
+                    <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
+                    <span>●</span>
+                    <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpanded(false)}
+                className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors"
+              >
+                <X size={18} className="text-white/50" />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="overflow-y-auto p-5 flex-1">
+              <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
+                {citation.originalOutput || citation.summary || '(无输出)'}
+              </pre>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </span>
   );
 }

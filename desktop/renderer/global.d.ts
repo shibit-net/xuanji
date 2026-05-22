@@ -48,6 +48,7 @@ export interface FileAttachment {
   path?: string;
   content: string;
   size: number;
+  mimeType?: string;
 }
 
 // Checkpoint 项
@@ -140,7 +141,7 @@ export interface ElectronAPI {
 
   // Agent 操作
   agentInit: () => Promise<{ success: boolean; config?: any; error?: string }>;
-  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: FileAttachment[]; agentId?: string }) => Promise<{ success: boolean; result?: any; error?: string }>;
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: FileAttachment[]; agentId?: string; imageBlocks?: Array<{ data: string; mimeType: string; name: string }> }) => Promise<{ success: boolean; result?: any; error?: string }>;
   agentReset: () => Promise<{ success: boolean }>;
   agentGetState: () => Promise<any>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
@@ -694,6 +695,37 @@ export interface ElectronAPI {
       relation: string;
       strength: number;
       is_active: number;
+    }>;
+    error?: string;
+  }>;
+  memoryGraphSearch: (data: { query: string; limit?: number }) => Promise<{
+    success: boolean;
+    nodes?: Array<{
+      id: string;
+      name: string;
+      type: string;
+      scene_tag: string;
+      category?: string | null;
+      metadata?: string | null;
+    }>;
+    error?: string;
+  }>;
+  memoryGraphNeighborhood: (data: { entityId: string; maxHops?: number }) => Promise<{
+    success: boolean;
+    centerId?: string;
+    nodes?: Array<{
+      id: string;
+      name: string;
+      type: string;
+      scene_tag: string;
+      category?: string | null;
+      metadata?: string | null;
+    }>;
+    edges?: Array<{
+      subjectId: string;
+      relation: string;
+      objectId: string;
+      strength: number;
     }>;
     error?: string;
   }>;

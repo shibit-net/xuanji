@@ -59,6 +59,8 @@ import { SSHExecTool } from './SSHExecTool';
 import { SSHReadTool } from './SSHReadTool';
 import { SSHWriteTool } from './SSHWriteTool';
 import { SSHListTool } from './SSHListTool';
+import { MCPCallTool } from '@/mcp/MCPCallTool';
+import { SkillCallTool } from './SkillCallTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -134,6 +136,8 @@ export class ToolRegistry implements IToolRegistry {
   private tools: Map<string, Tool> = new Map();
   /** 追踪所有 MCP 来源的工具名（格式: serverName:toolName），用于增量同步时 diff */
   private _mcpToolNames = new Set<string>();
+  /** MCP 工具元数据（server:tool → schema），供 system prompt 注入使用 */
+  private _mcpSchemas = new Map<string, { serverName: string; toolName: string; description: string; inputSchema: object }>();
   private permissionController?: IPermissionController;
   private _planMode: boolean = false;
   private pipeline: MiddlewarePipeline<ToolContext, ToolResult>;
@@ -232,6 +236,14 @@ export class ToolRegistry implements IToolRegistry {
   }
 
   /**
+   * 获取 MCP 工具元数据（供 system prompt 注入使用）
+   * 返回 [{ serverName, toolName, description, inputSchema }]
+   */
+  getMCPSchemas(): Array<{ serverName: string; toolName: string; description: string; inputSchema: object }> {
+    return Array.from(this._mcpSchemas.values());
+  }
+
+  /**
    * 检查工具是否已注册
    */
   has(name: string): boolean {
@@ -276,6 +288,11 @@ export class ToolRegistry implements IToolRegistry {
       }
     }
 
+    // 拷贝 MCP schemas 元数据
+    for (const [key, schema] of this._mcpSchemas) {
+      cloned._mcpSchemas.set(key, { ...schema });
+    }
+
     // 复制权限控制器
     if (this.permissionController) {
       cloned.setPermissionController(this.permissionController);
@@ -285,44 +302,38 @@ export class ToolRegistry implements IToolRegistry {
   }
 
   /**
-   * 同步 MCP 工具到注册表（增量 diff）
+   * 同步 MCP 工具元数据（供 system prompt 注入和 mcp_call 调度使用）
    *
-   * 从 MCPManager 拉取所有 MCP 服务器的工具列表，
-   * 与当前注册的 MCP 工具做 diff：新增的注册，移除的注销。
+   * mcp_call 网关工具在 createDefaultRegistry() 中已永久注册。
+   * 此方法仅更新 _mcpSchemas 元数据，不注册/注销单个工具。
+   *
+   * 热重载：MCPManager.onToolsChanged 触发时回调此方法，原子替换 schemas。
    */
   async syncMCPTools(mcpManager: import('@/mcp/MCPManager').MCPManager): Promise<void> {
-    const { MCPToolAdapter } = await import('@/mcp/MCPToolAdapter');
-
-    // 1. 获取当前所有 MCP 工具
     const allMCPTools = await mcpManager.getAllTools();
-    const currentMCPNames = new Set(allMCPTools.map(t => `${t.serverName}:${t.tool.name}`));
 
-    // 2. Diff: 移除已不存在的 MCP 工具
-    for (const name of this._mcpToolNames) {
-      if (!currentMCPNames.has(name)) {
-        this.unregister(name);
-        this._mcpToolNames.delete(name);
-        this.log.debug(`[MCP sync] Unregistered: ${name}`);
-      }
-    }
+    // 构建新的 schema map（原子替换，避免并发读写问题）
+    const newSchemas = new Map<string, { serverName: string; toolName: string; description: string; inputSchema: object }>();
 
-    // 3. Diff: 注册新的 MCP 工具
     for (const { serverName, tool: mcpTool } of allMCPTools) {
-      const toolName = `${serverName}:${mcpTool.name}`;
-      if (!this._mcpToolNames.has(toolName)) {
-        const adapter = new MCPToolAdapter(serverName, mcpTool);
-        // 如果已有同名非 MCP 工具，跳过（内置工具优先）
-        if (this.tools.has(toolName) && !this._mcpToolNames.has(toolName)) {
-          this.log.warn(`[MCP sync] Tool name conflict: "${toolName}" already registered (non-MCP), skipping`);
-          continue;
-        }
-        this.register(adapter);
-        this._mcpToolNames.add(toolName);
-        this.log.debug(`[MCP sync] Registered: ${toolName}`);
-      }
+      const key = `${serverName}:${mcpTool.name}`;
+      newSchemas.set(key, {
+        serverName,
+        toolName: mcpTool.name,
+        description: mcpTool.description ?? `MCP tool from ${serverName}`,
+        inputSchema: mcpTool.inputSchema,
+      });
     }
 
-    this.log.info(`[MCP sync] Synced ${this._mcpToolNames.size} MCP tool(s)`);
+    this._mcpSchemas = newSchemas;
+
+    // 清理旧的逐个注册的 MCPToolAdapter（迁移期兼容）
+    for (const name of this._mcpToolNames) {
+      this.unregister(name);
+    }
+    this._mcpToolNames.clear();
+
+    this.log.info(`[MCP sync] Synced ${this._mcpSchemas.size} MCP tool schema(s) for discovery`);
   }
 
   /**
@@ -455,6 +466,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new SSHReadTool());
   registry.register(new SSHWriteTool());
   registry.register(new SSHListTool());
+  registry.register(new MCPCallTool());
+  registry.register(new SkillCallTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

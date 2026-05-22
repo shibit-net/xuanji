@@ -33,11 +33,16 @@ function LoadingSpinner() {
   );
 }
 
-function ErrorBanner({ message }: { message: string }) {
+function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="p-3 mx-4 mt-3 rounded border bg-red-500/10 text-red-400 border-red-500/20 flex items-center gap-2 text-sm">
       <AlertCircle size={16} />
-      {message}
+      <span className="flex-1">{message}</span>
+      {onRetry && (
+        <button onClick={onRetry} className="text-xs px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 transition-colors">
+          重试
+        </button>
+      )}
     </div>
   );
 }
@@ -446,39 +451,23 @@ function typeSymbol(t: string): string {
 }
 
 function GraphTab() {
-  const [nodes, setNodes] = useState<any[]>([]);
-  const [edges, setEdges] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 图数据状态
+  const [graphNodes, setGraphNodes] = useState<Map<string, any>>(new Map());
+  const [graphEdges, setGraphEdges] = useState<Map<string, any>>(new Map());
+  const [centerId, setCenterId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  // 搜索状态
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
   const cyRef = useRef<cytoscape.Core | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await window.electron.memoryGraphData({});
-        if (res.success) {
-          setNodes(res.nodes || []);
-          setEdges(res.edges || []);
-        } else {
-          setError(res.error || '加载失败');
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '加载失败');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  if (loading) return <LoadingSpinner />;
-  if (error) return <ErrorBanner message={error} />;
-
-  const activeEdges = edges.filter(e => e.is_active);
-
-  // 关系颜色映射 — 暖冷交替，区分不同关系类型
+  // 关系颜色映射
   const relationColors: Record<string, string> = {
     depends_on: '#f97316',
     part_of: '#a78bfa',
@@ -493,8 +482,90 @@ function GraphTab() {
     return `${base}${Math.round(strength * 255).toString(16).padStart(2, '0')}`;
   }
 
-  const elements = [
-    ...nodes.map(n => ({
+  // ── 搜索 ──────────────────────────────────────────────
+  const doSearch = useCallback(async (query: string) => {
+    if (!query.trim()) { setSearchResults([]); setShowDropdown(false); return; }
+    setSearching(true);
+    try {
+      const res = await window.electron.memoryGraphSearch({ query: query.trim(), limit: 20 });
+      if (res.success && res.nodes) {
+        setSearchResults(res.nodes);
+        setShowDropdown(res.nodes.length > 0);
+      }
+    } catch { /* ignore */ }
+    setSearching(false);
+  }, []);
+
+  // 防抖搜索
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const timer = setTimeout(() => doSearch(searchQuery), 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery, doSearch]);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ── 以某节点为中心加载子图 ────────────────────────────
+  const focusOnNode = useCallback(async (entityId: string, maxHops: number = 2) => {
+    setLoading(true);
+    try {
+      const res = await window.electron.memoryGraphNeighborhood({ entityId, maxHops });
+      if (res.success && res.nodes && res.edges) {
+        setCenterId(entityId);
+        setGraphNodes(prev => {
+          const next = new Map(prev);
+          for (const n of res.nodes!) next.set(n.id, n);
+          return next;
+        });
+        setGraphEdges(prev => {
+          const next = new Map(prev);
+          const edgeKey = (e: any) => `${e.subjectId}→${e.relation}→${e.objectId}`;
+          for (const e of res.edges!) {
+            const key = edgeKey(e);
+            if (!next.has(key)) {
+              next.set(key, { ...e, id: key, isActive: 1 });
+            }
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+    }
+    setLoading(false);
+  }, []);
+
+  // ── 选择搜索结果（清空并聚焦到该节点） ─────────────────
+  const selectSearchResult = useCallback(async (node: any) => {
+    setShowDropdown(false);
+    setSearchQuery(node.name);
+
+    // 清空并加载 2 跳子图
+    setGraphNodes(new Map());
+    setGraphEdges(new Map());
+    setCenterId(null);
+    setSelectedNode(null);
+
+    await focusOnNode(node.id, 2);
+
+    // 自动选中
+    setSelectedNode({ id: node.id, name: node.name, type: node.type, summary: (node as any).summary || '', importance: (node as any).importance || 1 });
+  }, [focusOnNode]);
+
+  // ── 动态生成 cytoscape elements ──────────────────────
+  const elements = (() => {
+    const nodeArray = Array.from(graphNodes.values());
+    const edgeArray = Array.from(graphEdges.values());
+    const cyNodes = nodeArray.map(n => ({
       data: {
         id: n.id,
         label: (n.name?.length ?? 0) > 18 ? n.name!.slice(0, 17) + '…' : n.name,
@@ -505,20 +576,23 @@ function GraphTab() {
         color: graphNodeColor(n.type),
         colorLight: graphNodeColorLight(n.type),
         symbol: typeSymbol(n.type),
+        // 标记是否还能继续展开（有隐藏邻居）
+        expandable: true,
       },
-    })),
-    ...activeEdges.map(e => ({
+    }));
+    const cyEdges = edgeArray.filter(e => e.isActive !== 0).map(e => ({
       data: {
         id: e.id,
-        source: e.subject_id,
-        target: e.object_id,
+        source: e.subjectId,
+        target: e.objectId,
         label: e.relation?.replace(/_/g, ' ') || '',
         relation: e.relation,
         strength: e.strength || 0.5,
         relColor: relColor(e.relation, e.strength || 0.5),
       },
-    })),
-  ];
+    }));
+    return [...cyNodes, ...cyEdges];
+  })();
 
   // ── Cytoscape 样式表 (visionOS 风格) ─────────────────────
 
@@ -626,18 +700,18 @@ function GraphTab() {
     animationEasing: 'ease-out' as const,
     animationDuration: 1000,
     randomize: true,
-    idealEdgeLength: 120,
-    nodeRepulsion: 8000,
-    gravity: 0.25,
+    idealEdgeLength: 100,      // 边更短 → 布局更紧凑
+    nodeRepulsion: 4000,       //减少斥力 → 节点不散
+    gravity: 0.5,              // 更强引力 → 簇更集中
     numIter: 2500,
     tile: true,
     fit: true,
-    padding: 60,
+    padding: 50,
   };
 
-  // 类型统计
+  // 类型统计（从当前 visible 节点算）
   const typeCounts: Record<string, number> = {};
-  nodes.forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
+  graphNodes.forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
   const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
 
   // ── 工具栏操作 ────────────────────────────────────────────
@@ -658,9 +732,20 @@ function GraphTab() {
     if (cy) {
       cy.fit(undefined, 50);
       setSelectedNode(null);
-      setHoveredNode(null);
     }
   };
+  const handleClear = () => {
+    setGraphNodes(new Map());
+    setGraphEdges(new Map());
+    setCenterId(null);
+    setSelectedNode(null);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  if (error) return <ErrorBanner message={error} onRetry={() => setError(null)} />;
+
+  const activeEdgeCount = Array.from(graphEdges.values()).filter(e => e.isActive !== 0).length;
 
   return (
     <div className="flex h-full">
@@ -677,6 +762,47 @@ function GraphTab() {
           </defs>
           <rect width="100%" height="100%" fill="url(#graph-grid)" />
         </svg>
+
+        {/* ── 顶部搜索栏 (玻璃) ──────────────────────────── */}
+        <div ref={searchRef} className="absolute top-3 left-1/2 -translate-x-1/2 z-20 w-[380px] max-w-[90%]">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card/85 backdrop-blur-xl border border-border/60 shadow-glass-sm">
+            <Search size={14} className="text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
+              placeholder="搜索实体名称..."
+              className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/50"
+            />
+            {searching && <RefreshCw size={12} className="animate-spin text-muted-foreground" />}
+            {searchQuery && !searching && (
+              <button onClick={() => { setSearchQuery(''); setSearchResults([]); setShowDropdown(false); }}
+                className="p-0.5 rounded hover:bg-muted text-muted-foreground">
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* 搜索下拉 */}
+          {showDropdown && (
+            <div className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-card/95 backdrop-blur-xl border border-border/60 shadow-glass-lg overflow-hidden animate-zoom-in max-h-[300px] overflow-y-auto">
+              {searchResults.map(n => (
+                <button
+                  key={n.id}
+                  onClick={() => selectSearchResult(n)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
+                >
+                  <span className="text-base">{typeSymbol(n.type)}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-foreground">{n.name}</span>
+                    <span className="ml-2 text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full border border-border/40">{n.type}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* 工具栏 — 玻璃悬浮 */}
         <div className="absolute top-3 left-3 z-10 flex gap-1.5">
@@ -701,10 +827,24 @@ function GraphTab() {
           </div>
         </div>
 
+        {/* 清空按钮 — 有图时显示 */}
+        {graphNodes.size > 0 && (
+          <div className="absolute top-3 right-3 z-10 flex gap-1.5">
+            <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+              <button onClick={handleClear}
+                className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+                title="清空图谱"
+              ><Trash2 size={15} /></button>
+            </div>
+          </div>
+        )}
+
         {/* 节点数徽标 */}
-        <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/40 text-xs text-muted-foreground">
-          {nodes.length} 节点 · {activeEdges.length} 关系
-        </div>
+        {graphNodes.size > 0 && (
+          <div className="absolute top-12 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/40 text-xs text-muted-foreground">
+            {graphNodes.size} 节点 · {activeEdgeCount} 关系
+          </div>
+        )}
 
         <CytoscapeComponent
           elements={elements}
@@ -716,6 +856,13 @@ function GraphTab() {
           maxZoom={3.5}
           cy={(cy: cytoscape.Core) => {
             cyRef.current = cy;
+
+            // 元素变化时重新布局
+            cy.on('add', 'node', () => {
+              if (cy.nodes().length <= (centerId ? 1 : 0)) return;
+              const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 100, nodeRepulsion: 4000, gravity: 0.5, numIter: 2500, tile: true, fit: true, padding: 50 });
+              l.run();
+            });
 
             cy.on('tap', 'node', (evt: cytoscape.EventObject) => {
               const node = evt.target;
@@ -734,16 +881,19 @@ function GraphTab() {
               }
             });
 
+            // 双击 — 以该节点为中心重新加载 2 跳子图
+            cy.on('dblclick', 'node', (evt: cytoscape.EventObject) => {
+              const n = evt.target;
+              focusOnNode(n.data('id'), 2);
+            });
+
             // Hover 交互 — 邻域高亮
             cy.on('mouseover', 'node', (evt: cytoscape.EventObject) => {
-              const nodeId = evt.target.data('id');
-              setHoveredNode(nodeId);
               const neighborhood = evt.target.closedNeighborhood();
               cy.elements().difference(neighborhood).style({ opacity: 0.12 });
               neighborhood.style({ opacity: 1 });
             });
             cy.on('mouseout', 'node', () => {
-              setHoveredNode(null);
               cy.elements().style({ opacity: undefined });
             });
           }}
@@ -784,18 +934,23 @@ function GraphTab() {
                   {selectedNode.summary || '(无摘要)'}
                 </p>
 
-                {/* 关联关系 */}
+                {/* 关联关系 + 展开按钮 */}
                 {(() => {
-                  const related = activeEdges.filter(
-                    (e: any) => e.subject_id === selectedNode.id || e.object_id === selectedNode.id
-                  );
-                  if (related.length === 0) return null;
+                  const related = Array.from(graphEdges.values())
+                    .filter((e: any) => (e.subjectId === selectedNode.id || e.objectId === selectedNode.id) && e.isActive !== 0);
+                  if (related.length === 0 && centerId === selectedNode.id) {
+                    // 中心节点无关联（不应该发生，但兜底）
+                    return null;
+                  }
+                  if (related.length === 0) {
+                    return null;
+                  }
                   return (
                     <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5">
                       {related.slice(0, 8).map((e: any) => {
-                        const isOut = e.subject_id === selectedNode.id;
-                        const otherId = isOut ? e.object_id : e.subject_id;
-                        const otherNode = nodes.find(n => n.id === otherId);
+                        const isOut = e.subjectId === selectedNode.id;
+                        const otherId = isOut ? e.objectId : e.subjectId;
+                        const otherNode = graphNodes.get(otherId);
                         const clr = relationColors[e.relation] || '#94a3b8';
                         return (
                           <span
@@ -807,7 +962,6 @@ function GraphTab() {
                               color: clr,
                             }}
                             onClick={() => {
-                              // 跳转到该节点
                               const target = cyRef.current?.getElementById(otherId);
                               if (target && target.length > 0) {
                                 cyRef.current?.animate({
@@ -846,12 +1000,22 @@ function GraphTab() {
           </div>
         )}
 
-        {/* 空状态 — 无水印 */}
-        {nodes.length === 0 && (
+        {/* 空状态 — 引导搜索 */}
+        {graphNodes.size === 0 && !loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <GitGraph size={48} className="text-muted-foreground/15 mb-4" />
-            <p className="text-sm text-muted-foreground/50">暂无记忆图谱数据</p>
-            <p className="text-xs text-muted-foreground/30 mt-1">记忆将在对话过程中自动提取并构建关系网络</p>
+            <p className="text-sm text-muted-foreground/50">搜索实体开始探索</p>
+            <p className="text-xs text-muted-foreground/30 mt-1">在上方搜索框中输入名称</p>
+          </div>
+        )}
+
+        {/* 加载中 */}
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+              <RefreshCw size={14} className="animate-spin text-primary" />
+              <span className="text-xs text-muted-foreground">加载中...</span>
+            </div>
           </div>
         )}
       </div>
@@ -901,15 +1065,15 @@ function GraphTab() {
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2 rounded-lg bg-background/60 border border-border/30">
               <p className="text-[10px] text-muted-foreground">节点</p>
-              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{nodes.length}</p>
+              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{graphNodes.size}</p>
             </div>
             <div className="p-2 rounded-lg bg-background/60 border border-border/30">
               <p className="text-[10px] text-muted-foreground">关系</p>
-              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{activeEdges.length}</p>
+              <p className="text-lg font-semibold text-foreground/80 tabular-nums">{activeEdgeCount}</p>
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground/50 mt-2 text-center">
-            拖拽移动 · 滚轮缩放 · 点击查看详情
+            双击展开·拖拽移动·滚轮缩放
           </p>
         </div>
       </aside>

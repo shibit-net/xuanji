@@ -120,6 +120,11 @@ export class SessionSummarizer {
 
         const messages = [{ role: 'user' as const, content: userPrompt }];
 
+        if (!this.provider || typeof this.provider.stream !== 'function') {
+          throw new Error(
+            `SessionSummarizer: provider "${this.provider?.name || 'unknown'}" does not implement stream().`
+          );
+        }
         for await (const event of this.provider.stream(messages, [], this.config)) {
           if (event.type === 'text_delta' && event.text) {
             responseText += event.text;

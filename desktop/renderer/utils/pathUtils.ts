@@ -2,9 +2,13 @@
 // 文件路径工具 — 跨平台路径检测与标准化
 // ============================================================
 
-/** 检测当前是否为 Windows 系统 */
+/** 检测当前是否为 Windows 系统（renderer 进程） */
+let _isWin: boolean | null = null;
 export function isWindows(): boolean {
-  return /win/i.test(navigator.platform || '');
+  if (_isWin !== null) return _isWin;
+  // navigator.platform 已被标记为 deprecated，改用 userAgent
+  _isWin = /windows|win32|win64/i.test(navigator.userAgent || navigator.platform || '');
+  return _isWin;
 }
 
 /** 检测文本是否像文件路径（兼容 Unix / Windows 正反斜杠） */

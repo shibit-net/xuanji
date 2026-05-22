@@ -180,6 +180,7 @@ export class BashTool extends BaseTool {
 
       const { SeatbeltExecutor } = await import('./sandbox/SeatbeltExecutor');
       const { BubblewrapExecutor } = await import('./sandbox/BubblewrapExecutor');
+      const { NoopSandboxExecutor } = await import('./sandbox/NoopSandboxExecutor');
 
       // 按优先级尝试各沙箱执行器
       const executors: SandboxExecutor[] = [];
@@ -190,6 +191,8 @@ export class BashTool extends BaseTool {
       if (sandboxConfig.mode === 'auto' || sandboxConfig.mode === 'bwrap') {
         executors.push(new BubblewrapExecutor(sandboxConfig));
       }
+      // Noop 作为最后兜底：Windows 上始终可用，用来替代静默失效
+      executors.push(new NoopSandboxExecutor(sandboxConfig));
 
       for (const executor of executors) {
         if (await executor.isAvailable()) {

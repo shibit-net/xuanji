@@ -65,6 +65,20 @@ function registerMemoryIpcHandlers() {
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
+  // ─── 图搜索 ──────────────────────────────────────────
+  ipcMain.handle('memory:graph-search', async (_event, data) => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('memory-graph-search', data); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  // ─── 邻域展开 ────────────────────────────────────────
+  ipcMain.handle('memory:graph-neighborhood', async (_event, data) => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('memory-graph-neighborhood', data); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
   // ─── 删除实体 ──────────────────────────────────────────
   ipcMain.handle('memory:delete-entity', async (_event, data) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };

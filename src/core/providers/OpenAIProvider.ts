@@ -71,6 +71,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     const reasoningBlocks: ContentBlock[] = [];
     const toolUseBlocks: ContentBlock[] = [];
     const toolResultBlocks: ContentBlock[] = [];
+    const imageBlocks: ContentBlock[] = [];
 
     for (const block of blocks) {
       switch (block.type) {
@@ -88,6 +89,9 @@ export class OpenAIProvider extends BaseLLMProvider {
           break;
         case 'tool_result':
           toolResultBlocks.push(block);
+          break;
+        case 'image':
+          imageBlocks.push(block);
           break;
       }
     }
@@ -142,13 +146,30 @@ export class OpenAIProvider extends BaseLLMProvider {
 
     // Step 3: User/Assistant 文本消息（无 tool_use 时，含 reasoning_content）
     // 放在 tool 消息之后，避免破坏 assistant(tool_calls) → tool 的紧邻关系
-    if (toolUseBlocks.length === 0 && (combinedText.trim() || reasoningText)) {
+    if (toolUseBlocks.length === 0 && (combinedText.trim() || reasoningText || imageBlocks.length > 0)) {
       const textMsg: any = {
         role: msg.role as 'user' | 'assistant',
-        content: combinedText.trim() || '',
       };
       if (reasoningText) {
         textMsg.reasoning_content = reasoningText;
+      }
+      // 用户消息含图片时，构造 OpenAI vision 多模态 content 数组
+      if (msg.role === 'user' && imageBlocks.length > 0) {
+        const parts: any[] = [];
+        if (combinedText.trim()) {
+          parts.push({ type: 'text', text: combinedText.trim() });
+        }
+        for (const img of imageBlocks) {
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${img.mimeType || 'image/png'};base64,${img.data || ''}`,
+            },
+          });
+        }
+        textMsg.content = parts;
+      } else {
+        textMsg.content = combinedText.trim() || '';
       }
       result.push(textMsg);
     }

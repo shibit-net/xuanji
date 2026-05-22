@@ -8,7 +8,7 @@
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string | Array<{
-    type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+    type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'image';
     text?: string;
     thinking?: string;
     id?: string;
@@ -17,6 +17,8 @@ export interface Message {
     tool_use_id?: string;
     content?: string;
     is_error?: boolean;
+    data?: string;
+    mimeType?: string;
   }>;
   timestamp?: number;
 }
