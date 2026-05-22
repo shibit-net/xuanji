@@ -248,6 +248,26 @@ export class SessionFactory {
       log.warn('Failed to build initial system prompt:', err);
     }
 
+    // 注入 MCP 工具 schema 到 system prompt（LLM 需要看到参数定义才能调用）
+    if (systemPrompt) {
+      const mcpTools = registry.getAll().filter((t: any) => t.name.includes(':'));
+      if (mcpTools.length > 0) {
+        const sections: string[] = ['', '## MCP Tools', '', 'MCP tools installed from marketplace. Use `serverName:toolName` format.', ''];
+        for (const tool of mcpTools) {
+          const schema = tool.input_schema;
+          sections.push(`### ${tool.name}`);
+          sections.push(tool.description || '');
+          if (schema) {
+            sections.push('```json');
+            sections.push(JSON.stringify(schema, null, 2));
+            sections.push('```');
+          }
+          sections.push('');
+        }
+        systemPrompt += '\n' + sections.join('\n');
+      }
+    }
+
     // 合并 agent 配置工具 + prompt 要求的工具 + MCP 工具，再自动补齐
     // MCP 工具（命名格式 serverName:toolName）由用户通过天工坊安装，应自动可用
     const mcpToolNames = registry.getAll()
@@ -297,7 +317,25 @@ export class SessionFactory {
         try {
           const prompt = await layeredPromptBuilder.build({ persona });
           if (prompt.prompt) {
-            agentLoop.getContextManager().updateSystemPrompt(prompt.prompt);
+            let updatedPrompt = prompt.prompt;
+            // MCP 工具 schema 注入
+            const mcpTools = registry.getAll().filter((t: any) => t.name.includes(':'));
+            if (mcpTools.length > 0) {
+              const sections: string[] = ['', '## MCP Tools', '', 'MCP tools installed from marketplace. Use `serverName:toolName` format.', ''];
+              for (const tool of mcpTools) {
+                const schema = tool.input_schema;
+                sections.push(`### ${tool.name}`);
+                sections.push(tool.description || '');
+                if (schema) {
+                  sections.push('```json');
+                  sections.push(JSON.stringify(schema, null, 2));
+                  sections.push('```');
+                }
+                sections.push('');
+              }
+              updatedPrompt += '\n' + sections.join('\n');
+            }
+            agentLoop.getContextManager().updateSystemPrompt(updatedPrompt);
             log.info('System prompt updated with new persona');
           }
         } catch (err) {
