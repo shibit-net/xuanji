@@ -21,6 +21,7 @@ export type { WorkerReplyHandler } from './MessageQueue.js';
 export { PlatformCircuitBreaker } from './PlatformCircuitBreaker.js';
 export { WebhookServer, webhookOk, webhookError } from './http/WebhookServer.js';
 export type { WebhookHandler, WebhookRequest, WebhookResponse } from './http/WebhookServer.js';
+export { AgentGatewayImpl } from './AgentGateway.js';
 export { WecomAdapter } from './adapters/WecomAdapter.js';
 export { FeishuAdapter } from './adapters/FeishuAdapter.js';
 export { DingTalkAdapter } from './adapters/DingTalkAdapter.js';

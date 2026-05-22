@@ -3,9 +3,10 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock, Package } from 'lucide-react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock, Package, Plus, Radio } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
+import { usePlatformStore } from '../stores/platformStore';
 import { getDesktopLabel } from '../i18n';
 import { Avatar } from './Avatar';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ interface SidebarProps {
 export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions, onOpenSkillsMCP }: SidebarProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
   const language = useConfigStore((s) => s.settings.language);
+  const { sessions, activeSessionId, setActiveSession, setSetupDialogOpen } = usePlatformStore();
 
   const handleLogout = async () => {
     await logout();
@@ -73,7 +75,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
       )}
 
       {/* 当前对话 */}
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b border-border space-y-2">
         <Button
           variant="outline"
           className="w-full flex items-center gap-3 px-3 py-2 h-auto border-primary/30 bg-primary/10 hover:bg-primary/20"
@@ -82,6 +84,38 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
             <img src={appLogo} alt="Xuanji" className="w-full h-full object-cover" />
           </div>
           <span className="text-sm font-medium text-primary">Xuanji</span>
+        </Button>
+
+        {/* 远端会话列表 */}
+        {sessions.map((session) => (
+          <Button
+            key={session.id}
+            variant={activeSessionId === session.id ? 'default' : 'ghost'}
+            size="sm"
+            className="w-full justify-start gap-2 h-auto py-1.5"
+            onClick={() => setActiveSession(session.id)}
+          >
+            <Radio size={14} className={session.status === 'online' ? 'text-green-500' : 'text-muted-foreground'} />
+            <span className="text-xs truncate flex-1 text-left">
+              📡 {session.platform === 'wechat' ? '微信' : session.platform === 'wecom' ? '企微' : session.platform === 'feishu' ? '飞书' : '钉钉'} · {session.name}
+            </span>
+            {session.unreadCount > 0 && (
+              <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {session.unreadCount}
+              </span>
+            )}
+          </Button>
+        ))}
+
+        {/* 添加远端按钮 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setSetupDialogOpen(true)}
+        >
+          <Plus size={14} />
+          [+ 添加远端]
         </Button>
       </div>
 

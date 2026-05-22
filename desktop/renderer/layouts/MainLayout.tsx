@@ -12,9 +12,11 @@ import PlanReviewDialog from '../components/PlanReviewDialog';
 import AskUserDialog from '../components/AskUserDialog';
 import StatsDialog from '../components/StatsDialog';
 import DiagnosticsDialog from '../components/DiagnosticsDialog';
+import PlatformSetupDialog from '../components/PlatformSetupDialog';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
+import { usePlatformStore } from '../stores/platformStore';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -30,6 +32,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   const { user } = useAuthStore();
   const { loadAgents } = useConfigStore();
+  const { setupDialogOpen } = usePlatformStore();
 
   // 权限交互状态
   const permissionRequest = useSessionStore((state) => state.permissionRequest);
@@ -148,6 +151,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
       {activeDialog === 'diagnostics' && (
         <DiagnosticsDialog onClose={() => setActiveDialog(null)} />
       )}
+
+      {/* 远端平台接入配置 */}
+      {setupDialogOpen && <PlatformSetupDialog />}
     </div>
   );
 }

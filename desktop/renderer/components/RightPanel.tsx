@@ -3,13 +3,15 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search } from 'lucide-react';
+import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useMessageStore } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
+import { usePlatformStore } from '../stores/platformStore';
 import type { StageResult } from '../stores/IntentRoutingStore';
 import ExecutionFlowV2 from './ExecutionFlowV2';
+import PlatformSessionPanel from './PlatformSessionPanel';
 
 // 灰色版头像（workspace 水印背景）
 import watermarkAvatar from '../assets/logos/acfee7f9a0868cf754cd2ab65cd6cfa6.png';
@@ -21,12 +23,13 @@ interface RightPanelProps {
   className?: string;
 }
 
-type TabId = 'workspace' | 'tools' | 'logs';
+type TabId = 'workspace' | 'tools' | 'logs' | 'remote';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'workspace', label: '监控', icon: <Activity size={16} /> },
   { id: 'tools', label: '工具', icon: <Wrench size={16} /> },
   { id: 'logs', label: '日志', icon: <FileText size={16} /> },
+  { id: 'remote', label: '远端对话', icon: <Radio size={16} /> },
 ];
 
 export default function RightPanel({ onToggle: _onToggle, width, onResize, className }: RightPanelProps) {
@@ -110,6 +113,7 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
         {activeTab === 'workspace' && <WorkspaceTab />}
         {activeTab === 'tools' && <ToolsTab />}
         {activeTab === 'logs' && <LogsTab />}
+        {activeTab === 'remote' && <RemoteTab />}
       </div>
     </div>
   );
@@ -461,6 +465,13 @@ function ToolsTab() {
 }
 
 // 记忆库标签
+// 远端对话标签
+function RemoteTab() {
+  const { sessions, activeSessionId } = usePlatformStore();
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  return <PlatformSessionPanel session={activeSession} />;
+}
+
 // 日志流标签（从 chatStore 读取真实日志）
 function LogsTab() {
   const logs = useSessionStore((state) => state.logs);
