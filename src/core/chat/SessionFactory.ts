@@ -490,7 +490,7 @@ export class SessionFactory {
       const { CheapLLMProvider } = await import('@/core/providers/CheapLLMProvider');
       const { parse: parseYaml } = await import('yaml');
 
-      const loadAgentModel = async (agentId: string, defaults: { model: string; temperature: number; maxTokens: number }) => {
+      const loadAgentModel = async (agentId: string, defaults: { model: string; temperature: number; maxTokens: number }): Promise<{ model: string; temperature: number; maxTokens: number; apiKey?: any; baseURL?: any }> => {
         try {
           const yamlPath = join(getUserAgentsDir(userId), `${agentId}.yaml`);
           if (!existsSync(yamlPath)) return defaults;
