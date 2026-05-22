@@ -122,6 +122,13 @@
         ]
       },
       {
+        "from": "dist-electron",
+        "to": "dist-electron",
+        "filter": [
+          "*.node"
+        ]
+      },
+      {
         "from": "build-resources",
         "to": "build-resources",
         "filter": [
