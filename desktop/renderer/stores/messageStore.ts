@@ -29,10 +29,18 @@ export function generateMessageId(prefix = 'msg'): string {
   return `${prefix}-${Date.now()}-${++messageIdCounter}`;
 }
 
+// ── 富媒体内容块 ──────────────────────────────
+
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string };
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /** 富媒体内容块（与 content 互斥展示：有 contentBlocks 时优先渲染 contentBlocks） */
+  contentBlocks?: ContentBlock[];
   timestamp?: number;
   thinking?: boolean;
   statusHint?: string;
@@ -88,6 +96,7 @@ interface MessageStore {
   appendStreamingText: (text: string) => void;
   finishStreaming: () => void;
   cancelStreaming: () => void;
+  appendContentBlock: (messageId: string, block: ContentBlock) => void;
 }
 
 // ============================================================
@@ -163,6 +172,15 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       status: 'idle',
     }));
   },
+
+  appendContentBlock: (messageId, block) =>
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, contentBlocks: [...(msg.contentBlocks || []), block] }
+          : msg
+      ),
+    })),
 
   clearMessages: () => {
     set({ messages: [], status: 'idle' });

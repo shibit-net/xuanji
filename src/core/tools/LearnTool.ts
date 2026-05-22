@@ -9,23 +9,36 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { LearnEngine } from '@/core/learn/LearnEngine';
+import { ExperienceCrystallizer, type ConversationSnapshot, type SkillDraft } from '@/core/learn/ExperienceCrystallizer';
 import { getMemoryManager } from '@/core/memory/globals';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { TiangongMarket } from '@/mcp';
 
 const log = logger.child({ module: 'LearnTool' });
 
 export class LearnTool extends BaseTool {
   readonly name = 'learn';
-  readonly description = '学习新能力或知识。搜索 Web 文档，提取 API 规格，生成 MCP 服务器和 Skill。当用户说"学一下X"时调用此工具。';
+  readonly description = [
+    '学习新能力或知识。支持两种模式：',
+    '',
+    '1. **主动学习** (默认) — 搜索 Web 文档，提取 API 规格，生成 MCP 服务器和 Skill。',
+    '   当用户说"学一下X"时调用此工具。设置 goal 和 depth 参数。',
+    '',
+    '2. **经验结晶** (trigger: conversation) — 从刚刚完成的对话中提炼可复用经验，',
+    '   生成 Skill 草稿。当用户说"从刚才的对话里学一下"或"总结一下经验"时调用。',
+    '   传入 trigger: "conversation" 和 context（对话摘要）。',
+  ].join('\n');
 
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       goal: {
         type: 'string',
-        description: '学习目标，如 "高德地图 API"、"饿了吗点外卖"、"Spring Boot 3 项目脚手架"',
+        description: '学习目标（主动学习模式），如 "高德地图 API"、"饿了吗点外卖"、"Spring Boot 3 项目脚手架"',
       },
       depth: {
         type: 'string',
@@ -33,29 +46,63 @@ export class LearnTool extends BaseTool {
         description: '学习深度。shallow=仅搜索, moderate=搜索+提取API+生成MCP, deep=搜索+提取+生成MCP+生成Skill',
         default: 'moderate',
       },
+      trigger: {
+        type: 'string',
+        enum: ['goal', 'conversation'],
+        description: '触发模式。goal=主动学习（需 goal 参数），conversation=从对话中提炼经验（需 context 参数）',
+        default: 'goal',
+      },
+      context: {
+        type: 'object',
+        description: '对话上下文（trigger=conversation 时必填）。包含 userMessage, outcomeSummary, toolsUsed, errors',
+        properties: {
+          userMessage: { type: 'string', description: '用户原始消息' },
+          outcomeSummary: { type: 'string', description: '对话结果摘要' },
+          toolsUsed: { type: 'array', items: { type: 'string' }, description: '使用的工具列表' },
+          errors: { type: 'array', items: { type: 'string' }, description: '遇到的错误' },
+        },
+      },
       scene_tag: {
         type: 'string',
         description: '场景标签',
       },
     },
-    required: ['goal'],
   };
 
   override readonly readonly = false;
 
   private learnEngine: LearnEngine | null = null;
+  private crystallizer: ExperienceCrystallizer | null = null;
+  private _cheapLLM: any;
+  private _webSearchFn: ((query: string) => Promise<string[]>) | undefined;
+  private _baseDir: string | undefined;
+
+  /** 注入 LearnEngine 所需的全部依赖（由 SessionFactory 调用） */
+  setDependencies(deps: {
+    cheapLLM: any;
+    webSearchFn?: (query: string) => Promise<string[]>;
+    baseDir?: string;
+  }): void {
+    this._cheapLLM = deps.cheapLLM;
+    this._webSearchFn = deps.webSearchFn;
+    this._baseDir = deps.baseDir;
+    // 同步创建 ExperienceCrystallizer
+    if (this._cheapLLM && this._baseDir) {
+      this.crystallizer = new ExperienceCrystallizer(this._cheapLLM, this._baseDir);
+    }
+  }
 
   private getEngine(): LearnEngine {
     if (!this.learnEngine) {
       const memoryManager = getMemoryManager();
       this.learnEngine = new LearnEngine(
-        undefined, // cheapLLM — 由调用方注入
-        undefined, // webSearchFn
+        this._cheapLLM,
+        this._webSearchFn,
         memoryManager?.skillRegistry,
         memoryManager?.toolRegistry,
         memoryManager?.mcpManager,
         memoryManager,
-        undefined, // baseDir
+        this._baseDir,
       );
     }
     return this.learnEngine;
@@ -66,12 +113,76 @@ export class LearnTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    const trigger = (input.trigger as string) ?? 'goal';
     const goal = input.goal as string;
     const depth = (input.depth as string) ?? 'moderate';
     const sceneTag = input.scene_tag as string | undefined;
+    const context = input.context as ConversationSnapshot | undefined;
 
+    // ── 经验结晶模式 ──
+    if (trigger === 'conversation') {
+      if (!context?.userMessage) {
+        return this.error('经验结晶模式需要 context.userMessage');
+      }
+      if (!this.crystallizer) {
+        return this.error('ExperienceCrystallizer 未初始化（缺少 cheapLLM 或 baseDir）');
+      }
+
+      const snapshot: ConversationSnapshot = {
+        sessionId: context.sessionId || `conv-${Date.now()}`,
+        userMessage: context.userMessage,
+        outcomeSummary: context.outcomeSummary || '',
+        toolsUsed: Array.isArray(context.toolsUsed) ? context.toolsUsed : [],
+        errors: Array.isArray(context.errors) ? context.errors : [],
+        timestamp: Date.now(),
+      };
+
+      eventBus.emitSync(XuanjiEvent.MEMORY_LEARNING_PROGRESS, {
+        goal: `[经验结晶] ${snapshot.userMessage.slice(0, 50)}`,
+        stage: 'started',
+        depth: 'deep',
+      });
+
+      try {
+        // 强制提炼（不依赖缓冲区）
+        const drafts = await this.crystallizer.forceCrystallize();
+        // 先吞入快照再提炼一次
+        await this.crystallizer.ingest(snapshot);
+        const drafts2 = await this.crystallizer.forceCrystallize();
+        const allDrafts = [...drafts, ...drafts2];
+
+        eventBus.emitSync(XuanjiEvent.MEMORY_LEARNING_PROGRESS, {
+          goal: `[经验结晶] ${snapshot.userMessage.slice(0, 50)}`,
+          stage: 'completed',
+          result: { draftCount: allDrafts.length },
+        });
+
+        const parts: string[] = [`## 经验结晶完成`];
+        if (allDrafts.length > 0) {
+          parts.push(`\n从对话中提炼了 ${allDrafts.length} 个 Skill 草稿：`);
+          for (const d of allDrafts) {
+            parts.push(`- **${d.name}** [${d.status}] — ${d.description}`);
+          }
+          parts.push(`\n草稿已保存到 learned/drafts/，默认禁用。使用 \`skill enable <id>\` 启用。`);
+        } else {
+          parts.push('\n当前对话中暂未发现足够形成 Skill 的重复模式。');
+          parts.push('继续积累经验后重试。');
+        }
+
+        return this.success(parts.join('\n'), { drafts: allDrafts.map(d => d.id) });
+      } catch (err) {
+        eventBus.emitSync(XuanjiEvent.MEMORY_LEARNING_PROGRESS, {
+          goal: `[经验结晶] ${snapshot.userMessage.slice(0, 50)}`,
+          stage: 'error',
+          error: String(err),
+        });
+        return this.error(`经验结晶失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // ── 主动学习模式 ──
     if (!goal || goal.trim().length === 0) {
-      return this.error('学习目标不能为空');
+      return this.error('主动学习模式需要 goal 参数');
     }
 
     // 发送学习进度事件

@@ -156,6 +156,9 @@ export class MemoryManager {
   public skillRegistry?: any;
   public toolRegistry?: any;
   public mcpManager?: any;
+  public skillInstaller?: any;
+  public mcpInstaller?: any;
+  public tiangongMarket?: any;
   public searchService?: any;
 
   /** 上下文压缩用的独立 LLM（context-compressor agent） */
@@ -163,6 +166,13 @@ export class MemoryManager {
 
   /** 记忆提取用的 system prompt（来自 memory-manager.yaml） */
   public memoryExtractionPrompt?: string;
+
+  /** memory-manager agent 配置（来自 YAML execution / model 字段） */
+  public memoryAgentConfig?: {
+    maxIterations?: number;
+    timeout?: number;
+    maxTokens?: number;
+  };
 
   /** LLM Provider（用于创建 AgentLoop），与 cheapLLM 共享同一 provider */
   public provider?: ILLMProvider;
@@ -2443,28 +2453,37 @@ ${text}`;
       process.cwd(),
     );
 
-    // 从 cheapLLM 提取 model 配置
+    // 使用 cheapLLM（即 memory-manager 自己的 provider），不从主 agent provider 创建
     const cheapConfig = (this.cheapLLM as any)?.config ?? {};
     // 注入 L0 基础 prompt 组件（记忆指导、格式标准化等）
     const l0Content = await this.getL0PromptContent();
     const fullSystemPrompt = l0Content ? `${l0Content}\n\n${systemPrompt}` : systemPrompt;
+
+    // 优先取 YAML 配置（memory-manager.yaml execution/model），代码默认值做 fallback
+    const yamlCfg = this.memoryAgentConfig ?? {};
+    const maxTokens = yamlCfg.maxTokens ?? cheapConfig.maxTokens ?? 4096;
+    const maxIterations = yamlCfg.maxIterations ?? 60;
+    const timeout = yamlCfg.timeout ?? 360000;
+
     const agentConfig: AgentConfig = {
       model: cheapConfig.model || 'deepseek-v4-pro',
       apiKey: cheapConfig.apiKey,
       baseURL: cheapConfig.baseURL,
       temperature: cheapConfig.temperature ?? 0.3,
-      maxTokens: cheapConfig.maxTokens ?? 2048,
-      maxIterations: 5,
+      maxTokens,
+      maxIterations,
       systemPrompt: fullSystemPrompt,
     };
 
-    const agentLoop = new AgentLoop(this.provider!, filteredRegistry, agentConfig);
+    const provider = this.cheapLLM ?? this.provider!;
+    const agentLoop = new AgentLoop(provider, filteredRegistry, agentConfig);
 
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         agentLoop.requestAbort();
-        resolve(); // 超时不报错，静默结束
-      }, 60000);
+        log.warn(`[memory-manager] extraction timed out after ${timeout}ms`);
+        resolve();
+      }, timeout);
 
       agentLoop.on({
         onEnd: () => {

@@ -6,11 +6,17 @@ import { MCPServerConfig } from '../types';
 /**
  * ~/.xuanji/mcp.json  格式:
  * {
- *   "servers": [ MCPServerConfig, ... ]
+ *   "servers": [ MCPServerConfig, ... ],
+ *   "marketplace": { "baseUrl": "...", "apiKey": "...", "enabled": true }
  * }
  */
 interface MCPSettingsFile {
   servers: MCPServerConfig[];
+  marketplace?: {
+    baseUrl: string;
+    apiKey?: string;
+    enabled?: boolean;
+  };
 }
 
 const CONFIG_DIR = path.join(os.homedir(), '.xuanji');
@@ -96,6 +102,19 @@ export class MCPSettingsPersistence {
   async getServer(name: string): Promise<MCPServerConfig | undefined> {
     const config = await this.load();
     return config.servers.find(s => s.name === name);
+  }
+
+  // --- marketplace 配置 ---
+
+  async getMarketplaceConfig(): Promise<MCPSettingsFile['marketplace'] | undefined> {
+    const config = await this.load();
+    return config.marketplace;
+  }
+
+  async setMarketplaceConfig(marketplace: MCPSettingsFile['marketplace']): Promise<void> {
+    const config = await this.load();
+    config.marketplace = marketplace;
+    await this.save();
   }
 
   // for testing / debugging

@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, Trash2, Search, X } from 'lucide-react';
+import { RefreshCw, Trash2, Search, X, Save, Shield, FileText, Terminal, AlertTriangle, List, Sliders, BarChart3 } from 'lucide-react';
 
 interface PermissionsPageProps {
   onClose: () => void;
@@ -12,21 +12,21 @@ interface PermissionsPageProps {
 type TabType = 'decisions' | 'denied' | 'config' | 'audit';
 
 interface Decision {
-  key: string;
-  tool: string;
-  category: string;
-  target: string;
-  decision: 'always' | 'never';
-  timestamp: number;
+  cacheKey: string;
+  toolName: string;
+  allowed: boolean;
+  timestamp: string;
+  expiresAt?: string;
 }
 
 interface DeniedOp {
   key: string;
   tool: string;
   category: string;
-  target: string;
+  pattern: string;
   reason: string;
-  timestamp: number;
+  timestamp: string;
+  sessionOnly: boolean;
 }
 
 interface AuditLog {
@@ -62,6 +62,25 @@ interface PermissionConfig {
   deniedCommands?: string[];
 }
 
+// ─── 子组件 — 空状态 ──────────────────────────────────
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+      <List size={32} className="opacity-20" />
+      <p className="text-sm">{text}</p>
+    </div>
+  );
+}
+
+// ─── 子组件 — 加载状态 ──────────────────────────────────
+function LoadingState() {
+  return (
+    <div className="flex items-center justify-center py-12 text-muted-foreground">
+      <RefreshCw size={16} className="animate-spin mr-2" /> 加载中...
+    </div>
+  );
+}
+
 // ============================================================
 // Tab: 决策记录
 // ============================================================
@@ -95,58 +114,72 @@ function DecisionsTab() {
   };
 
   const filtered = decisions.filter(d => {
-    const matchSearch = !search || d.tool.includes(search) || d.target?.includes(search);
-    const matchFilter = filter === 'all' || (filter === 'allow' ? d.decision === 'always' : d.decision === 'never');
+    const matchSearch = !search || d.toolName.includes(search) || d.cacheKey.includes(search);
+    const matchFilter = filter === 'all' || (filter === 'allow' ? d.allowed : !d.allowed);
     return matchSearch && matchFilter;
   });
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 p-4 border-b border-white/[0.08]">
         <div className="relative flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="搜索工具或目标..."
-            className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+            className="w-full h-8 pl-9 pr-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground placeholder:text-white/30 backdrop-blur-xl focus:outline-none focus:border-primary/50"
           />
         </div>
-        <select value={filter} onChange={e => setFilter(e.target.value as any)} className="px-2 py-1.5 text-sm bg-muted/50 border border-border rounded">
-          <option value="all">全部</option>
-          <option value="allow">允许</option>
-          <option value="deny">拒绝</option>
-        </select>
-        <button onClick={load} disabled={loading} className="p-1.5 hover:bg-muted/50 rounded">
+        <div className="flex bg-white/[0.06] rounded-xl border border-white/[0.08] backdrop-blur-xl p-0.5">
+          {(['all', 'allow', 'deny'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setFilter(v)}
+              className={`px-3 py-1 text-xs rounded-lg transition-all ${
+                filter === v
+                  ? 'bg-white/[0.12] text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {v === 'all' ? '全部' : v === 'allow' ? '允许' : '拒绝'}
+            </button>
+          ))}
+        </div>
+        <button onClick={load} disabled={loading} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors">
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
-        <button onClick={handleClear} className="px-2 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded">
-          清空
+        <button onClick={handleClear} className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors">
+          <Trash2 size={12} /> 清空
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2">
-        {filtered.map(d => (
-          <div key={d.key} className="bg-muted rounded border border-border p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-mono text-xs font-semibold">{d.tool}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${d.decision === 'always' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                    {d.decision === 'always' ? '总是允许' : '总是拒绝'}
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-400 rounded">{d.category}</span>
+      <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无决策记录" /> : (
+          filtered.map(d => (
+            <div key={d.cacheKey} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-xs font-semibold">{d.toolName}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-md ${
+                      d.allowed
+                        ? 'bg-green-500/15 text-green-400 border border-green-500/20'
+                        : 'bg-red-500/15 text-red-400 border border-red-500/20'
+                    }`}>
+                      {d.allowed ? '总是允许' : '总是拒绝'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate" title={d.cacheKey}>{d.cacheKey}</p>
+                  <p className="text-xs text-muted-foreground/50 mt-1">{new Date(d.timestamp).toLocaleString()}</p>
                 </div>
-                <p className="text-xs text-muted-foreground truncate">{d.target}</p>
-                <p className="text-xs text-text-tertiary mt-1">{new Date(d.timestamp).toLocaleString()}</p>
+                <button onClick={() => handleDelete(d.cacheKey)} className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0">
+                  <Trash2 size={14} className="text-muted-foreground/60 hover:text-red-400" />
+                </button>
               </div>
-              <button onClick={() => handleDelete(d.key)} className="p-1 hover:bg-muted/50 rounded">
-                <Trash2 size={14} className="text-muted-foreground" />
-              </button>
             </div>
-          </div>
-        ))}
-        {filtered.length === 0 && <p className="text-center text-muted-foreground text-sm py-8">暂无决策记录</p>}
+          ))
+        )}
       </div>
     </div>
   );
@@ -185,63 +218,82 @@ function DeniedTab() {
 
   const filtered = filter === 'all' ? deniedOps : deniedOps.filter(d => d.category === filter);
 
-  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
+  const categories = [
+    { key: 'all', label: '全部', icon: List },
+    { key: 'fileRead', label: '文件读取', icon: FileText },
+    { key: 'fileWrite', label: '文件写入', icon: FileText },
+    { key: 'bashExec', label: '命令执行', icon: Terminal },
+  ];
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <div className="flex gap-2">
-          {['all', 'file', 'command'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1 rounded text-sm transition-colors ${filter === f ? 'bg-accent text-white' : 'bg-muted text-muted-foreground hover:bg-muted/50'}`}
-            >
-              {f === 'all' ? '全部' : f === 'file' ? '文件' : '命令'}
-            </button>
-          ))}
+      <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
+        <div className="flex bg-white/[0.06] rounded-xl border border-white/[0.08] backdrop-blur-xl p-0.5">
+          {categories.map(f => {
+            const Icon = f.icon;
+            return (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`flex items-center gap-1 px-3 py-1 text-xs rounded-lg transition-all ${
+                  filter === f.key
+                    ? 'bg-white/[0.12] text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon size={12} /> {f.label}
+              </button>
+            );
+          })}
         </div>
         <button
           onClick={handleClear}
-          className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
         >
-          清空
+          <Trash2 size={12} /> 清空
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2 p-4">
-        {filtered.map(d => (
-          <div key={d.key} className="bg-muted rounded border border-border p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-mono text-xs font-semibold">{d.tool}</span>
-                  <span className={`px-2 py-0.5 rounded text-xs ${d.category === 'file' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>
-                    {d.category}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground mb-1">
-                  <span className="font-semibold">目标:</span> {d.target}
-                </div>
-                {d.reason && (
-                  <div className="text-xs text-muted-foreground">
-                    <span className="font-semibold">原因:</span> {d.reason}
+      <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无拒绝记录" /> : (
+          filtered.map(d => (
+            <div key={d.key} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-xs font-semibold">{d.pattern.split(':')[0] || d.pattern}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-xs border ${
+                      d.category.includes('file')
+                        ? 'bg-blue-500/15 text-blue-400 border-blue-500/20'
+                        : 'bg-purple-500/15 text-purple-400 border-purple-500/20'
+                    }`}>
+                      {d.category}
+                    </span>
+                    {d.sessionOnly && (
+                      <span className="text-xs px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-md">本次会话</span>
+                    )}
                   </div>
-                )}
-                <div className="text-xs text-text-tertiary mt-1">
-                  {new Date(d.timestamp).toLocaleString('zh-CN')}
+                  <div className="text-xs text-muted-foreground mb-0.5">
+                    <span className="font-semibold">目标:</span> <span className="font-mono">{d.pattern}</span>
+                  </div>
+                  {d.reason && (
+                    <div className="text-xs text-muted-foreground mb-0.5">
+                      <span className="font-semibold">原因:</span> {d.reason}
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground/50 mt-1">{new Date(d.timestamp).toLocaleString('zh-CN')}</div>
                 </div>
+                <button
+                  onClick={() => handleDelete(d.key)}
+                  className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0"
+                  title="删除"
+                >
+                  <Trash2 size={14} className="text-muted-foreground/60 hover:text-red-400" />
+                </button>
               </div>
-              <button
-                onClick={() => handleDelete(d.key)}
-                className="p-1 hover:bg-muted/50 rounded transition-colors"
-                title="删除"
-              >
-                <Trash2 size={14} className="text-muted-foreground" />
-              </button>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -253,6 +305,8 @@ function DeniedTab() {
 const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   const [config, setConfig] = useState<PermissionConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadConfig = async () => {
     setLoading(true);
@@ -268,124 +322,171 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     }
   };
 
-  useEffect(() => {
-    loadConfig();
-  }, []);
+  useEffect(() => { loadConfig(); }, []);
 
   const handleSave = async () => {
     if (!config) return;
+    setSaving(true);
+    setSaveMsg(null);
     try {
       await window.electron.permissionConfigUpdate({ updates: config });
-      alert('配置已保存');
+      setSaveMsg({ type: 'success', text: '配置已保存' });
+      setTimeout(() => setSaveMsg(null), 3000);
       onRefresh();
     } catch (err) {
+      setSaveMsg({ type: 'error', text: '保存失败' });
       console.error('Failed to save config:', err);
-      alert('保存失败');
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
-  if (!config) return <div className="p-4 text-muted-foreground">无法加载配置</div>;
+  if (loading) return <LoadingState />;
+  if (!config) return <EmptyState text="无法加载配置" />;
 
   return (
-    <div className="flex flex-col h-full p-4 space-y-4 overflow-y-auto">
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">基础权限</div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.fileRead}
-            onChange={e => setConfig({ ...config, fileRead: e.target.checked })}
-          />
-          <span className="text-sm">文件读取</span>
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.fileWrite}
-            onChange={e => setConfig({ ...config, fileWrite: e.target.checked })}
-          />
-          <span className="text-sm">文件写入</span>
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.bashExec}
-            onChange={e => setConfig({ ...config, bashExec: e.target.checked })}
-          />
-          <span className="text-sm">命令执行</span>
-        </label>
-      </div>
-
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">策略设置</div>
-        <div>
-          <label className="text-xs text-muted-foreground">警告级别处理</label>
-          <select
-            value={config.warnLevel}
-            onChange={e => setConfig({ ...config, warnLevel: e.target.value as any })}
-            className="w-full mt-1 px-2 py-1 bg-muted border border-border rounded text-sm"
-          >
-            <option value="ask">询问确认</option>
-            <option value="auto-allow">自动允许</option>
-          </select>
+    <div className="flex flex-col h-full overflow-y-auto">
+      {saveMsg && (
+        <div className={`px-4 py-2 text-xs flex items-center gap-2 border-b ${
+          saveMsg.type === 'success'
+            ? 'bg-green-500/15 text-green-400 border-green-500/20'
+            : 'bg-red-500/15 text-red-400 border-red-500/20'
+        }`}>
+          {saveMsg.type === 'success' ? <AlertTriangle size={12} /> : <X size={12} />}
+          {saveMsg.text}
         </div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.confirmWrite}
-            onChange={e => setConfig({ ...config, confirmWrite: e.target.checked })}
+      )}
+
+      <div className="flex-1 p-6 space-y-6 max-w-2xl">
+        {/* 基础权限 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <Shield size={14} /> 基础权限
+          </h3>
+          <div className="space-y-2 bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
+            {[
+              { key: 'fileRead' as const, label: '文件读取', icon: FileText },
+              { key: 'fileWrite' as const, label: '文件写入', icon: FileText },
+              { key: 'bashExec' as const, label: '命令执行', icon: Terminal },
+            ].map(({ key, label, icon: Icon }) => (
+              <label key={key} className="flex items-center gap-3 py-1 cursor-pointer group">
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
+                  config[key]
+                    ? 'bg-primary/80 border-primary/80'
+                    : 'border-white/[0.2] group-hover:border-white/[0.3]'
+                }`}>
+                  {config[key] && <span className="text-white text-xs leading-none">✓</span>}
+                </div>
+                <input
+                  type="checkbox"
+                  checked={config[key]}
+                  onChange={e => setConfig({ ...config, [key]: e.target.checked })}
+                  className="sr-only"
+                />
+                <Icon size={14} className="text-muted-foreground" />
+                <span className="text-sm">{label}</span>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        {/* 策略设置 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <Sliders size={14} /> 策略设置
+          </h3>
+          <div className="space-y-3 bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">警告级别处理</label>
+              <select
+                value={config.warnLevel}
+                onChange={e => setConfig({ ...config, warnLevel: e.target.value as any })}
+                className="w-full h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
+              >
+                <option value="ask">询问确认</option>
+                <option value="auto-allow">自动允许</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-3 py-1 cursor-pointer group">
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
+                config.confirmWrite
+                  ? 'bg-primary/80 border-primary/80'
+                  : 'border-white/[0.2] group-hover:border-white/[0.3]'
+              }`}>
+                {config.confirmWrite && <span className="text-white text-xs leading-none">✓</span>}
+              </div>
+              <input
+                type="checkbox"
+                checked={config.confirmWrite}
+                onChange={e => setConfig({ ...config, confirmWrite: e.target.checked })}
+                className="sr-only"
+              />
+              <span className="text-sm">写入前确认</span>
+            </label>
+          </div>
+        </section>
+
+        {/* 路径白名单 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <FileText size={14} /> 路径白名单
+          </h3>
+          <textarea
+            value={config.allowedPaths?.join('\n') || ''}
+            onChange={e => setConfig({ ...config, allowedPaths: e.target.value.split('\n').filter(Boolean) })}
+            className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
+            placeholder="每行一个路径"
           />
-          <span className="text-sm">写入前确认</span>
-        </label>
-      </div>
+        </section>
 
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">路径白名单</div>
-        <textarea
-          value={config.allowedPaths?.join('\n') || ''}
-          onChange={e => setConfig({ ...config, allowedPaths: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
-          placeholder="每行一个路径"
-        />
-      </div>
+        {/* 路径黑名单 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <FileText size={14} /> 路径黑名单
+          </h3>
+          <textarea
+            value={config.deniedPaths?.join('\n') || ''}
+            onChange={e => setConfig({ ...config, deniedPaths: e.target.value.split('\n').filter(Boolean) })}
+            className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
+            placeholder="每行一个路径"
+          />
+        </section>
 
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">路径黑名单</div>
-        <textarea
-          value={config.deniedPaths?.join('\n') || ''}
-          onChange={e => setConfig({ ...config, deniedPaths: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
-          placeholder="每行一个路径"
-        />
-      </div>
+        {/* 命令白名单 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <Terminal size={14} /> 命令白名单
+          </h3>
+          <textarea
+            value={config.allowedCommands?.join('\n') || ''}
+            onChange={e => setConfig({ ...config, allowedCommands: e.target.value.split('\n').filter(Boolean) })}
+            className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
+            placeholder="每行一个命令"
+          />
+        </section>
 
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">命令白名单</div>
-        <textarea
-          value={config.allowedCommands?.join('\n') || ''}
-          onChange={e => setConfig({ ...config, allowedCommands: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
-          placeholder="每行一个命令"
-        />
-      </div>
+        {/* 命令黑名单 */}
+        <section>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
+            <Terminal size={14} /> 命令黑名单
+          </h3>
+          <textarea
+            value={config.deniedCommands?.join('\n') || ''}
+            onChange={e => setConfig({ ...config, deniedCommands: e.target.value.split('\n').filter(Boolean) })}
+            className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
+            placeholder="每行一个命令"
+          />
+        </section>
 
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-text-primary">命令黑名单</div>
-        <textarea
-          value={config.deniedCommands?.join('\n') || ''}
-          onChange={e => setConfig({ ...config, deniedCommands: e.target.value.split('\n').filter(Boolean) })}
-          className="w-full h-20 px-2 py-1 bg-muted border border-border rounded text-xs font-mono"
-          placeholder="每行一个命令"
-        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-5 py-2.5 bg-primary/80 text-white rounded-xl hover:bg-primary transition-colors text-sm disabled:opacity-50"
+        >
+          {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+          保存配置
+        </button>
       </div>
-
-      <button
-        onClick={handleSave}
-        className="px-4 py-2 bg-accent text-white rounded hover:bg-accent/80 transition-colors"
-      >
-        保存配置
-      </button>
     </div>
   );
 };
@@ -430,40 +531,52 @@ const AuditTab: React.FC = () => {
     return true;
   });
 
-  if (loading) return <div className="p-4 text-muted-foreground">加载中...</div>;
+  const riskColor = (level?: string) => {
+    switch (level) {
+      case 'high': return 'bg-red-500/15 text-red-400 border-red-500/20';
+      case 'medium': return 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20';
+      case 'low': return 'bg-blue-500/15 text-blue-400 border-blue-500/20';
+      default: return 'bg-white/[0.06] text-muted-foreground border-white/[0.08]';
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
+      {/* 统计卡片 */}
       {stats && (
-        <div className="p-4 grid grid-cols-3 gap-3 border-b border-border">
-          <div className="bg-muted rounded p-3">
-            <div className="text-xs text-muted-foreground">总检查次数</div>
-            <div className="text-xl font-semibold text-text-primary">{stats.totalChecks}</div>
+        <div className="grid grid-cols-3 gap-3 p-4 border-b border-white/[0.08]">
+          <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">总检查</div>
+            <div className="text-2xl font-semibold">{stats.totalChecks}</div>
           </div>
-          <div className="bg-muted rounded p-3">
-            <div className="text-xs text-muted-foreground">允许率</div>
-            <div className="text-xl font-semibold text-green-400">{(stats.allowRate * 100).toFixed(1)}%</div>
+          <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">允许率</div>
+            <div className="text-2xl font-semibold text-green-400">{(stats.allowRate * 100).toFixed(1)}%</div>
           </div>
-          <div className="bg-muted rounded p-3">
-            <div className="text-xs text-muted-foreground">拒绝次数</div>
-            <div className="text-xl font-semibold text-red-400">{stats.deniedCount}</div>
+          <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">拒绝</div>
+            <div className="text-2xl font-semibold text-red-400">{stats.deniedCount}</div>
           </div>
         </div>
       )}
 
-      <div className="p-4 border-b border-border space-y-2">
-        <input
-          type="text"
-          placeholder="搜索工具名..."
-          value={toolFilter}
-          onChange={e => setToolFilter(e.target.value)}
-          className="w-full px-2 py-1 bg-muted border border-border rounded text-sm"
-        />
+      {/* 过滤栏 */}
+      <div className="p-4 border-b border-white/[0.08] space-y-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="搜索工具名..."
+            value={toolFilter}
+            onChange={e => setToolFilter(e.target.value)}
+            className="w-full h-8 pl-9 pr-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground placeholder:text-white/30 backdrop-blur-xl focus:outline-none focus:border-primary/50"
+          />
+        </div>
         <div className="flex gap-2">
           <select
             value={decisionFilter}
             onChange={e => setDecisionFilter(e.target.value)}
-            className="flex-1 px-2 py-1 bg-muted border border-border rounded text-sm"
+            className="flex-1 h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
           >
             <option value="all">所有决策</option>
             <option value="allow">允许</option>
@@ -472,7 +585,7 @@ const AuditTab: React.FC = () => {
           <select
             value={riskFilter}
             onChange={e => setRiskFilter(e.target.value)}
-            className="flex-1 px-2 py-1 bg-muted border border-border rounded text-sm"
+            className="flex-1 h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
           >
             <option value="all">所有风险</option>
             <option value="low">低</option>
@@ -481,42 +594,47 @@ const AuditTab: React.FC = () => {
           </select>
           <button
             onClick={handleClear}
-            className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors shrink-0"
           >
-            清空
+            <Trash2 size={12} /> 清空
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {filtered.map((log, idx) => (
-          <div key={idx} className="bg-muted rounded border border-border p-3 text-xs">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-mono font-semibold">{log.toolName}</span>
-              <span className={`px-2 py-0.5 rounded ${log.decision === 'allow' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                {log.decision}
-              </span>
-              {log.riskLevel && (
-                <span className={`px-2 py-0.5 rounded ${log.riskLevel === 'high' ? 'bg-red-500/20 text-red-400' : log.riskLevel === 'medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                  {log.riskLevel}
+      {/* 日志列表 */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无审计日志" /> : (
+          filtered.map((log, idx) => (
+            <div key={idx} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-mono text-xs font-semibold">{log.toolName}</span>
+                <span className={`px-2 py-0.5 rounded-md text-xs border ${
+                  log.decision === 'allow'
+                    ? 'bg-green-500/15 text-green-400 border-green-500/20'
+                    : 'bg-red-500/15 text-red-400 border-red-500/20'
+                }`}>
+                  {log.decision}
                 </span>
+                {log.riskLevel && (
+                  <span className={`px-2 py-0.5 rounded-md text-xs border ${riskColor(log.riskLevel)}`}>
+                    {log.riskLevel}
+                  </span>
+                )}
+              </div>
+              {log.target && (
+                <div className="text-xs text-muted-foreground mb-0.5">
+                  <span className="font-semibold">目标:</span> <span className="font-mono">{log.target}</span>
+                </div>
               )}
+              {log.reason && (
+                <div className="text-xs text-muted-foreground mb-0.5">
+                  <span className="font-semibold">原因:</span> {log.reason}
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground/50">{new Date(log.timestamp).toLocaleString('zh-CN')}</div>
             </div>
-            {log.target && (
-              <div className="text-muted-foreground mb-1">
-                <span className="font-semibold">目标:</span> {log.target}
-              </div>
-            )}
-            {log.reason && (
-              <div className="text-muted-foreground mb-1">
-                <span className="font-semibold">原因:</span> {log.reason}
-              </div>
-            )}
-            <div className="text-text-tertiary">
-              {new Date(log.timestamp).toLocaleString('zh-CN')}
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -531,21 +649,32 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
 
   const handleRefresh = () => setRefreshKey(k => k + 1);
 
+  const tabs = [
+    { key: 'decisions' as TabType, label: '决策记录', icon: Shield },
+    { key: 'denied' as TabType, label: '拒绝记录', icon: List },
+    { key: 'config' as TabType, label: '配置', icon: Sliders },
+    { key: 'audit' as TabType, label: '审计日志', icon: BarChart3 },
+  ];
+
   return (
-    <div className="flex flex-col h-screen bg-background text-text-primary">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h1 className="text-lg font-semibold">权限管理</h1>
-        <div className="flex items-center gap-2">
+    <div className="flex flex-col h-screen bg-background text-foreground">
+      {/* 顶部栏 */}
+      <div className="flex items-center justify-between px-4 h-12 border-b border-white/[0.08] bg-white/[0.02] backdrop-blur-xl shrink-0">
+        <h1 className="text-base font-semibold flex items-center gap-2">
+          <Shield size={16} className="text-muted-foreground" />
+          权限管理
+        </h1>
+        <div className="flex items-center gap-1">
           <button
             onClick={handleRefresh}
-            className="p-1.5 hover:bg-muted/50 rounded transition-colors"
+            className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors"
             title="刷新"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={14} />
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-muted/50 rounded transition-colors"
+            className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors"
             title="关闭"
           >
             <X size={16} />
@@ -553,23 +682,29 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
         </div>
       </div>
 
-      <div className="flex border-b border-border">
-        {[
-          { key: 'decisions' as TabType, label: '📋 决策记录' },
-          { key: 'denied' as TabType, label: '🚫 拒绝记录' },
-          { key: 'config' as TabType, label: '⚙️ 配置' },
-          { key: 'audit' as TabType, label: '📊 审计日志' }
-        ].map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm transition-colors ${activeTab === tab.key ? 'bg-muted text-text-primary border-b-2 border-accent' : 'text-muted-foreground hover:bg-muted/50'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Tab 导航 */}
+      <div className="flex border-b border-white/[0.08] px-2 bg-white/[0.02]">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs transition-all border-b-2 -mb-px ${
+                isActive
+                  ? 'text-foreground border-primary'
+                  : 'text-muted-foreground border-transparent hover:text-foreground hover:border-white/[0.1]'
+              }`}
+            >
+              <Icon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
+      {/* 内容区 */}
       <div key={refreshKey} className="flex-1 overflow-hidden">
         {activeTab === 'decisions' && <DecisionsTab />}
         {activeTab === 'denied' && <DeniedTab />}

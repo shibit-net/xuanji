@@ -4,9 +4,10 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, ChevronUp, Copy, Check, FileText } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X } from 'lucide-react';
 import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
+import type { ContentBlock } from '../stores/messageStore';
 import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useAuthStore } from '../stores/authStore';
@@ -133,6 +134,85 @@ function FileIcon({ size = 14, className, simple }: { size?: number; className?:
       <polyline points="14 2 14 8 20 8" />
       {!simple && (<><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>)}
     </svg>
+  );
+}
+
+/** 图片内容块 — 支持点击放大 / Lightbox */
+function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const src = `data:${block.mimeType};base64,${block.data}`;
+
+  return (
+    <>
+      <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20 cursor-pointer
+                      hover:border-white/[0.15] transition-all duration-200 group relative"
+           onClick={() => setExpanded(true)}>
+        <img
+          src={src}
+          alt="截图"
+          className="w-full max-h-[400px] object-contain"
+          loading="lazy"
+        />
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity
+                        bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1">
+          <ImageIcon size={12} className="text-white/70" />
+          <span className="text-[10px] text-white/70">点击放大</span>
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {expanded && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center
+                     animate-fadeIn cursor-zoom-out"
+          onClick={() => setExpanded(false)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-10"
+            onClick={() => setExpanded(false)}
+          >
+            <X size={20} className="text-white" />
+          </button>
+          <img
+            src={src}
+            alt="截图（放大）"
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 渲染 ContentBlock 列表 */
+function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containerRef }: {
+  blocks: ContentBlock[];
+  processedContent: string;
+  isStreaming: boolean;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const textBlocks = blocks.filter(b => b.type === 'text');
+  const imageBlocks = blocks.filter(b => b.type === 'image');
+  // 合并所有 text 块的文本
+  const combinedText = textBlocks.map(b => (b as { type: 'text'; text: string }).text).join('\n');
+
+  return (
+    <>
+      {/* 文本块 */}
+      {combinedText && (
+        <div ref={containerRef} className="milkdown-message-content">
+          {isStreaming ? (
+            <div className="text-sm markdown-streaming-body" dangerouslySetInnerHTML={{ __html: processedContent }} />
+          ) : (
+            <MilkdownEditor value={processedContent} mode="preview" />
+          )}
+        </div>
+      )}
+      {/* 图片块 */}
+      {imageBlocks.map((block, i) => (
+        <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
+      ))}
+    </>
   );
 }
 
@@ -449,7 +529,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
         {/* 消息内容 — 流式时纯文本渲染，完成后 Milkdown 渲染 */}
         <div ref={containerRef} className="max-w-none text-text-primary milkdown-message-content">
-          {typeof displayContent === 'string' ? (
+          {message.contentBlocks && message.contentBlocks.length > 0 ? (
+            <ContentBlocksRenderer
+              blocks={message.contentBlocks}
+              processedContent={processedContent}
+              isStreaming={isStreaming}
+              containerRef={containerRef}
+            />
+          ) : typeof displayContent === 'string' ? (
             isStreaming ? (
               <div className="text-sm markdown-streaming-body" dangerouslySetInnerHTML={{ __html: streamingHtml }} />
             ) : (

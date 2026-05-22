@@ -243,35 +243,8 @@ export class PromptComponentRegistry {
             continue;
           }
 
-          // 文件已存在：检查是否需要更新
-          const storedHash = syncState[fileName];
-          if (!storedHash) {
-            // 旧版本没有 hash 记录，保守处理：跳过（可能有用户自定义）
-            skipped++;
-            log.debug(`跳过 ${fileName}：无同步状态记录（可能包含用户自定义）`);
-            continue;
-          }
-
-          if (storedHash === templateHash) {
-            // 模板未变更，跳过
-            continue;
-          }
-
-          // 模板已变更：检查用户是否自定义了文件
-          const userContent = await fs.readFile(destPath, 'utf-8');
-          const userHash = this.computeHash(userContent);
-
-          if (userHash === storedHash) {
-            // 用户文件与旧模板一致 → 用户未自定义 → 安全覆盖
-            await fs.writeFile(destPath, templateContent, 'utf-8');
-            syncState[fileName] = templateHash;
-            updated++;
-            log.info(`更新 Prompt 组件: ${fileName}（模板已更新，用户未自定义）`);
-          } else {
-            // 用户已自定义 → 保护用户修改
-            skipped++;
-            log.debug(`跳过 ${fileName}：用户已自定义修改`);
-          }
+          // 文件已存在：跳过（用户可能已自定义，不覆盖模板更新）
+          skipped++;
         } catch (error: any) {
           log.error(`同步文件失败: ${srcPath}`, error.message);
         }

@@ -439,18 +439,23 @@ ${apiSpec ? `API 规格: ${JSON.stringify(apiSpec, null, 2)}` : ''}
     if (!existsSync(dir)) {
       await mkdir(dir, { recursive: true });
     }
-    const yamlContent = `id: ${skill.id}
-name: ${skill.name}
-version: ${skill.version}
-description: ${skill.description}
-category: ${skill.category}
-tags:
-${(skill.tags || []).map((t: string) => `  - ${t}`).join('\n')}
-requiredTools:
-${(skill.requiredTools || []).map((t: string) => `  - ${t}`).join('\n')}
-content: |
-  ${skill.content || ''}
-`;
-    await writeFile(join(dir, `${skill.id}.yaml`), yamlContent, 'utf-8');
+    // 输出符合 SkillMetadata + Skill 接口的标准 JSON
+    // isZero→isValid ? 'isValidSkill()' 要求的字段 : id/name/version/description/category/tags
+    const skillJson = {
+      id: skill.id,
+      name: skill.name,
+      version: skill.version || '1.0.0',
+      description: skill.description,
+      category: (skill.category === 'workflow' || skill.category === 'action') ? skill.category : 'prompt',
+      tags: Array.isArray(skill.tags) ? skill.tags : [],
+      author: 'Xuanji LearnEngine',
+      source: 'learned',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      content: skill.content || '',
+      requiredTools: Array.isArray(skill.requiredTools) ? skill.requiredTools : [],
+      enabled: true,
+    };
+    await writeFile(join(dir, `${skill.id}.json`), JSON.stringify(skillJson, null, 2), 'utf-8');
   }
 }

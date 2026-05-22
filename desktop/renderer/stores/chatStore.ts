@@ -34,6 +34,7 @@ export type {
   ToolCall,
   ChatStatus,
   SubAgentReference,
+  ContentBlock,
 } from './messageStore';
 
 // ── Store 别名（向后兼容） ─────────────────────────

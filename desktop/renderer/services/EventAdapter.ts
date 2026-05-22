@@ -18,6 +18,7 @@ import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useCitationStore } from '../stores/CitationStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
+import type { ContentBlock } from '../stores/messageStore';
 import { useExecutionStore, type TodoItem } from '../stores/executionStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
@@ -322,6 +323,14 @@ export function registerEventAdapter(): void {
     const agentId = typeof data === 'object' && data.agentId ? data.agentId : getDefaultAgentId();
     console.log(`[DIAG] EventAdapter agent:text #1: agentId=${agentId} text="${text.substring(0, 50)}" foregroundAgentId=${useAgentStateMachine.getState().foregroundAgentId}`);
     useAgentStateMachine.getState().transition({ type: 'TEXT_DELTA', agentId, text });
+  });
+
+  // 图片 / 富媒体内容块 — 追加到当前流式消息
+  messageBus.on('agent:content-block', (data: { messageId?: string; block: ContentBlock }) => {
+    const msgStore = useMessageStore.getState();
+    const targetId = data.messageId || msgStore.currentStreamingId;
+    if (!targetId) return;
+    msgStore.appendContentBlock(targetId, data.block);
   });
 
   messageBus.on('agent:thinking', (data: string | { content: string; agentId?: string }) => {

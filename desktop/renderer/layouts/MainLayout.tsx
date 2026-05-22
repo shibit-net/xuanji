@@ -103,6 +103,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             onOpenScheduler={() => navigate(location.pathname === '/scheduler' ? '/chat' : '/scheduler')}
             onOpenSystemPrompt={() => navigate(location.pathname === '/system-prompt' ? '/chat' : '/system-prompt')}
             onOpenPermissions={() => navigate(location.pathname === '/permissions' ? '/chat' : '/permissions')}
+            onOpenSkillsMCP={() => navigate(location.pathname === '/skills-mcp' ? '/chat' : '/skills-mcp')}
             onOpenSettings={() => navigate(location.pathname === '/settings' ? '/chat' : '/settings')}
             onOpenTools={() => navigate(location.pathname === '/tools' ? '/chat' : '/tools')}
           />

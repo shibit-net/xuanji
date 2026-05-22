@@ -33,12 +33,13 @@ export interface AskUserRequestData {
   }>;
 }
 
-// 权限规则
+// 权限规则（与后端 PersistedDecisionInfo 对齐）
 export interface PermissionRule {
   cacheKey: string;
-  tool: string;
-  decision: 'allow' | 'deny';
-  timestamp: number;
+  allowed: boolean;
+  toolName: string;
+  timestamp: string;
+  expiresAt?: string;
 }
 
 // 文件附件（拖拽/粘贴上传）
@@ -308,7 +309,11 @@ export interface ElectronAPI {
   askUserRespond: (data: any) => Promise<any>;
 
   // 权限规则管理
-  permissionListRules: () => Promise<any>;
+  permissionListRules: () => Promise<{
+    success: boolean;
+    rules?: PermissionRule[];
+    error?: string;
+  }>;
   permissionDeleteRule: (data: { cacheKey: string }) => Promise<any>;
   permissionClearRules: () => Promise<any>;
 
@@ -381,9 +386,10 @@ export interface ElectronAPI {
       key: string;
       tool: string;
       category: string;
-      target: string;
+      pattern: string;
       reason: string;
-      timestamp: number;
+      timestamp: string;
+      sessionOnly: boolean;
     }>;
     error?: string;
   }>;
@@ -727,6 +733,90 @@ export interface ElectronAPI {
       executed_at: number;
       status: string;
     }>;
+    error?: string;
+  }>;
+
+  // ============ MCP 管理 ============
+  mcpList: () => Promise<{
+    success: boolean;
+    servers?: Array<{ name: string; transport: string; enabled: boolean; toolCount: number; source: string; packageId: string }>;
+    error?: string;
+  }>;
+  mcpToggle: (data: { name: string; enabled: boolean }) => Promise<{ success: boolean; error?: string }>;
+  mcpDetail: (data: { name: string }) => Promise<{
+    success: boolean;
+    server?: { name: string; transport: string; enabled: boolean; toolCount: number; tools: Array<{ name: string; description: string }>; config: any };
+    error?: string;
+  }>;
+  mcpUninstall: (data: { serverName?: string; packageId?: string }) => Promise<{ success: boolean; error?: string }>;
+  mcpInstall: (data: { packageId: string; version?: string }) => Promise<{ success: boolean; config?: any; error?: string }>;
+  mcpPublish: (data: { serverName: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+  // ============ Skill 管理 ============
+  skillList: () => Promise<{
+    success: boolean;
+    skills?: Array<{ id: string; name: string; version: string; description: string; category: string; source: string; tags: string[]; enabled: boolean; requiredTools: string[]; content: string }>;
+    error?: string;
+  }>;
+  skillToggle: (data: { id: string; enabled: boolean }) => Promise<{ success: boolean; error?: string }>;
+  skillDetail: (data: { id: string }) => Promise<{
+    success: boolean;
+    skill?: { id: string; name: string; version: string; description: string; category: string; source: string; tags: string[]; enabled: boolean; requiredTools: string[]; content: string };
+    error?: string;
+  }>;
+  skillUninstall: (data: { skillId: string }) => Promise<{ success: boolean; error?: string }>;
+  skillInstall: (data: { packageId: string; version?: string }) => Promise<{ success: boolean; skillId?: string; error?: string }>;
+  skillPublish: (data: { skillId: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+  // ============ 天工坊市场 ============
+  tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => Promise<{
+    success: boolean;
+    data?: {
+      items: Array<{
+        packageId: string;
+        name: string;
+        type: 'mcp' | 'skill';
+        description: string;
+        authorName: string;
+        categoryName: string;
+        totalDownloads: number;
+        ratingAvg: number;
+        ratingCount: number;
+        qualityScore: number;
+        securityScore: number;
+        tags: string[];
+        transport?: string;
+        currentVersion: string;
+        proxyEnabled: boolean;
+        pricingModel: number;
+        source: number;
+        isPrivate: boolean;
+      }>;
+      total: number;
+      pageNum: number;
+      pageSize: number;
+      pages: number;
+    };
+    error?: string;
+  }>;
+  tiangongDetail: (data: { packageId: string }) => Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }>;
+  tiangongInstalledIds: () => Promise<{
+    success: boolean;
+    mcpIds?: string[];
+    skillIds?: string[];
+    error?: string;
+  }>;
+  tiangongCheckUpdates: () => Promise<{
+    success: boolean;
+    updates?: Array<{ packageId: string; hasUpdate: boolean; currentVersion: string; latestVersion: string; changelog?: string }>;
+    error?: string;
+  }>;
+  tiangongDeletePackage: (data: { id: number }) => Promise<{
+    success: boolean;
     error?: string;
   }>;
 

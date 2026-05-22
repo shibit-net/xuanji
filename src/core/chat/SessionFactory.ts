@@ -42,6 +42,7 @@ import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
 import { SkillInstaller, SkillRegistry, SkillSandbox } from '@/core/skills';
 import { InstallTool } from '@/core/tools/InstallTool';
 import { UninstallTool } from '@/core/tools/UninstallTool';
+import type { ConversationSnapshot } from '@/core/learn/ExperienceCrystallizer';
 
 const log = logger.child({ module: 'SessionFactory' });
 
@@ -141,9 +142,11 @@ export class SessionFactory {
     this.container.register('mcpManager', () => MCPManager.getInstance());
     log.debug('MCPManager registered');
 
-    // tiangongMarket + mcpInstaller 仅在配置了 marketplace baseUrl 时才注册
-    const marketplaceConfig = config.mcp?.marketplace;
-    if (marketplaceConfig?.enabled !== false && marketplaceConfig?.baseUrl) {
+    // tiangongMarket + mcpInstaller：优先用配置的 URL，否则用默认地址
+    const marketplaceConfig = config.mcp?.marketplace?.baseUrl
+      ? config.mcp.marketplace
+      : { baseUrl: 'https://shibit.net/api/tiangong' };
+    if (marketplaceConfig.enabled !== false && marketplaceConfig.baseUrl) {
       this.container.register('tiangongMarket', () => new TiangongMarket({
         baseUrl: marketplaceConfig.baseUrl,
         apiKey: marketplaceConfig.apiKey,
@@ -542,6 +545,7 @@ export class SessionFactory {
 
       // 记忆提取用的 systemPrompt（从 memory-manager.yaml 加载）
       let memoryExtractionPrompt: string | undefined;
+      let memoryAgentConfig: { maxIterations?: number; timeout?: number; maxTokens?: number } | undefined;
       // 上下文压缩用的 systemPrompt（从 context-compressor.yaml 加载）
       let compressionPrompt: string | undefined;
 
@@ -553,7 +557,7 @@ export class SessionFactory {
         await semanticIndex.init();
       }
 
-      // 加载 memory-manager 模板的 systemPrompt，注入到 MemoryManager
+      // 加载 memory-manager 模板的 systemPrompt 和 execution/model 配置，注入到 MemoryManager
       try {
         const memTemplatePath = join(getUserAgentsDir(userId), 'memory-manager.yaml');
         if (existsSync(memTemplatePath)) {
@@ -561,9 +565,17 @@ export class SessionFactory {
           if (memTemplate?.systemPrompt) {
             memoryExtractionPrompt = memTemplate.systemPrompt as string;
           }
+          // 读取 execution 和 model 中的 maxTokens，供 runMemoryAgent 使用
+          const exec = memTemplate?.execution as { maxIterations?: number; timeout?: number } | undefined;
+          const modelCfg = memTemplate?.model as { maxTokens?: number } | undefined;
+          memoryAgentConfig = {
+            maxIterations: exec?.maxIterations,
+            timeout: exec?.timeout ? exec.timeout * 1000 : undefined,
+            maxTokens: modelCfg?.maxTokens,
+          };
         }
       } catch (err) {
-        log.warn('加载 memory-manager.yaml systemPrompt 失败:', err);
+        log.warn('加载 memory-manager.yaml 配置失败:', err);
       }
 
       // 加载 context-compressor 模板的 systemPrompt
@@ -583,6 +595,7 @@ export class SessionFactory {
       const memoryManager = new MemoryManager(dbPath, cheapLLM, hookRegistry);
       memoryManager.compressionLLM = compressionLLM;
       memoryManager.memoryExtractionPrompt = memoryExtractionPrompt;
+      memoryManager.memoryAgentConfig = memoryAgentConfig;
       memoryManager.compressionPrompt = compressionPrompt;
       memoryManager.provider = provider;
       memoryManager.layeredPromptBuilder = layeredPromptBuilder;
@@ -622,6 +635,20 @@ export class SessionFactory {
       const subAgentStore = new SubAgentResultStore(subAgentDir);
       memoryManager.subAgentStore = subAgentStore;
 
+      // ─── 注入 Skills & MCP 依赖到 MemoryManager（供 agent-bridge IPC 访问） ───
+      try {
+        memoryManager.skillRegistry = await this.container.resolve<SkillRegistry>('skillRegistry');
+      } catch { /* skillRegistry 未注册 */ }
+      try {
+        memoryManager.mcpManager = await this.container.resolve<MCPManager>('mcpManager');
+        await memoryManager.mcpManager.initialize();
+      } catch { /* mcpManager 未注册或初始化失败 */ }
+      try {
+        memoryManager.tiangongMarket = await this.container.resolve<TiangongMarket>('tiangongMarket');
+        memoryManager.mcpInstaller = await this.container.resolve<MCPInstaller>('mcpInstaller');
+        memoryManager.skillInstaller = await this.container.resolve<SkillInstaller>('skillInstaller');
+      } catch { /* tiangong 未配置 */ }
+
       // 通过 EventBus 监听 Agent 工具结束事件，桥接到 SubAgentResultStore
       const subAgentToolNames = ['task', 'agent_team'];
       eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload: any) => {
@@ -654,6 +681,83 @@ export class SessionFactory {
         log.info(`[Memory] Learning ${emoji} goal="${payload.goal}" stage=${payload.stage}${payload.error ? ' err=' + payload.error : ''}`);
       });
 
+      // ─── 注入 LearnTool 依赖 ────────────────────────────────────
+      const toolRegistry = await this.container.resolve<IToolRegistry>('toolRegistry');
+      const learnTool = toolRegistry.get('learn') as any;
+      if (learnTool && typeof learnTool.setDependencies === 'function') {
+        // webSearchFn：桥接 web_search 工具
+        const webSearchFn = async (query: string): Promise<string[]> => {
+          try {
+            const webSearchTool = toolRegistry.get('web_search');
+            if (!webSearchTool) return [`[模拟] 搜索: ${query}`];
+            const result = await webSearchTool.execute({ query, max_results: 5 });
+            return [JSON.stringify(result)];
+          } catch {
+            return [`[模拟] 搜索失败: ${query}`];
+          }
+        };
+        learnTool.setDependencies({
+          cheapLLM,
+          webSearchFn,
+          baseDir: getUserMemoryDir(userId),
+        });
+        log.info('LearnTool dependencies injected (cheapLLM, webSearchFn, baseDir)');
+
+        // ─── 注入 MCPSettingsTool 依赖 ─────────────────────────────
+        const mcpSettingsTool = toolRegistry.get('mcp_settings') as any;
+        if (mcpSettingsTool && typeof mcpSettingsTool.setDependencies === 'function') {
+          const mcpManager = await this.container.resolve<MCPManager>('mcpManager');
+          mcpSettingsTool.setDependencies({ mcpManager });
+          log.debug('MCPSettingsTool dependencies injected');
+        }
+
+        // ─── 注入 SkillManageTool 依赖 ─────────────────────────────
+        const skillManageTool = toolRegistry.get('skill_manage') as any;
+        if (skillManageTool && typeof skillManageTool.setDependencies === 'function') {
+          const skillRegistry = await this.container.resolve<SkillRegistry>('skillRegistry');
+          let tiangongMarket: TiangongMarket | undefined;
+          try { tiangongMarket = await this.container.resolve<TiangongMarket>('tiangongMarket'); } catch { /* 未配置 */ }
+          skillManageTool.setDependencies({ skillRegistry, tiangongMarket });
+          log.debug('SkillManageTool dependencies injected');
+        }
+
+        // ─── 桥接 AGENT_COMPLETED → ExperienceCrystallizer ──────────
+        // 每次 agent 完成对话后，将对话快照喂入 crystallizer
+        // 攒够 BUFFER_THRESHOLD 条后自动触发经验提炼
+        let lastUserMessage = '';
+        let lastToolsUsed: string[] = [];
+        let lastErrors: string[] = [];
+        eventBus.on(XuanjiEvent.USER_INPUT_RECEIVED, (payload: any) => {
+          lastUserMessage = payload?.message || '';
+          lastToolsUsed = [];
+          lastErrors = [];
+        });
+        eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload: any) => {
+          if (payload?.name && !lastToolsUsed.includes(payload.name)) {
+            lastToolsUsed.push(payload.name);
+          }
+          if (payload?.isError) {
+            lastErrors.push(`${payload.name}: ${String(payload.result || 'unknown error').slice(0, 200)}`);
+          }
+        });
+        eventBus.on(XuanjiEvent.AGENT_COMPLETED, () => {
+          if (lastUserMessage && learnTool.crystallizer) {
+            const snapshot: ConversationSnapshot = {
+              sessionId: `session-${Date.now()}`,
+              userMessage: lastUserMessage,
+              outcomeSummary: `使用了 ${lastToolsUsed.length} 个工具`,
+              toolsUsed: lastToolsUsed,
+              errors: lastErrors,
+              timestamp: Date.now(),
+            };
+            learnTool.crystallizer.ingest(snapshot).catch((err: unknown) =>
+              log.warn('Crystallizer ingest failed:', err),
+            );
+          }
+        });
+      }
+
+
       // ─── 启动 Scheduler ────────────────────────────────────
       try {
         const { Scheduler } = await import('@/core/scheduler/Scheduler');
@@ -661,7 +765,7 @@ export class SessionFactory {
           memoryManager.dbInstance,
           undefined, // sessionManager
           cheapLLM,
-          undefined, // learnTool — 稍后注入
+          learnTool, // 已注入依赖的 LearnTool
           eventBus,
           new Set([userId]),
         );

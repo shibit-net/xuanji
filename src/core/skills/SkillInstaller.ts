@@ -11,11 +11,9 @@
  */
 
 import { homedir } from 'node:os';
-import { promises as fs, createReadStream, createWriteStream } from 'node:fs';
+import { promises as fs, createReadStream } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import https from 'node:https';
-import http from 'node:http';
 import { execSync } from 'node:child_process';
 import type { Skill } from './types';
 import type { SkillRegistry } from './registry';
@@ -102,7 +100,7 @@ export class SkillInstaller {
     // 3. JSON 管道（现有流程）
     let rawContent: string;
     try {
-      rawContent = await this.downloadText(downloadInfo.downloadUrl);
+      rawContent = await this.market.downloadText(downloadInfo.downloadUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error(`Failed to download skill ${packageId}: ${msg}`);
@@ -258,67 +256,11 @@ export class SkillInstaller {
     if (typeof obj.name !== 'string' || !obj.name) return '缺少 name';
     if (typeof obj.version !== 'string' || !obj.version) return '缺少 version';
     if (typeof obj.description !== 'string' || !obj.description) return '缺少 description';
-    if (!['prompt', 'action', 'workflow', 'agent'].includes(String(obj.category))) {
+    if (!['prompt', 'action', 'workflow'].includes(String(obj.category))) {
       return `无效的 category: ${obj.category}`;
     }
     if (!Array.isArray(obj.tags)) return 'tags 必须是数组';
     return null;
-  }
-
-  /**
-   * HTTP(S) 下载文本内容
-   */
-  private downloadText(urlStr: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const url = new URL(urlStr);
-      const client = url.protocol === 'https:' ? https : http;
-
-      const req = client.get(
-        url,
-        { headers: { 'User-Agent': 'xuanji/0.9.0' } },
-        (res) => {
-          const { statusCode } = res;
-          if (!statusCode) {
-            reject(new Error('No status code'));
-            return;
-          }
-
-          // 处理重定向
-          if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
-            const redirectUrl = this.resolveRedirect(res.headers.location, url);
-            this.downloadText(redirectUrl).then(resolve).catch(reject);
-            return;
-          }
-
-          if (statusCode < 200 || statusCode >= 300) {
-            reject(new Error(`HTTP ${statusCode}`));
-            return;
-          }
-
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk: Buffer) => chunks.push(chunk));
-          res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-          res.on('error', reject);
-        },
-      );
-
-      req.on('error', reject);
-      req.setTimeout(30_000, () => {
-        req.destroy();
-        reject(new Error('下载超时 (30s)'));
-      });
-    });
-  }
-
-  /**
-   * 解析重定向 URL（支持相对路径）
-   */
-  private resolveRedirect(location: string, base: URL): string {
-    try {
-      return new URL(location, base).href;
-    } catch {
-      return location;
-    }
   }
 
   // ============================================================
@@ -363,12 +305,14 @@ export class SkillInstaller {
       // 2. 下载 tar.gz
       log.info(`Downloading skill tar.gz: ${packageId}`);
       await fs.mkdir(tmpDir, { recursive: true });
-      await this.downloadBinary(downloadInfo.downloadUrl, tarFile, 60_000);
+
+      const { tempPath } = await this.market.download(packageId, downloadInfo.version);
+      await fs.rename(tempPath, tarFile);
 
       // 3. SHA256 校验
       if (downloadInfo.sha256) {
         log.info(`Verifying SHA256 for ${packageId}`);
-        const actualHash = await this.sha256File(tarFile);
+        const actualHash = await sha256File(tarFile);
         if (actualHash !== downloadInfo.sha256) {
           await this.cleanup(tmpDir, tarFile);
           return {
@@ -529,64 +473,6 @@ export class SkillInstaller {
   }
 
   /**
-   * 下载二进制文件到指定路径
-   */
-  private downloadBinary(urlStr: string, dest: string, timeoutMs: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const url = new URL(urlStr);
-      const client = url.protocol === 'https:' ? https : http;
-
-      const req = client.get(
-        url,
-        {
-          headers: { 'User-Agent': 'xuanji/0.9.0' },
-          timeout: timeoutMs,
-        },
-        (res) => {
-          const { statusCode } = res;
-          if (!statusCode) { reject(new Error('No status code')); return; }
-
-          if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
-            const redirect = this.resolveRedirect(res.headers.location, url);
-            this.downloadBinary(redirect, dest, timeoutMs).then(resolve).catch(reject);
-            return;
-          }
-
-          if (statusCode < 200 || statusCode >= 300) {
-            reject(new Error(`HTTP ${statusCode}`));
-            return;
-          }
-
-          const file = createWriteStream(dest);
-          res.pipe(file);
-          file.on('finish', () => { file.close(); resolve(); });
-          file.on('error', reject);
-          res.on('error', reject);
-        },
-      );
-
-      req.on('error', reject);
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error(`下载超时 (${timeoutMs}ms)`));
-      });
-    });
-  }
-
-  /**
-   * 计算文件的 SHA256 哈希
-   */
-  private sha256File(filePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const hash = crypto.createHash('sha256');
-      const stream = createReadStream(filePath);
-      stream.on('data', (chunk) => { hash.update(chunk); });
-      stream.on('end', () => resolve(hash.digest('hex')));
-      stream.on('error', reject);
-    });
-  }
-
-  /**
    * 清理临时目录和文件
    */
   private async cleanup(tmpDir: string, tarFile: string): Promise<void> {
@@ -598,4 +484,21 @@ export class SkillInstaller {
       }
     } catch {}
   }
+}
+
+// ============================================================
+// Module-level utilities
+// ============================================================
+
+/**
+ * 计算文件的 SHA256 哈希
+ */
+function sha256File(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => { hash.update(chunk); });
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 }

@@ -20,6 +20,7 @@ const PermissionsPage = lazy(() => import('./pages/PermissionsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemoryPage = lazy(() => import('./pages/MemoryPage'));
 const SchedulerPage = lazy(() => import('./pages/SchedulerPage'));
+const SkillsMCPPage = lazy(() => import('./pages/SkillsMCPPage'));
 
 // 加载中组件
 function LoadingScreen() {
@@ -88,6 +89,7 @@ export default function App() {
                       <Route path="/settings" element={<SettingsPage onClose={() => window.history.back()} />} />
                       <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
                       <Route path="/scheduler" element={<SchedulerPage onClose={() => window.history.back()} />} />
+                      <Route path="/skills-mcp" element={<SkillsMCPPage onClose={() => window.history.back()} />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </MainLayout>

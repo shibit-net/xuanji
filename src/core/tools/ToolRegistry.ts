@@ -49,6 +49,8 @@ import { MemoryStoreTool } from './MemoryStoreTool';
 import { MemoryGraphTool } from './MemoryGraphTool';
 import { MemoryStatsTool } from './MemoryStatsTool';
 import { LearnTool } from './LearnTool';
+import { MCPSettingsTool } from './MCPSettingsTool';
+import { SkillManageTool } from './SkillManageTool';
 import { InstallTool } from './InstallTool';
 import { UninstallTool } from './UninstallTool';
 import { UpdatePersonaTool } from './UpdatePersonaTool';
@@ -399,6 +401,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new UpdatePersonaTool());
   // 学习与安装工具
   registry.register(new LearnTool());
+  registry.register(new MCPSettingsTool());
+  registry.register(new SkillManageTool());
   registry.register(new InstallTool());
   registry.register(new UninstallTool());
   // 定时任务管理工具

@@ -74,18 +74,15 @@ const VirtualMessageList = memo(function VirtualMessageList({
 
   const stableCount = stableMessages.length;
   const getScrollElement = useCallback(() => scrollElementRef.current, [scrollElementRef]);
-  const estimateSize = useCallback(() => 100, []);
-
+	const estimateSize = useCallback(() => 200, []);
   const virtualizer = useVirtualizer({
     count: stableCount > 0 ? stableCount : 1,
     getScrollElement,
     estimateSize,
-    overscan: 5,
+    overscan: 10,
   });
 
   if (!ready) {
-    // 延迟一帧挂载虚拟滚动器，避免 measureElement ref 回调
-    // 在 React commit 阶段触发 flushSync
     return null;
   }
 

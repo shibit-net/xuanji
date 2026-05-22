@@ -3,7 +3,7 @@
 // 支持单选/多选 + 自定义输入
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { HelpCircle, Send, Check } from 'lucide-react';
 import {
   Dialog,
@@ -26,6 +26,7 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
+  const respondedRef = useRef(false);
 
   // 兼容运行时数据结构：可能是 { questions: [...] } 或扁平结构
   const q = (request as any).questions?.[0] || (request as any);
@@ -38,7 +39,8 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
     : [];
 
   const handleRespond = async (answerText: string) => {
-    if (!answerText.trim()) return;
+    if (respondedRef.current) return;
+    respondedRef.current = true;
     setLoading(true);
     try {
       await window.electron.askUserRespond({
@@ -48,8 +50,14 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
       onClose();
     } catch (err) {
       console.error('Ask user respond error:', err);
+      respondedRef.current = false;
       setLoading(false);
     }
+  };
+
+  /** 取消/跳过时发送空响应，避免 agent 卡死在 pending 状态 */
+  const handleCancel = () => {
+    handleRespond('');
   };
 
   const handleOptionClick = (option: string) => {
@@ -80,7 +88,7 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog open onOpenChange={(open) => { if (!open) handleCancel(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
@@ -163,8 +171,8 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+          <Button variant="outline" onClick={handleCancel} disabled={loading}>
+            跳过
           </Button>
           <Button
             onClick={handleSubmit}

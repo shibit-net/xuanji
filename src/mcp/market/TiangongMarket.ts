@@ -117,6 +117,7 @@ export interface SearchOptions {
   categoryId?: number;
   tags?: string;
   sort?: 'downloads' | 'rating' | 'updated_at' | 'created_at';
+  status?: number;            // 1=testing, 2=live, 3=offline; 不传则后端默认
   page?: number;
   pageSize?: number;
 }
@@ -285,6 +286,9 @@ export class TiangongMarket {
     if (options.sort) {
       params.set('sort', options.sort);
     }
+    if (options.status !== undefined) {
+      params.set('status', String(options.status));
+    }
     params.set('pageNum', String(options.page ?? 1));
     params.set('pageSize', String(options.pageSize ?? 10));
 
@@ -304,10 +308,10 @@ export class TiangongMarket {
   /**
    * 获取包详情（含版本列表）
    *
-   * GET /public/packages/{packageId}
+   * GET /public/packages/detail?packageId=...
    */
   async getDetail(packageId: string): Promise<MarketPackageDetail> {
-    const path = `/public/packages/${encodeURIComponent(packageId)}`;
+    const path = `/public/packages/detail?packageId=${encodeURIComponent(packageId)}`;
     const raw = await this.get<PackageDetailRaw>(path);
     const data = this.unwrap(raw);
 
@@ -323,13 +327,15 @@ export class TiangongMarket {
   /**
    * 获取安装配置
    *
-   * GET /public/packages/{packageId}/install?version=...
+   * GET /public/packages/install?packageId=...&version=...
    */
   async getInstallConfig(packageId: string, version?: string): Promise<InstallConfig> {
-    let path = `/public/packages/${encodeURIComponent(packageId)}/install`;
+    const params = new URLSearchParams();
+    params.set('packageId', packageId);
     if (version) {
-      path += `?version=${encodeURIComponent(version)}`;
+      params.set('version', version);
     }
+    const path = `/public/packages/install?${params.toString()}`;
     const raw = await this.get<InstallConfigRaw>(path);
     return this.unwrap(raw);
   }
@@ -382,6 +388,105 @@ export class TiangongMarket {
   }
 
   /**
+   * 下载文本内容（用于 JSON 格式的 Skill prompt）
+   *
+   * 从指定 URL 下载文本内容并返回字符串。
+   * @param urlStr 下载 URL
+   * @returns 文本内容
+   */
+  async downloadText(urlStr: string): Promise<string> {
+    const downloadUrl = new URL(urlStr);
+
+    return new Promise((resolve, reject) => {
+      const client = downloadUrl.protocol === 'https:' ? https : http;
+
+      const req = client.get(
+        {
+          hostname: downloadUrl.hostname,
+          port: downloadUrl.port || (downloadUrl.protocol === 'https:' ? 443 : 80),
+          path: downloadUrl.pathname + downloadUrl.search,
+          headers: {
+            'User-Agent': 'xuanji/0.9.0',
+            ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}),
+          },
+          timeout: this.timeout,
+        },
+        (response) => {
+          const { statusCode } = response;
+
+          // Handle redirects
+          if (
+            statusCode === 301 ||
+            statusCode === 302 ||
+            statusCode === 307 ||
+            statusCode === 308
+          ) {
+            const redirectUrl = response.headers.location;
+            if (!redirectUrl) {
+              reject(new TiangongMarketError('Redirect without location header'));
+              return;
+            }
+            const resolvedRedirect = this.resolveUrl(redirectUrl, downloadUrl);
+            this.downloadText(resolvedRedirect).then(resolve).catch(reject);
+            return;
+          }
+
+          if (statusCode !== 200) {
+            reject(new TiangongMarketError(
+              `Download failed: HTTP ${statusCode}`,
+              statusCode,
+            ));
+            return;
+          }
+
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk: Buffer) => chunks.push(chunk));
+          response.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+          response.on('error', reject);
+        },
+      );
+
+      req.on('error', (err) => {
+        reject(new TiangongMarketError(`Download error: ${err.message}`));
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new TiangongMarketError(`Download timed out after ${this.timeout}ms`));
+      });
+    });
+  }
+
+  /**
+   * 发布包到天工坊（管理后台 API）
+   *
+   * POST /admin/packages
+   * Body: { name, packageId, type, description, version, categoryId, tags, ... }
+   */
+  async adminPublish(publishData: {
+    name: string;
+    packageId: string;
+    type: number;           // 1=MCP, 2=Skill
+    description: string;
+    version: string;
+    categoryId: number;
+    tags: string[];
+    repositoryUrl?: string;
+    license?: string;
+    transport?: string;
+    pricingType?: number;
+    pricingModel?: number;
+    isPrivate?: boolean;
+    configTemplate?: string;
+    packageType?: string;
+  }): Promise<{ id: number; packageId: string }> {
+    const path = '/admin/packages';
+    const body = JSON.stringify(publishData);
+    const raw = await this.post<{ id: number; packageId: string }>(path, body);
+    return this.unwrap(raw);
+  }
+
+  /**
    * 批量更新检查
    *
    * POST /public/check-updates
@@ -396,6 +501,17 @@ export class TiangongMarket {
     return this.unwrap(raw);
   }
 
+  /**
+   * 管理员删除包（管理后台 API）
+   *
+   * DELETE /admin/packages/{id}
+   */
+  async adminDelete(id: number): Promise<void> {
+    const path = `/admin/packages/${id}`;
+    const raw = await this.delete<null>(path);
+    this.unwrap(raw);
+  }
+
   // ============================================================
   // HTTP Helpers
   // ============================================================
@@ -406,6 +522,10 @@ export class TiangongMarket {
 
   private async post<T>(path: string, body: string): Promise<ApiResponse<T>> {
     return this.request<T>('POST', path, body);
+  }
+
+  private async delete<T>(path: string): Promise<ApiResponse<T>> {
+    return this.request<T>('DELETE', path);
   }
 
   private request<T>(
@@ -456,8 +576,9 @@ export class TiangongMarket {
                   apiResp.code,
                 ));
               } catch {
+                const detail = rawBody.substring(0, 200) || res.statusMessage || '';
                 reject(new TiangongMarketError(
-                  `HTTP ${res.statusCode}: ${res.statusMessage}`,
+                  `HTTP ${res.statusCode}${detail ? ': ' + detail : ''}`,
                   res.statusCode,
                 ));
               }
@@ -598,12 +719,22 @@ export class TiangongMarket {
    * 映射原始 PackageListDTO → MarketPackage
    */
   private mapPackage(raw: PackageListRaw): MarketPackage {
+    let authorName = raw.authorName ?? '';
+
+    // 后端管理员发布时硬编码作者为 "shibit"，从 scoped packageId 提取真实作者
+    if (!authorName || authorName === 'shibit') {
+      const match = raw.packageId?.match(/^@([^/]+)\//);
+      if (match) {
+        authorName = match[1];
+      }
+    }
+
     return {
       packageId: raw.packageId,
       name: raw.name,
       type: raw.type === 1 ? 'mcp' : 'skill',
       description: raw.description ?? '',
-      authorName: raw.authorName ?? '',
+      authorName,
       categoryName: raw.categoryName ?? '',
       totalDownloads: raw.totalDownloads ?? 0,
       ratingAvg: raw.ratingAvg ?? 0,

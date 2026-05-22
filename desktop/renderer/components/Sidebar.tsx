@@ -3,7 +3,7 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock } from 'lucide-react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock, Package } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
@@ -28,9 +28,10 @@ interface SidebarProps {
   onOpenMemory: () => void;
   onOpenScheduler: () => void;
   onOpenPermissions: () => void;
+  onOpenSkillsMCP: () => void;
 }
 
-export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions }: SidebarProps) {
+export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions, onOpenSkillsMCP }: SidebarProps) {
   const { user, isAuthenticated, logout } = useAuthStore();
   const language = useConfigStore((s) => s.settings.language);
 
@@ -89,6 +90,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
 
       {/* 底部快捷入口 */}
       <div className="border-t border-border p-2 space-y-1">
+        {/* 智能体核心能力 */}
         <Button variant="ghost" onClick={onOpenAgents} className="w-full justify-start h-9">
           <Bot size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.agents', language)}
@@ -97,6 +99,11 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
           <Wrench size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.tools', language)}
         </Button>
+        <Button variant="ghost" onClick={onOpenSkillsMCP} className="w-full justify-start h-9">
+          <Package size={16} className="mr-2 text-muted-foreground" />
+          {getDesktopLabel('sidebar.skills_mcp', language)}
+        </Button>
+        {/* 智能体配置 */}
         <Button variant="ghost" onClick={onOpenSystemPrompt} className="w-full justify-start h-9">
           <FileText size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.system_prompt', language)}
@@ -105,6 +112,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
           <Brain size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.memory', language)}
         </Button>
+        {/* 运维管理 */}
         <Button variant="ghost" onClick={onOpenScheduler} className="w-full justify-start h-9">
           <Clock size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.scheduler', language)}
@@ -113,6 +121,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
           <ShieldCheck size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.permissions', language)}
         </Button>
+        {/* 系统 */}
         <Button variant="ghost" onClick={onOpenSettings} className="w-full justify-start h-9">
           <Settings size={16} className="mr-2 text-muted-foreground" />
           {getDesktopLabel('sidebar.settings', language)}

@@ -18,7 +18,7 @@ provider:
   baseURL: ""
 model:
   primary: deepseek-v4-pro
-  maxTokens: 512
+  maxTokens: 8192
   temperature: 0.2
 tools:
   - name: memory_search
@@ -386,8 +386,8 @@ systemPrompt: |
 
 execution:
   mode: react
-  maxIterations: 1
-  timeout: 30000
+  maxIterations: 60
+  timeout: 360000
   streaming: false
   parallelTools: false
 permissions:

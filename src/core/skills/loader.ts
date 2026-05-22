@@ -7,6 +7,7 @@
 
 import { homedir } from 'node:os';
 import { promises as fs } from 'fs';
+import { watch } from 'node:fs';
 import path from 'path';
 import type { Skill, SkillLoadOptions } from './types';
 import { SkillRegistry } from './registry';
@@ -19,6 +20,8 @@ const log = logger.child({ module: 'SkillLoader' });
  */
 export class SkillLoader {
   private loadedFiles: string[] = [];
+  /** 文件路径 → skillId 映射，用于热重载时追踪文件删除 */
+  private fileSkillMap = new Map<string, string>();
 
   constructor(
     private registry: SkillRegistry,
@@ -184,6 +187,7 @@ export class SkillLoader {
       if (skill) {
         this.registry.register(skill);
         this.loadedFiles.push(filePath);
+        this.fileSkillMap.set(filePath, skill.id);
       }
     } catch (error) {
       log.warn(`Failed to load skill from ${filePath}:`, error);
@@ -282,7 +286,7 @@ export class SkillLoader {
       typeof obj.name === 'string' &&
       typeof obj.version === 'string' &&
       typeof obj.description === 'string' &&
-      ['prompt', 'agent', 'action', 'workflow'].includes(obj.category) &&
+      ['prompt', 'action', 'workflow'].includes(obj.category) &&
       Array.isArray(obj.tags)
     );
   }
@@ -293,7 +297,99 @@ export class SkillLoader {
   async reload(options: SkillLoadOptions = {}): Promise<void> {
     this.registry.clear();
     this.loadedFiles = [];
+    this.fileSkillMap.clear();
     await this.load(options);
+  }
+
+  // ─── 热重载 ────────────────────────────────────
+
+  /**
+   * 启动热重载 — 监听 skill 目录变化，自动注册/注销 Skill。
+   *
+   * 监听 ~/.xuanji/skills/installed/ 和 custom 目录。
+   */
+  startHotReload(customPath: string): void {
+    const dirs = [
+      customPath,                          // ~/.xuanji/skills/
+      path.join(customPath, 'installed'), // ~/.xuanji/skills/installed/
+    ];
+
+    for (const dir of dirs) {
+      // 先创建目录（如果不存在）
+      fs.mkdir(dir, { recursive: true }).catch(() => {});
+
+      try {
+        const watcher = watch(dir, { recursive: true }, (eventType, filename) => {
+          if (!filename) return;
+          const fullPath = path.join(dir, filename);
+          // 忽略临时文件和 manifest
+          if (filename.startsWith('.') || filename === 'manifest.json') return;
+
+          // 防抖
+          debounceHotReload(() => {
+            this.hotReloadDirectory(dir).catch(err =>
+              log.error('Skill hot reload error:', err),
+            );
+          });
+        });
+
+        watcher.on('error', (err) => {
+          log.warn(`Skill watcher error on ${dir}:`, err);
+        });
+
+        log.info(`Watching skills dir: ${dir}`);
+      } catch (err) {
+        log.warn(`Failed to watch skills dir ${dir}:`, err);
+      }
+    }
+  }
+
+  /**
+   * 热重载单个目录：扫描文件，对比 tracked files，增删 Skill
+   */
+  private async hotReloadDirectory(dirPath: string): Promise<void> {
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const currentFiles = new Set<string>();
+
+      for (const entry of entries) {
+        if (entry.isFile()) {
+          const filePath = path.join(dirPath, entry.name);
+          if (entry.name.startsWith('.') || entry.name === 'manifest.json') continue;
+          currentFiles.add(filePath);
+        } else if (entry.isDirectory()) {
+          // 子目录（tar.gz 安装的 Skill）
+          const subEntries = await fs.readdir(path.join(dirPath, entry.name), { withFileTypes: true }).catch(() => []);
+          for (const sub of subEntries) {
+            if (sub.isFile() && !sub.name.startsWith('.')) {
+              currentFiles.add(path.join(dirPath, entry.name, sub.name));
+            }
+          }
+        }
+      }
+
+      // 被删除的文件 → 注销对应 Skill
+      for (const [filePath, skillId] of this.fileSkillMap.entries()) {
+        if (filePath.startsWith(dirPath) && !currentFiles.has(filePath)) {
+          log.info(`[hot-reload] Skill file removed: ${filePath}, unregistering ${skillId}`);
+          this.registry.unregister(skillId);
+          this.fileSkillMap.delete(filePath);
+          this.loadedFiles = this.loadedFiles.filter(f => f !== filePath);
+        }
+      }
+
+      // 新增的文件 → 加载
+      for (const filePath of currentFiles) {
+        if (!this.fileSkillMap.has(filePath)) {
+          log.info(`[hot-reload] New skill file detected: ${filePath}`);
+          await this.loadSkillFile(filePath);
+        }
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.error('Hot reload directory scan failed:', err);
+      }
+    }
   }
 
   /**
@@ -302,6 +398,17 @@ export class SkillLoader {
   async getLoadedSkillFiles(): Promise<string[]> {
     return [...this.loadedFiles];
   }
+}
+
+// ============================================================
+// 防抖工具
+// ============================================================
+
+let hotReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debounceHotReload(fn: () => void): void {
+  if (hotReloadTimer) clearTimeout(hotReloadTimer);
+  hotReloadTimer = setTimeout(fn, 500);
 }
 
 /**

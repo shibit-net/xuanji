@@ -583,6 +583,23 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       }
     }
     log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));
+
+    // 中断时清理所有 pending 的 ask_user / permission / planReview promises
+    if (data.type === 'INTERRUPT') {
+      for (const [id, resolve] of pendingAskUsers) {
+        resolve('（已取消）');
+        pendingAskUsers.delete(id);
+      }
+      for (const [id, resolve] of pendingPermissions) {
+        resolve({ allowed: false, remember: false });
+        pendingPermissions.delete(id);
+      }
+      for (const [id, resolve] of pendingPlanReviews) {
+        resolve({ approved: false, feedback: '已取消' });
+        pendingPlanReviews.delete(id);
+      }
+    }
+
     await session.userAction({ type: data.type, message: fullMessage || data.message });
     log.info('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
@@ -1521,6 +1538,484 @@ channel.handle('scheduler-logs', (data: { limit?: number }) => {
   }
 });
 
+// ============ MCP & Skills 管理 ============
+channel.handle('mcp-list', () => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const mcpManager = mm.mcpManager;
+    if (!mcpManager) return { success: false, error: 'MCPManager 未初始化' };
+    const servers = (mcpManager.servers || []).map((s: any) => ({
+      name: s.name,
+      transport: s.transport || 'stdio',
+      enabled: s.enabled !== false,
+      toolCount: s.tools?.length || 0,
+      source: s.source || 'marketplace',
+      packageId: s.packageId || '',
+    }));
+    return { success: true, servers };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('mcp-toggle', async (data: { name: string; enabled: boolean }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const mcpManager = mm.mcpManager;
+    if (!mcpManager) return { success: false, error: 'MCPManager 未初始化' };
+    const server = (mcpManager.servers || []).find((s: any) => s.name === data.name);
+    if (!server) return { success: false, error: `未找到 MCP 服务器: ${data.name}` };
+    server.enabled = data.enabled;
+    if (typeof mcpManager.updateServer === 'function') {
+      await mcpManager.updateServer(data.name, { enabled: data.enabled });
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('mcp-detail', (data: { name: string }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const mcpManager = mm.mcpManager;
+    if (!mcpManager) return { success: false, error: 'MCPManager 未初始化' };
+    const server = (mcpManager.servers || []).find((s: any) => s.name === data.name);
+    if (!server) return { success: false, error: `未找到 MCP 服务器: ${data.name}` };
+    return {
+      success: true,
+      server: {
+        name: server.name,
+        transport: server.transport || 'stdio',
+        enabled: server.enabled !== false,
+        toolCount: server.tools?.length || 0,
+        tools: (server.tools || []).map((t: any) => ({ name: t.name, description: t.description || '' })),
+        config: server.config || {},
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('skill-list', () => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const registry = mm.skillRegistry;
+    if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+    const skills = (registry.list?.() || []).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      version: s.version || '?',
+      description: s.description || '',
+      category: s.category || 'prompt',
+      source: s.source || 'builtin',
+      tags: s.tags || [],
+      enabled: s.enabled !== false,
+      requiredTools: s.requiredTools || [],
+      content: typeof s.content === 'string' ? s.content.slice(0, 500) : '',
+    }));
+    return { success: true, skills };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('skill-toggle', (data: { id: string; enabled: boolean }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const registry = mm.skillRegistry;
+    if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+    const skill = registry.get?.(data.id);
+    if (!skill) return { success: false, error: `未找到 Skill: ${data.id}` };
+    skill.enabled = data.enabled;
+    if (typeof registry.update === 'function') registry.update(skill);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+channel.handle('skill-detail', (data: { id: string }) => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    const registry = mm.skillRegistry;
+    if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+    const skill = registry.get?.(data.id);
+    if (!skill) return { success: false, error: `未找到 Skill: ${data.id}` };
+    return {
+      success: true,
+      skill: {
+        id: skill.id,
+        name: skill.name,
+        version: skill.version,
+        description: skill.description,
+        category: skill.category,
+        source: skill.source,
+        tags: skill.tags,
+        enabled: skill.enabled !== false,
+        requiredTools: skill.requiredTools,
+        content: typeof skill.content === 'string' ? skill.content : JSON.stringify(skill.content || {}),
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+  // ============ MCP 卸载 ============
+  channel.handle('mcp-uninstall', async (data: { serverName?: string; packageId?: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const installer = mm.mcpInstaller;
+      const mcpManager = mm.mcpManager;
+      if (!installer) return { success: false, error: 'MCPInstaller 未初始化（天工坊未配置）' };
+
+      // 优先用 serverName，否则用 packageId 查找对应的 serverName
+      let serverName = data.serverName;
+      if (!serverName && data.packageId && mcpManager) {
+        const server = (mcpManager.servers || []).find((s: any) => s.packageId === data.packageId);
+        serverName = server?.name;
+      }
+      if (!serverName) {
+        return { success: false, error: '未找到对应的 MCP 服务器' };
+      }
+      const ok = await installer.uninstall(data.packageId || serverName, serverName);
+      return { success: ok, ...(ok ? {} : { error: '卸载失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ Skill 卸载 ============
+  channel.handle('skill-uninstall', async (data: { skillId: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const installer = mm.skillInstaller;
+      if (!installer) return { success: false, error: 'SkillInstaller 未初始化（天工坊未配置）' };
+      const result = await installer.uninstall(data.skillId);
+      return { success: result.success, ...(result.success ? {} : { error: result.error || '卸载失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ MCP 安装 ============
+  channel.handle('mcp-install', async (data: { packageId: string; version?: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const installer = mm.mcpInstaller;
+      if (!installer) return { success: false, error: 'MCPInstaller 未初始化（天工坊未配置）' };
+      const result = await installer.install(data.packageId, { version: data.version });
+      return { success: result.success, ...(result.success ? { config: result.config } : { error: result.error || '安装失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ Skill 安装 ============
+  channel.handle('skill-install', async (data: { packageId: string; version?: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const installer = mm.skillInstaller;
+      if (!installer) return { success: false, error: 'SkillInstaller 未初始化（天工坊未配置）' };
+      const result = await installer.install({ packageId: data.packageId, version: data.version });
+      return { success: result.success, ...(result.success ? { skillId: result.skillId } : { error: result.error || '安装失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 天工坊搜索 ============
+  channel.handle('tiangong-search', async (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const market = mm.tiangongMarket;
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const result = await market.search({
+        type: data.type,
+        query: data.query,
+        categoryId: data.categoryId,
+        tags: data.tags,
+        sort: data.sort as any,
+        page: data.page || 1,
+        pageSize: data.pageSize || 20,
+      });
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 天工坊详情 ============
+  channel.handle('tiangong-detail', async (data: { packageId: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const market = mm.tiangongMarket;
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const detail = await market.getDetail(data.packageId);
+      return { success: true, data: detail };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ Skill 发布到天工坊 ============
+  channel.handle('skill-publish', async (data: { skillId: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const registry = mm.skillRegistry;
+      const market = mm.tiangongMarket;
+      if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const skill = registry.get?.(data.skillId);
+      if (!skill) return { success: false, error: `未找到 Skill: ${data.skillId}` };
+
+      const publishData = {
+        name: skill.name,
+        packageId: `skill-${skill.id}`,
+        type: 2,
+        description: skill.description || '',
+        version: skill.version || '0.1.0',
+        categoryId: 8,
+        tags: skill.tags || [],
+        repositoryUrl: '',
+        license: 'MIT',
+        transport: 'stdio',
+        pricingType: 0,
+        pricingModel: 0,
+        isPrivate: false,
+        configTemplate: JSON.stringify({ name: skill.id, type: 'prompt', command: 'npx', args: ['-y', 'skill-prompt'] }),
+        packageType: skill.category || 'prompt',
+      };
+
+      const result = await market.adminPublish(publishData);
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ MCP 发布到天工坊 ============
+  channel.handle('mcp-publish', async (data: { serverName: string }) => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const mcpManager = mm.mcpManager;
+      const market = mm.tiangongMarket;
+      if (!mcpManager) return { success: false, error: 'MCPManager 未初始化' };
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const server = (mcpManager.servers || []).find((s: any) => s.name === data.serverName);
+      if (!server) return { success: false, error: `未找到 MCP 服务器: ${data.serverName}` };
+
+      const publishData = {
+        name: server.name,
+        packageId: `mcp-${server.name}`,
+        type: 1,
+        description: server.config?.description || server.name,
+        version: server.config?.version || '0.1.0',
+        categoryId: 8,
+        tags: server.config?.tags || [],
+        repositoryUrl: '',
+        license: 'MIT',
+        transport: server.transport || 'stdio',
+        pricingType: 0,
+        pricingModel: 0,
+        isPrivate: false,
+        configTemplate: JSON.stringify(server.config || {}),
+        packageType: 'mcp',
+      };
+
+      const result = await market.adminPublish(publishData);
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 获取已安装的 MCP/Skill ID 列表（用于前端标记安装状态） ============
+  channel.handle('tiangong-installed-ids', () => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const mcpManager = mm.mcpManager;
+      const registry = mm.skillRegistry;
+      const installedMcpIds: string[] = [];
+      const installedSkillIds: string[] = [];
+
+      if (mcpManager) {
+        const servers = mcpManager.servers || [];
+        for (const s of servers) {
+          if (s.packageId) installedMcpIds.push(s.packageId);
+        }
+      }
+      if (registry) {
+        const skills = registry.list?.() || [];
+        for (const s of skills) {
+          if (s.packageId) installedSkillIds.push(s.packageId);
+        }
+      }
+
+      return { success: true, mcpIds: installedMcpIds, skillIds: installedSkillIds };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 更新检查 ============
+  channel.handle('tiangong-check-updates', async () => {
+    const mm = getMemoryManager();
+    if (!mm) return { success: false, error: '记忆系统未初始化' };
+    try {
+      const market = mm.tiangongMarket;
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const mcpManager = mm.mcpManager;
+      const registry = mm.skillRegistry;
+
+      const packages: Array<{ packageId: string; currentVersion: string }> = [];
+      if (mcpManager) {
+        for (const s of (mcpManager.servers || [])) {
+          if (s.packageId && s.installedVersion) {
+            packages.push({ packageId: s.packageId, currentVersion: s.installedVersion });
+          }
+        }
+      }
+      if (registry) {
+        for (const s of (registry.list?.() || [])) {
+          if (s.packageId && s.installedVersion) {
+            packages.push({ packageId: s.packageId, currentVersion: s.installedVersion });
+          }
+        }
+      }
+
+      if (packages.length === 0) return { success: true, updates: [] };
+      const updates = await market.checkUpdates(packages);
+      return { success: true, updates };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 删除包（管理员） ============
+  channel.handle('tiangong-delete', async (data: { id: number }) => {
+    try {
+      const market = await _getOrCreateMarket();
+      if (!market) return { success: false, error: '天工坊未配置' };
+      await market.adminDelete(data.id);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // 懒初始化天工坊市场（SessionFactory 已用默认 URL，此处兜底）
+  const _getOrCreateMarket = async () => {
+    const mm = getMemoryManager();
+    if (!mm) return null;
+    if (mm.tiangongMarket) return mm.tiangongMarket;
+    try {
+      const { TiangongMarket } = await import('../../src/mcp/market/TiangongMarket.js');
+      const market = new TiangongMarket({ baseUrl: 'https://shibit.net/api/tiangong' });
+      mm.tiangongMarket = market;
+      return market;
+    } catch { return null; }
+  };
+
+  // 更新 tiangong-search 使用懒初始化
+  // (需要重新注册以覆盖之前的 handler)
+  channel.unhandle('tiangong-search');
+  channel.handle('tiangong-search', async (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => {
+    try {
+      const market = await _getOrCreateMarket();
+      if (!market) return { success: false, error: '天工坊服务暂不可用，请稍后重试' };
+      const result = await market.search({
+        type: data.type,
+        query: data.query,
+        categoryId: data.categoryId,
+        tags: data.tags,
+        sort: data.sort as any,
+        page: data.page || 1,
+        pageSize: data.pageSize || 20,
+      });
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // 更新 tiangong-detail 使用懒初始化
+  channel.unhandle('tiangong-detail');
+  channel.handle('tiangong-detail', async (data: { packageId: string }) => {
+    try {
+      const market = await _getOrCreateMarket();
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const detail = await market.getDetail(data.packageId);
+      return { success: true, data: detail };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // 更新 mcp-install 使用懒初始化
+  channel.unhandle('mcp-install');
+  channel.handle('mcp-install', async (data: { packageId: string; version?: string }) => {
+    try {
+      const market = await _getOrCreateMarket();
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const mm = getMemoryManager();
+      if (!mm) return { success: false, error: '记忆系统未初始化' };
+      const mcpManager = mm.mcpManager;
+      if (!mcpManager) return { success: false, error: 'MCPManager 未初始化' };
+      // 懒创建 MCPInstaller
+      let installer = mm.mcpInstaller;
+      if (!installer) {
+        const { MCPInstaller } = await import('../../src/mcp/market/MCPInstaller.js');
+        installer = new MCPInstaller(market, mcpManager);
+        mm.mcpInstaller = installer;
+      }
+      const result = await installer.install(data.packageId, { version: data.version });
+      return { success: result.success, ...(result.success ? { config: result.config } : { error: result.error || '安装失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // 更新 skill-install 使用懒初始化
+  channel.unhandle('skill-install');
+  channel.handle('skill-install', async (data: { packageId: string; version?: string }) => {
+    try {
+      const market = await _getOrCreateMarket();
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const mm = getMemoryManager();
+      if (!mm) return { success: false, error: '记忆系统未初始化' };
+      const registry = mm.skillRegistry;
+      if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+      let installer = mm.skillInstaller;
+      if (!installer) {
+        const { SkillInstaller } = await import('../../src/core/skills/SkillInstaller.js');
+        installer = new SkillInstaller(market, registry);
+        mm.skillInstaller = installer;
+      }
+      const result = await installer.install({ packageId: data.packageId, version: data.version });
+      return { success: result.success, ...(result.success ? { skillId: result.skillId } : { error: result.error || '安装失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
 // ============ 关闭 ============
 channel.on('shutdown', () => {
   process.exit(0);
@@ -1717,6 +2212,22 @@ function registerHookEventBridge() {
   eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
     const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
     safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata } });
+
+    // 检测工具结果中的图片数据，发送到前端渲染
+    try {
+      if (payload.result && typeof payload.result === 'string') {
+        const parsed = JSON.parse(payload.result);
+        if (parsed?.contentBlocks && Array.isArray(parsed.contentBlocks)) {
+          for (const block of parsed.contentBlocks) {
+            if (block.type === 'image' && block.source?.data) {
+              safeSend({ type: 'agent:content-block', data: {
+                block: { type: 'image', data: block.source.data, mimeType: block.source.media_type || 'image/png' }
+              }});
+            }
+          }
+        }
+      }
+    } catch (_) { /* result 不是 JSON，跳过 */ }
 
     // Layer 0: 写入结构化工具事件到 session_events 表
     try {

@@ -112,7 +112,7 @@ export class AskUserTool extends BaseTool {
     this.permissionController = controller;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const question = input.question as string;
     if (!question?.trim()) {
       return this.error('问题不能为空');
@@ -120,6 +120,11 @@ export class AskUserTool extends BaseTool {
 
     if (!this.handler) {
       return this.error('用户交互不可用（非交互模式）');
+    }
+
+    // 信号已触发则立即取消
+    if (signal?.aborted) {
+      return this.error('用户取消了提问');
     }
 
     const request: AskUserRequest = {
@@ -145,11 +150,22 @@ export class AskUserTool extends BaseTool {
         setTimeout(() => reject(new Error('用户回复超时')), timeout);
       });
 
+      // 将 AbortSignal 转换为 Promise，信号触发时取消等待
+      const abortPromise = signal
+        ? new Promise<never>((_, reject) => {
+            if (signal.aborted) {
+              reject(new Error('已取消'));
+            } else {
+              signal.addEventListener('abort', () => reject(new Error('已取消')), { once: true });
+            }
+          })
+        : null;
+
       try {
-        const answer = await Promise.race([
-          this.handler!(request),
-          timeoutPromise,
-        ]);
+        const promises: Promise<string>[] = [this.handler!(request), timeoutPromise];
+        if (abortPromise) promises.push(abortPromise);
+
+        const answer = await Promise.race(promises);
 
         const answerStr = typeof answer === 'string'
           ? answer

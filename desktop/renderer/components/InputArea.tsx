@@ -907,8 +907,9 @@ export default function InputArea() {
           )}
         </div>
 
-        {/* 停止 / 发送按钮 */}
-        {isRunning && !input.trim() && attachments.length === 0 && !isSending ? (
+        {/* 停止 / 发送按钮：仅前台 agent 自身活跃时显示停止，pending(等待子任务)时允许发送 */}
+        {!input.trim() && attachments.length === 0 && !isSending &&
+          (foregroundStatus === 'thinking' || foregroundStatus === 'executing' || foregroundStatus === 'writing' || foregroundStatus === 'reporting') ? (
           <Button
             variant="destructive"
             onClick={handleStop}

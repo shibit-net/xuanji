@@ -79,13 +79,20 @@ export class ToolGateway {
       return { content: `Tool not found: ${toolCall.name}`, isError: true };
     }
 
-    // 如果 context 没有 signal，创建一个用于 abortAll 追踪
+    // 始终创建本地 controller，确保 abortAll 能取消所有工具执行
     const controller = new AbortController();
     this.activeControllers.add(controller);
-    const signal = context.signal ?? controller.signal;
+    // 链接外部 signal：外部 signal 触发时也触发本地 controller
+    if (context.signal) {
+      if (context.signal.aborted) {
+        controller.abort();
+      } else {
+        context.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
 
     try {
-      const result = await this.registry.execute(toolCall.name, toolCall.input, signal);
+      const result = await this.registry.execute(toolCall.name, toolCall.input, controller.signal);
       this.recordMetric(toolCall.name, Date.now() - start, false);
       return result;
     } catch (err) {

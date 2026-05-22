@@ -295,6 +295,30 @@
   schedulerRemove: (data: { id: string }) => ipcRenderer.invoke('scheduler:remove', data),
   schedulerLogs: (data?: { limit?: number }) => ipcRenderer.invoke('scheduler:logs', data || {}),
 
+  // ============ MCP 管理 ============
+  mcpList: () => ipcRenderer.invoke('mcp:list'),
+  mcpToggle: (data: { name: string; enabled: boolean }) => ipcRenderer.invoke('mcp:toggle', data),
+  mcpDetail: (data: { name: string }) => ipcRenderer.invoke('mcp:detail', data),
+  mcpUninstall: (data: { serverName?: string; packageId?: string }) => ipcRenderer.invoke('mcp:uninstall', data),
+  mcpInstall: (data: { packageId: string; version?: string }) => ipcRenderer.invoke('mcp:install', data),
+  mcpPublish: (data: { serverName: string }) => ipcRenderer.invoke('mcp:publish', data),
+
+  // ============ Skill 管理 ============
+  skillList: () => ipcRenderer.invoke('skill:list'),
+  skillToggle: (data: { id: string; enabled: boolean }) => ipcRenderer.invoke('skill:toggle', data),
+  skillDetail: (data: { id: string }) => ipcRenderer.invoke('skill:detail', data),
+  skillUninstall: (data: { skillId: string }) => ipcRenderer.invoke('skill:uninstall', data),
+  skillInstall: (data: { packageId: string; version?: string }) => ipcRenderer.invoke('skill:install', data),
+  skillPublish: (data: { skillId: string }) => ipcRenderer.invoke('skill:publish', data),
+
+  // ============ 天工坊市场 ============
+  tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) =>
+    ipcRenderer.invoke('tiangong:search', data),
+  tiangongDetail: (data: { packageId: string }) => ipcRenderer.invoke('tiangong:detail', data),
+  tiangongInstalledIds: () => ipcRenderer.invoke('tiangong:installedIds'),
+  tiangongCheckUpdates: () => ipcRenderer.invoke('tiangong:checkUpdates'),
+  tiangongDeletePackage: (data: { id: number }) => ipcRenderer.invoke('tiangong:deletePackage', data),
+
   // ============ 调试日志（写入磁盘文件） ============
   debugLog: (message: string) => ipcRenderer.invoke('debug:log', message),
 });

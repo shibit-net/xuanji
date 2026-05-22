@@ -20,6 +20,7 @@ import type {
 } from './types';
 import { logger } from '@/core/logger';
 import { mcpSettingsPersistence } from './config/settings-persistence';
+import { watchFile } from 'node:fs';
 
 const log = logger.child({ module: 'MCPManager' });
 
@@ -74,6 +75,7 @@ export class MCPManager {
     this.initPromise = this._doInitialize(effectiveConfig);
     try {
       await this.initPromise;
+      this.startHotReload();
     } finally {
       this.initPromise = undefined;
     }
@@ -247,8 +249,23 @@ export class MCPManager {
    */
   async loadFromConfig(): Promise<MCPConfig> {
     const servers = await mcpSettingsPersistence.listServers();
-    log.debug(`Loaded ${servers.length} server(s) from config`);
-    return { servers };
+    const marketplace = await mcpSettingsPersistence.getMarketplaceConfig();
+    log.debug(`Loaded ${servers.length} server(s) from config, marketplace: ${marketplace?.baseUrl || 'not set'}`);
+    return { servers, marketplace };
+  }
+
+  /** 获取天工坊 marketplace 配置 */
+  async getMarketplaceConfig(): Promise<MCPConfig['marketplace']> {
+    return mcpSettingsPersistence.getMarketplaceConfig();
+  }
+
+  /** 设置天工坊 marketplace 配置 */
+  async setMarketplaceConfig(marketplace: MCPConfig['marketplace']): Promise<void> {
+    await mcpSettingsPersistence.setMarketplaceConfig(marketplace);
+    // 更新内存中的 config
+    if (this.config) {
+      this.config.marketplace = marketplace;
+    }
   }
 
   /**
@@ -273,6 +290,71 @@ export class MCPManager {
       await mcpSettingsPersistence.addServer(s);
     }
     log.debug(`Saved ${this.config.servers.length} server(s) to config`);
+  }
+
+  // ─── 热重载 ────────────────────────────────────
+
+  /**
+   * 热重载配置：从 ~/.xuanji/mcp.json 重新加载，自动 diff 增删服务器。
+   *
+   * - 文件中有但内存中没有 → addServer()
+   * - 内存中有但文件中没有 → removeServer()
+   */
+  async reloadConfig(): Promise<void> {
+    if (!this.initialized) {
+      log.debug('Not initialized, skipping hot reload');
+      return;
+    }
+
+    try {
+      // 清除缓存确保读到最新文件内容
+      mcpSettingsPersistence.clearCache();
+      const fileServers = await mcpSettingsPersistence.listServers();
+      const memoryNames = new Set(this.clients.keys());
+      const fileNames = new Set(fileServers.map(s => s.name));
+
+      // 新增的 server
+      for (const server of fileServers) {
+        if (!memoryNames.has(server.name)) {
+          log.info(`[hot-reload] Adding new server: ${server.name}`);
+          await this.addServer(server);
+        }
+      }
+
+      // 被移除的 server
+      for (const name of memoryNames) {
+        if (!fileNames.has(name)) {
+          log.info(`[hot-reload] Removing server: ${name}`);
+          await this.removeServer(name);
+        }
+      }
+
+      log.debug(`Hot reload complete: ${this.clients.size} server(s) active`);
+    } catch (err) {
+      log.error('Hot reload failed:', err);
+    }
+  }
+
+  /**
+   * 启动文件监控 — 监听 ~/.xuanji/mcp.json 变化，自动热重载。
+   *
+   * 使用 fs.watchFile 实现，兼容性好，跨平台。
+   */
+  startHotReload(): void {
+    const configPath = mcpSettingsPersistence.configPath;
+    log.info(`Watching for MCP config changes: ${configPath}`);
+
+    // 防抖：500ms 内的多次变化只处理一次
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    watchFile(configPath, { interval: 1000 }, () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        this.reloadConfig().catch(err =>
+          log.error('Hot reload error:', err),
+        );
+      }, 500);
+    });
   }
 
   /**
@@ -448,6 +530,17 @@ export class MCPManager {
     this._shutdown = true;
     MCPManager.instance = undefined;
     log.info('All MCP servers shut down');
+  }
+
+  /**
+   * 获取所有已配置的服务器（含运行时工具数量）
+   */
+  get servers(): Array<MCPServerConfig & { tools?: MCPTool[] }> {
+    if (!this.config) return [];
+    return this.config.servers.map(s => {
+      const client = this.clients.get(s.name);
+      return { ...s, tools: (client as any)?.toolsCache ?? [] };
+    });
   }
 
   /**
