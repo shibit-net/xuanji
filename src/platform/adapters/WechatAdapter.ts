@@ -345,6 +345,10 @@ export class WechatAdapter implements PlatformAdapter {
 
     // 处理消息
     for (const raw of data.msgs || []) {
+      // 打印原始消息结构，用于对比图片/文件消息格式
+      if (raw.item_list?.some((item: any) => item.type === 2 || item.type === 4)) {
+        log.info(`[DIAG] Incoming msg with media: ${JSON.stringify(raw).slice(0, 1000)}`);
+      }
       const msg = this.parseMessage(raw);
       if (msg) {
         this.messageHandler?.(msg);
@@ -357,10 +361,16 @@ export class WechatAdapter implements PlatformAdapter {
   private parseMessage(raw: any): PlatformMessage | null {
     if (!raw.from_user_id || !raw.item_list?.length) return null;
 
-    // 保存 bot 自身的 user ID（用于发送回复时的 from_user_id）
+    // 保存 bot 自身的 user ID（用于发送回复时的 from_user_id 和过滤回显示消息）
     if (raw.to_user_id && !this.botUserId) {
       this.botUserId = raw.to_user_id;
       log.info(`[DIAG] WechatAdapter botUserId set to: ${this.botUserId}`);
+    }
+
+    // 过滤掉来自 bot 自己的回显示消息（echo），避免 Agent 自循环
+    if (this.botUserId && raw.from_user_id === this.botUserId) {
+      log.debug(`Skipping echo message from bot self: ${raw.message_id}`);
+      return null;
     }
 
     // 提取文本
@@ -471,13 +481,12 @@ export class WechatAdapter implements PlatformAdapter {
     const filekey = randomBytes(16).toString('hex');
     const aesKey = randomBytes(16);
 
-    // 1. PKCS7 padding + AES-128-ECB 加密
-    const blockSize = 16;
-    const paddingLen = blockSize - (rawSize % blockSize);
-    const padded = Buffer.concat([fileBuffer, Buffer.alloc(paddingLen, paddingLen)]);
+    // 1. AES-128-ECB + PKCS7 填充加密
     const cipher = createCipheriv('aes-128-ecb', aesKey, null);
-    cipher.setAutoPadding(false);
-    const encrypted = Buffer.concat([cipher.update(padded), cipher.final()]);
+    const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+    const encryptedLen = encrypted.length;
+
+    log.info(`[DIAG] sendImage: file=${options.imagePath} size=${rawSize} encrypted=${encryptedLen}`);
 
     // 2. 获取 CDN 上传 URL
     const getUploadUrlRes = await fetch(
@@ -491,37 +500,38 @@ export class WechatAdapter implements PlatformAdapter {
           to_user_id: options.chatId,
           rawsize: rawSize,
           rawfilemd5: rawMd5,
-          filesize: encrypted.length,
-          no_need_thumb: true,
+          filesize: encryptedLen,
           aeskey: aesKey.toString('hex'),
         }),
       },
     );
 
-    const uploadData = await getUploadUrlRes.json() as any;
-    if (uploadData.ret !== 0) {
+    const uploadRawText = await getUploadUrlRes.text();
+    log.info(`[DIAG] getuploadurl HTTP ${getUploadUrlRes.status}, body: ${uploadRawText.slice(0, 300)}`);
+    const uploadData = JSON.parse(uploadRawText) as any;
+    if (uploadData.ret != null && uploadData.ret !== 0) {
       throw new Error(`Wechat getuploadurl failed: ret=${uploadData.ret}`);
     }
 
-    // 3. POST 密文到 CDN
-    const cdnRes = await fetch(
-      `https://novac2c.cdn.weixin.qq.com/c2c/upload?encrypted_query_param=${encodeURIComponent(uploadData.upload_param)}&filekey=${filekey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: encrypted,
-      },
-    );
+    // 3. 上传加密数据到 CDN
+    const cdnUrl = uploadData.upload_full_url || '';
+    if (!cdnUrl) {
+      throw new Error('Wechat getuploadurl missing upload_full_url');
+    }
+    const cdnRes = await fetch(cdnUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: encrypted,
+    });
 
-    const downloadParam = cdnRes.headers.get('x-encrypted-param');
-    if (!downloadParam) {
-      throw new Error('Wechat CDN upload missing x-encrypted-param header');
+    const cdnStatus = cdnRes.status;
+    const encryptQueryParam = cdnRes.headers.get('x-encrypted-param');
+    log.info(`[DIAG] CDN upload: status=${cdnStatus} encrypt_query_param=${encryptQueryParam ? 'present' : 'MISSING'}`);
+    if (!encryptQueryParam) {
+      throw new Error(`Wechat CDN upload missing x-encrypted-param header (status=${cdnStatus})`);
     }
 
-    // 4. 图片 aes_key 编码：base64(raw 16 bytes)
-    const aesKeyEncoded = Buffer.from(aesKey).toString('base64');
-
-    // 5. 构建 sendmessage 请求
+    // 4. sendmessage：aes_key 用 hex → base64 编码（与微信官方插件一致）
     const clientId = `xuanji-wechat-${randomUUID()}`;
     const contextToken = this.contextTokens.get(options.chatId) || '';
 
@@ -536,18 +546,22 @@ export class WechatAdapter implements PlatformAdapter {
           type: 2,
           image_item: {
             media: {
-              filekey,
-              download_param: downloadParam,
-              aes_key: aesKeyEncoded,
-              full_url: '', // CDN 方式不需要 full_url
+              encrypt_query_param: encryptQueryParam,
+              aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+              encrypt_type: 1,
             },
+            mid_size: encryptedLen,
           },
         }],
       },
-      base_info: { channel_version: '1.0.2', bot_agent: 'xuanji/1.0' },
+      base_info: { channel_version: '2.4.4', bot_agent: 'xuanji/1.0' },
     };
 
-    body.msg.context_token = contextToken;
+    if (contextToken) {
+      body.msg.context_token = contextToken;
+    }
+
+    log.info(`[DIAG] sendImage body: ${JSON.stringify(body).slice(0, 500)}`);
 
     const sendRes = await fetch(
       `${this.tokenInfo.baseUrl}/ilink/bot/sendmessage`,
@@ -558,11 +572,234 @@ export class WechatAdapter implements PlatformAdapter {
       },
     );
 
-    const sendData = await sendRes.json() as any;
+    const sendRawText = await sendRes.text();
+    log.info(`[DIAG] sendImage sendmessage: HTTP ${sendRes.status}, body: ${sendRawText.slice(0, 300)}`);
+    const sendData = JSON.parse(sendRawText) as any;
     if (sendData.ret != null && sendData.ret !== 0) {
       throw new Error(`Wechat sendImage failed: ret=${sendData.ret}`);
     }
 
+    log.info(`[DIAG] sendImage succeeded: msg_id=${sendData.msg_id || clientId}`);
+    return sendData.msg_id || clientId;
+  }
+
+  async sendFile(options: { chatId: string; filePath: string; fileName?: string; replyTo?: string }): Promise<string> {
+    if (!this.tokenInfo) throw new Error('Wechat not authenticated');
+
+    const fileBuffer = readFileSync(options.filePath);
+    const rawSize = fileBuffer.length;
+    const rawMd5 = createHash('md5').update(fileBuffer).digest('hex');
+    const filekey = randomBytes(16).toString('hex');
+    const aesKey = randomBytes(16);
+    const fileName = options.fileName || path.basename(options.filePath);
+
+    log.info(`[DIAG] sendFile: file=${options.filePath} name=${fileName} size=${rawSize} (${(rawSize / 1024).toFixed(0)}KB)`);
+
+    // 1. AES-128-ECB + PKCS7 填充加密
+    const cipher = createCipheriv('aes-128-ecb', aesKey, null);
+    const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+    const encryptedLen = encrypted.length;
+
+    log.info(`[DIAG] sendFile: file=${options.filePath} name=${fileName} size=${rawSize} encrypted=${encryptedLen}`);
+
+    // 2. 获取 CDN 上传 URL
+    const getUploadUrlRes = await fetch(
+      `${this.tokenInfo.baseUrl}/ilink/bot/getuploadurl`,
+      {
+        method: 'POST',
+        headers: this.buildHeaders(this.tokenInfo.token),
+        body: JSON.stringify({
+          filekey,
+          media_type: 3,
+          to_user_id: options.chatId,
+          rawsize: rawSize,
+          rawfilemd5: rawMd5,
+          filesize: encryptedLen,
+          aeskey: aesKey.toString('hex'),
+        }),
+      },
+    );
+
+    const uploadRawText = await getUploadUrlRes.text();
+    log.info(`[DIAG] sendFile getuploadurl HTTP ${getUploadUrlRes.status}, body: ${uploadRawText.slice(0, 200)}`);
+    const uploadData = JSON.parse(uploadRawText) as any;
+    if (uploadData.ret != null && uploadData.ret !== 0) {
+      throw new Error(`Wechat sendFile getuploadurl failed: ret=${uploadData.ret}`);
+    }
+
+    // 3. 上传加密文件到 CDN
+    const cdnUrl = uploadData.upload_full_url || '';
+    if (!cdnUrl) {
+      throw new Error('Wechat sendFile getuploadurl missing upload_full_url');
+    }
+    const cdnRes = await fetch(cdnUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: encrypted,
+    });
+
+    const encryptQueryParam = cdnRes.headers.get('x-encrypted-param');
+    if (!encryptQueryParam) {
+      throw new Error(`Wechat sendFile CDN upload missing x-encrypted-param header (status=${cdnRes.status})`);
+    }
+    log.info(`[DIAG] sendFile CDN upload: status=${cdnRes.status} encrypt_query_param=present`);
+
+    // 4. sendmessage：恢复到可投递格式，mid_size 用 rawSize
+    const clientId = `xuanji-wechat-${randomUUID()}`;
+    const contextToken = this.contextTokens.get(options.chatId) || '';
+
+    const body: any = {
+      msg: {
+        from_user_id: '',
+        to_user_id: options.chatId,
+        client_id: clientId,
+        message_type: 2,
+        message_state: 2,
+        item_list: [{
+          type: 4,
+          file_item: {
+            media: {
+              encrypt_query_param: encryptQueryParam,
+              aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+              encrypt_type: 1,
+            },
+            file_name: fileName,
+            len: String(rawSize),
+          },
+        }],
+      },
+      base_info: { channel_version: '2.4.4', bot_agent: 'xuanji/1.0' },
+    };
+
+    if (contextToken) {
+      body.msg.context_token = contextToken;
+    }
+
+    const sendRes = await fetch(
+      `${this.tokenInfo.baseUrl}/ilink/bot/sendmessage`,
+      {
+        method: 'POST',
+        headers: this.buildHeaders(this.tokenInfo.token),
+        body: JSON.stringify(body),
+      },
+    );
+
+    const sendRawText = await sendRes.text();
+    log.info(`[DIAG] sendFile sendmessage: HTTP ${sendRes.status}, body: ${sendRawText.slice(0, 200)}`);
+    const sendData = JSON.parse(sendRawText) as any;
+    if (sendData.ret != null && sendData.ret !== 0) {
+      throw new Error(`Wechat sendFile failed: ret=${sendData.ret}`);
+    }
+
+    log.info(`[DIAG] sendFile succeeded: msg_id=${sendData.msg_id || clientId}`);
+    return sendData.msg_id || clientId;
+  }
+
+  async sendVoice(options: { chatId: string; voicePath: string; replyTo?: string }): Promise<string> {
+    if (!this.tokenInfo) throw new Error('Wechat not authenticated');
+
+    const fileBuffer = readFileSync(options.voicePath);
+    const rawSize = fileBuffer.length;
+    const rawMd5 = createHash('md5').update(fileBuffer).digest('hex');
+    const filekey = randomBytes(16).toString('hex');
+    const aesKey = randomBytes(16);
+
+    // 1. AES-128-ECB + PKCS7 填充加密
+    const cipher = createCipheriv('aes-128-ecb', aesKey, null);
+    const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+    const encryptedLen = encrypted.length;
+
+    log.info(`[DIAG] sendVoice: file=${options.voicePath} size=${rawSize} encrypted=${encryptedLen}`);
+
+    // 2. 获取 CDN 上传 URL（media_type: 4 = VOICE）
+    const getUploadUrlRes = await fetch(
+      `${this.tokenInfo.baseUrl}/ilink/bot/getuploadurl`,
+      {
+        method: 'POST',
+        headers: this.buildHeaders(this.tokenInfo.token),
+        body: JSON.stringify({
+          filekey,
+          media_type: 4,
+          to_user_id: options.chatId,
+          rawsize: rawSize,
+          rawfilemd5: rawMd5,
+          filesize: encryptedLen,
+          aeskey: aesKey.toString('hex'),
+        }),
+      },
+    );
+
+    const uploadRawText = await getUploadUrlRes.text();
+    log.info(`[DIAG] sendVoice getuploadurl HTTP ${getUploadUrlRes.status}, body: ${uploadRawText.slice(0, 200)}`);
+    const uploadData = JSON.parse(uploadRawText) as any;
+    if (uploadData.ret != null && uploadData.ret !== 0) {
+      throw new Error(`Wechat sendVoice getuploadurl failed: ret=${uploadData.ret}`);
+    }
+
+    // 3. 上传加密语音到 CDN
+    const cdnUrl = uploadData.upload_full_url || '';
+    if (!cdnUrl) {
+      throw new Error('Wechat sendVoice getuploadurl missing upload_full_url');
+    }
+    const cdnRes = await fetch(cdnUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: encrypted,
+    });
+
+    const encryptQueryParam = cdnRes.headers.get('x-encrypted-param');
+    if (!encryptQueryParam) {
+      throw new Error(`Wechat sendVoice CDN upload missing x-encrypted-param header (status=${cdnRes.status})`);
+    }
+    log.info(`[DIAG] sendVoice CDN upload: status=${cdnRes.status} encrypt_query_param=present`);
+
+    // 4. sendmessage：voice_item 格式
+    const clientId = `xuanji-wechat-${randomUUID()}`;
+    const contextToken = this.contextTokens.get(options.chatId) || '';
+
+    const body: any = {
+      msg: {
+        from_user_id: '',
+        to_user_id: options.chatId,
+        client_id: clientId,
+        message_type: 2,
+        message_state: 2,
+        item_list: [{
+          type: 5,
+          voice_item: {
+            media: {
+              encrypt_query_param: encryptQueryParam,
+              aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+              encrypt_type: 1,
+            },
+            mid_size: encryptedLen,
+          },
+        }],
+      },
+      base_info: { channel_version: '2.4.4', bot_agent: 'xuanji/1.0' },
+    };
+
+    if (contextToken) {
+      body.msg.context_token = contextToken;
+    }
+
+    const sendRes = await fetch(
+      `${this.tokenInfo.baseUrl}/ilink/bot/sendmessage`,
+      {
+        method: 'POST',
+        headers: this.buildHeaders(this.tokenInfo.token),
+        body: JSON.stringify(body),
+      },
+    );
+
+    const sendRawText = await sendRes.text();
+    log.info(`[DIAG] sendVoice sendmessage: HTTP ${sendRes.status}, body: ${sendRawText.slice(0, 200)}`);
+    const sendData = JSON.parse(sendRawText) as any;
+    if (sendData.ret != null && sendData.ret !== 0) {
+      throw new Error(`Wechat sendVoice failed: ret=${sendData.ret}`);
+    }
+
+    log.info(`[DIAG] sendVoice succeeded: msg_id=${sendData.msg_id || clientId}`);
     return sendData.msg_id || clientId;
   }
 

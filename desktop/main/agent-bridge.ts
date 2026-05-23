@@ -455,6 +455,20 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
 // ─── 远端平台消息自动处理 ─────────────────────────────────
 
 let platformGateway: AgentGatewayImpl | null = null;
+let platformSession: ChatSession | null = null;
+
+/** 当前 agent 运行期间产生的图片文件路径，AGENT_FILE_CHANGES 事件填充，platform:reply 消费后清空 */
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
+let pendingPlatformImagePaths: string[] = [];
+
+// send_file_to_user 工具触发：收集显式发送的文件路径
+// 注意：此监听在模块顶层注册，确保新旧 EventForwarder 路径下都生效
+eventBus.on('platform:send-file', (payload: { filePath: string; isImage: boolean; message?: string }) => {
+  if (payload?.filePath) {
+    pendingPlatformImagePaths.push(payload.filePath);
+    log.info(`[DIAG] send_file_to_user tool queued: ${payload.filePath} (isImage=${payload.isImage})`);
+  }
+});
 
 function initPlatformMessageHandler(sess: ChatSession): void {
   const agentLoop = sess.getAgentLoop();
@@ -462,6 +476,8 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     log.warn('AgentLoop not available, skipping platform message handler');
     return;
   }
+
+  platformSession = sess;
 
   const sessionRouter = new SessionRouter();
   platformGateway = new AgentGatewayImpl(agentLoop, sessionRouter);
@@ -479,6 +495,40 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     try {
       log.info(`[DIAG] Child received platform:message: ${data.id} platform=${data.platform} sessionKey=${data.sessionKey}`);
 
+      // 清空上一轮的图片路径，开始收集新一轮
+      pendingPlatformImagePaths = [];
+
+      // 远端消息也执行意图分析，确保前端 ReAct Flow 正常展示
+      const sess = platformSession;
+      if (sess && intentRouter) {
+        const features = sess.getConfig()?.features;
+        const intentEnabled = features?.enableIntentAnalysis !== false;
+        const userAgentId = 'xuanji'; // 远端默认使用 xuanji agent
+
+        if (intentEnabled) {
+          channel.send('agent:intent-route:start');
+          const analysis = await intentRouter.analyze(data.text, (progress) => {
+            channel.send('agent:intent-route:progress', progress);
+          });
+          await sess.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
+          channel.send('agent:intent-route', {
+            agentId: userAgentId,
+            confidence: analysis.confidence,
+            method: analysis.method,
+            scene: analysis.scene,
+            complexity: analysis.complexity,
+            reason: analysis.reason,
+            modelName: analysis.modelName,
+          });
+          channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'builtin' });
+        } else {
+          channel.send('agent:intent-route:start');
+          await sess.switchForegroundAgent(userAgentId, undefined, 'complex');
+          channel.send('agent:intent-route', { agentId: userAgentId, confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
+          channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'builtin' });
+        }
+      }
+
       const reply = await platformGateway!.process({
         id: data.id,
         platform: data.platform,
@@ -490,7 +540,14 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         sessionKey: data.sessionKey,
       }, { sessionKey: data.sessionKey });
 
-      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}"`);
+      // 合并所有文件路径，按类型区分图片和普通文件
+      const allPaths = [...new Set([
+        ...pendingPlatformImagePaths,
+        ...(reply.imagePaths || []),
+      ])];
+      const imagePaths = allPaths.filter(p => IMAGE_EXTS.has(path.extname(p).toLowerCase()));
+      const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()));
+      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}" images=${imagePaths.length} files=${filePaths.length}`);
 
       // 将回复发回主进程
       channel.send('platform:reply', {
@@ -498,6 +555,8 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         platform: data.platform,
         chatId: data.chatId,
         text: reply.text,
+        imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
+        filePaths: filePaths.length > 0 ? filePaths : undefined,
       });
 
       log.info(`[DIAG] Platform reply sent to main: platform=${data.platform} chatId=${data.chatId}`);
@@ -2381,6 +2440,17 @@ function registerHookEventBridge() {
   });
   eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
     safeSend({ type: 'agent:file-changes', data: { changes: payload.changes, sessionKey: payload.sessionKey } });
+
+    // 收集平台消息回复所需的图片路径
+    if (payload.changes?.length) {
+      for (const change of payload.changes) {
+        const fp = change.filePath || (change as any).file;
+        if (fp && IMAGE_EXTS.has(path.extname(fp).toLowerCase())) {
+          pendingPlatformImagePaths.push(fp);
+          log.info(`[DIAG] Platform image queued: ${fp}`);
+        }
+      }
+    }
 
     // Layer 0: 写入文件变更事件
     try {

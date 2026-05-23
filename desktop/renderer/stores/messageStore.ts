@@ -33,7 +33,8 @@ export function generateMessageId(prefix = 'msg'): string {
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string };
+  | { type: 'image'; data: string; mimeType: string }
+  | { type: 'file'; fileName: string; filePath: string; fileSize: number };
 
 export interface Message {
   id: string;

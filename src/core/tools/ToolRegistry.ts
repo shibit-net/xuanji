@@ -43,6 +43,7 @@ import { ListAgentsTool } from './ListAgentsTool';
 import { ListScenesTool } from './ListScenesTool';
 import { TaskControlTool } from './TaskControlTool';
 import { ChangeDirectoryTool } from './ChangeDirectoryTool';
+import { SendFileTool } from './SendFileTool';
 import { TaskTool } from './TaskTool';
 import { MemorySearchTool } from './MemorySearchTool';
 import { MemoryStoreTool } from './MemoryStoreTool';
@@ -422,6 +423,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new GlobTool());
   registry.register(new GrepTool());
   registry.register(new ChangeDirectoryTool());
+  registry.register(new SendFileTool());
   registry.register(new PlanReviewTool());
   registry.register(new AskUserTool());
   registry.register(new TaskOutputTool());

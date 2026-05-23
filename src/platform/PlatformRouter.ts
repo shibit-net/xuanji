@@ -113,11 +113,24 @@ export class PlatformRouter implements WorkerReplyHandler {
 
   // ── Worker 回复回调 ──────────────────────────────────────
 
-  async sendReply(msg: PlatformMessage, text: string): Promise<void> {
+  async sendReply(msg: PlatformMessage, text: string, imagePaths?: string[]): Promise<void> {
     const adapter = this.adapters.get(msg.platform);
     if (!adapter) {
       log.error(`No adapter found for platform: ${msg.platform}`);
       return;
+    }
+
+    // 先发图片（如有），再发文本
+    if (imagePaths?.length) {
+      for (const imagePath of imagePaths) {
+        try {
+          await this.circuitBreaker.call(msg.platform, () =>
+            adapter.sendImage({ chatId: msg.chatId, imagePath })
+          );
+        } catch (err) {
+          log.error(`Failed to send image to ${msg.platform}: ${(err as Error).message}`);
+        }
+      }
     }
 
     await this.circuitBreaker.call(msg.platform, () =>
@@ -154,7 +167,16 @@ export class PlatformRouter implements WorkerReplyHandler {
   }
 
   private getChannelPrompt(platform: string, chatId: string): string | undefined {
-    return this.channelPrompts.get(platform)?.get(chatId);
+    const explicit = this.channelPrompts.get(platform)?.get(chatId);
+    if (explicit) return explicit;
+    return this.getDefaultChannelPrompt(platform);
+  }
+
+  private getDefaultChannelPrompt(platform: string): string | undefined {
+    if (platform === 'wechat') {
+      return '你在微信上与用户对话。发送图片/文件请用 send_file_to_user 工具，不要用 MCP 工具。生成图片后必须调用。';
+    }
+    return undefined;
   }
 
   // ── 用户映射 ─────────────────────────────────────────────

@@ -122,7 +122,7 @@ export class PersistentMessageQueue {
 // ─── Worker Pool ──────────────────────────────────────────
 
 export interface WorkerReplyHandler {
-  sendReply(msg: PlatformMessage, text: string): Promise<void>;
+  sendReply(msg: PlatformMessage, text: string, imagePaths?: string[]): Promise<void>;
   sendError(msg: PlatformMessage, error: Error): Promise<void>;
 }
 
@@ -182,7 +182,7 @@ class AgentWorker {
 
       try {
         const reply = await this.agent.process(payload);
-        await this.replyHandler.sendReply(payload, reply.text);
+        await this.replyHandler.sendReply(payload, reply.text, reply.imagePaths);
         this.queue.markDone(msg.id);
       } catch (err) {
         this.queue.markFailed(msg.id, (err as Error).message);

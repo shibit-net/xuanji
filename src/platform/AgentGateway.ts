@@ -4,18 +4,20 @@
  * 设计文档：docs/platform-integration-design.md §11.2
  */
 
+import path from 'path';
 import type { AgentLoop, AgentCallbacks } from '@/core/agent/AgentLoop.js';
 import type { AgentGateway, AgentReply, PlatformMessage, Attachment } from './types.js';
 import type { SessionRouter } from './SessionRouter.js';
 import type { MemoryManager } from '@/core/memory/MemoryManager.js';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'AgentGateway' });
 
 export class AgentGatewayImpl implements AgentGateway {
-  /** 保护 agentLoop.run() 的互斥锁（AgentLoop 不可重入） */
-  private processing = false;
-  private pendingResolvers: Array<() => void> = [];
+  /** 多 Worker 协调：防止多个 worker 同时调用 agentLoop.run() */
+  private agentBusy = false;
 
   constructor(
     private agentLoop: AgentLoop,
@@ -27,15 +29,15 @@ export class AgentGatewayImpl implements AgentGateway {
     msg: PlatformMessage,
     options?: { sessionKey?: string; channelPrompt?: string },
   ): Promise<AgentReply> {
-    // 等待前一个任务完成
-    await this.waitForTurn();
-
-    this.processing = true;
+    // 等待 AgentLoop 空闲（本地 ChatSession 也可能正在使用同一 AgentLoop 实例）
+    while (this.agentBusy || this.agentLoop.getState().status !== 'idle') {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    this.agentBusy = true;
     try {
       return await this.doProcess(msg, options);
     } finally {
-      this.processing = false;
-      this.notifyNext();
+      this.agentBusy = false;
     }
   }
 
@@ -58,10 +60,31 @@ export class AgentGatewayImpl implements AgentGateway {
     // 4. 记忆上下文（按 userId 查询跨平台共享记忆）
     const memoryContext = await this.loadMemoryContext(msg);
 
-    // 5. 标记 AgentLoop 当前会话键，确保事件正确路由
+    // 5. 注入渠道标识到 system prompt
+    const channelLabels: Record<string, string> = {
+      wechat: '微信',
+      feishu: '飞书',
+      dingtalk: '钉钉',
+      wecom: '企业微信',
+    };
+    const channelLabel = channelLabels[msg.platform] || msg.platform;
+    this.agentLoop.getContextManager().setSystemPromptSuffix(
+      `\n[当前渠道: ${channelLabel}] 你正在通过${channelLabel}与用户对话。`,
+      'channel-info',
+    );
+
+    // 微信额外能力提示
+    if (msg.platform === 'wechat') {
+      this.agentLoop.getContextManager().setSystemPromptSuffix(
+        '\n发送图片/文件必须用 send_file_to_user 工具，不要用 MCP 工具。生成图片后立即调用，调用后简短回复"已发送"即可。',
+        'wechat-platform-capability',
+      );
+    }
+
+    // 6. 标记 AgentLoop 当前会话键，确保事件正确路由
     this.agentLoop.setSessionKey(sessionKey);
     try {
-      // 6. 调用 AgentLoop（通过回调收集输出）
+      // 7. 调用 AgentLoop（通过回调收集输出）
       const response = await this.runAgentLoop(fullMessage);
 
       // 7. 保存消息到历史
@@ -73,6 +96,8 @@ export class AgentGatewayImpl implements AgentGateway {
       return response;
     } finally {
       this.agentLoop.setSessionKey(null);
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'wechat-platform-capability');
     }
   }
 
@@ -82,26 +107,44 @@ export class AgentGatewayImpl implements AgentGateway {
     return new Promise((resolve, reject) => {
       let outputText = '';
       let hasError = false;
+      const imagePaths: string[] = [];
+      const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
+
+      // 通过 EventBus 监听文件变更（比 onFileChanges 回调更可靠）
+      const onFileChange = (payload: { changes: Array<{ filePath: string }>; sessionKey?: string }) => {
+        if (!payload?.changes?.length) return;
+        for (const change of payload.changes) {
+          if (change.filePath && IMAGE_EXTS.has(path.extname(change.filePath).toLowerCase())) {
+            imagePaths.push(change.filePath);
+            log.info(`[DIAG] AgentGateway captured image: ${change.filePath}`);
+          }
+        }
+      };
+      eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, onFileChange);
 
       const callbacks: AgentCallbacks = {
         onText: (text: string) => {
           outputText += text;
         },
         onEnd: () => {
+          eventBus.off(XuanjiEvent.AGENT_FILE_CHANGES, onFileChange);
           if (!hasError) {
-            resolve({ text: outputText || '已处理完成。' });
+            resolve({
+              text: outputText || '已处理完成。',
+              imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
+            });
           }
         },
         onError: (error: Error) => {
+          eventBus.off(XuanjiEvent.AGENT_FILE_CHANGES, onFileChange);
           hasError = true;
           reject(error);
         },
       };
 
-      // 临时注册回调，不覆盖已有的
       this.agentLoop.on(callbacks);
-
       this.agentLoop.run(userMessage).catch((err) => {
+        eventBus.off(XuanjiEvent.AGENT_FILE_CHANGES, onFileChange);
         reject(err);
       });
     });
@@ -111,6 +154,11 @@ export class AgentGatewayImpl implements AgentGateway {
 
   private buildUserMessage(msg: PlatformMessage, channelPrompt?: string): string {
     const parts: string[] = [];
+
+    // Channel prompt（平台能力说明，放在最前面确保 agent 看到）
+    if (channelPrompt) {
+      parts.push(channelPrompt);
+    }
 
     // 平台上下文
     parts.push(`[${msg.platform} ${msg.chatType === 'group' ? '群聊' : '私聊'}]`);
@@ -132,9 +180,9 @@ export class AgentGatewayImpl implements AgentGateway {
   private buildAttachmentAnnotation(attachments: Attachment[]): string {
     const lines = attachments.map(a => {
       switch (a.type) {
-        case 'image': return `[图片: ${a.localPath || a.url}]`;
-        case 'file': return `[文件: ${a.name || a.localPath}]`;
-        case 'voice': return `[语音消息]`;
+        case 'image': return `[系统提示: 用户发了一张图片，但我无法查看图片内容。URL: ${a.localPath || a.url}]`;
+        case 'file': return `[系统提示: 用户发了一个文件${a.name ? `: ${a.name}` : ''}，但我无法查看文件内容。URL: ${a.localPath || a.url}]`;
+        case 'voice': return `[系统提示: 用户发了一条语音消息，但我无法播放。]`;
       }
     });
     return `\n\n${lines.join('\n')}`;
@@ -178,17 +226,4 @@ export class AgentGatewayImpl implements AgentGateway {
     return '';
   }
 
-  // ── 互斥 ──────────────────────────────────────────────────
-
-  private waitForTurn(): Promise<void> {
-    if (!this.processing) return Promise.resolve();
-    return new Promise(resolve => {
-      this.pendingResolvers.push(resolve);
-    });
-  }
-
-  private notifyNext(): void {
-    const next = this.pendingResolvers.shift();
-    if (next) next();
-  }
 }

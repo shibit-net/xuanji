@@ -200,6 +200,54 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
   );
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+const IMAGE_FILE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico']);
+
+function FileBlock({ block }: { block: Extract<ContentBlock, { type: 'file' }> }) {
+  const ext = block.fileName.slice(block.fileName.lastIndexOf('.')).toLowerCase();
+  const isImageFile = IMAGE_FILE_EXTS.has(ext);
+
+  return (
+    <div
+      className="my-2 rounded-xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.15] transition-all duration-200 overflow-hidden cursor-pointer"
+      onClick={() => {
+        if (block.filePath) {
+          window.electron?.openFile(block.filePath);
+        }
+      }}
+      title={`点击打开: ${block.fileName}`}
+    >
+      <div className="flex items-center gap-3 px-4 py-3">
+        {/* 文件图标 */}
+        <div className="w-10 h-10 rounded-lg bg-white/[0.06] flex items-center justify-center flex-shrink-0">
+          {isImageFile ? (
+            <ImageIcon size={20} className="text-blue-400" />
+          ) : (
+            <FileText size={20} className="text-white/50" />
+          )}
+        </div>
+        {/* 文件信息 */}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-white/80 truncate">{block.fileName}</div>
+          <div className="text-[11px] text-white/40 mt-0.5">
+            {block.fileSize ? formatFileSize(block.fileSize) : ''}
+            {block.fileSize ? ' · ' : ''}点击打开
+          </div>
+        </div>
+        {/* 右侧箭头 */}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/30 flex-shrink-0">
+          <path d="M7 17l9.2-9.2M17 17V7H7" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 /** 渲染 ContentBlock 列表 */
 function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containerRef }: {
   blocks: ContentBlock[];
@@ -209,6 +257,7 @@ function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containe
 }) {
   const textBlocks = blocks.filter(b => b.type === 'text');
   const imageBlocks = blocks.filter(b => b.type === 'image');
+  const fileBlocks = blocks.filter(b => b.type === 'file');
   // 合并所有 text 块的文本
   const combinedText = textBlocks.map(b => (b as { type: 'text'; text: string }).text).join('\n');
 
@@ -227,6 +276,10 @@ function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containe
       {/* 图片块 */}
       {imageBlocks.map((block, i) => (
         <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
+      ))}
+      {/* 文件块 */}
+      {fileBlocks.map((block, i) => (
+        <FileBlock key={`file-${i}`} block={block as Extract<ContentBlock, { type: 'file' }>} />
       ))}
     </>
   );
@@ -561,44 +614,33 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           </div>
         )}
 
-        {/* Moment 状态条：始终渲染容器锁定高度，visibility 控制显隐 */}
-        <div
-          className="flex items-center gap-2 mb-2 px-1 min-h-[24px]"
-          style={{
-            visibility:
-              showThinking && isStreaming && !isUser && !isSystem && !isToolSummary &&
-              respondingAgent?.moment &&
-              (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' ||
-               respondingAgent.status === 'writing' || respondingAgent.status === 'reporting')
-                ? 'visible'
-                : 'hidden',
-          }}
-        >
-          {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary && respondingAgent?.moment &&
-            (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' || respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
-            <>
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
-                  ? 'bg-primary animate-pulse'
-                  : 'bg-blue-400'
-              }`} />
-              <span className="text-[11px] text-muted-foreground/70">
-                {respondingAgent.status === 'writing'
-                  ? `${respondingAgent.name} 在编辑中`
-                  : respondingAgent.moment.label}
+        {/* Moment 状态条：有内容时展示，无内容时不渲染 */}
+        {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary &&
+          respondingAgent?.moment &&
+          (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' ||
+           respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
+          <div className="flex items-center gap-2 mb-2 px-1 min-h-[24px]">
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
+                ? 'bg-primary animate-pulse'
+                : 'bg-blue-400'
+            }`} />
+            <span className="text-[11px] text-muted-foreground/70">
+              {respondingAgent.status === 'writing'
+                ? `${respondingAgent.name} 在编辑中`
+                : respondingAgent.moment.label}
+            </span>
+            {respondingAgent.moment.startTime ? (
+              <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                {formatDuration(now - respondingAgent.moment.startTime)}
               </span>
-              {respondingAgent.moment.startTime ? (
-                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
-                  {formatDuration(now - respondingAgent.moment.startTime)}
-                </span>
-              ) : respondingAgent.moment.duration != null ? (
-                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
-                  {formatDuration(respondingAgent.moment.duration)}
-                </span>
-              ) : null}
-            </>
-          )}
-        </div>
+            ) : respondingAgent.moment.duration != null ? (
+              <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                {formatDuration(respondingAgent.moment.duration)}
+              </span>
+            ) : null}
+          </div>
+        )}
 
         {!isUser && message.statusHint && (
           <div className="mb-2 text-xs text-text-secondary animate-pulse">{message.statusHint}</div>
@@ -613,6 +655,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             return !processedContent.includes(dataUri);
           }).map((block, i) => (
             <ImageBlock key={`img-${i}`} block={block as Extract<ContentBlock, { type: 'image' }>} />
+          ))}
+          {message.contentBlocks?.filter(b => b.type === 'file').map((block, i) => (
+            <FileBlock key={`file-${i}`} block={block as Extract<ContentBlock, { type: 'file' }>} />
           ))}
           {typeof displayContent === 'string' && displayContent.length > 0 ? (
             isStreaming ? (

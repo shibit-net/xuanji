@@ -151,6 +151,12 @@ export class ChatSession {
           sessionCallbacks?.onToolEnd?.(id, name, result, isError, metadata, contentBlocks);
         },
       } as any);
+      // 注入渠道标识到 system prompt
+      this.agentLoop.getContextManager().setSystemPromptSuffix(
+        '\n[当前渠道: xuanji 桌面客户端] 你正在通过 xuanji 桌面客户端与用户对话。消息支持完整 Markdown、代码高亮、图片发送。',
+        'channel-info',
+      );
+
       // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
       this.repairOrphanedToolUse();
 
@@ -158,8 +164,9 @@ export class ChatSession {
       await this.agentLoop.run(input, undefined, imageBlocks);
       log.info('[DIAG] ChatSession.run: agentLoop.run completed');
 
-      // 清理后台任务 completion hint
+      // 清理后台任务 completion hint + 渠道标识
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
 
       if (this._useNewPath && this._stateMachine) {
         // 新路径：状态机处理完成 → 可能自动排队运行下一轮
@@ -183,6 +190,7 @@ export class ChatSession {
       await this.callbacks?.onAfterExecution?.();
       log.info('Session run completed');
     } catch (error) {
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
       log.error('Session run failed', error as Error);
       const errMsg = (error as Error).message || '';
       const isInterrupt = errMsg === 'Interrupted' || errMsg.includes('abort') || errMsg.includes('aborted');

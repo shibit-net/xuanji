@@ -123,13 +123,16 @@ export default function MainPage() {
 
   // 远端会话：替换对话框，监控面板保持可见
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
+  const remoteSessions = usePlatformStore((s) => s.sessions);
+  const remoteSessionKey = activeSessionId
+    ? remoteSessions.find((s) => s.id === activeSessionId)?.sessionKey
+    : undefined;
 
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* 中间内容区 — 对话框 */}
       <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
-        {/* 全局状态栏 — 远端会话时仍显示 token 统计 */}
-        {!activeSessionId && (
+        {/* 全局状态栏 — 本地和远端会话均显示 */}
         <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-white/[0.02]">
           {/* Session 状态指示器 */}
           {sessionStatus !== 'ready' && (
@@ -172,10 +175,12 @@ export default function MainPage() {
             )}
           </div>
         </div>
-        )}
         {activeSessionId ? <RemoteChatArea /> : <ChatArea />}
         <TodoPanel />
-        {!activeSessionId && <InputArea />}
+        <InputArea
+          conversationType={activeSessionId ? 'remote' : 'local'}
+          sessionKey={remoteSessionKey}
+        />
       </div>
 
       {/* 监控面板 — 与对话框 1:1 占比 */}

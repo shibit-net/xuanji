@@ -406,14 +406,14 @@ export function registerEventAdapter(): void {
 
     const sessionKey = data.sessionKey;
 
-    // 图片内容块：追加到当前流式消息（支持 read_file 读图片后在对话框中展示）
-    if (data.contentBlocks && data.contentBlocks.length > 0) {
-      const imageBlocks = data.contentBlocks.filter(b => b.type === 'image');
-      if (imageBlocks.length > 0) {
+    // 图片/文件内容块：追加到当前流式消息（read_file 是 agent 自己读的，不展示给用户）
+    if (data.name !== 'read_file' && data.contentBlocks && data.contentBlocks.length > 0) {
+      const mediaBlocks = data.contentBlocks.filter(b => b.type === 'image' || b.type === 'file');
+      if (mediaBlocks.length > 0) {
         if (sessionKey && sessionKey !== 'local') {
           const hub = useConversationHub.getState();
           hub.ensureConversation(sessionKey);
-          for (const block of imageBlocks) {
+          for (const block of mediaBlocks) {
             hub.appendContentBlock(sessionKey, block);
           }
         } else {
@@ -421,7 +421,7 @@ export function registerEventAdapter(): void {
           if (!msgStore.currentStreamingId) {
             msgStore.startStreaming(generateMessageId('stream'));
           }
-          for (const block of imageBlocks) {
+          for (const block of mediaBlocks) {
             msgStore.appendContentBlock(msgStore.currentStreamingId!, block);
           }
         }

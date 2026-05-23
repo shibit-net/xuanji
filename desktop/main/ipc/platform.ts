@@ -30,6 +30,7 @@ function forwardToAgentBridge(msg: any): void {
       userId: msg.userId,
       chatId: msg.chatId,
       chatType: msg.chatType,
+      channelPrompt: msg.channelPrompt,
     });
     log.info(`[DIAG] Forwarded platform message to agent-bridge: ${msg.id} platform=${msg.platform} text="${(msg.text || '').slice(0, 50)}"`);
   } else {
@@ -43,9 +44,11 @@ async function handleAgentBridgeReply(data: {
   platform: string;
   chatId: string;
   text: string;
+  imagePaths?: string[];
+  filePaths?: string[];
 }): Promise<void> {
   try {
-    log.info(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}"`);
+    log.info(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} files=${data.filePaths?.length || 0}`);
     if (!platformRouter) {
       log.warn(`[DIAG] handleAgentBridgeReply: platformRouter is null, skipping reply`);
       return;
@@ -56,6 +59,31 @@ async function handleAgentBridgeReply(data: {
       return;
     }
     await adapter.sendText({ chatId: data.chatId, text: data.text });
+
+    // 发送 agent 生成的图片
+    if (data.imagePaths?.length && typeof adapter.sendImage === 'function') {
+      for (const imagePath of data.imagePaths) {
+        try {
+          await adapter.sendImage({ chatId: data.chatId, imagePath, replyTo: undefined });
+          log.info(`[DIAG] Agent image sent to ${data.platform}/${data.chatId}: ${imagePath}`);
+        } catch (imgErr) {
+          log.error(`[DIAG] Failed to send image to ${data.platform}: ${(imgErr as Error).message}`);
+        }
+      }
+    }
+
+    // 发送 agent 生成的文件
+    if (data.filePaths?.length && typeof adapter.sendFile === 'function') {
+      for (const filePath of data.filePaths) {
+        try {
+          await adapter.sendFile({ chatId: data.chatId, filePath, replyTo: undefined });
+          log.info(`[DIAG] Agent file sent to ${data.platform}/${data.chatId}: ${filePath}`);
+        } catch (fileErr) {
+          log.error(`[DIAG] Failed to send file to ${data.platform}: ${(fileErr as Error).message}`);
+        }
+      }
+    }
+
     broadcastToAll('platform:message-sent', {
       sessionKey: data.sessionKey,
       platform: data.platform,

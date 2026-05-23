@@ -242,6 +242,10 @@ export class AgentLoop {
   }
 
   on(callbacks: AgentCallbacks): void {
+    if (this.running) {
+      this.log.warn('on() called while running, ignoring (prevents callback hijacking)');
+      return;
+    }
     this.callbacks = { ...this.callbacks, ...callbacks };
   }
 

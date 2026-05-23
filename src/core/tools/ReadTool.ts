@@ -47,7 +47,9 @@ const MIME_MAP: Record<string, string> = {
 export class ReadTool extends BaseTool {
   readonly name = 'read_file';
   readonly description = [
-    'Read and view file contents. Supports text files with line numbers, PDFs, and images.',
+    'Read file contents for your own analysis. Supports text files with line numbers, PDFs, and images.',
+    '注意：此工具读取的文件是你主动查看的，不是用户发送的。不要在回复中说"你发我的文件"、"你分享的图片"等。',
+    '如需将文件发送/展示给用户，请使用 send_file_to_user 工具。',
     '',
     'For large files use offset/limit to read specific sections.',
     'For directories, use list_directory instead.',

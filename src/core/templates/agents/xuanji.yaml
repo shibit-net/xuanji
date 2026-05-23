@@ -125,6 +125,8 @@ tools:
     required: true
   - name: grep
     required: true
+  - name: send_file_to_user
+    required: true
   - name: list_directory
     required: false
   - name: change_directory

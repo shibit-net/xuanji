@@ -112,18 +112,25 @@ export class ContextManager {
         content: result.content,
         is_error: result.isError,
       });
-      // 将 tool result 中的图片 contentBlocks 作为独立的 user message 注入，
-      // 确保 OpenAI/Anthropic provider 的 convertMessage 能正确识别并传递给 LLM
+      // 将 tool result 中的图片 contentBlocks 注入到对话上下文
+      // 附带文字前缀说明来源，防止 LLM 误以为用户发送了图片
+      // Anthropic API 要求图片必须在 user 消息中，因此保留 role: 'user'
       if (result.contentBlocks && result.contentBlocks.length > 0) {
         for (const block of result.contentBlocks) {
           if (block.type === 'image' && block.data) {
             imageMessages.push({
               role: 'user',
-              content: [{
-                type: 'image' as const,
-                data: block.data,
-                mimeType: block.mimeType || 'image/png',
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: '[send_file_to_user 发送记录] 以下图片是刚才通过 send_file_to_user 工具发送给用户的截图，不是用户发送的消息。仅作历史记录供后续推理参考：',
+                },
+                {
+                  type: 'image' as const,
+                  data: block.data,
+                  mimeType: block.mimeType || 'image/png',
+                },
+              ],
             });
           }
         }

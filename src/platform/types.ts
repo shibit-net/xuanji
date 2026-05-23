@@ -67,6 +67,19 @@ export interface PlatformAdapter {
     replyTo?: string;
   }): Promise<string>;
 
+  sendFile?(options: {
+    chatId: string;
+    filePath: string;
+    fileName?: string;
+    replyTo?: string;
+  }): Promise<string>;
+
+  sendVoice?(options: {
+    chatId: string;
+    voicePath: string;
+    replyTo?: string;
+  }): Promise<string>;
+
   onMessage(handler: (msg: PlatformMessage) => void): void;
 }
 
@@ -133,6 +146,8 @@ export interface AgentReply {
   text: string;
   attachments?: Attachment[];
   contextToken?: string;
+  /** agent 执行过程中生成的图片文件路径，用于远端平台图片发送 */
+  imagePaths?: string[];
 }
 
 export interface AgentGateway {

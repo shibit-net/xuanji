@@ -44,7 +44,15 @@ interface SelectedAgent {
 
 const DEFAULT_AGENT: SelectedAgent = { id: 'xuanji', name: 'xuanji' };
 
-export default function InputArea() {
+interface InputAreaProps {
+  /** 对话类型：本地直接对话 或 远端平台转发 */
+  conversationType?: 'local' | 'remote';
+  /** 远端会话的 sessionKey（仅 remote 时有效） */
+  sessionKey?: string;
+}
+
+export default function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
+  const isRemote = conversationType === 'remote';
   const [input, setInput] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -396,18 +404,22 @@ export default function InputArea() {
     });
 
     try {
-      await window.electron.agentUserAction({
-        type: 'SEND_MESSAGE',
-        message: content,
-        attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
-        imageBlocks,
-        agentId,
-      });
+      if (isRemote && sessionKey) {
+        await window.electron.platformSendReply({ sessionKey, text: content });
+      } else {
+        await window.electron.agentUserAction({
+          type: 'SEND_MESSAGE',
+          message: content,
+          attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+          imageBlocks,
+          agentId,
+        });
+      }
     } finally {
       setIsSending(false);
       sendingRef.current = false;
     }
-  }, [input, isSessionReady, toast, attachments, selectedAgent]);
+  }, [input, isSessionReady, toast, attachments, selectedAgent, isRemote, sessionKey]);
 
   // ─── 纯停止（无输入时） ────────────────────────────
   const handleStop = useCallback(() => {
@@ -765,7 +777,8 @@ export default function InputArea() {
         </div>
       )}
 
-      {/* 工具栏 */}
+      {/* 工具栏 — 仅本地对话 */}
+      {!isRemote && (
       <div className="flex items-center gap-2 px-4 pt-3">
         <Button
           variant="ghost"
@@ -792,9 +805,10 @@ export default function InputArea() {
           {isFlushing || autoExtracting ? '提取中...' : '提取记忆'}
         </Button>
       </div>
+      )}
 
-      {/* 附件 chip 列表 */}
-      {attachments.length > 0 && (
+      {/* 附件 chip 列表 — 仅本地对话 */}
+      {!isRemote && attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pb-1">
           {attachments.map((att, i) => (
             <span
@@ -831,8 +845,8 @@ export default function InputArea() {
         )}
 
         <div className="flex-1 relative">
-          {/* 选中的 Agent chip — 显示在输入框上方 */}
-          {selectedAgent && (
+          {/* 选中的 Agent chip — 仅本地对话 */}
+          {!isRemote && selectedAgent && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 mb-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400">
               <span className="font-medium">@{effectiveAgentName}</span>
               <button
@@ -958,8 +972,12 @@ export default function InputArea() {
       {/* 底部提示 */}
       <div className="px-4 pb-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 flex-wrap">
-          <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 输入 @ 选择Agent · 拖入/粘贴文件上传</span>
-          {effectiveAgentId !== 'xuanji' && (
+          {isRemote ? (
+            <span>Enter 发送 · Shift+Enter 换行 · Esc 清空</span>
+          ) : (
+            <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 输入 @ 选择Agent · 拖入/粘贴文件上传</span>
+          )}
+          {!isRemote && effectiveAgentId !== 'xuanji' && (
             <span className="text-purple-400">· Agent: @{effectiveAgentName}</span>
           )}
         </div>
