@@ -73,10 +73,16 @@ function parseTodoProgress(text: string): void {
 }
 
 function extractSubAgentMetadata(text: string): void {
-  const match = text.match(/<!--\s*SUB_AGENT_METADATA:\s*(.+?)\s*-->/);
-  if (!match) return;
+  const startMarker = '<!-- SUB_AGENT_METADATA: ';
+  const endMarker = ' -->';
+  const startIdx = text.indexOf(startMarker);
+  if (startIdx === -1) return;
+  // 从后往前找 endMarker，避免 originalOutput 中包含 "-->" 导致提前截断
+  const endIdx = text.lastIndexOf(endMarker);
+  if (endIdx === -1 || endIdx <= startIdx) return;
+  const jsonStr = text.slice(startIdx + startMarker.length, endIdx);
   try {
-    const meta = JSON.parse(match[1]);
+    const meta = JSON.parse(jsonStr);
     const agentName = meta.agentName || 'unknown';
     useCitationStore.getState().addCitation(agentName, {
       agentId: agentName,

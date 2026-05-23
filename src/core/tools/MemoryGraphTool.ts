@@ -16,16 +16,16 @@ import { XuanjiEvent } from '@/core/events/events';
 
 export class MemoryGraphTool extends BaseTool {
   readonly name = 'memory_graph';
-  readonly description = `查询记忆知识图谱中的实体关系。支持以下操作：
+  readonly description = `Query entity relationships in the memory knowledge graph. Supports the following operations:
 
-- **get_neighbors**: 获取一个实体的所有直接邻居和关系。例如 "我的朋友都有什么车" — 先查朋友的邻居，看他们的"拥有"关系。
-- **find_paths**: 查找两个实体之间如何关联。例如 "王瀚阳和奥迪A8是什么关系"。
-- **get_subgraph**: 获取以某个实体为中心的关联网络。例如 "关于电商项目的所有相关信息"。
-- **search_nodes**: 按名称在图中搜索实体。例如 "搜索所有跟车相关的实体"。
+- **get_neighbors**: Retrieve all direct neighbors and relationships of an entity. For example, "what cars do my friends have" — first query the friend's neighbors, check their "owns" relationships.
+- **find_paths**: Find how two entities are connected. For example, "what is the relationship between Wang Hanyang and Audi A8".
+- **get_subgraph**: Get the relationship network centered around an entity. For example, "all related information about the e-commerce project".
+- **search_nodes**: Search for entities in the graph by name. For example, "search all vehicle-related entities".
 
-与 memory_search 的区别：
-- memory_search: 全文搜索记忆内容（语义+FTS5），适合"我记不记得什么"
-- memory_graph: 图结构查询关系，适合"谁跟谁有关"、"这个人有什么车"`;
+Difference from memory_search:
+- memory_search: Full-text search of memory content (semantic+FTS5), suitable for "what do I remember"
+- memory_graph: Graph structure query for relationships, suitable for "who is related to who", "what does this person have"`;
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -33,28 +33,28 @@ export class MemoryGraphTool extends BaseTool {
       operation: {
         type: 'string',
         enum: ['get_neighbors', 'find_paths', 'get_subgraph', 'search_nodes'],
-        description: '图查询操作类型',
+        description: 'Graph query operation type',
       },
       entity_name: {
         type: 'string',
-        description: '实体名称 (get_neighbors / get_subgraph / search_nodes 时使用)',
+        description: 'Entity name (used for get_neighbors / get_subgraph / search_nodes)',
       },
       from_name: {
         type: 'string',
-        description: '起始实体名称 (find_paths 时使用)',
+        description: 'Starting entity name (used for find_paths)',
       },
       to_name: {
         type: 'string',
-        description: '目标实体名称 (find_paths 时使用)',
+        description: 'Target entity name (used for find_paths)',
       },
       max_hops: {
         type: 'number',
-        description: '最大跳数。get_subgraph 默认 2，find_paths 默认 4。',
+        description: 'Max hops. Default 2 for get_subgraph, default 4 for find_paths.',
         default: 2,
       },
       relation_filter: {
         type: 'string',
-        description: '可选：按关系类型过滤邻居（如只查"拥有"关系）。get_neighbors 时使用。',
+        description: 'Optional: filter neighbors by relation type (e.g., only check "owns" relationships). Used for get_neighbors.',
       },
     },
     required: ['operation'],

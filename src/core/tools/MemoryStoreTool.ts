@@ -13,7 +13,7 @@ import { XuanjiEvent } from '@/core/events/events';
 
 export class MemoryStoreTool extends BaseTool {
   readonly name = 'memory_store';
-  readonly description = '存储记忆到持久化记忆库。当你确认用户的偏好、完成重要任务、发现用户习惯模式时调用此工具。支持存储实体（人/项目/工具）、事实、事件和关系。';
+  readonly description = 'Store memory into the persistent memory database. Call this tool when you confirm user preferences, complete important tasks, or discover user habit patterns. Supports storing entities (people/projects/tools), facts, events, and relationships.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -21,57 +21,57 @@ export class MemoryStoreTool extends BaseTool {
       type: {
         type: 'string',
         enum: ['entity', 'fact', 'event', 'relation', 'time_anchor', 'topic', 'user_profile'],
-        description: '记忆类型。entity=实体, fact=事实, event=事件, relation=关系, time_anchor=时间锚点(截止日/日程), topic=话题(目标/计划/兴趣), user_profile=用户画像维度',
+        description: 'Memory type. entity=entity, fact=fact, event=event, relation=relation, time_anchor=time anchor (deadline/schedule), topic=topic (goal/plan/interest), user_profile=user profile dimension',
       },
       data: {
         type: 'object',
-        description: '记忆数据，根据 type 不同字段不同：\n'
+          description: 'Memory data. Fields vary by type:\n'
           + '- entity: { name, entity_type, summary, category?, metadata? }\n'
           + '- fact: { title, content }\n'
-          + '- event: { content, entities: ["实体名"] }\n'
+          + '- event: { content, entities: ["entity name"] }\n'
           + '- relation: { subject_name, object_name, relation }\n'
-          + '- time_anchor: { anchor_type: "deadline|schedule|periodic|context_expiry", target_type: "entity|fact|event", target_id?: "关联对象ID", trigger_time?: 时间戳ms, cron_expr?: "cron表达式", reason: "原因" }\n'
-          + '- topic: { topic: "话题名", topic_type: "goal|plan|interest|decision_pending", context_summary?: "上下文摘要" }\n'
-          + '- user_profile: { dimension: "维度名", summary: "摘要", confidence?: 0-1 }',
+          + '- time_anchor: { anchor_type: "deadline|schedule|periodic|context_expiry", target_type: "entity|fact|event", target_id?: "target object ID", trigger_time?: timestamp ms, cron_expr?: "cron expression", reason: "reason" }\n'
+          + '- topic: { topic: "topic name", topic_type: "goal|plan|interest|decision_pending", context_summary?: "context summary" }\n'
+          + '- user_profile: { dimension: "dimension name", summary: "summary", confidence?: 0-1 }',
         properties: {
-          name: { type: 'string', description: '实体名称 (type=entity 时)' },
-          entity_type: { type: 'string', description: '实体类型: person|vehicle|activity|project|tool|preference|concept|user (type=entity 时)' },
-          summary: { type: 'string', description: '实体描述 (type=entity 时)' },
-          category: { type: 'string', description: '层级分类标签，如 "车"、"投资"、"技术" (type=entity 时可选)' },
+          name: { type: 'string', description: 'Entity name (for type=entity)' },
+          entity_type: { type: 'string', description: 'Entity type: person|vehicle|activity|project|tool|preference|concept|user (for type=entity)' },
+          summary: { type: 'string', description: 'Entity description (for type=entity)' },
+          category: { type: 'string', description: 'Hierarchical category label, e.g. "car", "investment", "technology" (optional for type=entity)' },
           metadata: {
             type: 'object',
-            description: '结构化属性 (JSON)，如 {"品牌":"奥迪","型号":"A8"} (type=entity 时可选)',
+            description: 'Structured attributes (JSON), e.g. {"brand":"Audi","model":"A8"} (optional for type=entity)',
           },
-          title: { type: 'string', description: '事实标题 (type=fact 时)' },
-          content: { type: 'string', description: '事实/事件内容' },
+          title: { type: 'string', description: 'Fact title (for type=fact)' },
+          content: { type: 'string', description: 'Fact/event content' },
           entities: {
             type: 'array',
             items: { type: 'string' },
-            description: '关联实体名称列表 (type=event 时)',
+            description: 'List of related entity names (for type=event)',
           },
-          subject_name: { type: 'string', description: '主体名称 (type=relation 时)' },
-          object_name: { type: 'string', description: '客体名称 (type=relation 时)' },
-          relation: { type: 'string', description: '关系类型 (type=relation 时)' },
-          anchor_type: { type: 'string', description: '锚点类型: deadline|schedule|periodic|context_expiry (type=time_anchor 时)' },
-          target_type: { type: 'string', description: '关联目标类型: entity|fact|event (type=time_anchor 时)' },
-          trigger_time: { type: 'number', description: '触发时间戳 (type=time_anchor 时)' },
-          cron_expr: { type: 'string', description: 'cron 表达式 (type=time_anchor 时可选)' },
-          topic: { type: 'string', description: '话题名称 (type=topic 时)' },
-          topic_type: { type: 'string', description: '话题类型: goal|plan|interest|decision_pending (type=topic 时)' },
-          context_summary: { type: 'string', description: '上下文摘要 (type=topic 时可选)' },
-          dimension: { type: 'string', description: '画像维度名，如"技能"、"工具偏好"、"工作风格" (type=user_profile 时)' },
-          group_name: { type: 'string', description: '群组名称 (type=group_member 时，用于关联已有 group)' },
-          entity_name: { type: 'string', description: '实体名称 (type=group_member 时)' },
-          role: { type: 'string', description: '角色/关系 (type=group_member 时可选)' },
+          subject_name: { type: 'string', description: 'Subject name (for type=relation)' },
+          object_name: { type: 'string', description: 'Object name (for type=relation)' },
+          relation: { type: 'string', description: 'Relation type (for type=relation)' },
+          anchor_type: { type: 'string', description: 'Anchor type: deadline|schedule|periodic|context_expiry (for type=time_anchor)' },
+          target_type: { type: 'string', description: 'Target type: entity|fact|event (for type=time_anchor)' },
+          trigger_time: { type: 'number', description: 'Trigger timestamp (for type=time_anchor)' },
+          cron_expr: { type: 'string', description: 'Cron expression (optional for type=time_anchor)' },
+          topic: { type: 'string', description: 'Topic name (for type=topic)' },
+          topic_type: { type: 'string', description: 'Topic type: goal|plan|interest|decision_pending (for type=topic)' },
+          context_summary: { type: 'string', description: 'Context summary (optional for type=topic)' },
+          dimension: { type: 'string', description: 'Profile dimension name, e.g. "skill", "tool preference", "work style" (for type=user_profile)' },
+          group_name: { type: 'string', description: 'Group name (for type=group_member, used to associate existing group)' },
+          entity_name: { type: 'string', description: 'Entity name (for type=group_member)' },
+          role: { type: 'string', description: 'Role/relationship (optional for type=group_member)' },
         },
       },
       scene_tag: {
         type: 'string',
-        description: '场景标签，如 "开发"、"工作"、"生活"。默认不分类。',
+        description: 'Scene tag, e.g. "development", "work", "life". Default uncategorized.',
       },
       importance: {
         type: 'number',
-        description: '重要性 1-5。默认 3。5=核心偏好/关键决策，1=临时信息。',
+        description: 'Importance 1-5. Default 3. 5=core preference/key decision, 1=transient info.',
         default: 3,
       },
     },

@@ -13,43 +13,43 @@ import { XuanjiEvent } from '@/core/events/events';
 
 export class MemorySearchTool extends BaseTool {
   readonly name = 'memory_search';
-  readonly description = '搜索持久化记忆库。可以查找实体（人/项目/工具）、事实、事件和叙事记忆。当你需要回忆用户的偏好、过去的决策或项目历史时使用此工具。';
+  readonly description = 'Search the persistent memory database. Can look up entities (people/projects/tools), facts, events, and episodic memories. Use this tool when you need to recall user preferences, past decisions, or project history.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: '搜索关键词。支持中文和英文。',
+        description: 'Search keyword. Supports Chinese and English.',
       },
       type: {
         type: 'string',
         enum: ['entity', 'fact', 'event', 'episode', 'all'],
-        description: '搜索类型。entity=实体, fact=事实, event=事件, episode=叙事, all=全部。默认 all。',
+        description: 'Search type. entity=entity, fact=fact, event=event, episode=episode, all=all. Default all.',
         default: 'all',
       },
       scene_tag: {
         type: 'string',
-        description: '按场景过滤，如 "开发"、"工作"、"生活"。不传则搜索所有场景。',
+        description: 'Filter by scene tag, e.g. "development", "work", "life". Leave empty to search all scenes.',
       },
       limit: {
         type: 'number',
-        description: '返回结果数量，默认 10，最大 50。',
+        description: 'Number of results to return, default 10, max 50.',
         default: 10,
       },
       min_importance: {
         type: 'number',
-        description: '最低重要性过滤 (1-5)。默认不限制。',
+        description: 'Minimum importance filter (1-5). No limit by default.',
       },
       scope: {
         type: 'string',
         enum: ['keyword', 'active_context'],
-        description: '搜索范围。keyword=按关键词搜索（默认），active_context=搜索用户的最近计划/目标/约束/偏好（不依赖关键词）',
+        description: 'Search scope. keyword=search by keyword (default), active_context=search user recent plans/goals/constraints/preferences (no keyword needed)',
         default: 'keyword',
       },
       include_neighbors: {
         type: 'boolean',
-        description: '是否同时返回实体的邻居关系（默认 false，设为 true 可实现双向查询，如搜"车"同时看到每辆车的拥有者）',
+        description: 'Whether to also return entity neighbor relationships (default false, set to true for bidirectional queries, e.g. search "car" and see each car\'s owner at the same time)',
         default: false,
       },
     },

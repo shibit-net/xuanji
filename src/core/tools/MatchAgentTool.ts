@@ -48,7 +48,7 @@ export class MatchAgentTool extends BaseTool {
       },
       preferred_agent: {
         type: 'string',
-        description: '意图分析推荐的 agent ID。传入后优先验证该 agent 是否匹配，匹配则直接返回（分数加成），不匹配再全局搜索。',
+        description: 'Agent ID recommended by intent analysis. When provided, this agent is verified first for a match and returned directly if matching (score bonus). If no match, falls back to global search.',
       },
       top_k: {
         type: 'number',

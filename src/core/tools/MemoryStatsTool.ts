@@ -12,7 +12,7 @@ import { getMemoryManager } from '@/core/memory/globals';
 
 export class MemoryStatsTool extends BaseTool {
   readonly name = 'memory_stats';
-  readonly description = '获取记忆系统的完整状况报告，包括统计数据、样本数据和潜在问题（孤立实体、共现实体对等）。用于记忆分析和维护。';
+  readonly description = 'Get a complete status report of the memory system, including statistics, sample data, and potential issues (orphan entities, co-occurrence pairs, etc.). Used for memory analysis and maintenance.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -20,7 +20,7 @@ export class MemoryStatsTool extends BaseTool {
       detail: {
         type: 'string',
         enum: ['basic', 'full'],
-        description: 'basic=仅统计数据，full=包含样本和潜在问题分析。默认 basic。',
+        description: 'basic=only statistics, full=includes samples and potential issue analysis. Default basic.',
         default: 'basic',
       },
     },

@@ -704,7 +704,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
     <span className="inline-flex my-1.5">
       <button
         onClick={() => citation && setExpanded(true)}
-        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg whitespace-nowrap
                    bg-white/[0.06] border border-white/[0.1]
                    text-xs text-blue-400
                    transition-all duration-200
@@ -770,7 +770,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
       {citation ? (
         <button
           onClick={() => setExpanded(true)}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg whitespace-nowrap
                      bg-white/[0.06] hover:bg-white/[0.1]
                      border border-white/[0.1] hover:border-white/[0.15]
                      text-xs text-blue-400
@@ -780,7 +780,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           <span className="font-medium">{name}</span>
         </button>
       ) : (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06]">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06] whitespace-nowrap">
           <FileIcon size={11} simple className="flex-shrink-0" />
           <span>{name}</span>
         </span>

@@ -23,14 +23,14 @@ const log = logger.child({ module: 'LearnTool' });
 export class LearnTool extends BaseTool {
   readonly name = 'learn';
   readonly description = [
-    '学习新能力或知识。支持两种模式：',
+    'Learn new capabilities or knowledge. Supports two modes:',
     '',
-    '1. **主动学习** (默认) — 搜索 Web 文档，提取 API 规格，生成 MCP 服务器和 Skill。',
-    '   当用户说"学一下X"时调用此工具。设置 goal 和 depth 参数。',
+    '1. **Active Learning** (default) — Search web docs, extract API specs, generate MCP server and Skill.',
+    '   Call this when user says \"learn about X\". Set goal and depth parameters.',
     '',
-    '2. **经验结晶** (trigger: conversation) — 从刚刚完成的对话中提炼可复用经验，',
-    '   生成 Skill 草稿。当用户说"从刚才的对话里学一下"或"总结一下经验"时调用。',
-    '   传入 trigger: "conversation" 和 context（对话摘要）。',
+    '2. **Experience Crystallization** (trigger: conversation) — Extract reusable experience from the completed conversation,',
+    '   Generate a Skill draft. Call when user says \"learn from that conversation\" or \"summarize the experience\".',
+    '   Pass trigger: \"conversation\" and context (conversation summary).',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -38,12 +38,12 @@ export class LearnTool extends BaseTool {
     properties: {
       goal: {
         type: 'string',
-        description: '学习目标（主动学习模式），如 "高德地图 API"、"饿了吗点外卖"、"Spring Boot 3 项目脚手架"',
+        description: 'Learning goal (active learning mode), e.g., understanding a new API, building a project scaffold, or researching a topic',
       },
       depth: {
         type: 'string',
         enum: ['shallow', 'moderate', 'deep'],
-        description: '学习深度。shallow=仅搜索, moderate=搜索+提取API+生成MCP, deep=搜索+提取+生成MCP+生成Skill',
+        description: 'Learning depth. shallow=search only, moderate=search+extract API+generate MCP, deep=search+extract+generate MCP+generate Skill',
         default: 'moderate',
       },
       trigger: {

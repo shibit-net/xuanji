@@ -1,69 +1,69 @@
-# 璇玑执行协议
+# Xuanji Execution Protocols
 
-本目录包含主 agent 在执行特定操作时**必须遵循**的协议规范。
+This directory contains protocol specifications that the main agent **must follow** when performing specific operations.
 
-## 协议列表
+## Protocol List
 
-### 1. Agent Team 执行协议
-**文件**: `agent-team-protocol.md`
+### 1. Agent Team Execution Protocol
+**File**: `agent-team-protocol.md`
 
-**用途**: 主 agent 在调用 `agent_team` 工具时的强制性操作规范
+**Purpose**: Mandatory operating procedures when the main agent calls the `agent_team` tool
 
-**核心内容**:
-- 执行前强制检查清单（任务适配性、策略选择、成员配置）
-- 标准化配置模板（代码分析、技术选型、模块化分析）
-- 常见错误与避免方法
-- 执行流程（6 步标准流程）
-- 性能基准与降级策略
+**Core Contents**:
+- Pre-execution mandatory checklist (task suitability, strategy selection, member configuration)
+- Standardized configuration templates (code analysis, technical selection, modular analysis)
+- Common mistakes and how to avoid them
+- Execution flow (6-step standard process)
+- Performance benchmarks and degradation strategies
 
-**何时使用**: 
-- 用户要求使用 agent_team
-- 任务可拆分为 3+ 个独立子任务
-- 需要多领域专家协作
+**When to Use**:
+- User requests using agent_team
+- Task can be decomposed into 3+ independent sub-tasks
+- Multi-domain expert collaboration is needed
 
-### 2. Agent Team 策略手册
-**文件**: `agent-team-strategies.md`
+### 2. Agent Team Strategy Handbook
+**File**: `agent-team-strategies.md`
 
-**用途**: 详细说明 5 种执行策略的使用方法和最佳实践
+**Purpose**: Detailed explanation of 5 execution strategies, their usage, and best practices
 
-**核心内容**:
-- **parallel（并行）**: 最快，适用于独立任务
-- **debate（辩论）**: 技术选型、方案对比
-- **pipeline（流水线）**: 数据处理、ETL 流程
-- **sequential（顺序）**: 有依赖关系的任务
-- **hierarchical（层级）**: 主从协作（谨慎使用）
+**Core Contents**:
+- **parallel**: Fastest, suitable for independent tasks
+- **debate**: Technical selection, solution comparison
+- **pipeline**: Data processing, ETL workflows
+- **sequential**: Tasks with dependencies
+- **hierarchical**: Master-slave collaboration (use with caution)
 
-**何时使用**:
-- 需要选择合适的策略时
-- 不确定哪种策略最优时
-- 需要参考标准模板时
+**When to Use**:
+- When you need to choose the right strategy
+- When unsure which strategy is optimal
+- When you need reference to standard templates
 
 ---
 
-## 协议使用方式
+## How to Use Protocols
 
-### 方式 1: 集成到系统 Prompt（推荐）
+### Method 1: Integrated into System Prompt (Recommended)
 
-在主 agent 的系统 prompt 中引用协议：
+Reference the protocol in the main agent's system prompt:
 
 ```
-# Agent Team 使用规范
+# Agent Team Usage Guidelines
 
-在调用 agent_team 工具前，必须遵循 `.xuanji/protocols/agent-team-protocol.md` 中的执行协议：
+Before calling the agent_team tool, you must follow the execution protocol in `.xuanji/protocols/agent-team-protocol.md`:
 
-1. 完成强制检查清单
-2. 选择合适的策略（优先 parallel）
-3. 使用标准化模板配置成员
-4. 设置合理的超时时间
-5. 执行后根据结果决定是否需要汇总
+1. Complete the mandatory checklist
+2. Choose the appropriate strategy (prefer parallel)
+3. Use standardized templates for member configuration
+4. Set reasonable timeout values
+5. After execution, decide whether to consolidate based on results
 ```
 
-### 方式 2: 运行时读取
+### Method 2: Read at Runtime
 
-主 agent 在需要时读取协议文件：
+The main agent reads the protocol file when needed:
 
 ```typescript
-// 伪代码
+// Pseudo-code
 if (user_requests_agent_team) {
   protocol = read_file(".xuanji/protocols/agent-team-protocol.md")
   follow_protocol(protocol)
@@ -71,12 +71,12 @@ if (user_requests_agent_team) {
 }
 ```
 
-### 方式 3: 预处理检查
+### Method 3: Pre-processing Check
 
-在工具执行前进行自动检查：
+Automatic check before tool execution:
 
 ```typescript
-// 伪代码
+// Pseudo-code
 before_tool_execution("agent_team", (params) => {
   check_task_suitability(params.goal)
   validate_strategy(params.strategy)
@@ -87,28 +87,28 @@ before_tool_execution("agent_team", (params) => {
 
 ---
 
-## 协议更新日志
+## Protocol Update Log
 
 ### 2024-01-XX
-- 创建 `agent-team-protocol.md`
-- 定义强制检查清单
-- 提供 3 个标准化模板
-- 添加常见错误与避免方法
+- Created `agent-team-protocol.md`
+- Defined mandatory checklist
+- Provided 3 standardized templates
+- Added common mistakes and how to avoid them
 
 ---
 
-## 贡献指南
+## Contribution Guide
 
-如果发现协议中的问题或需要补充：
+If you find issues in the protocol or need to add content:
 
-1. 记录实际执行中遇到的问题
-2. 分析问题原因（任务拆分不当？超时设置不合理？）
-3. 更新协议文档
-4. 在更新日志中记录变更
+1. Document the problems encountered during actual execution
+2. Analyze the root cause (improper task decomposition? Unreasonable timeout settings?)
+3. Update the protocol document
+4. Record the change in the update log
 
 ---
 
-## 相关文档
+## Related Documents
 
-- **用户指南**: `.xuanji/agent-team-guide.md` - 面向用户的使用指引
-- **执行协议**: `.xuanji/protocols/agent-team-protocol.md` - 面向 agent 的执行规范
+- **User Guide**: `.xuanji/agent-team-guide.md` - User-facing usage guide
+- **Execution Protocol**: `.xuanji/protocols/agent-team-protocol.md` - Agent-facing execution specification

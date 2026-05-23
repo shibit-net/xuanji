@@ -41,7 +41,7 @@ export class InstallTool extends BaseTool {
       type: {
         type: 'string',
         enum: ['mcp', 'skill', 'auto'],
-        description: '插件类型。mcp=MCP服务器, skill=技能, auto=同时搜索两者',
+        description: 'Plugin type. mcp=MCP server, skill=skill, auto=search both',
         default: 'auto',
       },
       packageId: {
@@ -51,7 +51,7 @@ export class InstallTool extends BaseTool {
       },
       version: {
         type: 'string',
-        description: '指定版本号（不传则安装最新版）。仅在提供 packageId 时生效。',
+        description: 'Specify version (default: latest). Only used when packageId is provided.',
       },
     },
   };

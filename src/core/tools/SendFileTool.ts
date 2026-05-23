@@ -20,12 +20,12 @@ const MIME_MAP: Record<string, string> = {
 
 export class SendFileTool extends BaseTool {
   readonly name = 'send_file_to_user';
-  readonly description = `将文件或图片发送给用户，调用后图片/文件会直接展示在用户对话框中。用户说"发我"、"给我看"时使用本工具。write_file 生成图片/文件后也必须调用本工具。`;
+  readonly description = `Send a file or image to the user. After calling, the image/file will be directly displayed in the user's dialog. Use this tool when the user says "send me" or "show me". Must also call this tool after generating files/images via write_file.`;
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
-      filePath: { type: 'string', description: '要发送的文件绝对路径' },
-      message: { type: 'string', description: '可选，随文件一起发送的文字说明' },
+      filePath: { type: 'string', description: 'Absolute path to the file to send' },
+      message: { type: 'string', description: 'Optional text description to accompany the file' },
     },
     required: ['filePath'],
   };

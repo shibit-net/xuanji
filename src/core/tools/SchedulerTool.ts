@@ -15,26 +15,26 @@ const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '
 export class SchedulerTool extends BaseTool {
   readonly name = 'scheduler';
   readonly description = [
-    '管理定时任务。你可以创建、查看、更新、删除定时任务，让系统在未来某个时间自动执行操作。',
+    'Manage scheduled tasks. You can create, view, update, and delete scheduled tasks, allowing the system to automatically execute actions at a future time.',
     '',
-    '支持五种调度类型：',
-    '- once: 一次性任务，需要指定精确的日期（YYYY-MM-DD）和时间（HH:mm）',
-    '- daily: 每天定时执行，只需指定时和分',
-    '- weekly: 每周定时执行，需要指定星期几（0=周日, 1=周一...6=周六）、时、分',
-    '- monthly: 每月几号定时执行，需要指定 dayOfMonth（1-31）、时、分。如每月1号、每月15号',
-    '- yearly: 每年几月几号定时执行，需要指定 month（1-12）、dayOfMonth（1-31）、时、分。如每年3月15号',
+    'Supports five scheduling types:',
+    '- once: One-time task, requires exact date (YYYY-MM-DD) and time (HH:mm)',
+    '- daily: Daily scheduled execution, only requires hour and minute',
+    '- weekly: Weekly scheduled execution, requires day of week (0=Sunday, 1=Monday...6=Saturday), hour, minute',
+    '- monthly: Execute on a specific day each month, requires dayOfMonth (1-31), hour, minute. E.g. 1st of month, 15th of month',
+    '- yearly: Execute on a specific month and day each year, requires month (1-12), dayOfMonth (1-31), hour, minute. E.g. March 15th each year',
     '',
-    '使用场景示例：',
-    '- 用户说"每天早上9点提醒我站会" → action: create, type: daily, hour: 9, minute: 0',
-    '- 用户说"每周五下午5点自动学习" → action: create, type: weekly, dayOfWeek: 5, hour: 17, minute: 0',
-    '- 用户说"每月1号上午10点生成月报" → action: create, type: monthly, dayOfMonth: 1, hour: 10, minute: 0',
-    '- 用户说"每年12月31号晚上8点做年度总结" → action: create, type: yearly, month: 12, dayOfMonth: 31, hour: 20, minute: 0',
-    '- 用户说"下周三下午3点帮我整理代码" → action: create, type: once, scheduledDate: "2026-05-21", scheduledTime: "15:00"',
-    '- 用户说"我有哪些定时任务" → action: list',
-    '- 用户说"每天早上9点帮我看看GitHub issues" → action: create, type: daily, hour: 9, minute: 0, message: "帮我看看今天的GitHub issues"',
-    '- 用户说"取消那个daily-care任务" → action: delete',
+    'Usage examples:',
+    '- User says "remind me to stand-up at 9am every day" → action: create, type: daily, hour: 9, minute: 0',
+    '- User says "auto learn at 5pm every Friday" → action: create, type: weekly, dayOfWeek: 5, hour: 17, minute: 0',
+    '- User says "generate monthly report at 10am on the 1st" → action: create, type: monthly, dayOfMonth: 1, hour: 10, minute: 0',
+    '- User says "do annual review at 8pm on Dec 31st" → action: create, type: yearly, month: 12, dayOfMonth: 31, hour: 20, minute: 0',
+    '- User says "help me organize code at 3pm next Wednesday" → action: create, type: once, scheduledDate: "2026-05-21", scheduledTime: "15:00"',
+    '- User says "what scheduled tasks do I have" → action: list',
+    '- User says "check GitHub issues for me at 9am every day" → action: create, type: daily, hour: 9, minute: 0, message: "Check today\'s GitHub issues for me"',
+    '- User says "cancel the daily-care task" → action: delete',
     '',
-    '注意：如果 custom 类型任务没有 handler 但有 message，定时器触发时会将 message 注入当前会话，启动完整 agent 对话。这是最常用的模式——通过定时消息触发 agent 执行自定义任务。',
+    'Note: If a custom type task has no handler but has a message, the timer will inject the message into the current session on trigger, starting a full agent conversation. This is the most common pattern — trigger agent to execute custom tasks via scheduled messages.',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -43,74 +43,74 @@ export class SchedulerTool extends BaseTool {
       action: {
         type: 'string',
         enum: ['create', 'list', 'update', 'delete'],
-        description: '操作类型。create=新建, list=查看列表, update=修改, delete=删除。',
+        description: 'Action type. create=create, list=list, update=update, delete=delete.',
       },
       // create / update 参数
       id: {
         type: 'string',
-        description: '任务 ID。create 时可选（不填自动生成），update/delete 时必填。',
+        description: 'Task ID. Optional for create (auto-generated if not provided), required for update/delete.',
       },
       description: {
         type: 'string',
-        description: '任务描述，说明这个任务的用途。',
+        description: 'Task description, explaining the purpose of this task.',
       },
       type: {
         type: 'string',
         enum: ['once', 'daily', 'weekly', 'monthly', 'yearly'],
-        description: '调度类型。once=一次性, daily=每天, weekly=每周, monthly=每月几号, yearly=每年几月几号。create 时必填。',
+        description: 'Schedule type. once=one-time, daily=daily, weekly=weekly, monthly=monthly, yearly=yearly. Required for create.',
       },
       // 一次性任务：精确日期+时间
       scheduledDate: {
         type: 'string',
-        description: '执行日期（仅 once 类型），格式: YYYY-MM-DD，如 "2026-05-21"。指定具体年月日。',
+        description: 'Execution date (only for once type), format: YYYY-MM-DD, e.g. "2026-05-21". Specify exact year-month-day.',
       },
       scheduledTime: {
         type: 'string',
-        description: '执行时间，格式: HH:mm，如 "15:30"、"09:07"。所有类型都需要指定（once 类型与 scheduledDate 配合，daily/weekly/monthly/yearly 作为每天的触发时间）。',
+        description: 'Execution time, format: HH:mm, e.g. "15:30", "09:07". Required for all types (for once type, combined with scheduledDate; for daily/weekly/monthly/yearly, as daily trigger time).',
       },
       // 周期性任务参数
       hour: {
         type: 'number',
-        description: '执行小时 (0-23)。如 9 表示早上 9 点。daily/weekly/monthly/yearly 类型使用。',
+        description: 'Execution hour (0-23). E.g. 9 means 9am. Used for daily/weekly/monthly/yearly types.',
       },
       minute: {
         type: 'number',
-        description: '执行分钟 (0-59)。daily/weekly/monthly/yearly 类型使用。',
+        description: 'Execution minute (0-59). Used for daily/weekly/monthly/yearly types.',
       },
       dayOfWeek: {
         type: 'number',
-        description: '星期几 (0=周日, 1=周一, ..., 6=周六)，仅 weekly 类型需要。',
+        description: 'Day of week (0=Sunday, 1=Monday, ..., 6=Saturday), required for weekly type only.',
       },
       dayOfMonth: {
         type: 'number',
-        description: '每月几号 (1-31)，仅 monthly/yearly 类型需要。如 1 表示每月1号，15 表示每月15号。',
+        description: 'Day of month (1-31), required for monthly/yearly types only. E.g. 1 means the 1st, 15 means the 15th.',
       },
       month: {
         type: 'number',
-        description: '月份 (1-12)，仅 yearly 类型需要。如 3 表示三月，12 表示十二月。',
+        description: 'Month (1-12), required for yearly type only. E.g. 3 for March, 12 for December.',
       },
       // 动作配置
       taskAction: {
         type: 'string',
         enum: ['learn', 'custom'],
-        description: '任务执行的动作类型。learn=自动学习, custom=自定义回调。默认 custom。',
+        description: 'Task action type. learn=auto learn, custom=custom callback. Default custom.',
         default: 'custom',
       },
       handler: {
         type: 'string',
-        description: '自定义 handler 名称（taskAction=custom 时使用）。可选: daily-care, subagent-cleanup, memory-maintenance，或自定义名称。',
+        description: 'Custom handler name (used when taskAction=custom). Options: daily-care, subagent-cleanup, memory-maintenance, or custom name.',
       },
       prompt: {
         type: 'string',
-        description: '学习目标（taskAction=learn 时使用），描述需要学习的内容。',
+        description: 'Learning goal (used when taskAction=learn), describes what to learn.',
       },
       message: {
         type: 'string',
-        description: '触发 agent 时发送给 AI 的消息。填入此字段后，定时任务触发时会将此消息注入当前会话，启动完整的 agent 对话循环。例如："帮我分析今天的 GitHub issues"、"整理本周的工作总结"。如果不填，则只执行 handler 或 learn 动作。',
+        description: 'Message sent to the AI when triggering the agent. When filled, the scheduled task injects this message into the current session, starting a full agent conversation loop. For example: "Analyze today\'s GitHub issues for me", "Compile this week\'s work summary". If not filled, only the handler or learn action executes.',
       },
       enabled: {
         type: 'boolean',
-        description: '是否启用。默认 true。',
+        description: 'Whether enabled. Default true.',
         default: true,
       },
     },
