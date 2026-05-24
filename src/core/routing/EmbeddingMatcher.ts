@@ -40,32 +40,45 @@ export class EmbeddingMatcher {
 
   async match(message: string, topK: number = 3): Promise<MatchResult[]> {
     const agents = this.getTargetAgents();
-    if (agents.length === 0) {
-      log.debug('No target agents available for matching');
-      return [];
-    }
 
-    const messageVec = this.embedder ? await this.safeEmbed(message) : null;
+    // 无 embedder → 全部 score=0，由 IntentRouter L2 入口跳过
+    if (!this.embedder) return [];
 
-    // Agent 向量：能力 + 名字
-    const agentVecs = new Map<string, number[] | null>();
-    if (messageVec && this.embedder) {
-      const agentTexts = agents.map((a) =>
-        [a.name, ...(a.capabilities || [])].join(' '),
-      );
-      const results = await Promise.all(agentTexts.map((t) => this.safeEmbed(t)));
-      agents.forEach((a, i) => agentVecs.set(a.id, results[i]));
-    }
+    const messageVec = await this.safeEmbed(message);
+    if (!messageVec) return [];
 
     // Scene 向量：关键词 + 描述
     let sceneVecs: Map<string, number[] | null> | null = null;
-    if (messageVec && this.embedder && this.sceneList.length > 0) {
+    if (this.sceneList.length > 0) {
       sceneVecs = new Map();
       const sceneTexts = this.sceneList.map((s) =>
         [s.keywords || '', s.description || ''].join(' '),
       );
       const results = await Promise.all(sceneTexts.map((t) => this.safeEmbed(t)));
       this.sceneList.forEach((s, i) => sceneVecs!.set(s.scene, results[i]));
+    }
+
+    // 无 agent → 仅做场景匹配，返回 scene + complexity（不含 agentId）
+    if (agents.length === 0) {
+      const { scene, complexity } = this.matchBestScene(messageVec, sceneVecs);
+      if (!scene) return [];
+      return [{
+        agentId: '',
+        score: 0.5,
+        reason: 'Scene-only semantic match (no agents available)',
+        scene,
+        complexity,
+      }];
+    }
+
+    // Agent 向量：能力 + 名字
+    const agentVecs = new Map<string, number[] | null>();
+    if (this.embedder) {
+      const agentTexts = agents.map((a) =>
+        [a.name, ...(a.capabilities || [])].join(' '),
+      );
+      const results = await Promise.all(agentTexts.map((t) => this.safeEmbed(t)));
+      agents.forEach((a, i) => agentVecs.set(a.id, results[i]));
     }
 
     const matches = agents.map((agent) =>
