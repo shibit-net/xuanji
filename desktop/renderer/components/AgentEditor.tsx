@@ -1249,8 +1249,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     <option value="vllm">vLLM (Local)</option>
                     <option value="lmstudio">LM Studio (Local)</option>
                     <option value="local-llama">{t('agent.editor.provider_local')}</option>
-                    <option value="openai-image">OpenAI Image (文生图)</option>
-                    <option value="ark">火山引擎豆包 Seedream (文生图)</option>
                   </select>
                 </div>
                 {config.provider?.adapter === 'local-llama' ? (

@@ -18,6 +18,7 @@ import { ContextBuilder } from '@/context/ContextBuilder';
 import { FileIndexer } from '@/context/FileIndexer';
 import { DependencyAnalyzer } from '@/context/DependencyAnalyzer';
 import { RulesLoader } from '@/core/config/RulesLoader';
+import { ProjectRegistry } from '@/core/project/ProjectRegistry';
 import type { FileIndex } from '@/context/types';
 import { logger } from '@/core/logger';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -34,9 +35,10 @@ export const l3Project: PromptComponent = {
   priority: 60,
   estimatedTokens: 0, // 动态，取决于项目大小
 
-  async render(_context: PromptBuildContext): Promise<string> {
+  async render(context: PromptBuildContext): Promise<string> {
     try {
-      return await buildProjectContext();
+      const userId = context?.config?.userId as string | undefined;
+      return await buildProjectContext(userId);
     } catch (error) {
       log.warn('Failed to build project context:', error);
       return '';
@@ -150,7 +152,7 @@ function unsubscribeFromEvents(): void {
 
 // ─── buildProjectContext ────────────────────────────
 
-async function buildProjectContext(): Promise<string> {
+async function buildProjectContext(userId?: string): Promise<string> {
   const scanner = new ProjectScanner();
   const metadata = scanner.scan();
 
@@ -166,6 +168,15 @@ async function buildProjectContext(): Promise<string> {
   if (metadata.type === 'unknown' && !metadata.hasGit && !rules.xuanjiMd && !rules.projectRules) {
     log.debug('Not a project and no rules, skipping project context');
     return '';
+  }
+
+  // 注册操作过的项目到 ProjectRegistry
+  if (userId) {
+    const registry = new ProjectRegistry(userId);
+    const hasRules = !!(rules.xuanjiMd || rules.projectRules);
+    registry.register(metadata.rootPath, hasRules).catch(err => {
+      log.warn('Failed to register project:', err);
+    });
   }
 
   let indexSummary = '';

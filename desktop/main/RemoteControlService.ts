@@ -229,11 +229,13 @@ export class RemoteControlService {
 
   private async ensureScreenPermission(): Promise<void> {
     if (process.platform === 'darwin') {
-      // macOS 需要屏幕录制权限
-      // 首次启动时弹窗引导用户去系统设置开启
-      const os = require('node:os');
       console.log('[RemoteControl] macOS screen recording permission required.');
       console.log('[RemoteControl] Go to System Settings > Privacy & Security > Screen Recording');
+    } else if (process.platform === 'win32') {
+      console.log('[RemoteControl] Windows screen capture uses Desktop Duplication API.');
+      console.log('[RemoteControl] Ensure the app has graphics capture permission in Windows Settings.');
+    } else {
+      console.log('[RemoteControl] Linux screen capture requires X11/Wayland compositor support (e.g. PipeWire).');
     }
   }
 

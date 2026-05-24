@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(product|plan|roadmap|iteration|version|milestone|roadmap).*"
+  keywords: "product plan roadmap iteration version milestone"
   description: "Product planning, roadmap creation, iteration planning"
-suitableFor:
-  - Product planning
-  - Roadmap creation
-  - Iteration planning
-  - Priority sorting
-requiredCapabilities:
-  - Product planning and roadmap
-  - Feature priority sorting
-  - Product iteration planning
 content: |
   # Product Planning · Mental Model
 

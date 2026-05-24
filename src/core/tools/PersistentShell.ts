@@ -14,6 +14,7 @@ import { logger } from '@/core/logger';
 import {
   getPlatformShell,
   getShellExecArgs,
+  getSpawnShellOption,
 } from '@/shared/utils/crossPlatform';
 import { chmodSync, accessSync, constants } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -68,9 +69,9 @@ function loadPty(): typeof import('node-pty') | null {
     try {
       const req = createRequire(import.meta.url);
       _ptyModule = req('node-pty');
-      // macOS 上 spawn-helper 可能因 npm 安装时丢失执行权限，
+      // POSIX 上 spawn-helper 可能因 npm 安装时丢失执行权限，
       // 导致 posix_spawn 失败（Permission denied）
-      if (process.platform === 'darwin' && !ensureSpawnHelperExecutable(_ptyModule)) {
+      if (process.platform !== 'win32' && !ensureSpawnHelperExecutable(_ptyModule)) {
         log.warn('node-pty spawn-helper not executable, falling back to child_process.exec');
         _ptyModule = null;
         return null;
@@ -197,7 +198,7 @@ export class PersistentShell {
       log.info(`[DIAG] executeFallback: PATH=${process.env.PATH?.substring(0, 80)}..., shell defaults to /bin/sh`);
       exec(
         command,
-        { cwd, timeout, maxBuffer: 10 * 1024 * 1024, env: process.env as any },
+        { cwd, timeout, maxBuffer: 10 * 1024 * 1024, env: process.env as any, shell: getSpawnShellOption() },
         (error, stdout, stderr) => {
           if (error) {
             const e = error as any;

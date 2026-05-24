@@ -3,7 +3,9 @@
 // ============================================================
 // 🆕 连续会话模式：移除会话列表，仅保留导航入口
 
-import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock, Package, Plus, Radio } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { Settings, HelpCircle, Bot, Wrench, FileText, Brain, LogOut, User as ShieldCheck, Clock, Package, Plus, Radio, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatformStore } from '../stores/platformStore';
@@ -31,18 +33,63 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAgents, onOpenTools, onOpenSystemPrompt, onOpenMemory, onOpenScheduler, onOpenPermissions, onOpenSkillsMCP }: SidebarProps) {
+  const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
   const language = useConfigStore((s) => s.settings.language);
-  const { sessions, activeSessionId, setActiveSession, setSetupDialogOpen } = usePlatformStore();
+  const { sessions, activeSessionId, setActiveSession, setSetupDialogOpen, removeSession, updateSessionName } = usePlatformStore();
+
+  // 备注名编辑状态
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingId && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renamingId]);
 
   // 点击 Xuanji 回到本地对话
   const handleXuanjiClick = () => {
     setActiveSession(null);
+    navigate('/chat');
   };
 
   const handleLogout = async () => {
     await logout();
     window.location.reload();
+  };
+
+  // 删除远端会话（持久化：禁用平台连接，确保重启后不恢复）
+  const handleDeleteSession = async (sessionId: string) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (session) {
+      await window.electron.platformDisable(session.platform);
+    }
+    if (activeSessionId === sessionId) {
+      setActiveSession(null);
+      navigate('/chat');
+    }
+    removeSession(sessionId);
+  };
+
+  // 开始编辑备注名
+  const handleStartRename = (sessionId: string, currentName: string) => {
+    setRenamingId(sessionId);
+    setRenameText(currentName);
+  };
+
+  // 确认备注名
+  const handleConfirmRename = async () => {
+    if (renamingId && renameText.trim()) {
+      const name = renameText.trim();
+      updateSessionName(renamingId, name);
+      // 持久化到磁盘
+      await window.electron.platformSaveSessionName({ sessionId: renamingId, name });
+    }
+    setRenamingId(null);
+    setRenameText('');
   };
 
   return (
@@ -90,22 +137,52 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
 
         {/* 远端会话列表 */}
         {sessions.map((session) => (
-          <Button
-            key={session.id}
-            variant={activeSessionId === session.id ? 'default' : 'ghost'}
-            className="w-full justify-start gap-2 h-9"
-            onClick={() => setActiveSession(session.id)}
-          >
-            <Radio size={14} className={session.status === 'online' ? 'text-green-500' : 'text-muted-foreground'} />
-            <span className="text-xs truncate flex-1 text-left">
-              {getDesktopLabel('sidebar.session_platform', language).replace('{platform}', getDesktopLabel(`sidebar.platform_${session.platform}`, language)).replace('{name}', session.name)}
-            </span>
-            {session.unreadCount > 0 && (
-              <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {session.unreadCount}
-              </span>
-            )}
-          </Button>
+          <div key={session.id} className="group relative flex items-center">
+            <Button
+              variant={activeSessionId === session.id ? 'default' : 'ghost'}
+              className="w-full justify-start gap-2 h-9 pr-6"
+              onClick={() => { setActiveSession(session.id); navigate('/chat'); }}
+            >
+              <Radio size={14} className={session.status === 'online' ? 'text-green-500 flex-shrink-0' : 'text-muted-foreground flex-shrink-0'} />
+              {renamingId === session.id ? (
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  className="flex-1 text-xs text-foreground bg-background border border-primary rounded px-1 py-0 h-5 min-w-0"
+                  value={renameText}
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onBlur={handleConfirmRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirmRename();
+                    if (e.key === 'Escape') { setRenamingId(null); setRenameText(''); }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="text-xs truncate flex-1 text-left cursor-pointer hover:text-primary min-w-0"
+                  title="双击修改备注名"
+                  onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(session.id, session.name || ''); }}
+                >
+                  {session.name || getDesktopLabel(`sidebar.platform_${session.platform}`, language)}
+                </span>
+              )}
+              {session.unreadCount > 0 && (
+                <span className="flex-shrink-0 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {session.unreadCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hidden group-hover:flex hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/20"
+              onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
+              title="删除会话"
+            >
+              <X size={12} />
+            </Button>
+          </div>
         ))}
       </div>
 

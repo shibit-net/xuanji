@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(fix|resolve|troubleshoot|debug|find|locate|diagnose).*(bug|issue|error|exception|crash|error|fault|code)"
+  keywords: "fix resolving troubleshooting debugging finding locating diagnosing bug issue error exception crash fault code"
   description: "Troubleshoot issues, fix bugs, debug code"
-suitableFor:
-  - Fix bugs
-  - Troubleshoot errors
-  - Analyze exceptions
-  - Diagnose performance issues
-requiredCapabilities:
-  - Code debugging
-  - Problem analysis
-  - Log analysis
 content: |
   # Debug · Mental Model
 

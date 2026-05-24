@@ -102,7 +102,7 @@ permissions:
   fileWrite: never
   bashExec: never
   network: never
-enabled: true
+enabled: false
 metadata:
   category: system
   internal: true

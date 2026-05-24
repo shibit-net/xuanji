@@ -39,6 +39,7 @@ interface PlatformStore {
 
   addSession: (session: RemoteSession) => void;
   removeSession: (sessionId: string) => void;
+  updateSessionName: (sessionId: string, name: string) => void;
   setActiveSession: (sessionId: string | null) => void;
   updateSessionStatus: (sessionId: string, status: RemoteSession['status']) => void;
   incrementUnread: (sessionId: string) => void;
@@ -66,6 +67,14 @@ export const usePlatformStore = create<PlatformStore>((set, get) => ({
     set((s) => ({
       sessions: s.sessions.filter((x) => x.id !== sessionId),
       activeSessionId: s.activeSessionId === sessionId ? null : s.activeSessionId,
+    }));
+  },
+
+  updateSessionName: (sessionId, name) => {
+    set((s) => ({
+      sessions: s.sessions.map((x) =>
+        x.id === sessionId ? { ...x, name } : x
+      ),
     }));
   },
 

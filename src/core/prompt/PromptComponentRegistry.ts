@@ -434,9 +434,8 @@ export class PromptComponentRegistry {
     // 添加场景匹配配置
     if (config.match) {
       const matchConfig: SceneMatchConfig = {
-        keywords: new RegExp(config.match.keywords, 'i'),
+        keywords: config.match.keywords,
         description: config.match.description,
-        requiredCapabilities: config.requiredCapabilities || [],
       };
       component.match = matchConfig;
     }
@@ -530,7 +529,7 @@ export class PromptComponentRegistry {
       // 如果有 match 配置，添加到配置中
       if (component.match) {
         config.match = {
-          keywords: component.match.keywords.source,
+          keywords: component.match.keywords,
           description: component.match.description,
         };
       }

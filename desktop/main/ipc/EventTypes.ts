@@ -103,6 +103,7 @@ export type OtherEventType =
   | 'ask-user:response'
   | 'prompt:build-event'
   | 'project:info'
+  | 'project:registered'
   | 'download:event'
   | 'child-ready'
   | 'config-result'

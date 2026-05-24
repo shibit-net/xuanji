@@ -127,6 +127,23 @@ export class SessionRouter {
     }));
   }
 
+  removeSession(sessionKey: string): void {
+    this.chatIdStore.delete(sessionKey);
+    this.messageStores.delete(sessionKey);
+    this.persistSessions();
+  }
+
+  removeSessionsByPlatform(platform: string): void {
+    const prefix = `${platform}:`;
+    for (const key of this.chatIdStore.keys()) {
+      if (key.startsWith(prefix)) {
+        this.chatIdStore.delete(key);
+        this.messageStores.delete(key);
+      }
+    }
+    this.persistSessions();
+  }
+
   // ── 持久化 ──────────────────────────────────────────────
 
   private ensureDir(): void {

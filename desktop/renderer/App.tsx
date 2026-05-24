@@ -53,6 +53,15 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const theme = useConfigStore((s) => s.settings.theme);
+  const loaded = useConfigStore((s) => s.loaded);
+  const loadConfig = useConfigStore((s) => s.loadConfig);
+
+  // 唯一的配置加载入口：认证通过后，加载一次配置到 store
+  useEffect(() => {
+    if (!loaded) {
+      loadConfig();
+    }
+  }, [loaded, loadConfig]);
 
   // 主题同步到 html 元素（dark 类控制 shadcn CSS 变量）
   useEffect(() => {

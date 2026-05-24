@@ -28,7 +28,7 @@ export class ListScenesTool extends BaseTool {
         properties: {
           search: {
             type: 'string',
-            description: 'Search keyword in name, description, or keywords',
+            description: 'Search keyword in name or description',
           },
         },
       },
@@ -74,8 +74,11 @@ export class ListScenesTool extends BaseTool {
       filteredScenes = sceneComponents.filter(scene =>
         scene.id.toLowerCase().includes(keyword) ||
         scene.name.toLowerCase().includes(keyword) ||
-        scene.match?.description.toLowerCase().includes(keyword) ||
-        scene.match?.keywords.source.toLowerCase().includes(keyword)
+        (scene.match?.description && scene.match.description.toLowerCase().includes(keyword)) ||
+        (scene.match?.keywords && (
+          (typeof scene.match.keywords === 'string' && scene.match.keywords.toLowerCase().includes(keyword)) ||
+          (scene.match.keywords.source && scene.match.keywords.source.toLowerCase().includes(keyword))
+        ))
       );
     }
 
@@ -83,16 +86,8 @@ export class ListScenesTool extends BaseTool {
       return this.success('No scenes found matching the criteria.');
     }
 
-    // 获取完整配置（包含 collaborationHint）
-    const scenesWithConfig = await Promise.all(
-      filteredScenes.map(async scene => {
-        const config = await this.promptRegistry!.getComponentConfig(scene.id);
-        return { scene, config };
-      })
-    );
-
     // 格式化输出
-    const output = this.formatSceneList(scenesWithConfig);
+    const output = this.formatSceneList(filteredScenes);
 
     return this.success(output);
   }
@@ -100,14 +95,14 @@ export class ListScenesTool extends BaseTool {
   /**
    * 格式化场景列表
    */
-  private formatSceneList(scenesWithConfig: Array<{ scene: any; config: any }>): string {
+  private formatSceneList(scenes: any[]): string {
     const lines: string[] = [
-      `Found ${scenesWithConfig.length} scene(s):`,
+      `Found ${scenes.length} scene(s):`,
       '',
     ];
 
-    scenesWithConfig.forEach(({ scene, config }) => {
-      lines.push(this.formatSceneInfo(scene, config));
+    scenes.forEach((scene) => {
+      lines.push(this.formatSceneInfo(scene));
     });
 
     return lines.join('\n');
@@ -116,7 +111,7 @@ export class ListScenesTool extends BaseTool {
   /**
    * 格式化单个场景信息
    */
-  private formatSceneInfo(scene: any, config: any): string {
+  private formatSceneInfo(scene: any): string {
     const lines: string[] = [];
 
     // 标题行
@@ -129,48 +124,25 @@ export class ListScenesTool extends BaseTool {
       lines.push('');
     }
 
-    // 适用任务
-    if (config?.suitableFor && config.suitableFor.length > 0) {
-      lines.push(`**Suitable For**:`);
-      config.suitableFor.forEach((task: string) => {
-        lines.push(`  - ${task}`);
-      });
-      lines.push('');
-    }
-
-    // 需要的能力
-    if (config?.requiredCapabilities && config.requiredCapabilities.length > 0) {
-      lines.push(`**Required Capabilities**:`);
-      config.requiredCapabilities.forEach((cap: string) => {
-        lines.push(`  - ${cap}`);
-      });
-      lines.push('');
-    }
-
-    // 关键词
+    // 关键词（自然语言描述，供 LLM 理解场景用途）
     if (scene.match?.keywords) {
-      lines.push(`**Keywords**: ${scene.match.keywords.source}`);
-      lines.push('');
+      const kw = typeof scene.match.keywords === 'string'
+        ? scene.match.keywords
+        : scene.match.keywords.source || '';
+      if (kw) {
+        lines.push(`**Keywords**: ${kw}`);
+        lines.push('');
+      }
     }
 
-    // 协作提示（如果有）
-    if (config?.collaborationHint) {
-      lines.push(`**Collaboration Hint**:`);
-      const hintLines = config.collaborationHint.trim().split('\n');
-      hintLines.forEach((line: string) => {
-        lines.push(`  ${line}`);
-      });
-      lines.push('');
-    }
-
-    // Content 摘要（前3行）
-    if (config?.content) {
-      const contentLines = config.content.trim().split('\n').slice(0, 3);
+    // Content 摘要（前3行，来自 scene.content）
+    if (scene.content) {
+      const contentLines = scene.content.trim().split('\n').slice(0, 3);
       lines.push(`**Content Summary**:`);
       contentLines.forEach((line: string) => {
         lines.push(`  ${line}`);
       });
-      if (config.content.split('\n').length > 3) {
+      if (scene.content.trim().split('\n').length > 3) {
         lines.push(`  ...`);
       }
       lines.push('');

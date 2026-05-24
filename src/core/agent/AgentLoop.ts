@@ -253,7 +253,7 @@ export class AgentLoop {
   }
 
   /** 运行一轮对话（纯 ReAct 循环） */
-  async run(userMessage: string, signal?: AbortSignal, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): Promise<void> {
+  async run(userMessage: string, signal?: AbortSignal, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>, attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>): Promise<void> {
     if (this.running) {
       this.log.warn('run() called while already running, ignoring');
       return;
@@ -264,7 +264,7 @@ export class AgentLoop {
     this._abortRequested = false;
     const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
-    this.log.info(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} apiKey=${((this.config as any).apiKey || '').substring(0, 8)}... baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}`);
+    this.log.info(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} apiKey=${((this.config as any).apiKey || '').substring(0, 8)}... baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}, attachments=${attachments?.length || 0}`);
 
     if (!this._suppressEventBus) {
       eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
@@ -282,7 +282,7 @@ export class AgentLoop {
         (permCtrl.setCurrentUserIntent as (msg: string) => void)(userMessage);
       }
 
-      this.contextManager.addUserMessage(userMessage, imageBlocks, audioBlocks, videoBlocks);
+      this.contextManager.addUserMessage(userMessage, imageBlocks, audioBlocks, videoBlocks, attachments);
 
       let lastCompressIteration = 0;
 

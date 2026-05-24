@@ -95,9 +95,6 @@ tools:
 - name: send_file_to_user
   enabled: true
   comment: 生成设计稿后必须调用，将结果发送给用户
-- name: bash
-  enabled: true
-  comment: 运行截图工具、HTML 渲染、图片处理
 - name: ask_user
   enabled: true
 - name: web_search
@@ -106,9 +103,6 @@ tools:
 - name: web_fetch
   enabled: true
   comment: 获取特定网页内容（设计系统文档等）
-- name: glob
-  enabled: true
-  comment: 按模式查找文件
 - name: list_directory
   enabled: true
   comment: 列出目录内容

@@ -232,6 +232,11 @@ export class Scheduler {
   }
 
   private async executeJob(job: CronJob, runTime: number): Promise<void> {
+    // 用户隔离：仅执行当前活跃用户的任务，跳过其他用户的 job
+    if (job.userId && this.activeUsers.size > 0 && !this.activeUsers.has(job.userId)) {
+      return;
+    }
+
     try {
       log.info(`Executing job: ${job.id} (${job.type}: ${job.action})`);
 

@@ -6,23 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(write|implement|create|add|new|develop|build|make).*(code|feature|interface|component|module|class|function|method|service|page|UI)"
+  keywords: "writing implementing creating adding developing building coding feature interface component module class function method service page UI"
   description: "Write code, implement features"
-suitableFor:
-  - Implement new features
-  - Create new components/modules
-  - Write interfaces/APIs
-  - Add business logic
-requiredCapabilities:
-  - Code writing
-  - Language specification understanding
-  - Design pattern application
-collaborationHint: |
-  If the task is complex, the recommended collaboration workflow:
-  1. Use explorer to explore existing code structure
-  2. Use planner to plan the implementation approach
-  3. Use coder to implement the code
-  4. Use tester to write test cases
 content: |
   # Code Writing · Mental Model
 

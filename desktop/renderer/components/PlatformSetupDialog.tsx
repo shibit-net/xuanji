@@ -173,7 +173,7 @@ export default function PlatformSetupDialog() {
                   <div className="text-primary">{info.icon}</div>
                   <div className="text-left">
                     <div className="font-medium">{info.name}</div>
-                    <div className="text-xs text-muted-foreground">{info.desc}</div>
+                    <div className="text-xs text-muted-foreground truncate max-w-[280px]">{info.desc}</div>
                   </div>
                   {info.type === 'wechat' && (
                     <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">

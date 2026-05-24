@@ -181,6 +181,10 @@
       {
         "from": "../node_modules/onnxruntime-node",
         "to": "dist-electron/node_modules/onnxruntime-node"
+      },
+      {
+        "from": "../node_modules/@node-llama-cpp",
+        "to": "dist-electron/node_modules/@node-llama-cpp"
       }
     ],
     "mac": {

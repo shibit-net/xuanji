@@ -133,7 +133,7 @@ export default function MainPage() {
       {/* 中间内容区 — 对话框 */}
       <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
         {/* 全局状态栏 — 本地和远端会话均显示 */}
-        <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-white/[0.02]">
+        <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-muted/30">
           {/* Session 状态指示器 */}
           {sessionStatus !== 'ready' && (
             <div className="flex items-center gap-1.5 text-[11px]">
@@ -155,7 +155,7 @@ export default function MainPage() {
               ) : null}
             </div>
           )}
-          <div className="flex items-center gap-1.5 text-[11px] text-white/40">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span>{currentIteration} 轮</span>
           </div>
@@ -169,7 +169,7 @@ export default function MainPage() {
               出 {formatToken(totalTokens.output)}
             </span>
             {totalTokens.input + totalTokens.output > 0 && (
-              <span className="flex items-center gap-1 text-white/60 font-medium" title="累计总 token">
+              <span className="flex items-center gap-1 text-muted-foreground font-medium" title="累计总 token">
                 Σ {formatToken(totalTokens.input + totalTokens.output)}
               </span>
             )}

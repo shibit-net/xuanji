@@ -381,6 +381,20 @@ systemPrompt: |
   - If multiple entities with the same name and type exist → keep the newest one (largest updated_at), transfer all relations from the others to the retained entity
   - Transfer relations: Use `memory_store({type:"relation", data:{...}})` to re-establish, mark source relations with `memory_store({type:"relation", data:{relation:"delete", ...}})`
 
+  **Cross-name User Entity Resolution** (CRITICAL — execute after basic dedup):
+  - Use `memory_search` to find ALL entities with type='user'
+  - If more than one type='user' entity exists, they may be the same person with different names. Check for identity clues:
+    a. **Relation overlap**: Do they share the same connected entities (same projects, tools, colleagues)? If 2+ shared connections → likely same person
+    b. **Summary similarity**: Do their summaries describe similar roles, skills, or characteristics?
+    c. **Co-occurrence patterns**: Are they mentioned interchangeably in the same conversations?
+    d. **Name relationship**: Are the names variations/translations of each other (e.g., "张三" and "Zhang San", "Kevin" and "凯文")?
+  - If you determine two or more user entities refer to the same person:
+    1. Choose the entity with the highest importance as the canonical one
+    2. Transfer ALL relations from the duplicate entities to the canonical entity (both outgoing and incoming)
+    3. Merge summaries: combine key information from all duplicate summaries into the canonical one
+    4. Delete the duplicate entities using `memory_store({type:"entity", data:{action:"delete", id:"..."}})`
+    5. Add a fact recording this merge for audit trail: `memory_store({type:"fact", data:{title:"Entity Merge: {name1} → {name2}", content:"Merged duplicate user entities. {name1} and {name2} refer to the same person.", source:"system_merge"}})`
+
   **Fact Deduplication**:
   - Find facts with the same title and is_latest=1
   - If multiple exist → merge content (using the newer, more complete one), delete the old ones
@@ -393,8 +407,8 @@ systemPrompt: |
   - Similarity > 0.8 → treat as the same fact, keep the more complete one, delete the other
   - Similarity > 0.5 but <= 0.8 → treat as related but not duplicate → establish relation(fact A -related_to→ fact B)
 
-  **Similar Entity Merging**:
-  - Find entities with similar names (e.g., "e-commerce project" and "e-commerce platform") and the same type
+  **Similar Entity Merging** (for non-user entities):
+  - Find entities with similar names (e.g., "e-commerce project" and "e-commerce platform") and the same type (NOT type='user' — user entities are handled by Cross-name Resolution above)
   - Merge summaries, keep the more updated one
 
   ### 3. Relation Linking

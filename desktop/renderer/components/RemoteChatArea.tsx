@@ -11,6 +11,8 @@ import MessageBubble from './MessageBubble';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type PlatformMessage } from '../stores/platformStore';
 import { useConversationHub } from '../stores/conversationHub';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 import { t } from '@/core/i18n';
 
 export default function RemoteChatArea() {
@@ -18,6 +20,7 @@ export default function RemoteChatArea() {
   const sessions = usePlatformStore((s) => s.sessions);
   const messages = usePlatformStore((s) => s.messages);
   const setActiveSession = usePlatformStore((s) => s.setActiveSession);
+  const language = useConfigStore((s) => s.settings.language);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -136,23 +139,16 @@ export default function RemoteChatArea() {
     );
   }
 
-  const platformLabel =
-    session.platform === 'wechat'
-      ? t('sidebar.platform_wechat')
-      : session.platform === 'wecom'
-        ? t('sidebar.platform_wecom')
-        : session.platform === 'feishu'
-          ? t('sidebar.platform_feishu')
-          : t('sidebar.platform_dingtalk');
+  const platformLabel = getDesktopLabel(`sidebar.platform_${session.platform}`, language);
 
-  const statusText =
-    hubState?.status === 'thinking'
-      ? t('agent.status_list.status.thinking')
-      : session.status === 'online'
-        ? t('agent.status_list.status.idle')
-        : session.status === 'connecting'
-          ? t('agent.panel.status.waiting')
-          : t('agent.panel.status.idle');
+  const statusKey = hubState?.status === 'thinking'
+    ? 'platform.status.thinking'
+    : session.status === 'online'
+      ? 'platform.status.online'
+      : session.status === 'connecting'
+        ? 'platform.status.connecting'
+        : 'platform.status.offline';
+  const statusText = getDesktopLabel(statusKey, language);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col relative">

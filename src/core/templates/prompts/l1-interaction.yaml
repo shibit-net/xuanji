@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(interaction|flow|prototype|wireframe|user.flow|information.architecture).*"
+  keywords: "interaction flow prototype wireframe user flow information architecture"
   description: "Interaction design, user flow, prototyping"
-suitableFor:
-  - Design user flows
-  - Design interaction details
-  - Create prototypes
-  - Information architecture design
-requiredCapabilities:
-  - Information architecture design
-  - Interaction flow design
-  - Prototyping
 content: |
   # Interaction Design · Mental Model
 

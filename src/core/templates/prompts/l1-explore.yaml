@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(explore|analyze|understand|inspect|study|browse|read).*(codebase|project|architecture|structure|code|source|calls)"
+  keywords: "exploring analyzing understanding inspecting studying browsing reading codebase project architecture structure code source calls"
   description: "Explore codebase, understand architecture, analyze project"
-suitableFor:
-  - Understand project structure
-  - Analyze code architecture
-  - Locate key files
-  - Investigate call chains
-requiredCapabilities:
-  - Code reading
-  - Architecture understanding
-  - Pattern recognition
 content: |
   # Code Exploration · Mental Model
 

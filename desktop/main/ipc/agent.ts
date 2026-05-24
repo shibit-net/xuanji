@@ -193,11 +193,57 @@ function registerSystemIpcHandlers() {
 let prevCpuUsage: { user: number; system: number; timestamp: number } | null = null;
 let prevAgentCpuSec: { seconds: number; timestamp: number } | null = null;
 
+/**
+ * 获取 agent 子进程的 CPU 秒数（Windows）
+ * 依次尝试: Get-Process (PowerShell) -> wmic (兼容旧 Windows/受限环境)
+ */
+function getAgentCpuSecondsWin(agentPid: number): number | null {
+  const { execSync } = require('child_process');
+
+  // 方案1: PowerShell Get-Process（现代 Windows，最精确）
+  try {
+    const raw = execSync(
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-Process -Id ${agentPid} -ErrorAction SilentlyContinue).CPU"`,
+      { encoding: 'utf-8', timeout: 3000, windowsHide: true },
+    );
+    const trimmed = raw.trim();
+    if (trimmed) {
+      const val = parseFloat(trimmed);
+      if (!isNaN(val)) return val;
+    }
+  } catch {
+    // PowerShell 不可用或执行策略禁止，尝试下一方案
+  }
+
+  // 方案2: wmic（兼容 Windows 7/Server 2008 及受限环境）
+  try {
+    const raw = execSync(
+      `wmic path Win32_PerfFormattedData_PerfProc_Process where "IDProcess=${agentPid}" get PercentProcessorTime /value`,
+      { encoding: 'utf-8', timeout: 3000, windowsHide: true },
+    );
+    // 输出格式: PercentProcessorTime=123456789
+    const match = raw.match(/PercentProcessorTime=(\d+)/);
+    if (match) {
+      const perfCounter = parseInt(match[1], 10);
+      if (!isNaN(perfCounter) && perfCounter > 0) {
+        // wmic PercentProcessorTime 单位是 100ns（Windows FILETIME 单位）
+        // 需要累积差值计算，此处仅用作最后兜底
+        const cpuSeconds = perfCounter / 10_000_000;
+        return cpuSeconds;
+      }
+    }
+  } catch {
+    // wmic 也不可用
+  }
+
+  return null;
+}
+
 function getCpuPercentWin(): number {
   const now = Date.now();
   const usage = process.cpuUsage();
 
-  // 主进程 CPU（process.cpuUsage 差值）
+  // 主进程 CPU（process.cpuUsage 差值，跨平台可用）
   let mainCpuPercent = 0;
   if (prevCpuUsage) {
     const deltaUs = (usage.user - prevCpuUsage.user) + (usage.system - prevCpuUsage.system);
@@ -208,29 +254,23 @@ function getCpuPercentWin(): number {
   }
   prevCpuUsage = { user: usage.user, system: usage.system, timestamp: now };
 
-  // Agent 子进程 CPU（PowerShell Get-Process 差值）
+  // Agent 子进程 CPU（差值法计算百分比）
   let agentCpuPercent = 0;
   const agentPid = getAgentProcessPid();
   if (agentPid) {
-    try {
-      const { execSync } = require('child_process');
-      const raw = execSync(
-        `powershell -NoProfile -Command "(Get-Process -Id ${agentPid}).CPU"`,
-        { encoding: 'utf-8', timeout: 2000 }
-      );
-      const cpuSeconds = parseFloat(raw.trim());
-      if (!isNaN(cpuSeconds)) {
-        if (prevAgentCpuSec) {
-          const deltaSec = cpuSeconds - prevAgentCpuSec.seconds;
-          const deltaMs = now - prevAgentCpuSec.timestamp;
-          if (deltaMs > 0 && deltaSec >= 0) {
-            agentCpuPercent = (deltaSec / (deltaMs / 1000)) * 100;
-          }
+    const cpuSeconds = getAgentCpuSecondsWin(agentPid);
+    if (cpuSeconds !== null) {
+      if (prevAgentCpuSec && prevAgentCpuSec.seconds > 0) {
+        const deltaSec = cpuSeconds - prevAgentCpuSec.seconds;
+        const deltaMs = now - prevAgentCpuSec.timestamp;
+        if (deltaMs > 0 && deltaSec >= 0) {
+          agentCpuPercent = (deltaSec / (deltaMs / 1000)) * 100;
         }
-        prevAgentCpuSec = { seconds: cpuSeconds, timestamp: now };
       }
-    } catch {
-      // PowerShell 不可用时忽略子进程 CPU
+      prevAgentCpuSec = { seconds: cpuSeconds, timestamp: now };
+    } else {
+      // 无法获取子进程 CPU，重置缓存避免下次计算出错
+      prevAgentCpuSec = null;
     }
   }
 
@@ -246,15 +286,21 @@ function getMemoryUsageWin(parentPid: number): number {
 
   try {
     const { execSync } = require('child_process');
+    // /FO CSV 输出始终为英文格式，不受系统语言影响：
+    // "ImageName","PID","SessionName","Session#","Mem Usage"
+    // "node.exe","12345","Console","1","123,456 K"
     const raw = execSync(`tasklist /FO CSV /NH /FI "PID eq ${agentPid}"`, {
       encoding: 'utf-8',
-      timeout: 2000,
+      timeout: 3000,
+      windowsHide: true,
     });
-    // CSV 格式: "ImageName","PID","SessionName","Session#","Mem Usage"
-    const match = raw.match(/(\d[\d,]*)\s*K/);
-    if (match) {
-      const agentKB = parseInt(match[1].replace(/,/g, ''), 10);
-      if (!isNaN(agentKB)) {
+
+    // 匹配最后一列 "Mem Usage" 的值：数字（含千位分隔符）后跟 K
+    // 匹配模式：双引号包裹的数字+逗号+空格+K+双引号，如 "123,456 K"
+    const memMatch = raw.match(/"([\d,]+)\s*K"/);
+    if (memMatch) {
+      const agentKB = parseInt(memMatch[1].replace(/,/g, ''), 10);
+      if (!isNaN(agentKB) && agentKB > 0) {
         totalMemMB += Math.round(agentKB / 1024);
       }
     }

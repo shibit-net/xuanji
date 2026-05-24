@@ -144,18 +144,20 @@ export class SemanticIndex {
     await this.ensureInit();
     if (!this.vectors || this.entries.length === 0) return [];
 
-    const queryVec = await this.provider.embed(query);
-    if (queryVec.length === 0) return [];
+    const queryEmbedding = await this.provider.embed(query);
+    if (queryEmbedding.length === 0) return [];
 
+    // 查询向量存为 Float32Array，避免循环内重复转换
+    const queryVec = new Float32Array(queryEmbedding);
+    const dims = this.dimensions;
     const results: Array<{ entry: EmbeddingEntry; score: number }> = [];
+    const threshold = scoreThreshold;
 
     for (let i = 0; i < this.entries.length; i++) {
       const entry = this.entries[i];
-      const start = entry.offset;
-      const end = start + entry.length;
-      const vec = this.vectors.slice(start, end);
-      const score = this.provider.cosineSimilarity(queryVec, Array.from(vec));
-      if (score >= scoreThreshold) {
+      // 直接对 Float32Array 偏移量计算点积，零分配
+      const score = this.provider.dotProduct(this.vectors!, entry.offset, queryVec, dims);
+      if (score >= threshold) {
         results.push({ entry, score });
       }
     }
@@ -226,7 +228,7 @@ export class SemanticIndex {
       dimensions: this.dimensions,
       entries: this.entries,
     };
-    await writeFile(idxPath, JSON.stringify(idxData, null, 2), 'utf-8');
+    await writeFile(idxPath, JSON.stringify(idxData), 'utf-8');
 
     // 向量文件：仅追加新增条目，避免全量重写
     if (this.vectors) {

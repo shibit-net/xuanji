@@ -401,6 +401,17 @@ export function registerDownloadHandlers() {
     }
   });
 
+  // 在系统文件管理器中显示文件/目录
+  ipcMain.handle('workspace:show-in-folder', async (_event, filePath: string) => {
+    try {
+      const { shell } = require('electron');
+      shell.showItemInFolder(path.normalize(filePath));
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // 用系统默认浏览器打开 URL
   ipcMain.handle('workspace:open-url', async (_event, url: string) => {
     try {

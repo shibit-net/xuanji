@@ -54,9 +54,8 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   // 创建 Scene 对话框
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createForm, setCreateForm] = useState({
-    id: '', name: '', priority: 75, estimatedTokens: 300,
+    id: '', name: '', priority: 75,
     keywords: '', description: '', content: '',
-    suitableFor: '', requiredCapabilities: '', collaborationHint: '',
   });
   const [creating, setCreating] = useState(false);
 
@@ -98,9 +97,12 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     }
   }, [activeTab]);
 
-  // 监听项目切换事件，自动刷新项目列表
+  // 监听项目切换事件 + 新项目注册事件，自动刷新项目列表
   useEffect(() => {
     window.electron.onProjectInfo((_data) => {
+      loadProjectsList();
+    });
+    window.electron.onProjectRegistered((_data) => {
       loadProjectsList();
     });
   }, []);
@@ -335,30 +337,21 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         name: createForm.name.trim(),
         layer: selectedLayer,
         priority: createForm.priority,
-        estimatedTokens: createForm.estimatedTokens,
+        estimatedTokens: Math.max(50, Math.round(createForm.content.length * 0.4)),
         content: createForm.content,
       };
       if (selectedLayer === 'L1') {
         payload.scenes = [createForm.id.trim()];
         payload.match = {
-          keywords: createForm.keywords || '.*',
+          keywords: createForm.keywords || createForm.name.trim(),
           description: createForm.description || createForm.name.trim(),
         };
-        if (createForm.suitableFor.trim()) {
-          payload.suitableFor = createForm.suitableFor.split(',').map((s: string) => s.trim()).filter(Boolean);
-        }
-        if (createForm.requiredCapabilities.trim()) {
-          payload.requiredCapabilities = createForm.requiredCapabilities.split(',').map((s: string) => s.trim()).filter(Boolean);
-        }
-        if (createForm.collaborationHint.trim()) {
-          payload.collaborationHint = createForm.collaborationHint.trim();
-        }
       }
       const result = await window.electron.promptCreateComponent(payload);
       if (result.success) {
         toast.success(t('sysprompt.create_success'));
         setShowCreateDialog(false);
-        setCreateForm({ id: '', name: '', priority: 75, estimatedTokens: 300, keywords: '', description: '', content: '', suitableFor: '', requiredCapabilities: '', collaborationHint: '' });
+        setCreateForm({ id: '', name: '', priority: 75, keywords: '', description: '', content: '' });
         await loadComponents();
       } else {
         toast.error(result.error || t('sysprompt.create_failed'));
@@ -486,8 +479,8 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
       {/* 右侧：组件列表 */}
       <div className="flex-1 overflow-y-auto p-4">
-        {/* 创建 Scene 按钮（仅 L1） */}
-        {selectedLayer === 'L1' && (
+        {/* 创建组件按钮（L1/L2） */}
+        {(selectedLayer === 'L1' || selectedLayer === 'L2') && (
           <div className="mb-4">
             <Button
               onClick={() => setShowCreateDialog(true)}
@@ -495,7 +488,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2 px-4 py-2"
             >
               <Plus size={16} />
-              {t('sysprompt.create_scene')}
+              {selectedLayer === 'L1' ? t('sysprompt.create_scene') : t('sysprompt.create_l2')}
             </Button>
           </div>
         )}
@@ -684,7 +677,9 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   ) : (
                                     <div className="bg-card rounded p-2">
                                       <code className="text-xs font-mono text-green-400">
-                                        {component.match.keywords || t('sysprompt.keywords_not_set')}
+                                        {typeof component.match.keywords === 'string'
+                                          ? component.match.keywords
+                                          : component.match.keywords?.source || t('sysprompt.keywords_not_set')}
                                       </code>
                                     </div>
                                   )}
@@ -1116,7 +1111,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-background rounded-lg shadow-xl border border-border w-[680px] max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="font-medium">创建 Scene 组件</h3>
+              <h3 className="font-medium">{selectedLayer === 'L1' ? '创建 Scene 组件' : '创建 L2 组件'}</h3>
               <Button onClick={() => setShowCreateDialog(false)} variant="ghost" size="icon" className="h-7 w-7">
                 <X size={20} />
               </Button>
@@ -1148,18 +1143,20 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">预估 Tokens</label>
-                  <input type="number" value={createForm.estimatedTokens}
-                    onChange={(e) => setCreateForm({ ...createForm, estimatedTokens: parseInt(e.target.value) || 300 })}
-                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
+                  <div className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-muted-foreground">
+                    {Math.max(50, Math.round(createForm.content.length * 0.4))}
+                  </div>
+                  <p className="text-xs text-muted-foreground/60 mt-1">根据内容长度自动计算，约 {Math.round(createForm.content.length * 0.4)} tokens</p>
                 </div>
               </div>
 
               {/* L1 场景匹配配置 */}
+              {selectedLayer === 'L1' && (
               <div className="border-t border-border pt-4">
                 <h4 className="text-sm font-medium mb-3 text-primary">场景匹配配置</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium mb-1">匹配关键词（正则）</label>
+                    <label className="block text-sm font-medium mb-1">匹配关键词（自然语言，空格分隔）</label>
                     <input type="text" value={createForm.keywords}
                       onChange={(e) => setCreateForm({ ...createForm, keywords: e.target.value })}
                       placeholder={t('sysprompt.create_placeholder_keywords')}
@@ -1174,35 +1171,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                   </div>
                 </div>
               </div>
-
-              {/* 可选配置 */}
-              <div className="border-t border-border pt-4">
-                <h4 className="text-sm font-medium mb-3 text-primary">能力与协作（可选）</h4>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">适用场景（逗号分隔）</label>
-                    <input type="text" value={createForm.suitableFor}
-                      onChange={(e) => setCreateForm({ ...createForm, suitableFor: e.target.value })}
-                      placeholder={t('sysprompt.create_placeholder_scenes')}
-                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">所需能力（逗号分隔）</label>
-                    <input type="text" value={createForm.requiredCapabilities}
-                      onChange={(e) => setCreateForm({ ...createForm, requiredCapabilities: e.target.value })}
-                      placeholder={t('sysprompt.create_placeholder_content')}
-                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">协作提示</label>
-                    <textarea value={createForm.collaborationHint}
-                      onChange={(e) => setCreateForm({ ...createForm, collaborationHint: e.target.value })}
-                      placeholder={t('sysprompt.create_placeholder_content')}
-                      rows={4}
-                      className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y" />
-                  </div>
-                </div>
-              </div>
+              )}
 
               {/* Prompt 内容 */}
               <div className="border-t border-border pt-4">

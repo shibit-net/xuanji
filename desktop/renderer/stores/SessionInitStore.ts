@@ -60,21 +60,11 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
       if (result.success) {
         get().transition({ type: 'INIT_COMPLETE' });
 
-        // 从初始化返回的配置同步 configStore
+        // 配置加载已统一由 App.tsx → configStore.loadConfig() 处理
+        // 这里只更新 model 信息和 messageStore
         if (result.config) {
           const config = result.config;
           const { useConfigStore } = await import('./configStore');
-          const { setLanguage } = await import('@/core/i18n');
-          const language = (config.ui?.language as 'zh' | 'en') || 'en';
-          console.log('[SessionInitStore] init setting language from config:', language, 'ui:', JSON.stringify(config.ui));
-          setLanguage(language);
-          useConfigStore.getState().updateSettings({
-            language,
-            theme: (config.ui?.theme as 'light' | 'dark') || 'dark',
-            workspacePath: config.workspacePath || '',
-            showTokenUsage: config.ui?.showTokenUsage ?? true,
-            showThinking: config.ui?.showThinking ?? true,
-          });
 
           if (config.provider?.model) {
             useConfigStore.getState().updateModelConfig({

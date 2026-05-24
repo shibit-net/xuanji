@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(deploy|release|go-live|configure|containerize|docker|k8s|kubernetes|ci|cd).*"
+  keywords: "deploy release go-live configuring containerizing docker k8s kubernetes ci cd"
   description: "Deploy configuration, containerization, CI/CD pipeline"
-suitableFor:
-  - Configure deployment pipeline
-  - Containerize applications
-  - Build CI/CD pipeline
-  - Environment configuration
-requiredCapabilities:
-  - Containerization and orchestration
-  - CI/CD pipeline configuration
-  - Deployment and release
 content: |
   # Deploy · Mental Model
 

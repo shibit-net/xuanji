@@ -6,18 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(interface|UI|visual|layout|color scheme|icon|button|page).*(design|creation|plan)?"
+  keywords: "interface UI visual layout color scheme icon button page design creation planning"
   description: "UI interface design, visual design, layout design"
-suitableFor:
-  - Design interface layout
-  - Design visual style
-  - Design components
-  - Color scheme
-requiredCapabilities:
-  - Interface layout design
-  - Visual design and color scheme
-  - Component design
-  - Responsive design
 content: |
   # UI Design · Mental Model
 

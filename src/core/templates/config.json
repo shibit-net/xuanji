@@ -4,7 +4,6 @@
     "theme": "auto",
     "language": "en",
     "showTokenUsage": true,
-    "showCost": true,
     "showThinking": true
   },
   "permission": {

@@ -214,6 +214,12 @@ tools:
     required: false
   - name: butler_daemon
     required: false
+  - name: mcp_call
+    required: false
+  - name: skill_call
+    required: false
+  - name: mcp_settings
+    required: false
 execution:
   mode: react
   maxIterations: .inf

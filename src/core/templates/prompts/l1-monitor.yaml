@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(monitor|alert|log|metrics|logging|tracing|observability).*"
+  keywords: "monitor alert log metrics logging tracing observability"
   description: "System monitoring, alert configuration, log analysis"
-suitableFor:
-  - Configure monitoring system
-  - Set up alert rules
-  - Analyze system logs
-  - Performance monitoring
-requiredCapabilities:
-  - System monitoring and alerting
-  - Performance analysis and optimization
-  - Fault troubleshooting and repair
 content: |
   # Monitoring Operations · Mental Model
 

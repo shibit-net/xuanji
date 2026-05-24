@@ -13,6 +13,7 @@ const log = logger.child({ module: 'PlatformIPC' });
 // ─── 平台桥接单例（延迟初始化）─────────────────────────────
 
 let platformRouter: any = null;
+let platformRouterPromise: Promise<any> | null = null;
 let webhookServer: any = null;
 let platformReady = false;
 let messageHandlerRegistered = false;
@@ -138,42 +139,113 @@ export function initAgentBridgeForwarding(): void {
   log.info('Platform ↔ Agent-bridge forwarding initialized');
 }
 
-/** 获取或创建 PlatformRouter 单例 */
+/** 获取或创建 PlatformRouter 单例（防竞态：Promise 锁确保仅初始化一次） */
 async function getPlatformRouter(): Promise<any> {
-  if (!platformRouter) {
-    const { PlatformRouter } = await import('../../../src/platform/PlatformRouter.js');
-
-    // 尝试获取数据库（可选，失败不影响 session 持久化）
-    let db: any = undefined;
-    try {
-      const { getMemoryManager } = await import('../../../src/core/memory/globals.js');
-      const mm = getMemoryManager();
-      db = mm ? (mm as any).db : undefined;
-    } catch {
-      // getMemoryManager 可能尚未就绪，正常降级
-    }
-
-    const { getAuthState } = await import('../config/auth.js');
-    const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
-    const uid = getAuthState().user?.userId || 'default';
-    const dataDir = getUserPlatformDir(uid);
-
-    platformRouter = new PlatformRouter(db, dataDir);
-    log.info(`PlatformRouter initialized for user: ${uid}`);
-
-    // 自动恢复已保存的平台连接
-    await restorePlatformConnections(platformRouter, dataDir);
+  if (platformRouter) return platformRouter;
+  if (!platformRouterPromise) {
+    platformRouterPromise = initPlatformRouter();
   }
+  return platformRouterPromise;
+}
+
+async function initPlatformRouter(): Promise<any> {
+  const { PlatformRouter } = await import('../../../src/platform/PlatformRouter.js');
+
+  // 尝试获取数据库（可选，失败不影响 session 持久化）
+  let db: any = undefined;
+  try {
+    const { getMemoryManager } = await import('../../../src/core/memory/globals.js');
+    const mm = getMemoryManager();
+    db = mm ? (mm as any).db : undefined;
+  } catch {
+    // getMemoryManager 可能尚未就绪，正常降级
+  }
+
+  const { getAuthState } = await import('../config/auth.js');
+  const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+  const uid = getAuthState().user?.userId || 'default';
+  const dataDir = getUserPlatformDir(uid);
+
+  platformRouter = new PlatformRouter(db, dataDir);
+  log.info(`PlatformRouter initialized for user: ${uid}`);
+
+  // 自动恢复已保存的平台连接
+  await restorePlatformConnections(platformRouter, dataDir);
+
+  // 确保 WeChat 扫码时 token 保存到用户专属目录，与恢复路径一致
+  (platformRouter as any)._wechatConfig = { token_path: `${dataDir}/wechat-token.json` };
+
   return platformRouter;
+}
+
+/** 保存平台配置，供重启后自动恢复 */
+async function savePlatformConfig(dataDir: string, platform: string, config: Record<string, any>): Promise<void> {
+  const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('fs');
+  const configsPath = `${dataDir}/platform-configs.json`;
+  try {
+    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+    let configs: Record<string, any> = {};
+    if (existsSync(configsPath)) {
+      configs = JSON.parse(readFileSync(configsPath, 'utf-8'));
+    }
+    configs[platform] = { ...config, savedAt: Date.now() };
+    writeFileSync(configsPath, JSON.stringify(configs, null, 2));
+    log.info(`Platform config saved: ${platform}`);
+  } catch (err) {
+    log.warn(`Failed to save platform config: ${(err as Error).message}`);
+  }
+}
+
+/** 保存会话备注名到磁盘 */
+async function saveSessionNames(dataDir: string, updates: Record<string, string>): Promise<void> {
+  const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('fs');
+  const namesPath = `${dataDir}/session-names.json`;
+  try {
+    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+    let names: Record<string, string> = {};
+    if (existsSync(namesPath)) {
+      names = JSON.parse(readFileSync(namesPath, 'utf-8'));
+    }
+    Object.assign(names, updates);
+    writeFileSync(namesPath, JSON.stringify(names, null, 2));
+  } catch (err) {
+    log.warn(`Failed to save session names: ${(err as Error).message}`);
+  }
+}
+
+/** 从磁盘加载会话备注名 */
+async function loadSessionNames(dataDir: string): Promise<Record<string, string>> {
+  const { existsSync, readFileSync } = await import('fs');
+  const namesPath = `${dataDir}/session-names.json`;
+  try {
+    if (existsSync(namesPath)) {
+      return JSON.parse(readFileSync(namesPath, 'utf-8'));
+    }
+  } catch (err) {
+    log.warn(`Failed to load session names: ${(err as Error).message}`);
+  }
+  return {};
 }
 
 /** 启动时恢复已保存的平台连接（token/credential 持久化 → adapter 自动重建） */
 async function restorePlatformConnections(router: any, dataDir: string): Promise<void> {
   const { existsSync, readFileSync } = await import('fs');
 
-  // WeChat token 恢复
+  // ── 0. 读取平台配置（检查禁用标记）─────────────────────────
+  const configsPath = `${dataDir}/platform-configs.json`;
+  let savedConfigs: Record<string, any> = {};
+  if (existsSync(configsPath)) {
+    try {
+      savedConfigs = JSON.parse(readFileSync(configsPath, 'utf-8'));
+    } catch { /* ignore parse errors */ }
+  }
+
+  // ── 1. 恢复 WeChat（长轮询 token）──────────────────────────
   const wechatTokenPath = `${dataDir}/wechat-token.json`;
-  if (existsSync(wechatTokenPath)) {
+  // 检查是否已被用户禁用
+  if (savedConfigs.wechat?._disabled) {
+    log.info('WeChat was disabled by user, skipping restore');
+  } else if (existsSync(wechatTokenPath)) {
     try {
       const raw = readFileSync(wechatTokenPath, 'utf-8');
       const tokenInfo = JSON.parse(raw);
@@ -190,6 +262,74 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
     } catch (err) {
       log.warn(`Failed to restore WeChat connection: ${(err as Error).message}`);
     }
+  }
+
+  // ── 2. 恢复飞书/钉钉/企微（OAuth + Webhook）───────────────
+  if (!existsSync(configsPath)) return;
+
+  try {
+    const configs = JSON.parse(readFileSync(configsPath, 'utf-8'));
+    let webhookNeeded = false;
+
+    for (const [platform, config] of Object.entries(configs)) {
+      if (platform === 'wechat') continue; // WeChat 已在上面处理
+      if ((config as any)._disabled) continue; // 已手动禁用，跳过恢复
+
+      try {
+        let adapter: any;
+        const adapterConfig = config as Record<string, any>;
+
+        switch (platform) {
+          case 'feishu': {
+            const { FeishuAdapter } = await import('../../../src/platform/adapters/FeishuAdapter.js');
+            adapter = new FeishuAdapter(adapterConfig, router.credentials);
+            webhookNeeded = true;
+            break;
+          }
+          case 'dingtalk': {
+            const { DingTalkAdapter } = await import('../../../src/platform/adapters/DingTalkAdapter.js');
+            adapter = new DingTalkAdapter(adapterConfig, router.credentials);
+            webhookNeeded = true;
+            break;
+          }
+          case 'wecom': {
+            const { WecomAdapter } = await import('../../../src/platform/adapters/WecomAdapter.js');
+            adapter = new WecomAdapter(adapterConfig, router.credentials);
+            webhookNeeded = true;
+            break;
+          }
+          default:
+            continue;
+        }
+
+        router.registerAdapter(adapter);
+        ensureMessageHandler(router);
+
+        // 注册 Webhook 路由
+        if (typeof adapter.getWebhookHandler === 'function') {
+          const wh = adapter.getWebhookHandler();
+          const ws = await getWebhookServer();
+          ws.register(wh.path, wh.handler);
+          log.info(`Webhook route restored: ${wh.path} for ${platform}`);
+        }
+
+        await adapter.start();
+        log.info(`${platform} connection restored`);
+      } catch (err) {
+        log.warn(`Failed to restore ${platform} connection: ${(err as Error).message}`);
+      }
+    }
+
+    // 有 webhook 平台时自动启动 WebhookServer
+    if (webhookNeeded) {
+      const ws = await getWebhookServer();
+      if (!ws.getPort()) {
+        const port = await ws.start();
+        log.info(`WebhookServer auto-started on port ${port} during restore`);
+      }
+    }
+  } catch (err) {
+    log.warn(`Failed to restore platform configs: ${(err as Error).message}`);
   }
 }
 
@@ -266,6 +406,13 @@ export function registerPlatformIpcHandlers(): void {
       await router.start();
       platformReady = true;
 
+      // 持久化平台配置，确保重启后自动恢复连接
+      const { getAuthState } = await import('../config/auth.js');
+      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const uid = getAuthState().user?.userId || 'default';
+      const dataDir = getUserPlatformDir(uid);
+      await savePlatformConfig(dataDir, data.platform, data.config);
+
       // 启动 WebhookServer（如未启动）
       const whServer = await getWebhookServer();
       if (!whServer.getPort()) {
@@ -286,7 +433,16 @@ export function registerPlatformIpcHandlers(): void {
       if (platformRouter) {
         await platformRouter.disablePlatform(platform);
         platformRouter.removeAdapter(platform);
+        platformRouter.sessionRouter.removeSessionsByPlatform(platform);
       }
+
+      // 清理已保存的平台配置，防止重启后意外恢复
+      const { getAuthState } = await import('../config/auth.js');
+      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const uid = getAuthState().user?.userId || 'default';
+      const dataDir = getUserPlatformDir(uid);
+      await savePlatformConfig(dataDir, platform, { _disabled: true });
+
       return { success: true };
     } catch (err) {
       return { success: false, error: (err as Error).message };
@@ -304,6 +460,36 @@ export function registerPlatformIpcHandlers(): void {
       };
     } catch (err) {
       return { success: false, error: (err as Error).message };
+    }
+  });
+
+  // ── 会话备注名持久化 ───────────────────────────────────
+  ipcMain.handle('platform:save-session-name', async (_event, data: {
+    sessionId: string;
+    name: string;
+  }) => {
+    try {
+      const { getAuthState } = await import('../config/auth.js');
+      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const uid = getAuthState().user?.userId || 'default';
+      const dataDir = getUserPlatformDir(uid);
+      await saveSessionNames(dataDir, { [data.sessionId]: data.name });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle('platform:load-session-names', async () => {
+    try {
+      const { getAuthState } = await import('../config/auth.js');
+      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const uid = getAuthState().user?.userId || 'default';
+      const dataDir = getUserPlatformDir(uid);
+      const names = await loadSessionNames(dataDir);
+      return { success: true, names };
+    } catch (err) {
+      return { success: false, error: (err as Error).message, names: {} };
     }
   });
 
@@ -409,6 +595,13 @@ export function registerPlatformIpcHandlers(): void {
       await router.start();
       platformReady = true;
 
+      // 持久化微信配置，清除 _disabled 标记（防止重启后误跳过恢复）
+      const { getAuthState } = await import('../config/auth.js');
+      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const scanUid = getAuthState().user?.userId || 'default';
+      const scanDataDir = getUserPlatformDir(scanUid);
+      await savePlatformConfig(scanDataDir, 'wechat', { token_path: `${scanDataDir}/wechat-token.json` });
+
       // 启动 WebhookServer（如未启动）
       const whServer = await getWebhookServer();
       if (!whServer.getPort()) {
@@ -425,6 +618,11 @@ export function registerPlatformIpcHandlers(): void {
 
   // 初始化 agent-bridge 转发
   initAgentBridgeForwarding();
+
+  // 后台初始化 PlatformRouter，提前恢复远端连接（不阻塞 IPC 注册）
+  getPlatformRouter().catch((err) => {
+    log.error(`Failed to init PlatformRouter on startup: ${(err as Error).message}`);
+  });
 
   log.info('Platform IPC handlers registered');
 }

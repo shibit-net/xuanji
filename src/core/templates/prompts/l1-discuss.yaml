@@ -6,7 +6,7 @@ scenes:
 priority: 75
 estimatedTokens: 200
 match:
-  keywords: "(debate|discuss|chat|what.do.you.think|how.do.you.see.it|how.do.you.view|analyze.*trend|brainstorm|brainstorm|debate|discuss)"
+  keywords: "debate discussing chatting analyzing brainstorming trend what do you think how do you see it how do you view"
   description: "Open discussion, opinion debate, topic exchange, brainstorming, trend analysis"
 content: |
   # Discussion Debate · Mental Model

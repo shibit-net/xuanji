@@ -83,7 +83,7 @@ export class ContextManager {
     return total;
   }
 
-  addUserMessage(text: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): void {
+  addUserMessage(text: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>, attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>): void {
     const mediaBlocks: ContentBlock[] = [];
     if (imageBlocks && imageBlocks.length > 0) {
       mediaBlocks.push(...imageBlocks.map(b => ({ type: 'image' as const, data: b.data, mimeType: b.mimeType, name: b.name }) as ContentBlock));
@@ -94,14 +94,42 @@ export class ContextManager {
     if (videoBlocks && videoBlocks.length > 0) {
       mediaBlocks.push(...videoBlocks.map(b => ({ type: 'video' as const, data: b.data, mimeType: b.mimeType, name: b.name }) as ContentBlock));
     }
+
+    // 将文件附件格式化为自然语言，让 LLM 能理解并主动使用工具读取
+    let fullText = text;
+    if (attachments && attachments.length > 0) {
+      const fileParts: string[] = [];
+      for (const att of attachments) {
+        if (att.content) {
+          fileParts.push(`\n[用户分享了文件: ${att.name}]
+内容:
+\`\`\`
+${att.content}
+\`\`\``);
+        } else if (att.path) {
+          const sizeStr = att.size
+            ? att.size < 1024 ? `${att.size}B`
+            : att.size < 1024 * 1024 ? `${(att.size / 1024).toFixed(1)}KB`
+            : `${(att.size / (1024 * 1024)).toFixed(1)}MB`
+            : '';
+          fileParts.push(`\n[用户分享了文件: ${att.name}]${sizeStr ? ` (${sizeStr})` : ''}
+文件路径: ${att.path}
+请使用 Read 或对应文件类型工具读取此文件内容。`);
+        }
+      }
+      if (fileParts.length > 0) {
+        fullText = text + '\n' + fileParts.join('\n');
+      }
+    }
+
     if (mediaBlocks.length > 0) {
       const content: ContentBlock[] = [
-        { type: 'text', text },
+        { type: 'text', text: fullText },
         ...mediaBlocks,
       ];
       this.messages.push({ role: 'user', content });
     } else {
-      this.messages.push({ role: 'user', content: text });
+      this.messages.push({ role: 'user', content: fullText });
     }
     // fire-and-forget: addMessage 是同步调用路径，自动压缩异步执行
     this.checkAndAutoCompress().catch(() => {});

@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(write|add|supplement|complete|create|author).*(test|unit test|integration test|test case|test|case)"
+  keywords: "writing adding supplementing completing creating authoring test unit test integration test test case"
   description: "Writing tests, test strategy, test cases"
-suitableFor:
-  - Writing unit tests
-  - Writing integration tests
-  - Designing test cases
-  - Improving test coverage
-requiredCapabilities:
-  - Test writing
-  - Test framework usage
-  - Edge case analysis
 content: |
   # Test Writing · Mental Model
 

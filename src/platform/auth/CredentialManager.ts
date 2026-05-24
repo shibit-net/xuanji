@@ -5,6 +5,8 @@
  */
 
 import { EventEmitter } from 'events';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'CredentialManager' });
@@ -18,6 +20,50 @@ interface TokenEntry {
 
 export class CredentialManager extends EventEmitter {
   private tokens = new Map<string, TokenEntry>();
+  private persistPath: string | null = null;
+
+  // ── 磁盘持久化路径（由 PlatformRouter 在构造时注入）────────
+
+  setPersistPath(filePath: string): void {
+    this.persistPath = filePath;
+    // 路径设置后立即加载已持久化的 token
+    this.loadFromDisk();
+  }
+
+  // ── 磁盘读写 ────────────────────────────────────────────
+
+  private saveToDisk(): void {
+    if (!this.persistPath) return;
+    try {
+      const dir = dirname(this.persistPath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      const data = Array.from(this.tokens.entries()).map(([, entry]) => entry);
+      writeFileSync(this.persistPath, JSON.stringify(data, null, 2));
+    } catch (err) {
+      log.error(`Failed to save credentials: ${(err as Error).message}`);
+    }
+  }
+
+  private loadFromDisk(): void {
+    if (!this.persistPath) return;
+    try {
+      if (existsSync(this.persistPath)) {
+        const raw = readFileSync(this.persistPath, 'utf-8');
+        const entries: TokenEntry[] = JSON.parse(raw);
+        for (const entry of entries) {
+          // 仅加载未过期的 token
+          if (entry.expiresAt > Date.now()) {
+            this.tokens.set(entry.platform, entry);
+            log.info(`Loaded credential for ${entry.platform}`);
+          }
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to load credentials: ${(err as Error).message}`);
+    }
+  }
 
   // ── Token 存储 ──────────────────────────────────────────
 
@@ -25,6 +71,7 @@ export class CredentialManager extends EventEmitter {
     const expiresAt = Date.now() + expiresInSeconds * 1000;
     this.tokens.set(platform, { platform, token, expiresAt });
     log.debug(`Token stored for ${platform}, expires in ${expiresInSeconds}s`);
+    this.saveToDisk();
   }
 
   async getToken(platform: string): Promise<string> {
@@ -47,6 +94,7 @@ export class CredentialManager extends EventEmitter {
 
   clearToken(platform: string): void {
     this.tokens.delete(platform);
+    this.saveToDisk();
   }
 
   // ── Token 配置（供适配器注册刷新方法）─────────────────────
@@ -84,6 +132,7 @@ export class CredentialManager extends EventEmitter {
     // 3 次都失败
     if (platform === 'wechat') {
       this.tokens.delete(platform);
+      this.saveToDisk();
       this.emit('re-auth-required', platform);
       log.error(`WeChat token refresh failed, re-auth required`);
     } else {

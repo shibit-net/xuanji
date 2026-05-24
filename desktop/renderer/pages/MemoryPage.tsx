@@ -143,6 +143,16 @@ function BrowseTab() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // 安全超时：防止 API 调用挂起时 loading 永远不消失
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setError(t('memory.status_query_error'));
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setLoading(true);
@@ -515,23 +525,52 @@ function GraphTab() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // 初始加载：默认展示用户根节点
+  // 初始加载：优先通过 userEntityId 精确定位当前用户根节点
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.electron.memoryEntities({ type: 'user', limit: 1 });
-        if (res.success && res.entities && res.entities.length > 0) {
-          const userEntity = res.entities[0];
-          await focusOnNode(userEntity.id, 2);
-          setSelectedNode({
-            id: userEntity.id,
-            name: userEntity.name,
-            type: userEntity.type,
-            summary: userEntity.summary || '',
-            importance: userEntity.importance || 1,
-          });
+        setLoading(true);
+        // 1. 先尝试获取规范的用户实体 ID
+        const statusRes = await window.electron.memoryStatus();
+        const canonicalUserId = statusRes.success ? statusRes.userEntityId : null;
+
+        if (canonicalUserId) {
+          // 精确加载用户根节点的 2 跳子图
+          await focusOnNode(canonicalUserId, 2);
+          // 获取实体详情用于侧边栏展示
+          const entityRes = await window.electron.memoryEntities({ type: 'user', limit: 1 });
+          const userEntity = entityRes.success && entityRes.entities?.length > 0 ? entityRes.entities[0] : null;
+          if (userEntity) {
+            setSelectedNode({
+              id: userEntity.id,
+              name: userEntity.name,
+              type: userEntity.type,
+              summary: userEntity.summary || '',
+              importance: userEntity.importance || 1,
+            });
+          }
+        } else {
+          // 2. 降级：按 type='user' 搜索
+          const res = await window.electron.memoryEntities({ type: 'user', limit: 1 });
+          if (res.success && res.entities && res.entities.length > 0) {
+            const userEntity = res.entities[0];
+            await focusOnNode(userEntity.id, 2);
+            setSelectedNode({
+              id: userEntity.id,
+              name: userEntity.name,
+              type: userEntity.type,
+              summary: userEntity.summary || '',
+              importance: userEntity.importance || 1,
+            });
+          } else if (res.error) {
+            setError(res.error);
+          }
         }
-      } catch { /* 静默失败，用户可手动搜索 */ }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
@@ -558,6 +597,8 @@ function GraphTab() {
           }
           return next;
         });
+      } else {
+        setError(res.error || t('memory.graph.load_failed'));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));

@@ -146,6 +146,7 @@ export interface ElectronAPI {
   agentGetState: () => Promise<any>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   openUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
+  getFilePath: (file: File) => string;
   getResourceUsage: () => Promise<{ success: boolean; data?: { cpu: { percentCPUUsage: number }; memory: { usedMB: number; totalMB: number; percent: number } }; error?: string }>;
 
   // 文件系统
@@ -282,6 +283,7 @@ export interface ElectronAPI {
     error?: string;
   }>;
   onProjectInfo: (callback: (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => void) => void;
+  onProjectRegistered: (callback: (data: { path: string; name: string; hasRules: boolean }) => void) => void;
 
   // 高级功能
   compact: (data: any) => Promise<{
@@ -521,6 +523,10 @@ export interface ElectronAPI {
     success: boolean;
     error?: string;
   }>;
+  workspaceShowInFolder: (filePath: string) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
   workspaceGetGitStatus: (dirPath: string) => Promise<{
     success: boolean;
     status?: Record<string, string>;
@@ -549,6 +555,7 @@ export interface ElectronAPI {
     sessionReady?: boolean;
     isExtracting?: boolean;
     isCompressing?: boolean;
+    userEntityId?: string | null;
     error?: string;
   }>;
   memoryStats: () => Promise<{
@@ -883,6 +890,8 @@ export interface ElectronAPI {
   platformUpdatePrompt: (data: { platform: string; chatId: string; prompt: string }) => Promise<{ success: boolean; error?: string }>;
   platformWechatQR: () => Promise<{ success: boolean; qrcodeUrl?: string; qrcodeImgBase64?: string; error?: string }>;
   platformWechatScan: (data: { qrcodeUrl: string }) => Promise<{ success: boolean; token?: any; sessions?: any[]; error?: string }>;
+  platformSaveSessionName: (data: { sessionId: string; name: string }) => Promise<{ success: boolean; error?: string }>;
+  platformLoadSessionNames: () => Promise<{ success: boolean; names?: Record<string, string>; error?: string }>;
 
   onPlatformMessageReceived: (callback: (data: {
     id: string;

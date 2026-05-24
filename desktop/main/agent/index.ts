@@ -342,7 +342,7 @@ async function cleanupAgentProcess() {
   sessionReady = false;
 }
 
-function sendRequest(type: string, data?: any, timeoutMs = 30000): Promise<any> {
+function sendRequest(type: string, data?: any, timeoutMs = 10000): Promise<any> {
   const agentChannel = getAgentChannel();
   if (!agentChannel) {
     return Promise.reject(new Error('Agent 通道未初始化'));

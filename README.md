@@ -458,7 +458,6 @@ xuanji/
 | **software-engineer** | 工程师 | 代码编写与调试 |
 | **product-manager** | 产品经理 | 需求分析与产品规划 |
 | **ui-designer** | 设计师 | UI/UX 设计 |
-| **stock-analyst** | 分析师 | 股票市场分析 |
 
 ## 技术栈
 

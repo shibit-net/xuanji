@@ -47,7 +47,7 @@ export default function StatusBar() {
   }, []);
 
   return (
-    <div className="flex-shrink-0 h-7 bg-white/[0.02] border-t border-white/[0.06] flex items-center justify-between px-4 text-[11px] text-white/30">
+    <div className="flex-shrink-0 h-7 bg-muted/30 border-t border-border flex items-center justify-between px-4 text-[11px] text-muted-foreground/70">
       {/* 左侧：Plan Mode 徽标 + 当前 Skill */}
       <div className="flex items-center gap-4">
         {isPlanMode && (

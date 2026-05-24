@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(refactor|transform|optimize|rewrite|improve|enhance).*(code|architecture|structure|implementation|module|performance|quality)"
+  keywords: "refactoring transforming optimizing rewriting improving enhancing code architecture structure implementation module performance quality"
   description: "Code refactoring, architecture improvement, structure optimization"
-suitableFor:
-  - Code refactoring
-  - Architecture improvement
-  - Performance optimization
-  - Code quality improvement
-requiredCapabilities:
-  - Code refactoring
-  - Design pattern application
-  - Code optimization
 content: |
   # Refactoring · Mental Model
 

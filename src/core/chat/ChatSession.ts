@@ -46,6 +46,7 @@ export class ChatSession {
   private _pendingImageBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
   private _pendingAudioBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
   private _pendingVideoBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
+  private _pendingAttachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>;
 
   constructor(
     agentLoop: AgentLoop,
@@ -102,6 +103,7 @@ export class ChatSession {
     const imageBlocks = this._pendingImageBlocks;
     const audioBlocks = this._pendingAudioBlocks;
     const videoBlocks = this._pendingVideoBlocks;
+    const attachments = this._pendingAttachments;
     // 仅在确认消费时清理 pending blocks；re-entrancy 时保留供 drainPendingQueue 消费
     // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
     // fromDrain=true 时跳过守卫 —— drainPendingQueue 在 agentLoop 刚结束后调用，
@@ -119,6 +121,7 @@ export class ChatSession {
     this._pendingImageBlocks = undefined;
     this._pendingAudioBlocks = undefined;
     this._pendingVideoBlocks = undefined;
+    this._pendingAttachments = undefined;
 
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
@@ -169,7 +172,7 @@ export class ChatSession {
       this.repairOrphanedToolUse();
 
       log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
-      await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks);
+      await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks, attachments);
       log.info('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint + 渠道标识
@@ -479,7 +482,7 @@ export class ChatSession {
    * 不再强制中断当前工具执行。用户新消息会被注入到 AgentLoop 的迭代边界检查点。
    * 终止请使用 stop() 或 requestAbort()。
    */
-  handleUserInput(input: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): 'running' | 'queued' | 'interrupted' {
+  handleUserInput(input: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>, attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>): 'running' | 'queued' | 'interrupted' {
     if (imageBlocks) {
       this._pendingImageBlocks = imageBlocks;
     }
@@ -488,6 +491,9 @@ export class ChatSession {
     }
     if (videoBlocks) {
       this._pendingVideoBlocks = videoBlocks;
+    }
+    if (attachments) {
+      this._pendingAttachments = attachments;
     }
     const state = this.stateTracker.getState();
     const agentLoopStatus = this.agentLoop.getState().status;
@@ -535,7 +541,7 @@ export class ChatSession {
    * flag off 时委托旧方法 (handleUserInput / interrupt)。
    * flag on 时走状态机 transition → 执行 SessionAction。
    */
-  async userAction(action: { type: string; message?: string; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }> }): Promise<void> {
+  async userAction(action: { type: string; message?: string; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }> }): Promise<void> {
     // 存储 content blocks 供 run() 使用（新旧路径均需）
     if (action.imageBlocks) {
       this._pendingImageBlocks = action.imageBlocks;
@@ -546,10 +552,13 @@ export class ChatSession {
     if (action.videoBlocks) {
       this._pendingVideoBlocks = action.videoBlocks;
     }
+    if (action.attachments) {
+      this._pendingAttachments = action.attachments;
+    }
     if (!this._useNewPath || !this._stateMachine) {
       // 回退到旧路径
       if (action.type === 'SEND_MESSAGE' && action.message) {
-        this.handleUserInput(action.message, action.imageBlocks, action.audioBlocks, action.videoBlocks);
+        this.handleUserInput(action.message, action.imageBlocks, action.audioBlocks, action.videoBlocks, action.attachments);
       } else if (action.type === 'INTERRUPT') {
         this.interrupt(action.message ?? '');
       }

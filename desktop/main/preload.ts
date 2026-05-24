@@ -2,7 +2,7 @@
   // Xuanji Desktop - Preload 脚本
   // ============================================================
 
-  import { contextBridge, ipcRenderer } from 'electron';
+  import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
   /**
    * 暴露到 window.electron
@@ -48,6 +48,7 @@
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
   openFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
   openUrl: (url: string) => ipcRenderer.invoke('workspace:open-url', url),
+  getFilePath: (file: File) => webUtils.getPathForFile(file),
   getResourceUsage: () => ipcRenderer.invoke('system:resource-usage'),
 
   // 流式事件监听
@@ -143,6 +144,9 @@
   onProjectInfo: (callback: (data: { type: string; hasGit: boolean; rootPath: string; configFiles: string[]; gitBranch?: string }) => void) => {
     ipcRenderer.on('project:info', (_event, data) => callback(data));
   },
+  onProjectRegistered: (callback: (data: { path: string; name: string; hasRules: boolean }) => void) => {
+    ipcRenderer.on('project:registered', (_event, data) => callback(data));
+  },
 
   // ============ Todo 管理 ============
   todoArchiveCompleted: () => ipcRenderer.invoke('todo:archive-completed'),
@@ -232,6 +236,7 @@
   // ============ 工作目录文件浏览 ============
   workspaceReadDirectory: (dirPath?: string) => ipcRenderer.invoke('workspace:read-directory', dirPath),
   workspaceOpenFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
+  workspaceShowInFolder: (filePath: string) => ipcRenderer.invoke('workspace:show-in-folder', filePath),
   workspaceGetGitStatus: (dirPath: string) => ipcRenderer.invoke('workspace:get-git-status', dirPath),
 
   // ============ 拖拽文件路径解析 ============
@@ -340,6 +345,10 @@
     ipcRenderer.invoke('platform:wechat-qr'),
   platformWechatScan: (data: { qrcodeUrl: string }) =>
     ipcRenderer.invoke('platform:wechat-scan', data),
+  platformSaveSessionName: (data: { sessionId: string; name: string }) =>
+    ipcRenderer.invoke('platform:save-session-name', data),
+  platformLoadSessionNames: () =>
+    ipcRenderer.invoke('platform:load-session-names'),
 
   onPlatformMessageReceived: (callback: (data: any) => void) => {
     ipcRenderer.on('platform:message-received', (_event, data) => callback(data));

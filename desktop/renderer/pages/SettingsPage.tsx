@@ -52,7 +52,7 @@ function TextField({ label, value, onChange, placeholder, type = 'text', disable
         className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
         placeholder={placeholder}
       />
-      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
     </div>
   );
 }
@@ -75,7 +75,7 @@ function NumberField({ label, value, onChange, min, placeholder, hint }: {
         className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
         placeholder={placeholder}
       />
-      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
     </div>
   );
 }
@@ -96,7 +96,7 @@ function SelectField({ label, value, onChange, options, hint }: {
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>
-      {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
     </div>
   );
 }
@@ -108,13 +108,13 @@ function ToggleField({ label, value, onChange, hint }: {
     <div className="flex items-center justify-between py-2">
       <div>
         <span className="text-sm text-foreground">{label}</span>
-        {hint && <p className="text-xs text-muted-foreground/70">{hint}</p>}
+        {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
       </div>
       <Button
         onClick={() => onChange(!value)}
         variant="ghost"
         size="icon"
-        className={`relative w-10 h-5 rounded-full ${value ? 'bg-primary' : 'bg-muted border border-text-tertiary'}`}
+        className={`relative w-10 h-5 rounded-full ${value ? 'bg-primary' : 'bg-muted border border-border'}`}
       >
         <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${value ? 'left-5' : 'left-0.5'}`} />
       </Button>
@@ -551,37 +551,17 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
 // ============================================================
 export default function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('tools');
-  const [config, setConfig] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const language = useConfigStore((s) => s.settings.language);
+  const config = useConfigStore((s) => s.fullConfig);
+  const loading = useConfigStore((s) => s.loading);
+  const loadConfig = useConfigStore((s) => s.loadConfig);
 
+  // 如果配置还没加载（理论上不会，App.tsx 已初始化），触发一次加载
   useEffect(() => {
-    loadConfigWithRetry();
-  }, []);
-
-  const loadConfigWithRetry = async (retries = 0) => {
-    setLoading(true);
-    try {
-      const result = await window.electron.settingsGetFullConfig?.();
-      if (result?.success && result.config) {
-        setConfig(result.config);
-        setLoading(false);
-        return;
-      }
-      if (retries < 30) {
-        setTimeout(() => loadConfigWithRetry(retries + 1), 1000);
-      } else {
-        setLoading(false);
-      }
-    } catch (err) {
-      console.error('加载配置失败:', err);
-      if (retries < 30) {
-        setTimeout(() => loadConfigWithRetry(retries + 1), 1000);
-      } else {
-        setLoading(false);
-      }
+    if (!config) {
+      loadConfig();
     }
-  };
+  }, [config, loadConfig]);
 
   const handleSave = async (section: string, data: any) => {
     const result = await window.electron.settingsUpdateConfig?.({
@@ -598,7 +578,8 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
       if (data.language) {
         setLanguage(data.language as 'zh' | 'en');
       }
-      useConfigStore.getState().updateSettings({
+      // 直接更新内存状态，不重复持久化（上面已保存到磁盘）
+      useConfigStore.getState().initSettings({
         theme: data.theme,
         language: data.language,
         showTokenUsage: data.showTokenUsage,
@@ -606,7 +587,10 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
       });
     }
 
-    await loadConfigWithRetry();
+    // 保存后更新本地 fullConfig，让表单反映最新值
+    useConfigStore.setState((s) => ({
+      fullConfig: { ...s.fullConfig, [section]: { ...(s.fullConfig?.[section] || {}), ...data } },
+    }));
   };
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [

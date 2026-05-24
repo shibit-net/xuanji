@@ -59,8 +59,8 @@ export type IntentComplexity = 'simple' | 'standard' | 'complex';
 
 /** 场景匹配配置 — 随 PromptComponent 一起注册 */
 export interface SceneMatchConfig {
-  /** 关键词正则（规则匹配用，<1ms） */
-  keywords: RegExp;
+  /** 关键词（自然语言短语，空格分隔，同时用于 L1 LLM prompt 注入和向量匹配） */
+  keywords: string;
   /** 场景描述文本（Embedding 匹配用，启动时自动向量化） */
   description: string;
   /** 所需能力列表（用于 keyword 匹配时选择 agent） */

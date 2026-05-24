@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(plan|design|formulate|conceptualize|schematic|blueprint|solution).*(plan|architecture|blueprint|design|selection)"
+  keywords: "planning designing formulating conceptualizing schematic blueprint solution architecture design selection"
   description: "Solution design, architecture planning, technology selection"
-suitableFor:
-  - Architecture design
-  - Technology selection
-  - Solution planning
-  - Implementation plan creation
-requiredCapabilities:
-  - Architecture design
-  - Technology evaluation
-  - Solution planning
 content: |
   # Architecture Planning · Mental Model
 

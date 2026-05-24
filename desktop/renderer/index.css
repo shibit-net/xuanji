@@ -13,44 +13,44 @@
 
 @layer base {
   :root {
-    /* 背景 */
-    --background: 0 0% 100%;
+    /* 背景 — 微灰色，让白色卡片浮起来 */
+    --background: 0 0% 97%;
     --foreground: 0 0% 4%;
 
-    /* 卡片 */
+    /* 卡片 — 纯白，在微灰背景上形成层次 */
     --card: 0 0% 100%;
     --card-foreground: 0 0% 4%;
 
-    /* 弹出菜单 */
+    /* 弹出菜单 — 纯白 + 阴影 */
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 4%;
 
-    /* 主色 — 蓝色 */
-    --primary: 211 100% 45%;
+    /* 主色 — 柔和天蓝，与浅色背景自然融合 */
+    --primary: 211 65% 50%;
     --primary-foreground: 0 0% 100%;
 
-    /* 次级背景 */
-    --secondary: 0 0% 96%;
+    /* 次级背景 — 侧栏/代码块 */
+    --secondary: 0 0% 93%;
     --secondary-foreground: 0 0% 9%;
 
-    /* 静默态 */
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
+    /* 静默态 — 输入框背景/hover */
+    --muted: 0 0% 92%;
+    --muted-foreground: 0 0% 38%;
 
     /* 强调 */
-    --accent: 211 100% 45% / 0.1;
-    --accent-foreground: 211 100% 40%;
+    --accent: 211 65% 50% / 0.08;
+    --accent-foreground: 211 65% 46%;
 
     /* 危险 */
-    --destructive: 0 84% 60%;
+    --destructive: 0 84% 55%;
     --destructive-foreground: 0 0% 100%;
 
     /* 边框 */
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
+    --border: 0 0% 80%;
+    --input: 0 0% 80%;
 
     /* 焦点环 */
-    --ring: 211 100% 45%;
+    --ring: 211 65% 50%;
 
     /* 圆角 */
     --radius: 0.75rem;
@@ -58,7 +58,7 @@
     /* 语义色 */
     --success: 150 60% 40%;
     --warning: 35 90% 50%;
-    --info: 211 100% 45%;
+    --info: 211 65% 50%;
   }
 
   .dark {

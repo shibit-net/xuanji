@@ -387,7 +387,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     const imageAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('image/'));
     const audioAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('audio/'));
     const videoAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('video/'));
-    const fileAttachments = currentAttachments.filter(a => a.mimeType && !a.mimeType.startsWith('image/') && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/'));
+    const fileAttachments = currentAttachments.filter(a => !a.mimeType || (!a.mimeType.startsWith('image/') && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/')));
     const imageBlocks = imageAttachments.length > 0
       ? imageAttachments.map(a => ({ data: a.content, mimeType: a.mimeType!, name: a.name }))
       : undefined;
@@ -533,7 +533,8 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       }
 
       try {
-        const dropPath = filePaths?.[i];
+        const dropPath = filePaths?.[i]
+          || (typeof window.electron.getFilePath === 'function' ? window.electron.getFilePath(file) : '');
 
         if (isBinary) {
           const isMedia = isImageFile(file) || file.type.startsWith('audio/') || file.type.startsWith('video/');
@@ -545,7 +546,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               size: file.size,
               ...(isMedia ? { mimeType: file.type } : {}),
             });
-          } else {
+          } else if (isMedia) {
             const arrayBuffer = await file.arrayBuffer();
             const bytes = new Uint8Array(arrayBuffer);
             let binary = '';
@@ -556,8 +557,10 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               name: file.name,
               content: btoa(binary),
               size: file.size,
-              ...(isMedia ? { mimeType: file.type } : {}),
+              mimeType: file.type,
             });
+          } else {
+            skippedUnsupported = true;
           }
         } else {
           const content = await file.text();
@@ -737,7 +740,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     ? t('input.waiting_cancelled')
     : t('input.waiting_default');
 
-  const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
+  const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || (!isRemote && !isSessionReady);
 
   // 当前实际使用的 agent（用户选择或默认）
   const effectiveAgentId = selectedAgent?.id || DEFAULT_AGENT.id;
@@ -884,8 +887,8 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               onPaste={handlePaste}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
-              placeholder={placeholder}
-              disabled={isSending}
+              placeholder={isRemote ? '远端会话仅支持查看' : placeholder}
+              disabled={isRemote || isSending}
               className="flex-1 resize-none"
               rows={1}
               style={{ maxHeight: '150px' }}
@@ -896,7 +899,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           {showAgentPicker && (
             <div
               ref={pickerRef}
-              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 bg-[#1e1e2e] border border-border rounded-lg shadow-lg z-50 overflow-hidden"
+              className="absolute bottom-full left-0 mb-2 w-80 max-h-64 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden"
             >
               {/* 搜索头 */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
@@ -953,8 +956,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           )}
         </div>
 
-        {/* 停止 / 发送按钮：仅前台 agent 自身活跃时显示停止，pending(等待子任务)时允许发送 */}
-        {!input.trim() && attachments.length === 0 && !isSending &&
+        {/* 停止 / 发送按钮：远端模式隐藏 */}
+        {!isRemote && (
+          !input.trim() && attachments.length === 0 && !isSending &&
           (foregroundStatus === 'thinking' || foregroundStatus === 'executing' || foregroundStatus === 'writing' || foregroundStatus === 'reporting') ? (
           <Button
             variant="destructive"
@@ -981,7 +985,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
                   ? t('input.send_button_queue')
                   : t('input.send_button')}
           </Button>
-        )}
+        ))}
       </div>
 
       {/* 底部提示 */}

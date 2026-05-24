@@ -39,6 +39,9 @@ export class PlatformRouter implements WorkerReplyHandler {
   constructor(db?: Database, dataDir?: string) {
     this.sessionRouter = new SessionRouter(dataDir);
     this.credentials = new CredentialManager();
+    if (dataDir) {
+      this.credentials.setPersistPath(`${dataDir}/credentials.json`);
+    }
     this.circuitBreaker = new PlatformCircuitBreaker();
 
     if (db) {

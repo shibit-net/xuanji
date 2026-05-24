@@ -49,9 +49,9 @@ Supports JSON5, YAML, and JSON formats. JSON5 is recommended (supports comments)
   
   // Scene matching configuration (optional for L1 components)
   match: {
-    // Keyword regex (string format)
-    keywords: 'programming|code|development|bug|testing',
-    // Scene description (for embedding matching)
+    // Keyword regex (string format) — plain natural language keywords separated by spaces
+    keywords: 'programming code development bug testing',
+    // Scene description (for embedding matching and list_scenes display)
     description: 'Custom coding scene guide, including code conventions and tool preferences'
   },
   
@@ -137,8 +137,8 @@ Within the same layer, higher-priority components are rendered first.
 L1 components need to define `scenes` and `match` configuration:
 
 - `scenes`: List of scene names (e.g., `['coding']`)
-- `match.keywords`: Keyword regex (for fast matching)
-- `match.description`: Scene description (for embedding/semantic matching)
+- `match.keywords`: Natural language keywords separated by spaces (for LLM scene classification prompt injection and vector embedding matching)
+- `match.description`: Scene description (for embedding/semantic matching and list_scenes display)
 
 ### Hot Reload
 
@@ -177,7 +177,7 @@ After modifying configuration files, they will be automatically reloaded without
   priority: 70,
   estimatedTokens: 600,
   match: {
-    keywords: 'research|survey|analysis|report|paper',
+    keywords: 'research survey analysis report paper',
     description: 'Academic research, market survey, data analysis, report writing'
   },
   content: `# Research Assistant

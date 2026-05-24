@@ -5,6 +5,7 @@
 import type { AppConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { DependencyContainer } from '@/core/di';
@@ -787,6 +788,7 @@ export class SessionFactory {
           learnTool, // 已注入依赖的 LearnTool
           eventBus,
           new Set([userId]),
+          join(homedir(), '.xuanji', 'scheduler', userId), // 用户隔离的 jobs 存储目录
         );
 
         // 注册自定义 action 处理器
@@ -815,7 +817,7 @@ export class SessionFactory {
           log.info('[Memory] Weekly maintenance triggered');
           try {
             const stats = memoryManager.getStats();
-            const message = `请执行每周记忆维护任务：
+            const message = `请执行每日记忆深度精炼任务：
 
 ## 当前记忆统计
 - 实体数: ${stats.entityCount}
@@ -826,11 +828,12 @@ export class SessionFactory {
 
 请委派记忆管理机器人完成以下任务：
 
-1. **去重**：查找 name+type 重复的实体，合并为一个，更新所有关联关系
-2. **合并**：查找 content 相似度高的 facts，合并为单一事实
-3. **关联**：检查同 category 实体是否缺少 relation，事件中实体之间是否缺关系
-4. **清理**：标记 importance <= 2 且超过 90 天未更新的低价值数据
-5. **画像更新**：检查 user_profile 中 pending_count >= 3 的维度，重新生成摘要`;
+1. **去重**：查找 name+type 重复的实体和 facts，合并为一个，更新所有关联关系
+2. **跨名用户识别** (重要)：查找所有 type='user' 的实体，若存在多个，通过关系重叠、摘要相似度、共现模式判断是否指向同一人，若是则合并实体并迁移关系
+3. **合并**：查找 content 相似度高的 facts，合并为单一事实
+4. **关联**：检查同 category 实体是否缺少 relation，事件中实体之间是否缺关系
+5. **清理**：标记 importance <= 2 且超过 90 天未更新的低价值数据
+6. **画像更新**：检查 user_profile 中 pending_count >= 3 的维度，重新生成摘要`;
 
             if (scheduler.sessionTrigger) {
               await scheduler.sessionTrigger(message);
@@ -868,13 +871,12 @@ export class SessionFactory {
         await scheduler.addCron({
           id: 'memory-maintenance-weekly',
           userId,
-          type: 'weekly',
-          hour: 4,
-          minute: 0,
-          dayOfWeek: 1, // 周一
+          type: 'daily',
+          hour: 3,
+          minute: 30,
           action: 'custom',
           params: { handler: 'weekly-maintenance' },
-          description: '每周记忆维护：用户画像更新 + LLM 深度清理',
+          description: '每日记忆深度精炼：LLM 去重/合并/跨名用户识别 + 关系链接 + 数据清理 + 画像更新',
           system: true,
         });
 

@@ -21,7 +21,7 @@ export type IsolationMode = 'none' | 'worktree';
 /**
  * 子代理角色类型
  */
-export type AgentRoleType = 'software-engineer' | 'stock-analyst' | 'product-manager' | 'ui-designer' | 'scene-classifier' | string;
+export type AgentRoleType = 'software-engineer' | 'product-manager' | 'ui-designer' | 'scene-classifier' | string;
 
 /**
  * 子代理创建选项

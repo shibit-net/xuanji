@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(design.system|component.library|standards|style.system|theme|design.system|design.specification)"
+  keywords: "design system component library standards style system theme design specification"
   description: "Design system construction, component library planning, visual specification creation"
-suitableFor:
-  - Build design system
-  - Design component library
-  - Create visual specifications
-  - Define design tokens
-requiredCapabilities:
-  - Design system construction
-  - Component design
-  - Design specification creation
 content: |
   # Design System · Mental Model
 

@@ -188,8 +188,8 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
 
   return (
     <>
-      <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20 cursor-pointer
-                      hover:border-white/[0.15] transition-all duration-200 group relative"
+      <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer
+                      hover:border-primary/50 transition-all duration-200 group relative"
            onClick={() => setExpanded(true)}
            style={{ maxHeight: '400px' }}>
         <div style={{ paddingBottom, position: 'relative', minHeight: '100px' }}>
@@ -261,7 +261,7 @@ function FileBlock({ block }: { block: Extract<ContentBlock, { type: 'file' }> }
 
   return (
     <div
-      className="my-2 rounded-xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/[0.15] transition-all duration-200 overflow-hidden cursor-pointer"
+      className="my-2 rounded-xl border border-border bg-muted hover:bg-secondary hover:border-primary/50 transition-all duration-200 overflow-hidden cursor-pointer"
       onClick={() => {
         if (block.filePath) {
           window.electron?.openFile(block.filePath);
@@ -271,23 +271,23 @@ function FileBlock({ block }: { block: Extract<ContentBlock, { type: 'file' }> }
     >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* 文件图标 */}
-        <div className="w-10 h-10 rounded-lg bg-white/[0.06] flex items-center justify-center flex-shrink-0">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
           {isImageFile ? (
             <ImageIcon size={20} className="text-blue-400" />
           ) : (
-            <FileText size={20} className="text-white/50" />
+            <FileText size={20} className="text-muted-foreground" />
           )}
         </div>
         {/* 文件信息 */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-white/80 truncate">{block.fileName}</div>
-          <div className="text-[11px] text-white/40 mt-0.5">
+          <div className="text-sm text-foreground truncate">{block.fileName}</div>
+          <div className="text-[11px] text-muted-foreground/80 mt-0.5">
             {block.fileSize ? formatFileSize(block.fileSize) : ''}
             {block.fileSize ? ' · ' : ''}点击打开
           </div>
         </div>
         {/* 右侧箭头 */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/30 flex-shrink-0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/70 flex-shrink-0">
           <path d="M7 17l9.2-9.2M17 17V7H7" />
         </svg>
       </div>
@@ -302,11 +302,11 @@ function AudioBlock({ block }: { block: Extract<ContentBlock, { type: 'audio' }>
     : (block as any).imageUrl || '';
   if (!src) return null;
   return (
-    <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20">
+    <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted">
       <audio controls className="w-full h-12" preload="metadata">
         <source src={src} type={block.mimeType || 'audio/mpeg'} />
       </audio>
-      <div className="px-3 pb-2 text-[11px] text-white/40 flex items-center gap-2">
+      <div className="px-3 pb-2 text-[11px] text-muted-foreground/80 flex items-center gap-2">
         <Music size={12} />
         <span>{block.name || (block.mimeType || 'audio').replace('audio/', '')}</span>
         {block.duration ? <span>· {Math.round(block.duration)}s</span> : null}
@@ -322,11 +322,11 @@ function VideoBlock({ block }: { block: Extract<ContentBlock, { type: 'video' }>
     : (block as any).imageUrl || '';
   if (!src) return null;
   return (
-    <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20">
+    <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted">
       <video controls className="w-full max-h-[400px]" preload="metadata">
         <source src={src} type={block.mimeType || 'video/mp4'} />
       </video>
-      <div className="px-3 pb-2 text-[11px] text-white/40 flex items-center gap-2">
+      <div className="px-3 pb-2 text-[11px] text-muted-foreground/80 flex items-center gap-2">
         <Video size={12} />
         <span>{block.name || (block.mimeType || 'video').replace('video/', '')}</span>
       </div>
@@ -621,8 +621,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           isUser
             ? 'bg-primary text-white'
             : isToolSummary
-              ? 'bg-white/[0.04] border border-white/[0.08] backdrop-blur-sm text-foreground'
-              : 'bg-white/[0.06] text-foreground'
+              ? 'bg-muted border border-border backdrop-blur-sm text-foreground'
+              : 'bg-secondary text-foreground'
         } rounded-xl p-4 shadow-lg ${
           isStreaming ? 'overflow-hidden' : 'overflow-y-auto max-h-[60vh]'
         }`}
@@ -671,7 +671,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
               )}
             </div>
           )}
-          <span className={`text-sm font-semibold ${isToolSummary ? 'text-white/50' : ''}`}>
+          <span className={`text-sm font-semibold ${isToolSummary ? 'text-muted-foreground' : ''}`}>
             {isUser
               ? userName
               : isToolSummary
@@ -687,10 +687,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           {!isStreaming && typeof displayContent === 'string' && displayContent.length > 0 && (
             <button
               onClick={handleCopy}
-              className="ml-1 p-1 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
+              className="ml-1 p-1 rounded-md hover:bg-accent transition-colors flex-shrink-0"
               title={t('msg.copy')}
             >
-              {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} className="text-white/40 hover:text-white/70" />}
+              {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} className="text-muted-foreground/80 hover:text-muted-foreground" />}
             </button>
           )}
         </div>
@@ -701,7 +701,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             {message.attachments.map((att, i) => (
               <span
                 key={`${att.name}-${i}`}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/15 text-[11px] text-white/70"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/20 text-[11px] text-white/90"
               >
                 <FileText size={10} className="flex-shrink-0" />
                 <span className="max-w-[140px] truncate">{att.name}</span>
@@ -743,7 +743,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         )}
 
         {/* 消息内容 — 流式时纯文本渲染，完成后 Milkdown 渲染 */}
-        <div ref={containerRef} className="max-w-none text-foreground milkdown-message-content">
+        <div ref={containerRef} className={`max-w-none ${isUser ? 'text-white' : 'text-foreground'} milkdown-message-content`}>
           {/* 图片块 — 渲染在文本上方（LLM 回复中通常用"上图"指代），跳过已在 markdown 中内联的图片 */}
           {message.contentBlocks?.filter(b => b.type === 'image').filter(block => {
             const imgBlock = block as Extract<ContentBlock, { type: 'image' }>;
@@ -771,7 +771,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         {/* 耗时 & Token — 气泡外部下方，流式时实时更新；toolSummary 不展示耗时（独立 diff 气泡无需计时） */}
         {!isUser && !isSystem && !isToolSummary && (liveDuration || message.tokensUsed) && (
           <div className={`flex items-center gap-2.5 mt-1.5 px-2 text-[11px] font-mono ${
-            isToolSummary ? 'text-white/25' : 'text-muted-foreground/50/60'
+            isToolSummary ? 'text-muted-foreground/60' : 'text-muted-foreground/50'
           }`}>
             {liveDuration && (
               <span className="inline-flex items-center gap-1">
@@ -801,14 +801,14 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
       <button
         onClick={() => citation && setExpanded(true)}
         className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg whitespace-nowrap
-                   bg-white/[0.06] border border-white/[0.1]
+                   bg-muted border border-border
                    text-xs text-blue-400
                    transition-all duration-200
-                   ${citation ? 'hover:bg-white/[0.1] hover:border-white/[0.15] cursor-pointer' : 'cursor-default opacity-50'}`}
+                   ${citation ? 'hover:bg-secondary hover:border-primary/50 cursor-pointer' : 'cursor-default opacity-50'}`}
       >
         <FileIcon size={12} className="flex-shrink-0" />
         <span className="font-medium truncate max-w-[120px]">{name}</span>
-        {citation && <ChevronDown size={11} className="text-white/40" />}
+        {citation && <ChevronDown size={11} className="text-muted-foreground/80" />}
       </button>
 
       {/* Modal — Portal 到 body */}
@@ -819,17 +819,17 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
           onClick={() => setExpanded(false)}
         >
           <div
-            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-white/[0.1] rounded-2xl shadow-2xl
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-border rounded-2xl shadow-2xl
                        flex flex-col overflow-hidden cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
               <div className="flex items-center gap-2.5">
                 <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{name}</h3>
-                  <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 mt-0.5">
                     <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
                     <span>●</span>
                     <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
@@ -838,14 +838,14 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
               </div>
               <button
                 onClick={() => setExpanded(false)}
-                className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors"
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
               >
-                <X size={18} className="text-white/50" />
+                <X size={18} className="text-muted-foreground" />
               </button>
             </div>
             {/* Body */}
             <div className="overflow-y-auto p-5 flex-1">
-              <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
+              <pre className="text-xs text-foreground whitespace-pre-wrap font-mono leading-relaxed break-words">
                 {citation.originalOutput || citation.summary || t('msg.no_output')}
               </pre>
             </div>
@@ -867,8 +867,8 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
         <button
           onClick={() => setExpanded(true)}
           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg whitespace-nowrap mr-1
-                     bg-white/[0.06] hover:bg-white/[0.1]
-                     border border-white/[0.1] hover:border-white/[0.15]
+                     bg-muted hover:bg-secondary
+                     border border-border hover:border-primary/50
                      text-xs text-blue-400
                      transition-all duration-200 cursor-pointer"
         >
@@ -876,12 +876,12 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           <span className="font-medium">{name}</span>
         </button>
       ) : (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06] whitespace-nowrap mr-1">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-muted text-muted-foreground/80 text-xs cursor-default border border-border whitespace-nowrap mr-1">
           <FileIcon size={11} simple className="flex-shrink-0" />
           <span>{name}</span>
         </span>
       )}
-      <span className="text-white/50">：{quote}</span>
+      <span className="text-muted-foreground">：{quote}</span>
 
       {/* Modal — Portal 到 body */}
       {expanded && citation && createPortal(
@@ -891,17 +891,17 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           onClick={() => setExpanded(false)}
         >
           <div
-            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-white/[0.1] rounded-2xl shadow-2xl
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-border rounded-2xl shadow-2xl
                        flex flex-col overflow-hidden cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] flex-shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
               <div className="flex items-center gap-2.5">
                 <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{name}</h3>
-                  <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 mt-0.5">
                     <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
                     <span>●</span>
                     <span>{(citation.tokensUsed?.input ?? 0) + (citation.tokensUsed?.output ?? 0)} tokens</span>
@@ -910,14 +910,14 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
               </div>
               <button
                 onClick={() => setExpanded(false)}
-                className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors"
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
               >
-                <X size={18} className="text-white/50" />
+                <X size={18} className="text-muted-foreground" />
               </button>
             </div>
             {/* Body */}
             <div className="overflow-y-auto p-5 flex-1">
-              <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
+              <pre className="text-xs text-foreground whitespace-pre-wrap font-mono leading-relaxed break-words">
                 {citation.originalOutput || citation.summary || t('msg.no_output')}
               </pre>
             </div>

@@ -122,7 +122,7 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
 const METHOD_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   llm: { label: t('rightpanel.method_llm'), color: 'text-blue-400', icon: <Zap size={10} /> },
   embedding: { label: t('rightpanel.method_embedding'), color: 'text-yellow-400', icon: <Search size={10} /> },
-  default: { label: t('rightpanel.method_default'), color: 'text-white/40', icon: <AlertTriangle size={10} /> },
+  default: { label: t('rightpanel.method_default'), color: 'text-muted-foreground', icon: <AlertTriangle size={10} /> },
 };
 
 // 路由阶段展示组件（L1/L2 路径，不展示 L3 兜底）
@@ -141,16 +141,16 @@ function RoutingChain({ stages }: { stages: StageResult[] }) {
         const label = level === 'L1' ? t('rightpanel.llm_label') : t('rightpanel.vector_label');
 
         let Icon = Loader2;
-        let color = 'text-white/20';
+        let color = 'text-muted-foreground/50';
         if (stage.status === 'success') { Icon = CheckCircle2; color = 'text-green-400'; }
         else if (stage.status === 'skipped') { Icon = XCircle; color = 'text-red-400/60'; }
         else if (stage.status === 'running') { Icon = Loader2; color = 'text-blue-400 animate-spin'; }
 
         return (
           <React.Fragment key={level}>
-            {i > 0 && <ArrowRight size={8} className="text-white/15 flex-shrink-0" />}
+            {i > 0 && <ArrowRight size={8} className="text-muted-foreground/40 flex-shrink-0" />}
             <span className="flex items-center gap-0.5" title={`${level}: ${stage.summary}`}>
-              <span className="text-white/30">{label}</span>
+              <span className="text-muted-foreground/70">{label}</span>
               <Icon size={10} className={color} />
             </span>
           </React.Fragment>
@@ -199,7 +199,7 @@ function WorkspaceTab() {
 
           {routeStatus === 'analyzing' ? (
             <div className="mt-1">
-              <p className="text-[10px] text-white/30">
+              <p className="text-[10px] text-muted-foreground/70">
                 {stages.length > 0
                   ? `${stages[stages.length - 1].summary}...`
                   : t('rightpanel.analyzing')}
@@ -214,12 +214,12 @@ function WorkspaceTab() {
             <div className="mt-1.5 space-y-0.5 text-[10px]">
               {/* 核心一行：Agent + 路由方式 + 降级 + 置信度 */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Hash size={9} className="text-white/40 flex-shrink-0" />
+                <Hash size={9} className="text-muted-foreground flex-shrink-0" />
                 <span className="text-blue-400 font-medium">{routeResult.agentId}</span>
                 {methodInfo && (
                   <span className={`flex items-center gap-0.5 ${methodInfo.color}`}>
                     {methodInfo.icon}
-                    <span className="text-white/35">{methodInfo.label}</span>
+                    <span className="text-muted-foreground/80">{methodInfo.label}</span>
                   </span>
                 )}
                 {isDegraded && (
@@ -229,7 +229,7 @@ function WorkspaceTab() {
                   </span>
                 )}
                 {routeResult.confidence > 0 && (
-                  <span className="text-white/20 ml-auto">
+                  <span className="text-muted-foreground/50 ml-auto">
                     {(routeResult.confidence * 100).toFixed(0)}%
                   </span>
                 )}
@@ -240,13 +240,13 @@ function WorkspaceTab() {
                   <span className="flex items-center gap-0.5">
                     {scenes.map((s, i) => (
                       <span key={`${s}-${i}`}>
-                        {i > 0 && <span className="text-white/15">,</span>}
+                        {i > 0 && <span className="text-muted-foreground/40">,</span>}
                         <span className="text-purple-400/80">{s}</span>
                       </span>
                     ))}
                   </span>
                 )}
-                {scenes.length > 0 && <span className="text-white/15">·</span>}
+                {scenes.length > 0 && <span className="text-muted-foreground/40">·</span>}
                 {routeResult.complexity === 'complex' ? (
                   <span className="text-amber-400/80">{t('rightpanel.complexity_complex')}</span>
                 ) : (
@@ -254,15 +254,15 @@ function WorkspaceTab() {
                 )}
                 {routeResult.method === 'llm' && routeResult.modelName && (
                   <>
-                    <span className="text-white/15">·</span>
-                    <span className="text-white/30">{routeResult.modelName}</span>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="text-muted-foreground/70">{routeResult.modelName}</span>
                   </>
                 )}
               </div>
               {/* 已加载的 Prompt 组件分层展示 */}
               {promptLayers.length > 0 && (
                 <details className="mt-1">
-                  <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">
+                  <summary className="text-muted-foreground/60 cursor-pointer hover:text-muted-foreground select-none">
                     {t('rightpanel.prompt_components', { count: totalComponents, tokens: estimatedTokens })}
                   </summary>
                   <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5">
@@ -270,13 +270,13 @@ function WorkspaceTab() {
                       const layerColors: Record<number, string> = { 0: 'text-blue-400/70', 1: 'text-purple-400/70', 2: 'text-amber-400/70', 3: 'text-emerald-400/70' };
                       const layerLabels: Record<number, string> = { 0: t('rightpanel.layer_label', { lvl: 0, name: t('rightpanel.layer_base') }), 1: t('rightpanel.layer_label', { lvl: 1, name: t('rightpanel.layer_capability') }), 2: t('rightpanel.layer_label', { lvl: 2, name: t('rightpanel.layer_behavior') }), 3: t('rightpanel.layer_label', { lvl: 3, name: t('rightpanel.layer_context') }) };
                       return (
-                        <div key={layer.layer} className="pl-2 border-l border-white/10">
-                          <span className={layerColors[layer.layer] || 'text-white/40'}>
+                        <div key={layer.layer} className="pl-2 border-l border-border">
+                          <span className={layerColors[layer.layer] || 'text-muted-foreground'}>
                             {layerLabels[layer.layer] || `L${layer.layer}`}
                           </span>
                           <div className="ml-3 mt-0.5 space-y-0.5">
                             {layer.components.map((c) => (
-                              <div key={c.id} className="text-[10px] text-white/30 truncate" title={c.id}>
+                              <div key={c.id} className="text-[10px] text-muted-foreground/70 truncate" title={c.id}>
                                 {c.name}
                               </div>
                             ))}

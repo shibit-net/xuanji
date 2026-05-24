@@ -665,6 +665,9 @@ export class TaskTool extends BaseTool {
       timedOut: result.timedOut,
       iterations: result.iterations,
       originalOutput: result.result,
+      agentName,
+      duration: result.duration,
+      tokensUsed: result.tokensUsed,
     });
   }
 

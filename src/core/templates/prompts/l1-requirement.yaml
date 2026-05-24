@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(requirement|pain point|scenario|user story).*(analysis|sorting|organize|gather|document)?"
+  keywords: "requirement pain point scenario user story analysis sorting organizing gathering documenting"
   description: "Requirements analysis, user pain point discovery, requirements documentation"
-suitableFor:
-  - Requirements analysis
-  - User pain point discovery
-  - Requirements documentation writing
-  - User story writing
-requiredCapabilities:
-  - User requirements analysis
-  - User story writing
-  - Requirements documentation writing
 content: |
   # Requirements Analysis · Mental Model
 

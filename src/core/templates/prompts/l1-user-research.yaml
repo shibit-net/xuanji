@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(user|research|interview|survey|insight|usability).*(research|study|interview|analysis)?"
+  keywords: "user research interview survey insight usability study analysis"
   description: "User research, user interviews, data analysis"
-suitableFor:
-  - User research
-  - User interviews
-  - Survey design
-  - Data analysis
-requiredCapabilities:
-  - User research and interviews
-  - Competitive analysis
-  - Data analysis
 content: |
   # User Research · Mental Model
 

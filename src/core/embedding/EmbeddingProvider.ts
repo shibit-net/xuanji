@@ -14,6 +14,11 @@ const log = logger.child({ module: 'EmbeddingProvider' });
 export interface EmbeddingProviderInterface {
   embed(text: string): Promise<number[]>;
   cosineSimilarity(a: number[], b: number[]): number;
+  /**
+   * 向量点积（假定向量已归一化，等价于余弦相似度）。
+   * 直接对 Float32Array 偏移量计算，零内存分配，用于热路径。
+   */
+  dotProduct(vectors: Float32Array, offset: number, query: Float32Array, dimensions: number): number;
 }
 
 export interface EmbeddingProviderConfig {
@@ -124,5 +129,17 @@ export class EmbeddingProvider implements EmbeddingProviderInterface {
     const denominator = Math.sqrt(normA) * Math.sqrt(normB);
     if (denominator === 0) return 0;
     return dotProduct / denominator;
+  }
+
+  /**
+   * 向量点积——直接对 Float32Array 偏移量计算，零分配。
+   * 假定向量已归一化（pipeline normalize: true），点积 = 余弦相似度。
+   */
+  dotProduct(vectors: Float32Array, offset: number, query: Float32Array, dimensions: number): number {
+    let dot = 0;
+    for (let i = 0; i < dimensions; i++) {
+      dot += vectors[offset + i] * query[i];
+    }
+    return dot;
   }
 }

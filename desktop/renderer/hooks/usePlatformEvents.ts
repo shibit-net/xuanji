@@ -6,18 +6,29 @@ import { useEffect } from 'react';
 import { usePlatformStore } from '../stores/platformStore';
 
 export function usePlatformEvents() {
-  // 挂载时从主进程恢复平台会话状态
+  // 挂载时从主进程恢复平台会话状态 + 已保存的备注名
   useEffect(() => {
-    window.electron.platformStatus().then((result) => {
-      if (result.success && result.sessions) {
-        const { addSession } = usePlatformStore.getState();
-        for (const s of result.sessions) {
-          addSession(s);
+    (async () => {
+      try {
+        const [statusResult, namesResult] = await Promise.all([
+          window.electron.platformStatus(),
+          window.electron.platformLoadSessionNames(),
+        ]);
+        if (statusResult.success && statusResult.sessions) {
+          const store = usePlatformStore.getState();
+          const savedNames: Record<string, string> = (namesResult.success && namesResult.names) ? namesResult.names : {};
+          for (const s of statusResult.sessions) {
+            // 应用已保存的备注名
+            if (savedNames[s.id]) {
+              s.name = savedNames[s.id];
+            }
+            store.addSession(s);
+          }
         }
+      } catch {
+        // PlatformRouter 可能未初始化，忽略
       }
-    }).catch(() => {
-      // PlatformRouter 可能未初始化，忽略
-    });
+    })();
   }, []);
 
   // 监听平台消息事件

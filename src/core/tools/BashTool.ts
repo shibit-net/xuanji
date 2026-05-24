@@ -198,6 +198,13 @@ export class BashTool extends BaseTool {
         if (await executor.isAvailable()) {
           this.sandboxExecutor = executor;
           log.info(`Bash sandbox enabled: ${executor.getName()}`);
+          if (executor instanceof NoopSandboxExecutor) {
+            log.warn('=============================================');
+            log.warn('安全警告：当前平台不支持原生沙箱，Bash 命令将以无隔离模式执行。');
+            log.warn('仅通过路径正则匹配做软保护，LLM 可能绕过。');
+            log.warn('建议在 macOS (Seatbelt) 或 Linux (Bubblewrap) 上运行以获得完整沙箱保护。');
+            log.warn('=============================================');
+          }
           return;
         }
       }

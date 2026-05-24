@@ -63,20 +63,12 @@ tools:
   comment: Dynamically registered — read long-term memory context
 - name: read_file
   enabled: true
-- name: write_file
-  enabled: true
-- name: edit_file
-  enabled: true
 - name: web_fetch
+  enabled: true
+- name: web_search
   enabled: true
 - name: ask_user
   enabled: true
-- name: xlsx_edit
-  enabled: false
-- name: docx_edit
-  enabled: false
-- name: doc_to_docx
-  enabled: false
 execution:
   mode: react
   maxIterations: 20

@@ -307,7 +307,7 @@ export class MemoryGraph {
    *
    * 用于："显示张三相关的一切"
    */
-  extractSubgraph(centerId: string, maxHops: number = 2): SubgraphResult {
+  extractSubgraph(centerId: string, maxHops: number = 2, maxNodes: number = 200): SubgraphResult {
     const nodeSet = new Set<string>([centerId]);
     const edgeSet = new Map<string, GraphEdge>();
 
@@ -335,9 +335,11 @@ export class MemoryGraph {
 
         if (!nodeSet.has(neighbor.node.id)) {
           nodeSet.add(neighbor.node.id);
+          if (nodeSet.size >= maxNodes) break;
           queue.push({ nodeId: neighbor.node.id, depth: current.depth + 1 });
         }
       }
+      if (nodeSet.size >= maxNodes) break;
     }
 
     return {

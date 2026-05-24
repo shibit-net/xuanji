@@ -5,6 +5,7 @@ import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
 interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
   cosineSimilarity(a: number[] | Float32Array, b: number[] | Float32Array): number;
+  dotProduct(vectors: Float32Array, offset: number, query: Float32Array, dimensions: number): number;
 }
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 
@@ -41,6 +42,7 @@ function createMockEmbeddingProvider(score = 0.85): EmbeddingProvider {
       return new Array(10).fill(0).map((_, i) => (text.length + i) / 100);
     }),
     cosineSimilarity: vi.fn(() => score),
+    dotProduct: vi.fn(() => score),
   } as unknown as EmbeddingProvider;
 }
 
@@ -327,6 +329,7 @@ describe('MatchAgentTool', () => {
       const failingEmbedding = {
         embed: vi.fn(async () => { throw new Error('Embedding failed'); }),
         cosineSimilarity: vi.fn(() => { throw new Error('Similarity failed'); }),
+        dotProduct: vi.fn(() => { throw new Error('Similarity failed'); }),
       } as unknown as EmbeddingProvider;
 
       const agent = createMockAgent({ id: 'test', name: 'Test', description: 'test', capabilities: ['test'] });
@@ -360,6 +363,10 @@ describe('MatchAgentTool', () => {
         cosineSimilarity: vi.fn(() => {
           callCount++;
           // good agent 得分 0.8, poor agent 得分 0.3
+          return callCount === 1 ? 0.3 : 0.8;
+        }),
+        dotProduct: vi.fn(() => {
+          callCount++;
           return callCount === 1 ? 0.3 : 0.8;
         }),
       } as unknown as EmbeddingProvider;

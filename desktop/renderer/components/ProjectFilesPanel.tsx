@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  FolderOpen, ChevronRight, ChevronDown, X, RefreshCw, GitBranch,
+  FolderOpen, ChevronRight, ChevronDown, X, RefreshCw, GitBranch, Copy, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -59,8 +59,9 @@ function fmtSize(b: number): string {
 
 const IGNORE_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', '__pycache__', '.cache']);
 
-function TreeItem({ node, onToggle, onOpenFile, gitStatus, rootRelPath }: {
+function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRelPath }: {
   node: TreeNode; onToggle: (n: TreeNode) => void; onOpenFile: (p: string) => void;
+  onContextMenu: (e: React.MouseEvent, n: TreeNode) => void;
   gitStatus: Record<string, string>; rootRelPath: (p: string) => string;
 }) {
   const { entry, depth, expanded, children, loading } = node;
@@ -75,6 +76,7 @@ function TreeItem({ node, onToggle, onOpenFile, gitStatus, rootRelPath }: {
         className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-white/5 transition-colors text-xs group"
         style={{ paddingLeft: 8 + depth * 14 }}
         onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
+        onContextMenu={(e) => onContextMenu(e, node)}
         title={entry.path}
       >
         {isDir ? (
@@ -101,7 +103,7 @@ function TreeItem({ node, onToggle, onOpenFile, gitStatus, rootRelPath }: {
       {isDir && expanded && children && (
         <div>
           {children.length > 0
-            ? children.map(c => <TreeItem key={c.entry.path} node={c} onToggle={onToggle} onOpenFile={onOpenFile} gitStatus={gitStatus} rootRelPath={rootRelPath} />)
+            ? children.map(c => <TreeItem key={c.entry.path} node={c} onToggle={onToggle} onOpenFile={onOpenFile} onContextMenu={onContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />)
             : <div className="text-[9px] text-muted-foreground/30 italic pl-10 py-1">空目录</div>}
         </div>
       )}
@@ -120,6 +122,9 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
   const [gitStatus, setGitStatus] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // 右键菜单
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
 
   const rootRelPath = useCallback((p: string) => rootPath ? p.replace(rootPath, '').replace(/^\//, '') : p, [rootPath]);
 
@@ -198,6 +203,35 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
 
   const handleOpenFile = useCallback(async (fp: string) => { try { await window.electron.workspaceOpenFile(fp); } catch {} }, []);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, node: TreeNode) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, node });
+  }, []);
+
+  useEffect(() => {
+    const close = () => setCtxMenu(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+
+  const handleShowInFolder = useCallback(async () => {
+    if (!ctxMenu) return;
+    await window.electron.workspaceShowInFolder(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const handleCopyPath = useCallback(async () => {
+    if (!ctxMenu) return;
+    await navigator.clipboard.writeText(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const handleOpenInSystem = useCallback(async () => {
+    if (!ctxMenu) return;
+    await window.electron.workspaceOpenFile(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
   const dirName = rootPath.split('/').pop() || rootPath.split('\\').pop() || 'workspace';
 
   return (
@@ -237,13 +271,55 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
           </div>
         )}
         {!loading && !error && treeData.map(n => (
-          <TreeItem key={n.entry.path} node={n} onToggle={handleToggle} onOpenFile={handleOpenFile} gitStatus={gitStatus} rootRelPath={rootRelPath} />
+          <TreeItem key={n.entry.path} node={n} onToggle={handleToggle} onOpenFile={handleOpenFile} onContextMenu={handleContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />
         ))}
       </div>
 
       <div className="flex-shrink-0 px-2 py-1 border-t border-border">
         <p className="text-[9px] text-muted-foreground/30 truncate" title={rootPath}>{rootPath}</p>
       </div>
+
+      {/* 右键菜单 */}
+      {ctxMenu && (
+        <div
+          className="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+        >
+          {!ctxMenu.node.entry.isDirectory && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+              onClick={handleOpenInSystem}
+            >
+              <ExternalLink size={12} className="text-muted-foreground" />
+              打开文件
+            </button>
+          )}
+          {ctxMenu.node.entry.isDirectory && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+              onClick={handleOpenInSystem}
+            >
+              <ExternalLink size={12} className="text-muted-foreground" />
+              打开文件夹
+            </button>
+          )}
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+            onClick={handleShowInFolder}
+          >
+            <FolderOpen size={12} className="text-muted-foreground" />
+            在文件夹中显示
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+            onClick={handleCopyPath}
+          >
+            <Copy size={12} className="text-muted-foreground" />
+            复制路径
+          </button>
+        </div>
+      )}
     </div>
   );
 }

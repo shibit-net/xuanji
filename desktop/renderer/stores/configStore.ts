@@ -9,7 +9,7 @@
 // ============================================================
 
 import { create } from 'zustand';
-import { setLanguage, initLanguage } from '@/core/i18n';
+import { setLanguage } from '@/core/i18n';
 import type {
   UserSettings,
   ModelConfig,
@@ -22,6 +22,7 @@ import type {
 interface ConfigState {
   // ========== 数据 ==========
   settings: UserSettings;
+  fullConfig: any;  // 后端返回的完整配置，供 SettingsPage 等使用
   agents: AgentProfile[];
   tools: ToolDefinition[];
 
@@ -30,8 +31,11 @@ interface ConfigState {
   loading: boolean;
   error: string | null;
 
+  // ========== 统一配置加载（唯一入口） ==========
+  loadConfig: () => Promise<void>;
+  initSettings: (settings: Partial<UserSettings>) => void;
+
   // ========== Settings 操作 ==========
-  loadSettings: () => Promise<void>;
   updateSettings: (settings: Partial<UserSettings>) => Promise<void>;
   updateModelConfig: (config: Partial<ModelConfig>) => void;
   updateAPIConfig: (config: Partial<APIConfig>) => void;
@@ -77,13 +81,76 @@ export const useConfigStore = create<ConfigState>()(
   (set, get) => ({
       // ========== 初始状态 ==========
       settings: defaultSettings,
+      fullConfig: null,
       agents: [],
       tools: [],
       loaded: false,
       loading: false,
       error: null,
 
-      // ========== Settings 操作 ==========
+      // ========== 统一配置加载（唯一入口） ==========
+      loadConfig: async () => {
+        // 避免重复加载
+        if (get().loaded || get().loading) return;
+        set({ loading: true, error: null });
+
+        const doLoad = async (): Promise<any> => {
+          const result = await window.electron.settingsGetFullConfig?.()
+            ?? await window.electron.settingsGetConfig?.();
+          if (result?.success && result.config) {
+            return result.config;
+          }
+          if (result?.error) {
+            throw new Error(result.error);
+          }
+          return null;
+        };
+
+        // 轮询等待 session 就绪（最多 30 秒）
+        const maxRetries = 30;
+        for (let i = 0; i < maxRetries; i++) {
+          try {
+            const c = await doLoad();
+            if (c) {
+              const language = (c.ui?.language as 'zh' | 'en') || 'en';
+              console.log('[configStore] loadConfig language:', language, 'ui:', JSON.stringify(c.ui));
+              setLanguage(language);
+              set({
+                fullConfig: c,
+                settings: {
+                  language,
+                  theme: (c.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
+                  fontSize: 14,
+                  workspacePath: (c.workspacePath as string) || '',
+                  showTokenUsage: c.ui?.showTokenUsage ?? true,
+                  showThinking: c.ui?.showThinking ?? true,
+                  model: {
+                    defaultModel: c.provider?.model || '',
+                    temperature: c.provider?.temperature ?? 1.0,
+                    maxTokens: c.provider?.maxTokens ?? 8000,
+                    streaming: true,
+                  },
+                  api: {},
+                  permissions: get().settings.permissions,
+                },
+                loaded: true,
+                loading: false,
+              });
+              return;
+            }
+          } catch (err) {
+            console.warn(`[configStore] loadConfig attempt ${i + 1} failed:`, err);
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        set({ loading: false, error: '配置加载超时' });
+      },
+
+      initSettings: (settings) => {
+        const newSettings = { ...get().settings, ...settings };
+        set({ settings: newSettings, loaded: true });
+      },
+
       loadSettings: async () => {
         set({ loading: true, error: null });
         try {
@@ -91,17 +158,17 @@ export const useConfigStore = create<ConfigState>()(
             ?? await window.electron.settingsGetConfig?.();
           if (result?.success && result.config) {
             const c = result.config;
-            const language = (c.ui?.language as 'zh' | 'en') || 'zh';
+            const language = (c.ui?.language as 'zh' | 'en') || 'en';
             console.log('[configStore] loadSettings language from config:', language, 'ui:', JSON.stringify(c.ui));
             setLanguage(language);
             set({
               settings: {
                 language,
-                theme: (c.ui?.theme as 'light' | 'dark') || 'dark',
+                theme: (c.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
                 fontSize: 14,
                 workspacePath: (c.workspacePath as string) || '',
                 showTokenUsage: c.ui?.showTokenUsage ?? true,
-                showThinking: c.ui?.showThinking ?? false,
+                showThinking: c.ui?.showThinking ?? true,
                 model: {
                   defaultModel: c.provider?.model || '',
                   temperature: c.provider?.temperature ?? 1.0,
@@ -278,7 +345,7 @@ export const useConfigStore = create<ConfigState>()(
         set({ loading: true, error: null });
         try {
           await Promise.all([
-            get().loadSettings(),
+            get().loadConfig(),
             get().loadAgents(),
             get().loadTools(),
           ]);

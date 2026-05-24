@@ -8,18 +8,8 @@ scenes:
 priority: 80
 estimatedTokens: 300
 match:
-  keywords: "(stock|market|candlestick|technical analysis|fundamental|investment|fund|wealth management|stock market|A-share|finance).*"
+  keywords: "stock market candlestick technical analysis fundamental investment fund wealth management finance"
   description: "Stock analysis, financial data, investment analysis"
-suitableFor:
-  - Stock technical analysis
-  - Fundamental analysis
-  - Market trend assessment
-  - Investment strategy analysis
-requiredCapabilities:
-  - Stock technical analysis
-  - Fundamental analysis
-  - Market trend assessment
-  - Risk assessment
 content: |
   # Financial Analysis · Mental Model
 

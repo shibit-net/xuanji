@@ -6,17 +6,8 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(review|inspect|optimize|improve|evaluate|analyze).*(code|implementation|quality|performance|security|architecture)"
+  keywords: "reviewing inspecting optimizing improving evaluating analyzing code implementation quality performance security architecture"
   description: "Code review, optimization suggestions, quality assessment"
-suitableFor:
-  - Code review
-  - Quality assessment
-  - Performance analysis
-  - Security inspection
-requiredCapabilities:
-  - Code review
-  - Quality assessment
-  - Security analysis
 content: |
   # Code Review · Mental Model
 

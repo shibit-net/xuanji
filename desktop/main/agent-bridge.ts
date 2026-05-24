@@ -342,13 +342,18 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     log.info('handleInit: session created successfully');
 
     // 注册工具执行钩子 — 自动检测文件操作涉及的项目并注册到 ProjectRegistry
+    // 主 agent ToolRegistry 无 setOnBeforeExecute，通过包装 execute 方法实现
     try {
       const agentLoop = session.getAgentLoop();
       const toolRegistry = agentLoop?.getToolRegistry();
-      if (toolRegistry && 'setOnBeforeExecute' in toolRegistry) {
-        (toolRegistry as any).setOnBeforeExecute((name: string, input: Record<string, unknown>) => {
-          detectProjectFromToolCall(name, input);
-        });
+      if (toolRegistry) {
+        const originalExecute = toolRegistry.execute.bind(toolRegistry);
+        toolRegistry.execute = async (toolName: string, input: Record<string, unknown>, signal?: AbortSignal) => {
+          // 在工具执行前检测项目（fire-and-forget，不阻塞工具调用）
+          detectProjectFromToolCall(toolName, input).catch(() => {});
+          return originalExecute(toolName, input, signal);
+        };
+        log.info('Project detection hook registered via ToolRegistry.execute wrapper');
       }
     } catch (e) {
       log.warn('Failed to set tool execute hook:', e);
@@ -754,7 +759,7 @@ async function handleUserAction(data: { type: string; message?: string; attachme
     let fullMessage = data.message || '';
     if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length || data.imageBlocks?.length)) {
       // 分离非多模态附件（图片/音频/视频已由前端分离为对应的 content blocks）
-      const fileAttachments = (data.attachments || []).filter(a => a.mimeType && !a.mimeType.startsWith('image/') && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/'));
+      const fileAttachments = data.attachments || [];
       if (fileAttachments.length > 0) {
         await copyAttachmentsToWorkspace(fileAttachments);
         await resolveBinaryAttachments(fileAttachments);
@@ -979,8 +984,15 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         try {
           const raw = await fs.readFile(configPath, 'utf-8');
           diskConfig = JSON.parse(raw);
-        } catch {
+        } catch (readErr) {
           // 文件不存在或格式错误，从 session config 重建
+          log.warn('Failed to read config.json, reconstructing from session config:', readErr);
+          try {
+            const sessionConfig = session.getConfig();
+            diskConfig = JSON.parse(JSON.stringify(sessionConfig));
+          } catch {
+            log.error('Failed to reconstruct config from session');
+          }
         }
 
         // 仅更新被修改的 section，保留磁盘上其他已有字段
@@ -1565,6 +1577,7 @@ channel.handle('memory-status', () => {
     sessionReady: !!session,
     isExtracting: mm?.isExtracting ?? false,
     isCompressing: mm?.isCompressing ?? false,
+    userEntityId: (mm as any)?.userEntityId || null,
     error: mm ? null : getMemoryInitError() || 'MemoryManager 未注册',
   };
 });
@@ -2586,7 +2599,7 @@ async function handlePromptGetComponents() {
           content,
           dynamic: c.dynamic ?? false,
           match: c.match ? {
-            keywords: c.match.keywords?.source || '',
+            keywords: c.match.keywords || '',
             description: c.match.description || '',
           } : undefined,
         };
@@ -3164,6 +3177,12 @@ async function registerProjectToRegistry(rootPath: string) {
 
     await registry.register(rootPath, hasRules);
 
+    // 通知 UI 刷新项目列表
+    safeSend({
+      type: 'project:registered',
+      data: { path: rootPath, name: path.basename(rootPath), hasRules },
+    });
+
     // 自动生成项目文档（仅对非 workspace 目录的项目，且尚无文档时）
     const defaultWorkspace = path.join(os.homedir(), '.xuanji', 'workspace');
     if (!hasRules && rootPath !== defaultWorkspace) {
@@ -3207,19 +3226,38 @@ async function autoGenerateProjectDocs(rootPath: string) {
     content += `
 ## 项目概述
 
-> 此文档由 xuanji 自动生成。Agent 在操作此项目时将根据实际代码结构持续更新。
+> 此文档由 xuanji 自动生成。Agent 在操作此项目时将根据实际代码结构和开发过程持续更新。
 
-## 目录结构
-
-> 待 Agent 分析后填充
-
-## 技术栈
+## 架构
 
 > 待 Agent 分析后填充
 
-## 关键约定
+## 模块地图
 
 > 待 Agent 分析后填充
+
+## 可复用组件 & 工具
+
+> 待 Agent 发现后填充 — 记录项目中可复用的组件、工具函数、设计模式
+
+## 关键变更日志
+
+> 待 Agent 在开发过程中持续记录
+
+## 注意事项 & 踩坑记录
+
+> 待 Agent 在开发过程中发现并记录 — 非显而易见的约束、环境差异、容易出错的地方
+
+## 约定
+
+> 待 Agent 从代码中归纳
+
+## 开发进展
+
+- 当前阶段: 初始分析
+- 进行中: 项目结构分析
+- 已完成: -
+- 计划下一步: 根据用户需求确定
 `;
 
     // 写入 XUANJI.md
@@ -3242,7 +3280,7 @@ async function autoGenerateProjectDocs(rootPath: string) {
  */
 async function detectProjectFromToolCall(toolName: string, input: Record<string, unknown>) {
   // 只处理文件相关工具
-  const fileTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep'];
+  const fileTools = ['read_file', 'write_file', 'edit_file', 'glob', 'grep'];
   if (!fileTools.includes(toolName)) return;
 
   // 提取文件路径
@@ -3255,9 +3293,19 @@ async function detectProjectFromToolCall(toolName: string, input: Record<string,
 
   if (!filePath) return;
 
-  // 如果不是绝对路径，跳过
+  // 处理相对路径
   const pathModule = await import('node:path');
-  if (!pathModule.isAbsolute(filePath)) return;
+  if (!pathModule.isAbsolute(filePath)) {
+    // 尝试从 workspace 拼接
+    try {
+      const os = await import('node:os');
+      const workspacePath = pathModule.join(os.homedir(), '.xuanji', 'workspace');
+      const absPath = pathModule.resolve(workspacePath, filePath);
+      if (absPath !== filePath) filePath = absPath;
+    } catch {
+      return;
+    }
+  }
 
   try {
     const { ProjectScanner } = await import('../../src/context/ProjectScanner.js');

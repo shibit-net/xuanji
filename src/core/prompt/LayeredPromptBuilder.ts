@@ -507,11 +507,11 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     return '';
   }
 
-  /** 获取 scene 的关键词正则字符串（供 SceneClassifier 注入 prompt） */
+  /** 获取 scene 的关键词字符串（供 SceneClassifier 注入 prompt） */
   getSceneKeywords(scene: SceneType): string {
     for (const component of this.components.values()) {
       if (component.layer === 'L1' && component.scenes?.includes(scene) && component.match) {
-        return component.match.keywords.source;
+        return component.match.keywords;
       }
     }
     return '';
@@ -681,12 +681,8 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     }
 
     if (updates.keywords !== undefined && component.match) {
-      try {
-        component.match.keywords = new RegExp(updates.keywords, 'i');
-        log.info(`Component ${id} keywords updated: ${updates.keywords}`);
-      } catch (err) {
-        throw new Error(`Invalid regex pattern: ${updates.keywords}`);
-      }
+      component.match.keywords = updates.keywords;
+      log.info(`Component ${id} keywords updated: ${updates.keywords}`);
     }
 
     if (updates.scenes !== undefined) {
@@ -743,9 +739,8 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
 
     if (config.match) {
       component.match = {
-        keywords: new RegExp(config.match.keywords, 'i'),
+        keywords: config.match.keywords,
         description: config.match.description,
-        requiredCapabilities: [],
       };
     }
 
