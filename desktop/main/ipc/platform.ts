@@ -45,10 +45,12 @@ async function handleAgentBridgeReply(data: {
   chatId: string;
   text: string;
   imagePaths?: string[];
+  audioPaths?: string[];
+  videoPaths?: string[];
   filePaths?: string[];
 }): Promise<void> {
   try {
-    log.info(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} files=${data.filePaths?.length || 0}`);
+    log.info(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} audios=${data.audioPaths?.length || 0} videos=${data.videoPaths?.length || 0} files=${data.filePaths?.length || 0}`);
     if (!platformRouter) {
       log.warn(`[DIAG] handleAgentBridgeReply: platformRouter is null, skipping reply`);
       return;
@@ -68,6 +70,35 @@ async function handleAgentBridgeReply(data: {
           log.info(`[DIAG] Agent image sent to ${data.platform}/${data.chatId}: ${imagePath}`);
         } catch (imgErr) {
           log.error(`[DIAG] Failed to send image to ${data.platform}: ${(imgErr as Error).message}`);
+        }
+      }
+    }
+
+    // 发送 agent 生成的语音（优先走 sendVoice，降级走 sendFile）
+    if (data.audioPaths?.length) {
+      for (const audioPath of data.audioPaths) {
+        try {
+          if (typeof adapter.sendVoice === 'function') {
+            await adapter.sendVoice({ chatId: data.chatId, voicePath: audioPath, replyTo: undefined });
+            log.info(`[DIAG] Agent voice sent to ${data.platform}/${data.chatId}: ${audioPath}`);
+          } else if (typeof adapter.sendFile === 'function') {
+            await adapter.sendFile({ chatId: data.chatId, filePath: audioPath, replyTo: undefined });
+            log.info(`[DIAG] Agent audio sent to ${data.platform}/${data.chatId} (via sendFile): ${audioPath}`);
+          }
+        } catch (voiceErr) {
+          log.error(`[DIAG] Failed to send audio to ${data.platform}: ${(voiceErr as Error).message}`);
+        }
+      }
+    }
+
+    // 发送 agent 生成的视频（走 sendFile）
+    if (data.videoPaths?.length && typeof adapter.sendFile === 'function') {
+      for (const videoPath of data.videoPaths) {
+        try {
+          await adapter.sendFile({ chatId: data.chatId, filePath: videoPath, replyTo: undefined });
+          log.info(`[DIAG] Agent video sent to ${data.platform}/${data.chatId}: ${videoPath}`);
+        } catch (fileErr) {
+          log.error(`[DIAG] Failed to send video to ${data.platform}: ${(fileErr as Error).message}`);
         }
       }
     }
@@ -122,11 +153,13 @@ async function getPlatformRouter(): Promise<any> {
       // getMemoryManager 可能尚未就绪，正常降级
     }
 
-    const home = process.env.HOME || process.env.USERPROFILE || '';
-    const dataDir = `${home}/.xuanji/platform`;
+    const { getAuthState } = await import('../config/auth.js');
+    const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+    const uid = getAuthState().user?.userId || 'default';
+    const dataDir = getUserPlatformDir(uid);
 
     platformRouter = new PlatformRouter(db, dataDir);
-    log.info('PlatformRouter initialized');
+    log.info(`PlatformRouter initialized for user: ${uid}`);
 
     // 自动恢复已保存的平台连接
     await restorePlatformConnections(platformRouter, dataDir);

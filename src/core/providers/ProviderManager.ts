@@ -2,32 +2,24 @@
  * Provider 管理器
  *
  * 职责：
- * 1. 根据 Agent 配置按需创建 Provider
- * 2. 支持每个 Agent 独立的 apiKey、baseURL、adapter
- * 3. 字段级配置合并（Agent 配置 > 全局配置）
+ * 1. 根据 Agent 自身配置按需创建 Provider
+ * 2. 每个 Agent 的配置文件（YAML + agent-overrides）中已有 adapter/apiKey/baseURL
+ * 3. 所有 agent 的 provider 创建都走此入口，统一管理
  *
  * @example
- * const provider = providerManager.getProvider(agentConfig);
- * // provider = OpenAIProvider with merged credentials
+ * const provider = ProviderManager.getProvider(agentConfig.provider);
  */
 
-import type { AppConfig, ILLMProvider, ProviderConfig } from '@/core/types';
-import type { ConfigurableAgentConfig } from '@/core/agent/types';
-import { AnthropicProvider } from './AnthropicProvider';
-import { OpenAIProvider } from './OpenAIProvider';
-import { GeminiProvider } from './GeminiProvider';
-import { LocalLlamaAdapter } from './LocalLlamaAdapter';
+import type { ILLMProvider } from '@/core/types';
+import { createProviderByAdapter } from './ProviderRegistry';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ProviderManager' });
 
-/**
- * Agent Provider 配置（扩展 ProviderConfig）
- */
 export interface AgentProviderConfig {
+  adapter?: string;
   apiKey?: string;
   baseURL?: string;
-  adapter?: string;
   model?: string;
   maxTokens?: number;
   timeout?: number;
@@ -35,78 +27,20 @@ export interface AgentProviderConfig {
   [key: string]: any;
 }
 
-/**
- * Provider Manager
- *
- * 管理 Provider 配置的合并和获取
- * 每个 Agent 配置上已有 adapter 字段，直接按 adapter 创建 Provider。
- */
 export class ProviderManager {
-  private globalConfig: AppConfig;
-
-  constructor(globalConfig: AppConfig) {
-    this.globalConfig = globalConfig;
-    log.debug('ProviderManager initialized', {
-      globalModel: globalConfig.provider.model,
-      globalAdapter: (globalConfig.provider as any).adapter || 'auto',
-    });
-  }
-
   /**
-   * 获取 Agent 专用的 Provider
+   * 根据 Agent 自身 provider 配置创建 Provider
    *
-   * 合并逻辑：
-   * 1. 以全局配置为基准
-   * 2. Agent 配置覆盖全局配置
-   * 3. 最终确定 adapter → 创建对应 Provider
+   * agentProvider 来自 agent 的 YAML 配置文件 + agent-overrides 合并结果。
+   * 每个 agent 的配置文件一定存在（首次登录从模板复制），不存在全局兜底。
    */
-  getProvider(agentConfig?: ConfigurableAgentConfig): ILLMProvider {
-    const merged = this.mergeConfig(agentConfig);
-    log.info(`ProviderManager.getProvider: adapter=${merged.adapter}, model=${merged.model}, baseURL=${merged.baseURL}, hasAgentConfig=${!!agentConfig}`);
-    const provider = this.createProviderByAdapter(merged.adapter);
-    log.info(`ProviderManager created: ${provider.name} (${provider.constructor.name})`);
+  static getProvider(agentProvider?: AgentProviderConfig): ILLMProvider {
+    if (!agentProvider?.adapter) {
+      throw new Error('Agent 未配置 provider adapter，请在配置页面设置');
+    }
+
+    const provider = createProviderByAdapter(agentProvider.adapter);
+    log.info(`ProviderManager created: ${provider.name} for adapter=${agentProvider.adapter}`);
     return provider;
-  }
-
-  /**
-   * 合并 Agent 配置和全局配置
-   */
-  private mergeConfig(agentConfig?: ConfigurableAgentConfig): ProviderConfig {
-    const global = this.globalConfig.provider;
-
-    // 如果 Agent 没有独立配置，直接返回全局配置
-    if (!agentConfig?.provider) {
-      return { ...global } as ProviderConfig;
-    }
-
-    const agent = agentConfig.provider as AgentProviderConfig;
-
-    return {
-      adapter: agent.adapter || (global as any).adapter || 'openai',
-      model: agent.model || global.model || 'gpt-4',
-      apiKey: agent.apiKey || global.apiKey,
-      baseURL: agent.baseURL || global.baseURL,
-      maxTokens: agent.maxTokens || global.maxTokens,
-      timeout: agent.timeout || (global as any).timeout,
-      temperature: agent.temperature ?? (global as any).temperature,
-    } as ProviderConfig;
-  }
-
-  /**
-   * 根据 adapter 名称创建 Provider 实例
-   */
-  private createProviderByAdapter(adapter?: string): ILLMProvider {
-    switch (adapter) {
-      case 'anthropic':
-        return new AnthropicProvider();
-      case 'gemini':
-        return new GeminiProvider();
-      case 'local-llama':
-        return new LocalLlamaAdapter();
-      case 'openai':
-      case 'openai-response':
-      default:
-        return new OpenAIProvider();
-    }
   }
 }

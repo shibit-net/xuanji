@@ -13,6 +13,7 @@ import { useMessageStore, type Message } from '../stores/messageStore';
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 // 灰色版 logo（水印背景）
 import watermarkLogo from '../assets/logos/15b2c2b5954c2f350d3018385db4a81c.png';
+import { t } from '@/core/i18n';
 
 // ============================================================
 // 唯一 ID 生成器（与 chatStore 保持一致）
@@ -125,8 +126,8 @@ const VirtualMessageList = memo(function VirtualMessageList({
         </div>
       )}
 
-      {/* 流式消息：有实际文字内容后才展示气泡，避免空泡闪烁 */}
-      {streamingMessage && currentStreamingText && (
+      {/* 流式消息：有文字或媒体内容（图片/文件）时展示气泡 */}
+      {streamingMessage && (currentStreamingText || (streamingMessage.contentBlocks && streamingMessage.contentBlocks.length > 0)) && (
         <div className="message-bubble-streaming pb-4">
           <MessageBubble
             message={streamingMessage}
@@ -342,11 +343,11 @@ export default function ChatArea() {
             {/* 标题 */}
             <h1 className="text-2xl font-semibold text-foreground/90 mb-2 tracking-tight">Xuanji 璇玑</h1>
             <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed">
-              智能管家 · 理解、推理、执行
+              {t('chatarea.subtitle')}
             </p>
             <div className="mt-10 flex items-center gap-2 text-xs text-muted-foreground/50">
               <div className="w-1 h-1 rounded-full bg-primary/50" />
-              输入你的问题开始对话
+              {t('chatarea.start_hint')}
               <div className="w-1 h-1 rounded-full bg-primary/50" />
             </div>
             {/* 底部装饰 */}

@@ -7,6 +7,9 @@ import type { Message, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, Cont
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
+/** Anthropic Messages API 支持的图片 MIME 类型 */
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
 /**
  * Anthropic Claude Provider
  */
@@ -68,13 +71,32 @@ export class AnthropicProvider extends BaseLLMProvider {
       if (!Array.isArray(content)) return content;
       return content.map((block: ContentBlock) => {
         if (block.type === 'image') {
+          if (SUPPORTED_IMAGE_TYPES.has(block.mimeType || '')) {
+            return {
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: block.mimeType || 'image/png',
+                data: block.data || '',
+              },
+            };
+          }
+          return { type: 'text' as const, text: `[Image: ${block.name || block.mimeType || 'image'}]` };
+        }
+        if (block.type === 'audio') {
+          // Anthropic does not natively support audio input, use text placeholder
+          return { type: 'text' as const, text: `[Audio file: ${block.name || 'audio'}]` };
+        }
+        if (block.type === 'video') {
+          // Anthropic does not natively support video input, use text placeholder
+          return { type: 'text' as const, text: `[Video file: ${block.name || 'video'}]` };
+        }
+        if (block.type === 'reasoning') {
+          // DeepSeek/OpenAI reasoning_content → Anthropic thinking 块
           return {
-            type: 'image' as const,
-            source: {
-              type: 'base64' as const,
-              media_type: block.mimeType || 'image/png',
-              data: block.data || '',
-            },
+            type: 'thinking' as const,
+            thinking: (block as any).reasoning || '',
+            ...((block as any).signature ? { signature: (block as any).signature } : {}),
           };
         }
         return block as any;

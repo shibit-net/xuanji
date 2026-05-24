@@ -8,6 +8,7 @@
 // ============================================================
 
 import React, { useMemo } from 'react';
+import { t } from '@/core/i18n';
 import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 
 // 定义 Agent 状态类型
@@ -54,7 +55,7 @@ const AgentStatusList: React.FC = () => {
       return [
         {
           id: '1',
-          name: '主 Agent',
+          name: t('agent.status_list.name_default'),
           type: 'main',
           status: 'idle',
           progress: 0,
@@ -89,15 +90,15 @@ const AgentStatusList: React.FC = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'thinking':
-        return '思考中';
+        return t('agent.status_list.status.thinking');
       case 'executing':
-        return '执行中';
+        return t('agent.status_list.status.executing');
       case 'completed':
-        return '已完成';
+        return t('agent.status_list.status.completed');
       case 'error':
-        return '错误';
+        return t('agent.status_list.status.error');
       default:
-        return '空闲';
+        return t('agent.status_list.status.idle');
     }
   };
 
@@ -106,13 +107,13 @@ const AgentStatusList: React.FC = () => {
       <table className="w-full text-sm">
         <thead className="bg-bg-secondary">
           <tr>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">Agent</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">类型</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">状态</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">进度</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">任务</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">开始时间</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">持续时间</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.agent')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.type')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.status')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.progress')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.task')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.start_time')}</th>
+            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.duration')}</th>
           </tr>
         </thead>
         <tbody>
@@ -121,7 +122,7 @@ const AgentStatusList: React.FC = () => {
               <td className="px-4 py-2 font-medium text-text-primary">
                 {agent.parentId ? '└─ ' : ''}{agent.name}
               </td>
-              <td className="px-4 py-2 text-text-secondary">{agent.type}</td>
+              <td className="px-4 py-2 text-text-secondary">{agent.type === 'main' ? t('agent.status_list.type.main') : agent.type}</td>
               <td className="px-4 py-2">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(agent.status)} text-white`}>
                   {getStatusText(agent.status)}

@@ -37,7 +37,7 @@ export { XlsxEditTool } from './XlsxEditTool';
 export { DocxEditTool } from './DocxEditTool';
 export { DocToDocxTool } from './DocToDocxTool';
 export { ToolGateway } from './ToolGateway';
-export type { ExecutionContext, ToolMetrics, PermissionController } from './ToolGateway';
+export type { ExecutionContext, ToolMetrics } from './ToolGateway';
 export { ToolRegistry, createDefaultRegistry } from './ToolRegistry';
 export { UpdatePersonaTool } from './UpdatePersonaTool';
 export { SSHExecTool } from './SSHExecTool';

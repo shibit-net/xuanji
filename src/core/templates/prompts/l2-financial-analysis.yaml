@@ -5,24 +5,24 @@ priority: 70
 estimatedTokens: 400
 enabled: true
 content: |
-  # 金融分析复杂任务指引
+  # Financial Analysis Complex Task Guidance
 
-  ## 任务分解
+  ## Task Decomposition
 
-  | 场景 | 策略 | 说明 |
+  | Scene | Strategy | Description |
   |------|------|------|
-  | 多标的对比 | parallel | 每标的独立分析后汇总对比 |
-  | 深度研究报告 | sequential | 数据收集→技术分析→基本面→估值→风险→建议 |
-  | 行业板块分析 | sequential | 宏观→中观→微观 |
+  | Multi-asset comparison | parallel | Analyze each asset independently then aggregate comparison |
+  | In-depth research report | sequential | Data Collection → Technical Analysis → Fundamentals → Valuation → Risk → Recommendations |
+  | Industry/sector analysis | sequential | Macro → Meso → Micro |
 
-  ## 输出质量标准
+  ## Output Quality Standards
 
-  1. 数据准确：引用来源和时间
-  2. 逻辑清晰：推理合理，结论有据
-  3. 结构完整：基本信息→多维分析→综合研判→风险提示
-  4. 合规：包含"仅供参考，不构成投资建议"声明
+  1. Data accuracy: cite sources and timestamps
+  2. Clear logic: sound reasoning, conclusions with evidence
+  3. Complete structure: Basic Info → Multi-dimensional Analysis → Comprehensive Assessment → Risk Disclosure
+  4. Compliance: include "For reference only, not investment advice" disclaimer
 
-  ## 风险控制
+  ## Risk Control
 
-  - 避免绝对性表达（"一定涨/跌"、"100%安全"）
-  - 多维度风险提示：市场/公司/行业/流动性/估值风险
+  - Avoid absolute language ("will definitely rise/fall", "100% safe")
+  - Multi-dimensional risk disclosure: Market/Company/Industry/Liquidity/Valuation risk

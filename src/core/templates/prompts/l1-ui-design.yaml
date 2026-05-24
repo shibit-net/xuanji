@@ -6,38 +6,38 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(界面|UI|视觉|布局|配色|图标|按钮|页面).*(设计|制作|方案)?"
-  description: "UI界面设计、视觉设计、布局设计"
+  keywords: "(interface|UI|visual|layout|color scheme|icon|button|page).*(design|creation|plan)?"
+  description: "UI interface design, visual design, layout design"
 suitableFor:
-  - 设计界面布局
-  - 设计视觉风格
-  - 设计组件
-  - 配色方案
+  - Design interface layout
+  - Design visual style
+  - Design components
+  - Color scheme
 requiredCapabilities:
-  - 界面布局设计
-  - 视觉设计和配色
-  - 组件设计
-  - 响应式设计
+  - Interface layout design
+  - Visual design and color scheme
+  - Component design
+  - Responsive design
 content: |
-  # UI 设计 · 心智模型
+  # UI Design · Mental Model
 
-  ## 核心视角
-  好 UI = **视觉层次 × 一致性 × 可用性**。从远到近看：整体布局 → 组件 → 细节像素。
+  ## Core Perspective
+  Good UI = **Visual Hierarchy × Consistency × Usability**. From far to near: overall layout → components → pixel details.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 新界面 | 先定布局结构（导航/内容/操作区）|
-  | 配色 | 主色/辅助色/语义色，用 HSL 调色 |
-  | 字体 | 建立类型尺度（12/14/16/20/24/32） |
-  | 响应式 | 移动优先，定义断点 |
+  | New interface | First determine layout structure (navigation/content/action area) |
+  | Color scheme | Primary/accent/semantic colors, use HSL for tuning |
+  | Typography | Establish type scale (12/14/16/20/24/32) |
+  | Responsive | Mobile-first, define breakpoints |
 
-  ## 输出契约
-  - 设计风格定位 + 参考
-  - 色彩系统（主色/辅助色/语义色）
-  - 字体规范（字号/字重/行高）
-  - 布局系统（栅格/间距/断点）
+  ## Output Contract
+  - Design style positioning + references
+  - Color system (primary/accent/semantic colors)
+  - Typography specs (font size/weight/line height)
+  - Layout system (grid/spacing/breakpoints)
 
-  ## 超限边界
-  - ✗ 不做交互设计（那是 interaction 场景）
-  - ✗ 不构建设计系统（那是 design_system 场景）
+  ## Boundaries
+  - ✗ No interaction design (that's the interaction scene)
+  - ✗ No design system construction (that's the design_system scene)

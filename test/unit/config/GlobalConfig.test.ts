@@ -227,16 +227,6 @@ describe('ProjectConfig', () => {
     expect(getByPath(envConfig, 'provider.timeout')).toBe(60000);
   });
 
-  it('resolveEnvConfig() 应处理布尔值', () => {
-    process.env.XUANJI_MEMORY_ENABLED = 'true';
-    const envConfig = ProjectConfig.resolveEnvConfig();
-    expect(getByPath(envConfig, 'memory.enabled')).toBe(true);
-
-    process.env.XUANJI_MEMORY_ENABLED = '0';
-    const envConfig2 = ProjectConfig.resolveEnvConfig();
-    expect(getByPath(envConfig2, 'memory.enabled')).toBe(false);
-  });
-
   it('resolveEnvConfig() 应跳过空字符串', () => {
     process.env.XUANJI_MODEL = '';
     const envConfig = ProjectConfig.resolveEnvConfig();

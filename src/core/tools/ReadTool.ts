@@ -47,9 +47,10 @@ const MIME_MAP: Record<string, string> = {
 export class ReadTool extends BaseTool {
   readonly name = 'read_file';
   readonly description = [
-    'Read file contents for your own analysis. Supports text files with line numbers, PDFs, and images.',
-    '注意：此工具读取的文件是你主动查看的，不是用户发送的。不要在回复中说"你发我的文件"、"你分享的图片"等。',
-    '如需将文件发送/展示给用户，请使用 send_file_to_user 工具。',
+    'Read file contents for your own analysis. Supports text files (with line numbers) and PDFs.',
+    'For images: only returns file metadata (path, size, format). You CANNOT see image pixel content from this tool.',
+    'If you need to analyze an image visually, ask the user to describe it or paste it directly into the chat.',
+    'To send/display a file to the user, use the send_file_to_user tool instead.',
     '',
     'For large files use offset/limit to read specific sections.',
     'For directories, use list_directory instead.',
@@ -89,24 +90,24 @@ export class ReadTool extends BaseTool {
     log.debug(`Reading file: ${filePath}`, { offset, limit, pages });
 
     try {
-      // 检查文件是否存在
+      // Check if file exists
       try {
         const fileStats = await stat(filePath);
         if (fileStats.isDirectory()) {
-          // 目录：自动列出内容，帮助 agent 定位文件
+          // Directory: auto-list contents to help agent locate files
           return this.readDirectory(filePath);
         }
       } catch {
         log.warn(`File not found: ${filePath}`);
-        // 文件不存在：给出明确的搜索建议
+        // File not found: give clear search suggestions
         const dirPath = path.dirname(filePath);
         const baseName = path.basename(filePath);
         return this.error(
-          `文件不存在: ${filePath}\n\n` +
-          `建议操作：\n` +
-          `1. 使用 glob 搜索相关文件: glob({ pattern: "**/${baseName}" })\n` +
-          `2. 查看父目录内容: read_file({ path: "${dirPath}" })\n` +
-          `3. 使用 list_directory 浏览项目结构`
+          `File not found: ${filePath}\n\n` +
+          `Suggestions:\n` +
+          `1. Use glob to search for related files: glob({ pattern: "**/${baseName}" })\n` +
+          `2. View parent directory contents: read_file({ path: "${dirPath}" })\n` +
+          `3. Use list_directory to browse project structure`
         );
       }
 
@@ -137,7 +138,7 @@ export class ReadTool extends BaseTool {
         );
       }
 
-      // 文本文件（原有逻辑）
+      // Text file (original logic)
       const result = await this.readText(filePath, offset, limit);
       log.info(`File read successfully: ${filePath}`, {
         size: result.content.length,
@@ -147,7 +148,7 @@ export class ReadTool extends BaseTool {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Failed to read file: ${filePath}`, { error: message });
-      return this.error(`读取文件失败: ${message}`);
+      return this.error(`Failed to read file: ${message}`);
     }
   }
 
@@ -186,7 +187,7 @@ export class ReadTool extends BaseTool {
     let output = numbered;
     if (needsTruncation) {
       const remaining = slice.length - MAX_FORMAT_LINES;
-      output += `\n\n... [文件过大，已省略后续 ${remaining} 行。请使用 offset/limit 参数分页读取，如 offset=${startIdx + MAX_FORMAT_LINES + 1} limit=500]`;
+      output += `\n\n... [File too large, omitted ${remaining} remaining lines. Use offset/limit to paginate, e.g. offset=${startIdx + MAX_FORMAT_LINES + 1} limit=500]`;
     }
 
     output = middleTruncate(output, getMaxToolOutputLength());
@@ -220,8 +221,8 @@ export class ReadTool extends BaseTool {
       }
 
       const listing = [
-        `[目录] ${dirPath}`,
-        `共 ${entries.length} 项 (${dirs.length} 目录, ${files.length} 文件)`,
+        `[Directory] ${dirPath}`,
+        `${entries.length} entries (${dirs.length} dirs, ${files.length} files)`,
         '',
         ...dirs.sort(),
         ...files.sort(),
@@ -238,7 +239,7 @@ export class ReadTool extends BaseTool {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return this.error(`读取目录失败: ${message}`);
+      return this.error(`Failed to read directory: ${message}`);
     }
   }
 
@@ -278,10 +279,10 @@ export class ReadTool extends BaseTool {
 
     let output = middleTruncate(numbered, getMaxToolOutputLength());
     const sizeMB = Math.round(fileSize / 1024 / 1024);
-    output = `[大文件: ${sizeMB}MB, 流式读取]\n${output}`;
+    output = `[Large file: ${sizeMB}MB, stream read]\n${output}`;
 
     return this.success(output, {
-      totalLines: totalLines || '未知',
+      totalLines: totalLines || 'unknown',
       shownLines: lines.length,
       truncated: true,
       type: 'text',
@@ -302,18 +303,18 @@ export class ReadTool extends BaseTool {
       const textResult = await parser.getText();
       const totalPages = textResult.pages.length;
 
-      // 大 PDF 必须指定页码范围
+      // Large PDF must specify page range
       if (totalPages > 20 && !pages) {
         await parser.destroy();
         return this.error(
-          `PDF 共 ${totalPages} 页，超过 20 页限制。请使用 pages 参数指定页码范围，如 pages: "1-5"。`,
+          `PDF has ${totalPages} pages, exceeding the 20-page limit. Use the pages parameter to specify a page range, e.g. pages: "1-5".`,
         );
       }
 
       let text: string;
       if (pages) {
         const { start, end } = this.parsePageRange(pages, totalPages);
-        // 按页提取文本
+        // Extract text by page
         text = textResult.pages
           .filter((_, i) => i + 1 >= start && i + 1 <= end)
           .map((p) => p.text)
@@ -327,7 +328,7 @@ export class ReadTool extends BaseTool {
       text = middleTruncate(text, getMaxToolOutputLength());
 
       return this.success(
-        `[PDF] ${filePath} (${totalPages} 页)\n${pages ? `页码范围: ${pages}\n` : ''}\n${text}`,
+        `[PDF] ${filePath} (${totalPages} pages)\n${pages ? `Page range: ${pages}\n` : ''}\n${text}`,
         {
           type: 'pdf',
           totalPages,
@@ -337,27 +338,27 @@ export class ReadTool extends BaseTool {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('password')) {
-        return this.error(`PDF 需要密码，请解密后重试: ${filePath}`);
+        return this.error(`PDF is password-protected, please decrypt and retry: ${filePath}`);
       }
-      return this.error(`PDF 读取失败: ${message}`);
+      return this.error(`PDF read failed: ${message}`);
     }
   }
 
   private parsePageRange(pages: string, totalPages: number): { start: number; end: number } {
     const match = pages.match(/^(\d+)(?:-(\d+))?$/);
     if (!match) {
-      throw new Error(`无效的页码范围: ${pages}，格式如 "1-5", "3", "10-20"`);
+      throw new Error(`Invalid page range: ${pages}, format: "1-5", "3", "10-20"`);
     }
 
     const start = parseInt(match[1], 10);
     const end = match[2] ? parseInt(match[2], 10) : start;
 
     if (start < 1 || end < start || end > totalPages) {
-      throw new Error(`页码范围超出 (1-${totalPages}): ${pages}`);
+      throw new Error(`Page range out of bounds (1-${totalPages}): ${pages}`);
     }
 
     if (end - start + 1 > 20) {
-      throw new Error(`每次最多读取 20 页，当前范围 ${end - start + 1} 页`);
+      throw new Error(`Max 20 pages per read, current range is ${end - start + 1} pages`);
     }
 
     return { start, end };
@@ -368,12 +369,12 @@ export class ReadTool extends BaseTool {
   // ============================================================
 
   private async readImage(filePath: string, ext: string): Promise<ToolResult> {
-    // 先检查大小，防止超大文件导致 OOM
+    // Check file size first to prevent OOM
     const fileStats = await stat(filePath);
     const sizeKB = Math.round(fileStats.size / 1024);
     if (fileStats.size > 20 * 1024 * 1024) {
       const sizeStr = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)}MB` : `${sizeKB}KB`;
-      return this.error(`图片文件过大 (${sizeStr})，超过 20MB 限制`);
+      return this.error(`Image file too large (${sizeStr}), exceeds 20MB limit`);
     }
 
     const imageBuffer = await readFile(filePath);
@@ -381,7 +382,10 @@ export class ReadTool extends BaseTool {
     const mimeType = MIME_MAP[ext] ?? 'application/octet-stream';
 
     return {
-      content: `[Image] ${filePath} (${sizeKB}KB, ${mimeType})`,
+      content: `[Image file — NOT analyzed] ${filePath} (${sizeKB}KB, ${mimeType})\n\n` +
+        `You CANNOT see this image's visual content. You only have the file path and metadata above.\n` +
+        `Do NOT describe, analyze, or interpret what you think is in this image.\n` +
+        `If the user needs image analysis, ask them to describe the content or paste the relevant text.`,
       isError: false,
       metadata: {
         type: 'image',
@@ -389,7 +393,7 @@ export class ReadTool extends BaseTool {
         sizeKB,
         base64Length: base64.length,
       },
-      // 扁平格式 contentBlocks，前后端共用
+      // Flat-format contentBlocks, shared between frontend and backend
       contentBlocks: [{
         type: 'image',
         mimeType,

@@ -5,13 +5,14 @@
 
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { type TeamNodeData, STRATEGY_VISUAL } from '../../utils/flow/FlowNodeTypes';
+import { t } from '@/core/i18n';
 
 const STRATEGY_LABELS: Record<string, string> = {
-  sequential: '串行',
-  parallel: '并行',
-  hierarchical: '层级',
-  debate: '辩论',
-  pipeline: '流水线',
+  sequential: t('flow.strategy.sequential'),
+  parallel: t('flow.strategy.parallel'),
+  hierarchical: t('flow.strategy.hierarchical'),
+  debate: t('flow.strategy.debate'),
+  pipeline: t('flow.strategy.pipeline'),
 };
 
 const STRATEGY_ICONS: Record<string, string> = {
@@ -83,12 +84,12 @@ export function TeamNode({ data }: NodeProps<TeamNodeData>) {
       {/* 底部策略状态信息 */}
       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-3 text-[10px] text-muted-foreground/50 pointer-events-none">
         {data.strategy === 'sequential' ? (
-          <span className="text-blue-400/60">➡️ 顺序执行 · {data.memberCount} 步</span>
+          <span className="text-blue-400/60">{t('flow.strategy.sequential_steps', { count: data.memberCount })}</span>
         ) : data.strategy === 'pipeline' ? (
-          <span className="text-purple-400/60">🔗 流水线 · {data.memberCount} 阶段</span>
+          <span className="text-purple-400/60">{t('flow.strategy.pipeline_stages', { count: data.memberCount })}</span>
         ) : (
           <>
-            <span>{data.memberCount} 名成员</span>
+            <span>{t('flow.strategy.member_count', { count: data.memberCount })}</span>
             {data.goal && (
               <span className="max-w-[200px] truncate">{data.goal.slice(0, 80)}</span>
             )}

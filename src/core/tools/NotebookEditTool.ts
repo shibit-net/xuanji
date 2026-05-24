@@ -49,25 +49,25 @@ export class NotebookEditTool extends BaseTool {
     properties: {
       notebook_path: {
         type: 'string',
-        description: '.ipynb 文件路径（必须为绝对路径）',
+        description: '.ipynb file path (must be an absolute path)',
       },
       cell_number: {
         type: 'number',
-        description: '单元格编号（0-indexed）。insert 模式下为插入位置。',
+        description: 'Cell number (0-indexed). In insert mode, the insertion position.',
       },
       edit_mode: {
         type: 'string',
         enum: ['replace', 'insert', 'delete'],
-        description: '编辑模式（默认 replace）',
+        description: 'Edit mode (default replace)',
       },
       cell_type: {
         type: 'string',
         enum: ['code', 'markdown'],
-        description: '单元格类型（insert 模式必需）',
+        description: 'Cell type (required for insert mode)',
       },
       new_source: {
         type: 'string',
-        description: '新的单元格内容',
+        description: 'New cell content',
       },
     },
     required: ['notebook_path'],

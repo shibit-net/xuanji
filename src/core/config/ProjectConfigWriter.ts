@@ -161,7 +161,7 @@ export class ProjectConfigWriter {
         '// showCost': '是否显示费用',
         showCost: false,
         '// showThinking': '是否显示思考过程',
-        showThinking: false,
+        showThinking: true,
       },
 
       tools: {
@@ -216,7 +216,7 @@ export class ProjectConfigWriter {
         '// showCost': 'Show cost',
         showCost: false,
         '// showThinking': 'Show thinking process',
-        showThinking: false,
+        showThinking: true,
       },
 
       tools: {

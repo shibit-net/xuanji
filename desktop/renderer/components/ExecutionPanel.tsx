@@ -13,6 +13,7 @@ import {
   PlayCircle,
 } from 'lucide-react';
 import { useExecutionStore, type TodoItem } from '../stores/executionStore';
+import { t } from '@/core/i18n';
 
 export default function ExecutionPanel() {
   const todos = useExecutionStore((state) => state.todos);
@@ -31,7 +32,7 @@ export default function ExecutionPanel() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-bg-tertiary">
-        <span className="text-sm font-semibold">✅ TODO 列表</span>
+        <span className="text-sm font-semibold">{t('execution.todo_list')}</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -39,7 +40,7 @@ export default function ExecutionPanel() {
         {totalCount > 0 && (
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>进度</span>
+              <span>{t('execution.progress')}</span>
               <span>
                 {completedCount} / {totalCount} ({progress.toFixed(0)}%)
               </span>
@@ -56,21 +57,21 @@ export default function ExecutionPanel() {
         {/* TODO 列表 */}
         {todos.length === 0 ? (
           <div className="text-center text-sm text-muted-foreground py-8">
-            暂无 TODO 项
+            {t('execution.empty')}
           </div>
         ) : (
           <div className="space-y-3">
             {inProgressTodos.length > 0 && (
-              <TodoGroup title="🔄 进行中" todos={inProgressTodos} />
+              <TodoGroup title={t('execution.group.in_progress')} todos={inProgressTodos} />
             )}
             {pendingTodos.length > 0 && (
-              <TodoGroup title="⏳ 待处理" todos={pendingTodos} />
+              <TodoGroup title={t('execution.group.pending')} todos={pendingTodos} />
             )}
             {completedTodos.length > 0 && (
-              <TodoGroup title="✅ 已完成" todos={completedTodos} />
+              <TodoGroup title={t('execution.group.completed')} todos={completedTodos} />
             )}
             {failedTodos.length > 0 && (
-              <TodoGroup title="❌ 失败" todos={failedTodos} />
+              <TodoGroup title={t('execution.group.failed')} todos={failedTodos} />
             )}
           </div>
         )}

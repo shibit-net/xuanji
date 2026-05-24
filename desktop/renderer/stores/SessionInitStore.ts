@@ -7,73 +7,47 @@
  * 状态机：
  *   uninitialized → initializing → ready
  *                     ↓       ↓
- *                   failed ←─┘
- *
- * IPC 事件驱动：
- *   session:init-start     → INIT_START
- *   session:init-complete  → INIT_COMPLETE
- *   session:init-failed    → INIT_FAILED
- *   session:init-restarting → INIT_RESTARTING
- *   agent:crash            → CHILD_CRASH
+ *                    failed   error
  */
 
 import { create } from 'zustand';
 
 export type InitStatus = 'uninitialized' | 'initializing' | 'ready' | 'failed';
 
-export type InitEvent =
-  | { type: 'INIT_START' }
-  | { type: 'INIT_COMPLETE' }
-  | { type: 'INIT_FAILED'; error: string }
-  | { type: 'INIT_RESTARTING' }
-  | { type: 'CHILD_CRASH'; message: string }
-  | { type: 'RETRY' };
-
 interface SessionInitState {
   status: InitStatus;
   error: string | null;
-
-  transition: (event: InitEvent) => void;
+  progress: string;
+  transition: (event: { type: 'INIT_START' | 'INIT_COMPLETE' | 'INIT_FAILED'; error?: string }) => void;
+  isReady: () => boolean;
   triggerInit: () => Promise<void>;
   retry: () => void;
-  isReady: () => boolean;
-  resetAllStores: () => void;
+  reset: () => void;
 }
 
+const initialState = {
+  status: 'uninitialized' as InitStatus,
+  error: null as string | null,
+  progress: '',
+};
+
 export const useSessionInitStore = create<SessionInitState>((set, get) => ({
-  status: 'uninitialized',
-  error: null,
+  ...initialState,
 
   transition: (event) => {
-    const { status } = get();
+    const { status, error, progress } = get();
     switch (event.type) {
       case 'INIT_START':
-        set({ status: 'initializing', error: null });
+        set({ status: 'initializing', error: null, progress: '正在初始化...' });
         break;
-
       case 'INIT_COMPLETE':
-        set({ status: 'ready', error: null });
+        set({ status: 'ready', progress: '初始化完成' });
         break;
-
       case 'INIT_FAILED':
-        set({ status: 'failed', error: event.error });
+        set({ status: 'failed', error: event.error || '初始化失败', progress: '初始化失败' });
         break;
-
-      case 'INIT_RESTARTING':
-        set({ status: 'initializing' });
-        break;
-
-      case 'CHILD_CRASH':
-        set({ status: 'failed', error: event.message });
-        get().resetAllStores();
-        break;
-
-      case 'RETRY':
-        if (status === 'failed') {
-          set({ status: 'initializing', error: null });
-          get().triggerInit();
-        }
-        break;
+      default:
+        console.warn('[SessionInitStore] Unknown event:', event);
     }
   },
 
@@ -91,7 +65,8 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
           const config = result.config;
           const { useConfigStore } = await import('./configStore');
           const { setLanguage } = await import('@/core/i18n');
-          const language = (config.ui?.language as 'zh' | 'en') || 'zh';
+          const language = (config.ui?.language as 'zh' | 'en') || 'en';
+          console.log('[SessionInitStore] init setting language from config:', language, 'ui:', JSON.stringify(config.ui));
           setLanguage(language);
           useConfigStore.getState().updateSettings({
             language,
@@ -99,7 +74,7 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
             workspacePath: config.workspacePath || '',
             showTokenUsage: config.ui?.showTokenUsage ?? true,
             showCost: config.ui?.showCost ?? true,
-            showThinking: config.ui?.showThinking ?? false,
+            showThinking: config.ui?.showThinking ?? true,
           });
 
           if (config.provider?.model) {
@@ -127,25 +102,17 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
   },
 
   retry: () => {
-    get().transition({ type: 'RETRY' });
+    set({ status: 'uninitialized', error: null, progress: '' });
+    get().triggerInit();
   },
 
-  isReady: () => get().status === 'ready',
+  reset: () => {
+    set(initialState);
+  },
 
-  resetAllStores: async () => {
-    const { useConversationStore } = await import('./ConversationStore');
-    const { useAgentStateMachine } = await import('./AgentStateMachine');
-    const { useMessageStore } = await import('./messageStore');
-    const { useAsyncTaskStore } = await import('./AsyncTaskStore');
-    const { useIntentRoutingStore } = await import('./IntentRoutingStore');
-
-    useConversationStore.getState().onAgentCompleted();
-    useAgentStateMachine.getState().clearAll();
-    useMessageStore.getState().finishStreaming();
-    useIntentRoutingStore.getState().transition({ type: 'ROUTE_RESET' });
-    const taskStore = useAsyncTaskStore.getState();
-    for (const taskId of Object.keys(taskStore.tasks)) {
-      taskStore.transition({ type: 'TASK_CLEARED', taskId });
-    }
+  isReady: () => {
+    return get().status === 'ready';
   },
 }));
+
+export default useSessionInitStore;

@@ -400,7 +400,7 @@ export function registerEventAdapter(): void {
     useSessionStore.getState().addLog('tool', `🔧 ${data.name} 开始执行`);
   });
 
-  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string; sessionKey?: string; contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }> }) => {
+  messageBus.on('agent:tool-end', (data: { id: string; name: string; result?: string; isError?: boolean; agentId?: string; sessionKey?: string; contentBlocks?: import('../stores/messageStore').ContentBlock[] }) => {
     const agentId = data.agentId || getDefaultAgentId();
     const isAsync = asyncSubAgentIds.has(agentId);
     // AgentStateMachine 始终更新（React Flow 节点展示需要），对话框仅前台 agent 更新
@@ -414,7 +414,7 @@ export function registerEventAdapter(): void {
 
     // 图片/文件内容块：追加到当前流式消息（read_file 是 agent 自己读的，不展示给用户）
     if (data.name !== 'read_file' && data.contentBlocks && data.contentBlocks.length > 0) {
-      const mediaBlocks = data.contentBlocks.filter(b => b.type === 'image' || b.type === 'file');
+      const mediaBlocks = data.contentBlocks.filter(b => b.type === 'image' || b.type === 'file' || b.type === 'audio' || b.type === 'video');
       if (mediaBlocks.length > 0) {
         if (sessionKey && sessionKey !== 'local') {
           const hub = useConversationHub.getState();
@@ -446,6 +446,34 @@ export function registerEventAdapter(): void {
     useSessionStore.getState().addLog('tool', `${status} ${data.name} ${data.isError ? '失败' : '完成'}`);
   });
 
+  // 模型原生生成的内容块（图片/音频/视频）→ 追加到当前流式消息展示
+  messageBus.on('agent:content-blocks', (data: { contentBlocks?: import('../stores/messageStore').ContentBlock[]; agentId?: string; sessionKey?: string }) => {
+    const agentId = data.agentId || getDefaultAgentId();
+    if (asyncSubAgentIds.has(agentId)) return;
+
+    if (data.contentBlocks && data.contentBlocks.length > 0) {
+      const mediaBlocks = data.contentBlocks.filter(b => b.type === 'image' || b.type === 'audio' || b.type === 'video');
+      if (mediaBlocks.length > 0) {
+        const sessionKey = data.sessionKey;
+        if (sessionKey && sessionKey !== 'local') {
+          const hub = useConversationHub.getState();
+          hub.ensureConversation(sessionKey);
+          for (const block of mediaBlocks) {
+            hub.appendContentBlock(sessionKey, block);
+          }
+        } else {
+          const msgStore = useMessageStore.getState();
+          if (!msgStore.currentStreamingId) {
+            msgStore.startStreaming(generateMessageId('stream'));
+          }
+          for (const block of mediaBlocks) {
+            msgStore.appendContentBlock(msgStore.currentStreamingId!, block);
+          }
+        }
+      }
+    }
+  });
+
   messageBus.on('agent:end', (data?: { tokenUsage?: any; agentId?: string }) => {
     // 子 agent（同步或异步）结束不应触发前台清理
     if (data?.agentId && subAgentIds.has(data.agentId)) return;
@@ -462,6 +490,26 @@ export function registerEventAdapter(): void {
     }
     pendingCleanupIds.clear();
     // CLEAR_QUEUED_MESSAGE 移至 queue:consumed handler，避免 agent:end 过早清零
+  });
+
+  // ============================================================
+  // 后台任务事件 — 写入右侧面板日志，不触发对话框/AgentStateMachine
+  // ============================================================
+
+  messageBus.on('agent:background-task-start', (data: { taskId: string; taskType: string; name: string; model: string }) => {
+    const typeLabel = data.taskType === 'memory-extraction' ? '🧠' : data.taskType === 'context-compression' ? '📦' : '🔧';
+    useSessionStore.getState().addLog('info', `${typeLabel} ${data.name} 开始 (${data.model})`);
+  });
+
+  messageBus.on('agent:background-task-end', (data: { taskId: string; taskType: string; name: string; durationMs: number; success: boolean; timedOut: boolean; errorMessage?: string }) => {
+    const typeLabel = data.taskType === 'memory-extraction' ? '🧠' : data.taskType === 'context-compression' ? '📦' : '🔧';
+    if (data.timedOut) {
+      useSessionStore.getState().addLog('error', `${typeLabel} ${data.name} 超时 (${data.durationMs}ms)`);
+    } else if (!data.success) {
+      useSessionStore.getState().addLog('error', `${typeLabel} ${data.name} 失败: ${data.errorMessage || '未知错误'} (${data.durationMs}ms)`);
+    } else {
+      useSessionStore.getState().addLog('info', `${typeLabel} ${data.name} 完成 (${data.durationMs}ms)`);
+    }
   });
 
   // ============================================================
@@ -929,8 +977,11 @@ export function registerEventAdapter(): void {
 
     if (msgStore.currentStreamingId) {
       const hasContent = msgStore.currentStreamingText.trim().length > 0;
+      // send_file_to_user 等工具在文字产出前就附上了图片/文件，此时不应丢弃气泡
+      const streamingMsg = msgStore.messages.find(m => m.id === msgStore.currentStreamingId);
+      const hasMediaBlocks = streamingMsg?.contentBlocks && streamingMsg.contentBlocks.length > 0;
 
-      if (!hasContent) {
+      if (!hasContent && !hasMediaBlocks) {
         // 思考阶段被中断，无任何产出 → 移除空白气泡
         msgStore.cancelStreaming();
       } else {

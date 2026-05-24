@@ -9,7 +9,6 @@
 // ============================================================
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { setLanguage, initLanguage } from '@/core/i18n';
 import type {
   UserSettings,
@@ -54,13 +53,13 @@ interface ConfigState {
 }
 
 const defaultSettings: UserSettings = {
-  language: 'zh',
+  language: 'en',
   theme: 'dark',
   fontSize: 14,
   workspacePath: '',
   showTokenUsage: true,
   showCost: true,
-  showThinking: false,
+  showThinking: true,
   showToolCallDetails: false,
   model: {
     defaultModel: 'claude-3-5-haiku-20241022',
@@ -77,8 +76,7 @@ const defaultSettings: UserSettings = {
 };
 
 export const useConfigStore = create<ConfigState>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       // ========== 初始状态 ==========
       settings: defaultSettings,
       agents: [],
@@ -96,6 +94,7 @@ export const useConfigStore = create<ConfigState>()(
           if (result?.success && result.config) {
             const c = result.config;
             const language = (c.ui?.language as 'zh' | 'en') || 'zh';
+            console.log('[configStore] loadSettings language from config:', language, 'ui:', JSON.stringify(c.ui));
             setLanguage(language);
             set({
               settings: {
@@ -108,7 +107,7 @@ export const useConfigStore = create<ConfigState>()(
                 showThinking: c.ui?.showThinking ?? false,
                 showToolCallDetails: c.ui?.showToolCallDetails ?? false,
                 model: {
-                  defaultModel: c.provider?.model || 'claude-3-5-haiku-20241022',
+                  defaultModel: c.provider?.model || '',
                   temperature: c.provider?.temperature ?? 1.0,
                   maxTokens: c.provider?.maxTokens ?? 8000,
                   streaming: true,
@@ -296,34 +295,5 @@ export const useConfigStore = create<ConfigState>()(
           set({ loading: false });
         }
       },
-    }),
-    {
-      name: 'xuanji-config-storage',
-      // 只持久化 settings，其他数据从后端加载
-      partialize: (state) => ({ settings: state.settings }),
-      // 合并策略：确保所有字段都有默认值
-      merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<ConfigState>;
-        return {
-          ...currentState,
-          settings: {
-            ...defaultSettings,
-            ...persisted.settings,
-            model: {
-              ...defaultSettings.model,
-              ...(persisted.settings?.model || {}),
-            },
-            api: {
-              ...defaultSettings.api,
-              ...(persisted.settings?.api || {}),
-            },
-            permissions: {
-              ...defaultSettings.permissions,
-              ...(persisted.settings?.permissions || {}),
-            },
-          },
-        };
-      },
-    }
-  )
+    })
 );

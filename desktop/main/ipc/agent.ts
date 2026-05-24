@@ -23,6 +23,7 @@ function registerAgentIpcHandlers() {
 
     try {
       const config = await sendRequest('get-config');
+      console.log('AGENT:INIT get-config response:', JSON.stringify({ hasUi: config?.ui !== undefined, ui: config?.ui }));
       setCachedConfig(config);
       return { success: true, config };
     } catch (err) {
@@ -31,7 +32,7 @@ function registerAgentIpcHandlers() {
     }
   });
 
-  ipcMain.handle('agent:user-action', async (_event, action: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; imageBlocks?: Array<{ data: string; mimeType: string }>; agentId?: string }) => {
+  ipcMain.handle('agent:user-action', async (_event, action: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>; agentId?: string }) => {
     if (!isSessionReady()) {
       return { success: false, error: '会话未初始化' };
     }

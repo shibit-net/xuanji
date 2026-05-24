@@ -16,15 +16,15 @@ const log = logger.child({ module: 'MCPSettingsTool' });
 export class MCPSettingsTool extends BaseTool {
   readonly name = 'mcp_settings';
   readonly description = [
-    '管理已安装的 MCP 服务器。支持以下操作：',
+    'Manage installed MCP servers. Supports the following operations:',
     '',
-    '- **list** — 列出所有 MCP 服务器（名称、传输方式、状态）',
-    '- **status** — 查看指定服务器的详细状态',
-    '- **enable** — 启用指定服务器',
-    '- **disable** — 禁用指定服务器',
-    '- **config** — 查看指定服务器的配置模板',
+    '- **list** — List all MCP servers (name, transport, status)',
+    '- **status** — View detailed status of a specific server',
+    '- **enable** — Enable a specific server',
+    '- **disable** — Disable a specific server',
+    '- **config** — View config template for a specific server',
     '',
-    '当用户说"看看已安装的 MCP"、"列出 MCP 服务器"、"启用/禁用 XXX MCP"时调用此工具。',
+    'Call this tool when the user says "list MCP servers", "check installed MCP", "enable/disable XXX MCP".',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -33,11 +33,11 @@ export class MCPSettingsTool extends BaseTool {
       action: {
         type: 'string',
         enum: ['list', 'status', 'enable', 'disable', 'config'],
-        description: '操作类型',
+        description: 'Operation type',
       },
       serverName: {
         type: 'string',
-        description: 'MCP 服务器名称（action=status/enable/disable/config 时必填）',
+        description: 'MCP server name (required when action=status/enable/disable/config)',
       },
     },
     required: ['action'],
@@ -54,7 +54,7 @@ export class MCPSettingsTool extends BaseTool {
     const serverName = input.serverName as string | undefined;
 
     if (!this.mcpManager) {
-      return this.error('MCPManager 未初始化');
+      return this.error('MCPManager not initialized');
     }
 
     switch (action) {
@@ -63,7 +63,7 @@ export class MCPSettingsTool extends BaseTool {
       case 'enable': return this.toggleServer(serverName!, true);
       case 'disable': return this.toggleServer(serverName!, false);
       case 'config': return this.showConfig(serverName!);
-      default: return this.error(`未知操作: ${action}`);
+      default: return this.error(`Unknown action: ${action}`);
     }
   }
 
@@ -71,39 +71,39 @@ export class MCPSettingsTool extends BaseTool {
     try {
       const servers = this.mcpManager.servers || [];
       if (servers.length === 0) {
-        return this.success('当前没有安装任何 MCP 服务器。\n使用 install 工具从市场安装。');
+        return this.success('No MCP servers installed.\nUse the install tool to install from marketplace.');
       }
 
-      const lines: string[] = [`## 已安装 MCP 服务器 (${servers.length})`, ''];
+      const lines: string[] = [`## Installed MCP Servers (${servers.length})`, ''];
       for (const s of servers) {
-        const status = s.enabled !== false ? '✅ 启用' : '⏸️ 禁用';
+        const status = s.enabled !== false ? '✅ Enabled' : '⏸️ Disabled';
         const transport = s.transport || 'stdio';
         const toolCount = s.tools?.length || 0;
-        lines.push(`- **${s.name}** — ${status} | 传输: ${transport} | 工具: ${toolCount} 个`);
+        lines.push(`- **${s.name}** — ${status} | Transport: ${transport} | Tools: ${toolCount}`);
       }
       return this.success(lines.join('\n'));
     } catch (err) {
-      return this.error(`列出 MCP 服务器失败: ${err}`);
+      return this.error(`Failed to list MCP servers: ${err}`);
     }
   }
 
   private async serverStatus(serverName?: string): Promise<ToolResult> {
-    if (!serverName) return this.error('请指定服务器名称（serverName）');
+    if (!serverName) return this.error('Please specify server name (serverName)');
 
     try {
       const server = this.findServer(serverName);
-      if (!server) return this.error(`未找到 MCP 服务器: ${serverName}`);
+      if (!server) return this.error(`MCP server not found: ${serverName}`);
 
       const lines = [
         `## ${server.name}`,
-        `- **状态**: ${server.enabled !== false ? '✅ 启用' : '⏸️ 禁用'}`,
-        `- **传输**: ${server.transport || 'stdio'}`,
-        `- **命令行**: ${server.command || 'N/A'}`,
-        `- **工具数**: ${server.tools?.length || 0}`,
+        `- **Status**: ${server.enabled !== false ? '✅ Enabled' : '⏸️ Disabled'}`,
+        `- **Transport**: ${server.transport || 'stdio'}`,
+        `- **Command**: ${server.command || 'N/A'}`,
+        `- **Tools**: ${server.tools?.length || 0}`,
       ];
 
       if (server.tools?.length) {
-        lines.push('', '### 工具列表');
+        lines.push('', '### Tool List');
         for (const t of server.tools) {
           lines.push(`- **${t.name}**: ${t.description || ''}`);
         }
@@ -111,38 +111,38 @@ export class MCPSettingsTool extends BaseTool {
 
       return this.success(lines.join('\n'));
     } catch (err) {
-      return this.error(`查询服务器状态失败: ${err}`);
+      return this.error(`Failed to query server status: ${err}`);
     }
   }
 
   private async toggleServer(serverName: string, enable: boolean): Promise<ToolResult> {
-    if (!serverName) return this.error('请指定服务器名称（serverName）');
+    if (!serverName) return this.error('Please specify server name (serverName)');
 
     try {
       const server = this.findServer(serverName);
-      if (!server) return this.error(`未找到 MCP 服务器: ${serverName}`);
+      if (!server) return this.error(`MCP server not found: ${serverName}`);
 
       server.enabled = enable;
-      // 持久化更新
+      // Persist update
       if (typeof this.mcpManager.updateServer === 'function') {
         await this.mcpManager.updateServer(serverName, { enabled: enable });
       }
-      return this.success(`MCP 服务器 "${serverName}" 已${enable ? '启用' : '禁用'}`);
+      return this.success(`MCP server "${serverName}" ${enable ? 'enabled' : 'disabled'}`);
     } catch (err) {
-      return this.error(`${enable ? '启用' : '禁用'}服务器失败: ${err}`);
+      return this.error(`Failed to ${enable ? 'enable' : 'disable'} server: ${err}`);
     }
   }
 
   private async showConfig(serverName?: string): Promise<ToolResult> {
-    if (!serverName) return this.error('请指定服务器名称（serverName）');
+    if (!serverName) return this.error('Please specify server name (serverName)');
 
     try {
       const server = this.findServer(serverName);
-      if (!server) return this.error(`未找到 MCP 服务器: ${serverName}`);
+      if (!server) return this.error(`MCP server not found: ${serverName}`);
 
-      return this.success(`## ${server.name} 配置\n\`\`\`json\n${JSON.stringify(server.config || {}, null, 2)}\n\`\`\``);
+      return this.success(`## ${server.name} Config\n\`\`\`json\n${JSON.stringify(server.config || {}, null, 2)}\n\`\`\``);
     } catch (err) {
-      return this.error(`查看配置失败: ${err}`);
+      return this.error(`Failed to view config: ${err}`);
     }
   }
 

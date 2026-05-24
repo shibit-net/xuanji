@@ -9,11 +9,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '@/core/logger';
 import { getXuanjiRoot, getTemplateRoot } from './PathManager';
-import type { UserSettings, SystemConfig, AgentConfig } from './types';
+import type { AgentConfig } from './types';
 import { parse as parseYaml } from 'yaml';
 import JSON5 from 'json5';
-
-export type { UserSettings, SystemConfig, AgentConfig };
 
 const log = logger.child({ module: 'ConfigManager' });
 
@@ -28,14 +26,9 @@ function getProjectRoot(): string {
 export class ConfigManager {
   private userId: string | null = null;
   private userConfigDir: string = '';
-  private systemConfigDir: string;
   private templateDir: string;
-  private userSettings: UserSettings | null = null;
-  private systemConfig: SystemConfig | null = null;
 
   constructor() {
-    const base = getXuanjiRoot();
-    this.systemConfigDir = path.join(base, 'system');
     this.templateDir = getTemplateRoot();
   }
 
@@ -52,8 +45,6 @@ export class ConfigManager {
     }
 
     await this.syncMissingFromTemplate();
-    this.userSettings = this.loadUserSettings();
-    this.systemConfig = this.loadSystemConfig();
 
     log.info(`ConfigManager initialized for user: ${userId}`);
   }
@@ -113,15 +104,20 @@ export class ConfigManager {
 
     try {
       const content = fs.readFileSync(overridePath, 'utf-8');
-      const override = JSON5.parse(content) as { provider?: Record<string, any>; model?: Record<string, any> };
+      const override = JSON5.parse(content) as { enabled?: boolean; provider?: Record<string, any>; model?: Record<string, any> };
 
+      if (override.enabled !== undefined) {
+        config.enabled = override.enabled;
+      }
       if (override.provider) {
         config.provider = { ...config.provider, ...override.provider };
       }
       if (override.model) {
         config.model = { ...config.model, ...override.model };
       }
-    } catch { /* 覆盖文件解析失败时使用原始配置 */ }
+    } catch (error) {
+      throw new Error(`Agent override 解析失败: ${overridePath} — ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     return config;
   }
@@ -140,44 +136,8 @@ export class ConfigManager {
     if (fs.existsSync(fp)) { fs.unlinkSync(fp); log.info(`Agent config deleted: ${agentId}`); }
   }
 
-  getSettings(): UserSettings {
-    this.requireUser();
-    if (!this.userSettings) this.userSettings = this.loadUserSettings();
-    return this.userSettings!;
-  }
-
-  async updateSettings(patch: Partial<UserSettings>): Promise<void> {
-    this.requireUser();
-    const updated = { ...this.getSettings(), ...patch };
-    fs.writeFileSync(path.join(this.userConfigDir, 'settings.json'), JSON.stringify(updated, null, 2), 'utf-8');
-    this.userSettings = updated;
-    log.info('User settings updated');
-  }
-
-  getProviderConfig(agentId?: string) {
-    const settings = this.getSettings();
-    const key = agentId ?? settings.defaultProvider;
-    const provider = settings.providers[key];
-    if (!provider) throw new Error(`Provider "${key}" not configured.`);
-    return provider;
-  }
-
   getEmbeddingConfig(): AgentConfig | null {
     return this.getAgentConfigs().find(c => c.type === 'embedding' && c.enabled !== false) ?? null;
-  }
-
-  // === System Config (global) ===
-
-  getSystemConfig(): SystemConfig {
-    if (!this.systemConfig) this.systemConfig = this.loadSystemConfig();
-    return this.systemConfig!;
-  }
-
-  async updateSystemConfig(patch: Partial<SystemConfig>): Promise<void> {
-    const updated = { ...this.getSystemConfig(), ...patch };
-    if (!fs.existsSync(this.systemConfigDir)) fs.mkdirSync(this.systemConfigDir, { recursive: true });
-    fs.writeFileSync(path.join(this.systemConfigDir, 'settings.json'), JSON.stringify(updated, null, 2), 'utf-8');
-    this.systemConfig = updated;
   }
 
   // === Config Watching ===
@@ -232,11 +192,13 @@ export class ConfigManager {
     // 同步子目录文件（agents/、prompts/）
     for (const sub of ['agents', 'prompts']) {
       const tmplDir = path.join(this.templateDir, sub);
-      const usrDir = path.join(this.userConfigDir, sub);
       if (!fs.existsSync(tmplDir)) continue;
+      // 同步子目录到用户目录
+      const usrDir = path.join(this.userConfigDir, sub);
       for (const f of fs.readdirSync(tmplDir)) {
         const dest = path.join(usrDir, f);
         if (!fs.existsSync(dest)) {
+          if (!fs.existsSync(usrDir)) fs.mkdirSync(usrDir, { recursive: true });
           fs.copyFileSync(path.join(tmplDir, f), dest);
           synced.push(`${sub}/${f}`);
         }
@@ -244,7 +206,7 @@ export class ConfigManager {
     }
 
     // 同步根级别配置文件（仅当用户侧不存在时）
-    for (const fileName of ['config.json', 'mcp.json', 'prompt.json']) {
+    for (const fileName of ['config.json', 'mcp.json']) {
       const tmplPath = path.join(this.templateDir, fileName);
       const usrPath = path.join(this.userConfigDir, fileName);
 
@@ -276,29 +238,6 @@ export class ConfigManager {
     } catch {
       return { servers: [] };
     }
-  }
-
-  // === Private ===
-
-  private loadUserSettings(): UserSettings {
-    const fp = path.join(this.userConfigDir, 'settings.json');
-    if (fs.existsSync(fp)) {
-      try { return JSON.parse(fs.readFileSync(fp, 'utf-8')); }
-      catch { log.warn('Failed to parse user settings'); }
-    }
-    return {
-      defaultProvider: 'default', providers: {}, defaultModel: 'claude-sonnet-4-6',
-      maxIterations: 50, maxTokens: 8192, temperature: 0.7,
-    };
-  }
-
-  private loadSystemConfig(): SystemConfig {
-    const fp = path.join(this.systemConfigDir, 'settings.json');
-    if (fs.existsSync(fp)) {
-      try { return JSON.parse(fs.readFileSync(fp, 'utf-8')); }
-      catch { log.warn('Failed to parse system config'); }
-    }
-    return { language: 'zh-CN', theme: 'dark', keybindings: {} };
   }
 
 }

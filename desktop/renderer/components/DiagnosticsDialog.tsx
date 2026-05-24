@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { t } from '@/core/i18n';
 
 interface DiagnosticsDialogProps {
   onClose: () => void;
@@ -30,10 +31,10 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
       if (result.success && result.report) {
         setReport(result.report);
       } else {
-        setError(result.error || '获取诊断信息失败');
+        setError(result.error || t('diagnostics.load_failed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '获取诊断信息失败');
+      setError(err instanceof Error ? err.message : t('diagnostics.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>🩺</span>
-            <span>系统诊断</span>
+            <span>{t('diagnostics.title')}</span>
           </DialogTitle>
           <div className="flex items-center gap-2 ml-auto">
             <Button
@@ -68,7 +69,7 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              title="复制报告"
+              title={t('diagnostics.copy_report')}
             >
               {copied ? (
                 <Check size={16} className="text-green-500" />
@@ -82,7 +83,7 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              title="刷新"
+              title={t('diagnostics.refresh')}
             >
               {loading ? (
                 <Loader2 size={16} className="animate-spin text-muted-foreground" />

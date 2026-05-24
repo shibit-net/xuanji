@@ -25,16 +25,13 @@ import type {
   Event, EventInput, TimelineFilter,
   Fact, FactInput, FactFilter,
   ProjectSnapshot,
-  Episode, EpisodeEntity,
   MemorySearchOptions, MemorySearchResult, MemorySearchResultWithGraph,
   GraphNeighbor, GraphPath,
   MemoryStats, MemorySnapshot, BuildContextOptions,
-  SubAgentResult,
   UserProfile, UserProfileInput,
   TimeAnchor, TimeAnchorInput,
   TopicTracker, TopicTrackerInput,
   BehaviorPattern, BehaviorPatternInput,
-  Group, GroupInput, GroupMember,
 } from '@/core/memory/types';
 
 const log = logger.child({ module: 'MemoryManager' });
@@ -161,21 +158,17 @@ export class MemoryManager {
   public tiangongMarket?: any;
   public searchService?: any;
 
-  /** 上下文压缩用的独立 LLM（context-compressor agent） */
-  public compressionLLM?: any;
-
   /** 记忆提取用的 system prompt（来自 memory-manager.yaml） */
   public memoryExtractionPrompt?: string;
 
-  /** memory-manager agent 配置（来自 YAML execution / model 字段） */
-  public memoryAgentConfig?: {
-    maxIterations?: number;
-    timeout?: number;
-    maxTokens?: number;
-  };
+  /** AgentFactory 引用 — 用于创建 memory-manager / context-compressor AgentLoop */
+  public agentFactory?: import('@/core/agent/factory/AgentFactory').AgentFactory;
 
-  /** LLM Provider（用于创建 AgentLoop），与 cheapLLM 共享同一 provider */
-  public provider?: ILLMProvider;
+  /** 父 agent 的 ILLMProvider（供 memory-manager/compressor 共享 API 凭证） */
+  public parentProvider?: ILLMProvider;
+
+  /** 父 agent 的 runtime config（供 memory-manager/compressor 继承 apiKey/baseURL） */
+  public parentConfig?: AgentConfig;
 
   /** 上下文压缩用的 system prompt（来自 context-compressor.yaml） */
   public compressionPrompt?: string;
@@ -253,6 +246,22 @@ export class MemoryManager {
     // 生成默认会话 ID（后续由 SessionManager.save/resume 覆写）
     if (!this.currentSessionId) {
       this.currentSessionId = randomUUID();
+    }
+
+    // 加载 memory-manager / context-compressor 的 systemPrompt
+    try {
+      const { getConfigManager } = await import('@/core/config/ConfigManager');
+      const cfgMgr = getConfigManager();
+      const memCfg = cfgMgr.getAgentConfig('memory-manager');
+      if (memCfg?.systemPrompt) {
+        this.memoryExtractionPrompt = memCfg.systemPrompt as string;
+      }
+      const compCfg = cfgMgr.getAgentConfig('context-compressor');
+      if (compCfg?.systemPrompt) {
+        this.compressionPrompt = compCfg.systemPrompt as string;
+      }
+    } catch (err) {
+      log.warn('加载 memory-manager/context-compressor 配置失败:', err);
     }
 
     this.initialized = true;
@@ -1453,6 +1462,52 @@ export class MemoryManager {
     });
   }
 
+  // ─── ProjectSnapshot ──────────────────────────────────────────
+
+  /** 手动存储项目进度快照（供 MemoryStoreTool 调用） */
+  async saveProjectSnapshot(input: {
+    project_id: string;
+    phase: string;
+    status?: string;
+    progress_pct?: number;
+    current_focus?: string | null;
+    blockers?: string | null;
+    next_milestone?: string | null;
+    tech_stack?: string | null;
+  }): Promise<ProjectSnapshot> {
+    const { randomUUID } = await import('node:crypto');
+    const now = Date.now();
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO project_snapshots (id, project_id, phase, status, progress_pct, current_focus, blockers, next_milestone, tech_stack, snapshot_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.project_id,
+      input.phase,
+      input.status || '进行中',
+      input.progress_pct ?? 0,
+      input.current_focus || null,
+      input.blockers || null,
+      input.next_milestone || null,
+      input.tech_stack || null,
+      now,
+    );
+    log.info(`Project snapshot saved: ${input.project_id} → ${input.phase} (${input.progress_pct}%)`);
+    return {
+      id,
+      project_id: input.project_id,
+      phase: input.phase,
+      status: input.status || '进行中',
+      progress_pct: input.progress_pct ?? 0,
+      current_focus: input.current_focus || null,
+      blockers: input.blockers || null,
+      next_milestone: input.next_milestone || null,
+      tech_stack: input.tech_stack || null,
+      snapshot_at: now,
+    };
+  }
+
   async findEntityByName(name: string): Promise<Entity | null> {
     return this.resolveEntity(name);
   }
@@ -2128,10 +2183,10 @@ export class MemoryManager {
   async savePendingExtraction(messages: any[]): Promise<void> {
     try {
       const { writeFile } = await import('node:fs/promises');
-      // 仅保存必要的文本字段
-      const compact = messages.slice(-20).map((m: any) => ({
+      // 保存更多消息便于崩溃恢复，内容截断放宽
+      const compact = messages.slice(-50).map((m: any) => ({
         role: m.role || m.type || 'unknown',
-        content: typeof m.content === 'string' ? m.content.slice(0, 500) : '',
+        content: typeof m.content === 'string' ? m.content.slice(0, 2000) : JSON.stringify(m.content).slice(0, 2000),
       }));
       await writeFile(this.pendingExtractionPath, JSON.stringify(compact), 'utf-8');
     } catch {
@@ -2201,8 +2256,8 @@ export class MemoryManager {
       .join('\n')
       .slice(0, 6000);
 
-    // 尝试使用 context-compressor agent（需要 provider）
-    if (this.provider) {
+    // 尝试使用 context-compressor agent（需要 agentFactory + parentProvider）
+    if (this.agentFactory && this.parentProvider) {
       this.isCompressing = true;
       try {
         const response = await this.runCompressionAgent('', text);
@@ -2237,50 +2292,6 @@ export class MemoryManager {
         log.warn('archiveMessages compression agent failed:', err);
       } finally {
         this.isCompressing = false;
-      }
-    }
-
-    // Fallback: 使用 compressionLLM / cheapLLM 单次调用
-    const llm = this.compressionLLM || this.cheapLLM;
-    if (llm) {
-      try {
-        const prompt = `你是一个对话压缩器。从以下对话中提取关键信息，返回 JSON：
-
-{
-  "events": [{ "content": "事件描述", "entities": ["相关实体名"] }],
-  "facts": [{ "title": "事实标题", "content": "事实内容" }],
-  "summary": "一段中文叙事摘要，概括对话的主要内容、关键决策、当前进度和待办事项。200 字以内。"
-}
-
-对话：
-${text}`;
-
-        const response = await llm.complete(prompt);
-        const parsed = JSON.parse(response);
-        for (const ev of parsed.events || []) {
-          await this.recordEvent({
-            entityNames: ev.entities || [],
-            content: ev.content,
-            importance: 2,
-            scene_tag: '',
-            operator: 'archive',
-          });
-        }
-        for (const fact of parsed.facts || []) {
-          await this.storeFact({
-            title: fact.title,
-            content: fact.content,
-            source: 'agent_discovered',
-          });
-        }
-
-        await this.episodicMemory?.createFromMessages(importantMessages).catch((err: any) => {
-          log.warn('archiveMessages episodic creation failed:', err);
-        });
-
-        return parsed.summary || '';
-      } catch (err) {
-        log.warn('archiveMessages LLM extraction failed:', err);
       }
     }
 
@@ -2343,19 +2354,45 @@ ${text}`;
    * - LLM 可实时搜索已有记忆做去重，而非仅依赖 prompt 中注入的摘要
    */
   async extractFromSession(messages: any[]): Promise<{ entityCount: number; relationCount: number; factCount: number; eventCount: number } | null> {
-    if (!this.provider || messages.length === 0) return null;
+    if (!this.agentFactory || !this.parentProvider || messages.length === 0) return null;
     if (this.isExtracting) return null; // 竞态：已有提取在进行中
 
     this.isExtracting = true;
     try {
-      // 拼接对话文本
-      const maxInputChars = 8000;
+      // 结构化序列化对话消息，区分不同消息类型
+      const maxInputChars = 32000;
       let conversationText = messages.map((m: any) => {
-        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return `[${m.role || m.type}]: ${content}`;
+        const role = m.role || m.type || 'unknown';
+        const content = m.content;
+        // 工具调用：提取关键信息
+        if (role === 'tool_use' || role === 'assistant' && Array.isArray(content)) {
+          const toolBlocks = (Array.isArray(content) ? content : [content])
+            .filter((b: any) => b?.type === 'tool_use')
+            .map((b: any) => `[工具调用: ${b.name}] ${JSON.stringify(b.input).slice(0, 500)}`);
+          const textBlocks = (Array.isArray(content) ? content : [content])
+            .filter((b: any) => b?.type === 'text')
+            .map((b: any) => `[助手]: ${b.text}`);
+          const thinkingBlocks = (Array.isArray(content) ? content : [content])
+            .filter((b: any) => b?.type === 'thinking')
+            .map((b: any) => `[思考]: ${typeof b.thinking === 'string' ? b.thinking.slice(0, 300) : ''}`);
+          return [...textBlocks, ...thinkingBlocks, ...toolBlocks].join('\n') || `[${role}]: (empty)`;
+        }
+        // 工具结果：截断长输出
+        if (role === 'tool_result') {
+          const text = typeof content === 'string' ? content : JSON.stringify(content);
+          const truncated = text.length > 1000 ? text.slice(0, 1000) + '...(截断)' : text;
+          const toolId = m.tool_use_id ? ` (${m.tool_use_id.slice(0, 8)})` : '';
+          return `[工具结果${toolId}]: ${truncated}`;
+        }
+        // 用户/助手文本消息
+        if (typeof content === 'string') {
+          return `[${role}]: ${content}`;
+        }
+        return `[${role}]: ${JSON.stringify(content).slice(0, 1000)}`;
       }).join('\n');
       if (conversationText.length > maxInputChars) {
-        conversationText = conversationText.slice(0, maxInputChars) + '\n...（因长度截断）';
+        // 从头部截断，保留最近的对话（尾部通常更重要）
+        conversationText = '...(早期对话已截断)\n' + conversationText.slice(-maxInputChars);
       }
 
       // 构建系统 prompt：memory-manager 规则 + 已有记忆（用于去重上下文）
@@ -2381,11 +2418,12 @@ ${text}`;
       const relationCount = afterCounts.relations - beforeCounts.relations;
       const factCount = afterCounts.facts - beforeCounts.facts;
       const eventCount = afterCounts.events - beforeCounts.events;
+      const snapshotCount = afterCounts.snapshots - beforeCounts.snapshots;
 
-      log.info(`Session extraction complete: ${entityCount} entities, ${relationCount} relations, ${factCount} facts, ${eventCount} events`);
+      log.info(`Session extraction complete: ${entityCount} entities, ${relationCount} relations, ${factCount} facts, ${eventCount} events, ${snapshotCount} snapshots`);
 
       // 发射 MEMORY_EXTRACTED 事件
-      if (entityCount + relationCount + factCount + eventCount > 0) {
+      if (entityCount + relationCount + factCount + eventCount + snapshotCount > 0) {
         eventBus.emitSync(XuanjiEvent.MEMORY_EXTRACTED, {
           sessionId: '',
           entityCount,
@@ -2432,54 +2470,36 @@ ${text}`;
    * agent 在自己的 React 循环中调用这些工具，直接操作全局 MemoryManager（本实例）。
    */
   private async runMemoryAgent(systemPrompt: string, userMessage: string): Promise<void> {
-    // 延迟导入避免循环依赖
-    const { AgentLoop } = await import('@/core/agent/AgentLoop');
-    const { ToolRegistry } = await import('@/core/tools/ToolRegistry');
-    const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
-    const { MemorySearchTool } = await import('@/core/tools/MemorySearchTool');
-    const { MemoryStoreTool } = await import('@/core/tools/MemoryStoreTool');
-    const { MemoryStatsTool } = await import('@/core/tools/MemoryStatsTool');
-
-    // 构建仅含 memory 工具的注册表
-    const registry = new ToolRegistry();
-    registry.register(new MemorySearchTool());
-    registry.register(new MemoryStoreTool());
-    registry.register(new MemoryStatsTool());
-
-    const filteredRegistry = new FilteredToolRegistry(
-      registry,
-      ['memory_search', 'memory_store', 'memory_stats'],
-      { agentId: 'memory-manager', agentName: 'memory-manager' },
-      process.cwd(),
-    );
-
-    // 使用 cheapLLM（即 memory-manager 自己的 provider），不从主 agent provider 创建
-    const cheapConfig = (this.cheapLLM as any)?.config ?? {};
     // 注入 L0 基础 prompt 组件（记忆指导、格式标准化等）
     const l0Content = await this.getL0PromptContent();
     const fullSystemPrompt = l0Content ? `${l0Content}\n\n${systemPrompt}` : systemPrompt;
 
-    // 优先取 YAML 配置（memory-manager.yaml execution/model），代码默认值做 fallback
-    const yamlCfg = this.memoryAgentConfig ?? {};
-    const maxTokens = yamlCfg.maxTokens ?? cheapConfig.maxTokens ?? 4096;
-    const maxIterations = yamlCfg.maxIterations ?? 60;
-    const timeout = yamlCfg.timeout ?? 360000;
+    if (!this.agentFactory || !this.parentProvider) {
+      log.error('[memory-manager] agentFactory 或 parentProvider 未注入，无法创建 AgentLoop');
+      return;
+    }
 
-    const agentConfig: AgentConfig = {
-      model: cheapConfig.model || 'deepseek-v4-pro',
-      apiKey: cheapConfig.apiKey,
-      baseURL: cheapConfig.baseURL,
-      temperature: cheapConfig.temperature ?? 0.3,
-      maxTokens,
-      maxIterations,
+    // 通过 AgentFactory 创建 memory-manager AgentLoop（配置来自 YAML + agent-overrides）
+    const { agentLoop, subAgentId } = await this.agentFactory.createMemoryAgent('memory-manager', {
+      parentConfig: this.parentConfig,
       systemPrompt: fullSystemPrompt,
-    };
+      maxTokens: this.parentConfig?.maxTokens ?? 8192,
+      maxIterations: this.parentConfig?.maxIterations ?? 60,
+    });
 
-    // 始终使用真正的 ILLMProvider，CheapLLMProvider 没有 stream() 方法
-    const agentLoop = new AgentLoop(this.provider!, filteredRegistry, agentConfig);
+    const startedAt = Date.now();
+    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_START, {
+      taskId: subAgentId, taskType: 'memory-extraction', name: '记忆提取',
+      model: this.parentConfig?.model || 'unknown',
+    });
 
+    const timeout = 360000; // 默认 6 分钟超时
+
+    let timedOut = false;
+    let errorOccurred = false;
     await new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
+        timedOut = true;
         agentLoop.requestAbort();
         log.warn(`[memory-manager] extraction timed out after ${timeout}ms`);
         resolve();
@@ -2492,26 +2512,35 @@ ${text}`;
         },
         onError: (error: string) => {
           clearTimeout(timeout);
+          errorOccurred = true;
           log.warn('Memory agent loop error: %s', error);
-          resolve(); // 即使出错也不阻塞调用方
+          resolve();
         },
       });
 
       agentLoop.run(userMessage).catch((err: Error) => {
         clearTimeout(timeout);
+        errorOccurred = true;
         log.warn('Memory agent run failed: %s', err.message);
         resolve();
       });
     });
+
+    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_END, {
+      taskId: subAgentId, taskType: 'memory-extraction', name: '记忆提取',
+      durationMs: Date.now() - startedAt, success: !timedOut && !errorOccurred, timedOut,
+      errorMessage: errorOccurred ? 'Agent execution failed' : undefined,
+    });
   }
 
   /** 获取当前记忆统计快照（用于计算增量） */
-  private getExtractionCounts(): { entities: number; relations: number; facts: number; events: number } {
+  private getExtractionCounts(): { entities: number; relations: number; facts: number; events: number; snapshots: number } {
     const entities = (this.db.prepare('SELECT COUNT(*) as n FROM entities').get() as any).n;
     const relations = (this.db.prepare('SELECT COUNT(*) as n FROM relations WHERE is_active = 1').get() as any).n;
     const facts = (this.db.prepare('SELECT COUNT(*) as n FROM facts WHERE is_latest = 1').get() as any).n;
     const events = (this.db.prepare('SELECT COUNT(*) as n FROM events').get() as any).n;
-    return { entities, relations, facts, events };
+    const snapshots = (this.db.prepare('SELECT COUNT(*) as n FROM project_snapshots').get() as any).n;
+    return { entities, relations, facts, events, snapshots };
   }
 
   /**
@@ -2521,17 +2550,6 @@ ${text}`;
    * 使用 context-compressor.yaml 的 systemPrompt 生成结构化摘要。
    */
   private async runCompressionAgent(existingSummary: string, messagesText: string): Promise<string | null> {
-    const { AgentLoop } = await import('@/core/agent/AgentLoop');
-    const { ToolRegistry } = await import('@/core/tools/ToolRegistry');
-    const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
-
-    const registry = new ToolRegistry();
-    const filteredRegistry = new FilteredToolRegistry(
-      registry, [],
-      { agentId: 'context-compressor', agentName: 'context-compressor' },
-      process.cwd(),
-    );
-
     const baseSystemPrompt = (this.compressionPrompt || '你是上下文压缩专家。将对话压缩为 JSON 摘要。')
       .replace('{{EXISTING_SUMMARY}}', existingSummary || '（无已有摘要）')
       .replace('{{NEW_MESSAGES}}', messagesText);
@@ -2539,21 +2557,29 @@ ${text}`;
     const l0Content = await this.getL0PromptContent();
     const systemPrompt = l0Content ? `${l0Content}\n\n${baseSystemPrompt}` : baseSystemPrompt;
 
-    const compConfig = (this.compressionLLM as any)?.config ?? {};
-    const agentConfig: import('@/core/types').AgentConfig = {
-      model: compConfig.model || 'deepseek-v4-pro',
-      apiKey: compConfig.apiKey,
-      baseURL: compConfig.baseURL,
-      temperature: compConfig.temperature ?? 0.2,
-      maxTokens: compConfig.maxTokens ?? 1024,
-      maxIterations: 1,
+    if (!this.agentFactory || !this.parentProvider) {
+      log.error('[context-compressor] agentFactory 或 parentProvider 未注入，无法创建 AgentLoop');
+      return null;
+    }
+
+    // 通过 AgentFactory 创建 context-compressor AgentLoop（配置来自 YAML + agent-overrides）
+    const { agentLoop, subAgentId } = await this.agentFactory.createCompressionAgent('context-compressor', {
+      parentConfig: this.parentConfig,
       systemPrompt,
-    };
+      maxTokens: this.parentConfig?.maxTokens ?? 1024,
+    });
 
-    const agentLoop = new AgentLoop(this.provider!, filteredRegistry, agentConfig);
+    const startedAt = Date.now();
+    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_START, {
+      taskId: subAgentId, taskType: 'context-compression', name: '上下文压缩',
+      model: this.parentConfig?.model || 'unknown',
+    });
 
+    let timedOut = false;
+    let errorOccurred = false;
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
+        timedOut = true;
         agentLoop.requestAbort();
         resolve();
       }, 60000);
@@ -2565,6 +2591,7 @@ ${text}`;
         },
         onError: (error: string) => {
           clearTimeout(timeout);
+          errorOccurred = true;
           log.warn('Compression agent error: %s', error);
           resolve();
         },
@@ -2572,9 +2599,16 @@ ${text}`;
 
       agentLoop.run(messagesText).catch((err: Error) => {
         clearTimeout(timeout);
+        errorOccurred = true;
         log.warn('Compression agent run failed: %s', err.message);
         resolve();
       });
+    });
+
+    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_END, {
+      taskId: subAgentId, taskType: 'context-compression', name: '上下文压缩',
+      durationMs: Date.now() - startedAt, success: !timedOut && !errorOccurred, timedOut,
+      errorMessage: errorOccurred ? 'Agent execution failed' : undefined,
     });
 
     // 提取最后一个 assistant 消息作为 JSON 输出
@@ -2712,6 +2746,22 @@ ${text}`;
         parts.push('## 已知群组');
         for (const g of groupRows) {
           parts.push(`- ${g.name} (${g.type})${g.summary ? `: ${g.summary}` : ''}`);
+        }
+      }
+      // 项目快照（用于追踪开发进度）
+      const snapshots = te('project_snapshots') ? this.db.prepare(
+        `SELECT ps.phase, ps.status, ps.progress_pct, ps.current_focus, ps.blockers, ps.next_milestone, ps.snapshot_at,
+                e.name as project_name
+         FROM project_snapshots ps
+         LEFT JOIN entities e ON e.id = ps.project_id
+         ORDER BY ps.snapshot_at DESC LIMIT 5`
+      ).all() as Array<{ phase: string; status: string; progress_pct: number; current_focus: string | null; blockers: string | null; next_milestone: string | null; snapshot_at: number; project_name: string | null }> : [];
+      if (snapshots.length > 0) {
+        parts.push('## 项目进度快照');
+        for (const s of snapshots) {
+          const proj = s.project_name || '未知项目';
+          const time = new Date(s.snapshot_at).toISOString().slice(0, 10);
+          parts.push(`- [${proj}] ${s.phase}阶段 | ${s.status} | 进度${s.progress_pct}% | ${s.current_focus || ''}${s.blockers ? ` | 阻塞: ${s.blockers}` : ''}${s.next_milestone ? ` | 下一步: ${s.next_milestone}` : ''} (${time})`);
         }
       }
       return parts.join('\n');

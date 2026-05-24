@@ -22,6 +22,7 @@ import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import { t } from '@/core/i18n';
 
 import { useToast } from './Toast';
 import { Button } from '@/components/ui/button';
@@ -151,9 +152,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       try {
         const res = await window.electron.agentList();
         if (active && res.success && res.agents) {
-          // 过滤掉 system 类别（scene-classifier 等）和 xuanji 自身
+          // 只显示启用的自定义和应用 agent
           const filtered = (res.agents as AgentListItem[]).filter(
-            (a) => a.id !== 'xuanji' && a.category !== 'system' && a.metadata?.category !== 'system'
+            (a) => a.id !== 'xuanji' && a.enabled !== false && (a.metadata?.category === 'custom' || a.metadata?.category === 'app')
           );
           setAgentList(filtered);
         }
@@ -370,9 +371,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       const store = useSessionInitStore.getState();
       if (store.status === 'uninitialized' || store.status === 'failed') {
         store.triggerInit();
-        toast.info('正在连接服务，请稍后重试...');
+        toast.info(t('input.connect_service'));
       } else if (store.status === 'initializing') {
-        toast.info('服务正在初始化中，请稍候...');
+        toast.info(t('input.initializing_service'));
       }
       return;
     }
@@ -382,11 +383,19 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     // 获取当前选中的 agent（默认 xuanji）
     const agentId = selectedAgent?.id || DEFAULT_AGENT.id;
 
-    // 分离图片和非图片附件
+    // 分离图片、音频、视频和非媒体附件
     const imageAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('image/'));
-    const fileAttachments = currentAttachments.filter(a => !a.mimeType?.startsWith('image/'));
+    const audioAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('audio/'));
+    const videoAttachments = currentAttachments.filter(a => a.mimeType?.startsWith('video/'));
+    const fileAttachments = currentAttachments.filter(a => a.mimeType && !a.mimeType.startsWith('image/') && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/'));
     const imageBlocks = imageAttachments.length > 0
       ? imageAttachments.map(a => ({ data: a.content, mimeType: a.mimeType!, name: a.name }))
+      : undefined;
+    const audioBlocks = audioAttachments.length > 0
+      ? audioAttachments.map(a => ({ data: a.content, mimeType: a.mimeType!, name: a.name }))
+      : undefined;
+    const videoBlocks = videoAttachments.length > 0
+      ? videoAttachments.map(a => ({ data: a.content, mimeType: a.mimeType!, name: a.name }))
       : undefined;
 
     setInput('');
@@ -412,6 +421,8 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           message: content,
           attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
           imageBlocks,
+          audioBlocks,
+          videoBlocks,
           agentId,
         });
       }
@@ -438,6 +449,8 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     'pdf',
     'pptx', 'pptm', 'potx', 'ppsx',
     'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg',
+    'mp3', 'wav', 'ogg', 'aac', 'flac', 'wma', 'm4a', 'opus',
+    'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv', 'm4v',
   ]);
 
   const BINARY_MIME_PATTERNS = [
@@ -449,6 +462,8 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     'text/csv',
     'text/tab-separated-values',
     'image/',
+    'audio/',
+    'video/',
   ];
 
   const TEXT_EXTENSIONS = new Set([
@@ -494,7 +509,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
 
     const remaining = MAX_FILE_COUNT - attachments.length;
     if (remaining <= 0) {
-      toast.warning(`最多添加 ${MAX_FILE_COUNT} 个附件`);
+      toast.warning(t('input.max_attachments', { count: MAX_FILE_COUNT }));
       return;
     }
 
@@ -521,14 +536,14 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
         const dropPath = filePaths?.[i];
 
         if (isBinary) {
-          const isImage = isImageFile(file);
+          const isMedia = isImageFile(file) || file.type.startsWith('audio/') || file.type.startsWith('video/');
           if (dropPath) {
             newAttachments.push({
               name: file.name,
               path: dropPath,
               content: '',
               size: file.size,
-              ...(isImage ? { mimeType: file.type } : {}),
+              ...(isMedia ? { mimeType: file.type } : {}),
             });
           } else {
             const arrayBuffer = await file.arrayBuffer();
@@ -541,7 +556,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               name: file.name,
               content: btoa(binary),
               size: file.size,
-              ...(isImage ? { mimeType: file.type } : {}),
+              ...(isMedia ? { mimeType: file.type } : {}),
             });
           }
         } else {
@@ -554,16 +569,16 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           });
         }
       } catch {
-        toast.warning(`无法读取文件: ${file.name}`);
+        toast.warning(t('input.file_read_failed', { name: file.name }));
       }
     }
 
     if (newAttachments.length > 0) {
       setAttachments(prev => [...prev, ...newAttachments]);
     }
-    if (skippedUnsupported) toast.warning('已跳过不支持的文件类型');
-    if (skippedLarge) toast.warning(`文件过大（文本最大 1MB，二进制最大 10MB）`);
-    if (skippedCount) toast.warning(`最多添加 ${MAX_FILE_COUNT} 个附件`);
+    if (skippedUnsupported) toast.warning(t('input.skipped_unsupported'));
+    if (skippedLarge) toast.warning(t('input.skipped_large'));
+    if (skippedCount) toast.warning(t('input.skipped_count', { count: MAX_FILE_COUNT }));
   }, [attachments.length, toast]);
 
   const removeAttachment = useCallback((index: number) => {
@@ -627,19 +642,19 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       if (result.success && result.result) {
         const ratio = (result.result.compressionRatio * 100).toFixed(1);
         toast.success(
-          `压缩完成：${result.result.originalTokens} → ${result.result.compressedTokens} tokens（压缩 ${ratio}%）`
+          t('input.compact_done', { original: result.result.originalTokens, compressed: result.result.compressedTokens, ratio })
         );
         try {
           const status = await window.electron.contextStatus();
           if (status.success && status.data) setContextUsage(status.data);
         } catch { /* ignore */ }
       } else if (result.success) {
-        toast.success('上下文使用率较低，无需压缩');
+        toast.success(t('input.compact_skip'));
       } else {
-        toast.error(`压缩失败: ${result.error}`);
+        toast.error(t('input.compact_failed', { error: result.error }));
       }
     } catch (error) {
-      toast.error(`压缩失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast.error(t('input.compact_failed', { error: error instanceof Error ? error.message : 'Unknown error' }));
     } finally {
       setIsCompacting(false);
     }
@@ -655,19 +670,19 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
         const total = entityCount + relationCount + factCount + eventCount;
         if (total > 0) {
           const parts = [];
-          if (entityCount > 0) parts.push(`${entityCount} 个实体`);
-          if (relationCount > 0) parts.push(`${relationCount} 条关系`);
-          if (factCount > 0) parts.push(`${factCount} 条事实`);
-          if (eventCount > 0) parts.push(`${eventCount} 个事件`);
-          toast.success(`记忆提取完成：${parts.join('，')}`);
+          if (entityCount > 0) parts.push(t('input.memory_entity_count', { count: entityCount }));
+          if (relationCount > 0) parts.push(t('input.memory_relation_count', { count: relationCount }));
+          if (factCount > 0) parts.push(t('input.memory_fact_count', { count: factCount }));
+          if (eventCount > 0) parts.push(t('input.memory_event_count', { count: eventCount }));
+          toast.success(t('input.memory_flush_done', { parts: parts.join(t('input.bg_task_separator')) }));
         } else {
-          toast.success('当前上下文中暂无值得提取的记忆');
+          toast.success(t('input.memory_flush_empty'));
         }
       } else {
-        toast.error(`记忆提取失败: ${result.error}`);
+        toast.error(t('input.memory_flush_failed', { error: result.error }));
       }
     } catch (error) {
-      toast.error(`记忆提取失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast.error(t('input.memory_flush_failed', { error: error instanceof Error ? error.message : 'Unknown error' }));
     } finally {
       setIsFlushing(false);
     }
@@ -703,24 +718,24 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
 
   // ─── 文案 ───────────────────────────────────────────
   const placeholder = isSending
-    ? '发送中...'
+    ? t('input.sending')
     : !isSessionReady
-    ? sessionStatus === 'initializing' ? '会话初始化中...'
-      : sessionStatus === 'failed' ? `服务不可用: ${sessionError || '请点击重试'}`
-      : '正在连接服务...'
+    ? sessionStatus === 'initializing' ? t('input.session_initializing')
+      : sessionStatus === 'failed' ? t('input.service_unavailable', { error: sessionError || t('input.retry_hint') })
+      : t('input.connecting_service')
     : foregroundStatus === 'writing' || foregroundStatus === 'reporting'
-    ? '说点什么... (文本输出中，消息将排队)'
+    ? t('input.waiting_queue_text')
     : foregroundStatus === 'executing'
-    ? '说点什么... (工具执行中，消息将排队)'
+    ? t('input.waiting_queue_tool')
     : foregroundStatus === 'thinking'
-    ? '说点什么... (思考中，消息将中断并执行)'
+    ? t('input.waiting_interrupt')
     : foregroundStatus === 'pending' && isRunning
-    ? '说点什么... (可直接发送)'
+    ? t('input.waiting_direct')
     : runningTaskCount > 0
-    ? '说点什么... (后台任务运行中)'
+    ? t('input.waiting_background')
     : cancelledTaskCount > 0
-    ? '说点什么... (有任务已取消)'
-    : '说点什么... (输入 @ 选择 Agent)';
+    ? t('input.waiting_cancelled')
+    : t('input.waiting_default');
 
   const isSendDisabled = (!input.trim() && attachments.length === 0) || isSending || !isSessionReady;
 
@@ -772,7 +787,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           <span className={`text-xs ml-auto flex-shrink-0 ${
             runningTaskCount > 0 ? 'text-blue-400' : cancelledTaskCount > 0 ? 'text-red-400' : 'text-green-400'
           }`}>
-            {isOutputting ? '文本输出中...' : runningTaskCount > 0 ? '可直接发送新任务' : cancelledTaskCount > 0 ? '任务已取消' : '等待汇总'}
+            {isOutputting ? t('input.task_hint_outputting') : runningTaskCount > 0 ? t('input.task_hint_send_new') : cancelledTaskCount > 0 ? t('input.task_hint_cancelled') : t('input.task_hint_waiting')}
           </span>
         </div>
       )}
@@ -785,24 +800,24 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           size="sm"
           onClick={handleCompact}
           disabled={isCompacting || isRunning || memoryStatus.isCompressing}
-          title={contextUsage ? `上下文用量: ${contextUsage.estimatedTokens} / ${contextUsage.maxInputTokens} tokens (${contextUsage.usagePercent}%)` : '压缩历史消息，减少 token 使用'}
+          title={contextUsage ? t('input.compact_usage_title', { used: String(contextUsage.estimatedTokens), max: String(contextUsage.maxInputTokens), percent: String(contextUsage.usagePercent) }) : t('input.compact_title')}
         >
           <Archive size={14} className="mr-1" />
-          {isCompacting || autoCompressing ? '压缩中...' : contextUsage ? (
+          {isCompacting || autoCompressing ? t('input.compacting') : contextUsage ? (
             <span className={contextUsage.usagePercent > 80 ? 'text-red-400' : contextUsage.usagePercent > 50 ? 'text-yellow-400' : ''}>
-              压缩消息 ({contextUsage.usagePercent}%)
+              {t('input.compact_button', { percent: String(contextUsage.usagePercent) })}
             </span>
-          ) : '压缩消息'}
+          ) : t('input.compact_button_simple')}
         </Button>
         <Button
           variant="ghost"
           size="sm"
           onClick={handleMemoryFlush}
           disabled={isFlushing || isRunning || memoryStatus.isExtracting}
-          title="从当前对话中提取值得记忆的内容（实体/关系/事实/事件）"
+          title={t('input.memory_title')}
         >
           <Brain size={14} className="mr-1" />
-          {isFlushing || autoExtracting ? '提取中...' : '提取记忆'}
+          {isFlushing || autoExtracting ? t('input.extracting') : t('input.memory_extract')}
         </Button>
       </div>
       )}
@@ -853,7 +868,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
                 type="button"
                 onClick={clearSelectedAgent}
                 className="ml-0.5 p-0.5 rounded hover:bg-purple-500/20 transition-colors"
-                title="取消选择，恢复默认 xuanji"
+                title={t('input.agent_chip_title')}
               >
                 <X size={12} />
               </button>
@@ -959,12 +974,12 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               <Send size={16} className="mr-1" />
             )}
             {isSending
-              ? '发送中...'
+              ? t('input.sending')
               : foregroundStatus === 'thinking'
-                ? '中断并发送'
+                ? t('input.send_button_interrupt')
                 : isRunning
-                  ? '排队发送'
-                  : '发送'}
+                  ? t('input.send_button_queue')
+                  : t('input.send_button')}
           </Button>
         )}
       </div>
@@ -973,34 +988,34 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       <div className="px-4 pb-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 flex-wrap">
           {isRemote ? (
-            <span>Enter 发送 · Shift+Enter 换行 · Esc 清空</span>
+            <span>{t('input.hint_remote')}</span>
           ) : (
-            <span>Enter 发送 · Shift+Enter 换行 · Esc 清空 · 输入 @ 选择Agent · 拖入/粘贴文件上传</span>
+            <span>{t('input.hint_local')}</span>
           )}
           {!isRemote && effectiveAgentId !== 'xuanji' && (
-            <span className="text-purple-400">· Agent: @{effectiveAgentName}</span>
+            <span className="text-purple-400">{t('input.agent_hint', { name: effectiveAgentName })}</span>
           )}
         </div>
         {foregroundStatus === 'writing' || foregroundStatus === 'reporting' ? (
-          <span className="ml-2 text-blue-500">· 文本输出中</span>
+          <span className="ml-2 text-blue-500">{t('input.status_outputting')}</span>
         ) : foregroundStatus === 'executing' ? (
-          <span className="ml-2 text-red-500">· 工具执行中</span>
+          <span className="ml-2 text-red-500">{t('input.status_executing')}</span>
         ) : foregroundStatus === 'thinking' ? (
-          <span className="ml-2 text-orange-500">· 思考中</span>
+          <span className="ml-2 text-orange-500">{t('input.status_thinking')}</span>
         ) : foregroundStatus === 'pending' && isRunning ? (
-          <span className="ml-2 text-yellow-500">· 等待中</span>
+          <span className="ml-2 text-yellow-500">{t('input.status_waiting')}</span>
         ) : null}
         {isIdle && runningTaskCount > 0 && (
-          <span className="ml-2 text-blue-500">· {runningTaskCount} 个后台任务运行中</span>
+          <span className="ml-2 text-blue-500">{t('input.status_bg_tasks', { count: runningTaskCount })}</span>
         )}
         {isIdle && runningTaskCount === 0 && cancelledTaskCount > 0 && (
-          <span className="ml-2 text-red-400">· {cancelledTaskCount} 个任务已取消</span>
+          <span className="ml-2 text-red-400">{t('input.status_tasks_cancelled', { count: cancelledTaskCount })}</span>
         )}
         {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && cancelledTaskCount === 0 && (
-          <span className="ml-2 text-green-500">· {completedTaskCount - cancelledTaskCount} 个后台任务待汇报</span>
+          <span className="ml-2 text-green-500">{t('input.status_tasks_reporting', { count: completedTaskCount - cancelledTaskCount })}</span>
         )}
         {isIdle && runningTaskCount === 0 && completedTaskCount > 0 && cancelledTaskCount > 0 && (
-          <span className="ml-2 text-green-500">· {completedTaskCount - cancelledTaskCount} 个待汇报</span>
+          <span className="ml-2 text-green-500">{t('input.status_tasks_pending', { count: completedTaskCount - cancelledTaskCount })}</span>
         )}
       </div>
     </div>

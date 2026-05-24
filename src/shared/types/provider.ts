@@ -13,6 +13,7 @@ export type StreamEventType =
   | 'thinking_start'
   | 'thinking_delta'
   | 'reasoning_delta'
+  | 'image_delta'
   | 'tool_use_start'
   | 'tool_use_delta'
   | 'tool_use_end'
@@ -38,6 +39,15 @@ export interface StreamEvent {
   signature?: string;
   /** 推理增量（DeepSeek thinking 模式） */
   reasoning?: string;
+  /** 图片增量（模型生成的图片，GPT-4o 等） */
+  image?: {
+    /** base64 编码的图片数据 */
+    data?: string;
+    /** MIME 类型 */
+    mimeType?: string;
+    /** 远程图片 URL */
+    imageUrl?: string;
+  };
   /** 工具调用信息 */
   toolCall?: Partial<ToolCall>;
   /** Token 用量 */

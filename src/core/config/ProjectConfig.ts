@@ -49,17 +49,12 @@ const ENV_MAPPINGS: Record<string, { path: string; transform?: (v: string) => un
   'XUANJI_TIMEOUT':       { path: 'provider.timeout', transform: (v) => parseInt(v, 10) || undefined },
 
   'XUANJI_EMBEDDING_MODEL': { path: 'embedding.model' },
-  'XUANJI_EMBEDDING_DIMENSIONS': { path: 'embedding.dimensions', transform: (v) => parseInt(v, 10) || undefined },
-  'XUANJI_EMBEDDING_CACHE_ENABLED': { path: 'embedding.cacheEnabled', transform: (v) => v === 'true' || v === '1' },
-  'XUANJI_EMBEDDING_CACHE_MAX_SIZE': { path: 'embedding.cacheMaxSize', transform: (v) => parseInt(v, 10) || undefined },
   'XUANJI_EMBEDDING_HF_MIRROR': { path: 'embedding.hfMirror' },
   'HF_ENDPOINT': { path: 'embedding.hfMirror' },
 
   'XUANJI_THEME':         { path: 'ui.theme' },
   'XUANJI_LANGUAGE':      { path: 'ui.language' },
   'XUANJI_LOCALE':        { path: 'ui.language' },
-
-  'XUANJI_MEMORY_ENABLED': { path: 'memory.enabled', transform: (v) => v === 'true' || v === '1' },
 
   'TAVILY_API_KEY':       { path: 'webSearch.apiKeys.tavily' },
   'BRAVE_API_KEY':        { path: 'webSearch.apiKeys.brave' },

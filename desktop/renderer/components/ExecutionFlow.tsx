@@ -14,6 +14,8 @@ import dagre from 'dagre';
 import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 import { Avatar } from './Avatar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getDesktopLabel } from '../i18n';
+import { useConfigStore } from '../stores/configStore';
 
 // 主 agent 头像
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
@@ -178,6 +180,7 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
   const active = isActiveStatus(data.status);
   const final = isFinalStatus(data.status);
   const now = useRealtimeClock();
+  const language = useConfigStore((s) => s.settings.language);
   // thinkingText 不从 data 读取（data 引用稳定时不会更新），从 store 实时订阅
   const liveThinkingText = useAgentStateMachine((s) => s.agentMap[id]?.currentThought);
   const hasThought = !!liveThinkingText;
@@ -305,7 +308,7 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
             {showOrderBadge && (
               <div className="absolute -top-1 -right-1 z-10 flex items-center justify-center"
                 style={{ width: 18, height: 18 }}
-                title={`执行顺序: 第 ${data.multiAgent!.stepIndex! + 1} / ${data.multiAgent!.totalSteps} 步`}
+                title={getDesktopLabel('executionflow.order_hint', language).replace('{step}', String(data.multiAgent!.stepIndex! + 1)).replace('{total}', String(data.multiAgent!.totalSteps))}
               >
                 <span className="text-sm leading-none text-primary drop-shadow-sm"
                   style={{ textShadow: '0 0 3px rgba(0,0,0,0.5)' }}
@@ -335,10 +338,10 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
             <div className="flex items-center gap-1 mt-1 justify-center max-w-[200px] overflow-hidden">
               {data.agentType && (
                 <span className="text-[8px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap flex-shrink-0">
-                  {data.agentType === 'builtin' ? '系统' :
-                   data.agentType === 'preset' ? '应用' :
-                   data.agentType === 'custom' ? '自定义' :
-                   data.agentType === 'temporary' ? '临时' : data.agentType}
+                  {data.agentType === 'builtin' ? getDesktopLabel('executionflow.agent_type_system', language) :
+                   data.agentType === 'preset' ? getDesktopLabel('executionflow.agent_type_app', language) :
+                   data.agentType === 'custom' ? getDesktopLabel('executionflow.agent_type_custom', language) :
+                   data.agentType === 'temporary' ? getDesktopLabel('executionflow.agent_type_temporary', language) : data.agentType}
                 </span>
               )}
               {data.scene && (
@@ -348,7 +351,7 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
               )}
               {data.executionMode && (
                 <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap flex-shrink-0">
-                  {data.executionMode === 'acp' ? '子进程' : '主进程'}
+                  {data.executionMode === 'acp' ? getDesktopLabel('executionflow.exec_mode_acp', language) : getDesktopLabel('executionflow.exec_mode_in_process', language)}
                 </span>
               )}
             </div>
@@ -366,7 +369,7 @@ function AgentNode({ data, id }: NodeProps<AgentNodeData>) {
               data.debateRole === 'negative' ? 'bg-destructive/20 text-destructive' :
               'bg-warning/20 text-warning'
             }`}>
-              {data.debateRole === 'affirmative' ? '正方' : data.debateRole === 'negative' ? '反方' : '裁判'}
+              {data.debateRole === 'affirmative' ? getDesktopLabel('executionflow.debate_affirmative', language) : data.debateRole === 'negative' ? getDesktopLabel('executionflow.debate_negative', language) : getDesktopLabel('executionflow.debate_judge', language)}
             </span>
           )}
 
@@ -439,6 +442,7 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
   if (!ti) return null;
   const sc = STRATEGY_COLORS[ti.strategy] || STRATEGY_COLORS.sequential;
   const icon = STRATEGY_ICONS[ti.strategy] || '👥';
+  const language = useConfigStore((s) => s.settings.language);
 
   return (
     <div className="relative w-full h-full" style={{ minWidth: 200, minHeight: 100 }}>
@@ -468,7 +472,7 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
       >
         <span className="text-sm">{icon}</span>
         <span className="text-xs font-semibold text-foreground/80 truncate max-w-[120px]">{ti.teamName}</span>
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground flex-shrink-0">{ti.strategy === 'sequential' ? '串行' : ti.strategy === 'parallel' ? '并行' : ti.strategy === 'debate' ? '辩论' : ti.strategy === 'hierarchical' ? '层级' : ti.strategy === 'pipeline' ? '流水线' : ti.strategy}</span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground flex-shrink-0">{ti.strategy === 'sequential' ? getDesktopLabel('executionflow.strategy_sequential', language) : ti.strategy === 'parallel' ? getDesktopLabel('executionflow.strategy_parallel', language) : ti.strategy === 'debate' ? getDesktopLabel('executionflow.strategy_debate', language) : ti.strategy === 'hierarchical' ? getDesktopLabel('executionflow.strategy_hierarchical', language) : ti.strategy === 'pipeline' ? getDesktopLabel('executionflow.strategy_pipeline', language) : ti.strategy}</span>
         <div className="flex-1" />
         {ti.strategy === 'debate' && ti.currentRound != null && ti.maxRounds != null && (
           <span className="text-[10px] font-mono text-muted-foreground">R{ti.currentRound}/{ti.maxRounds}</span>
@@ -478,17 +482,17 @@ function TeamNode({ data }: NodeProps<AgentNodeData>) {
       {/* 策略专属状态信息 */}
       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-3 text-[10px] text-muted-foreground/50 pointer-events-none">
         {ti.strategy === 'sequential' ? (
-          <span className="text-blue-400/60">➡️ 顺序执行 · {ti.memberCount} 步</span>
+          <span className="text-blue-400/60">{getDesktopLabel('executionflow.sequential_steps', language).replace('{count}', String(ti.memberCount))}</span>
         ) : ti.strategy === 'pipeline' ? (
-          <span className="text-purple-400/60">🔗 流水线 · {ti.memberCount} 阶段</span>
+          <span className="text-purple-400/60">{getDesktopLabel('executionflow.pipeline_stages', language).replace('{count}', String(ti.memberCount))}</span>
         ) : (
           <>
-            <span>{ti.memberCount} 名成员</span>
+            <span>{getDesktopLabel('executionflow.member_count', language).replace('{count}', String(ti.memberCount))}</span>
             {ti.strategy === 'parallel' && ti.currentRound != null && (
-              <span className="text-primary/50">{ti.currentRound} 个运行中</span>
+              <span className="text-primary/50">{getDesktopLabel('executionflow.running_count', language).replace('{count}', String(ti.currentRound))}</span>
             )}
             {ti.strategy === 'hierarchical' && (
-              <span className="text-warning/50">1 Leader · {ti.memberCount - 1} Worker</span>
+              <span className="text-warning/50">{getDesktopLabel('executionflow.leader_worker', language).replace('{count}', String(ti.memberCount - 1))}</span>
             )}
           </>
         )}
@@ -572,6 +576,7 @@ function Flow() {
   const newMainAgentId = useAgentStateMachine((s) => s.mainAgent);
   const { fitView } = useReactFlow();
   const initialized = useRef(false);
+  const language = useConfigStore((s) => s.settings.language);
 
   // 追踪用户手动拖拽位置，防止思考流更新时重置位置
   const draggedPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -898,8 +903,8 @@ function Flow() {
               </svg>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground/60">执行监视</p>
-              <p className="text-xs text-muted-foreground/40 max-w-[180px]">实时追踪多 Agent 协作执行过程</p>
+              <p className="text-sm font-medium text-foreground/60">{getDesktopLabel('executionflow.exec_monitor', language)}</p>
+              <p className="text-xs text-muted-foreground/40 max-w-[180px]">{getDesktopLabel('executionflow.exec_desc', language)}</p>
             </div>
           </div>
         </div>

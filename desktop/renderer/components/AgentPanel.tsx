@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useMessageStore } from '../stores/messageStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import { t } from '@/core/i18n';
 
 interface AgentPanelProps {
   onToggle: () => void;
@@ -60,21 +61,21 @@ export default function AgentPanel({ onToggle }: AgentPanelProps) {
 
         if (runningTools.length > 0) {
           mainAgent.status = 'executing';
-          mainAgent.currentThought = `正在使用 ${runningTools[0].name}`;
+          mainAgent.currentThought = t('agent.panel.tool_calling', { name: runningTools[0].name });
           mainAgent.currentTool = {
             name: runningTools[0].name,
             status: 'running',
           };
         } else if (errorTools.length > 0) {
           mainAgent.status = 'error';
-          mainAgent.currentThought = '遇到了一些问题';
+          mainAgent.currentThought = t('agent.panel.status.error');
         } else if (successTools.length > 0) {
           mainAgent.status = 'done';
-          mainAgent.currentThought = '任务完成！';
+          mainAgent.currentThought = t('agent.panel.status.task_done');
         }
       } else if (typeof lastMsg.content === 'string' && lastMsg.content) {
         mainAgent.status = 'done';
-        mainAgent.currentThought = '回复完成';
+        mainAgent.currentThought = t('agent.panel.status.done');
       }
     }
 
@@ -92,12 +93,12 @@ export default function AgentPanel({ onToggle }: AgentPanelProps) {
       <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
         <div className="flex items-center gap-2">
           <div className="text-lg">🤖</div>
-          <div className="font-semibold">Agent 工作台</div>
+          <div className="font-semibold">{t('agent.panel.title')}</div>
         </div>
         <button
           onClick={onToggle}
           className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
-          title="关闭面板"
+          title={t('agent.panel.close')}
         >
           <X size={16} className="text-text-secondary" />
         </button>
@@ -146,9 +147,9 @@ function AgentCard({ agent }: { agent: AgentInfo }) {
         <div className="flex-1">
           <div className="font-semibold text-lg">{agent.name}</div>
           <div className="text-sm text-text-secondary">
-            {agent.role === 'main' && '主 Agent'}
-            {agent.role === 'worker' && 'Worker Agent'}
-            {agent.role === 'planner' && 'Planner Agent'}
+            {agent.role === 'main' && t('agent.panel.role.main')}
+            {agent.role === 'worker' && t('agent.panel.role.worker')}
+            {agent.role === 'planner' && t('agent.panel.role.planner')}
           </div>
         </div>
       </div>
@@ -326,7 +327,7 @@ function ToolCallHistory() {
 
   return (
     <div className="mt-6">
-      <div className="text-sm font-semibold mb-3 text-text-secondary">⏱️ 工具调用记录</div>
+      <div className="text-sm font-semibold mb-3 text-text-secondary">{t('agent.panel.tool_call_title')}</div>
       <div className="space-y-2">
         {recentTools.map((tool, idx) => {
           const time = new Date(tool.timestamp).toLocaleTimeString('zh-CN', {
@@ -385,15 +386,15 @@ function AgentStats() {
       <div className="grid grid-cols-3 gap-3 text-center text-xs">
         <div>
           <div className="text-2xl font-bold text-primary">{stats.totalTools}</div>
-          <div className="text-text-secondary mt-1">工具调用</div>
+          <div className="text-text-secondary mt-1">{t('agent.panel.stats.tool_calls')}</div>
         </div>
         <div>
           <div className="text-2xl font-bold text-green-500">{stats.successTools}</div>
-          <div className="text-text-secondary mt-1">成功</div>
+          <div className="text-text-secondary mt-1">{t('agent.panel.stats.success')}</div>
         </div>
         <div>
           <div className="text-2xl font-bold text-red-500">{stats.errorTools}</div>
-          <div className="text-text-secondary mt-1">错误</div>
+          <div className="text-text-secondary mt-1">{t('agent.panel.stats.error')}</div>
         </div>
       </div>
     </div>

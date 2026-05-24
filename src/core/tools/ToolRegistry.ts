@@ -40,7 +40,7 @@ import { DocxEditTool } from './DocxEditTool';
 import { DocToDocxTool } from './DocToDocxTool';
 import { MatchAgentTool } from './MatchAgentTool';
 import { ListAgentsTool } from './ListAgentsTool';
-import { ListScenesTool } from './ListScenesTool';
+
 import { TaskControlTool } from './TaskControlTool';
 import { ChangeDirectoryTool } from './ChangeDirectoryTool';
 import { SendFileTool } from './SendFileTool';

@@ -396,7 +396,19 @@ export class WechatAdapter implements PlatformAdapter {
           });
           break;
         case 5: // VOICE
-          attachments.push({ type: 'voice' as const });
+          attachments.push({
+            type: 'voice' as const,
+            url: item.voice_item?.media?.full_url,
+            mimeType: item.voice_item?.media?.mime_type || 'audio/silk',
+          });
+          break;
+        case 6: // VIDEO (iLink 协议)
+          attachments.push({
+            type: 'video' as const,
+            url: item.video_item?.media?.full_url,
+            mimeType: item.video_item?.media?.mime_type || 'video/mp4',
+            name: item.video_item?.media?.name,
+          });
           break;
       }
     }

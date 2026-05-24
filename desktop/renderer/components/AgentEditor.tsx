@@ -8,6 +8,7 @@ import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
 import MilkdownEditor from './MilkdownEditor';
 import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
+import { t } from '@/core/i18n';
 
 interface AgentEditorProps {
   agent: any | null;
@@ -130,6 +131,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const category: AgentCategory = agent?.metadata?.category || 'custom';
   const canEdit = (field: string) => isFieldEditable(field, category, isCreating);
 
+  // 本地模型不需要 API Key
+  const LOCAL_PROVIDERS = new Set(['ollama', 'vllm', 'lmstudio', 'local-llama']);
+  const canEnableAgent = (cfg: any): boolean => {
+    const adapter = cfg.provider?.adapter || 'anthropic';
+    if (LOCAL_PROVIDERS.has(adapter)) return true;
+    return !!cfg.provider?.apiKey;
+  };
+
   // 创建向导步骤
   const [creationStep, setCreationStep] = useState(1);
   const totalSteps = 4;
@@ -200,7 +209,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           ...prev,
           [modelId]: { ...prev[modelId], downloading: true, progress: 0 },
         }));
-        toast.success(`开始下载 ${modelId}`);
+        toast.success(t('agent.editor.toast.download_start', { name: modelId }));
 
         // 轮询检查下载是否完成
         const existing = pollTimersRef.current.get(modelId);
@@ -216,16 +225,16 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 ...prev,
                 [modelId]: { installed: true, downloading: false, progress: 0 },
               }));
-              toast.success(`${modelId} 下载完成`);
+              toast.success(t('agent.editor.toast.download_complete', { name: modelId }));
             }
           } catch {}
         }, 3000);
         pollTimersRef.current.set(modelId, timer);
       } else {
-        toast.error(result.error || '下载失败');
+        toast.error(result.error || t('agent.editor.toast.download_failed'));
       }
     } catch (err: any) {
-      toast.error(err.message || '下载失败');
+      toast.error(err.message || t('agent.editor.toast.download_failed'));
     }
   };
 
@@ -258,12 +267,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           }));
         }
 
-        toast.success(`已删除 ${filename}`);
+        toast.success(t('agent.editor.toast.delete_success', { name: filename }));
       } else {
-        toast.error(result.error || '删除失败');
+        toast.error(result.error || t('agent.editor.toast.delete_failed'));
       }
     } catch (err: any) {
-      toast.error(err.message || '删除失败');
+      toast.error(err.message || t('agent.editor.toast.delete_failed'));
     }
   };
 
@@ -362,7 +371,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     ]));
 
     setErrors({});
-    toast.info(`已应用模板：${name}`);
+    toast.info(t('agent.editor.template_applied', { name }));
   };
 
   // 切换折叠状态
@@ -393,24 +402,24 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
     // ID 验证
     if (!config.id) {
-      newErrors.id = 'ID 不能为空';
+      newErrors.id = t('agent.editor.error.id_empty');
     } else if (!/^[a-z0-9-]+$/.test(config.id)) {
-      newErrors.id = 'ID 只能包含小写字母、数字和连字符';
+      newErrors.id = t('agent.editor.error.id_invalid');
     }
 
     // 名称验证
     if (!config.name) {
-      newErrors.name = '名称不能为空';
+      newErrors.name = t('agent.editor.error.name_empty');
     }
 
     // 描述验证
     if (!config.description) {
-      newErrors.description = '描述不能为空';
+      newErrors.description = t('agent.editor.error.desc_empty');
     }
 
     // 系统提示词验证
     if (!config.systemPrompt || config.systemPrompt.trim().length < 10) {
-      newErrors.systemPrompt = '系统提示词至少需要 10 个字符';
+      newErrors.systemPrompt = t('agent.editor.error.prompt_too_short');
     }
 
     // 本地模型验证
@@ -421,7 +430,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         try {
           const result = await window.electron.localModelCheck(modelPrimary);
           if (result.success && !result.installed) {
-            newErrors.model = `本地模型 ${modelPrimary} 尚未下载，请先下载后再保存`;
+            newErrors.model = t('agent.editor.error.model_not_downloaded', { name: modelPrimary });
           }
         } catch (err) {
           console.error('Failed to check local model:', err);
@@ -434,6 +443,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
   // 保存处理
   const handleSave = async () => {
+    // 已启用的 Agent 必须能通过启用校验（非本地模型须配置 API Key）
+    if (config.enabled !== false && !canEnableAgent(config)) {
+      toast.error(t('agent.editor.error.api_key_required'));
+      setExpandedSections((prev) => new Set([...prev, 'model']));
+      return;
+    }
+
     const newErrors = await validateConfig();
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -454,7 +470,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         }
         toast.error(`${firstError[1]}`);
       } else {
-        toast.error('配置验证失败，请检查表单');
+        toast.error(t('agent.editor.error.validation_failed'));
       }
       return;
     }
@@ -506,7 +522,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const groupedTools = useMemo(() => {
     const groups: Record<string, any[]> = {};
     filteredTools.forEach(tool => {
-      const category = tool.category || '其他';
+      const category = tool.category || t('agent.editor.unknown_category');
       if (!groups[category]) {
         groups[category] = [];
       }
@@ -604,7 +620,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     }, 200);
                   }}
                   disabled={isDisabled}
-                  placeholder="输入模型名称..."
+                  placeholder={t('agent.editor.model_search_placeholder')}
                   className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
                 />
                 {modelsLoading && (
@@ -746,10 +762,10 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-2xl font-bold">
-            {agent ? '编辑 Agent' : '创建 Agent'}
+            {agent ? t('agent.editor.title.edit') : t('agent.editor.title.create')}
           </h3>
           <p className="text-sm text-text-secondary mt-1">
-            配置 Agent 的行为和工具
+            {t('agent.editor.subtitle')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -759,39 +775,39 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
           >
             <FileCode size={16} />
-            {mode === 'form' ? 'JSON5 代码' : '表单编辑'}
+            {mode === 'form' ? t('agent.editor.json5_mode') : t('agent.editor.form_mode')}
           </button>
           <button
             onClick={onCancel}
             className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
           >
             <X size={16} />
-            取消
+            {t('agent.editor.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm flex items-center gap-2"
           >
             <Save size={16} />
-            保存
+            {t('agent.editor.save')}
           </button>
         </div>
       </div>
 
-      {mode === 'json5' ? (
+      {mode === 'json5' && category !== 'system' ? (
         /* JSON5 代码编辑模式 */
         <div className="space-y-4">
           <div className="bg-bg-secondary rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="font-medium">JSON5 配置</h4>
+              <h4 className="font-medium">{t('agent.editor.json5_title')}</h4>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(json5Preview);
-                  toast.success('已复制到剪贴板');
+                  toast.success(t('agent.editor.copied'));
                 }}
                 className="text-xs text-primary hover:underline"
               >
-                复制
+                {t('agent.editor.copy')}
               </button>
             </div>
             <CodeEditor
@@ -813,7 +829,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-yellow-400 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-yellow-400">
-                直接编辑 JSON5 代码时，请确保格式正确。建议使用表单模式进行编辑。
+                {t('agent.editor.json5_warning')}
               </p>
             </div>
           </div>
@@ -833,7 +849,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   {step < creationStep ? <Check size={14} /> : step}
                 </div>
                 <span className={`text-xs ${step <= creationStep ? 'text-text-primary' : 'text-text-tertiary'}`}>
-                  {step === 1 ? '身份' : step === 2 ? '大脑' : step === 3 ? '工具' : '审核'}
+                  {step === 1 ? t('agent.editor.wizard.step.identity') : step === 2 ? t('agent.editor.wizard.step.brain') : step === 3 ? t('agent.editor.wizard.step.tools') : t('agent.editor.wizard.step.review')}
                 </span>
                 {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-bg-tertiary'}`} />}
               </div>
@@ -846,16 +862,16 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               <div className="bg-bg-secondary rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Settings size={18} className="text-primary" />
-                  基础信息
+                  {t('agent.editor.basic_info')}
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
-                  {renderFormField('Agent ID *', 'id')}
-                  {renderFormField('名称 *', 'name')}
+                  {renderFormField(t('agent.editor.field.id'), 'id')}
+                  {renderFormField(t('agent.editor.field.name'), 'name')}
                 </div>
-                {renderFormField('描述 *', 'description', 'textarea')}
+                {renderFormField(t('agent.editor.field.description'), 'description', 'textarea')}
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  {renderFormField('头像 Emoji', 'avatar')}
-                  {renderFormField('颜色', 'color')}
+                  {renderFormField(t('agent.editor.field.avatar'), 'avatar')}
+                  {renderFormField(t('agent.editor.field.color'), 'color')}
                 </div>
               </div>
             </div>
@@ -868,7 +884,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               {builtinAgents.length > 0 && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
                   <label className="block text-sm font-medium mb-2 text-blue-300">
-                    从模板开始（可选）
+                    {t('agent.editor.template.start')}
                   </label>
                   <select
                     value={selectedTemplate}
@@ -878,7 +894,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     }}
                     className="w-full bg-bg-primary border border-blue-500/30 rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="">从空白配置开始</option>
+                    <option value="">{t('agent.editor.template.empty')}</option>
                     {builtinAgents.map((template) => (
                       <option key={template.id} value={template.id}>
                         {template.name} - {template.description}
@@ -891,11 +907,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               <div className="bg-bg-secondary rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Zap size={18} className="text-yellow-500" />
-                  模型与 System Prompt
+                  {t('agent.editor.model_section')}
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Provider 适配器</label>
+                    <label className="block text-sm font-medium mb-1">{t('agent.editor.field.provider')}</label>
                     <select
                       value={config.provider?.adapter || 'anthropic'}
                       onChange={(e) => {
@@ -908,21 +924,21 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       <option value="openai">OpenAI</option>
                     </select>
                   </div>
-                  {renderFormField('主模型', 'model.primary', 'select')}
+                  {renderFormField(t('agent.editor.field.primary_model'), 'model.primary', 'select')}
                 </div>
                 <div className="mt-3">
-                  <label className="block text-sm font-medium mb-1">System Prompt</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.system_prompt')}</label>
                   <textarea
                     value={config.systemPrompt || ''}
                     onChange={(e) => setConfig({ ...config, systemPrompt: e.target.value })}
-                    placeholder="定义 Agent 的角色身份、能力范围和工作原则..."
+                    placeholder={t('agent.editor.system_prompt_placeholder')}
                     rows={10}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-3">
-                  {renderFormField('温度 (0-1)', 'model.temperature', 'number')}
-                  {renderFormField('最大 Token', 'model.maxTokens', 'number')}
+                  {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number')}
+                  {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number')}
                 </div>
               </div>
             </div>
@@ -934,7 +950,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               <div className="bg-bg-secondary rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <FileCode size={18} className="text-green-500" />
-                  能力清单
+                  {t('agent.editor.capabilities_section')}
                 </h4>
                 <textarea
                   value={config.capabilities?.join('\n') || ''}
@@ -942,7 +958,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     ...config,
                     capabilities: e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
                   })}
-                  placeholder="代码编写和实现&#10;代码调试和修复&#10;代码重构和优化"
+                  placeholder={t('agent.editor.capabilities_placeholder')}
                   rows={4}
                   className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
                 />
@@ -951,7 +967,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               <div className="bg-bg-secondary rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Database size={18} className="text-blue-500" />
-                  工具配置
+                  {t('agent.editor.tools_section')}
                 </h4>
                 {/* 搜索和批量操作 */}
                 <div className="space-y-3 mb-4">
@@ -959,17 +975,17 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
                     <input
                       type="text"
-                      placeholder="搜索工具..."
+                      placeholder={t('agent.editor.search_tools')}
                       value={toolSearchQuery}
                       onChange={(e) => setToolSearchQuery(e.target.value)}
                       className="w-full pl-10 pr-3 py-2 bg-bg-primary border border-bg-tertiary rounded text-sm focus:outline-none focus:border-primary"
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={selectAllTools} className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded">全选</button>
-                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded">取消全选</button>
+                    <button type="button" onClick={selectAllTools} className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded">{t('agent.editor.tools_select_all')}</button>
+                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded">{t('agent.editor.tools_deselect_all')}</button>
                     <span className="ml-auto text-xs text-text-tertiary self-center">
-                      已启用 {(config.tools || []).filter((t: any) => t.enabled !== false).length} / {(config.tools || []).length} 个
+                      {t('agent.editor.tools_enabled_count', { enabled: (config.tools || []).filter((t: any) => t.enabled !== false).length, total: (config.tools || []).length })}
                     </span>
                   </div>
                 </div>
@@ -1005,51 +1021,51 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {creationStep === 4 && (
             <div className="space-y-4">
               <div className="bg-bg-secondary rounded-lg p-4">
-                <h4 className="font-medium mb-3">配置摘要</h4>
+                <h4 className="font-medium mb-3">{t('agent.editor.review_section')}</h4>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-text-tertiary">ID</span><span className="font-mono">{config.id || '(未填写)'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">名称</span><span>{config.name || '(未填写)'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">模型</span><span className="font-mono">{config.model?.primary || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">Provider</span><span>{config.provider?.adapter || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">System Prompt</span><span>{config.systemPrompt ? `${config.systemPrompt.substring(0, 50)}...` : '(无)'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">工具数</span><span>{(config.tools || []).filter((t: any) => t.enabled !== false).length} 个</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">能力</span><span>{(config.capabilities || []).length} 项</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.id')}</span><span className="font-mono">{config.id || t('agent.editor.review.not_filled')}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.name')}</span><span>{config.name || t('agent.editor.review.not_filled')}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.model')}</span><span className="font-mono">{config.model?.primary || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.provider')}</span><span>{config.provider?.adapter || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.system_prompt')}</span><span>{config.systemPrompt ? `${config.systemPrompt.substring(0, 50)}${t('agent.editor.review.ellipsis')}` : t('agent.editor.review.none')}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.tool_count')}</span><span>{(config.tools || []).filter((t: any) => t.enabled !== false).length} {t('agent.editor.tools_enabled_count_suffix').trim()}</span></div>
+                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.capability_count')}</span><span>{(config.capabilities || []).length} {t('agent.editor.review.ellipsis')}</span></div>
                 </div>
               </div>
 
               {/* 高级设置 */}
               <details className="bg-bg-secondary rounded-lg p-4">
-                <summary className="font-medium cursor-pointer">高级设置</summary>
+                <summary className="font-medium cursor-pointer">{t('agent.editor.advanced_settings')}</summary>
                 <div className="mt-3 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">执行模式</label>
+                      <label className="block text-sm font-medium mb-1">{t('agent.editor.field.exec_mode')}</label>
                       <select value={config.execution?.mode || 'react'} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, mode: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
-                        <option value="react">ReAct</option>
-                        <option value="plan">Plan</option>
-                        <option value="chain">Chain</option>
+                        <option value="react">{t('agent.editor.execution_mode_react')}</option>
+                        <option value="plan">{t('agent.editor.execution_mode_plan')}</option>
+                        <option value="chain">{t('agent.editor.execution_mode_chain')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">最大迭代</label>
+                      <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
                       <input type="number" value={config.execution?.maxIterations || 20} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, maxIterations: parseInt(e.target.value) } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.streaming !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, streaming: e.target.checked } })} className="rounded" />流式输出</label>
-                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.parallelTools !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, parallelTools: e.target.checked } })} className="rounded" />并行工具调用</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.streaming !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, streaming: e.target.checked } })} className="rounded" />{t('agent.editor.field.streaming')}</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={config.execution?.parallelTools !== false} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, parallelTools: e.target.checked } })} className="rounded" />{t('agent.editor.field.parallel_tools')}</label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1">文件读取</label>
+                      <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_read')}</label>
                       <select value={config.permissions?.fileRead || 'always'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileRead: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
-                        <option value="always">始终允许</option><option value="ask">询问用户</option><option value="deny">禁止</option>
+                        <option value="always">{t('agent.editor.perm_always')}</option><option value="ask">{t('agent.editor.perm_ask')}</option><option value="deny">{t('agent.editor.perm_deny')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">文件写入</label>
+                      <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_write')}</label>
                       <select value={config.permissions?.fileWrite || 'ask'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileWrite: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
-                        <option value="always">始终允许</option><option value="ask">询问用户</option><option value="deny">禁止</option>
+                        <option value="always">{t('agent.editor.perm_always')}</option><option value="ask">{t('agent.editor.perm_ask')}</option><option value="deny">{t('agent.editor.perm_deny')}</option>
                       </select>
                     </div>
                   </div>
@@ -1062,16 +1078,16 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           <div className="flex justify-between pt-4 border-t border-border">
             {creationStep > 1 ? (
               <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2">
-                <ArrowLeft size={16} />上一步
+                <ArrowLeft size={16} />{t('agent.editor.prev_step')}
               </button>
             ) : <div />}
             {creationStep < 4 ? (
               <button type="button" onClick={() => setCreationStep(creationStep + 1)} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm flex items-center gap-2">
-                下一步<ArrowRight size={16} />
+                {t('agent.editor.next_step')}<ArrowRight size={16} />
               </button>
             ) : (
               <button type="button" onClick={handleSave} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm flex items-center gap-2">
-                <Save size={16} />保存 Agent
+                <Save size={16} />{t('agent.editor.save_agent')}
               </button>
             )}
           </div>
@@ -1086,28 +1102,35 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               category === 'app' ? 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-400' :
               'bg-green-500/10 border border-green-500/20 text-green-400'
             }`}>
-              {category === 'system' && '系统 Agent：仅可编辑 Provider、模型和启用状态'}
-              {category === 'app' && '应用 Agent：可编辑 Provider、模型、System Prompt 和工具配置'}
-              {category === 'custom' && '自定义 Agent：可编辑除 ID 外的全部字段'}
+              {category === 'system' && t('agent.editor.cat_hint_system')}
+              {category === 'app' && t('agent.editor.cat_hint_app')}
+              {category === 'custom' && t('agent.editor.cat_hint_custom')}
             </div>
           )}
 
           {/* 基础信息 */}
           {renderSection(
             'basic',
-            '基础信息',
+            t('agent.editor.basic_info'),
             <Settings size={18} className="text-primary" />,
             <>
               <div className="grid grid-cols-2 gap-4">
-                {renderFormField('Agent ID *', 'id')}
-                {renderFormField('名称 *', 'name')}
+                {renderFormField(t('agent.editor.field.id'), 'id')}
+                {renderFormField(t('agent.editor.field.name'), 'name')}
               </div>
               {/* 启用/禁用开关 */}
               <div className="flex items-center justify-between py-2">
-                <span className="text-sm font-medium">启用状态</span>
+                <span className="text-sm font-medium">{t('agent.editor.field.enabled')}</span>
                 <button
                   type="button"
-                  onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+                  onClick={() => {
+                    const isEnabling = config.enabled === false;
+                    if (isEnabling && !canEnableAgent(config)) {
+                      toast.error(t('agent.editor.error.api_key_required'));
+                      return;
+                    }
+                    setConfig({ ...config, enabled: !config.enabled });
+                  }}
                   disabled={!canEdit('enabled')}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                     config.enabled !== false ? 'bg-primary' : 'bg-bg-tertiary'
@@ -1120,96 +1143,59 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   />
                 </button>
               </div>
-              {renderFormField('描述 *', 'description', 'textarea')}
+              {renderFormField(t('agent.editor.field.description'), 'description', 'textarea')}
 
               {/* Capabilities */}
               <div>
-                <label className="block text-sm font-medium mb-1">能力清单（每行一个）</label>
+                <label className="block text-sm font-medium mb-1">{t('agent.editor.field.capabilities')}</label>
                 <textarea
                   value={config.capabilities?.join('\n') || ''}
                   onChange={(e) => setConfig({
                     ...config,
                     capabilities: e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
                   })}
-                  placeholder="代码编写和实现&#10;代码调试和修复&#10;代码重构和优化"
+                  placeholder={t('agent.editor.capabilities_placeholder')}
                   rows={5}
                   disabled={!canEdit('capabilities')}
                   className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-text-secondary mt-1">
-                  定义 Agent 的能力范围，用于匹配和选择
-                </p>
-              </div>
-
-              {/* Skills（未来支持） */}
-              <div>
-                <label className="block text-sm font-medium mb-1 flex items-center gap-2">
-                  <span>Skills（未来支持）</span>
-                  <span className="text-xs bg-blue-500/20 text-blue-500 px-2 py-0.5 rounded">预留</span>
-                </label>
-                <input
-                  type="text"
-                  value={config.skills?.join(', ') || ''}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    skills: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                  })}
-                  placeholder="implement_feature, debug_code"
-                  disabled
-                  className="w-full bg-bg-tertiary border border-bg-tertiary rounded px-3 py-2 text-sm text-text-secondary cursor-not-allowed"
-                />
-                <p className="text-xs text-text-secondary mt-1">
-                  未来用于定义可复用的任务模板和工作流程
+                  {t('agent.editor.field.capabilities_hint')}
                 </p>
               </div>
             </>
           )}
 
           {/* 系统提示词 */}
-          {renderSection(
+          {category !== 'system' && renderSection(
             'systemPrompt',
-            '系统提示词',
+            t('agent.editor.field.system_prompt'),
             <FileCode size={18} className="text-green-500" />,
             <>
               <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-xs text-blue-400 mb-2">
-                  💡 <strong>提示</strong>：System Prompt 定义 Agent 的角色身份和基础原则
+                  {t('agent.editor.system_prompt_hint_title')}
                 </p>
                 <ul className="text-xs text-text-secondary space-y-1 ml-4">
-                  <li>• 定义"我是谁"（角色身份）</li>
-                  <li>• 定义"我能做什么"（能力范围）</li>
-                  <li>• 定义"我的工作原则"（基础准则）</li>
-                  <li>• 具体的场景指导会通过 Scene 动态加载</li>
+                  <li>{t('agent.editor.system_prompt_hint_item1')}</li>
+                  <li>{t('agent.editor.system_prompt_hint_item2')}</li>
+                  <li>{t('agent.editor.system_prompt_hint_item3')}</li>
+                  <li>{t('agent.editor.system_prompt_hint_item4')}</li>
                 </ul>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">System Prompt</label>
+                <label className="block text-sm font-medium mb-1">{t('agent.editor.field.system_prompt')}</label>
                 <textarea
                   value={config.systemPrompt || ''}
                   onChange={(e) => setConfig({ ...config, systemPrompt: e.target.value })}
                   disabled={!canEdit('systemPrompt')}
-                  placeholder={`你是一位经验丰富的软件工程师。
-
-## 核心原则
-- 代码质量优先
-- 简洁清晰
-- 最佳实践
-- 安全意识
-
-## 工作方式
-你会根据不同的任务场景，采用不同的思维方式：
-- 探索场景：理解代码库结构
-- 规划场景：设计架构方案
-- 编码场景：编写高质量代码
-...
-
-具体的场景指导会通过 Scene 动态加载。`}
+                  placeholder={t('agent.editor.system_prompt_edit_placeholder')}
                   rows={15}
                   className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-xs text-text-secondary mt-1">
-                  支持 Markdown 格式。留空则使用默认的通用 Agent 身份。
+                  {t('agent.editor.system_prompt_footer')}
                 </p>
               </div>
             </>
@@ -1218,12 +1204,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* 模型 & Provider 配置 */}
           {renderSection(
             'model',
-            '模型配置',
+            t('agent.editor.field.primary_model') + ' & Provider',
             <Zap size={18} className="text-yellow-500" />,
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Provider 适配器</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.provider')}</label>
                   <select
                     value={config.provider?.adapter || 'anthropic'}
                     onChange={(e) => {
@@ -1238,21 +1224,45 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('provider.adapter')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="anthropic">Anthropic</option>
+                    <option value="anthropic">Anthropic Claude</option>
                     <option value="openai">OpenAI</option>
-                    <option value="local-llama">本地模型</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="openai-response">OpenAI Responses (Image Gen)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="zai">智谱 GLM (Z.ai)</option>
+                    <option value="alibaba">阿里 DashScope (Qwen)</option>
+                    <option value="moonshot">Moonshot (Kimi)</option>
+                    <option value="xai">xAI (Grok)</option>
+                    <option value="nvidia">NVIDIA NIM</option>
+                    <option value="minimax">MiniMax</option>
+                    <option value="hunyuan">腾讯混元</option>
+                    <option value="baidu">百度文心</option>
+                    <option value="together">Together AI</option>
+                    <option value="fireworks">Fireworks AI</option>
+                    <option value="groq">Groq</option>
+                    <option value="perplexity">Perplexity</option>
+                    <option value="mistral">Mistral AI</option>
+                    <option value="cohere">Cohere</option>
+                    <option value="huggingface">Hugging Face</option>
+                    <option value="ollama">Ollama (Local)</option>
+                    <option value="vllm">vLLM (Local)</option>
+                    <option value="lmstudio">LM Studio (Local)</option>
+                    <option value="local-llama">{t('agent.editor.provider_local')}</option>
+                    <option value="openai-image">OpenAI Image (文生图)</option>
+                    <option value="ark">火山引擎豆包 Seedream (文生图)</option>
                   </select>
                 </div>
                 {config.provider?.adapter === 'local-llama' ? (
                   <div>
-                    <label className="block text-sm font-medium mb-2">本地模型</label>
+                    <label className="block text-sm font-medium mb-2">{t('agent.editor.field.primary_model')}{t('agent.editor.provider_local_suffix')}</label>
                     <div className="space-y-2 max-h-80 overflow-y-auto border border-bg-tertiary rounded-lg p-2">
                       {[
-                        { id: 'qwen2.5-0.5b-q4', name: 'Qwen2.5-0.5B Q4', desc: '~400MB, 极速', filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' },
-                        { id: 'qwen2.5-1.5b-q4', name: 'Qwen2.5-1.5B Q4', desc: '~1GB, 均衡', filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf' },
-                        { id: 'chatglm3-6b-q4', name: 'ChatGLM3-6B Q4', desc: '~3.5GB, 高精度分类，推荐', filename: 'chatglm3-6b.Q4_K_M.gguf' },
-                        { id: 'chatglm3-6b-q3', name: 'ChatGLM3-6B Q3', desc: '~2.7GB, 更快，精度略降', filename: 'chatglm3-6b.Q3_K_M.gguf' },
-                        { id: 'glm4-9b-q4', name: 'GLM-4-9B Q4', desc: '~5.4GB, 最高精度，资源需求高', filename: 'glm-4-9b-chat.Q4_K_M.gguf' },
+                        { id: 'qwen2.5-0.5b-q4', name: 'Qwen2.5-0.5B Q4', desc: t('agent.editor.local_model_desc_fast'), filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' },
+                        { id: 'qwen2.5-1.5b-q4', name: 'Qwen2.5-1.5B Q4', desc: t('agent.editor.local_model_desc_balanced'), filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf' },
+                        { id: 'chatglm3-6b-q4', name: 'ChatGLM3-6B Q4', desc: t('agent.editor.local_model_desc_recommended'), filename: 'chatglm3-6b.Q4_K_M.gguf' },
+                        { id: 'chatglm3-6b-q3', name: 'ChatGLM3-6B Q3', desc: t('agent.editor.local_model_desc_faster'), filename: 'chatglm3-6b.Q3_K_M.gguf' },
+                        { id: 'glm4-9b-q4', name: 'GLM-4-9B Q4', desc: t('agent.editor.local_model_desc_high_precision'), filename: 'glm-4-9b-chat.Q4_K_M.gguf' },
                       ].map((preset) => {
                         const installed = localModelStatuses[preset.id]?.installed;
                         const downloading = localModelStatuses[preset.id]?.downloading;
@@ -1284,7 +1294,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                 className="text-xs px-2 py-1 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors flex items-center gap-1"
                               >
                                 <Download size={12} />
-                                下载
+                                {t('agent.editor.local_model_download')}
                               </button>
                             )}
                             {installed && (
@@ -1292,14 +1302,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                 type="button"
                                 onClick={(e) => {
                                   e.preventDefault();
-                                  if (confirm(`确定卸载 ${preset.name}？`)) {
+                                  if (confirm(t('agent.editor.local_model_confirm_uninstall', { name: preset.name }))) {
                                     deleteLocalModel(preset.filename);
                                   }
                                 }}
                                 className="text-xs px-2 py-1 text-red-500 hover:bg-red-500/10 rounded transition-colors flex items-center gap-1"
                               >
                                 <Trash2 size={12} />
-                                卸载
+                                {t('agent.editor.local_model_uninstall')}
                               </button>
                             )}
                           </label>
@@ -1309,7 +1319,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       {scannedModels.length > 0 && (
                         <>
                           <div className="text-xs text-text-secondary px-2 py-1 border-t border-bg-tertiary mt-2 pt-2">
-                            本地已下载模型
+                            {t('agent.editor.local_models_title')}
                           </div>
                           {scannedModels.map((item) => {
                             const modelId = item.filename;
@@ -1338,14 +1348,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                   type="button"
                                   onClick={(e) => {
                                     e.preventDefault();
-                                    if (confirm(`确定卸载 ${item.filename}？`)) {
+                                    if (confirm(t('agent.editor.local_model_confirm_uninstall', { name: item.filename }))) {
                                       deleteLocalModel(item.filename);
                                     }
                                   }}
                                   className="text-xs px-2 py-1 text-red-500 hover:bg-red-500/10 rounded transition-colors flex items-center gap-1 flex-shrink-0"
                                 >
                                   <Trash2 size={12} />
-                                  卸载
+                                  {t('agent.editor.local_model_uninstall')}
                                 </button>
                               </label>
                             );
@@ -1358,13 +1368,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     )}
                   </div>
                 ) : (
-                  renderFormField('主模型', 'model.primary', 'select')
+                  renderFormField(t('agent.editor.field.primary_model'), 'model.primary', 'select')
                 )}
               </div>
               {config.provider?.adapter !== 'local-llama' && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">API Key</label>
+                    <label className="block text-sm font-medium mb-1">{t('agent.editor.api_key')}</label>
                     <input
                       type="password"
                       value={config.provider?.apiKey || ''}
@@ -1372,13 +1382,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         ...config,
                         provider: { ...config.provider, apiKey: e.target.value },
                       })}
-                      placeholder="留空使用全局配置"
+                      placeholder={t('agent.editor.api_key_placeholder')}
                       disabled={!canEdit('provider.apiKey')}
                       className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Base URL</label>
+                    <label className="block text-sm font-medium mb-1">{t('agent.editor.base_url')}</label>
                     <input
                       type="text"
                       value={config.provider?.baseURL || ''}
@@ -1386,7 +1396,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         ...config,
                         provider: { ...config.provider, baseURL: e.target.value },
                       })}
-                      placeholder="留空使用默认地址"
+                      placeholder={t('agent.editor.base_url_placeholder')}
                       disabled={!canEdit('provider.baseURL')}
                       className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
@@ -1401,44 +1411,44 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       try {
                         const result = await window.electron.localModelOpenDir();
                         if (!result.success) {
-                          toast.error(result.error || '打开目录失败');
+                          toast.error(result.error || t('agent.editor.toast.open_dir_failed'));
                         }
                       } catch (err: any) {
-                        toast.error(err.message || '打开目录失败');
+                        toast.error(err.message || t('agent.editor.toast.open_dir_failed'));
                       }
                     }}
                     className="text-primary hover:underline cursor-pointer"
                   >
-                    打开模型目录 (.xuanji/models/)
+                    {t('agent.editor.local_model_open_dir')}
                   </button>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
-                {renderFormField('温度 (0-1)', 'model.temperature', 'number')}
-                {config.provider?.adapter === 'local-llama' && renderFormField('上下文窗口 (tokens)', 'model.contextSize', 'number')}
+                {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number')}
+                {config.provider?.adapter === 'local-llama' && renderFormField(t('agent.editor.field.context_window'), 'model.contextSize', 'number')}
               </div>
             </>
           )}
 
           {/* 工具配置 */}
-          {renderSection(
+          {category !== 'system' && renderSection(
             'tools',
-            '工具配置',
+            t('agent.editor.tools_section'),
             <Database size={18} className="text-blue-500" />,
             <>
               <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-xs text-blue-400 mb-2">
-                  💡 <strong>提示</strong>：工具配置定义 Agent 可以使用的工具
+                  {t('agent.editor.tools_hint_intro')}
                 </p>
                 <ul className="text-xs text-text-secondary space-y-1 ml-4">
-                  <li>• 每个工具可以单独启用/禁用</li>
-                  <li>• 可以为工具添加自定义描述和配置</li>
-                  <li>• 常用工具：read_file, write_file, edit_file, bash, glob, grep</li>
+                  <li>{t('agent.editor.tools_hint_item1')}</li>
+                  <li>{t('agent.editor.tools_hint_item2')}</li>
+                  <li>{t('agent.editor.tools_hint_item3')}</li>
                 </ul>
               </div>
 
               {toolsLoading ? (
-                <p className="text-sm text-text-secondary">加载工具列表中...</p>
+                <p className="text-sm text-text-secondary">{t('agent.editor.loading_tools')}</p>
               ) : (
                 <>
                   {/* 搜索和批量操作 */}
@@ -1447,7 +1457,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
                       <input
                         type="text"
-                        placeholder="搜索工具名称、描述或类别..."
+                        placeholder={t('agent.editor.search_tools_ext')}
                         value={toolSearchQuery}
                         onChange={(e) => setToolSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-3 py-2 bg-bg-primary border border-bg-tertiary rounded text-sm focus:outline-none focus:border-primary"
@@ -1459,17 +1469,17 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         onClick={selectAllTools}
                         className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded"
                       >
-                        全选
+                      {t('agent.editor.tools_select_all')}
                       </button>
                       <button
                         type="button"
                         onClick={deselectAllTools}
                         className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded"
                       >
-                        取消全选
+                        {t('agent.editor.tools_deselect_all')}
                       </button>
                       <span className="ml-auto text-xs text-text-tertiary self-center">
-                        已启用 {(config.tools || []).filter((t: any) => t.enabled !== false).length} / {(config.tools || []).length} 个工具
+                        {t('agent.editor.tools_enabled_count', { enabled: (config.tools || []).filter((t: any) => t.enabled !== false).length, total: (config.tools || []).length })}<span className="ml-0.5">{t('agent.editor.tools_enabled_count_suffix').trim()}</span>
                       </span>
                     </div>
                   </div>
@@ -1507,7 +1517,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                     {/* 自定义描述（可选） */}
                                     {isEnabled && toolConfig?.description && (
                                       <div className="text-xs text-primary mt-1">
-                                        自定义描述: {toolConfig.description}
+                                        {t('agent.editor.tools_custom_desc', { desc: toolConfig.description })}
                                       </div>
                                     )}
                                   </div>
@@ -1522,7 +1532,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
                   {filteredTools.length === 0 && (
                     <p className="text-sm text-text-tertiary text-center py-4">
-                      未找到匹配的工具
+                      {t('agent.editor.tools_no_match')}
                     </p>
                   )}
 
@@ -1537,13 +1547,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* 执行配置 */}
           {renderSection(
             'execution',
-            '执行配置',
+            t('agent.editor.advanced_settings'),
             <Settings size={18} className="text-gray-500" />,
             <>
               <div className="grid grid-cols-2 gap-4">
                 {/* 执行模式 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">执行模式</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.exec_mode')}</label>
                   <select
                     value={config.execution?.mode || 'react'}
                     onChange={(e) => setConfig({
@@ -1553,15 +1563,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('execution.mode')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="react">ReAct（推荐）</option>
-                    <option value="plan">Plan（规划模式）</option>
-                    <option value="chain">Chain（链式模式）</option>
+                    <option value="react">{t('agent.editor.execution_mode_react')}</option>
+                    <option value="plan">{t('agent.editor.execution_mode_plan')}</option>
+                    <option value="chain">{t('agent.editor.execution_mode_chain')}</option>
                   </select>
                 </div>
 
                 {/* 最大迭代次数 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">最大迭代次数</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
                   <input
                     type="number"
                     value={config.execution?.maxIterations || 20}
@@ -1576,7 +1586,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
                 {/* 超时时间 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">超时时间 (ms)</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.timeout')}</label>
                   <input
                     type="number"
                     value={config.execution?.timeout || 300000}
@@ -1603,7 +1613,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('execution.streaming')}
                     className="rounded disabled:opacity-50"
                   />
-                  <span className="text-sm">流式输出</span>
+                  <span className="text-sm">{t('agent.editor.field.streaming')}</span>
                 </label>
 
                 <label className="flex items-center gap-2">
@@ -1617,7 +1627,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('execution.parallelTools')}
                     className="rounded disabled:opacity-50"
                   />
-                  <span className="text-sm">并行工具调用</span>
+                  <span className="text-sm">{t('agent.editor.field.parallel_tools')}</span>
                 </label>
 
                 <label className="flex items-center gap-2">
@@ -1631,28 +1641,28 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('execution.retryOnError')}
                     className="rounded disabled:opacity-50"
                   />
-                  <span className="text-sm">错误时自动重试</span>
+                  <span className="text-sm">{t('agent.editor.field.retry_on_error')}</span>
                 </label>
               </div>
             </>
           )}
 
           {/* 权限配置 */}
-          {renderSection(
+          {category !== 'system' && renderSection(
             'permissions',
-            '权限配置',
+            t('agent.editor.field.file_read') + '/' + t('agent.editor.field.file_write') + '权限',
             <AlertCircle size={18} className="text-orange-500" />,
             <>
               <div className="mb-3 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
                 <p className="text-xs text-orange-400">
-                  ⚠️ 权限配置控制 Agent 对系统资源的访问级别
+                  {t('agent.editor.perm_hint')}
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 {/* 文件读取权限 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">文件读取</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_read')}</label>
                   <select
                     value={config.permissions?.fileRead || 'always'}
                     onChange={(e) => setConfig({
@@ -1662,15 +1672,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('permissions.fileRead')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="always">始终允许</option>
-                    <option value="ask">询问用户</option>
-                    <option value="deny">禁止</option>
+                    <option value="always">{t('agent.editor.perm_always')}</option>
+                    <option value="ask">{t('agent.editor.perm_ask')}</option>
+                    <option value="deny">{t('agent.editor.perm_deny')}</option>
                   </select>
                 </div>
 
                 {/* 文件写入权限 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">文件写入</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_write')}</label>
                   <select
                     value={config.permissions?.fileWrite || 'ask'}
                     onChange={(e) => setConfig({
@@ -1680,15 +1690,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('permissions.fileWrite')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="always">始终允许</option>
-                    <option value="ask">询问用户</option>
-                    <option value="deny">禁止</option>
+                    <option value="always">{t('agent.editor.perm_always')}</option>
+                    <option value="ask">{t('agent.editor.perm_ask')}</option>
+                    <option value="deny">{t('agent.editor.perm_deny')}</option>
                   </select>
                 </div>
 
                 {/* Bash 执行权限 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">Bash 执行</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.bash_exec')}</label>
                   <select
                     value={config.permissions?.bashExec || 'ask'}
                     onChange={(e) => setConfig({
@@ -1698,15 +1708,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('permissions.bashExec')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="always">始终允许</option>
-                    <option value="ask">询问用户</option>
-                    <option value="deny">禁止</option>
+                    <option value="always">{t('agent.editor.perm_always')}</option>
+                    <option value="ask">{t('agent.editor.perm_ask')}</option>
+                    <option value="deny">{t('agent.editor.perm_deny')}</option>
                   </select>
                 </div>
 
                 {/* 网络访问权限 */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">网络访问</label>
+                  <label className="block text-sm font-medium mb-1">{t('agent.editor.field.network')}</label>
                   <select
                     value={config.permissions?.network || 'ask'}
                     onChange={(e) => setConfig({
@@ -1716,9 +1726,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     disabled={!canEdit('permissions.network')}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <option value="always">始终允许</option>
-                    <option value="ask">询问用户</option>
-                    <option value="deny">禁止</option>
+                    <option value="always">{t('agent.editor.perm_always')}</option>
+                    <option value="ask">{t('agent.editor.perm_ask')}</option>
+                    <option value="deny">{t('agent.editor.perm_deny')}</option>
                   </select>
                 </div>
               </div>

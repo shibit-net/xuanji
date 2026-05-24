@@ -4,6 +4,7 @@
 // ============================================================
 
 import React, { useState, useRef } from 'react';
+import { t } from '@/core/i18n';
 import { HelpCircle, Send, Check } from 'lucide-react';
 import {
   Dialog,
@@ -94,15 +95,15 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
           <DialogTitle className="flex items-center gap-3">
             <HelpCircle size={24} className="text-foreground" />
             <div>
-              <span>需要您的输入</span>
-              <DialogDescription className="mt-0.5">Agent 正在等待您的回答</DialogDescription>
+              <span>{t('agent.ask_user.dialog_title')}</span>
+              <DialogDescription className="mt-0.5">{t('agent.ask_user.dialog_desc')}</DialogDescription>
             </div>
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <div className="text-sm font-semibold mb-2">问题</div>
+            <div className="text-sm font-semibold mb-2">{t('agent.ask_user.question_label')}</div>
             <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
               {questionText}
             </div>
@@ -112,7 +113,7 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
           {hasOptions && (
             <div>
               <div className="text-sm font-semibold mb-2">
-                {isMultiSelect ? '多选（选择后点击提交）' : '快速选择'}
+                {isMultiSelect ? t('agent.ask_user.multi_select_label') : t('agent.ask_user.quick_select_label')}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {options!.map((option, index) => {
@@ -147,7 +148,7 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
                   className="w-full mt-2"
                 >
                   <Send size={16} className="mr-2" />
-                  提交选择 ({selectedOptions.size})
+                  {t('agent.ask_user.submit_selection', { count: selectedOptions.size })}
                 </Button>
               )}
             </div>
@@ -156,30 +157,30 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
           {/* 自定义输入 */}
           <div>
             <div className="text-sm font-semibold mb-2">
-              {hasOptions ? '或自定义回答' : '您的回答'}
+              {hasOptions ? t('agent.ask_user.or_custom_answer') : t('agent.ask_user.your_answer')}
             </div>
             <Textarea
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入您的回答..."
+              placeholder={t('agent.ask_user.placeholder')}
               rows={3}
               disabled={loading}
             />
-            <div className="text-xs text-muted-foreground mt-1">Enter 提交 · Shift+Enter 换行</div>
+            <div className="text-xs text-muted-foreground mt-1">{t('agent.ask_user.hint')}</div>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel} disabled={loading}>
-            跳过
+            {t('agent.ask_user.skip')}
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={loading || !answer.trim()}
           >
             <Send size={16} className="mr-2" />
-            提交
+            {t('agent.ask_user.submit')}
           </Button>
         </DialogFooter>
       </DialogContent>

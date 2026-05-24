@@ -262,14 +262,14 @@ export class TaskControlTool extends BaseTool {
     'Manage background agent tasks (started by task or agent_team).',
     '',
     'Actions:',
-    '  status — 查询任务进度和结果。运行中→只汇报进度不轮询；已完成→汇总汇报',
-    '  cancel — 取消运行中的后台任务',
-    '  list   — 列出所有后台任务，按状态分组',
+    '  status — Query task progress and results. Running→report progress only, don\'t poll; Completed→summarize and report',
+    '  cancel — Cancel a running background task',
+    '  list   — List all background tasks, grouped by status',
     '',
     'IMPORTANT:',
-    '  - 状态为"运行中"时不要轮询，系统完成后会自动通知你',
-    '  - agent_team 中个体成员失败不代表团队失败，团队可能仍在运行',
-    '  - 中途修改任务：先 cancel 再重新创建',
+    '  - When status is "running", do NOT poll — the system will auto-notify you upon completion',
+    '  - Individual member failure in agent_team does NOT mean the team has failed — team may still be running',
+    '  - To modify a task mid-flight: cancel first, then re-create',
   ].join('\n');
 
   readonly input_schema: JSONSchema = {
@@ -278,11 +278,11 @@ export class TaskControlTool extends BaseTool {
       action: {
         type: 'string',
         enum: ['status', 'cancel', 'list'],
-        description: 'status=查询指定任务进度, cancel=取消指定任务, list=列出所有后台任务',
+        description: 'status=query task progress, cancel=cancel task, list=list all background tasks',
       },
       groupId: {
         type: 'string',
-        description: '任务组 ID（action=status 或 cancel 时必填）',
+        description: 'Task group ID (required when action=status or cancel)',
       },
     },
     required: ['action'],

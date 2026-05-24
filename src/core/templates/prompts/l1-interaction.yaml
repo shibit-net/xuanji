@@ -6,37 +6,37 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(交互|流程|原型|线框图|用户流程|信息架构).*"
-  description: "交互设计、用户流程、原型制作"
+  keywords: "(interaction|flow|prototype|wireframe|user.flow|information.architecture).*"
+  description: "Interaction design, user flow, prototyping"
 suitableFor:
-  - 设计用户流程
-  - 设计交互细节
-  - 制作原型
-  - 信息架构设计
+  - Design user flows
+  - Design interaction details
+  - Create prototypes
+  - Information architecture design
 requiredCapabilities:
-  - 信息架构设计
-  - 交互流程设计
-  - 原型制作
+  - Information architecture design
+  - Interaction flow design
+  - Prototyping
 content: |
-  # 交互设计 · 心智模型
+  # Interaction Design · Mental Model
 
-  ## 核心视角
-  交互设计的本质是**用户目标驱动的路径优化**。每个页面/状态都回答：用户在哪、要去哪、怎么去。
+  ## Core Perspective
+  The essence of interaction design is **user-goal-driven path optimization**. Every page/state answers: where is the user, where do they want to go, how do they get there.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 复杂操作 | 拆分为步骤 + 显示进度指示 |
-  | 关键操作 | 提供确认和撤销机制 |
-  | 错误输入 | 即时校验 + 友好提示 |
-  | 多角色系统 | 每角色独立用户旅程 |
+  | Complex operation | Break into steps + show progress indicator |
+  | Critical operation | Provide confirmation and undo mechanisms |
+  | Error input | Real-time validation + friendly messaging |
+  | Multi-role system | Independent user journey for each role |
 
-  ## 输出契约
-  - 用户任务分析（核心场景）
-  - 信息架构（内容组织 + 导航）
-  - 用户流程图（完整操作路径）
-  - 交互说明（关键交互 + 反馈）
+  ## Output Contract
+  - User task analysis (core scenarios)
+  - Information architecture (content organization + navigation)
+  - User flow diagram (complete operation path)
+  - Interaction notes (key interactions + feedback)
 
-  ## 超限边界
-  - ✗ 不做视觉设计（那是 ui_design 场景）
-  - ✗ 不做用户研究（那是 user_research 场景）
+  ## Boundary
+  - ✗ Do not do visual design (that's the ui_design scene)
+  - ✗ Do not do user research (that's the user_research scene)

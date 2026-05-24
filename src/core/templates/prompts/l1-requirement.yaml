@@ -6,37 +6,37 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(需求|痛点|场景|用户故事).*(分析|梳理|整理|收集|文档)?"
-  description: "需求分析、用户痛点挖掘、需求文档"
+  keywords: "(requirement|pain point|scenario|user story).*(analysis|sorting|organize|gather|document)?"
+  description: "Requirements analysis, user pain point discovery, requirements documentation"
 suitableFor:
-  - 需求分析
-  - 用户痛点挖掘
-  - 需求文档撰写
-  - 用户故事编写
+  - Requirements analysis
+  - User pain point discovery
+  - Requirements documentation writing
+  - User story writing
 requiredCapabilities:
-  - 用户需求分析
-  - 用户故事编写
-  - 需求文档撰写
+  - User requirements analysis
+  - User story writing
+  - Requirements documentation writing
 content: |
-  # 需求分析 · 心智模型
+  # Requirements Analysis · Mental Model
 
-  ## 核心视角
-  需求的本质是**谁在什么场景下有什么问题需要解决**。
-  区分三层：用户需求（Why）→ 功能需求（What）→ 实现需求（How）。
+  ## Core Perspective
+  The essence of requirements is **who has what problem that needs solving in what scenario**.
+  Distinguish three layers: User needs (Why) → Functional requirements (What) → Implementation requirements (How).
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 需求模糊 | 用 5W1H 追问：Who/What/When/Where/Why/How |
-  | 需求冲突 | 列出冲突点，给出权衡建议 |
-  | 技术需求 | 明确非功能需求（性能/安全/扩展性） |
-  | 验收标准 | 每个需求有可验证的接受条件 |
+  | Vague requirements | Use 5W1H to probe: Who/What/When/Where/Why/How |
+  | Conflicting requirements | List conflict points, provide trade-off suggestions |
+  | Technical requirements | Clarify non-functional requirements (performance/security/scalability) |
+  | Acceptance criteria | Each requirement has verifiable acceptance conditions |
 
-  ## 输出契约
-  - 用户故事（As a... I want... So that...）
-  - 验收标准（Given/When/Then 格式）
-  - 需求约束（业务规则 + 技术限制）
+  ## Output Contract
+  - User stories (As a... I want... So that...)
+  - Acceptance criteria (Given/When/Then format)
+  - Requirements constraints (business rules + technical limitations)
 
-  ## 超限边界
-  - ✗ 不做产品规划（那是 product_plan 场景）
-  - ✗ 不做 UI 设计（那是 ui_design 场景）
+  ## Out of Scope
+  - ✗ Do not do product planning (that is the product_plan scene)
+  - ✗ Do not do UI design (that is the ui_design scene)

@@ -9,7 +9,7 @@
 //   interrupt/append 状态机, TaskCompletionHandler
 // ============================================================
 
-import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message, ToolCall, ToolResult, CompressionResult } from '@/core/types';
+import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { ContextManager } from '@/core/context/ContextManager';
 import { StreamPipeline } from '@/core/stream/StreamPipeline';
@@ -30,7 +30,7 @@ export interface AgentCallbacks {
   onThinking?: (thinking: string) => void;
   onToolStart?: (id: string, name: string, input: Record<string, unknown>) => void;
   onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
-  onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>, contentBlocks?: Array<{ type: 'image'; mimeType: string; data: string }>) => void;
+  onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>, contentBlocks?: import('@/shared/types/tools').ToolResult['contentBlocks']) => void;
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
   onFileChanges?: (changes: import('@/core/types').FileChange[]) => void;
   onUsage?: (usage: TokenUsage) => void;
@@ -68,6 +68,11 @@ export class AgentLoop {
     this._currentSessionKey = key;
   }
 
+  /** 更新当前执行的 agentId，确保 EventBus 事件携带正确的 agent 标识 */
+  setUserId(userId: string): void {
+    this._userId = userId;
+  }
+
   getSessionKey(): string | null {
     return this._currentSessionKey;
   }
@@ -103,6 +108,52 @@ export class AgentLoop {
 
   setSuppressEventBus(v: boolean): void {
     this._suppressEventBus = v;
+  }
+
+  private _setupStreamCallbacks(): void {
+    this.streamPipeline.setInterruptChecker(() => {
+      if (!this.running) return true;
+      if (this._interruptChecker) {
+        if (this._interruptChecker.shouldAbort()) return true;
+        if (this._interruptChecker.shouldStop()) {
+          this.running = false;
+          return true;
+        }
+        return false;
+      }
+      if (this._abortRequested) return true;
+      if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
+        this.running = false;
+        return true;
+      }
+      return false;
+    });
+    this.streamPipeline.on({
+      onText: (text) => {
+        this.log.info(`[DIAG] AgentLoop onText called: len=${text.length} text="${text.substring(0, 50)}"`);
+        this._streamingOutputStarted = true;
+        this._hasOutputInThisRun = true;
+        this.callbacks.onText?.(text);
+        if (!this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId, sessionKey: this._currentSessionKey });
+        }
+      },
+      onThinking: (thinking) => {
+        this.callbacks.onThinking?.(thinking);
+        if (!this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId, sessionKey: this._currentSessionKey });
+        }
+      },
+      onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
+      onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
+      onUsage: (usage) => {
+        this.contextManager.recordUsage(usage);
+        this.callbacks.onUsage?.(usage);
+        if (!this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage, sessionKey: this._currentSessionKey });
+        }
+      },
+    });
   }
 
   /** 注入 ChatSession 的待处理队列引用 */
@@ -184,61 +235,13 @@ export class AgentLoop {
     this._userId = userId;
 
     this.contextManager = new ContextManager(config.maxTokens, config.maxTokens ? Math.floor(config.maxTokens * 0.2) : undefined);
-    this.contextManager.setSystemPrompt(config.systemPrompt ?? '');
+    this.contextManager.updateSystemPrompt(config.systemPrompt ?? '');
 
     this.streamPipeline = new StreamPipeline(provider);
 
     this.toolGateway = new ToolGateway(registry);
 
-    // 中断流式请求：优先 InterruptChecker（Phase 2），回退 _abortRequested / _pendingQueue
-    this.streamPipeline.setInterruptChecker(() => {
-      if (!this.running) return true;
-      if (this._interruptChecker) {
-        if (this._interruptChecker.shouldAbort()) return true;
-        if (this._interruptChecker.shouldStop()) {
-          this.running = false;
-          return true;
-        }
-        return false;
-      }
-      if (this._abortRequested) return true;
-      if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
-        this.running = false;
-        return true;
-      }
-      return false;
-    });
-
-    this.streamPipeline.on({
-      onText: (text) => {
-        this.log.info(`[DIAG] AgentLoop onText called: len=${text.length} text="${text.substring(0, 50)}"`);
-        this._streamingOutputStarted = true;
-        this._hasOutputInThisRun = true;
-        this.callbacks.onText?.(text);
-        if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId, sessionKey: this._currentSessionKey });
-        }
-      },
-      onThinking: (thinking) => {
-        this.callbacks.onThinking?.(thinking);
-        if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId, sessionKey: this._currentSessionKey });
-        }
-      },
-      onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
-      onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
-      onUsage: (usage) => {
-        this.contextManager.recordUsage(usage);
-        this.callbacks.onUsage?.(usage);
-        if (!this._suppressEventBus) {
-          eventBus.emitSync(XuanjiEvent.AGENT_USAGE, {
-            userId: this._userId,
-            tokenUsage: usage,
-            sessionKey: this._currentSessionKey,
-          });
-        }
-      },
-    });
+    this._setupStreamCallbacks();
   }
 
   on(callbacks: AgentCallbacks): void {
@@ -250,7 +253,7 @@ export class AgentLoop {
   }
 
   /** 运行一轮对话（纯 ReAct 循环） */
-  async run(userMessage: string, signal?: AbortSignal, imageBlocks?: Array<{ data: string; mimeType: string }>): Promise<void> {
+  async run(userMessage: string, signal?: AbortSignal, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): Promise<void> {
     if (this.running) {
       this.log.warn('run() called while already running, ignoring');
       return;
@@ -263,11 +266,13 @@ export class AgentLoop {
 
     this.log.info(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} apiKey=${((this.config as any).apiKey || '').substring(0, 8)}... baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}`);
 
-    eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
-      userId: this._userId,
-      model: this.config.model,
-      sessionKey: this._currentSessionKey,
-    });
+    if (!this._suppressEventBus) {
+      eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
+        userId: this._userId,
+        model: this.config.model,
+        sessionKey: this._currentSessionKey,
+      });
+    }
 
     try {
       this.contextManager.setSystemPromptSuffix('', 'delegation-complete');
@@ -277,7 +282,7 @@ export class AgentLoop {
         (permCtrl.setCurrentUserIntent as (msg: string) => void)(userMessage);
       }
 
-      this.contextManager.addUserMessage(userMessage, imageBlocks);
+      this.contextManager.addUserMessage(userMessage, imageBlocks, audioBlocks, videoBlocks);
 
       let lastCompressIteration = 0;
 
@@ -311,12 +316,15 @@ export class AgentLoop {
 
         this._streamingOutputStarted = false;
         const streamConfig = {
-          model: (this.config as any).model?.primary || (this.config as any).model || '',
-          apiKey: (this.config as any).apiKey || '',
-          baseURL: (this.config as any).baseURL || '',
+          model: (this.config as any).model?.primary || (this.config as any).model,
+          apiKey: (this.config as any).apiKey,
+          baseURL: (this.config as any).baseURL,
           maxTokens: this.config.maxTokens,
           thinking: this.thinkingConfig || (this.config as any).thinking,
         };
+        if (!streamConfig.model) {
+          throw new Error(`Agent 模型未配置，请在配置页面设置`);
+        }
         this.log.info(`[DIAG] AgentLoop.run: calling streamPipeline.execute, model=${streamConfig.model} apiKey=${streamConfig.apiKey.substring(0, 8)}... baseURL=${streamConfig.baseURL} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
           signal: signal,
@@ -342,6 +350,18 @@ export class AgentLoop {
         // ▶ 检查点 A：流式输出结束 — 终止或补充输入则跳出
         if (this.checkShouldStop()) break;
 
+        // ▶ 模型原生生成的内容块（图片/音频/视频）转发到 UI
+        const mediaBlocks = (result.contentBlocks as any[]).filter(
+          (b: any) => (b.type === 'image' || b.type === 'audio' || b.type === 'video') && (b.data || b.imageUrl)
+        );
+        if (mediaBlocks.length > 0 && !this._suppressEventBus) {
+          eventBus.emitSync(XuanjiEvent.AGENT_CONTENT_BLOCKS, {
+            contentBlocks: mediaBlocks,
+            agentId: this._userId,
+            sessionKey: this._currentSessionKey,
+          });
+        }
+
         if (!result.toolCalls || result.toolCalls.length === 0) break;
         if (result.stopReason === 'end_turn' && result.toolCalls.length === 0) break;
 
@@ -357,13 +377,15 @@ export class AgentLoop {
 
         for (const tc of result.toolCalls) {
           this.callbacks.onToolStart?.(tc.id, tc.name, tc.input);
-          eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
-            id: tc.id,
-            name: tc.name,
-            input: tc.input,
-            agentId: this._userId,
-            sessionKey: this._currentSessionKey,
-          });
+          if (!this._suppressEventBus) {
+            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
+              id: tc.id,
+              name: tc.name,
+              input: tc.input,
+              agentId: this._userId,
+              sessionKey: this._currentSessionKey,
+            });
+          }
         }
 
         const resultsMap = await this.toolGateway.executeBatch(result.toolCalls, {
@@ -379,16 +401,18 @@ export class AgentLoop {
           const toolResult = resultsMap.get(tc.id);
           if (toolResult) {
             this.callbacks.onToolEnd?.(tc.id, tc.name, toolResult.content, toolResult.isError, toolResult.metadata, toolResult.contentBlocks);
-            eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
-              id: tc.id,
-              name: tc.name,
-              result: toolResult.content,
-              isError: toolResult.isError,
-              agentId: this._userId,
-              sessionKey: this._currentSessionKey,
-              metadata: toolResult.metadata,
-              contentBlocks: toolResult.contentBlocks,
-            });
+            if (!this._suppressEventBus) {
+              eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
+                id: tc.id,
+                name: tc.name,
+                result: toolResult.content,
+                isError: toolResult.isError,
+                agentId: this._userId,
+                sessionKey: this._currentSessionKey,
+                metadata: toolResult.metadata,
+                contentBlocks: toolResult.contentBlocks,
+              });
+            }
             if ((toolResult as any).fileChanges?.length > 0) {
               fileChanges.push(...(toolResult as any).fileChanges);
             }
@@ -397,11 +421,13 @@ export class AgentLoop {
 
         if (fileChanges.length > 0) {
           this.callbacks.onFileChanges?.(fileChanges);
-          eventBus.emitSync(XuanjiEvent.AGENT_FILE_CHANGES, {
-            changes: fileChanges,
-            userId: this._userId,
-            sessionKey: this._currentSessionKey,
-          });
+          if (!this._suppressEventBus) {
+            eventBus.emitSync(XuanjiEvent.AGENT_FILE_CHANGES, {
+              changes: fileChanges,
+              userId: this._userId,
+              sessionKey: this._currentSessionKey,
+            });
+          }
         }
 
         if (this.hookRegistry) {
@@ -531,11 +557,13 @@ export class AgentLoop {
         }).catch(() => {});
       }
 
-      eventBus.emitSync(XuanjiEvent.AGENT_ERROR, {
-        error: err.message,
-        userId: this._userId,
-        sessionKey: this._currentSessionKey,
-      });
+      if (!this._suppressEventBus) {
+        eventBus.emitSync(XuanjiEvent.AGENT_ERROR, {
+          error: err.message,
+          userId: this._userId,
+          sessionKey: this._currentSessionKey,
+        });
+      }
 
       this.callbacks.onError?.(err);
       throw err;
@@ -543,12 +571,14 @@ export class AgentLoop {
       this.log.info(`[DIAG] AgentLoop.run: finally block, hasOutput=${this._hasOutputInThisRun} iterations=${this.currentIteration}`);
       this.running = false;
       this.callbacks.onEnd?.(this.getState());
-      eventBus.emitSync(XuanjiEvent.AGENT_COMPLETED, {
-        userId: this._userId,
-        iterations: this.currentIteration,
-        tokenUsage: this.contextManager.getTokenUsage(),
-        sessionKey: this._currentSessionKey,
-      });
+      if (!this._suppressEventBus) {
+        eventBus.emitSync(XuanjiEvent.AGENT_COMPLETED, {
+          userId: this._userId,
+          iterations: this.currentIteration,
+          tokenUsage: this.contextManager.getTokenUsage(),
+          sessionKey: this._currentSessionKey,
+        });
+      }
     }
   }
 
@@ -562,28 +592,6 @@ export class AgentLoop {
   reset(): void {
     this.contextManager.clear();
     this.currentIteration = 0;
-  }
-
-  async compact(customInstruction?: string): Promise<CompressionResult | null> {
-    const result = await this.contextManager.compress('summarize_early');
-    if (result.compressionRatio > 0) {
-      if (this.hookRegistry) {
-        this.hookRegistry.emit('PostCompact', {
-          originalTokens: result.originalTokens,
-          compressedTokens: result.compressedTokens,
-          compressionRatio: result.compressionRatio,
-          duration: 0,
-        }).catch(() => {});
-      }
-      return {
-        originalTokens: result.originalTokens,
-        compressedTokens: result.compressedTokens,
-        compressionRatio: result.compressionRatio,
-        summary: result.summary,
-        compressed: result.compressed,
-      };
-    }
-    return null;
   }
 
   getState(): AgentState {
@@ -640,49 +648,7 @@ export class AgentLoop {
     if (cfg.provider) {
       this.provider = cfg.provider;
       this.streamPipeline = new StreamPipeline(cfg.provider);
-      this.streamPipeline.setInterruptChecker(() => {
-        if (!this.running) return true;
-        if (this._interruptChecker) {
-          if (this._interruptChecker.shouldAbort()) return true;
-          if (this._interruptChecker.shouldStop()) {
-            this.running = false;
-            return true;
-          }
-          return false;
-        }
-        if (this._abortRequested) return true;
-        if (!this._hasOutputInThisRun && this._pendingQueue !== null && this._pendingQueue.length > 0) {
-          this.running = false;
-          return true;
-        }
-        return false;
-      });
-      this.streamPipeline.on({
-        onText: (text) => {
-          this.log.info(`[DIAG] AgentLoop onText(applyAgentConfig) called: len=${text.length} text="${text.substring(0, 50)}"`);
-          this._streamingOutputStarted = true;
-          this._hasOutputInThisRun = true;
-          this.callbacks.onText?.(text);
-          if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, { text, agentId: this._userId, sessionKey: this._currentSessionKey });
-          }
-        },
-        onThinking: (thinking) => {
-          this.callbacks.onThinking?.(thinking);
-          if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, { content: thinking, agentId: this._userId, sessionKey: this._currentSessionKey });
-          }
-        },
-        onToolStart: (id, name, input) => this.callbacks.onToolStart?.(id, name, input),
-        onToolDelta: (id, name, receivedBytes) => this.callbacks.onToolDelta?.(id, name, receivedBytes),
-        onUsage: (usage) => {
-          this.contextManager.recordUsage(usage);
-          this.callbacks.onUsage?.(usage);
-          if (!this._suppressEventBus) {
-            eventBus.emitSync(XuanjiEvent.AGENT_USAGE, { userId: this._userId, tokenUsage: usage, sessionKey: this._currentSessionKey });
-          }
-        },
-      });
+      this._setupStreamCallbacks();
     }
     if (cfg.systemPrompt !== undefined) {
       this.contextManager.updateSystemPrompt(cfg.systemPrompt);
@@ -711,7 +677,4 @@ export class AgentLoop {
     }
   }
 
-  updateProvider(provider: ILLMProvider): void {
-    this.applyAgentConfig({ provider });
   }
-}

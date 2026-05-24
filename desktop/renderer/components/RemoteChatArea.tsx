@@ -11,6 +11,7 @@ import MessageBubble from './MessageBubble';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type PlatformMessage } from '../stores/platformStore';
 import { useConversationHub } from '../stores/conversationHub';
+import { t } from '@/core/i18n';
 
 export default function RemoteChatArea() {
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
@@ -47,12 +48,28 @@ export default function RemoteChatArea() {
 
     for (const m of platformMessages) {
       if (m.role !== 'user') continue;
+      // 将平台附件转换为 ContentBlock（用于 MessageBubble 渲染）
+      const contentBlocks: any[] | undefined = m.attachments?.map(a => {
+        switch (a.type) {
+          case 'image':
+            return { type: 'image', mimeType: a.mimeType || 'image/png', data: '', imageUrl: a.url, name: a.name };
+          case 'voice':
+          case 'audio':
+            return { type: 'audio', mimeType: a.mimeType || 'audio/mpeg', data: '', name: a.name };
+          case 'video':
+            return { type: 'video', mimeType: a.mimeType || 'video/mp4', data: '', name: a.name };
+          default:
+            return null;
+        }
+      }).filter(Boolean) as any[] | undefined;
+
       items.push({
         id: m.id,
         role: 'user',
-        content: m.text,
+        content: m.text || '',
         timestamp: m.timestamp,
         userName: m.userName,
+        contentBlocks: contentBlocks?.length ? contentBlocks : undefined,
       });
     }
 
@@ -114,28 +131,28 @@ export default function RemoteChatArea() {
   if (!session) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-        会话未找到
+        {t('msg.session_not_found')}
       </div>
     );
   }
 
   const platformLabel =
     session.platform === 'wechat'
-      ? '微信'
+      ? t('sidebar.platform_wechat')
       : session.platform === 'wecom'
-        ? '企业微信'
+        ? t('sidebar.platform_wecom')
         : session.platform === 'feishu'
-          ? '飞书'
-          : '钉钉';
+          ? t('sidebar.platform_feishu')
+          : t('sidebar.platform_dingtalk');
 
   const statusText =
     hubState?.status === 'thinking'
-      ? '思考中...'
+      ? t('agent.status_list.status.thinking')
       : session.status === 'online'
-        ? '已连接'
+        ? t('agent.status_list.status.idle')
         : session.status === 'connecting'
-          ? '连接中'
-          : '离线';
+          ? t('agent.panel.status.waiting')
+          : t('agent.panel.status.idle');
 
   return (
     <div className="flex-1 min-h-0 flex flex-col relative">

@@ -7,6 +7,9 @@ import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, To
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
+/** OpenAI Chat Completions API 支持的图片 MIME 类型 */
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
 /**
  * OpenAI GPT Provider
  * 支持 GPT-4o, GPT-4, GPT-3.5-turbo, o1, o3 等模型
@@ -72,6 +75,8 @@ export class OpenAIProvider extends BaseLLMProvider {
     const toolUseBlocks: ContentBlock[] = [];
     const toolResultBlocks: ContentBlock[] = [];
     const imageBlocks: ContentBlock[] = [];
+    const audioBlocks: ContentBlock[] = [];
+    const videoBlocks: ContentBlock[] = [];
 
     for (const block of blocks) {
       switch (block.type) {
@@ -92,6 +97,12 @@ export class OpenAIProvider extends BaseLLMProvider {
           break;
         case 'image':
           imageBlocks.push(block);
+          break;
+        case 'audio':
+          audioBlocks.push(block);
+          break;
+        case 'video':
+          videoBlocks.push(block);
           break;
       }
     }
@@ -154,18 +165,30 @@ export class OpenAIProvider extends BaseLLMProvider {
         textMsg.reasoning_content = reasoningText;
       }
       // 用户消息含图片时，构造 OpenAI vision 多模态 content 数组
-      if (msg.role === 'user' && imageBlocks.length > 0) {
+      // Note: OpenAI Chat Completions does not natively support audio/video input,
+      // so audio/video blocks are included as text descriptions.
+      if (msg.role === 'user' && (imageBlocks.length > 0 || audioBlocks.length > 0 || videoBlocks.length > 0)) {
         const parts: any[] = [];
         if (combinedText.trim()) {
           parts.push({ type: 'text', text: combinedText.trim() });
         }
         for (const img of imageBlocks) {
-          parts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${img.mimeType || 'image/png'};base64,${img.data || ''}`,
-            },
-          });
+          if (SUPPORTED_IMAGE_TYPES.has(img.mimeType || '')) {
+            parts.push({
+              type: 'image_url',
+              image_url: {
+                url: `data:${img.mimeType || 'image/png'};base64,${img.data || ''}`,
+              },
+            });
+          } else {
+            parts.push({ type: 'text', text: `[Image: ${img.name || img.mimeType || 'image'}]` });
+          }
+        }
+        for (const aud of audioBlocks) {
+          parts.push({ type: 'text', text: `[Audio file: ${aud.name || 'audio'}]` });
+        }
+        for (const vid of videoBlocks) {
+          parts.push({ type: 'text', text: `[Video file: ${vid.name || 'video'}]` });
         }
         textMsg.content = parts;
       } else {

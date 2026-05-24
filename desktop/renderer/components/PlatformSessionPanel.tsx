@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Wifi, WifiOff, Send, Maximize2, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type RemoteSession } from '../stores/platformStore';
+import { t } from '@/core/i18n';
 
 interface PlatformSessionPanelProps {
   session: RemoteSession | null;
@@ -20,8 +21,8 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
   if (!session) {
     return (
       <div className="p-4 text-center text-muted-foreground text-sm">
-        <p className="mb-2">选择一个远端会话查看详情</p>
-        <p className="text-xs">侧边栏点击 📡 图标进入</p>
+        <p className="mb-2">{t('platform.panel.select_hint')}</p>
+        <p className="text-xs">{t('platform.panel.select_hint_more')}</p>
       </div>
     );
   }
@@ -62,15 +63,15 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
           </span>
         </div>
         <div className="text-xs text-muted-foreground space-y-1">
-          <div>平台: {session.platform}</div>
-          <div>用户ID: {session.userId}</div>
-          <div className="truncate">会话Key: {session.sessionKey}</div>
-          <div>消息数: {messages.length}</div>
-          <div>状态: {
-            session.status === 'online' ? '🟢 已连接' :
-            session.status === 'connecting' ? '🟡 连接中' :
-            '⚫ 离线'
-          }</div>
+          <div>{t('platform.panel.field_platform', { name: session.platform })}</div>
+          <div>{t('platform.panel.field_user_id', { id: session.userId })}</div>
+          <div className="truncate">{t('platform.panel.field_session_key', { key: session.sessionKey })}</div>
+          <div>{t('platform.panel.field_message_count', { count: messages.length })}</div>
+          <div>{t('platform.panel.field_status', { status:
+            session.status === 'online' ? t('platform.panel.status_online') :
+            session.status === 'connecting' ? t('platform.panel.status_connecting') :
+            t('platform.panel.status_offline')
+          })}</div>
         </div>
       </div>
 
@@ -80,7 +81,7 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
           <input
             type="text"
             className="flex-1 px-2 py-1 text-xs border border-border rounded bg-background"
-            placeholder="输入回复..."
+            placeholder={t('platform.panel.reply_placeholder')}
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleSendReply(); }}
@@ -96,7 +97,7 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
           onClick={handleDisconnect}
         >
           <Unplug size={14} className="mr-2" />
-          断开连接
+          {t('platform.panel.disconnect')}
         </Button>
       </div>
 

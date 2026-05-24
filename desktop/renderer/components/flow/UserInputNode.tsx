@@ -4,6 +4,7 @@
 
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { UserInputNodeData } from '../../utils/flow/FlowNodeTypes';
+import { t } from '@/core/i18n';
 
 export function UserInputNode({ data }: NodeProps<UserInputNodeData>) {
   return (
@@ -29,7 +30,7 @@ export function UserInputNode({ data }: NodeProps<UserInputNodeData>) {
 
       {/* 消息内容 */}
       <div className="flex-1 min-w-0">
-        <span className="text-[9px] text-muted-foreground/50 block leading-none mb-0.5">用户输入</span>
+        <span className="text-[9px] text-muted-foreground/50 block leading-none mb-0.5">{t('flow.user_input.label')}</span>
         <p className="text-[11px] text-foreground/70 truncate leading-tight">
           {data.content}
         </p>

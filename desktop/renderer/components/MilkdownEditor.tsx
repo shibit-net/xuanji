@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
+import { t } from '@/core/i18n';
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx } from '@milkdown/kit/core';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
@@ -53,7 +54,7 @@ function CodeCopyButton({ code }: { code: string }) {
       variant="ghost"
       size="icon"
       className="absolute top-2 right-2 h-7 w-7 bg-bg-tertiary/80 opacity-0 group-hover:opacity-100"
-      title="复制代码"
+      title={t('milkdown.copy_code')}
     >
       {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-text-secondary" />}
     </Button>

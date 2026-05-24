@@ -10,6 +10,7 @@
 
 import { useMessageStore } from '../stores/messageStore';
 import { Activity } from 'lucide-react';
+import { t } from '@/core/i18n';
 
 export default function ExecutionWorkspace() {
   const messages = useMessageStore((state) => state.messages);
@@ -88,10 +89,10 @@ export default function ExecutionWorkspace() {
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 text-gray-400">
             <div className="w-2 h-2 bg-gray-600 rounded-full" />
-            <span>待命中</span>
+            <span>{t('executionflow.waiting')}</span>
           </div>
           <div className="text-gray-500">
-            实时显示 · 拟人化交互
+            {t('executionflow.real_time_display')}
           </div>
         </div>
       </div>

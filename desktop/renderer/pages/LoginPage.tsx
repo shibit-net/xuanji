@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '../stores/authStore';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 import loginBg from '../assets/logos/b7aa923993c0b15b70c96f2edc3df0fc.png';
 
 export default function LoginPage() {
@@ -43,6 +45,8 @@ export default function LoginPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const language = useConfigStore((s) => s.settings.language as 'zh' | 'en');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
@@ -56,7 +60,7 @@ export default function LoginPage() {
 
   const handleRemoveAccount = async (e: React.MouseEvent, accountEmail: string) => {
     e.stopPropagation();
-    if (confirm(`确定要移除账号 ${accountEmail} 吗？`)) {
+    if (confirm(getDesktopLabel('login.remove_account_confirm', language).replace('{account}', accountEmail))) {
       await removeAccount(accountEmail);
     }
   };
@@ -66,13 +70,21 @@ export default function LoginPage() {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     if (diff < 24 * 60 * 60 * 1000 && date.getDate() === now.getDate()) {
-      return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      return getDesktopLabel('login.last_login_today', language).replace('{time}', date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
     }
     if (diff < 48 * 60 * 60 * 1000) {
-      return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      return getDesktopLabel('login.last_login_yesterday', language).replace('{time}', date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
     }
     if (diff < 7 * 24 * 60 * 60 * 1000) {
-      const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+      const days = [
+        getDesktopLabel('login.day_sun', language),
+        getDesktopLabel('login.day_mon', language),
+        getDesktopLabel('login.day_tue', language),
+        getDesktopLabel('login.day_wed', language),
+        getDesktopLabel('login.day_thu', language),
+        getDesktopLabel('login.day_fri', language),
+        getDesktopLabel('login.day_sat', language),
+      ];
       return days[date.getDay()] + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     }
     return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
@@ -95,10 +107,10 @@ export default function LoginPage() {
               <img src={loginBg} alt="Xuanji" className="w-full h-full object-cover" />
             </div>
             <CardTitle className="text-2xl font-display font-semibold tracking-tight">
-              欢迎
+              {getDesktopLabel('login.welcome', language)}
             </CardTitle>
             <CardDescription className="text-sm mt-1.5">
-              请登录以继续使用 Xuanji
+              {getDesktopLabel('login.desc', language)}
             </CardDescription>
           </CardHeader>
 
@@ -111,13 +123,13 @@ export default function LoginPage() {
               )}
 
               <div className="relative" ref={dropdownRef}>
-                <label className="block text-xs text-muted-foreground mb-2">邮箱</label>
+                <label className="block text-xs text-muted-foreground mb-2">{getDesktopLabel('login.email_label', language)}</label>
                 <Input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onFocus={() => savedAccounts.length > 0 && setShowDropdown(true)}
-                  placeholder="your@email.com"
+                  placeholder={getDesktopLabel('login.email_placeholder', language)}
                   required
                   disabled={isLoading}
                 />
@@ -164,13 +176,13 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-muted-foreground mb-2">密码</label>
+                <label className="block text-xs text-muted-foreground mb-2">{getDesktopLabel('login.password_label', language)}</label>
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={getDesktopLabel('login.password_placeholder', language)}
                     required
                     disabled={isLoading}
                     className="pr-10"
@@ -208,9 +220,9 @@ export default function LoginPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    登录中...
+                    {getDesktopLabel('login.logging_in', language)}
                   </>
-                ) : '登录'}
+                ) : getDesktopLabel('login.button', language)}
               </Button>
             </form>
 
@@ -221,7 +233,7 @@ export default function LoginPage() {
                 rel="noopener noreferrer"
                 className="text-xs text-primary/60 hover:text-primary transition-colors underline underline-offset-2"
               >
-                没有账号？立即注册
+                {getDesktopLabel('login.register', language)}
               </a>
             </div>
           </CardContent>

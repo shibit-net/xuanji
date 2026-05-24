@@ -49,22 +49,22 @@ export class LearnTool extends BaseTool {
       trigger: {
         type: 'string',
         enum: ['goal', 'conversation'],
-        description: '触发模式。goal=主动学习（需 goal 参数），conversation=从对话中提炼经验（需 context 参数）',
+        description: 'Trigger mode. goal=active learning (requires goal param), conversation=extract experience from conversation (requires context param)',
         default: 'goal',
       },
       context: {
         type: 'object',
-        description: '对话上下文（trigger=conversation 时必填）。包含 userMessage, outcomeSummary, toolsUsed, errors',
+        description: 'Conversation context (required when trigger=conversation). Contains userMessage, outcomeSummary, toolsUsed, errors',
         properties: {
-          userMessage: { type: 'string', description: '用户原始消息' },
-          outcomeSummary: { type: 'string', description: '对话结果摘要' },
-          toolsUsed: { type: 'array', items: { type: 'string' }, description: '使用的工具列表' },
-          errors: { type: 'array', items: { type: 'string' }, description: '遇到的错误' },
+          userMessage: { type: 'string', description: 'Original user message' },
+          outcomeSummary: { type: 'string', description: 'Conversation outcome summary' },
+          toolsUsed: { type: 'array', items: { type: 'string' }, description: 'List of tools used' },
+          errors: { type: 'array', items: { type: 'string' }, description: 'Errors encountered' },
         },
       },
       scene_tag: {
         type: 'string',
-        description: '场景标签',
+        description: 'Scene tag',
       },
     },
   };

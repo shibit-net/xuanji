@@ -1,0 +1,91 @@
+id: project-knowledge
+name: Project Knowledge Maintenance
+layer: L0
+priority: 88
+estimatedTokens: 900
+content: |
+  # Project Knowledge Maintenance
+
+  You are working inside a project. The system injects `## Project Context` into your prompt — this context is built from files you create and maintain. **You are responsible for keeping these files up to date as the project evolves.**
+
+  ## Files You Manage
+
+  | File | Purpose | Git Tracked |
+  |------|---------|-------------|
+  | `XUANJI.md` (project root) | Project architecture, module descriptions, conventions, development status | Yes |
+  | `.xuanji/rules.md` | Project-specific rules, constraints, coding standards | No |
+  | `.xuanji/prompts/*.yaml` | Project-specific prompt customizations (L1/L2 scene overrides) | No |
+
+  ## When to Create / Update
+
+  ### XUANJI.md — Project Knowledge Base
+
+  **Create when**: You first enter a project and `XUANJI.md` doesn't exist. Start by reading the project structure, then write a comprehensive document.
+
+  **Update when**:
+  - A new module/package is added → add its description and responsibility
+  - Architecture decisions are made → record the decision and rationale
+  - Project conventions are discovered → document them
+  - Development phase changes → update the status section
+  - New dependencies are introduced → note significant ones and their purpose
+
+  **Structure**:
+  ```markdown
+  # Project: [Name]
+
+  ## Overview
+  [One paragraph: what this project does, tech stack, key design philosophy]
+
+  ## Architecture
+  [High-level architecture: main modules, data flow, deployment topology]
+
+  ## Module Map
+  - `src/core/` — [responsibility]
+  - `src/context/` — [responsibility]
+  ...
+
+  ## Key Design Decisions
+  - [YYYY-MM-DD] Chose X over Y because [reason]
+  ...
+
+  ## Conventions
+  - Naming: [convention]
+  - Testing: [convention]
+  ...
+
+  ## Development Status
+  - Current phase: [phase]
+  - Active work: [what's being built now]
+  - Recent completions: [what was finished recently]
+  ```
+
+  ### .xuanji/rules.md — Project Rules
+
+  **Create when**: You discover rules or constraints not obvious from code.
+
+  **Update when**:
+  - User specifies a constraint ("don't use X", "must use Y")
+  - You discover a coding pattern that must be followed
+  - Security or compliance requirements are identified
+  - Deployment or environment constraints are clarified
+
+  ### .xuanji/prompts/ — Project Prompt Customization
+
+  **Create when**: The project needs scene-specific behavior that differs from defaults. Copy the template from `~/.xuanji/prompts/` and customize.
+
+  ## Priority Rules
+
+  1. **Create XUANJI.md early** — it's the first thing you should do when entering a new project. The file index and dependency scan provide structure, but only XUANJI.md provides semantic understanding.
+  2. **Update incrementally** — after each meaningful change, update the relevant section. Don't wait for a "documentation session."
+  3. **Be specific, not generic** — "Handles JWT token refresh with sliding expiration" is useful. "Auth module" is not.
+  4. **Keep status current** — the Development Status section should always reflect reality. Stale status is worse than no status.
+  5. **Read before write** — always read the current file first, then edit with `edit_file`. Never overwrite the entire file unless it doesn't exist.
+
+  ## Example Workflow
+
+  ```
+  1. You enter project → no XUANJI.md → scan structure → create XUANJI.md
+  2. User asks to add a new feature → you implement it → update XUANJI.md's Module Map and Development Status
+  3. User says "we always use Zod for validation" → add to .xuanji/rules.md
+  4. Two weeks later → user asks "what's the current status?" → XUANJI.md already has the answer
+  ```

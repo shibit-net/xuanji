@@ -89,7 +89,7 @@
         "showThinking": {
           "type": "boolean",
           "description": "是否显示思考过程",
-          "default": false
+          "default": true
         }
       }
     },
@@ -222,28 +222,6 @@
           "minimum": 1,
           "maximum": 10,
           "default": 2
-        }
-      }
-    },
-    "memory": {
-      "type": "object",
-      "description": "记忆系统配置",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        },
-        "shortTermMaxEntries": {
-          "type": "integer",
-          "minimum": 10,
-          "maximum": 10000,
-          "default": 100
-        },
-        "longTermMaxEntries": {
-          "type": "integer",
-          "minimum": 100,
-          "maximum": 100000,
-          "default": 1000
         }
       }
     },

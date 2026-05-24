@@ -56,24 +56,24 @@ export class MultiEditTool extends BaseTool {
           properties: {
             path: {
               type: 'string',
-              description: '文件路径',
+              description: 'File path',
             },
             old_string: {
               type: 'string',
-              description: '要被替换的原始字符串',
+              description: 'The original string to be replaced',
             },
             new_string: {
               type: 'string',
-              description: '替换后的新字符串',
+              description: 'The new string to replace with',
             },
             replace_all: {
               type: 'boolean',
-              description: '是否替换所有匹配项（默认 false）',
+              description: 'Whether to replace all occurrences (default false)',
             },
           },
           required: ['path', 'old_string', 'new_string'],
         },
-        description: '编辑操作数组',
+        description: 'Array of edit operations',
       },
     },
     required: ['edits'],

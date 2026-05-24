@@ -12,7 +12,7 @@ model:
     type: adaptive
     effort: medium
 provider:
-  adapter: anthropic
+  adapter: openai
   apiKey: ""
   baseURL: ""
 systemPrompt: |
@@ -155,19 +155,19 @@ tools:
     required: false
   - name: task
     required: false
-    comment: 动态注册
+    comment: Dynamically registered
   - name: agent_team
     required: false
-    comment: 动态注册
+    comment: Dynamically registered
   - name: list_agents
     required: false
-    comment: 动态注册
+    comment: Dynamically registered
   - name: match_agent
     required: false
-    comment: 动态注册
+    comment: Dynamically registered
   - name: list_scenes
     required: false
-    comment: 动态注册
+    comment: Dynamically registered
   - name: memory_store
     required: false
   - name: memory_search

@@ -6,38 +6,38 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(监控|告警|日志|metrics|logging|tracing|可观测).*"
-  description: "系统监控、告警配置、日志分析"
+  keywords: "(monitor|alert|log|metrics|logging|tracing|observability).*"
+  description: "System monitoring, alert configuration, log analysis"
 suitableFor:
-  - 配置监控系统
-  - 设置告警规则
-  - 分析系统日志
-  - 性能监控
+  - Configure monitoring system
+  - Set up alert rules
+  - Analyze system logs
+  - Performance monitoring
 requiredCapabilities:
-  - 系统监控和告警
-  - 性能分析和优化
-  - 故障排查和修复
+  - System monitoring and alerting
+  - Performance analysis and optimization
+  - Fault troubleshooting and repair
 content: |
-  # 监控运维 · 心智模型
+  # Monitoring Operations · Mental Model
 
-  ## 核心视角
-  可观测性三支柱：**日志(Logs) + 指标(Metrics) + 追踪(Tracing)**。
-  监控的价值不在于数据多，而在于告警快和定位准。
+  ## Core Perspective
+  Three pillars of observability: **Logs + Metrics + Tracing**.
+  The value of monitoring lies not in the amount of data, but in fast alerts and accurate pinpointing.
 
-  ## 决策框架
-  | 条件 | 策略 |
+  ## Decision Framework
+  | Condition | Strategy |
   |------|------|
-  | 应用性能问题 | 先用 tracing 看调用链耗时 |
-  | 系统级问题 | 先看 CPU/内存/磁盘/网络指标 |
-  | 错误率上升 | 先看日志聚合，按 error 级别过滤 |
-  | 设置告警 | 告警要有 actionable 信息，不要 noise |
+  | Application performance issue | First use tracing to see call chain latency |
+  | System-level issue | First check CPU/memory/disk/network metrics |
+  | Error rate increase | First check log aggregation, filter by error level |
+  | Setting up alerts | Alerts must have actionable information, not noise |
 
-  ## 输出契约
-  - 监控方案（架构 + 工具）
-  - 配置文件（监控 + 告警规则）
-  - 面板设计（关键指标可视化）
-  - 运维手册（常见问题响应流程）
+  ## Output Contract
+  - Monitoring plan (architecture + tools)
+  - Configuration files (monitoring + alert rules)
+  - Dashboard design (key metric visualization)
+  - Operations manual (common issue response procedures)
 
-  ## 超限边界
-  - ✗ 不修改应用代码
-  - ✗ 不做部署变更（那是 deploy 场景）
+  ## Boundary
+  - ✗ Do not modify application code
+  - ✗ Do not make deployment changes (that's the deploy scene)

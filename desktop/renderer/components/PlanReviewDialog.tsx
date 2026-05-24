@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import MilkdownEditor from './MilkdownEditor';
 import type { PlanReviewRequestData } from '../global';
+import { t } from '@/core/i18n';
 
 interface PlanReviewDialogProps {
   request: PlanReviewRequestData;
@@ -30,7 +31,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
   // 兼容运行时：类型定义是 plan/filePath，旧代码用 content/title
   const r = request as any;
   const planContent = r.content || r.plan || '';
-  const planTitle = r.title || '执行计划审查';
+  const planTitle = r.title || t('plan.default_title');
 
   const handleRespond = async (action: 'approve' | 'reject' | 'supplement', supplementText?: string) => {
     setLoading(true);
@@ -62,7 +63,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
             <FileText size={24} className="text-foreground" />
             <div>
               <span>{planTitle}</span>
-              <DialogDescription className="mt-0.5">请审查以下执行计划</DialogDescription>
+              <DialogDescription className="mt-0.5">{t('plan.review_desc')}</DialogDescription>
             </div>
           </DialogTitle>
         </DialogHeader>
@@ -75,11 +76,11 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
           {/* 补充说明输入框 */}
           {showSupplementInput && (
             <div className="mt-4">
-              <label className="block text-sm font-semibold mb-2">补充说明</label>
+              <label className="block text-sm font-semibold mb-2">{t('plan.supplement_label')}</label>
               <Textarea
                 value={supplement}
                 onChange={(e) => setSupplement(e.target.value)}
-                placeholder="输入补充说明或修改建议..."
+                placeholder={t('plan.supplement_placeholder')}
                 rows={4}
                 disabled={loading}
               />
@@ -94,7 +95,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
             disabled={loading}
           >
             <MessageSquare size={16} className="mr-2" />
-            {showSupplementInput ? '取消补充' : '补充说明'}
+            {showSupplementInput ? t('plan.btn_cancel_supplement') : t('plan.btn_supplement')}
           </Button>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -103,8 +104,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
               onClick={() => handleRespond('reject')}
               disabled={loading}
             >
-              <MessageSquare size={16} className="mr-2" />
-              拒绝
+              {t('plan.btn_reject')}
             </Button>
 
             {showSupplementInput ? (
@@ -113,8 +113,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
                 onClick={handleSupplement}
                 disabled={loading || !supplement.trim()}
               >
-                <MessageSquare size={16} className="mr-2" />
-                提交补充
+                {t('plan.btn_submit_supplement')}
               </Button>
             ) : (
               <Button
@@ -122,8 +121,7 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
                 onClick={() => handleRespond('approve')}
                 disabled={loading}
               >
-                <MessageSquare size={16} className="mr-2" />
-                批准执行
+                {t('plan.btn_approve')}
               </Button>
             )}
           </div>

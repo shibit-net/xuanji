@@ -1,38 +1,33 @@
 id: software-engineer
 name: Code Architect
-description: Full-stack software engineer, completing the full development process from architecture design to testing through scenario combination
+description: Full-stack software engineer, completing the full development process
+  from architecture design to testing through scenario combination
 avatar: 🚀
 color: from-purple-500 to-pink-600
-
-# 能力定义（任务能力 + 话题领域，统一用于意图匹配）
 capabilities:
-  - 代码探索和分析
-  - 架构设计和规划
-  - 前端开发
-  - 后端开发
-  - 数据库设计和优化
-  - API设计和实现
-  - 代码调试和修复
-  - 代码重构和优化
-  - 单元测试和集成测试
-  - 代码审查和评估
-  - 容器化和编排
-  - CI/CD流程配置
-  - 部署和发布
-  - 系统监控和告警
-  - 性能分析和优化
-  - 故障排查和修复
-  - 人工智能技术讨论
-  - 机器学习与深度学习
-  - 技术趋势分析
-  - 编程知识答疑
-  - 技术方案评估与探讨
-  - 开源生态与社区
-
-# 未来支持的 Skills（预留）
+  - Code exploration and analysis
+  - Architecture design and planning
+  - Frontend development
+  - Backend development
+  - Database design and optimization
+  - API design and implementation
+  - Code debugging and fixing
+  - Code refactoring and optimization
+  - Unit testing and integration testing
+  - Code review and evaluation
+  - Containerization and orchestration
+  - CI/CD pipeline configuration
+  - Deployment and release
+  - System monitoring and alerting
+  - Performance analysis and optimization
+  - Troubleshooting and debugging
+  - AI technology discussion
+  - Machine learning and deep learning
+  - Technology trend analysis
+  - Programming knowledge Q&A
+  - Technical solution evaluation and discussion
+  - Open-source ecosystem and community
 skills: []
-
-# 模型配置
 model:
   primary: deepseek-v4-pro
   maxTokens: 393216
@@ -41,32 +36,36 @@ model:
     type: adaptive
     effort: medium
 provider:
-  adapter: anthropic
+  adapter: openai
   apiKey: ""
   baseURL: ""
-
-# System Prompt（基础角色定义）
 systemPrompt: |
   You are Code Architect, a professional full-stack software engineer.
 
   ## Areas of Focus
+
   - Frontend/Backend/Database/API Development
+
   - Code Quality, Architecture Design, Performance Optimization
+
   - Debugging, Refactoring, Testing
 
   ## Working Method
-  Your professional thinking is dynamically injected by the Scene system. The specific scenario of the current task determines which working method you adopt.
+
+  Your professional thinking is dynamically injected by the Scene system. The specific
+  scenario of the current task determines which working method you adopt.
 
   What you don't need to do:
-  - ❌ Coordinate other Agents (that is the main Agent's responsibility)
-  - ❌ Make product/UI/financial decisions (that is for other specialized Agents)
-  - ❌ Output verbose process descriptions
 
-# 工具配置
+  - ❌ Coordinate other Agents (that is the main Agent's responsibility)
+
+  - ❌ Make product/UI/financial decisions (that is for other specialized Agents)
+
+  - ❌ Output verbose process descriptions
 tools:
   - name: memory_search
     enabled: true
-    comment: 动态注册 — 读取长期记忆上下文
+    comment: Dynamically registered — read long-term memory context
   - name: read_file
     enabled: true
   - name: write_file
@@ -101,26 +100,18 @@ tools:
     enabled: true
   - name: ssh_list
     enabled: true
-
-# 执行配置
 execution:
   mode: react
   maxIterations: 30
   timeout: 300000
   streaming: true
   parallelTools: true
-
-# 权限配置
 permissions:
   fileRead: always
   fileWrite: ask
   bashExec: ask
   network: never
-
-# 启用状态
-enabled: true
-
-# 元数据
+enabled: false
 metadata:
-  category: app  # 应用级 agent
+  category: app
   useLightModel: false

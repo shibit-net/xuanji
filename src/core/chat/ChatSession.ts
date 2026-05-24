@@ -43,7 +43,9 @@ export class ChatSession {
   // Phase 2 状态机路径
   private _stateMachine: SessionStateMachine | null = null;
   private _useNewPath: boolean = false;
-  private _pendingImageBlocks?: Array<{ data: string; mimeType: string }>;
+  private _pendingImageBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
+  private _pendingAudioBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
+  private _pendingVideoBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
 
   constructor(
     agentLoop: AgentLoop,
@@ -97,8 +99,10 @@ export class ChatSession {
   }
 
   async run(input: string, opts?: { fromDrain?: boolean }): Promise<void> {
-    const imageBlocks = opts?.fromDrain ? undefined : this._pendingImageBlocks;
-    this._pendingImageBlocks = undefined;
+    const imageBlocks = this._pendingImageBlocks;
+    const audioBlocks = this._pendingAudioBlocks;
+    const videoBlocks = this._pendingVideoBlocks;
+    // 仅在确认消费时清理 pending blocks；re-entrancy 时保留供 drainPendingQueue 消费
     // 防止 re-entrancy：如果 AgentLoop 仍在运行，入队而非启动新轮次
     // fromDrain=true 时跳过守卫 —— drainPendingQueue 在 agentLoop 刚结束后调用，
     // 不需要再次检查，且检查可能导致消息被错误重排队而永久卡死
@@ -111,6 +115,10 @@ export class ChatSession {
       }
       return;
     }
+    // 确认消费：清理 pending blocks
+    this._pendingImageBlocks = undefined;
+    this._pendingAudioBlocks = undefined;
+    this._pendingVideoBlocks = undefined;
 
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
@@ -161,7 +169,7 @@ export class ChatSession {
       this.repairOrphanedToolUse();
 
       log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
-      await this.agentLoop.run(input, undefined, imageBlocks);
+      await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks);
       log.info('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint + 渠道标识
@@ -241,7 +249,9 @@ export class ChatSession {
    */
   private postToolUseFallback(toolName: string, _ctx: { id: string; result: string; isError: boolean }): void {
     const subAgentTools = ['task', 'agent_team'];
-    if (!subAgentTools.includes(toolName)) return;
+    // 直接文件写入和命令执行也是开发活动的关键信号，触发记忆提取
+    const devTools = ['write_file', 'edit_file', 'bash'];
+    if (!subAgentTools.includes(toolName) && !devTools.includes(toolName)) return;
 
     const contextManager = this.agentLoop.getContextManager();
     const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
@@ -407,12 +417,6 @@ export class ChatSession {
         systemPrompt = result.prompt;
       }
 
-      const flag = process.env.USE_DYNAMIC_FOREGROUND_AGENT;
-      if (flag !== 'true') {
-        this.setCurrentAgent(agentId);
-        return;
-      }
-
       const registry = this.getAgentRegistry();
       const agentConfig = registry.get(agentId);
       if (!agentConfig) {
@@ -422,6 +426,7 @@ export class ChatSession {
       }
 
       this._currentAgentId = agentId;
+      this.agentLoop.setUserId(agentId);
       log.info(`Switching foreground agent to: ${agentId} (scene=${scene}, complexity=${complexity})`);
 
       if (agentConfig.systemPrompt) {
@@ -430,16 +435,21 @@ export class ChatSession {
           : agentConfig.systemPrompt;
       }
 
-      // 2. 工具过滤：按 agent 的 tools 配置 + 自动补齐
-      const yamlTools = agentConfig.tools.filter(t => t.enabled !== false).map(t => t.name);
-      const { augmentToolList } = await import('@/core/tools/FilteredToolRegistry');
-      const toolNames = augmentToolList(yamlTools, complexity);
+      // 2. 通过 AgentFactory 统一解析 provider + 工具列表
+      const agentFactory = await this.container.resolve('agentFactory') as import('@/core/agent/factory/AgentFactory').AgentFactory;
+      const { provider: newProvider, toolNames } = agentFactory.resolveAgentComponents(agentId, complexity);
+
       const baseRegistry = this.getBaseRegistry();
       const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
       const toolRegistry: IToolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
 
-      // 3. 应用配置到 AgentLoop
+      // 3. 应用 agent 自身配置到 AgentLoop
+      const agentProvider = agentConfig.provider;
+
       this.agentLoop.applyAgentConfig({
+        provider: newProvider,
+        apiKey: agentProvider?.apiKey,
+        baseURL: agentProvider?.baseURL,
         systemPrompt,
         toolRegistry,
         model: agentConfig.model.primary,
@@ -469,9 +479,15 @@ export class ChatSession {
    * 不再强制中断当前工具执行。用户新消息会被注入到 AgentLoop 的迭代边界检查点。
    * 终止请使用 stop() 或 requestAbort()。
    */
-  handleUserInput(input: string, imageBlocks?: Array<{ data: string; mimeType: string }>): 'running' | 'queued' | 'interrupted' {
+  handleUserInput(input: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): 'running' | 'queued' | 'interrupted' {
     if (imageBlocks) {
       this._pendingImageBlocks = imageBlocks;
+    }
+    if (audioBlocks) {
+      this._pendingAudioBlocks = audioBlocks;
+    }
+    if (videoBlocks) {
+      this._pendingVideoBlocks = videoBlocks;
     }
     const state = this.stateTracker.getState();
     const agentLoopStatus = this.agentLoop.getState().status;
@@ -519,15 +535,21 @@ export class ChatSession {
    * flag off 时委托旧方法 (handleUserInput / interrupt)。
    * flag on 时走状态机 transition → 执行 SessionAction。
    */
-  async userAction(action: { type: string; message?: string; imageBlocks?: Array<{ data: string; mimeType: string }> }): Promise<void> {
-    // 存储 imageBlocks 供 run() 使用（新旧路径均需）
+  async userAction(action: { type: string; message?: string; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }> }): Promise<void> {
+    // 存储 content blocks 供 run() 使用（新旧路径均需）
     if (action.imageBlocks) {
       this._pendingImageBlocks = action.imageBlocks;
+    }
+    if (action.audioBlocks) {
+      this._pendingAudioBlocks = action.audioBlocks;
+    }
+    if (action.videoBlocks) {
+      this._pendingVideoBlocks = action.videoBlocks;
     }
     if (!this._useNewPath || !this._stateMachine) {
       // 回退到旧路径
       if (action.type === 'SEND_MESSAGE' && action.message) {
-        this.handleUserInput(action.message, action.imageBlocks);
+        this.handleUserInput(action.message, action.imageBlocks, action.audioBlocks, action.videoBlocks);
       } else if (action.type === 'INTERRUPT') {
         this.interrupt(action.message ?? '');
       }
@@ -553,7 +575,7 @@ export class ChatSession {
         await this.run(result.message);
         break;
       case 'ABORT_AGENT':
-        this.agentLoop.requestAbort();
+        this.agentLoop.stop();
         break;
       case 'QUEUE_ONLY':
         eventBus.emitSync('queue:message-queued');

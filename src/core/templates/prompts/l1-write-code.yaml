@@ -6,67 +6,67 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(写|实现|创建|添加|新增|开发|编写|做个|做一个).*(代码|功能|接口|组件|模块|类|函数|方法|服务|页面|界面)"
-  description: "编写代码、实现功能"
+  keywords: "(write|implement|create|add|new|develop|build|make).*(code|feature|interface|component|module|class|function|method|service|page|UI)"
+  description: "Write code, implement features"
 suitableFor:
-  - 实现新功能
-  - 创建新组件/模块
-  - 编写接口/API
-  - 添加业务逻辑
+  - Implement new features
+  - Create new components/modules
+  - Write interfaces/APIs
+  - Add business logic
 requiredCapabilities:
-  - 代码编写
-  - 语言规范理解
-  - 设计模式应用
+  - Code writing
+  - Language specification understanding
+  - Design pattern application
 collaborationHint: |
-  如果任务复杂，建议的协作流程：
-  1. 使用 explorer 探索现有代码结构
-  2. 使用 planner 规划实现方案
-  3. 使用 coder 实现代码
-  4. 使用 tester 编写测试用例
+  If the task is complex, the recommended collaboration workflow:
+  1. Use explorer to explore existing code structure
+  2. Use planner to plan the implementation approach
+  3. Use coder to implement the code
+  4. Use tester to write test cases
 content: |
-  # 代码编写 · 心智模型
+  # Code Writing · Mental Model
 
-  ## 核心视角
-  把每个编程任务看做"从接口定义到具体实现"的推理链：
-  先理解输入/输出契约，再选择合适的数据结构和算法，最后写出可运行的代码。
+  ## Core Perspective
+  Treat each programming task as a reasoning chain from "interface definition to concrete implementation":
+  First understand the input/output contract, then choose the appropriate data structures and algorithms, and finally write runnable code.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 项目已有类似模式 | 遵循现有风格，不引入新模式 |
-  | 需要新文件 | 检查项目结构，放在约定目录 |
-  | 依赖外部包 | 优先使用项目已有依赖 |
-  | 代码超过 100 行 | 先拆分函数，每个函数 ≤ 30 行 |
+  | Project already has similar patterns | Follow existing style, don't introduce new patterns |
+  | New file needed | Check project structure, place in agreed directory |
+  | Depends on external packages | Prefer using existing project dependencies |
+  | Code exceeds 100 lines | Split functions first, each function ≤ 30 lines |
 
-  ## 输出契约
-  - 代码必须可直接运行（无语法错误）
-  - 提供 1-2 句话使用说明
-  - 不重复用户已知的信息
+  ## Output Contract
+  - Code must be directly runnable (no syntax errors)
+  - Provide 1-2 sentences of usage instructions
+  - Don't repeat information the user already knows
 
-  ## 超限边界
-  - ✗ 不做系统架构设计（那是 plan 场景）
-  - ✗ 不做自动化测试（那是 test 场景）
-  - ✗ 不重构已有代码（那是 refactor 场景）
+  ## Boundaries
+  - ✗ No system architecture design (that's the plan scene)
+  - ✗ No automated testing (that's the test scene)
+  - ✗ No refactoring of existing code (that's the refactor scene)
 
-  ## 执行协议
+  ## Execution Protocol
 
-  优先阅读并遵循 `l0-change-impact` 中的 Change Impact & Execution Protocol。
+  Prioritize reading and following the Change Impact & Execution Protocol in `l0-change-impact`.
 
-  这里是 write_code 场景需要注意的执行要点：
+  Here are the execution points specific to the write_code scene:
 
-  ### 1. 复杂度判断后走对应路径
-  - 简单：直接实现，修改后自查即可
-  - 复杂/中等：必须等设计文档从 plan_review 通过后，才开始写代码
+  ### 1. Determine complexity then follow the corresponding path
+  - Simple: implement directly, self-check after modification
+  - Complex/Medium: must wait for the design document to pass plan_review before starting to write code
 
-  ### 2. 实现必须对照设计文档
-  每个 todo 开始前，重新读一遍设计文档中对应 section 的：
-  - 接口签名：严格按照设计写的签名，不能自己改参数名/类型
-  - 核心逻辑：关键分支逻辑与设计一致
-  - 验收条件：实现完后逐条对照确认
+  ### 2. Implementation must reference the design document
+  Before starting each todo, re-read the corresponding section in the design document for:
+  - Interface signature: strictly follow the signature written in the design, cannot change parameter names/types
+  - Core logic: key branch logic must be consistent with the design
+  - Acceptance criteria: verify against each item after implementation
 
-  ### 3. 实现后验收
-  每完成一个 todo，必须执行：
-  1. `tsc --noEmit` — 类型检查通过
-  2. 对照设计文档的"验收条件"逐条检查
-  3. 运行已有测试确认未破坏现有功能
-  4. 全 PASS → `git commit` → 开始下一个 todo
+  ### 3. Verification after implementation
+  Upon completing each todo, must execute:
+  1. `tsc --noEmit` — type check passes
+  2. Check against each item in the design document's "Acceptance Criteria"
+  3. Run existing tests to confirm no breakage
+  4. All PASS → `git commit` → start next todo

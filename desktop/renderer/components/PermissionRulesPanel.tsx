@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Shield, ShieldCheck, ShieldX, Trash2, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import type { PermissionRule } from '../global';
+import { t } from '@/core/i18n';
 
 /** 格式化 cacheKey 为可读描述（去掉 hash 部分） */
 function formatCacheKey(cacheKey: string): string {
@@ -56,10 +57,10 @@ export default function PermissionRulesPanel() {
         );
         setRules(sorted);
       } else {
-        setError(result.error ?? '加载失败');
+        setError(result.error ?? t('permrules.load_failed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : t('permrules.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -77,10 +78,10 @@ export default function PermissionRulesPanel() {
       if (result.success) {
         setRules((prev) => prev.filter((r) => r.cacheKey !== cacheKey));
       } else {
-        setError(result.error ?? '删除失败');
+        setError(result.error ?? t('permrules.delete_failed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除失败');
+      setError(err instanceof Error ? err.message : t('permrules.delete_failed'));
     } finally {
       setDeletingKeys((prev) => {
         const next = new Set(prev);
@@ -104,10 +105,10 @@ export default function PermissionRulesPanel() {
       if (result.success) {
         setRules([]);
       } else {
-        setError(result.error ?? '清空失败');
+        setError(result.error ?? t('permrules.clear_failed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '清空失败');
+      setError(err instanceof Error ? err.message : t('permrules.clear_failed'));
     } finally {
       setClearing(false);
     }
@@ -115,7 +116,7 @@ export default function PermissionRulesPanel() {
 
   // 按工具分组
   const rulesByTool = rules.reduce<Record<string, PermissionRule[]>>((acc, rule) => {
-    const tool = rule.toolName || '未知工具';
+    const tool = rule.toolName || t('permrules.unknown_tool');
     if (!acc[tool]) acc[tool] = [];
     acc[tool].push(rule);
     return acc;
@@ -130,22 +131,22 @@ export default function PermissionRulesPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Shield size={18} className="text-primary" />
-          <span className="text-sm font-semibold">权限规则</span>
+          <span className="text-sm font-semibold">{t('permrules.title')}</span>
           <div className="flex items-center gap-2 text-xs text-text-secondary">
             {allowedCount > 0 && (
               <span className="flex items-center gap-1 text-green-500">
                 <ShieldCheck size={12} />
-                {allowedCount} 始终允许
+                {t('permrules.always_allow', { count: allowedCount })}
               </span>
             )}
             {deniedCount > 0 && (
               <span className="flex items-center gap-1 text-red-500">
                 <ShieldX size={12} />
-                {deniedCount} 永远拒绝
+                {t('permrules.never_deny', { count: deniedCount })}
               </span>
             )}
             {rules.length === 0 && !loading && (
-              <span className="text-text-secondary">暂无规则</span>
+              <span className="text-text-secondary">{t('permrules.no_rules')}</span>
             )}
           </div>
         </div>
@@ -156,7 +157,7 @@ export default function PermissionRulesPanel() {
             onClick={loadRules}
             disabled={loading}
             className="p-1.5 hover:bg-bg-tertiary rounded transition-colors text-text-secondary hover:text-text-primary disabled:opacity-50"
-            title="刷新"
+            title={t('permrules.refresh')}
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -177,7 +178,7 @@ export default function PermissionRulesPanel() {
               ) : (
                 <Trash2 size={12} />
               )}
-              {confirmClear ? '确认清空？' : '清空全部'}
+              {confirmClear ? t('permrules.confirm_clear') : t('permrules.clear_all')}
             </button>
           )}
         </div>
@@ -192,22 +193,22 @@ export default function PermissionRulesPanel() {
         </div>
       )}
 
-      {/* 说明文字 */}
+      {/* 提示文字 */}
       <p className="text-xs text-text-secondary">
-        删除规则后，下次遇到同类操作会重新询问你。
+        {t('permrules.hint')}
       </p>
 
       {/* 规则列表 */}
       {loading ? (
         <div className="flex items-center justify-center py-8 text-text-secondary">
           <Loader2 size={20} className="animate-spin mr-2" />
-          <span className="text-sm">加载中...</span>
+          <span className="text-sm">{t('permrules.loading')}</span>
         </div>
       ) : rules.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-text-secondary">
           <Shield size={32} className="mb-2 opacity-30" />
-          <p className="text-sm">暂无持久化权限规则</p>
-          <p className="text-xs mt-1 opacity-60">操作时选择"始终允许"或"永远拒绝"后会出现在这里</p>
+          <p className="text-sm">{t('permrules.empty_title')}</p>
+          <p className="text-xs mt-1 opacity-60">{t('permrules.empty_hint')}</p>
         </div>
       ) : (
         <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
@@ -235,7 +236,7 @@ export default function PermissionRulesPanel() {
                     {/* 内容 */}
                     <div className="flex-1 min-w-0">
                       <div className={`text-xs font-medium ${rule.allowed ? 'text-green-500' : 'text-red-500'}`}>
-                        {rule.allowed ? '始终允许' : '永远拒绝'}
+                        {rule.allowed ? t('permrules.rule_always_allow') : t('permrules.rule_never_deny')}
                       </div>
                       <div
                         className="text-xs text-text-secondary mt-0.5 font-mono break-all"
@@ -247,7 +248,7 @@ export default function PermissionRulesPanel() {
                         {formatTime(String(rule.timestamp))}
                         {rule.expiresAt && (
                           <span className="ml-2 text-yellow-500">
-                            · 到期: {formatTime(String(rule.expiresAt))}
+                            {t('permrules.label_expires', { date: formatTime(String(rule.expiresAt)) })}
                           </span>
                         )}
                       </div>
@@ -258,7 +259,7 @@ export default function PermissionRulesPanel() {
                       onClick={() => handleDelete(rule.cacheKey)}
                       disabled={deletingKeys.has(rule.cacheKey)}
                       className="flex-shrink-0 p-1 rounded hover:bg-red-500/10 hover:text-red-500 text-text-secondary opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                      title="删除此规则"
+                      title={t('permrules.delete_rule')}
                     >
                       {deletingKeys.has(rule.cacheKey) ? (
                         <Loader2 size={14} className="animate-spin" />

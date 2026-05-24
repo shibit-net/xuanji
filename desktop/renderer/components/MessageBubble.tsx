@@ -5,7 +5,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X, Maximize2, Minimize2, Music, Video } from 'lucide-react';
+import { t } from '@/core/i18n';
 import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';
@@ -139,18 +140,49 @@ function FileIcon({ size = 14, className, simple }: { size?: number; className?:
   );
 }
 
+/** 解码 base64 SVG 为文本，内联渲染避免 <img>/<object> 的安全限制 */
+function decodeSvgText(data: string): string {
+  try {
+    return atob(data);
+  } catch {
+    return '';
+  }
+}
+
 /** 图片内容块 — 支持点击放大，Lightbox 通过 Portal 渲染到 body */
 function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }> }) {
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [aspect, setAspect] = useState<number | null>(null);
-  const src = `data:${block.mimeType};base64,${block.data}`;
+  const src = block.data
+    ? `data:${block.mimeType};base64,${block.data}`
+    : block.imageUrl || '';
+  const isSvg = block.mimeType === 'image/svg+xml';
+  const svgText = isSvg && block.data ? decodeSvgText(block.data) : '';
 
   useEffect(() => {
+    if (isSvg) {
+      // 从 SVG viewBox 提取宽高比，没有则默认 4:3
+      const vbMatch = svgText.match(/viewBox=["']([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      if (vbMatch) {
+        setAspect(parseFloat(vbMatch[3]) / parseFloat(vbMatch[4]));
+      } else {
+        const wMatch = svgText.match(/width=["'](\d+)/);
+        const hMatch = svgText.match(/height=["'](\d+)/);
+        if (wMatch && hMatch) {
+          setAspect(parseFloat(wMatch[1]) / parseFloat(hMatch[1]));
+        } else {
+          setAspect(4 / 3);
+        }
+      }
+      setLoaded(true);
+      return;
+    }
     const img = new Image();
     img.onload = () => setAspect(img.naturalWidth / img.naturalHeight);
+    img.onerror = () => setAspect(1);
     img.src = src;
-  }, [src]);
+  }, [src, isSvg, svgText]);
 
   const paddingBottom = aspect ? `${(1 / aspect) * 100}%` : '25%';
 
@@ -161,12 +193,19 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
            onClick={() => setExpanded(true)}
            style={{ maxHeight: '400px' }}>
         <div style={{ paddingBottom, position: 'relative', minHeight: '100px' }}>
-          <img
-            src={src}
-            alt="截图"
-            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-            onLoad={() => setLoaded(true)}
-          />
+          {isSvg ? (
+            <div
+              className="absolute inset-0 w-full h-full flex items-center justify-center p-2"
+              dangerouslySetInnerHTML={{ __html: svgText }}
+            />
+          ) : (
+            <img
+              src={src}
+              alt="截图"
+              className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+              onLoad={() => setLoaded(true)}
+            />
+          )}
         </div>
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity
                         bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1">
@@ -187,12 +226,20 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
           >
             <X size={20} className="text-white" />
           </button>
-          <img
-            src={src}
-            alt="截图（放大）"
-            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isSvg ? (
+            <div
+              className="max-w-[95vw] max-h-[95vh] rounded-lg shadow-2xl bg-white/5 p-4"
+              dangerouslySetInnerHTML={{ __html: svgText }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={src}
+              alt={t('msg.image_alt_zoomed')}
+              className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>,
         document.body
       )}
@@ -248,7 +295,46 @@ function FileBlock({ block }: { block: Extract<ContentBlock, { type: 'file' }> }
   );
 }
 
-/** 渲染 ContentBlock 列表 */
+/** 音频内容块 — 用原生 <audio> 标签播放 */
+function AudioBlock({ block }: { block: Extract<ContentBlock, { type: 'audio' }> }) {
+  const src = block.data
+    ? `data:${block.mimeType || 'audio/mpeg'};base64,${block.data}`
+    : (block as any).imageUrl || '';
+  if (!src) return null;
+  return (
+    <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20">
+      <audio controls className="w-full h-12" preload="metadata">
+        <source src={src} type={block.mimeType || 'audio/mpeg'} />
+      </audio>
+      <div className="px-3 pb-2 text-[11px] text-white/40 flex items-center gap-2">
+        <Music size={12} />
+        <span>{block.name || (block.mimeType || 'audio').replace('audio/', '')}</span>
+        {block.duration ? <span>· {Math.round(block.duration)}s</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/** 视频内容块 — 用原生 <video> 标签播放 */
+function VideoBlock({ block }: { block: Extract<ContentBlock, { type: 'video' }> }) {
+  const src = block.data
+    ? `data:${block.mimeType || 'video/mp4'};base64,${block.data}`
+    : (block as any).imageUrl || '';
+  if (!src) return null;
+  return (
+    <div className="my-2 rounded-xl overflow-hidden border border-white/[0.08] bg-black/20">
+      <video controls className="w-full max-h-[400px]" preload="metadata">
+        <source src={src} type={block.mimeType || 'video/mp4'} />
+      </video>
+      <div className="px-3 pb-2 text-[11px] text-white/40 flex items-center gap-2">
+        <Video size={12} />
+        <span>{block.name || (block.mimeType || 'video').replace('video/', '')}</span>
+      </div>
+    </div>
+  );
+}
+
+/** 渲染 ContentBlock 列表（text / image / file / audio / video） */
 function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containerRef }: {
   blocks: ContentBlock[];
   processedContent: string;
@@ -258,6 +344,8 @@ function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containe
   const textBlocks = blocks.filter(b => b.type === 'text');
   const imageBlocks = blocks.filter(b => b.type === 'image');
   const fileBlocks = blocks.filter(b => b.type === 'file');
+  const audioBlocks = blocks.filter(b => b.type === 'audio');
+  const videoBlocks = blocks.filter(b => b.type === 'video');
   // 合并所有 text 块的文本
   const combinedText = textBlocks.map(b => (b as { type: 'text'; text: string }).text).join('\n');
 
@@ -280,6 +368,14 @@ function ContentBlocksRenderer({ blocks, processedContent, isStreaming, containe
       {/* 文件块 */}
       {fileBlocks.map((block, i) => (
         <FileBlock key={`file-${i}`} block={block as Extract<ContentBlock, { type: 'file' }>} />
+      ))}
+      {/* 音频块 */}
+      {audioBlocks.map((block, i) => (
+        <AudioBlock key={`audio-${i}`} block={block as Extract<ContentBlock, { type: 'audio' }>} />
+      ))}
+      {/* 视频块 */}
+      {videoBlocks.map((block, i) => (
+        <VideoBlock key={`video-${i}`} block={block as Extract<ContentBlock, { type: 'video' }>} />
       ))}
     </>
   );
@@ -379,7 +475,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       // 检查容器是否仍在 DOM 中
       if (!container || !document.contains(container)) return;
 
-      roots.forEach((r) => r.unmount());
+      roots.forEach((r) => queueMicrotask(() => r.unmount()));
       roots.length = 0;
 
       // 按文档顺序精确匹配：第 n 次出现的 name 取 citationOutputs[name] 的第 n 项
@@ -400,7 +496,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           const citation = list && list.length > index ? list[index] : (list && list.length > 0 ? list[list.length - 1] : null);
 
           const anchor = document.createElement('span');
-          anchor.style.cssText = 'display:inline-block;vertical-align:middle;';
+          anchor.style.cssText = 'display:inline;';
           span.replaceWith(anchor);
           const root = createRoot(anchor);
           root.render(<SubAgentBlock name={name} citation={citation} />);
@@ -501,7 +597,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
       timers.forEach(clearTimeout);
       cancelAnimationFrame(observerRaf);
       observer.disconnect();
-      roots.forEach((r) => r.unmount());
+      roots.forEach((r) => queueMicrotask(() => r.unmount()));
     };
   }, [processedContent, isUser, isSystem, isStreaming]);
 
@@ -579,7 +675,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             {isUser
               ? userName
               : isToolSummary
-              ? '文件变更'
+              ? t('msg.file_changes')
               : (respondingAgent?.name || agentInfo?.name || 'Xuanji')}
           </span>
           {message.timestamp && (
@@ -592,7 +688,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
             <button
               onClick={handleCopy}
               className="ml-1 p-1 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
-              title="复制消息"
+              title={t('msg.copy')}
             >
               {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} className="text-white/40 hover:text-white/70" />}
             </button>
@@ -701,7 +797,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <span className="inline-flex my-1.5">
+    <span className="inline-flex">
       <button
         onClick={() => citation && setExpanded(true)}
         className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg whitespace-nowrap
@@ -750,7 +846,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
             {/* Body */}
             <div className="overflow-y-auto p-5 flex-1">
               <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
-                {citation.originalOutput || citation.summary || '(无输出)'}
+                {citation.originalOutput || citation.summary || t('msg.no_output')}
               </pre>
             </div>
           </div>
@@ -766,11 +862,11 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <span className="inline-flex items-baseline gap-1 text-sm leading-relaxed my-0.5">
+    <span className="inline text-sm leading-relaxed">
       {citation ? (
         <button
           onClick={() => setExpanded(true)}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg whitespace-nowrap
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg whitespace-nowrap mr-1
                      bg-white/[0.06] hover:bg-white/[0.1]
                      border border-white/[0.1] hover:border-white/[0.15]
                      text-xs text-blue-400
@@ -780,7 +876,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           <span className="font-medium">{name}</span>
         </button>
       ) : (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06] whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/[0.04] text-white/40 text-xs cursor-default border border-white/[0.06] whitespace-nowrap mr-1">
           <FileIcon size={11} simple className="flex-shrink-0" />
           <span>{name}</span>
         </span>
@@ -822,7 +918,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
             {/* Body */}
             <div className="overflow-y-auto p-5 flex-1">
               <pre className="text-xs text-white/75 whitespace-pre-wrap font-mono leading-relaxed break-words">
-                {citation.originalOutput || citation.summary || '(无输出)'}
+                {citation.originalOutput || citation.summary || t('msg.no_output')}
               </pre>
             </div>
           </div>

@@ -98,7 +98,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
           >
             <Radio size={14} className={session.status === 'online' ? 'text-green-500' : 'text-muted-foreground'} />
             <span className="text-xs truncate flex-1 text-left">
-              📡 {session.platform === 'wechat' ? '微信' : session.platform === 'wecom' ? '企微' : session.platform === 'feishu' ? '飞书' : '钉钉'} · {session.name}
+              {getDesktopLabel('sidebar.session_platform', language).replace('{platform}', getDesktopLabel(`sidebar.platform_${session.platform}`, language)).replace('{name}', session.name)}
             </span>
             {session.unreadCount > 0 && (
               <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">

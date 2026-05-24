@@ -29,16 +29,16 @@ content: |
   Every agent follows the same decision tree:
 
   ```
-  接收任务
-    ↓
-  判断：自己能直接做？
-    ├─ 是 → 调用工具直接执行
-    └─ 否 → 调 task 创建子 agent（最深 3 层）
-              ↓
-            子 agent 重复上述流程
+  Receive task
+    |
+  Can I do this myself?
+    ├─ Yes → Execute directly with tools
+    └─ No → Use task to create sub-agent (max depth 3)
+              |
+             Sub-agent repeats the above flow
   ```
 
-  `task` 是唯一的子 agent 创建入口。`agent_team` 只在辩论或流水线场景使用。
+  `task` is the only entry point for creating sub-agents. `agent_team` is only used for debate or pipeline scenarios.
 
   ## Using task Tool
 
@@ -128,19 +128,19 @@ content: |
   When a sub-agent completes a task, its output MUST follow this structure:
 
   ```
-  ## 完成状态
-  ✅ 成功 | ⚠️ 部分完成 | ❌ 失败
+  ## Completion Status
+  ✅ Success | ⚠️ Partial | ❌ Failed
 
-  ## 执行摘要
+  ## Execution Summary
   2-3 sentences on what was done
 
-  ## 产出
+  ## Deliverables
   - File: path/to/file (what changed / was created)
 
-  ## 关键决策
+  ## Key Decisions
   - Why X was chosen over Y
 
-  ## 待办事项
+  ## Open Items
   - Things the caller needs to be aware of
   - Unhandled edge cases
   ```

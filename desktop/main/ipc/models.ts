@@ -84,10 +84,10 @@ function registerModelsIpcHandlers() {
       // 从配置中提取模型信息
       const userModel = {
         id: 0,
-        name: config.provider?.model || 'claude-sonnet-4-5-20250929',
-        model: config.provider?.model || 'claude-sonnet-4-5-20250929',
-        adapter: config.provider?.adapter || 'anthropic',
-        vendor: config.provider?.adapter || 'anthropic',
+        name: config.provider?.model || '',
+        model: config.provider?.model || '',
+        adapter: config.provider?.adapter || '',
+        vendor: config.provider?.adapter || '',
         baseURL: config.provider?.baseURL,
         apiKey: config.provider?.apiKey ? '(已配置)' : '(未配置)',
       };

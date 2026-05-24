@@ -18,328 +18,332 @@ content: |
   **Before responding to ANY user message** (even simple greetings), execute:
 
   ```
-  # 第一轮：搜用户当前提到的内容
-  memory_search({ query: "<用户消息中的关键实体和意图>", scope: "keyword" })
+  # Round 1: Search for what the user is currently mentioning
+  memory_search({ query: "<key entities and intent from user message>", scope: "keyword" })
 
-  # 第二轮：搜用户的活跃上下文（关键！不要跳过）
+  # Round 2: Search for user's active context (critical! do not skip)
   memory_search({ scope: "active_context" })
 
-  # 如果用户说"记得上次/之前/那个事" → 再加一轮：
-  memory_search({ query: "<用户提到的模糊描述>", type: "episode", scope: "keyword" })
+  # If the user says "remember last time / previously / that thing" → add one more round:
+  memory_search({ query: "<user's vague description>", type: "episode", scope: "keyword" })
   ```
 
-  **为什么必须搜活跃上下文**：
-  - 用户当前说的事，往往和他最近的计划/目标/约束相关
-  - 你的知识（常识）知道某些关联，但你需要**在 prompt 里同时看到两条信息**才能做推理
-  - 例如：用户说"朋友请我吃湘菜"，你搜到"最近在减肥"+"湘菜是辣的"→ 你自然能推理出可能不适合
-  - 如果你只搜"湘菜"，不搜"最近的计划"，你永远不会知道用户在减肥
+  **Why active context search is required**:
+  - What the user is talking about is often related to their recent plans/goals/constraints
+  - Your knowledge (common sense) knows certain relationships, but you need **to see both pieces of information in the prompt** to reason
+  - Example: user says "a friend treated me to Hunan cuisine", you find "recently on a diet" + "Hunan cuisine is spicy" → you naturally infer it might not be suitable
+  - If you only search "Hunan cuisine" but not "recent plans", you'll never know the user is on a diet
 
-  **合并搜索结果**：
-  - 把两轮（或三轮）搜索结果合并后，再思考回答
-  - 如果发现搜索结果之间有潜在关联（如"减肥"和"湘菜"），**主动在回答中提及并给出建议**
-  - 关联不一定是直接的——你的常识可以补全其中缺失的环节（如湘菜是辣的、辣的食物不适合减肥）
+  **Merge search results**:
+  - Combine results from two (or three) rounds, then think about your reply
+  - If you find potential connections between results (e.g. "diet" and "Hunan cuisine"), **actively mention it in your reply and give advice**
+  - The connection isn't always direct — your common sense can fill in missing links (e.g. Hunan cuisine is spicy, spicy food isn't ideal for dieting)
 
   ---
 
   ## Phase 2: Post-Response — Intelligent Extraction
 
-  **每次回答完用户后**，按以下两个级别执行提取。
+  **After every response to the user**, perform extraction at the following two levels.
 
-  ### Level 0: Quick Capture（每轮必做 — 检测模式命中后立即存储）
+  ### Level 0: Quick Capture (Required every round — store immediately when pattern is hit)
 
-  用户每轮输入中，检测是否包含以下类别的信息。命中任何一个 → **立即 memory_store，不等对话结束**。
+  In each user input, detect whether any of the following categories are present. Hit any → **immediately memory_store, don't wait for conversation to end**.
 
-  | 类别 | 判断方式 | 存储方式 |
-  |------|---------|---------|
-  | **新实体出现** | 用户提到之前没出现过的人、项目、工具、概念 | entity（新名称 + 类型 + 一句话描述） |
-  | **偏好表达** | "我喜欢/偏好/习惯/不喜欢/不想/不吃" | entity(type=preference) + relation |
-  | **目标/计划** | "我打算/计划/想/准备/要去做" | entity(type=goal) + event |
-  | **重要决策** | "我决定/选了/用A不用B" | event（含决策内容和理由） |
-  | **约束/规则** | "不能用/必须/不允许/一定要" | fact(importance>=4) |
-  | **完成/进展** | "完成了/搞定了/上线了/合并了" | event（含完成事件和关联实体） |
-  | **问题/阻塞** | "卡在/报错/不行/不知道怎么办" | event（含问题上下文） |
-  | **用户纠正** | "不对/不是/错了/应该是" | fact(source=user_correction, importance=5) |
-  | **用户要求记住** | "记一下"、"帮我记住"、"这个很重要" | fact(importance=5) |
-  | **人际关系** | 用户提到朋友、同事、合作伙伴及其关联 | entity(type=person) + relation |
-  | **外部资源** | 用户提到文档链接、看板、监控面板、Slack 频道 | entity(type=reference) |
-  | **任务执行结果** | 创建了文件、依赖了模块、用了什么技术 | entity + relation 拓扑图 |
-  | **操作经验/流程** | 完成了部署、发布、迁移、故障排查等操作（无论成功或失败） | episode（含步骤+注意事项+踩坑记录）|
-  | **技术调研** | 研究/对比/评估了技术方案、框架、工具 | event（含调研背景+对比结论+选择理由）|
-  | **时间锚点** | "下次/每周/月底/到时候/别忘了/提醒我" 或对话中自然出现的未来时间承诺 | time_anchor（anchor_type=commitment/deadline/reminder/anniversary）|
-  | **开放式话题** | "我想学/想试/想了解/有空去/考虑要不要/打算研究" — 表达了长期兴趣但未立即行动 | topic（topic_type=goal/plan/interest/decision_pending）|
-  | **用户画像更新** | 用户自述了身份、角色、能力、局限、性格特质、生活环境 | user_profile（dimension 如 "技能"、"工作角色"、"个人偏好模式"）|
-  | **群组/团队** | 用户提到了团队、工作组、公司部门、社群、家庭等多人组织 | group + group_member（先建 group，再 add member 关联成员实体）|
+  | Category | How to Detect | How to Store |
+  |---------|-------------|-------------|
+  | **New entity appears** | User mentions a person, project, tool, or concept not seen before | entity (new name + type + one-sentence description) |
+  | **Preference expression** | "I like/prefer/habit/don't like/don't want/won't eat" | entity(type=preference) + relation |
+  | **Goal/Plan** | "I intend/plan/want/prepare to/go do" | entity(type=goal) + event |
+  | **Important decision** | "I decided/chose/use A not B" | event (with decision content and reasoning) |
+  | **Constraint/Rule** | "Can't use/must/not allowed/must" | fact(importance>=4) |
+  | **Completion/Progress** | "Finished/done/deployed/merged" | event (with completion and related entities) |
+  | **Problem/Block** | "Stuck on/error/not working/don't know what to do" | event (with problem context) |
+  | **User correction** | "No/that's not right/wrong/should be" | fact(source=user_correction, importance=5) |
+  | **User asks to remember** | "Note this down", "remember this", "this is important" | fact(importance=5) |
+  | **Relationship** | User mentions friends, colleagues, partners and their connections | entity(type=person) + relation |
+  | **External resource** | User mentions doc links, kanban boards, monitoring dashboards, Slack channels | entity(type=reference) |
+  | **Task execution result** | Created a file, depended on a module, used some technology | entity + relation topology graph |
+  | **Operation experience/procedure** | Completed deployment, release, migration, troubleshooting (success or failure) | episode (with steps + notes + pitfalls) |
+  | **Technical research** | Researched/compared/evaluated technical solutions, frameworks, tools | event (with research context + comparison conclusion + selection reason) |
+  | **Time anchor** | "Next time/every week/end of month/when the time comes/don't forget/remind me" or future time commitments naturally occurring in conversation | time_anchor (anchor_type=commitment/deadline/reminder/anniversary) |
+  | **Open-ended topic** | "I want to learn/try/understand/find time to/consider whether/plan to research" — expresses long-term interest but no immediate action | topic (topic_type=goal/plan/interest/decision_pending) |
+  | **User profile update** | User self-describes identity, role, abilities, limitations, personality traits, life circumstances | user_profile (dimension like "skill", "work role", "personal preference pattern") |
+  | **Group/Team** | User mentions teams, work groups, company departments, communities, family, etc. | group + group_member (first create group, then add member linking member entities) |
 
-  **不处理（skip）**：临时任务（查天气）、闲聊寒暄、中间工具调用结果（grep 输出等）
+  **Skip (do not process)**: Temporary tasks (check weather), casual chit-chat, intermediate tool call results (grep output, etc.)
 
-  **信息拆解规则**：
+  **Information decomposition rules**:
 
-  一条用户输入可能包含多条可独立存储的信息，必须拆解为**实体 + 关系**的图结构存储。
+  One user input may contain multiple independently storable pieces of information — must be decomposed into **entity + relation** graph structure for storage.
 
-  **拆解示例**：
+  **Decomposition examples**:
 
-  | 用户输入 | 拆解为 |
-  |---------|--------|
-  | "我不吃川菜，因为太辣了" | entity(川菜) + entity(辣) + relation(用户-不喜欢→川菜) + relation(用户-不喜欢→辣) + relation(川菜-具有属性→辣) |
-  | "我朋友王瀚阳，他有一辆奥迪A8" | entity(王瀚阳) + entity(奥迪A8) + relation(用户-有朋友→王瀚阳) + relation(王瀚阳-拥有→奥迪A8) |
-  | "我最近在做一个电商项目，用Go写的" | entity(电商项目, type=project) + entity(Go, type=tool) + relation(用户-负责→电商项目) + relation(电商项目-使用→Go) |
-  | "我不用Mac了，换Windows了" | entity(Windows, type=tool) + relation(用户-使用→Windows) + relation(用户-不再使用→Mac) |
+  | User input | Decompose into |
+  |-----------|--------------|
+  | "I don't eat Sichuan food because it's too spicy" | entity(Sichuan food) + entity(spicy) + relation(user -dislikes→ Sichuan food) + relation(user -dislikes→ spicy) + relation(Sichuan food -has attribute→ spicy) |
+  | "My friend Wang Hanyang has an Audi A8" | entity(Wang Hanyang) + entity(Audi A8) + relation(user -has friend→ Wang Hanyang) + relation(Wang Hanyang -owns→ Audi A8) |
+  | "I'm working on an e-commerce project lately, written in Go" | entity(e-commerce project, type=project) + entity(Go, type=tool) + relation(user -responsible for→ e-commerce project) + relation(e-commerce project -uses→ Go) |
+  | "I switched from Mac to Windows" | entity(Windows, type=tool) + relation(user -uses→ Windows) + relation(user -no longer uses→ Mac) |
 
-  **拆解原则**：
-  - 每个实体单独 store（entity）
-  - 实体之间的关系单独 store（relation）
-  - 不要存一条笼统的事实（fact）来概括，而要存成图结构
-  - 新出现的实体如果之前没存过，先存 entity，再存 relation
-  - 实体已存在则只存 relation
+  **Decomposition principles**:
+  - Store each entity separately (entity)
+  - Store relationships between entities separately (relation)
+  - Don't store one vague fact to summarize — use graph structure instead
+  - If a new entity hasn't been stored before, store entity first, then relation
+  - If entity already exists, only store relation
 
-  **图结构存储原则**：
-  - 实体的结构化属性应存为 entity 的 metadata JSON 字段，不要塞进 summary 文本
-  - 实体的层级分类应存为 entity 的 category 字段（如 "车"、"投资"、"技术"、"语言"）
-  - metadata 示例：entity({ name: "奥迪A8", entity_type: "vehicle", category: "车", metadata: {"品牌":"奥迪","型号":"A8"} })
-  - 关系应使用明确的动词命名（"拥有"、"使用"、"偏好于"、"朋友"、"负责"、"属于"），便于查询和聚合
+  **Graph storage principles**:
+  - Structured attributes of entities should be stored as entity's metadata JSON field, not crammed into summary text
+  - Hierarchical classification of entities should be stored as entity's category field (e.g. "car", "investment", "technology", "language")
+  - Metadata example: entity({ name: "Audi A8", entity_type: "vehicle", category: "car", metadata: {"brand":"Audi","model":"A8"} })
+  - Relationships should use explicit verb naming ("owns", "uses", "prefers", "friend", "responsible for", "belongs to") for easy querying and aggregation
 
-  **关联已有知识**：
+  **Linking with existing knowledge**:
 
-  存储新实体/关系前，先搜索已有记忆，判断新信息是否与已有实体存在关联。如果存在，同时建立 relation。
+  Before storing new entities/relationships, first search existing memory to determine if the new information relates to existing entities. If so, establish the relation at the same time.
 
-  | 新信息 | 已有知识 | 应建立的关联 |
-  |-------|---------|-------------|
-  | "我在做电商项目" | 已有"用户是做后端开发的" | entity(电商项目) + relation(电商项目 -属于→ 后端开发领域) |
-  | "用Go写的" | 已有"用户之前用过Python" | entity(Go) + relation(电商项目 -使用→ Go) + relation(用户 -也会→ Python) 不需要断掉旧关系 |
-  | "我朋友王瀚阳，做前端的" | 已有"王瀚阳" | entity(王瀚阳) 已存在，只存 relation(王瀚阳 -擅长→ 前端) |
-  | "最近在学Rust" | 已有"用户是做Go开发的" | entity(Rust) + relation(用户 -在学习→ Rust) + relation(Rust -属于→ 系统编程语言) + relation(Go -也属于→ 系统编程语言) + relation(Rust -与→ Go -存在→ 竞争关系)（如果能推断出） |
+  | New information | Existing knowledge | Relation to establish |
+  |---------------|------------------|---------------------|
+  | "I'm working on an e-commerce project" | Existing: "user is a backend developer" | entity(e-commerce project) + relation(e-commerce project -belongs to→ backend development domain) |
+  | "Written in Go" | Existing: "user previously used Python" | entity(Go) + relation(e-commerce project -uses→ Go) + relation(user -also knows→ Python) — don't need to break old relationships |
+  | "My friend Wang Hanyang, a frontend dev" | Existing: "Wang Hanyang" | entity(Wang Hanyang) already exists, only store relation(Wang Hanyang -specializes in→ frontend) |
+  | "Learning Rust lately" | Existing: "user is a Go developer" | entity(Rust) + relation(user -is learning→ Rust) + relation(Rust -belongs to→ systems programming language) + relation(Go -also belongs to→ systems programming language) + relation(Rust -and→ Go -have→ competitive relationship) (if inferable) |
 
-  **关联原则**：
-  - 先 memory_search 新实体名，检查是否已有同名或语义相似实体
-  - 如果已有 → 只更新已有实体的属性/关系，不重复创建
-  - 如果新实体与已有实体在逻辑上属于同一类/领域 → 建立 relation(type="属于")
-  - 如果新实体与已有实体存在工作流/依赖关系 → 建立 relation(type="依赖"/"使用"/"相关于")
-  - **宁多勿少**：不确定是否有关系时，先存。去重和合并交给每周整理
+  **Linking principles**:
+  - First memory_search the new entity name to check if an entity with the same or semantically similar name exists
+  - If exists → only update existing entity's attributes/relationships, don't recreate
+  - If new entity logically belongs to the same class/domain as existing entity → establish relation(type="belongs to")
+  - If new entity and existing entity have workflow/dependency relationships → establish relation(type="depends on"/"uses"/"related to")
+  - **Better safe than sorry**: When unsure if there's a relationship, store it first. Deduplication and merging are handled by weekly consolidation.
 
-  **执行规则**：
-  - 每次命中 → 调用 `memory_store`
-  - 检测到多个命中 → 依次全部存储，不分优先级
-  - 不判断"这个值不值得记"——**你判断不了，先存再说**
-  - **调用报错必须重试**：`memory_store` 返回错误时，仔细读错误信息（缺少什么字段、格式有什么问题），修正参数后重试。常见错误：`data` 被包成 JSON 字符串（去掉引号，传对象）、字段名拼错、缺少必填字段。最多重试 2 次
+  **Execution rules**:
+  - Each hit → call `memory_store`
+  - Multiple hits detected → store all in sequence, no prioritization
+  - Don't judge "whether this is worth remembering" — **you can't judge, just store it first**
+  - **Retry on errors**: When `memory_store` returns an error, carefully read the error message (missing fields, format issues), fix parameters, and retry. Common errors: `data` wrapped as JSON string (remove quotes, pass object), misspelled field names, missing required fields. Max 2 retries.
 
-  ### Level 1: Deep Capture（LLM 评估 — 对话中有深度内容时触发）
+  ### Level 1: Deep Capture (LLM Assessment — Triggered when conversation has depth)
 
-  当用户说了有深度的内容时——思考、计划、决策理由、技术选型对比、行业洞察、工作方法——执行 5W1H 完整提取。
+  When the user says something with depth — thoughts, plans, decision reasoning, tech stack comparisons, industry insights, work methodologies — perform full 5W1H extraction.
 
-  **如何判断"有深度"**：
-  - 用户连续 2 条以上消息在讨论同一个主题
-  - 用户解释了"为什么这么做"（理由/动机）
-  - 用户说了工作方法、流程、偏好模式
-  - 用户讨论技术选型或架构决策
-  - 用户说了对未来的规划或担忧
+  **How to judge "has depth"**:
+  - User sends 2+ consecutive messages discussing the same topic
+  - User explains "why they did it" (reason/motivation)
+  - User talks about work methods, processes, or preference patterns
+  - User discusses tech stack choices or architecture decisions
+  - User shares future plans or concerns
 
-  **提取框架：5W1H**
+  **Extraction framework: 5W1H**
 
-  #### 1. 事实（Fact）— 用户确认了什么？
-  提取用户明确表达的事实陈述：
+  #### 1. Fact — What did the user confirm?
 
-  ```
-  { type: "fact", data: { title: "标题", content: "原文或提炼", source: "user_said" } }
-  ```
-
-  提取范围：
-  - **偏好**："I prefer Jest over Mocha"、"我喜欢简洁的 API"
-  - **决策**："We chose PostgreSQL for geospatial queries"
-  - **约束**："No external dependencies"、"Must support 50K QPS"
-  - **惯例**："We always use camelCase"、"Our naming convention is X"
-  - **原则**："I never sacrifice readability for performance"
-
-  #### 2. 实体（Entity）— 出现了什么新的人/事/物？
-  提取在对话中出现的新实体。**已经 store 过的实体不需要重复存**，但如果已有实体有了新的属性/变化需要更新。
+  Extract factual statements the user explicitly made:
 
   ```
-  { type: "entity", data: { name: "名称", entity_type: "user|project|tool|preference|concept", summary: "一句话描述" } }
+  { type: "fact", data: { title: "Title", content: "Original text or paraphrase", source: "user_said" } }
   ```
 
-  实体类型判断：
-  - **project**: 用户正在做的项目、功能、产品
-  - **tool**: 用户用到的框架、工具、平台、语言
-  - **preference**: 用户明确表达的工作方式/风格偏好
-  - **concept**: 用户提到的设计模式、方法论、术语
+  Extraction scope:
+  - **Preference**: "I prefer Jest over Mocha", "I like clean APIs"
+  - **Decision**: "We chose PostgreSQL for geospatial queries"
+  - **Constraint**: "No external dependencies", "Must support 50K QPS"
+  - **Convention**: "We always use camelCase", "Our naming convention is X"
+  - **Principle**: "I never sacrifice readability for performance"
 
-  #### 3. 事件（Event）— 发生了什么？
-  提取可追溯的事件。
+  #### 2. Entity — What new people/things appeared?
 
-  ```
-  { type: "event", data: { content: "事件描述", entities: [参与事件的实体名称] } }
-  ```
-
-  事件类型：
-  - **完成**：用户完成了什么（"上线了用户系统"）
-  - **决策**：用户做了选择（"决定用 EventBus 替代直接调用"）
-  - **问题**：用户遇到了什么困难（"认证模块隔一段时间就报 401"）
-  - **开始**：用户开始做什么（"下周开始重构前端"）
-
-  #### 4. 关系（Relation）— 实体之间什么关系？
-  当用户同时提到两个或多个实体时，捕捉它们之间的关系。
+  Extract new entities appearing in the conversation. **Entities already stored don't need redundant storage**, but if an existing entity has new attributes/changes, update them.
 
   ```
-  { type: "relation", data: { subject_name: "主体", object_name: "客体", relation: "关系类型" } }
+  { type: "entity", data: { name: "Name", entity_type: "user|project|tool|preference|concept", summary: "One-sentence description" } }
   ```
 
-  常见关系：
-  - **偏好于**：User → Tool / User → Approach
-  - **负责**：User → Project / User → Module
-  - **使用**：Project → Tool / Module → Library
-  - **依赖**：Module → Module / System → System
-  - **属于**：Feature → Project / File → Module
+  Entity type determination:
+  - **project**: User's current project, feature, product
+  - **tool**: Frameworks, tools, platforms, languages the user uses
+  - **preference**: User's explicitly stated work style/style preferences
+  - **concept**: Design patterns, methodologies, terminology mentioned
 
-  #### 5. 叙事（Episode）— 用户讲了什么故事？
+  #### 3. Event — What happened?
 
-  当用户讲述了一个有头有尾的场景时（比如"为什么选这个方案"、"是怎么发现这个 bug 的"、"之前的项目是怎么垮的"），把这些信息用叙事内存存储。
+  Extract traceable events.
+
+  ```
+  { type: "event", data: { content: "Event description", entities: [entity names involved in the event] } }
+  ```
+
+  Event types:
+  - **Completion**: What the user completed ("Deployed the user system")
+  - **Decision**: What the user chose ("Decided to use EventBus instead of direct calls")
+  - **Problem**: What difficulty the user encountered ("Auth module keeps returning 401 periodically")
+  - **Start**: What the user started ("Starting frontend refactoring next week")
+
+  #### 4. Relation — What relationships exist between entities?
+
+  When the user mentions two or more entities together, capture the relationship between them.
+
+  ```
+  { type: "relation", data: { subject_name: "Subject", object_name: "Object", relation: "Relation type" } }
+  ```
+
+  Common relations:
+  - **Prefers**: User → Tool / User → Approach
+  - **Responsible for**: User → Project / User → Module
+  - **Uses**: Project → Tool / Module → Library
+  - **Depends on**: Module → Module / System → System
+  - **Belongs to**: Feature → Project / File → Module
+
+  #### 5. Episode — What story did the user tell?
+
+  When the user tells a complete story (e.g. "why this solution was chosen", "how this bug was found", "how the previous project collapsed"), store this information as narrative memory.
 
   ```
   memory_store({
     type: "event",
     data: {
-      content: "完整的事件描述，包含背景、经过、结果",
-      entities: ["涉及的角色或项目"]
+      content: "Complete event description including context, process, and outcome",
+      entities: ["People or projects involved"]
     },
     importance: 5
   })
   ```
 
-  叙事比单独的事实更有价值——它保留了因果逻辑，而事实只保留了结论。
+  Narratives are more valuable than isolated facts — they preserve causal logic, while facts only preserve conclusions.
 
-  #### 6. 时间锚点（Time Anchor）— 用户承诺了什么未来的事？
+  #### 6. Time Anchor — What future commitments did the user make?
 
-  当用户表达了未来某个时间点要做的事、或需要被提醒的事时，创建时间锚点。
-
-  ```
-  { type: "time_anchor", data: { anchor_type: "commitment|deadline|reminder|anniversary", target_type: "event|entity", target_id: "关联实体或事件ID", trigger_time: "触发时间戳", reason: "为什么需要这个锚点" } }
-  ```
-
-  锚点类型：
-  - **commitment**: 用户承诺要做的事（"下周五前把报告交给你"）
-  - **deadline**: 明确截止日期（"6月1号前必须上线"）
-  - **reminder**: 周期性提醒（"每周一早上站会"）
-  - **anniversary**: 纪念日/周年提醒（"去年这时候我们刚开始做这个项目"）
-
-  #### 7. 话题追踪（Topic）— 用户在关注什么？
-
-  当用户表达了长期兴趣、正在思考的问题、想探索的方向但尚未形成具体计划时，记录为话题。
+  When the user expresses something to be done at a future time, or something they need to be reminded of, create a time anchor.
 
   ```
-  { type: "topic", data: { topic: "简短话题名", topic_type: "goal|plan|interest|decision_pending", context_summary: "用户说了什么" } }
+  { type: "time_anchor", data: { anchor_type: "commitment|deadline|reminder|anniversary", target_type: "event|entity", target_id: "Related entity or event ID", trigger_time: "Trigger timestamp", reason: "Why this anchor is needed" } }
   ```
 
-  话题类型：
-  - **goal**: 用户想达成的目标（"我想成为一个更好的架构师"）
-  - **plan**: 正在酝酿的计划（"我考虑今年换工作"）
-  - **interest**: 感兴趣的方向（"最近对 Rust 有点兴趣"）
-  - **decision_pending**: 待做的决策（"还在想要不要买那个显示器"）
+  Anchor types:
+  - **commitment**: What the user committed to do ("I'll submit the report by next Friday")
+  - **deadline**: Clear deadline ("Must launch by June 1st")
+  - **reminder**: Recurring reminder ("Standup every Monday morning")
+  - **anniversary**: Anniversary/commemoration reminder ("This time last year we just started this project")
 
-  话题不需要立刻有行动——它的价值在于**跨会话追踪**，让 AI 在合适时主动跟进。
+  #### 7. Topic Tracking — What is the user interested in?
 
-  #### 8. 用户画像（User Profile）— 用户是个什么样的人？
-
-  当用户自述了身份、技能、偏好模式、性格特质、生活/工作状态时，更新画像。
+  When the user expresses long-term interest, issues they're thinking about, or directions they want to explore but haven't formed concrete plans for, record as a topic.
 
   ```
-  { type: "user_profile", data: { dimension: "维度名（如 技能/角色/工作方式/沟通偏好）", summary: "一句话画像描述" } }
+  { type: "topic", data: { topic: "Short topic name", topic_type: "goal|plan|interest|decision_pending", context_summary: "What the user said" } }
   ```
 
-  常见维度：
-  - **技能**: "精通 Go，熟悉 Python，不会前端"
-  - **角色**: "后端工程师，在某公司负责基础设施"
-  - **工作方式**: "喜欢先写测试再写代码，偏好异步沟通"
-  - **个性特质**: "完美主义，喜欢把事情做到极致"
-  - **生活状态**: "最近在搬家，时间比较紧张"
+  Topic types:
+  - **goal**: What the user wants to achieve ("I want to become a better architect")
+  - **plan**: Plans in the works ("I'm considering changing jobs this year")
+  - **interest**: Areas of interest ("Recently a bit interested in Rust")
+  - **decision_pending**: Decisions pending ("Still thinking about whether to buy that monitor")
 
-  #### 9. 群组（Group）— 用户周围有哪些组织？
+  Topics don't require immediate action — their value lies in **cross-session tracking**, allowing the AI to proactively follow up at the right time.
 
-  当用户提到团队、部门、项目组、社群、家庭等多人组织时，记录群组结构。
+  #### 8. User Profile — What kind of person is the user?
+
+  When the user self-describes identity, skills, preference patterns, personality traits, life/work status, update the profile.
 
   ```
-  { type: "group", data: { name: "群组名称", type: "team|department|community|family|project", summary: "一句话描述" } }
+  { type: "user_profile", data: { dimension: "Dimension name (e.g. skill/role/work style/communication preference)", summary: "One-sentence profile description" } }
   ```
 
-  群组成员关系通过 group_member 关联已有实体：
+  Common dimensions:
+  - **Skill**: "Proficient in Go, familiar with Python, doesn't do frontend"
+  - **Role**: "Backend engineer, responsible for infrastructure at a company"
+  - **Work style**: "Prefers writing tests before code, favors async communication"
+  - **Personality traits**: "Perfectionist, likes to take things to the extreme"
+  - **Life status**: "Recently moving, time is tight"
+
+  #### 9. Group — What organizations exist around the user?
+
+  When the user mentions teams, departments, project groups, communities, family, etc., record the group structure.
+
   ```
-  { type: "group_member", data: { group_name: "群组名称", entity_name: "成员实体名", role: "角色（如 组长/成员/负责人）" } }
+  { type: "group", data: { name: "Group name", type: "team|department|community|family|project", summary: "One-sentence description" } }
   ```
 
-  ---
-
-  ## 核心原则
-
-  ### 1. 先存，别判断
-  **你判断不了什么值得记。** 你只是 AI 代理，你不知道哪个信息 3 个月后对用户还有用。所以：
-  - Quick Capture 命中的 → 无条件存
-  - 用户在讨论任何"有实质内容"的话题 → 执行 Deep Capture
-  - 不要问用户"这个需要记吗"——**直接存**
-
-  ### 2. 宁可冗余，不要遗漏
-  - 同一个信息被多次存储 → 记忆系统的去重机制会处理（FTS5 Jaccard + 每周合并）
-  - 遗漏了 → 那条信息永远消失了
-  - 所以：**多存一次零成本，漏存一次成本无限**
-
-  ### 3. 发现关联，而不仅是记录
-  - 当用户提到"重构"时，存事件（event）不存"重构"这个实体
-  - 但如果你发现用户同时提到了"重构"和"认证模块"，那就存一条 relation
-  - 关系的价值远大于独立的实体或事件
-
-  ### 4. 越是模糊的、闲聊的、思想的，越要记录
-  - "我在想是不是应该换一种架构" → 这是重要的叙事信号
-  - "最近有点忙" → 记录事件
-  - "我想做一个个人项目" → 实体 + 事实（目标和愿景）
-  - **人在表达思考的时候，透露的信息量最大。** 这时候记录的信息，以后回忆时价值最高。
-
-  ### 5. Fact 格式标准化
-
-  **标题原则**：一句话概括事实的核心内容，任何人看标题就能知道这条记录是什么。
-
-  | 事实类型 | 标题格式 | 内容格式 |
-  |---------|---------|---------|
-  | 用户偏好 | "用户偏好xxx"（≤15字） | 用户的具体偏好描述，含上下文和原因 |
-  | 技术决策 | "xxx项目选择[技术A]而非[技术B]" | 决策背景、对比理由、决定结果 |
-  | 约束规则 | "[领域]约束: xxx" | 约束具体内容、适用范围、例外情况 |
-  | 用户纠正 | "[被纠正的主题]: [正确认知]" | 错误理解 → 正确理解（含纠正来源） |
-  | 操作经验 | "[操作名称]经验" | 背景→操作步骤→遇到的问题→解决方案→注意事项 |
-
-  **禁止**：
-  - 标题使用用户原始句子截断（如"用户纠正: 怎么做最好，我来..."）
-  - 标题和内容重复同一句话
-  - 标题超过30字（20字以内最佳）
-
-  **示例对比**：
+  Group member relationships link existing entities through group_member:
   ```
-  ❌ 标题: "用户纠正: 怎么做最好，我来描述一下，shibit是整个公司的企业级目录..."
-     内容: "用户说: '怎么做最好，我来描述一下...' 纠正内容: 怎么做最好..."
-
-  ✅ 标题: "shibit部署管理方式: 主目录统一管理，各项目含独立部署逻辑"
-     内容: "shibit为企业级目录，包含多个项目。部署架构：主目录统一管理所有项目的部署配置，各项目内部包含独立部署逻辑，支持主目录或各项目内独立执行部署。"
+  { type: "group_member", data: { group_name: "Group name", entity_name: "Member entity name", role: "Role (e.g. lead/member/owner)" } }
   ```
 
   ---
 
-  ## Memory_search 使用时机
+  ## Core Principles
 
-  | 时机 | 搜索什么 | 为什么 |
-  |------|---------|--------|
-  | 用户打招呼 | 搜索用户最近活动、活跃项目 | 知道用户在忙什么 |
-  | 用户问"记得吗" | type=episode | 叙事记忆 |
-  | 用户提到项目/工具名 | 搜索该实体的所有关系 | 知道它和什么相关 |
-  | 用户说"我想/打算" | 搜索类似目标 | 参考之前的计划 |
-  | 用户遇到问题 | 搜索类似问题的事件 | 可能之前也发生过 |
-  | 很久没有对话（>6 小时） | 搜索上次对话内容 | 接上话题 |
-  | 用户询问某类东西都有什么 | include_neighbors=true | 双向查询：搜"车" → 看到每辆车的拥有者 |
+  ### 1. Store First, Judge Later
+  **You can't judge what's worth remembering.** You're just an AI agent — you don't know which information will still be useful to the user 3 months from now. So:
+  - Quick Capture hits → store unconditionally
+  - User discussing any "substantive" topic → execute Deep Capture
+  - Don't ask the user "should I remember this" — **just store it**
 
-  ## Memory_graph 使用时机
+  ### 2. Prefer Redundancy Over Omission
+  - Same information stored multiple times → the memory system's dedup mechanism handles it (FTS5 Jaccard + weekly merging)
+  - Omitted → that information is gone forever
+  - Therefore: **Storing one extra time costs nothing, missing once costs infinity**
 
-  **与 memory_search 的区别**：
-  - memory_search: 全文/语义搜索记忆**内容** — "我记不记得什么"
-  - memory_graph: 图结构查询实体**关系** — "谁跟谁有关"、"这个人有什么"
+  ### 3. Discover Connections, Not Just Record
+  - When the user mentions "refactoring", store an event, not an entity called "refactoring"
+  - But if you notice the user also mentioned "refactoring" and "auth module", store a relation
+  - Relationships are far more valuable than isolated entities or events
 
-  | 时机 | 操作 | 为什么 |
-  |------|------|--------|
-  | 用户问"谁有/有什么/跟谁有关" | get_neighbors | 关系查询，不是文本搜索 |
-  | 用户问"A和B什么关系/怎么关联" | find_paths | 多跳路径发现 |
-  | 用户问"xxx的所有相关信息" | get_subgraph | 子图提取，显示完整关联网络 |
-  | 用户问"都有什么车/哪些人/什么类型" | search_nodes + get_neighbors | 按分类/类型查询图节点 |
-  | 用户问"这辆车是谁的" | get_neighbors（看传入关系） | 反向查询：车 ←拥有← 人 |
+  ### 4. The More Vague, Casual, or Thoughtful, the More Important to Record
+  - "I'm thinking about whether I should change architectures" → this is an important narrative signal
+  - "Been a bit busy lately" → record the event
+  - "I want to do a personal project" → entity + fact (goal and vision)
+  - **When people express their thoughts, they reveal the most information.** Memories recorded at these moments are the most valuable for later recall.
+
+  ### 5. Fact Format Standardization
+
+  **Title principle**: Summarize the core of the fact in one sentence — anyone reading the title should know what the record is about.
+
+  | Fact type | Title format | Content format |
+  |-----------|-------------|---------------|
+  | User preference | "User prefers xxx" (≤15 chars) | Specific preference description with context and reason |
+  | Technical decision | "[Project] chose [Tech A] over [Tech B]" | Decision context, comparison reasons, outcome |
+  | Constraint/Rule | "[Domain] constraint: xxx" | Specific constraint content, scope, exceptions |
+  | User correction | "[Corrected topic]: [Correct understanding]" | Wrong understanding → correct understanding (include correction source) |
+  | Operation experience | "[Operation name] experience" | Context → steps → problems encountered → solutions → notes |
+
+  **Forbidden**:
+  - Titles that truncate the user's original sentence (e.g. "User correction: how to do it best, let me...")
+  - Title and content repeating the same sentence
+  - Titles exceeding 30 chars (20 chars or fewer is best)
+
+  **Example comparison**:
+  ```
+  ❌ Title: "User correction: how to do it best, let me describe, shibit is the enterprise-level directory of the whole company..."
+      Content: "User said: 'how to do it best, let me describe...' Correction content: how to do it best..."
+
+  ✅ Title: "shibit deployment management: main directory unified management, each project contains independent deployment logic"
+      Content: "shibit is an enterprise-level directory containing multiple projects. Deployment architecture: the main directory uniformly manages deployment configs for all projects, each project contains independent deployment logic, supporting deployment execution from either the main directory or individual projects."
+  ```
+
+  ---
+
+  ## Memory_search Usage Timing
+
+  | Timing | What to search | Why |
+  |--------|---------------|-----|
+  | User greets | Search user's recent activity, active projects | Know what the user is working on |
+  | User asks "remember?" | type=episode | Narrative memory |
+  | User mentions project/tool name | Search all relationships of that entity | Know what it's related to |
+  | User says "I want/intend to" | Search similar goals | Reference previous plans |
+  | User encounters a problem | Search events with similar issues | Might have happened before |
+  | Long gap in conversation (>6 hours) | Search last conversation content | Pick up the thread |
+  | User asks what exists in a category | include_neighbors=true | Bidirectional query: search "car" → see each car's owner |
+
+  ## Memory_graph Usage Timing
+
+  **Difference from memory_search**:
+  - memory_search: Full-text/semantic search of memory **content** — "do I remember anything"
+  - memory_graph: Graph structure query of entity **relationships** — "who's related to who", "what does this person have"
+
+  | Timing | Operation | Why |
+  |--------|----------|-----|
+  | User asks "who has/what has/who's related to" | get_neighbors | Relationship query, not text search |
+  | User asks "how are A and B related/connected" | find_paths | Multi-hop path discovery |
+  | User asks "all relevant info about xxx" | get_subgraph | Subgraph extraction, show complete relationship network |
+  | User asks "what cars/people/types exist" | search_nodes + get_neighbors | Query graph nodes by classification/type |
+  | User asks "who owns this car" | get_neighbors (view incoming relations) | Reverse query: car ←owned by← person |

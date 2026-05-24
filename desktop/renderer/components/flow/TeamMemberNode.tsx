@@ -12,6 +12,7 @@ import {
 import { useAgentStateMachine } from '../../stores/AgentStateMachine';
 import { Avatar } from '../Avatar';
 import { useRealtimeClock, formatDuration } from './hooks';
+import { t } from '@/core/i18n';
 
 const NODE_W = 120;
 const AVATAR_SIZE = 40;
@@ -137,8 +138,8 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
             data.debateRole === 'negative' ? 'bg-destructive/20 text-destructive' :
             'bg-warning/20 text-warning'
           }`}>
-            {data.debateRole === 'affirmative' ? '正方' :
-             data.debateRole === 'negative' ? '反方' : '裁判'}
+            {data.debateRole === 'affirmative' ? t('flow.debate.affirmative') :
+             data.debateRole === 'negative' ? t('flow.debate.negative') : t('flow.debate.judge')}
           </span>
         )}
         {!data.debateRole && (
@@ -156,48 +157,48 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
       )}
 
       {/* ─── 左侧：聊天气泡 ─── */}
-      {/* 任务气泡（黄色边框）— 分配了任务但尚未开始思考 */}
+      {/* 任务气泡 — 分配了任务但尚未开始思考 */}
       {showTaskBubble && (
         <div
-          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-yellow-500/40 shadow-glass-sm w-[140px]"
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-muted-foreground/30 shadow-glass-sm w-[140px]"
           style={{ zIndex: 20 }}
         >
-          <span className="text-[6px] text-yellow-400/70 uppercase tracking-wider">任务</span>
+          <span className="text-[6px] text-muted-foreground/60 uppercase tracking-wider">{t('flow.bubble.task')}</span>
           <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {taskText!.slice(-120)}
           </p>
           {/* 小箭头 → 指向头像 */}
-          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-yellow-500/40" />
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-muted-foreground/30" />
         </div>
       )}
 
-      {/* 思考气泡（绿色边框）— 正在思考 */}
+      {/* 思考气泡 — 正在思考 */}
       {showThoughtBubble && (
         <div
-          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-green-500/40 shadow-glass-sm w-[140px]"
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-purple-500/40 shadow-glass-sm w-[140px]"
           style={{ zIndex: 20 }}
         >
-          <span className="text-[6px] text-muted-foreground/50 uppercase tracking-wider">思考</span>
+          <span className="text-[6px] text-purple-400/70 uppercase tracking-wider">{t('flow.bubble.thinking')}</span>
           <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {liveThinkingText!.slice(-120)}
           </p>
           {/* 小箭头 → 指向头像 */}
-          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-green-500/40" />
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-purple-500/40" />
         </div>
       )}
 
-      {/* 汇报气泡（琥珀色边框）— 异步任务完成后汇报结果 */}
+      {/* 汇报气泡 — 异步任务完成后汇报结果 */}
       {showReportingBubble && (
         <div
-          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-amber-400/50 shadow-glass-sm w-[140px]"
+          className="absolute top-0 right-full mr-1.5 bg-card/90 backdrop-blur-sm rounded-lg px-1.5 py-1 border border-amber-500/40 shadow-glass-sm w-[140px]"
           style={{ zIndex: 20 }}
         >
-          <span className="text-[6px] text-amber-400/70 uppercase tracking-wider">汇报</span>
+          <span className="text-[6px] text-amber-400/70 uppercase tracking-wider">{t('flow.bubble.report')}</span>
           <p className="text-[7px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {liveResponseText!.slice(-120)}
           </p>
           {/* 小箭头 → 指向头像 */}
-          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-amber-400/50" />
+          <div className="absolute -right-1 top-3 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-amber-500/40" />
         </div>
       )}
 

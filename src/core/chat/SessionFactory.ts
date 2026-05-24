@@ -5,7 +5,7 @@
 import type { AppConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
 import { join } from 'node:path';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { DependencyContainer } from '@/core/di';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
@@ -15,9 +15,8 @@ import { ProviderManager } from '@/core/providers/ProviderManager';
 import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
 import { PermissionController } from '@/permission/PermissionController';
 import { SessionManager } from '@/session/SessionManager';
-import { getUserSessionsDir, getUserConfigPath, getUserMemoryPath, getUserMemoryDir, getUserAgentsDir } from '@/core/config/PathManager';
+import { getUserSessionsDir, getUserConfigPath, getUserMemoryPath, getUserMemoryDir } from '@/core/config/PathManager';
 import { HookRegistry } from '@/hooks/HookRegistry';
-import { AgentLoop } from '@/core/agent/AgentLoop';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { ChatSession, type SessionCallbacks } from './ChatSession';
@@ -31,7 +30,7 @@ import { ListAgentsTool } from '@/core/tools/ListAgentsTool';
 import { ListScenesTool } from '@/core/tools/ListScenesTool';
 import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
-import { FilteredToolRegistry, augmentToolList } from '@/core/tools/FilteredToolRegistry';
+import { augmentToolList } from '@/core/tools/FilteredToolRegistry';
 import { getTodoManager } from '@/core/tools/TodoManager';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { MemoryManager } from '@/core/memory/MemoryManager';
@@ -189,8 +188,8 @@ export class SessionFactory {
     // 3. 领域服务
     this.container.register('provider', async () => {
       if (options.provider) return options.provider;
-      const providerManager = new ProviderManager(config);
-      return providerManager.getProvider();
+      const { ProviderManager } = await import('@/core/providers/ProviderManager');
+      return ProviderManager.getProvider(config.provider as any);
     });
 
     this.container.register('toolRegistry', () => {
@@ -284,7 +283,7 @@ export class SessionFactory {
     registry.setPermissionController?.(permissionController);
 
     // 4.5. 注册 AgentFactory（统一 Agent 创建入口）
-    this.container.registerSingleton('agentFactory', () => new AgentFactory(registry));
+    this.container.registerSingleton('agentFactory', new AgentFactory(registry));
 
     // 5. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
     const layeredPromptBuilder = await this.container.resolve('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
@@ -302,25 +301,8 @@ export class SessionFactory {
     // 8. 获取 TaskOrchestrator 单例（统一后台任务管理器）
     const taskOrchestrator = TaskOrchestrator.getInstance();
 
-    // 9. 创建 AgentLoop
+    // 9. 创建 AgentLoop（通过 AgentFactory 统一创建）
     const provider = await this.container.resolve<ILLMProvider>('provider');
-
-    const agentConfig = {
-      model: config.provider.model,
-      apiKey: config.provider.apiKey,
-      baseURL: config.provider.baseURL,
-      maxTokens: config.provider.maxTokens,
-      temperature: config.provider.temperature,
-      maxIterations: config.agent?.maxIterations,
-      thinking: config.provider.thinking,
-      compressor: config.agent?.compressor ? {
-        enabled: config.agent.compressor.enabled ?? false,
-        keepRecentRounds: 2,
-        compressionThreshold: 0.8,
-        minMessagesToCompress: 10,
-        summaryMaxLength: 500,
-      } : undefined,
-    };
 
     // 从 agent YAML 配置获取工具白名单
     const cfgMgr = getConfigManager();
@@ -343,35 +325,26 @@ export class SessionFactory {
       log.warn('Failed to build initial system prompt:', err);
     }
 
-    // 同步 MCP 工具元数据到 registry（必须在构建 system prompt 之前完成）
-    // agent-bridge 中的 scheduleMCPToolSync 也会调用，但通过 setImmediate 延迟执行，
-    // 如果此处不等同步完成，system prompt 中将没有 MCP 工具列表，LLM 无法发现 MCP 工具
+    // 同步 MCP 工具元数据到 registry
     try {
       await (registry as any).syncMCPTools(MCPManager.getInstance());
     } catch (err) {
       log.warn('Failed to sync MCP tools during session creation:', err);
     }
 
-    // 注入 MCP 工具 schema 到 system prompt（LLM 需要看到参数定义才能调用）
+    // 注入 MCP / Skills 到 system prompt
     if (systemPrompt) {
       const mcpSection = buildMCPSystemPromptSection(registry);
-      if (mcpSection) {
-        systemPrompt += '\n' + mcpSection;
-      }
+      if (mcpSection) systemPrompt += '\n' + mcpSection;
     }
-
-    // 注入 Skills 到 system prompt
     let skillRegistry: any = null;
     try { skillRegistry = await this.container.resolve('skillRegistry'); } catch { /* not registered */ }
     if (systemPrompt && skillRegistry) {
       const skillSection = buildSkillSystemPromptSection(skillRegistry);
-      if (skillSection) {
-        systemPrompt += '\n' + skillSection;
-      }
+      if (skillSection) systemPrompt += '\n' + skillSection;
     }
 
-    // 合并 agent 配置工具 + prompt 要求的工具 + MCP/Skill gateway，再自动补齐
-    // mcp_call/skill_call 始终可用：有 MCP/Skill 时正常工作，没有时返回友好错误提示
+    // 合并 agent 配置工具 + prompt 要求的工具 + MCP/Skill gateway
     const mcpSchemas = (registry as any).getMCPSchemas?.() ?? [];
     const mcpGatewayTools = mcpSchemas.length > 0 ? ['mcp_call'] : [];
     const skillCount = skillRegistry?.list?.().filter((s: any) => s.enabled !== false).length ?? 0;
@@ -380,19 +353,26 @@ export class SessionFactory {
     const allTools = [...new Set([...agentTools, ...promptRequiredTools, ...mcpGatewayTools, ...skillGatewayTools, ...alwaysAvailable])];
     const augmentedTools = augmentToolList(allTools);
 
-    const trackedRegistry = new FilteredToolRegistry(
-      registry,
-      augmentedTools,
-      { agentId: this.agentId, agentName: this.agentId },
-      process.cwd(),
-    );
+    // 通过 AgentFactory 创建主 AgentLoop
+    const agentFactory = await this.container.resolve<AgentFactory>('agentFactory');
+    agentFactory.setHookRegistry(hookRegistry);
+    agentFactory.setLayeredPromptBuilder(layeredPromptBuilder);
 
-    const agentLoop = new AgentLoop(provider, trackedRegistry, agentConfig, userId);
-    agentLoop.setHookRegistry(hookRegistry);
-
-    if (systemPrompt) {
-      agentLoop.getContextManager().updateSystemPrompt(systemPrompt);
-    }
+    const { agentLoop, config: agentConfig } = await agentFactory.createMainAgent(this.agentId, {
+      parentProvider: provider,
+      toolWhitelist: augmentedTools,
+      strictTools: true,
+      systemPromptOverride: systemPrompt,
+      workingDir: process.cwd(),
+      maxIterations: config.agent?.maxIterations,
+      compressor: config.agent?.compressor ? {
+        enabled: config.agent.compressor.enabled ?? false,
+        keepRecentRounds: 2,
+        compressionThreshold: 0.8,
+        minMessagesToCompress: 10,
+        summaryMaxLength: 500,
+      } : undefined,
+    });
 
     // 11. 初始化 TaskCompletionHandler — 后台任务完成通知
     // 后台任务完成时自动注入到 system prompt，主 agent 空闲时自动触发汇总
@@ -400,7 +380,7 @@ export class SessionFactory {
     const completionHandler = taskOrchestrator.initCompletionHandler(contextManager);
 
     // 12. 初始化 MemoryManager 并注入到各模块
-    await this.initMemoryManager(config, contextManager, layeredPromptBuilder, userId, options.userName, hookRegistry, provider, options.embeddingProvider ?? null);
+    await this.initMemoryManager(config, contextManager, layeredPromptBuilder, userId, options.userName, hookRegistry, provider, options.embeddingProvider ?? null, agentConfig);
 
     // 12.5 接线 persona 更新回调
     const updatePersonaTool = registry.get('update_persona') as UpdatePersonaTool | undefined;
@@ -513,7 +493,7 @@ export class SessionFactory {
     const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
     const promptRegistry = await this.container.resolve('promptRegistry') as import('@/core/prompt/PromptComponentRegistry').PromptComponentRegistry;
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
-    const providerManager = new ProviderManager(config);
+    const providerManager = ProviderManager;
 
     const taskTool = registry.get('task') as TaskTool;
     if (taskTool && 'setDependencies' in taskTool) {
@@ -599,6 +579,7 @@ export class SessionFactory {
     hookRegistry: HookRegistry,
     provider: ILLMProvider,
     embeddingProvider: EmbeddingProviderInterface | null,
+    agentConfig: import('@/core/types').AgentConfig,
   ): Promise<void> {
     try {
       // 确保记忆目录存在（better-sqlite3 不会自动创建父目录）
@@ -607,84 +588,9 @@ export class SessionFactory {
         mkdirSync(memDir, { recursive: true });
       }
 
-      // 创建 CheapLLMProvider — 分别加载 memory-manager 和 context-compressor 配置
-      const { CheapLLMProvider } = await import('@/core/providers/CheapLLMProvider');
-      const { parse: parseYaml } = await import('yaml');
-
-      const loadAgentModel = async (agentId: string, defaults: { model: string; temperature: number; maxTokens: number }): Promise<{ model: string; temperature: number; maxTokens: number; apiKey?: any; baseURL?: any }> => {
-        try {
-          const yamlPath = join(getUserAgentsDir(userId), `${agentId}.yaml`);
-          if (!existsSync(yamlPath)) return defaults;
-          let c = parseYaml(readFileSync(yamlPath, 'utf-8'));
-
-          // 合并 agent-overrides/json5（与 ConfigManager 三层合并逻辑一致）
-          const overridesDir = join(getUserAgentsDir(userId), '..', 'agent-overrides');
-          const overridePath = join(overridesDir, `${agentId}.json5`);
-          if (existsSync(overridePath)) {
-            const JSON5 = await import('json5');
-            const override = JSON5.default.parse(readFileSync(overridePath, 'utf-8'));
-            if (override.model) {
-              c.model = { ...c.model, ...override.model };
-            }
-            if (override.provider) {
-              c.provider = { ...c.provider, ...override.provider };
-            }
-          }
-
-          if (c?.model?.primary) {
-            // apiKey/baseURL 优先取 agent config，没有则回退到主 provider 配置
-            const apiKey = c.provider?.apiKey || config.provider.apiKey;
-            const baseURL = c.provider?.baseURL || config.provider.baseURL;
-            if (!apiKey || !baseURL) {
-              throw new Error(`[${agentId}] provider.apiKey 或 baseURL 未配置，请在 agent-overrides/${agentId}.json5 中设置`);
-            }
-            return {
-              model: c.model.primary as string,
-              temperature: (c.model.temperature ?? defaults.temperature) as number,
-              maxTokens: (c.model.maxTokens ?? defaults.maxTokens) as number,
-              apiKey,
-              baseURL,
-            };
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          log.error(`加载 ${agentId} 配置失败: ${msg}`);
-          throw err;
-        }
-        throw new Error(`[${agentId}] 未找到有效的 model.primary 配置`);
-      };
-
-      // 记忆提取 → memory-manager agent
-      const memCfg = await loadAgentModel('memory-manager', {
-        model: config.provider.model, temperature: 0.3, maxTokens: 1024,
-      });
-      const cheapLLM = new CheapLLMProvider(provider, {
-        model: memCfg.model,
-        apiKey: memCfg.apiKey,
-        baseURL: memCfg.baseURL,
-        temperature: memCfg.temperature,
-        maxTokens: memCfg.maxTokens,
-      });
-      log.info(`Memory LLM: ${memCfg.model}`);
-
-      // 上下文压缩 → context-compressor agent
-      const compCfg = await loadAgentModel('context-compressor', {
-        model: config.provider.model, temperature: 0.3, maxTokens: 1024,
-      });
-      const compressionLLM = new CheapLLMProvider(provider, {
-        model: compCfg.model,
-        apiKey: compCfg.apiKey,
-        baseURL: compCfg.baseURL,
-        temperature: compCfg.temperature,
-        maxTokens: compCfg.maxTokens,
-      });
-      log.info(`Compression LLM: ${compCfg.model}`);
-
-      // 记忆提取用的 systemPrompt（从 memory-manager.yaml 加载）
-      let memoryExtractionPrompt: string | undefined;
-      let memoryAgentConfig: { maxIterations?: number; timeout?: number; maxTokens?: number } | undefined;
-      // 上下文压缩用的 systemPrompt（从 context-compressor.yaml 加载）
-      let compressionPrompt: string | undefined;
+      // 通过 AgentFactory 统一创建 CheapLLMProvider
+      const agentFactory = await this.container.resolve('agentFactory') as import('@/core/agent/factory/AgentFactory').AgentFactory;
+      const cheapLLM = await agentFactory.createCheapLLMProvider('memory-manager', { temperature: 0.3, maxTokens: 1024 });
 
       // 创建 SemanticIndex（如果 embeddingProvider 可用）
       let semanticIndex: any = undefined;
@@ -694,47 +600,11 @@ export class SessionFactory {
         await semanticIndex.init();
       }
 
-      // 加载 memory-manager 模板的 systemPrompt 和 execution/model 配置，注入到 MemoryManager
-      try {
-        const memTemplatePath = join(getUserAgentsDir(userId), 'memory-manager.yaml');
-        if (existsSync(memTemplatePath)) {
-          const memTemplate = parseYaml(readFileSync(memTemplatePath, 'utf-8'));
-          if (memTemplate?.systemPrompt) {
-            memoryExtractionPrompt = memTemplate.systemPrompt as string;
-          }
-          // 读取 execution 和 model 中的 maxTokens，供 runMemoryAgent 使用
-          const exec = memTemplate?.execution as { maxIterations?: number; timeout?: number } | undefined;
-          const modelCfg = memTemplate?.model as { maxTokens?: number } | undefined;
-          memoryAgentConfig = {
-            maxIterations: exec?.maxIterations,
-            timeout: exec?.timeout ? exec.timeout * 1000 : undefined,
-            maxTokens: modelCfg?.maxTokens,
-          };
-        }
-      } catch (err) {
-        log.warn('加载 memory-manager.yaml 配置失败:', err);
-      }
-
-      // 加载 context-compressor 模板的 systemPrompt
-      try {
-        const compTemplatePath = join(getUserAgentsDir(userId), 'context-compressor.yaml');
-        if (existsSync(compTemplatePath)) {
-          const compTemplate = parseYaml(readFileSync(compTemplatePath, 'utf-8'));
-          if (compTemplate?.systemPrompt) {
-            compressionPrompt = compTemplate.systemPrompt as string;
-          }
-        }
-      } catch (err) {
-        log.warn('加载 context-compressor.yaml systemPrompt 失败:', err);
-      }
-
       const dbPath = getUserMemoryPath(userId);
       const memoryManager = new MemoryManager(dbPath, cheapLLM, hookRegistry);
-      memoryManager.compressionLLM = compressionLLM;
-      memoryManager.memoryExtractionPrompt = memoryExtractionPrompt;
-      memoryManager.memoryAgentConfig = memoryAgentConfig;
-      memoryManager.compressionPrompt = compressionPrompt;
-      memoryManager.provider = provider;
+      memoryManager.agentFactory = agentFactory;
+      memoryManager.parentProvider = provider;
+      memoryManager.parentConfig = agentConfig;
       memoryManager.layeredPromptBuilder = layeredPromptBuilder;
       await memoryManager.init();
       // 处理上次未完成的记忆提取任务（进程意外退出补偿）

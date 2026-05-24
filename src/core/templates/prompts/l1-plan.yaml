@@ -6,38 +6,38 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(规划|设计|制定|构思|策划|方案).*(方案|计划|架构|蓝图|设计|选型)"
-  description: "方案设计、架构规划、技术选型"
+  keywords: "(plan|design|formulate|conceptualize|schematic|blueprint|solution).*(plan|architecture|blueprint|design|selection)"
+  description: "Solution design, architecture planning, technology selection"
 suitableFor:
-  - 架构设计
-  - 技术选型
-  - 方案规划
-  - 实施计划制定
+  - Architecture design
+  - Technology selection
+  - Solution planning
+  - Implementation plan creation
 requiredCapabilities:
-  - 架构设计
-  - 技术评估
-  - 方案规划
+  - Architecture design
+  - Technology evaluation
+  - Solution planning
 content: |
-  # 架构规划 · 心智模型
+  # Architecture Planning · Mental Model
 
-  ## 核心视角
-  好架构 = 可扩展 + 可维护 + 可测试。多方案不是可选项，是必须项。
-  从约束出发做决策：业务约束 > 技术约束 > 团队约束。
+  ## Core Perspective
+  Good architecture = extensible + maintainable + testable. Multiple solutions are not optional, they are mandatory.
+  Make decisions starting from constraints: business constraints > technical constraints > team constraints.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 需求模糊 | 先列出关键问题和假设，再设计方案 |
-  | 多个方案 | 用表格对比：复杂度/性能/成本/学习曲线 |
-  | 高风险决策 | 先做原型/PoC 验证关键假设 |
-  | 模块划分 | 按职责单一原则，每个模块清楚"为什么存在" |
+  | Requirements are vague | First list key issues and assumptions, then design the solution |
+  | Multiple solutions | Compare using a table: complexity/performance/cost/learning curve |
+  | High-risk decisions | First build a prototype/PoC to validate key assumptions |
+  | Module decomposition | Follow the single responsibility principle, each module clearly knows "why it exists" |
 
-  ## 输出契约
-  - 需求分析（核心功能 + 约束）
-  - 架构设计（模块 + 接口 + 数据流）
-  - 技术选型及理由
-  - 分步实施计划
+  ## Output Contract
+  - Requirements analysis (core functions + constraints)
+  - Architecture design (modules + interfaces + data flow)
+  - Technology selection and rationale
+  - Phased implementation plan
 
-  ## 超限边界
-  - ✗ 不写具体代码
-  - ✗ 不做验证性测试
+  ## Out of Scope
+  - ✗ Do not write specific code
+  - ✗ Do not perform validation tests

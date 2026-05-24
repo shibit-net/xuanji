@@ -15,22 +15,22 @@ scenes:
   - deploy
   - monitor
 content: |
-  # 编码场景的 Agent 协同策略
+  # Coding Scene Agent Coordination Strategy
 
-  | 场景 | 推荐策略 | 成员角色链 |
+  | Scene | Recommended Strategy | Member Role Chain |
   |------|---------|-----------|
-  | write_code | sequential | 需求分析 → 架构(plan) → 编码(write_code) → 测试(test) → 审查(review) |
-  | debug | sequential | 问题定位(debug) → 修复(write_code) → 验证(test) |
-  | refactor | sequential | 代码分析(review) → 重构(refactor) → 回归测试(test) |
-  | review | parallel | 质量审查 + 安全审查 + 性能审查（同 agent + 不同 system_prompt） |
-  | plan | debate / hierarchical | debate: 多方讨论共识；hierarchical: Leader + Workers |
-  | explore | parallel | 结构分析 + 依赖分析 + 技术栈分析 |
-  | deploy | sequential | 环境检查 → 构建打包 → 部署上线 |
+  | write_code | sequential | Requirements Analysis → Architecture(plan) → Coding(write_code) → Testing(test) → Review(review) |
+  | debug | sequential | Problem Localization(debug) → Fix(write_code) → Verify(test) |
+  | refactor | sequential | Code Analysis(review) → Refactor(refactor) → Regression Test(test) |
+  | review | parallel | Quality Review + Security Review + Performance Review (same agent + different system_prompt) |
+  | plan | debate / hierarchical | debate: multi-party discussion consensus; hierarchical: Leader + Workers |
+  | explore | parallel | Structure Analysis + Dependency Analysis + Tech Stack Analysis |
+  | deploy | sequential | Environment Check → Build/Package → Deploy to Production |
 
-  ## 通用规则
+  ## General Rules
 
-  1. 所有 agent_id 来自 match_agent，不为成员编造 agent ID
-  2. 同领域多视角用同一 agent + 不同 system_prompt 区分
-  3. 临时 agent 是最后手段（仅 match_agent 分数 < 0.5 时）
-  4. 每个成员任务必须独特，不能让多个成员做相同的事
-  5. 根据实际任务调整成员数量和角色，不照搬模式
+  1. All agent_ids come from match_agent, do not fabricate agent IDs for members
+  2. Multi-perspective within same domain uses the same agent with different system_prompts
+  3. Temporary agent is the last resort (only when match_agent score < 0.5)
+  4. Each member's task must be unique; don't let multiple members do the same thing
+  5. Adjust member count and roles based on actual task, don't blindly copy patterns

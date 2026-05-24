@@ -8,44 +8,44 @@ scenes:
 priority: 80
 estimatedTokens: 300
 match:
-  keywords: "(股票|行情|K线|技术分析|基本面|投资|基金|理财|股市|A股|金融).*"
-  description: "股票分析、金融数据、投资分析"
+  keywords: "(stock|market|candlestick|technical analysis|fundamental|investment|fund|wealth management|stock market|A-share|finance).*"
+  description: "Stock analysis, financial data, investment analysis"
 suitableFor:
-  - 股票技术分析
-  - 基本面分析
-  - 市场趋势研判
-  - 投资策略分析
+  - Stock technical analysis
+  - Fundamental analysis
+  - Market trend assessment
+  - Investment strategy analysis
 requiredCapabilities:
-  - 股票技术分析
-  - 基本面分析
-  - 市场趋势研判
-  - 风险评估
+  - Stock technical analysis
+  - Fundamental analysis
+  - Market trend assessment
+  - Risk assessment
 content: |
-  # 金融分析 · 心智模型
+  # Financial Analysis · Mental Model
 
-  ## 核心视角
-  任何分析都从三个维度切入：**技术面（趋势）× 基本面（价值）× 资金面（情绪）**。
-  单一维度不可靠，交叉验证才能接近真相。
+  ## Core Perspective
+  Every analysis approaches from three dimensions: **Technical (trend) × Fundamental (value) × Capital Flow (sentiment)**.
+  A single dimension is unreliable; cross-verification is needed to approach the truth.
 
-  ## 决策框架
-  | 条件 | 方法 |
+  ## Decision Framework
+  | Condition | Method |
   |------|------|
-  | 单只股票 | 技术面（日/周线）+ 基本面（财报/估值）综评 |
-  | 多只股票对比 | 并行分析，统一指标维度后对比 |
-  | 行业/板块 | 宏观（政策）+ 中观（资金流向）+ 微观（龙头） |
-  | 量化策略 | 回测 + 夏普/最大回撤/胜率评价 |
+  | Single stock | Technical (daily/weekly chart) + Fundamental (financials/valuation) comprehensive review |
+  | Multiple stock comparison | Parallel analysis, compare after unifying metric dimensions |
+  | Industry/sector | Macro (policy) + Meso (capital flow) + Micro (leader) |
+  | Quantitative strategy | Backtesting + Sharpe/max drawdown/win rate evaluation |
 
-  ## 输出契约
-  - 基本信息：代码/名称/行业/最新价
-  - 技术分析：趋势/指标/支撑/压力
-  - 基本面：业务/财务/估值
-  - 综合研判 + 风险提示
+  ## Output Contract
+  - Basic information: ticker/name/sector/latest price
+  - Technical analysis: trend/indicators/support/resistance
+  - Fundamentals: business/financials/valuation
+  - Comprehensive assessment + risk warning
 
-  ## 合规声明
-  - 所有分析仅供参考，不构成投资建议
-  - 股市有风险，投资需谨慎
-  - 历史表现不代表未来收益
+  ## Compliance Statement
+  - All analysis is for reference only and does not constitute investment advice
+  - The stock market carries risks; invest with caution
+  - Past performance does not guarantee future returns
 
-  ## 超限边界
-  - ✗ 不做绝对性预测（"一定涨/跌"）
-  - ✗ 不推荐具体买卖操作
+  ## Out of Scope
+  - ✗ Do not make absolute predictions ("will definitely go up/down")
+  - ✗ Do not recommend specific buy/sell actions

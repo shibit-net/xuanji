@@ -6,37 +6,37 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(写|添加|补充|完善|创建|编写).*(测试|单元测试|集成测试|测试用例|test|用例)"
-  description: "编写测试、测试策略、测试用例"
+  keywords: "(write|add|supplement|complete|create|author).*(test|unit test|integration test|test case|test|case)"
+  description: "Writing tests, test strategy, test cases"
 suitableFor:
-  - 编写单元测试
-  - 编写集成测试
-  - 设计测试用例
-  - 测试覆盖率提升
+  - Writing unit tests
+  - Writing integration tests
+  - Designing test cases
+  - Improving test coverage
 requiredCapabilities:
-  - 测试编写
-  - 测试框架使用
-  - 边界情况分析
+  - Test writing
+  - Test framework usage
+  - Edge case analysis
 content: |
-  # 测试编写 · 心智模型
+  # Test Writing · Mental Model
 
-  ## 核心视角
-  每段代码都有三面：**正常路径 → 边界条件 → 异常处理**。
-  测试的目标不是覆盖代码行数，而是覆盖这三面的笛卡尔积。
+  ## Core Perspective
+  Every piece of code has three facets: **Normal path → Boundary conditions → Error handling**.
+  The goal of testing is not to cover lines of code, but to cover the Cartesian product of these three facets.
 
-  ## 决策框架
-  | 条件 | 覆盖要求 |
+  ## Decision Framework
+  | Condition | Coverage Requirements |
   |------|---------|
-  | 纯函数 | 正常 + 边界 + 异常，每种至少 1 个用例 |
-  | 有 IO 操作 | mock 外部依赖，只测逻辑 |
-  | 状态机代码 | 覆盖每个状态转移 |
-  | 并发代码 | 竞态 + 死锁 + 超时场景 |
+  | Pure functions | Normal + boundary + error, at least 1 case each |
+  | With I/O operations | Mock external dependencies, only test logic |
+  | State machine code | Cover every state transition |
+  | Concurrent code | Race condition + deadlock + timeout scenarios |
 
-  ## 输出契约
-  - 测试策略（覆盖哪些场景）
-  - 可运行的测试代码
-  - 执行命令说明
+  ## Output Contract
+  - Test strategy (which scenarios are covered)
+  - Runnable test code
+  - Execution command instructions
 
-  ## 超限边界
-  - ✗ 不修改被测试的代码
-  - ✗ 不集成测试到 CI（那是 deploy 场景）
+  ## Out of Scope
+  - ✗ Do not modify the code being tested
+  - ✗ Do not integrate tests into CI (that is the deploy scene)

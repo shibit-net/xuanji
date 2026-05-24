@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { Button } from '@/components/ui/button';
+import { t } from '@/core/i18n';
 import {
   Clock, X, Plus, Trash2, RefreshCw, AlertCircle,
   Power, Play, Calendar, Tag, CheckCircle, XCircle,
@@ -87,22 +88,22 @@ const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '
 
 function describeSchedule(job: CronJob): string {
   if (job.type === 'once') {
-    return job.scheduledAt ? formatDate(job.scheduledAt) : '未设定';
+    return job.scheduledAt ? formatDate(job.scheduledAt) : t('scheduler.type_once');
   }
   const h = job.hour ?? 9;
   const m = job.minute ?? 0;
   const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   if (job.type === 'weekly') {
     const dow = job.dayOfWeek ?? 0;
-    return `每${DAY_NAMES[dow]} ${time}`;
+    return `${t('scheduler.type_weekly')} ${DAY_NAMES[dow]} ${time}`;
   }
   if (job.type === 'monthly') {
-    return `每月${job.dayOfMonth ?? 1}号 ${time}`;
+    return `${t('scheduler.type_monthly')} ${job.dayOfMonth ?? 1} ${time}`;
   }
   if (job.type === 'yearly') {
-    return `每年${job.month ?? 1}月${job.dayOfMonth ?? 1}号 ${time}`;
+    return `${t('scheduler.type_yearly')} ${job.month ?? 1}/${job.dayOfMonth ?? 1} ${time}`;
   }
-  return `每天 ${time}`;
+  return `${t('scheduler.type_daily')} ${time}`;
 }
 
 // ─── 编辑弹窗 ──────────────────────────────────────────────
@@ -185,7 +186,7 @@ function JobEditDialog({
       <div className="bg-[#1e1e2e] border border-border rounded-lg shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-semibold text-foreground">
-            {isEdit ? '编辑定时任务' : '新增定时任务'}
+            {isEdit ? t('scheduler.job_edit_title') : t('scheduler.job_create_title')}
           </h3>
           <Button onClick={onCancel} variant="ghost" size="icon" className="h-6 w-6">
             <X size={14} />
@@ -195,42 +196,42 @@ function JobEditDialog({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* ID */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground">任务 ID</label>
+            <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_id')}</label>
             <input
               type="text"
               value={form.id}
               onChange={(e) => setForm({ ...form, id: e.target.value })}
               disabled={isEdit}
               className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
-              placeholder="自动生成"
+              placeholder={t('scheduler.auto_generate')}
             />
           </div>
 
           {/* 描述 */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground">描述</label>
+            <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_description')}</label>
             <input
               type="text"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-              placeholder="任务用途说明"
+              placeholder={t('scheduler.desc_placeholder')}
             />
           </div>
 
           {/* 类型 */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground">调度类型</label>
+            <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_type')}</label>
             <select
               value={form.type}
               onChange={(e) => setForm({ ...form, type: e.target.value })}
               className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
             >
-              <option value="daily">每天</option>
-              <option value="weekly">每周</option>
-              <option value="monthly">每月</option>
-              <option value="yearly">每年</option>
-              <option value="once">一次性</option>
+              <option value="daily">{t('scheduler.type_daily')}</option>
+              <option value="weekly">{t('scheduler.type_weekly')}</option>
+              <option value="monthly">{t('scheduler.type_monthly')}</option>
+              <option value="yearly">{t('scheduler.type_yearly')}</option>
+              <option value="once">{t('scheduler.type_once')}</option>
             </select>
           </div>
 
@@ -238,7 +239,7 @@ function JobEditDialog({
           {form.type === 'once' && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-muted-foreground">日期</label>
+                <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_date')}</label>
                 <input
                   type="date"
                   value={form.scheduledDate}
@@ -247,7 +248,7 @@ function JobEditDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-muted-foreground">时间</label>
+                <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_time')}</label>
                 <input
                   type="time"
                   value={form.scheduledTime}
@@ -263,7 +264,7 @@ function JobEditDialog({
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">时</label>
+                  <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_hour')}</label>
                   <select
                     value={form.hour}
                     onChange={(e) => setForm({ ...form, hour: parseInt(e.target.value) })}
@@ -275,7 +276,7 @@ function JobEditDialog({
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">分</label>
+                  <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_minute')}</label>
                   <select
                     value={form.minute}
                     onChange={(e) => setForm({ ...form, minute: parseInt(e.target.value) })}
@@ -289,7 +290,7 @@ function JobEditDialog({
               </div>
               {form.type === 'weekly' && (
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">星期几</label>
+                  <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_day_of_week')}</label>
                   <select
                     value={form.dayOfWeek}
                     onChange={(e) => setForm({ ...form, dayOfWeek: parseInt(e.target.value) })}
@@ -303,14 +304,14 @@ function JobEditDialog({
               )}
               {form.type === 'monthly' && (
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground">每月几号</label>
+                  <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_day_of_month')}</label>
                   <select
                     value={form.dayOfMonth}
                     onChange={(e) => setForm({ ...form, dayOfMonth: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
                   >
                     {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                      <option key={d} value={d}>{d}号</option>
+                      <option key={d} value={d}>{d}{t('scheduler.day_unit')}</option>
                     ))}
                   </select>
                 </div>
@@ -318,26 +319,26 @@ function JobEditDialog({
               {form.type === 'yearly' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-muted-foreground">月份</label>
+                    <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_month')}</label>
                     <select
                       value={form.month}
                       onChange={(e) => setForm({ ...form, month: parseInt(e.target.value) })}
                       className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
                     >
                       {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                        <option key={m} value={m}>{m}月</option>
+                        <option key={m} value={m}>{m}{t('scheduler.month_unit')}</option>
                       ))}
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-muted-foreground">几号</label>
+                    <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_day')}</label>
                     <select
                       value={form.dayOfMonth}
                       onChange={(e) => setForm({ ...form, dayOfMonth: parseInt(e.target.value) })}
                       className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
                     >
                       {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                        <option key={d} value={d}>{d}号</option>
+                        <option key={d} value={d}>{d}{t('scheduler.day_unit')}</option>
                       ))}
                     </select>
                   </div>
@@ -348,39 +349,39 @@ function JobEditDialog({
 
           {/* Action */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground">动作类型</label>
+            <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_action')}</label>
             <select
               value={form.action}
               onChange={(e) => setForm({ ...form, action: e.target.value })}
               className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
             >
-              <option value="learn">知识学习 (learn)</option>
-              <option value="custom">自定义 (custom)</option>
+              <option value="learn">{t('scheduler.action_learn')}</option>
+              <option value="custom">{t('scheduler.action_custom')}</option>
             </select>
           </div>
 
           {form.action === 'custom' && (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">Handler 名称</label>
+              <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_handler')}</label>
               <input
                 type="text"
                 value={form.handlerName}
                 onChange={(e) => setForm({ ...form, handlerName: e.target.value })}
                 className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-                placeholder="例如: daily-care"
+                placeholder={t('scheduler.handler_placeholder')}
               />
             </div>
           )}
 
           {form.action === 'learn' && (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">学习目标 (prompt)</label>
+              <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_learn_prompt')}</label>
               <input
                 type="text"
                 value={form.prompt}
                 onChange={(e) => setForm({ ...form, prompt: e.target.value })}
                 className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-                placeholder="例如: daily learning"
+                placeholder={t('scheduler.learn_placeholder')}
               />
             </div>
           )}
@@ -389,17 +390,17 @@ function JobEditDialog({
           {form.action === 'custom' && (
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-muted-foreground">
-                触发消息 (message)
+                {t('scheduler.field_trigger_message')}
               </label>
               <input
                 type="text"
                 value={form.message}
                 onChange={(e) => setForm({ ...form, message: e.target.value })}
                 className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-                placeholder="如: 帮我分析今天的 GitHub issues"
+                placeholder={t('scheduler.message_placeholder')}
               />
               <p className="text-xs text-muted-foreground/70">
-                填入后，定时任务触发时将此消息注入 agent 会话，启动完整对话循环。留空则仅执行 handler。
+                {t('scheduler.message_hint')}
               </p>
             </div>
           )}
@@ -407,8 +408,8 @@ function JobEditDialog({
           {/* 启用 */}
           <div className="flex items-center justify-between py-2">
             <div>
-              <span className="text-sm text-foreground">启用</span>
-              <p className="text-xs text-muted-foreground/70">关闭后任务不会执行</p>
+              <span className="text-sm text-foreground">{t('scheduler.enabled')}</span>
+              <p className="text-xs text-muted-foreground/70">{t('scheduler.disabled_hint')}</p>
             </div>
             <Button
               type="button"
@@ -423,9 +424,9 @@ function JobEditDialog({
 
           {/* 按钮 */}
           <div className="flex gap-2 justify-end pt-3 border-t border-border">
-            <Button type="button" onClick={onCancel} variant="ghost" size="sm">取消</Button>
+            <Button type="button" onClick={onCancel} variant="ghost" size="sm">{t('scheduler.cancel')}</Button>
             <Button type="submit" disabled={saving} variant="default" size="sm">
-              {saving ? '保存中...' : isEdit ? '更新' : '创建'}
+              {saving ? t('scheduler.saving') : isEdit ? t('scheduler.update') : t('scheduler.create')}
             </Button>
           </div>
         </form>
@@ -450,9 +451,9 @@ function JobsTab() {
     try {
       const res = await window.electron.schedulerJobs();
       if (res.success) setJobs(res.jobs || []);
-      else setError(res.error || '加载失败');
+      else setError(res.error || t('scheduler.load_failed'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : t('scheduler.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -470,20 +471,20 @@ function JobsTab() {
         updates: { enabled: !job.enabled },
       });
       if (res.success) await loadJobs();
-      else alert(`操作失败: ${res.error}`);
+      else alert(`${t('scheduler.operation_failed').replace('{error}', res.error)}`);
     } catch (err) {
-      alert(`操作失败: ${err instanceof Error ? err.message : String(err)}`);
+      alert(`${t('scheduler.operation_failed').replace('{error}', err instanceof Error ? err.message : String(err))}`);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个定时任务吗？')) return;
+    if (!confirm(t('scheduler.confirm_delete'))) return;
     try {
       const res = await window.electron.schedulerRemove({ id });
       if (res.success) await loadJobs();
-      else alert(`删除失败: ${res.error}`);
+      else alert(`${t('scheduler.delete_failed').replace('{error}', res.error)}`);
     } catch (err) {
-      alert(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      alert(`${t('scheduler.delete_failed').replace('{error}', err instanceof Error ? err.message : String(err))}`);
     }
   };
 
@@ -501,10 +502,10 @@ function JobsTab() {
         setEditJob(null);
         await loadJobs();
       } else {
-        alert(`保存失败: ${res.error}`);
+        alert(`${t('scheduler.save_failed').replace('{error}', res.error)}`);
       }
     } catch (err) {
-      alert(`保存失败: ${err instanceof Error ? err.message : String(err)}`);
+      alert(`${t('scheduler.save_failed').replace('{error}', err instanceof Error ? err.message : String(err))}`);
     }
   };
 
@@ -517,7 +518,7 @@ function JobsTab() {
       {/* 工具栏 */}
       <div className="flex items-center gap-2 mb-4">
         <Button onClick={() => setShowCreate(true)} variant="default" size="sm" className="gap-1">
-          <Plus size={14} /> 新增任务
+          <Plus size={14} /> {t('scheduler.add_job')}
         </Button>
         <Button onClick={loadJobs} variant="ghost" size="sm">
           <RefreshCw size={14} />
@@ -528,8 +529,8 @@ function JobsTab() {
       {jobs.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
           <Clock size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">暂无定时任务</p>
-          <p className="text-xs mt-1 opacity-60">点击"新增任务"创建</p>
+          <p className="text-sm">{t('scheduler.empty_jobs')}</p>
+          <p className="text-xs mt-1 opacity-60">{t('scheduler.empty_jobs_hint')}</p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto space-y-2">
@@ -549,18 +550,18 @@ function JobsTab() {
                       job.type === 'weekly' ? 'bg-purple-500/15 text-purple-400 border-purple-500/25' :
                       'bg-blue-500/15 text-blue-400 border-blue-500/25'
                     }`}>
-                      {job.type === 'once' ? '一次性' : job.type === 'monthly' ? '每月' : job.type === 'yearly' ? '每年' : job.type === 'weekly' ? '每周' : '每天'}
+                      {job.type === 'once' ? t('scheduler.type_once') : job.type === 'monthly' ? t('scheduler.type_monthly') : job.type === 'yearly' ? t('scheduler.type_yearly') : job.type === 'weekly' ? t('scheduler.type_weekly') : t('scheduler.type_daily')}
                     </span>
                     <span className={`text-xs px-1.5 py-0.5 rounded border ${
                       job.enabled !== false
                         ? 'bg-green-500/15 text-green-400 border-green-500/25'
                         : 'bg-gray-500/15 text-gray-400 border-gray-500/25'
                     }`}>
-                      {job.enabled !== false ? '启用' : '禁用'}
+                      {job.enabled !== false ? t('scheduler.status_enabled') : t('scheduler.status_disabled')}
                     </span>
                     {job.executed && (
                       <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-500/15 text-yellow-400 border-yellow-500/25">
-                        已完成
+                        {t('scheduler.status_completed')}
                       </span>
                     )}
                     <span className={`text-xs px-1.5 py-0.5 rounded border ${

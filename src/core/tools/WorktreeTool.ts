@@ -26,15 +26,15 @@ export class WorktreeTool extends BaseTool {
       action: {
         type: 'string',
         enum: ['create', 'remove', 'list', 'cleanup'],
-        description: '操作类型: create(创建), remove(移除), list(列出), cleanup(清理无改动的)',
+        description: 'Operation type: create, remove, list, cleanup (clean unchanged worktrees)',
       },
       name: {
         type: 'string',
-        description: '(create) Worktree 名称（可选，自动生成唯一名）',
+        description: '(create) Worktree name (optional, auto-generates unique name)',
       },
       path: {
         type: 'string',
-        description: '(remove) 要移除的 Worktree 路径',
+        description: '(remove) Path of the worktree to remove',
       },
     },
     required: ['action'],

@@ -14,6 +14,7 @@ import {
   Loader2, Zap, Clock, Tag, Layers, Server
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
+import { t } from '@/core/i18n';
 import type { ToolExecution } from '../stores/AgentStateMachine';
 
 // 树节点类型（由 ActiveAgentView.buildAgentTree 构建）
@@ -46,15 +47,15 @@ interface TreeNode {
 
 // 子 Agent 标签映射
 const AGENT_TYPE_LABEL: Record<string, string> = {
-  builtin: '内置',
-  preset: '预设',
-  custom: '自定义',
-  temporary: '临时',
+  builtin: t('agent.work_card.agent_type.builtin'),
+  preset: t('agent.work_card.agent_type.preset'),
+  custom: t('agent.work_card.agent_type.custom'),
+  temporary: t('agent.work_card.agent_type.temporary'),
 };
 
 const EXECUTION_MODE_LABEL: Record<string, string> = {
-  'acp': '子进程',
-  'in-process': '主进程',
+  'acp': t('agent.work_card.exec_mode.acp'),
+  'in-process': t('agent.work_card.exec_mode.in_process'),
 };
 
 interface AgentWorkCardProps {
@@ -72,7 +73,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
       case 'thinking':
         return {
           icon: Brain,
-          label: '思考中',
+          label: t('agent.work_card.status.thinking'),
           color: 'text-purple-400',
           bg: 'bg-purple-500/10',
           border: 'border-purple-500/30',
@@ -81,7 +82,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
       case 'executing':
         return {
           icon: Wrench,
-          label: '执行工具',
+          label: t('agent.work_card.status.executing'),
           color: 'text-blue-400',
           bg: 'bg-blue-500/10',
           border: 'border-blue-500/30',
@@ -90,7 +91,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
       case 'responding':
         return {
           icon: Sparkles,
-          label: '生成回复',
+          label: t('agent.work_card.status.responding'),
           color: 'text-orange-400',
           bg: 'bg-orange-500/10',
           border: 'border-orange-500/30',
@@ -99,7 +100,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
       case 'done':
         return {
           icon: CheckCircle,
-          label: '已完成',
+          label: t('agent.work_card.status.done'),
           color: 'text-green-400',
           bg: 'bg-green-500/10',
           border: 'border-green-500/30',
@@ -108,7 +109,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
       default:
         return {
           icon: Loader2,
-          label: '待命',
+          label: t('agent.work_card.status.idle'),
           color: 'text-gray-400',
           bg: 'bg-gray-500/10',
           border: 'border-gray-500/30',
@@ -187,11 +188,11 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                   {agent.multiAgent?.type && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 whitespace-nowrap">
                       <Layers className="w-2.5 h-2.5" />
-                      {agent.multiAgent.type === 'agent_team' ? '团队' :
-                       agent.multiAgent.type === 'delegate' ? '委派' :
-                       agent.multiAgent.type === 'pipeline' ? '流水线' :
-                       agent.multiAgent.type === 'quick_team' ? '快速团队' :
-                       agent.multiAgent.type === 'orchestrate' ? '编排' :
+                      {agent.multiAgent.type === 'agent_team' ? t('agent.work_card.multi_type.agent_team') :
+                       agent.multiAgent.type === 'delegate' ? t('agent.work_card.multi_type.delegate') :
+                       agent.multiAgent.type === 'pipeline' ? t('agent.work_card.multi_type.pipeline') :
+                       agent.multiAgent.type === 'quick_team' ? t('agent.work_card.multi_type.quick_team') :
+                       agent.multiAgent.type === 'orchestrate' ? t('agent.work_card.multi_type.orchestrate') :
                        agent.multiAgent.type}
                     </span>
                   )}
@@ -254,7 +255,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-xs text-purple-400">
                       <Brain className="w-3.5 h-3.5" />
-                      <span className="font-medium">思考</span>
+                      <span className="font-medium">{t('agent.work_card.thinking_title')}</span>
                     </div>
                     <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed max-h-28 overflow-y-auto">
                       {agent.currentThought}
@@ -267,7 +268,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-xs text-blue-400">
                       <Wrench className="w-3.5 h-3.5" />
-                      <span className="font-medium">执行中的工具</span>
+                      <span className="font-medium">{t('agent.work_card.tools_title')}</span>
                     </div>
                     <div className="space-y-1.5">
                       {agent.currentTools.map((tool) => (
@@ -294,7 +295,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-xs text-orange-400">
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span className="font-medium">正在回复</span>
+                      <span className="font-medium">{t('agent.work_card.responding_title')}</span>
                     </div>
                     <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed line-clamp-3">
                       {agent.currentResponse}

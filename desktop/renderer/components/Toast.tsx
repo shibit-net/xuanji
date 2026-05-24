@@ -6,6 +6,8 @@
 
 import React, { createContext, useContext } from 'react';
 import { toast as shadcnToast } from '../hooks/use-toast';
+import { getDesktopLabel } from '../i18n';
+import { useConfigStore } from '../stores/configStore';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -34,17 +36,27 @@ const variantMap: Record<ToastType, 'success' | 'error' | 'warning' | 'info'> = 
   info: 'info',
 };
 
-const typeLabelMap: Record<ToastType, string> = {
-  success: '成功',
-  error: '错误',
-  warning: '警告',
-  info: '信息',
+const typeLabelKeys: Record<ToastType, string> = {
+  success: 'toast.success',
+  error: 'toast.error',
+  warning: 'toast.warning',
+  info: 'toast.info',
 };
 
+function getCurrentLang(): 'zh' | 'en' {
+  try {
+    const store = useConfigStore.getState();
+    return (store.settings?.language as 'zh' | 'en') || 'zh';
+  } catch {
+    return 'zh';
+  }
+}
+
 function show(type: ToastType, message: string, duration = 3000) {
+  const lang = getCurrentLang();
   shadcnToast({
     variant: variantMap[type],
-    title: typeLabelMap[type],
+    title: getDesktopLabel(typeLabelKeys[type], lang),
     description: message,
     duration,
   });

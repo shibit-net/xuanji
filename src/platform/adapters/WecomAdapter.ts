@@ -121,6 +121,22 @@ export class WecomAdapter implements PlatformAdapter {
 
     const isGroup = !!chatId && chatId !== fromUser;
 
+    // 提取附件（图片/文件/语音/视频）
+    const attachments: Array<{ type: 'image' | 'file' | 'voice' | 'audio' | 'video'; url?: string; name?: string; mimeType?: string }> = [];
+    if (msgType === 'image') {
+      const picUrl = this.xmlExtract(decrypted, 'PicUrl');
+      attachments.push({ type: 'image', url: picUrl || undefined });
+    } else if (msgType === 'file') {
+      const fileName = this.xmlExtract(decrypted, 'FileName');
+      const fileExt = this.xmlExtract(decrypted, 'FileExt');
+      attachments.push({ type: 'file', name: fileName || undefined, mimeType: fileExt ? `application/${fileExt}` : undefined });
+    } else if (msgType === 'voice') {
+      const format = this.xmlExtract(decrypted, 'Format');
+      attachments.push({ type: 'voice', mimeType: format ? `audio/${format}` : 'audio/amr' });
+    } else if (msgType === 'video') {
+      attachments.push({ type: 'video', mimeType: 'video/mp4' });
+    }
+
     const msg: PlatformMessage = {
       id: msgId || `${Date.now()}`,
       platform: 'wecom',
@@ -128,6 +144,7 @@ export class WecomAdapter implements PlatformAdapter {
       chatId,
       chatType: isGroup ? 'group' : 'private',
       text: content || '',
+      attachments: attachments.length > 0 ? attachments : undefined,
       mentions: this.parseMentions(content || ''),
       sessionKey: buildSessionKey({ platform: 'wecom', chatType: isGroup ? 'group' : 'private', chatId }),
       raw: { xml: decrypted, msgType, agentId },
@@ -257,6 +274,111 @@ export class WecomAdapter implements PlatformAdapter {
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
+  }
+
+  async sendFile(options: { chatId: string; filePath: string; fileName?: string; replyTo?: string }): Promise<string> {
+    const token = await this.credentials.getToken('wecom');
+
+    // 1. 上传文件获取 media_id
+    const fileBuffer = readFileSync(options.filePath);
+    const fileName = options.fileName || basename(options.filePath);
+    const boundary = `--WecomUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=file`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.errcode !== 0) {
+      throw new Error(`Wecom file upload failed: ${uploadData.errmsg}`);
+    }
+
+    // 2. 发送文件消息
+    const sendBody = {
+      touser: options.chatId,
+      msgtype: 'file',
+      file: { media_id: uploadData.media_id },
+      agentid: this.config.agent_id,
+    };
+
+    const sendRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.errcode !== 0) {
+      throw new Error(`Wecom sendFile failed: ${sendData.errmsg}`);
+    }
+
+    return sendData.msgid || '';
+  }
+
+  async sendVoice(options: { chatId: string; voicePath: string; replyTo?: string }): Promise<string> {
+    const token = await this.credentials.getToken('wecom');
+
+    // 语音使用 type=voice 上传
+    const fileBuffer = readFileSync(options.voicePath);
+    const fileName = basename(options.voicePath);
+    const boundary = `--WecomUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=voice`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.errcode !== 0) {
+      throw new Error(`Wecom voice upload failed: ${uploadData.errmsg}`);
+    }
+
+    const sendBody = {
+      touser: options.chatId,
+      msgtype: 'voice',
+      voice: { media_id: uploadData.media_id },
+      agentid: this.config.agent_id,
+    };
+
+    const sendRes = await fetch(
+      `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.errcode !== 0) {
+      throw new Error(`Wecom sendVoice failed: ${sendData.errmsg}`);
+    }
+
+    return sendData.msgid || '';
   }
 
   // ── Token 刷新（委托给 CredentialManager）──────────────────

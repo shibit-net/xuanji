@@ -68,11 +68,11 @@ export default function ActiveAgentView() {
           <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
             <Sparkles className="w-10 h-10 text-primary" />
           </div>
-          <h3 className="text-lg font-semibold mb-2">璇玑 Agent 工作台</h3>
+          <h3 className="text-lg font-semibold mb-2">{t('activeagent.title')}</h3>
           <p className="text-sm text-text-secondary leading-relaxed">
-            开始对话后，这里会实时显示所有正在工作的 Agent
+            {t('activeagent.desc_start')}
             <br />
-            您可以看到每个 Agent 的思考、执行和协作过程
+            {t('activeagent.desc_see')}
           </p>
         </motion.div>
       </div>

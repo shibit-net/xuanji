@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { RefreshCw, Trash2, Search, X, Save, Shield, FileText, Terminal, AlertTriangle, List, Sliders, BarChart3 } from 'lucide-react';
+import { t } from '@/core/i18n';
 
 interface PermissionsPageProps {
   onClose: () => void;
@@ -76,7 +77,7 @@ function EmptyState({ text }: { text: string }) {
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-12 text-muted-foreground">
-      <RefreshCw size={16} className="animate-spin mr-2" /> 加载中...
+      <RefreshCw size={16} className="animate-spin mr-2" /> {t('permissions.loading')}
     </div>
   );
 }
@@ -108,7 +109,7 @@ function DecisionsTab() {
   };
 
   const handleClear = async () => {
-    if (!confirm('确认清空所有决策记录？')) return;
+    if (!confirm(t('permissions.confirm_clear_decisions'))) return;
     await window.electron.permissionClearRules();
     load();
   };
@@ -127,7 +128,7 @@ function DecisionsTab() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="搜索工具或目标..."
+            placeholder={t('permissions.decisions.search_placeholder')}
             className="w-full h-8 pl-9 pr-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground placeholder:text-white/30 backdrop-blur-xl focus:outline-none focus:border-primary/50"
           />
         </div>
@@ -142,7 +143,7 @@ function DecisionsTab() {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {v === 'all' ? '全部' : v === 'allow' ? '允许' : '拒绝'}
+              {v === 'all' ? t('permissions.decisions.filter_all') : v === 'allow' ? t('permissions.decisions.filter_allow') : t('permissions.decisions.filter_deny')}
             </button>
           ))}
         </div>
@@ -150,12 +151,12 @@ function DecisionsTab() {
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
         <button onClick={handleClear} className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors">
-          <Trash2 size={12} /> 清空
+          <Trash2 size={12} /> {t('permissions.decisions.btn_clear')}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
-        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无决策记录" /> : (
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text={t('permissions.decisions.empty')} /> : (
           filtered.map(d => (
             <div key={d.cacheKey} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
               <div className="flex items-start justify-between gap-2">
@@ -167,7 +168,7 @@ function DecisionsTab() {
                         ? 'bg-green-500/15 text-green-400 border border-green-500/20'
                         : 'bg-red-500/15 text-red-400 border border-red-500/20'
                     }`}>
-                      {d.allowed ? '总是允许' : '总是拒绝'}
+                      {d.allowed ? t('permissions.decisions.badge_always_allow') : t('permissions.decisions.badge_always_deny')}
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground truncate" title={d.cacheKey}>{d.cacheKey}</p>
@@ -211,7 +212,7 @@ function DeniedTab() {
   };
 
   const handleClear = async () => {
-    if (!confirm('确认清空所有拒绝记录？')) return;
+    if (!confirm(t('permissions.confirm_clear_denied'))) return;
     await window.electron.permissionDeniedClear();
     load();
   };
@@ -219,10 +220,10 @@ function DeniedTab() {
   const filtered = filter === 'all' ? deniedOps : deniedOps.filter(d => d.category === filter);
 
   const categories = [
-    { key: 'all', label: '全部', icon: List },
-    { key: 'fileRead', label: '文件读取', icon: FileText },
-    { key: 'fileWrite', label: '文件写入', icon: FileText },
-    { key: 'bashExec', label: '命令执行', icon: Terminal },
+    { key: 'all', label: t('permissions.denied.title_all'), icon: List },
+    { key: 'fileRead', label: t('permissions.denied.category_file_read'), icon: FileText },
+    { key: 'fileWrite', label: t('permissions.denied.category_file_write'), icon: FileText },
+    { key: 'bashExec', label: t('permissions.denied.category_bash_exec'), icon: Terminal },
   ];
 
   return (
@@ -250,12 +251,12 @@ function DeniedTab() {
           onClick={handleClear}
           className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
         >
-          <Trash2 size={12} /> 清空
+          <Trash2 size={12} /> {t('permissions.denied.btn_clear')}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
-        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无拒绝记录" /> : (
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text={t('permissions.denied.empty')} /> : (
           filtered.map(d => (
             <div key={d.key} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
               <div className="flex items-start justify-between gap-2">
@@ -270,15 +271,15 @@ function DeniedTab() {
                       {d.category}
                     </span>
                     {d.sessionOnly && (
-                      <span className="text-xs px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-md">本次会话</span>
+                      <span className="text-xs px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded-md">{t('permissions.denied.badge_session')}</span>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground mb-0.5">
-                    <span className="font-semibold">目标:</span> <span className="font-mono">{d.pattern}</span>
+                    <span className="font-semibold">{t('permissions.denied.label_target')}</span> <span className="font-mono">{d.pattern}</span>
                   </div>
                   {d.reason && (
                     <div className="text-xs text-muted-foreground mb-0.5">
-                      <span className="font-semibold">原因:</span> {d.reason}
+                      <span className="font-semibold">{t('permissions.denied.label_reason')}</span> {d.reason}
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground/50 mt-1">{new Date(d.timestamp).toLocaleString('zh-CN')}</div>
@@ -286,7 +287,7 @@ function DeniedTab() {
                 <button
                   onClick={() => handleDelete(d.key)}
                   className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors shrink-0"
-                  title="删除"
+                  title={t('permissions.denied.title_delete')}
                 >
                   <Trash2 size={14} className="text-muted-foreground/60 hover:text-red-400" />
                 </button>
@@ -330,11 +331,11 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
     setSaveMsg(null);
     try {
       await window.electron.permissionConfigUpdate({ updates: config });
-      setSaveMsg({ type: 'success', text: '配置已保存' });
+      setSaveMsg({ type: 'success', text: t('permissions.config.save_success') });
       setTimeout(() => setSaveMsg(null), 3000);
       onRefresh();
     } catch (err) {
-      setSaveMsg({ type: 'error', text: '保存失败' });
+      setSaveMsg({ type: 'error', text: t('permissions.config.save_failed') });
       console.error('Failed to save config:', err);
     } finally {
       setSaving(false);
@@ -342,7 +343,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
   };
 
   if (loading) return <LoadingState />;
-  if (!config) return <EmptyState text="无法加载配置" />;
+  if (!config) return <EmptyState text={t('permissions.config.load_failed')} />;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -361,13 +362,13 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         {/* 基础权限 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <Shield size={14} /> 基础权限
+            <Shield size={14} /> {t('permissions.config.title_basic')}
           </h3>
           <div className="space-y-2 bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
             {[
-              { key: 'fileRead' as const, label: '文件读取', icon: FileText },
-              { key: 'fileWrite' as const, label: '文件写入', icon: FileText },
-              { key: 'bashExec' as const, label: '命令执行', icon: Terminal },
+              { key: 'fileRead' as const, label: t('permissions.config.label_file_read'), icon: FileText },
+              { key: 'fileWrite' as const, label: t('permissions.config.label_file_write'), icon: FileText },
+              { key: 'bashExec' as const, label: t('permissions.config.label_bash_exec'), icon: Terminal },
             ].map(({ key, label, icon: Icon }) => (
               <label key={key} className="flex items-center gap-3 py-1 cursor-pointer group">
                 <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
@@ -393,18 +394,18 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         {/* 策略设置 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <Sliders size={14} /> 策略设置
+            <Sliders size={14} /> {t('permissions.config.title_strategy')}
           </h3>
           <div className="space-y-3 bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
             <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block">警告级别处理</label>
+              <label className="text-xs text-muted-foreground mb-1.5 block">{t('permissions.config.label_warn_level')}</label>
               <select
                 value={config.warnLevel}
                 onChange={e => setConfig({ ...config, warnLevel: e.target.value as any })}
                 className="w-full h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
               >
-                <option value="ask">询问确认</option>
-                <option value="auto-allow">自动允许</option>
+                <option value="ask">{t('permissions.config.warn_ask')}</option>
+                <option value="auto-allow">{t('permissions.config.warn_auto_allow')}</option>
               </select>
             </div>
             <label className="flex items-center gap-3 py-1 cursor-pointer group">
@@ -421,7 +422,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
                 onChange={e => setConfig({ ...config, confirmWrite: e.target.checked })}
                 className="sr-only"
               />
-              <span className="text-sm">写入前确认</span>
+              <span className="text-sm">{t('permissions.config.label_confirm_write')}</span>
             </label>
           </div>
         </section>
@@ -429,52 +430,52 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
         {/* 路径白名单 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <FileText size={14} /> 路径白名单
+            <FileText size={14} /> {t('permissions.config.title_allow_paths')}
           </h3>
           <textarea
             value={config.allowedPaths?.join('\n') || ''}
             onChange={e => setConfig({ ...config, allowedPaths: e.target.value.split('\n').filter(Boolean) })}
             className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
-            placeholder="每行一个路径"
+            placeholder={t('permissions.config.placeholder_path')}
           />
         </section>
 
         {/* 路径黑名单 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <FileText size={14} /> 路径黑名单
+            <FileText size={14} /> {t('permissions.config.title_deny_paths')}
           </h3>
           <textarea
             value={config.deniedPaths?.join('\n') || ''}
             onChange={e => setConfig({ ...config, deniedPaths: e.target.value.split('\n').filter(Boolean) })}
             className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
-            placeholder="每行一个路径"
+            placeholder={t('permissions.config.placeholder_path')}
           />
         </section>
 
         {/* 命令白名单 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <Terminal size={14} /> 命令白名单
+            <Terminal size={14} /> {t('permissions.config.title_allow_commands')}
           </h3>
           <textarea
             value={config.allowedCommands?.join('\n') || ''}
             onChange={e => setConfig({ ...config, allowedCommands: e.target.value.split('\n').filter(Boolean) })}
             className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
-            placeholder="每行一个命令"
+            placeholder={t('permissions.config.placeholder_command')}
           />
         </section>
 
         {/* 命令黑名单 */}
         <section>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground mb-3">
-            <Terminal size={14} /> 命令黑名单
+            <Terminal size={14} /> {t('permissions.config.title_deny_commands')}
           </h3>
           <textarea
             value={config.deniedCommands?.join('\n') || ''}
             onChange={e => setConfig({ ...config, deniedCommands: e.target.value.split('\n').filter(Boolean) })}
             className="w-full h-24 px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs font-mono text-foreground placeholder:text-white/20 backdrop-blur-xl focus:outline-none focus:border-primary/50 resize-none"
-            placeholder="每行一个命令"
+            placeholder={t('permissions.config.placeholder_command')}
           />
         </section>
 
@@ -484,7 +485,7 @@ const ConfigTab: React.FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           className="flex items-center gap-1.5 px-5 py-2.5 bg-primary/80 text-white rounded-xl hover:bg-primary transition-colors text-sm disabled:opacity-50"
         >
           {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-          保存配置
+          {t('permissions.config.btn_save')}
         </button>
       </div>
     </div>
@@ -519,7 +520,7 @@ const AuditTab: React.FC = () => {
   useEffect(() => { load(); }, []);
 
   const handleClear = async () => {
-    if (!confirm('确认清空所有审计日志？')) return;
+    if (!confirm(t('permissions.confirm_clear_audit'))) return;
     await window.electron.permissionAuditClear();
     load();
   };
@@ -546,15 +547,15 @@ const AuditTab: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-3 gap-3 p-4 border-b border-white/[0.08]">
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">总检查</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{t('permissions.audit.card_total')}</div>
             <div className="text-2xl font-semibold">{stats.totalChecks}</div>
           </div>
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">允许率</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{t('permissions.audit.card_allow_rate')}</div>
             <div className="text-2xl font-semibold text-green-400">{(stats.allowRate * 100).toFixed(1)}%</div>
           </div>
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 backdrop-blur-xl">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">拒绝</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{t('permissions.audit.card_denied')}</div>
             <div className="text-2xl font-semibold text-red-400">{stats.deniedCount}</div>
           </div>
         </div>
@@ -566,7 +567,7 @@ const AuditTab: React.FC = () => {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="搜索工具名..."
+            placeholder={t('permissions.audit.search_placeholder')}
             value={toolFilter}
             onChange={e => setToolFilter(e.target.value)}
             className="w-full h-8 pl-9 pr-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground placeholder:text-white/30 backdrop-blur-xl focus:outline-none focus:border-primary/50"
@@ -578,32 +579,32 @@ const AuditTab: React.FC = () => {
             onChange={e => setDecisionFilter(e.target.value)}
             className="flex-1 h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
           >
-            <option value="all">所有决策</option>
-            <option value="allow">允许</option>
-            <option value="deny">拒绝</option>
+            <option value="all">{t('permissions.audit.filter_decision')}</option>
+            <option value="allow">{t('permissions.audit.filter_allow')}</option>
+            <option value="deny">{t('permissions.audit.filter_deny')}</option>
           </select>
           <select
             value={riskFilter}
             onChange={e => setRiskFilter(e.target.value)}
             className="flex-1 h-8 px-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground backdrop-blur-xl focus:outline-none focus:border-primary/50"
           >
-            <option value="all">所有风险</option>
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
+            <option value="all">{t('permissions.audit.filter_risk')}</option>
+            <option value="low">{t('permissions.audit.filter_low')}</option>
+            <option value="medium">{t('permissions.audit.filter_medium')}</option>
+            <option value="high">{t('permissions.audit.filter_high')}</option>
           </select>
           <button
             onClick={handleClear}
             className="flex items-center gap-1 px-2.5 py-1 text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors shrink-0"
           >
-            <Trash2 size={12} /> 清空
+            <Trash2 size={12} /> {t('permissions.audit.btn_clear')}
           </button>
         </div>
       </div>
 
       {/* 日志列表 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
-        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text="暂无审计日志" /> : (
+        {loading ? <LoadingState /> : filtered.length === 0 ? <EmptyState text={t('permissions.audit.empty')} /> : (
           filtered.map((log, idx) => (
             <div key={idx} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 hover:bg-white/[0.06] transition-colors">
               <div className="flex items-center gap-2 mb-1">
@@ -623,12 +624,12 @@ const AuditTab: React.FC = () => {
               </div>
               {log.target && (
                 <div className="text-xs text-muted-foreground mb-0.5">
-                  <span className="font-semibold">目标:</span> <span className="font-mono">{log.target}</span>
+                  <span className="font-semibold">{t('permissions.audit.label_target')}</span> <span className="font-mono">{log.target}</span>
                 </div>
               )}
               {log.reason && (
                 <div className="text-xs text-muted-foreground mb-0.5">
-                  <span className="font-semibold">原因:</span> {log.reason}
+                  <span className="font-semibold">{t('permissions.audit.label_reason')}</span> {log.reason}
                 </div>
               )}
               <div className="text-xs text-muted-foreground/50">{new Date(log.timestamp).toLocaleString('zh-CN')}</div>
@@ -650,10 +651,10 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
   const handleRefresh = () => setRefreshKey(k => k + 1);
 
   const tabs = [
-    { key: 'decisions' as TabType, label: '决策记录', icon: Shield },
-    { key: 'denied' as TabType, label: '拒绝记录', icon: List },
-    { key: 'config' as TabType, label: '配置', icon: Sliders },
-    { key: 'audit' as TabType, label: '审计日志', icon: BarChart3 },
+    { key: 'decisions' as TabType, label: t('permissions.tab.decisions'), icon: Shield },
+    { key: 'denied' as TabType, label: t('permissions.tab.denied'), icon: List },
+    { key: 'config' as TabType, label: t('permissions.tab.config'), icon: Sliders },
+    { key: 'audit' as TabType, label: t('permissions.tab.audit'), icon: BarChart3 },
   ];
 
   return (
@@ -662,20 +663,20 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
       <div className="flex items-center justify-between px-4 h-12 border-b border-white/[0.08] bg-white/[0.02] backdrop-blur-xl shrink-0">
         <h1 className="text-base font-semibold flex items-center gap-2">
           <Shield size={16} className="text-muted-foreground" />
-          权限管理
+          {t('permissions.title')}
         </h1>
         <div className="flex items-center gap-1">
           <button
             onClick={handleRefresh}
             className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors"
-            title="刷新"
+            title={t('permissions.title_refresh')}
           >
             <RefreshCw size={14} />
           </button>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-white/[0.06] rounded-lg transition-colors"
-            title="关闭"
+            title={t('permissions.title_close')}
           >
             <X size={16} />
           </button>

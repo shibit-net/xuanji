@@ -43,7 +43,7 @@
   agentInit: () => ipcRenderer.invoke('agent:init'),
   agentReset: () => ipcRenderer.invoke('agent:reset'),
   agentGetState: () => ipcRenderer.invoke('agent:get-state'),
-  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; agentId?: string }) =>
+  agentUserAction: (action: { type: 'SEND_MESSAGE' | 'INTERRUPT'; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number }>; agentId?: string; imageBlocks?: Array<{ data: string; mimeType: string }>; audioBlocks?: Array<{ data: string; mimeType: string }>; videoBlocks?: Array<{ data: string; mimeType: string }> }) =>
     ipcRenderer.invoke('agent:user-action', action),
   analyzeIntent: (prompt: string) => ipcRenderer.invoke('agent:analyze-intent', prompt),
   openFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),

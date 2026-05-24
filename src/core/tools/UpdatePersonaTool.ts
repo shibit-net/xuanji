@@ -25,11 +25,11 @@ export class UpdatePersonaTool implements Tool {
     properties: {
       name: {
         type: 'string',
-        description: 'The name the user wants to call the bot (e.g. 小玑, 璇玑)',
+        description: 'The name the user wants to call the bot (e.g. Xiaoji, Xuanji)',
       },
       userNickname: {
         type: 'string',
-        description: 'How the bot should address the user (e.g. 主人, 老板, their actual name)',
+        description: 'How the bot should address the user (e.g. boss, their actual name)',
       },
       personality: {
         type: 'array',

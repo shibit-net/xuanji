@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
+import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -47,11 +48,11 @@ function ToolCard({ tool }: { tool: Tool }) {
                   ? 'bg-green-500/10 text-green-400'
                   : 'bg-gray-500/10 text-gray-400'
               }`}>
-                {tool.enabled ? '✓ 已启用' : '✗ 已禁用'}
+                {tool.enabled ? t('tools.page.badge_enabled') : t('tools.page.badge_disabled')}
               </span>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">{tool.description || '无描述'}</p>
+          <p className="text-xs text-muted-foreground">{tool.description || t('tools.page.no_description')}</p>
 
           {/* 配置信息 */}
           {tool.config && Object.keys(tool.config).length > 0 && (
@@ -143,10 +144,10 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
       {/* 头部 */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
         <div>
-          <h1 className="text-base font-semibold text-foreground">工具配置</h1>
+          <h1 className="text-base font-semibold text-foreground">{t('tools.page.title')}</h1>
           {!loading && !error && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              共 {tools.length} 个工具，已启用 {tools.filter(t => t.enabled !== false).length} 个
+              {t('tools.page.count_info', { total: tools.length, enabled: tools.filter(t => t.enabled !== false).length })}
             </p>
           )}
         </div>
@@ -156,7 +157,7 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
           variant="ghost"
           size="icon"
           className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-50"
-          title="刷新"
+          title={t('tools.page.refresh')}
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </Button>
@@ -167,11 +168,11 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
         <div className="flex items-start gap-2">
           <Info size={14} className="text-blue-400 mt-0.5 flex-shrink-0" />
           <div className="text-xs text-blue-400">
-            <p className="font-medium mb-1">工具配置说明</p>
+            <p className="font-medium mb-1">{t('tools.page.hint_title')}</p>
             <ul className="space-y-0.5 text-muted-foreground">
-              <li>• 工具是 Agent 可以调用的原子操作</li>
-              <li>• 每个工具可以单独启用/禁用</li>
-              <li>• 在 Agent 配置中设置工具的 enabled 字段</li>
+              <li>{t('tools.page.hint_item1')}</li>
+              <li>{t('tools.page.hint_item2')}</li>
+              <li>{t('tools.page.hint_item3')}</li>
             </ul>
           </div>
         </div>
@@ -182,7 +183,7 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
         <div className="px-5 py-3 border-b border-border flex-shrink-0 space-y-2">
           <input
             type="text"
-            placeholder="搜索工具名称或描述..."
+            placeholder={t('tools.page.search_placeholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full px-3 py-1.5 text-sm bg-card border border-border rounded text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-accent"
@@ -194,7 +195,7 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
               onChange={(e) => setFilterCategory(e.target.value)}
               className="flex-1 px-2 py-1 text-xs bg-card border border-border rounded text-foreground focus:outline-none focus:border-accent"
             >
-              <option value="all">所有类别</option>
+              <option value="all">{t('tools.page.filter_category_all')}</option>
               {categories.filter(Boolean).map(cat => (
                 <option key={cat} value={cat!}>{cat}</option>
               ))}
@@ -205,9 +206,9 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
               onChange={(e) => setFilterEnabled(e.target.value)}
               className="flex-1 px-2 py-1 text-xs bg-card border border-border rounded text-foreground focus:outline-none focus:border-accent"
             >
-              <option value="all">所有状态</option>
-              <option value="enabled">已启用</option>
-              <option value="disabled">已禁用</option>
+              <option value="all">{t('tools.page.filter_status_all')}</option>
+              <option value="enabled">{t('tools.page.filter_status_enabled')}</option>
+              <option value="disabled">{t('tools.page.filter_status_disabled')}</option>
             </select>
           </div>
         </div>
@@ -217,7 +218,7 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {loading ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-            加载中...
+            {t('tools.page.loading')}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-32 gap-3">
@@ -227,14 +228,14 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
               variant="default"
               size="sm"
             >
-              重试
+              {t('tools.page.retry')}
             </Button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
             {search || filterCategory !== 'all' || filterEnabled !== 'all'
-              ? '没有匹配的工具'
-              : '暂无可用工具'}
+              ? t('tools.page.empty_no_match')
+              : t('tools.page.empty_no_tools')}
           </div>
         ) : (
           <div className="space-y-4">

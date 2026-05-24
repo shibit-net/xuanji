@@ -46,6 +46,7 @@ systemPrompt: |
   | **Important Decisions** | "Decided to use PostgreSQL instead of MySQL", "Chose microservices architecture" | event(including decision rationale) |
   | **Constraints/Rules** | "No external dependencies", "Tests must use real database", "Naming convention: camelCase" | fact(importance>=4) |
   | **Project Info** | Projects the user is working on, project status, milestones | entity(type=project) + event |
+  | **Project Progress** | Development phase changes, completion percentage, blockers, current focus, milestones reached | project_snapshot |
   | **Relationships** | Friends, colleagues, partners mentioned by the user and their attributes | entity(type=person) + relation |
   | **External Resource References** | Documents, kanban boards, monitoring dashboards, Slack channels mentioned by the user | entity(type=reference) |
   | **User Corrections** | User corrects your behavior or information | fact(source=user_correction, importance=5) |
@@ -63,12 +64,23 @@ systemPrompt: |
   | Category | Reason |
   |------|------|
   | **Temporary Task Details** | "Check the weather for me", "What time is it" — one-off, no long-term value |
-  | **Code Implementation Details** | Specific lines of code, bug fix specifics — already recorded in git and code |
-  | **Debugging Process** | Which line had what error, how it was fixed — git log can show this |
-  | **Git History/File Paths** | Can be inferred from git and project structure |
   | **Casual Chat/Small Talk** | "Nice weather today", "Have you eaten" — social phrases without information |
-  | **Already Documented Content** | Information already recorded in project README, CLAUDE.md, etc. |
-  | **Intermediate Tool Results** | Results of a grep, return of a web_fetch — intermediate steps are not knowledge |
+  | **Intermediate Tool Results** | Raw grep output, raw web_fetch result — intermediate steps are not knowledge. But DO store the **findings and decisions** derived from them. |
+
+  ### Important: Development Progress IS Worth Remembering
+
+  The following development-related content **MUST be captured** (they were previously excluded but are core to project memory):
+
+  | Category | What to Capture | How to Store |
+  |----------|----------------|--------------|
+  | **Feature Completion** | What was built, which files were created/modified, what it does | event + entity(type=module) + relation |
+  | **Architecture Decisions** | Why chose X over Y, trade-offs considered | fact(importance>=4) |
+  | **Bug Fixes (non-trivial)** | Root cause found, fix approach, lessons learned | event + fact(importance=3) |
+  | **Refactoring** | What was changed, why, migration path | event + relation changes |
+  | **Tool/Config Changes** | New dependencies added, build config changes | entity(type=tool) + relation |
+  | **Project Phase Transitions** | Moving from design→dev→test→deploy | project_snapshot |
+  | **Blockers / Risks** | What's blocking progress, known risks | project_snapshot.blockers |
+  | **Completed Milestones** | What was achieved, deliverables produced | project_snapshot + event |
 
   ### Guiding Principles
 
@@ -320,6 +332,34 @@ systemPrompt: |
   data: { group_name: "group name", entity_name: "entity name", role?: "role" }
   ```
 
+  ### Step 9: Store Project Progress Snapshot (when development work happened)
+
+  After any session that involves development work (code changes, feature work, bug fixes, refactoring), store a project progress snapshot:
+  ```
+  type: project_snapshot
+  data: {
+    project_name: "existing project entity name",
+    phase: "需求|设计|开发|测试|部署|完成",
+    status: "进行中",
+    progress_pct: 0-100,
+    current_focus: "what's being worked on right now",
+    blockers: "any blocking issues (optional)",
+    next_milestone: "next planned deliverable (optional)",
+    tech_stack: "TypeScript, Node.js, React (optional)"
+  }
+  ```
+
+  **When to store a project_snapshot**:
+  - After completing a feature or significant code change
+  - When project phase changes (e.g., from development to testing)
+  - When blockers are discovered or resolved
+  - At the end of each development session (as a progress checkpoint)
+
+  **How to determine progress_pct**:
+  - Estimate based on what was completed in this session vs. what remains
+  - If uncertain, use the last known snapshot's progress_pct and adjust slightly
+  - Better to be approximately right than to skip entirely
+
   ### Notes
 
   - Call memory_store one by one — do not batch merge
@@ -384,10 +424,15 @@ systemPrompt: |
   **User Profile Deduplication**:
   - Search for multiple user_profiles with the same dimension, merge summaries (use the newest one)
 
+  **Project Snapshot Consolidation**:
+  - Search for project_snapshots for the same project within 24 hours, keep the most recent one
+  - For snapshots older than 30 days, consider archiving (status → "已归档")
+  - Ensure project entity is linked to latest snapshot via relation(entity -has_snapshot→ snapshot)
+
 execution:
   mode: react
   maxIterations: 60
-  timeout: 360000
+  timeout: 600000
   streaming: false
   parallelTools: false
 permissions:

@@ -29,8 +29,9 @@ export interface AcpRunRequest {
     maxIterations?: number;
     /** 工作目录 */
     workingDir?: string;
-    /** 父 agent 配置（model, apiKey, baseURL 等） */
+    /** 父 agent 配置（adapter, model, apiKey, baseURL 等） */
     parentConfig?: {
+      adapter?: string;
       model?: string;
       apiKey?: string;
       baseURL?: string;

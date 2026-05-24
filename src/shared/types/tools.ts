@@ -83,6 +83,8 @@ export interface ToolResult {
   /** 多模态内容块（图片/文件），扁平格式，前后端共用 */
   contentBlocks?: Array<
     | { type: 'image'; mimeType: string; data: string }
+    | { type: 'audio'; mimeType: string; data: string; duration?: number }
+    | { type: 'video'; mimeType: string; data: string; duration?: number }
     | { type: 'file'; fileName: string; filePath: string; fileSize: number }
   >;
 }

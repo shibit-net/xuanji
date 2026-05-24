@@ -30,6 +30,7 @@ export enum XuanjiEvent {
   AGENT_FILE_CHANGES = 'agent.file.changes',
   AGENT_COMPLETED = 'agent.completed',
   AGENT_USAGE = 'agent.usage',
+  AGENT_CONTENT_BLOCKS = 'agent.content.blocks',
   AGENT_ERROR = 'agent.error',
 
   // === Workspace Monitor ===
@@ -84,6 +85,8 @@ export enum XuanjiEvent {
   HOOK_MEMORY_WRITE = 'hook.memory.write',
   HOOK_COMPACT_PRE = 'hook.compact.pre',
   HOOK_COMPACT_POST = 'hook.compact.post',
+  HOOK_BACKGROUND_TASK_START = 'hook.background-task.start',
+  HOOK_BACKGROUND_TASK_END = 'hook.background-task.end',
   HOOK_ERROR = 'hook.error',
   HOOK_MODEL_CLASSIFIER_START = 'hook.model-classifier.start',
   HOOK_MODEL_CLASSIFIER_END = 'hook.model-classifier.end',

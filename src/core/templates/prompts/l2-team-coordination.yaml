@@ -10,13 +10,13 @@ content: |
   ## When to Use agent_team
 
   ```
-  需要多角色协作吗？
-    ├─ 只需一个专业能力 → 用 task
-    └─ 需要 2+ 专业能力协作 → 用 agent_team
-         ├─ 任务有依赖链 → sequential / pipeline
-         ├─ 独立并行分析 → parallel
-         ├─ 需要 leader 统筹 → hierarchical
-         └─ 需要讨论共识 → debate
+  Need multi-role collaboration?
+    ├─ Only one specialized capability needed → use task
+    └─ Need 2+ specialized capabilities collaborating → use agent_team
+         ├─ Task has dependency chain → sequential / pipeline
+         ├─ Independent parallel analysis → parallel
+         ├─ Needs a leader to oversee → hierarchical
+         └─ Needs discussion for consensus → debate
   ```
 
   ## Team Configuration Checklist

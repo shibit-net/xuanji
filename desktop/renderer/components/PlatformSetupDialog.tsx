@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { X, QrCode, MessageCircle, MessageSquare, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore } from '../stores/platformStore';
+import { t } from '@/core/i18n';
 
 type PlatformType = 'wechat' | 'wecom' | 'feishu' | 'dingtalk';
 
@@ -20,29 +21,29 @@ const PLATFORM_INFO: Array<{
 }> = [
   {
     type: 'wechat',
-    name: '微信',
+    name: t('platform.wechat'),
     icon: <MessageCircle size={20} />,
-    desc: '扫码登录（推荐），无需配置，微信 8.0.70+ 扫码即可',
+    desc: t('platform.wechat_desc'),
   },
   {
     type: 'wecom',
-    name: '企业微信',
+    name: t('platform.wecom'),
     icon: <MessageSquare size={20} />,
-    desc: '需要配置 corp_id, agent_id, secret',
+    desc: t('platform.wecom_desc'),
     configFields: ['corp_id', 'agent_id', 'secret', 'token', 'encoding_aes_key'],
   },
   {
     type: 'feishu',
-    name: '飞书',
+    name: t('platform.feishu'),
     icon: <Globe size={20} />,
-    desc: '需要配置 app_id, app_secret',
+    desc: t('platform.feishu_desc'),
     configFields: ['app_id', 'app_secret'],
   },
   {
     type: 'dingtalk',
-    name: '钉钉',
+    name: t('platform.dingtalk'),
     icon: <MessageCircle size={20} />,
-    desc: '需要配置 client_id, client_secret',
+    desc: t('platform.dingtalk_desc'),
     configFields: ['client_id', 'client_secret'],
   },
 ];
@@ -69,13 +70,13 @@ export default function PlatformSetupDialog() {
   const loadWechatQR = async () => {
     setQrCodeImg(null);
     setQrCodeUrl(null);
-    setScanStatus('正在获取二维码...');
+    setScanStatus(t('platform.fetching_qr'));
     try {
       const result = await window.electron.platformWechatQR();
       if (result.success && result.qrcodeUrl) {
         setQrCodeUrl(result.qrcodeUrl);
         setQrCodeImg(result.qrcodeImgBase64 || null);
-        setScanStatus('请使用微信扫码');
+        setScanStatus(t('platform.scan_prompt'));
         // 自动开始轮询
         startWechatScan(result.qrcodeUrl);
       } else {
@@ -89,7 +90,7 @@ export default function PlatformSetupDialog() {
   const startWechatScan = async (qrcode: string) => {
     setConnecting(true);
     try {
-      setScanStatus('等待扫码...');
+      setScanStatus(t('platform.waiting_scan'));
       const result = await window.electron.platformWechatScan({ qrcodeUrl: qrcode });
       if (result.success) {
         if (result.sessions) {
@@ -149,8 +150,8 @@ export default function PlatformSetupDialog() {
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-semibold">
             {selected
-              ? `${PLATFORM_INFO.find((p) => p.type === selected)?.name} 配置`
-              : '选择接入方式'}
+              ? t('platform.config_title', { name: PLATFORM_INFO.find((p) => p.type === selected)?.name })
+              : t('platform.select_title')}
           </h2>
           <Button variant="ghost" size="sm" onClick={() => setSetupDialogOpen(false)}>
             <X size={16} />
@@ -176,7 +177,7 @@ export default function PlatformSetupDialog() {
                   </div>
                   {info.type === 'wechat' && (
                     <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                      推荐
+                      {t('platform.recommended')}
                     </span>
                   )}
                 </Button>
@@ -186,7 +187,7 @@ export default function PlatformSetupDialog() {
             // 配置表单
             <div className="space-y-4">
               <Button variant="ghost" size="sm" onClick={handleBack} className="mb-2">
-                ← 返回选择
+                {t('platform.back')}
               </Button>
 
               {selected === 'wechat' ? (
@@ -196,7 +197,7 @@ export default function PlatformSetupDialog() {
                     {qrCodeUrl ? (
                       <img
                         src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://liteapp.weixin.qq.com/q/7GiQu1?qrcode=${qrCodeUrl}&bot_type=3`)}`}
-                        alt="微信二维码"
+                        alt={t('platform.qr_code_alt')}
                         className="w-44 h-44 object-contain"
                       />
                     ) : (
@@ -204,14 +205,14 @@ export default function PlatformSetupDialog() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground mb-2">
-                    请使用微信扫码登录
+                    {t('platform.scan_prompt')}
                   </p>
                   <p className={`text-xs mb-4 ${connecting ? 'text-blue-500 animate-pulse' : scanStatus.includes('失败') ? 'text-red-500' : 'text-muted-foreground'}`}>
-                    {scanStatus || '准备获取二维码'}
+                    {scanStatus || t('platform.scan_ready')}
                   </p>
                   {!connecting && scanStatus.includes('失败') && (
                     <Button onClick={loadWechatQR} size="sm" variant="outline">
-                      重新获取二维码
+                      {t('platform.regenerate_qr')}
                     </Button>
                   )}
                 </div>
@@ -224,14 +225,14 @@ export default function PlatformSetupDialog() {
                       <input
                         type={field.includes('secret') || field.includes('key') ? 'password' : 'text'}
                         className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
-                        placeholder={`输入 ${field}`}
+                        placeholder={t('platform.input_field', { field })}
                         value={formData[field] || ''}
                         onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
                       />
                     </div>
                   ))}
                   <Button onClick={handleConnect} disabled={connecting} className="w-full">
-                    {connecting ? '连接中...' : '连接'}
+                    {connecting ? t('platform.connecting') : t('platform.connect')}
                   </Button>
                 </>
               )}
@@ -242,7 +243,7 @@ export default function PlatformSetupDialog() {
         {/* 底部 */}
         <div className="p-4 border-t border-border">
           <Button variant="outline" className="w-full" onClick={() => setSetupDialogOpen(false)}>
-            取消
+            {t('platform.cancel')}
           </Button>
         </div>
       </div>

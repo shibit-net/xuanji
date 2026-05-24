@@ -14,6 +14,8 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter, Search, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getDesktopLabel } from '../i18n';
+import { useConfigStore } from '../stores/configStore';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'all';
 
@@ -34,6 +36,8 @@ export default function LogsView() {
   const [isLoading, setIsLoading] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
+
+  const language = useConfigStore((s) => s.settings.language as 'zh' | 'en');
 
   // 加载日志
   const loadLogs = async () => {
@@ -192,11 +196,11 @@ export default function LogsView() {
       {/* 标题和操作栏 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="text-sm font-semibold">📋 日志流</div>
+          <div className="text-sm font-semibold">{getDesktopLabel('logs.title', language)}</div>
           {isWatching && (
             <span className="text-xs text-green-500 flex items-center gap-1">
               <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              实时
+              {getDesktopLabel('logs.live', language)}
             </span>
           )}
         </div>
@@ -207,20 +211,20 @@ export default function LogsView() {
             variant="ghost"
             size="sm"
             className="flex items-center gap-1 disabled:opacity-50"
-            title="刷新日志"
+            title={getDesktopLabel('logs.refresh_title', language)}
           >
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-            刷新
+            {getDesktopLabel('logs.refresh', language)}
           </Button>
           <Button
             onClick={handleClearLogs}
             variant="ghost"
             size="sm"
             className="flex items-center gap-1"
-            title="清空日志"
+            title={getDesktopLabel('logs.clear_title', language)}
           >
             <Trash2 size={12} />
-            清空
+            {getDesktopLabel('logs.clear', language)}
           </Button>
         </div>
       </div>
@@ -235,7 +239,7 @@ export default function LogsView() {
             onChange={(e) => setFilterLevel(e.target.value as LogLevel)}
             className="bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-xs focus:outline-none focus:border-primary"
           >
-            <option value="all">全部级别</option>
+            <option value="all">{getDesktopLabel('logs.filter_all', language)}</option>
             <option value="debug">Debug</option>
             <option value="info">Info</option>
             <option value="warn">Warn</option>

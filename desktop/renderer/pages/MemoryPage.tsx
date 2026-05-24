@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSessionInitStore } from '../stores/SessionInitStore';
+import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
 import {
   Brain, X, Search, Trash2, Database, GitGraph,
@@ -40,7 +41,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
       <span className="flex-1">{message}</span>
       {onRetry && (
         <button onClick={onRetry} className="text-xs px-2 py-0.5 rounded bg-red-500/20 hover:bg-red-500/30 transition-colors">
-          重试
+          {t('memory.browse.btn_retry')}
         </button>
       )}
     </div>
@@ -149,18 +150,18 @@ function BrowseTab() {
       const res = await window.electron.memorySearch({ query: searchQuery, limit: 50 });
       if (res.success) setResults(res.results || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '搜索失败');
+      setError(err instanceof Error ? err.message : t('memory.search_failed'));
     } finally {
       setLoading(false);
     }
   };
 
   const categories = [
-    { id: 'all', label: '全部', count: entities.length + facts.length + events.length + episodes.length },
-    { id: 'entity', label: '实体', count: entities.length },
-    { id: 'fact', label: '事实', count: facts.length },
-    { id: 'event', label: '事件', count: events.length },
-    { id: 'episode', label: '叙事', count: episodes.length },
+    { id: 'all', label: t('memory.browse.category_all'), count: entities.length + facts.length + events.length + episodes.length },
+    { id: 'entity', label: t('memory.browse.category_entity'), count: entities.length },
+    { id: 'fact', label: t('memory.browse.category_fact'), count: facts.length },
+    { id: 'event', label: t('memory.browse.category_event'), count: events.length },
+    { id: 'episode', label: t('memory.browse.category_episode'), count: episodes.length },
   ];
 
   const renderStar = (val: number) => <ImportanceStars value={val} />;
@@ -198,11 +199,11 @@ function BrowseTab() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="搜索记忆..."
+              placeholder={t('memory.browse.search_placeholder')}
               className="flex-1 px-3 py-1.5 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
             />
             <Button onClick={handleSearch} variant="default" size="sm" className="gap-1">
-              <Search size={14} /> 搜索
+              <Search size={14} /> {t('memory.browse.btn_search')}
             </Button>
             <Button onClick={loadData} variant="ghost" size="sm">
               <RefreshCw size={14} />
@@ -301,8 +302,8 @@ function BrowseTab() {
             {entities.length === 0 && facts.length === 0 && events.length === 0 && episodes.length === 0 && (
               <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                 <Database size={40} className="mb-3 opacity-30" />
-                <p className="text-sm">暂无记忆数据</p>
-                <p className="text-xs mt-1 opacity-60">记忆将在对话过程中自动提取</p>
+                <p className="text-sm">{t('memory.browse.empty_title')}</p>
+                <p className="text-xs mt-1 opacity-60">{t('memory.browse.empty_hint')}</p>
               </div>
             )}
           </div>
@@ -324,65 +325,65 @@ function DetailPanel({ item, onClose }: { item: any; onClose: () => void }) {
   return (
     <aside className="w-80 border-l border-border bg-card p-4 shrink-0 overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-foreground">详情</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('memory.detail.title')}</h3>
         <Button onClick={onClose} variant="ghost" size="icon" className="h-6 w-6"><X size={14} /></Button>
       </div>
 
       <div className="space-y-3 text-sm">
         {itype === 'entity' && (
           <>
-            <Field label="名称" value={item.name} />
-            <Field label="类型">
+            <Field label={t('memory.detail.field_name')} value={item.name} />
+            <Field label={t('memory.detail.field_type')}>
               <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(item.type)}`}>{item.type}</span>
             </Field>
-            <Field label="摘要" value={item.summary} />
-            {item.belief && <Field label="信念" value={item.belief} />}
-            <Field label="场景标签" value={item.scene_tag || '—'} />
-            <Field label="重要性"><ImportanceStars value={item.importance} /></Field>
-            <Field label="引用次数" value={String(item.ref_count)} />
-            <Field label="创建时间" value={formatTime(item.created_at)} />
-            <Field label="更新时间" value={formatTime(item.updated_at)} />
+            <Field label={t('memory.detail.field_summary')} value={item.summary} />
+            {item.belief && <Field label={t('memory.detail.field_belief')} value={item.belief} />}
+            <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
+            <Field label={t('memory.detail.field_importance')}><ImportanceStars value={item.importance} /></Field>
+            <Field label={t('memory.detail.field_ref_count')} value={String(item.ref_count)} />
+            <Field label={t('memory.detail.field_created_at')} value={formatTime(item.created_at)} />
+            <Field label={t('memory.detail.field_updated_at')} value={formatTime(item.updated_at)} />
           </>
         )}
 
         {itype === 'fact' && (
           <>
-            <Field label="标题" value={item.title} />
-            <Field label="内容" value={item.content} />
-            <Field label="来源" value={item.source} />
-            <Field label="版本" value={`v${item.version}`} />
-            <Field label="场景标签" value={item.scene_tag || '—'} />
-            <Field label="创建时间" value={formatTime(item.created_at)} />
+            <Field label={t('memory.detail.field_title')} value={item.title} />
+            <Field label={t('memory.detail.field_content')} value={item.content} />
+            <Field label={t('memory.detail.field_source')} value={item.source} />
+            <Field label={t('memory.detail.field_version')} value={`v${item.version}`} />
+            <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
+            <Field label={t('memory.detail.field_created_at')} value={formatTime(item.created_at)} />
           </>
         )}
 
         {itype === 'event' && (
           <>
-            <Field label="内容" value={item.content} />
-            {item.result && <Field label="结果" value={item.result} />}
-            <Field label="时间" value={formatTime(item.time)} />
-            <Field label="重要性"><ImportanceStars value={item.importance} /></Field>
-            {item.operator && <Field label="操作者" value={item.operator} />}
-            <Field label="场景标签" value={item.scene_tag || '—'} />
+            <Field label={t('memory.detail.field_content')} value={item.content} />
+            {item.result && <Field label={t('memory.detail.field_result')} value={item.result} />}
+            <Field label={t('memory.detail.field_time')} value={formatTime(item.time)} />
+            <Field label={t('memory.detail.field_importance')}><ImportanceStars value={item.importance} /></Field>
+            {item.operator && <Field label={t('memory.detail.field_operator')} value={item.operator} />}
+            <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
           </>
         )}
 
         {itype === 'episode' && (
           <>
-            <Field label="标题" value={item.title} />
-            <Field label="叙事" value={item.narrative} />
-            <Field label="时间" value={formatTime(item.timestamp)} />
-            <Field label="重要性"><ImportanceStars value={item.importance} /></Field>
-            <Field label="场景标签" value={item.scene_tag || '—'} />
+            <Field label={t('memory.detail.field_title')} value={item.title} />
+            <Field label={t('memory.detail.field_narrative')} value={item.narrative} />
+            <Field label={t('memory.detail.field_time')} value={formatTime(item.timestamp)} />
+            <Field label={t('memory.detail.field_importance')}><ImportanceStars value={item.importance} /></Field>
+            <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
           </>
         )}
 
         {(itype === 'all' || itype === 'entity') && item.source_table && (
           <>
-            <Field label="来源表" value={item.source_table} />
-            <Field label="标题" value={item.title} />
-            <Field label="内容" value={item.content} />
-            <Field label="相关度" value={item.score ? `${(item.score * 100).toFixed(0)}%` : '—'} />
+            <Field label={t('memory.detail.field_source_table')} value={item.source_table} />
+            <Field label={t('memory.detail.field_title')} value={item.title} />
+            <Field label={t('memory.detail.field_content')} value={item.content} />
+            <Field label={t('memory.detail.field_relevance')} value={item.score ? `${(item.score * 100).toFixed(0)}%` : '—'} />
           </>
         )}
       </div>
@@ -514,6 +515,26 @@ function GraphTab() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // 初始加载：默认展示用户根节点
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.electron.memoryEntities({ type: 'user', limit: 1 });
+        if (res.success && res.entities && res.entities.length > 0) {
+          const userEntity = res.entities[0];
+          await focusOnNode(userEntity.id, 2);
+          setSelectedNode({
+            id: userEntity.id,
+            name: userEntity.name,
+            type: userEntity.type,
+            summary: userEntity.summary || '',
+            importance: userEntity.importance || 1,
+          });
+        }
+      } catch { /* 静默失败，用户可手动搜索 */ }
+    })();
+  }, []);
+
   // ── 以某节点为中心加载子图 ────────────────────────────
   const focusOnNode = useCallback(async (entityId: string, maxHops: number = 2) => {
     setLoading(true);
@@ -539,7 +560,7 @@ function GraphTab() {
         });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败');
+      setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));
     }
     setLoading(false);
   }, []);
@@ -605,8 +626,8 @@ function GraphTab() {
         'background-blacken': 0,
         // 节点 — 玻璃圆形
         'shape': 'ellipse',
-        'width': 'mapData(importance, 1, 5, 36, 72)',
-        'height': 'mapData(importance, 1, 5, 36, 72)',
+        'width': 'mapData(importance, 1, 5, 28, 56)',
+        'height': 'mapData(importance, 1, 5, 28, 56)',
         'border-width': 2,
         'border-color': 'data(color)',
         'border-opacity': 0.5,
@@ -700,10 +721,10 @@ function GraphTab() {
     animationEasing: 'ease-out' as const,
     animationDuration: 1000,
     randomize: true,
-    idealEdgeLength: 100,      // 边更短 → 布局更紧凑
-    nodeRepulsion: 4000,       //减少斥力 → 节点不散
-    gravity: 0.5,              // 更强引力 → 簇更集中
-    numIter: 2500,
+    idealEdgeLength: 180,
+    nodeRepulsion: 12000,
+    gravity: 0.15,
+    numIter: 3000,
     tile: true,
     fit: true,
     padding: 50,
@@ -772,7 +793,7 @@ function GraphTab() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
-              placeholder="搜索实体名称..."
+              placeholder={t('memory.graph.search_placeholder')}
               className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/50"
             />
             {searching && <RefreshCw size={12} className="animate-spin text-muted-foreground" />}
@@ -809,20 +830,20 @@ function GraphTab() {
           <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
             <button onClick={handleZoomIn}
               className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-              title="放大"
+              title={t('memory.graph.tooltip_zoom_in')}
             ><ZoomIn size={15} /></button>
             <button onClick={handleZoomOut}
               className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-              title="缩小"
+              title={t('memory.graph.tooltip_zoom_out')}
             ><ZoomOut size={15} /></button>
             <span className="w-px bg-border/50 my-1" />
             <button onClick={handleFit}
               className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-              title="适应屏幕"
+              title={t('memory.graph.tooltip_fit')}
             ><Maximize2 size={15} /></button>
             <button onClick={handleReset}
               className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-              title="重置视图"
+              title={t('memory.graph.tooltip_reset')}
             ><RefreshCw size={15} /></button>
           </div>
         </div>
@@ -833,7 +854,7 @@ function GraphTab() {
             <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
               <button onClick={handleClear}
                 className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-                title="清空图谱"
+                title={t('memory.graph.tooltip_clear')}
               ><Trash2 size={15} /></button>
             </div>
           </div>
@@ -842,7 +863,7 @@ function GraphTab() {
         {/* 节点数徽标 */}
         {graphNodes.size > 0 && (
           <div className="absolute top-12 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/40 text-xs text-muted-foreground">
-            {graphNodes.size} 节点 · {activeEdgeCount} 关系
+            {t('memory.graph.node_count', { count: graphNodes.size, edges: activeEdgeCount })}
           </div>
         )}
 
@@ -860,7 +881,7 @@ function GraphTab() {
             // 元素变化时重新布局
             cy.on('add', 'node', () => {
               if (cy.nodes().length <= (centerId ? 1 : 0)) return;
-              const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 100, nodeRepulsion: 4000, gravity: 0.5, numIter: 2500, tile: true, fit: true, padding: 50 });
+              const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 180, nodeRepulsion: 12000, gravity: 0.15, numIter: 3000, tile: true, fit: true, padding: 50 });
               l.run();
             });
 
@@ -931,7 +952,7 @@ function GraphTab() {
                   <ImportanceStars value={selectedNode.importance} />
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  {selectedNode.summary || '(无摘要)'}
+                  {selectedNode.summary || t('memory.detail.no_summary')}
                 </p>
 
                 {/* 关联关系 + 展开按钮 */}
@@ -982,7 +1003,7 @@ function GraphTab() {
                       })}
                       {related.length > 8 && (
                         <span className="text-[10px] text-muted-foreground self-center">
-                          +{related.length - 8} 更多
+                          {t('memory.graph.more', { count: related.length - 8 })}
                         </span>
                       )}
                     </div>
@@ -1004,8 +1025,8 @@ function GraphTab() {
         {graphNodes.size === 0 && !loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <GitGraph size={48} className="text-muted-foreground/15 mb-4" />
-            <p className="text-sm text-muted-foreground/50">搜索实体开始探索</p>
-            <p className="text-xs text-muted-foreground/30 mt-1">在上方搜索框中输入名称</p>
+            <p className="text-sm text-muted-foreground/50">{t('memory.graph.empty_title')}</p>
+            <p className="text-xs text-muted-foreground/30 mt-1">{t('memory.graph.empty_hint')}</p>
           </div>
         )}
 
@@ -1014,7 +1035,7 @@ function GraphTab() {
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
               <RefreshCw size={14} className="animate-spin text-primary" />
-              <span className="text-xs text-muted-foreground">加载中...</span>
+              <span className="text-xs text-muted-foreground">{t('memory.graph.loading')}</span>
             </div>
           </div>
         )}
@@ -1025,7 +1046,7 @@ function GraphTab() {
         {/* 图例标题 */}
         <div>
           <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            节点类型
+            {t('memory.graph.legend_nodes')}
           </h4>
           <div className="space-y-2">
             {sortedTypes.map(([type, count]) => (
@@ -1047,10 +1068,17 @@ function GraphTab() {
         {/* 关系图例 */}
         <div className="pt-4 border-t border-border/40">
           <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            关系类型
+            {t('memory.graph.legend_edges')}
           </h4>
           <div className="space-y-1.5">
-            {Object.entries({ depends_on: '依赖', part_of: '组成', uses: '使用', creates: '创建', knows: '认知', references: '引用' }).map(([key, label]) => (
+            {Object.entries({
+              depends_on: t('memory.graph.legend_relation_depends'),
+              part_of: t('memory.graph.legend_relation_part_of'),
+              uses: t('memory.graph.legend_relation_uses'),
+              creates: t('memory.graph.relation_creates'),
+              knows: t('memory.graph.relation_knows'),
+              references: t('memory.graph.relation_references'),
+            }).map(([key, label]) => (
               <div key={key} className="flex items-center gap-2 text-[11px]">
                 <span className="w-6 h-0.5 rounded-full shrink-0" style={{ backgroundColor: relationColors[key] || '#94a3b8' }} />
                 <span className="text-foreground/70">{label}</span>
@@ -1064,16 +1092,16 @@ function GraphTab() {
         <div className="pt-4 border-t border-border/40">
           <div className="grid grid-cols-2 gap-2">
             <div className="p-2 rounded-lg bg-background/60 border border-border/30">
-              <p className="text-[10px] text-muted-foreground">节点</p>
+              <p className="text-[10px] text-muted-foreground">{t('memory.graph.stat_nodes')}</p>
               <p className="text-lg font-semibold text-foreground/80 tabular-nums">{graphNodes.size}</p>
             </div>
             <div className="p-2 rounded-lg bg-background/60 border border-border/30">
-              <p className="text-[10px] text-muted-foreground">关系</p>
+              <p className="text-[10px] text-muted-foreground">{t('memory.graph.stat_edges')}</p>
               <p className="text-lg font-semibold text-foreground/80 tabular-nums">{activeEdgeCount}</p>
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground/50 mt-2 text-center">
-            双击展开·拖拽移动·滚轮缩放
+            {t('memory.graph.hint')}
           </p>
         </div>
       </aside>
@@ -1098,10 +1126,10 @@ function StatsTab() {
           window.electron.memoryEntities({ limit: 500 }),
         ]);
         if (sRes.success) setStats(sRes.stats);
-        else setError(sRes.error || '加载统计失败');
+        else setError(sRes.error || t('memory.load_stats_failed'));
         if (eRes.success) setEntities(eRes.entities || []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : '加载失败');
+        setError(err instanceof Error ? err.message : t('memory.load_failed'));
       } finally {
         setLoading(false);
       }
@@ -1123,12 +1151,12 @@ function StatsTab() {
   entities.forEach(e => { importanceDist[e.importance] = (importanceDist[e.importance] || 0) + 1; });
 
   const statCards = stats ? [
-    { label: '实体', value: stats.entityCount, icon: <User size={16} />, color: 'text-blue-400' },
-    { label: '事实', value: stats.factCount, icon: <FileText size={16} />, color: 'text-yellow-400' },
-    { label: '事件', value: stats.eventCount, icon: <Calendar size={16} />, color: 'text-green-400' },
-    { label: '关系', value: stats.relationCount, icon: <GitGraph size={16} />, color: 'text-purple-400' },
-    { label: '叙事', value: stats.episodeCount, icon: <Brain size={16} />, color: 'text-indigo-400' },
-    { label: '数据库', value: formatBytes(stats.dbSizeBytes), icon: <Database size={16} />, color: 'text-orange-400' },
+    { label: t('memory.stats.card_entity'), value: stats.entityCount, icon: <User size={16} />, color: 'text-blue-400' },
+    { label: t('memory.stats.card_fact'), value: stats.factCount, icon: <FileText size={16} />, color: 'text-yellow-400' },
+    { label: t('memory.stats.card_event'), value: stats.eventCount, icon: <Calendar size={16} />, color: 'text-green-400' },
+    { label: t('memory.stats.card_relation'), value: stats.relationCount, icon: <GitGraph size={16} />, color: 'text-purple-400' },
+    { label: t('memory.stats.card_episode'), value: stats.episodeCount, icon: <Brain size={16} />, color: 'text-indigo-400' },
+    { label: t('memory.stats.card_database'), value: formatBytes(stats.dbSizeBytes), icon: <Database size={16} />, color: 'text-orange-400' },
   ] : [];
 
   return (
@@ -1150,9 +1178,9 @@ function StatsTab() {
       <div className="grid grid-cols-2 gap-4">
         {/* 类型分布横向条形图 */}
         <div className="p-4 rounded-lg border border-border bg-card">
-          <h4 className="text-sm font-semibold text-foreground mb-3">实体类型分布</h4>
+          <h4 className="text-sm font-semibold text-foreground mb-3">{t('memory.stats.title_type_dist')}</h4>
           {totalEntities === 0 ? (
-            <p className="text-xs text-muted-foreground">暂无数据</p>
+            <p className="text-xs text-muted-foreground">{t('memory.stats.empty')}</p>
           ) : (
             <div className="space-y-2">
               {sortedTypes.map(([type, count]) => (
@@ -1175,7 +1203,7 @@ function StatsTab() {
 
         {/* 重要性分布 */}
         <div className="p-4 rounded-lg border border-border bg-card">
-          <h4 className="text-sm font-semibold text-foreground mb-3">重要性分布</h4>
+          <h4 className="text-sm font-semibold text-foreground mb-3">{t('memory.stats.title_importance_dist')}</h4>
           <div className="space-y-2">
             {[5, 4, 3, 2, 1].map(imp => {
               const count = importanceDist[imp] || 0;
@@ -1214,9 +1242,9 @@ function LogTab() {
       try {
         const res = await window.electron.memoryTimeline({ limit: 100 });
         if (res.success) setEvents(res.events || []);
-        else setError(res.error || '加载失败');
+        else setError(res.error || t('memory.load_log_failed'));
       } catch (err) {
-        setError(err instanceof Error ? err.message : '加载失败');
+        setError(err instanceof Error ? err.message : t('memory.load_failed'));
       } finally {
         setLoading(false);
       }
@@ -1231,7 +1259,7 @@ function LogTab() {
       {events.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Clock size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">暂无操作日志</p>
+          <p className="text-sm">{t('memory.log.empty')}</p>
         </div>
       ) : (
         <div className="space-y-1">
@@ -1254,7 +1282,7 @@ function LogTab() {
                     ev.importance >= 4 ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25' :
                     'bg-blue-500/15 text-blue-400 border-blue-500/25'
                   }`}>
-                    {ev.importance >= 4 ? '重要' : '常规'}
+                    {ev.importance >= 4 ? t('memory.log.badge_important') : t('memory.log.badge_normal')}
                   </span>
                   {ev.operator && (
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -1268,7 +1296,7 @@ function LogTab() {
                   <p className="text-xs text-muted-foreground mt-0.5">{ev.result}</p>
                 )}
                 <div className="flex gap-2 mt-1 text-xs text-muted-foreground/60">
-                  {ev.scene_tag && <span>场景: {ev.scene_tag}</span>}
+                  {ev.scene_tag && <span>{t('memory.log.scene_label', { tag: ev.scene_tag })}</span>}
                 </div>
               </div>
             </div>
@@ -1293,10 +1321,10 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
       if (res.success) {
         setMemStatus({ initialized: res.initialized, error: res.error });
       } else {
-        setMemStatus({ initialized: false, error: res.error || '状态查询失败' });
+        setMemStatus({ initialized: false, error: res.error || t('memory.status_query_failed') });
       }
     } catch (err) {
-      setMemStatus({ initialized: false, error: err instanceof Error ? err.message : '查询异常' });
+      setMemStatus({ initialized: false, error: err instanceof Error ? err.message : t('memory.status_query_error') });
     }
   }, []);
 
@@ -1306,28 +1334,28 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
   }, [sessionStatus, checkMemoryStatus]);
 
   const handleClearAll = async () => {
-    if (!confirm('确定要清空所有记忆数据吗？此操作不可恢复。')) return;
+    if (!confirm(t('memory.confirm_clear_all'))) return;
     setClearing(true);
     try {
       const res = await window.electron.memoryClearAll();
       if (res.success) {
-        alert('记忆数据已清空');
+        alert(t('memory.alert_clear_success'));
         window.location.reload();
       } else {
-        alert(`清空失败: ${res.error}`);
+        alert(t('memory.alert_clear_failed', { error: res.error }));
       }
     } catch (err) {
-      alert(`清空失败: ${err instanceof Error ? err.message : String(err)}`);
+      alert(t('memory.alert_clear_failed', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setClearing(false);
     }
   };
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: 'browse', label: '记忆浏览', icon: <Brain size={16} /> },
-    { id: 'graph', label: '记忆图谱', icon: <GitGraph size={16} /> },
-    { id: 'stats', label: '统计仪表盘', icon: <BarChart3 size={16} /> },
-    { id: 'log', label: '操作日志', icon: <Clock size={16} /> },
+    { id: 'browse', label: t('memory.tab.browse'), icon: <Brain size={16} /> },
+    { id: 'graph', label: t('memory.tab.graph'), icon: <GitGraph size={16} /> },
+    { id: 'stats', label: t('memory.tab.stats'), icon: <BarChart3 size={16} /> },
+    { id: 'log', label: t('memory.tab.log'), icon: <Clock size={16} /> },
   ];
 
   return (
@@ -1336,7 +1364,7 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
       <div className="h-12 border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
           <Brain size={18} />
-          <h1 className="text-base font-semibold">记忆管理</h1>
+          <h1 className="text-base font-semibold">{t('memory.title')}</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -1347,9 +1375,9 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
             className="text-red-400 hover:text-red-300 gap-1"
           >
             <Trash2 size={14} />
-            {clearing ? '清空中...' : '清空记忆库'}
+            {clearing ? t('memory.btn_clearing') : t('memory.btn_clear_all')}
           </Button>
-          <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title="关闭">
+          <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title={t('memory.btn_close')}>
             <X size={16} />
           </Button>
         </div>
@@ -1360,10 +1388,10 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
         <div className="mx-4 mt-3 p-3 rounded border bg-red-500/10 text-red-400 border-red-500/20 text-sm flex items-start gap-2">
           <AlertCircle size={16} className="shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium">记忆系统未初始化</p>
-            <p className="text-xs mt-0.5 text-red-400/70">{memStatus.error || '未知原因'}</p>
+            <p className="font-medium">{t('memory.status_not_initialized')}</p>
+            <p className="text-xs mt-0.5 text-red-400/70">{memStatus.error || t('memory.status_unknown_error')}</p>
             <p className="text-xs mt-1 text-red-400/50">
-              请查看终端/控制台日志中的 "Failed to initialize MemoryManager" 以获取详细错误信息
+              {t('memory.status_error_hint')}
             </p>
           </div>
         </div>

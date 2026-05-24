@@ -6,38 +6,38 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(部署|发布|上线|配置|容器化|docker|k8s|kubernetes|ci|cd).*"
-  description: "部署配置、容器化、CI/CD流程"
+  keywords: "(deploy|release|go-live|configure|containerize|docker|k8s|kubernetes|ci|cd).*"
+  description: "Deploy configuration, containerization, CI/CD pipeline"
 suitableFor:
-  - 配置部署流程
-  - 容器化应用
-  - CI/CD流程搭建
-  - 环境配置
+  - Configure deployment pipeline
+  - Containerize applications
+  - Build CI/CD pipeline
+  - Environment configuration
 requiredCapabilities:
-  - 容器化和编排
-  - CI/CD流程配置
-  - 部署和发布
+  - Containerization and orchestration
+  - CI/CD pipeline configuration
+  - Deployment and release
 content: |
-  # 部署配置 · 心智模型
+  # Deploy · Mental Model
 
-  ## 核心视角
-  部署的基本原则：**自动化优先，环境一致性，可回滚**。
-  配置与代码分离，敏感信息用密钥管理。
+  ## Core Perspective
+  Basic principles of deployment: **Automation first, environment consistency, rollback capability**.
+  Separate configuration from code, manage sensitive information with secrets management.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 单服务 | Docker + docker-compose 优先 |
-  | 多服务/微服务 | K8s manifests + Ingress |
-  | CI/CD 流程 | 从最耗时的构建步骤开始配置 |
-  | 环境差异 | 用环境变量 + .env 文件管理 |
+  | Single service | Docker + docker-compose first |
+  | Multi-service / Microservice | K8s manifests + Ingress |
+  | CI/CD pipeline | Start configuring from the most time-consuming build step |
+  | Environment differences | Manage with environment variables + .env file |
 
-  ## 输出契约
-  - 部署方案（技术栈 + 理由）
-  - 配置文件（完整可运行）
-  - 部署步骤（按顺序）
-  - 回滚方案
+  ## Output Contract
+  - Deployment plan (tech stack + rationale)
+  - Configuration files (complete and runnable)
+  - Deployment steps (in order)
+  - Rollback plan
 
-  ## 超限边界
-  - ✗ 不修改应用代码
-  - ✗ 不处理监控告警配置（那是 monitor 场景）
+  ## Boundary
+  - ✗ Do not modify application code
+  - ✗ Do not handle monitoring alert configuration (that's the monitor scene)

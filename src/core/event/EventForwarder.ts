@@ -1,17 +1,12 @@
 /**
- * EventForwarder — 替代 agent-bridge.ts 中 registerHookEventBridge() 的 400+ 行。
+ * EventForwarder — 声明式 EventBus → IPC 事件转发器。
  *
- * 声明式映射表：EventBus Event → IPC channel，统一注册/注销。
- * - Agent 生命周期事件
- * - Hook 事件（subagent / team / skill / memory）
- * - AsyncTask 事件
- * - 合并 agent:thinking 和 agent:thinking-start
- * - 消除 team-exec- 前缀 hack，改用 taskType 字段
+ * 替代 agent-bridge.ts 中 registerHookEventBridge() 的 260+ 行命令式代码。
+ * 提供统一的注册/注销机制，支持 agentId 自动映射。
  */
 
 import { eventBus, XuanjiEvent } from '@/core/events';
 import { logger } from '@/core/logger';
-import type { AsyncTaskStateMachine, AsyncTaskEvent } from '@/core/task/AsyncTaskStateMachine';
 
 const log = logger.child({ module: 'EventForwarder' });
 
@@ -29,17 +24,15 @@ interface EventMapping {
 
 export class EventForwarder {
   private sender: IpcSender;
+  private getCurrentUserId: () => string | null;
+  private getRoutedAgentId: () => string;
   private mappings: EventMapping[] = [];
-  private asyncTaskStateMachine: AsyncTaskStateMachine | null = null;
   private unsubscribes: (() => void)[] = [];
 
-  constructor(sender: IpcSender) {
+  constructor(sender: IpcSender, getCurrentUserId: () => string | null, getRoutedAgentId: () => string) {
     this.sender = sender;
-  }
-
-  /** 注入 AsyncTaskStateMachine 以监听其状态变更 */
-  setAsyncTaskStateMachine(machine: AsyncTaskStateMachine): void {
-    this.asyncTaskStateMachine = machine;
+    this.getCurrentUserId = getCurrentUserId;
+    this.getRoutedAgentId = getRoutedAgentId;
   }
 
   /** 注册所有事件映射 */
@@ -58,13 +51,6 @@ export class EventForwarder {
       this.unsubscribes.push(unsub);
     }
 
-    // 注册 AsyncTaskStateMachine 回调
-    if (this.asyncTaskStateMachine) {
-      this.asyncTaskStateMachine.onTaskStateChanged((task, event) => {
-        this.safeSend('agent:async-task-update', this.mapTaskState(task, event));
-      });
-    }
-
     log.info(`EventForwarder registered ${this.mappings.length} event mappings`);
   }
 
@@ -79,50 +65,84 @@ export class EventForwarder {
   }
 
   // ============================================================
+  // agentId 映射
+  // ============================================================
+
+  /**
+   * 将 EventBus 事件中的 agentId/userId 映射到正确值：
+   * - 根 agent 的 AgentLoop._userId === currentUserId，替换为 routedAgentId
+   * - 子 agent 的 AgentLoop._userId 是其 subAgentId，保留原值
+   */
+  private mapAgentId(agentId?: string): string {
+    const cu = this.getCurrentUserId();
+    const ra = this.getRoutedAgentId();
+    const result = (agentId && agentId !== cu) ? agentId : ra;
+    if (agentId !== result) {
+      log.info(`[DIAG] mapAgentId: input=${agentId} currentUserId=${cu} routedAgentId=${ra} → mapped=${result}`);
+    }
+    return result;
+  }
+
+  // ============================================================
   // 映射表定义
   // ============================================================
 
   private buildMappings(): EventMapping[] {
     return [
-      // Session 级
+      // ── Session 级 ──
       {
         event: XuanjiEvent.AGENT_STARTED,
         channel: 'agent:started',
-        map: this.mapSession,
+        map: (p) => ({
+          model: p.model,
+          agentId: this.mapAgentId(p.userId),
+          isForeground: !p.userId || p.userId === this.getCurrentUserId(),
+          sessionKey: p.sessionKey,
+        }),
       },
       {
         event: XuanjiEvent.AGENT_COMPLETED,
-        channel: 'agent:completed',
-        map: this.mapSession,
+        channel: 'agent:end',
+        map: (p) => ({
+          tokenUsage: p.tokenUsage,
+          agentId: p.userId || this.getRoutedAgentId(),
+          sessionKey: p.sessionKey,
+        }),
       },
       {
         event: XuanjiEvent.CONVERSATION_STATE_CHANGED,
         channel: 'agent:conversation-state',
-        map: (p) => p,
+        map: (p) => ({ from: p.from, to: p.to }),
       },
 
-      // Agent 生命周期
+      // ── Agent 生命周期 ──
       {
         event: XuanjiEvent.HOOK_SUBAGENT_START,
         channel: 'agent:subagent-start',
-        map: this.mapSubAgent,
+        map: (p) => ({
+          subAgentId: p.subAgentId,
+          ...p.data,
+        }),
       },
       {
         event: XuanjiEvent.HOOK_SUBAGENT_END,
         channel: 'agent:subagent-end',
-        map: this.mapSubAgent,
+        map: (p) => ({
+          subAgentId: p.subAgentId,
+          ...p.data,
+        }),
       },
       {
         event: XuanjiEvent.HOOK_SUBAGENT_TEXT,
         channel: 'agent:subagent-text',
-        map: (p) => ({ subAgentId: p.subAgentId, text: p.text }),
+        map: (p) => ({ agentId: p.subAgentId, subAgentId: p.subAgentId, text: p.text }),
       },
 
-      // Thinking（合并 thinking-start，两事件语义相同）
+      // ── Thinking（合并 HOOK_AGENT_THINKING 到同一 channel） ──
       {
         event: XuanjiEvent.AGENT_THINKING_DELTA,
         channel: 'agent:thinking',
-        map: (p) => ({ content: p.content, agentId: p.agentId, sessionKey: p.sessionKey }),
+        map: (p) => ({ content: p.content, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey }),
       },
       {
         event: XuanjiEvent.HOOK_AGENT_THINKING,
@@ -130,58 +150,72 @@ export class EventForwarder {
         map: (p) => ({ content: p.thinkingContent, agentId: p.subAgentId }),
       },
 
-      // Text
+      // ── Text ──
       {
         event: XuanjiEvent.AGENT_TEXT_DELTA,
         channel: 'agent:text',
-        map: (p) => ({ text: p.text, agentId: p.agentId, sessionKey: p.sessionKey }),
+        map: (p) => ({ text: p.text, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey }),
       },
 
-      // Tool
+      // ── Content Blocks（模型原生内容块：图像/音频/视频） ──
+      {
+        event: XuanjiEvent.AGENT_CONTENT_BLOCKS,
+        channel: 'agent:content-blocks',
+        map: (p) => ({ contentBlocks: p.contentBlocks, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey }),
+      },
+
+      // ── Tool ──
       {
         event: XuanjiEvent.AGENT_TOOL_START,
         channel: 'agent:tool-start',
-        map: this.mapTool,
+        map: (p) => ({ id: p.id, name: p.name, input: p.input, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey }),
       },
       {
         event: XuanjiEvent.AGENT_TOOL_END,
         channel: 'agent:tool-end',
-        map: this.mapTool,
+        map: (p) => ({
+          id: p.id, name: p.name,
+          result: p.result, isError: p.isError,
+          agentId: this.mapAgentId(p.agentId),
+          metadata: p.metadata,
+          contentBlocks: p.contentBlocks,
+          sessionKey: p.sessionKey,
+        }),
       },
 
-      // Team
+      // ── Team ──
       {
         event: XuanjiEvent.HOOK_TEAM_START,
         channel: 'agent:team-start',
-        map: this.mapTeam,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
       {
         event: XuanjiEvent.HOOK_TEAM_MEMBER_START,
         channel: 'agent:team-member-start',
-        map: this.mapTeamMember,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
       {
         event: XuanjiEvent.HOOK_TEAM_MEMBER_END,
         channel: 'agent:team-member-end',
-        map: this.mapTeamMember,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
       {
         event: XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START,
         channel: 'agent:team-submember-start',
-        map: this.mapTeamMember,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
       {
         event: XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END,
         channel: 'agent:team-submember-end',
-        map: this.mapTeamMember,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
       {
         event: XuanjiEvent.HOOK_TEAM_END,
         channel: 'agent:team-end',
-        map: this.mapTeam,
+        map: (p) => ({ taskType: 'team', teamId: p.teamId, ...p.data }),
       },
 
-      // Skill
+      // ── Skill ──
       {
         event: XuanjiEvent.HOOK_SKILL_START,
         channel: 'agent:skill-start',
@@ -193,7 +227,7 @@ export class EventForwarder {
         map: (p) => p,
       },
 
-      // Memory
+      // ── Memory ──
       {
         event: XuanjiEvent.HOOK_MEMORY_READ,
         channel: 'agent:memory-read',
@@ -205,7 +239,7 @@ export class EventForwarder {
         map: (p) => p,
       },
 
-      // Context compression
+      // ── Context compression ──
       {
         event: XuanjiEvent.HOOK_COMPACT_PRE,
         channel: 'agent:compress-start',
@@ -217,73 +251,111 @@ export class EventForwarder {
         map: (p) => p,
       },
 
-      // Citation（事件源: AGENT_FILE_CHANGES）
+      // ── Background task lifecycle ──
       {
-        event: XuanjiEvent.AGENT_FILE_CHANGES,
-        channel: 'agent:citation',
-        map: (p) => ({ changes: p.changes, agentId: p.agentId, sessionKey: p.sessionKey }),
+        event: XuanjiEvent.HOOK_BACKGROUND_TASK_START,
+        channel: 'agent:background-task-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_BACKGROUND_TASK_END,
+        channel: 'agent:background-task-end',
+        map: (p) => p,
       },
 
-      // Token usage（每轮 LLM 调用增量）
+      // ── File changes（事件源: AGENT_FILE_CHANGES） ──
+      {
+        event: XuanjiEvent.AGENT_FILE_CHANGES,
+        channel: 'agent:file-changes',
+        map: (p) => ({ changes: p.changes, sessionKey: p.sessionKey }),
+      },
+
+      // ── Token usage ──
       {
         event: XuanjiEvent.AGENT_USAGE,
         channel: 'agent:usage',
-        map: (p) => ({ agentId: p.userId, tokenUsage: p.tokenUsage, sessionKey: p.sessionKey }),
+        map: (p) => ({ tokenUsage: p.tokenUsage, agentId: this.mapAgentId(p.userId), sessionKey: p.sessionKey }),
       },
 
-      // Error
+      // ── Error ──
       {
         event: XuanjiEvent.AGENT_ERROR,
         channel: 'agent:error',
+        map: (p) => p.error,
+      },
+
+      // ── Prompt components ──
+      {
+        event: XuanjiEvent.AGENT_PROMPT_COMPONENTS,
+        channel: 'agent:prompt-components',
+        map: (p) => p,
+      },
+
+      // ── Async task ──
+      {
+        event: XuanjiEvent.ASYNC_TASK_FAILED,
+        channel: 'agent:task-failed',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.ASYNC_TASK_COMPLETED,
+        channel: 'agent:task-completed',
+        map: (p) => p,
+      },
+
+      // ── Workspace 流程事件 ──
+      {
+        event: XuanjiEvent.HOOK_MODEL_CLASSIFIER_START,
+        channel: 'workspace:model-classifier-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_MODEL_CLASSIFIER_END,
+        channel: 'workspace:model-classifier-end',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_INTENT_ANALYSIS_START,
+        channel: 'workspace:intent-analysis-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_INTENT_ANALYSIS_END,
+        channel: 'workspace:intent-analysis-end',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_TASK_PLANNING_START,
+        channel: 'workspace:task-planning-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_TASK_PLANNING_END,
+        channel: 'workspace:task-planning-end',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_TASK_EXECUTION_START,
+        channel: 'workspace:task-execution-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_TASK_EXECUTION_END,
+        channel: 'workspace:task-execution-end',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_RESULT_AGGREGATION_START,
+        channel: 'workspace:result-aggregation-start',
+        map: (p) => p,
+      },
+      {
+        event: XuanjiEvent.HOOK_RESULT_AGGREGATION_END,
+        channel: 'workspace:result-aggregation-end',
         map: (p) => p,
       },
     ];
   }
-
-  // ============================================================
-  // payload 映射工具
-  // ============================================================
-
-  private mapSession = (p: any) => p;
-
-  private mapSubAgent = (p: any) => ({
-    subAgentId: p.subAgentId,
-    ...p.data,
-  });
-
-  private mapTool = (p: any) => ({
-    id: p.id,
-    name: p.name,
-    agentId: p.agentId,
-    sessionKey: p.sessionKey,
-    ...(p.input ? { input: p.input } : {}),
-    ...(p.result !== undefined ? { result: p.result, isError: p.isError } : {}),
-  });
-
-  private mapTeam = (p: any) => ({
-    taskType: 'team',
-    teamId: p.teamId,
-    ...p.data,
-  });
-
-  private mapTeamMember = (p: any) => ({
-    taskType: 'team',
-    teamId: p.teamId,
-    ...p.data,
-  });
-
-  private mapTaskState = (task: any, event: AsyncTaskEvent) => ({
-    taskId: task.taskId,
-    taskType: task.taskType,
-    name: task.name,
-    status: task.status,
-    parentAgentId: task.parentAgentId,
-    subAgentIds: [...task.subAgentIds],
-    createdAt: task.createdAt,
-    completedAt: task.completedAt,
-    error: task.error,
-    eventType: event.type,
-  });
 
   // ============================================================
   // 安全发送

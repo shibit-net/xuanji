@@ -16,17 +16,9 @@ import { getOutputLimits } from '@/core/config/RuntimeConfig';
 /** 工具输出最大长度 (字符)，BashTool / ReadTool 共用 */
 export const MAX_TOOL_OUTPUT_LENGTH = 30_000;
 
-/** 发给 LLM 的单条 tool_result 最大长度 (字符) */
-export const MAX_TOOL_RESULT_LENGTH = 80_000;
-
 /** 获取工具输出最大长度（运行时配置 > 默认值） */
 export function getMaxToolOutputLength(): number {
   return getOutputLimits()?.toolOutput ?? MAX_TOOL_OUTPUT_LENGTH;
-}
-
-/** 获取 tool_result 最大长度（运行时配置 > 默认值） */
-export function getMaxToolResultLength(): number {
-  return getOutputLimits()?.toolResult ?? MAX_TOOL_RESULT_LENGTH;
 }
 
 /**

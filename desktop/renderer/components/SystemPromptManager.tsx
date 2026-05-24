@@ -7,6 +7,7 @@ import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRi
 import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
 import MilkdownEditor from './MilkdownEditor';
+import { t } from '@/core/i18n';
 
 interface SystemPromptManagerProps {
   onClose: () => void;
@@ -77,10 +78,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       if (result.success) {
         setComponents((result.components || []) as any);
       } else {
-        toast.error(result.error || '加载失败');
+        toast.error(result.error || t('sysprompt.load_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '加载失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -113,11 +114,11 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         setProjects(result.projects || []);
       } else {
         console.error('[SystemPromptManager] 加载项目列表失败:', result.error);
-        toast.error(result.error || '加载项目列表失败');
+        toast.error(result.error || t('sysprompt.project_list_load_failed'));
       }
     } catch (err) {
       console.error('[SystemPromptManager] 加载项目列表异常:', err);
-      toast.error(err instanceof Error ? err.message : '加载项目列表失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.project_list_load_failed'));
     } finally {
       setLoadingProjects(false);
     }
@@ -134,13 +135,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         filePath: selectedDoc,
       });
       if (result.success) {
-        toast.success('文档已保存');
+        toast.success(t('sysprompt.doc_saved'));
         setEditingRules(false);
       } else {
-        toast.error(result.error || '保存失败');
+        toast.error(result.error || t('sysprompt.save_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.save_failed'));
     }
   };
 
@@ -159,13 +160,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           setProjectRules('');
         }
       } else {
-        toast.error(result.error || '加载文档列表失败');
+        toast.error(result.error || t('sysprompt.doc_list_load_failed'));
         setProjectDocs([]);
         setSelectedDoc(null);
         setProjectRules('');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '加载文档列表失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.doc_list_load_failed'));
       setProjectDocs([]);
       setSelectedDoc(null);
       setProjectRules('');
@@ -192,11 +193,11 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       if (result.success) {
         setProjectRules(result.content || '');
       } else {
-        toast.error(result.error || '读取文档失败');
+        toast.error(result.error || t('sysprompt.doc_load_failed'));
         setProjectRules('');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '读取文档失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.doc_load_failed'));
       setProjectRules('');
     }
   };
@@ -220,13 +221,13 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         enabled: !component.enabled,
       });
       if (result.success) {
-        toast.success(component.enabled ? '已禁用' : '已启用');
+        toast.success(component.enabled ? t('sysprompt.disabled') : t('sysprompt.enabled'));
         await loadComponents();
       } else {
-        toast.error(result.error || '操作失败');
+        toast.error(result.error || t('sysprompt.operation_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '操作失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.operation_failed'));
     }
   };
 
@@ -246,14 +247,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         content: editContent,
       });
       if (result.success) {
-        toast.success('保存成功');
+        toast.success(t('sysprompt.save_success'));
         setEditingComponent(null);
         await loadComponents();
       } else {
-        toast.error(result.error || '保存失败');
+        toast.error(result.error || t('sysprompt.save_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.save_failed'));
     }
   };
 
@@ -273,14 +274,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         keywords: editKeywordsValue,
       });
       if (result.success) {
-        toast.success('Keywords 已保存');
+        toast.success(t('sysprompt.keywords_saved'));
         setEditingKeywords(null);
         await loadComponents();
       } else {
-        toast.error(result.error || '保存失败');
+        toast.error(result.error || t('sysprompt.save_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.save_failed'));
     }
   };
 
@@ -294,37 +295,37 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         scenes,
       } as any);
       if (result.success) {
-        toast.success('场景标签已保存');
+        toast.success(t('sysprompt.scenes_saved'));
         setEditingScenes(null);
         await loadComponents();
       } else {
-        toast.error(result.error || '保存失败');
+        toast.error(result.error || t('sysprompt.save_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.save_failed'));
     }
   };
 
   // 删除组件
   const deleteComponent = async (component: PromptComponent) => {
-    if (!confirm(`确定要删除「${component.name}」吗？此操作不可恢复。`)) return;
+    if (!confirm(t('sysprompt.confirm_delete', { name: component.name }))) return;
     try {
       const result = await window.electron.promptDeleteComponent({ id: component.id });
       if (result.success) {
-        toast.success('已删除');
+        toast.success(t('sysprompt.delete_success'));
         await loadComponents();
       } else {
-        toast.error(result.error || '删除失败');
+        toast.error(result.error || t('sysprompt.delete_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '删除失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.delete_failed'));
     }
   };
 
   // 创建组件
   const createComponent = async () => {
     if (!createForm.id.trim() || !createForm.name.trim()) {
-      toast.error('Scene ID 和名称不能为空');
+      toast.error(t('sysprompt.scene_id_required'));
       return;
     }
     setCreating(true);
@@ -355,15 +356,15 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       }
       const result = await window.electron.promptCreateComponent(payload);
       if (result.success) {
-        toast.success('组件已创建');
+        toast.success(t('sysprompt.create_success'));
         setShowCreateDialog(false);
         setCreateForm({ id: '', name: '', priority: 75, estimatedTokens: 300, keywords: '', description: '', content: '', suitableFor: '', requiredCapabilities: '', collaborationHint: '' });
         await loadComponents();
       } else {
-        toast.error(result.error || '创建失败');
+        toast.error(result.error || t('sysprompt.create_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '创建失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.create_failed'));
     } finally {
       setCreating(false);
     }
@@ -382,10 +383,10 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         setPreviewPrompt(result.prompt || '');
         setShowPreview(true);
       } else {
-        toast.error(result.error || '预览失败');
+        toast.error(result.error || t('sysprompt.preview_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '预览失败');
+      toast.error(err instanceof Error ? err.message : t('sysprompt.preview_failed'));
     }
   };
 
@@ -417,27 +418,27 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
   // 层级说明
   const layerInfo: Record<string, { title: string; description: string; loadRule: string; color: string }> = {
     L0: {
-      title: 'L0 - 全局基础层',
-      description: '系统身份、核心原则、响应风格',
-      loadRule: '始终加载（所有 Agent）',
+      title: t('sysprompt.l0_title'),
+      description: t('sysprompt.l0_desc'),
+      loadRule: t('sysprompt.l0_load_rule'),
       color: 'text-red-400',
     },
     L1: {
-      title: 'L1 - 场景指导层',
-      description: '场景化的思维框架和工作流程（explore, plan, write-code, debug, test, refactor, review, deploy, monitor, requirement, user-research, product-plan, interaction, ui-design, design-system）',
-      loadRule: '根据场景动态加载',
+      title: t('sysprompt.l1_title'),
+      description: t('sysprompt.l1_desc'),
+      loadRule: t('sysprompt.l1_load_rule'),
       color: 'text-blue-400',
     },
     L2: {
-      title: 'L2 - 复杂任务层',
-      description: 'Agent 协作规则、规划策略、团队协调',
-      loadRule: '复杂任务时加载',
+      title: t('sysprompt.l2_title'),
+      description: t('sysprompt.l2_desc'),
+      loadRule: t('sysprompt.l2_load_rule'),
       color: 'text-purple-400',
     },
     L3: {
-      title: 'L3 - 项目上下文层',
-      description: '项目元数据、代码结构、依赖关系（动态生成）',
-      loadRule: '项目环境时自动加载',
+      title: t('sysprompt.l3_title'),
+      description: t('sysprompt.l3_desc'),
+      loadRule: t('sysprompt.l3_load_rule'),
       color: 'text-green-400',
     },
   };
@@ -456,7 +457,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       <div className="w-64 border-r border-border flex flex-col overflow-hidden">
         {/* 层级筛选 - 排除 L3 */}
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">层级筛选</h3>
+          <h3 className="text-xs font-medium text-muted-foreground mb-2 px-2">{t('sysprompt.layer_filter')}</h3>
           {(['all', 'L0', 'L1', 'L2'] as LayerType[]).map(layer => {
             const count = layer === 'all'
               ? components.filter(c => c.layer !== 'L3').length
@@ -474,7 +475,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 }`}
               >
                 <div className="flex items-center justify-between w-full">
-                  <span>{layer === 'all' ? '全部' : layer}</span>
+                  <span>{layer === 'all' ? t('sysprompt.layer_all') : layer}</span>
                   <span className="text-xs text-muted-foreground">{count}</span>
                 </div>
               </Button>
@@ -494,22 +495,23 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2 px-4 py-2"
             >
               <Plus size={16} />
-              创建 Scene
+              {t('sysprompt.create_scene')}
             </Button>
           </div>
         )}
+
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <RefreshCw size={32} className="animate-spin text-primary mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">加载中...</p>
+              <p className="text-sm text-muted-foreground">{t('sysprompt.loading')}</p>
             </div>
           </div>
         ) : filteredComponents.filter(c => c.layer !== 'L3').length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
               <Layers size={48} className="mx-auto mb-3 opacity-50" />
-              <p className="text-sm">暂无组件</p>
+              <p className="text-sm">{t('sysprompt.empty_components')}</p>
             </div>
           </div>
         ) : (
@@ -526,7 +528,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                         {info?.title || layer}
                       </h3>
                       <span className="text-xs text-muted-foreground">
-                        ({groupedComponents[layer].length} 个组件)
+                        {t('sysprompt.component_count', { count: groupedComponents[layer].length })}
                       </span>
                     </div>
                     {info && (
@@ -568,17 +570,17 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   <h4 className="font-medium">{component.name}</h4>
                                   {component.dynamic && (
                                     <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">
-                                      动态
+                                      {t('sysprompt.badge_dynamic')}
                                     </span>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-3 text-xs text-muted-foreground ml-6">
-                                  <span>ID: {component.id}</span>
-                                  <span>优先级: {component.priority}</span>
-                                  <span>~{component.estimatedTokens} tokens</span>
+                                  <span>{t('sysprompt.id_label', { id: component.id })}</span>
+                                  <span>{t('sysprompt.priority_label', { val: component.priority })}</span>
+                                  <span>{t('sysprompt.tokens_label', { tokens: component.estimatedTokens })}</span>
                                   {component.scenes && component.scenes.length > 0 && (
                                     <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">
-                                      场景: {component.scenes.join(', ')}
+                                      {t('sysprompt.scenes_label', { scenes: component.scenes.join(', ') })}
                                     </span>
                                   )}
                                 </div>
@@ -594,7 +596,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         ? 'text-green-500 hover:bg-green-500/10'
                                         : 'text-gray-500 hover:bg-gray-500/10'
                                     }`}
-                                    title={component.enabled ? '禁用' : '启用'}
+                                    title={component.enabled ? t('sysprompt.btn_disable') : t('sysprompt.btn_enable')}
                                   >
                                     {component.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
                                   </Button>
@@ -605,7 +607,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7"
-                                    title={isEditing ? '保存' : '编辑'}
+                                    title={isEditing ? t('sysprompt.btn_save') : t('sysprompt.btn_edit')}
                                   >
                                     {isEditing ? <Save size={16} /> : <Edit size={16} />}
                                   </Button>
@@ -616,7 +618,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7 text-red-400 hover:bg-red-500/10"
-                                    title="删除"
+                                    title={t('sysprompt.btn_delete')}
                                   >
                                     <Trash2 size={16} />
                                   </Button>
@@ -634,7 +636,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                       <Info size={14} className="text-primary" />
-                                      <h5 className="text-sm font-medium">场景匹配关键词</h5>
+                                      <h5 className="text-sm font-medium">{t('sysprompt.scene_match_keywords')}</h5>
                                     </div>
                                     {editingKeywords !== component.id && (
                                       <Button
@@ -642,14 +644,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         variant="ghost"
                                         size="icon"
                                         className="h-7 w-7"
-                                        title="编辑关键词"
+                                        title={t('sysprompt.edit_keywords')}
                                       >
                                         <Edit size={14} />
                                       </Button>
                                     )}
                                   </div>
                                   <p className="text-xs text-muted-foreground/70 mb-2">
-                                    用于快速匹配用户输入的场景。支持正则表达式（不区分大小写）。
+                                    {t('sysprompt.keywords_hint')}
                                   </p>
                                   {editingKeywords === component.id ? (
                                     <div className="space-y-2">
@@ -658,7 +660,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         value={editKeywordsValue}
                                         onChange={(e) => setEditKeywordsValue(e.target.value)}
                                         className="w-full bg-card border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
-                                        placeholder="例如: 写|实现|添加|修改|删除"
+                                        placeholder={t('sysprompt.keywords_placeholder')}
                                       />
                                       <div className="flex gap-2">
                                         <Button
@@ -667,7 +669,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                           size="sm"
                                           className="px-3 py-1.5"
                                         >
-                                          保存
+                                          {t('sysprompt.keywords_save')}
                                         </Button>
                                         <Button
                                           onClick={() => setEditingKeywords(null)}
@@ -675,20 +677,20 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                           size="sm"
                                           className="px-3 py-1.5"
                                         >
-                                          取消
+                                          {t('sysprompt.keywords_cancel')}
                                         </Button>
                                       </div>
                                     </div>
                                   ) : (
                                     <div className="bg-card rounded p-2">
                                       <code className="text-xs font-mono text-green-400">
-                                        {component.match.keywords || '(未设置)'}
+                                        {component.match.keywords || t('sysprompt.keywords_not_set')}
                                       </code>
                                     </div>
                                   )}
                                   {component.match.description && (
                                     <div className="mt-2 text-xs text-muted-foreground">
-                                      <span className="font-medium">场景描述：</span>
+                                      <span className="font-medium">{t('sysprompt.scene_desc_label')}</span>
                                       {component.match.description}
                                     </div>
                                   )}
@@ -701,7 +703,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                       <Info size={14} className="text-primary" />
-                                      <h5 className="text-sm font-medium">场景过滤标签</h5>
+                                      <h5 className="text-sm font-medium">{t('sysprompt.scene_filter_label')}</h5>
                                     </div>
                                     {editingScenes !== component.id && (
                                       <Button
@@ -709,20 +711,20 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         variant="ghost"
                                         size="icon"
                                         className="h-7 w-7"
-                                        title="编辑场景标签"
+                                        title={t('sysprompt.edit_scene_tags')}
                                       >
                                         <Edit size={14} />
                                       </Button>
                                     )}
                                   </div>
                                   <p className="text-xs text-muted-foreground/70 mb-2">
-                                    指定哪些 L1 场景下加载此组件。留空表示所有复杂任务都加载。
+                                    {t('sysprompt.scene_filter_hint')}
                                   </p>
                                   {editingScenes === component.id ? (
                                     <div className="space-y-2">
                                       <div className="max-h-40 overflow-y-auto bg-card rounded p-2 space-y-1">
                                         {l1Scenes.length === 0 ? (
-                                          <p className="text-xs text-muted-foreground">暂无可用 L1 场景</p>
+                                          <p className="text-xs text-muted-foreground">{t('sysprompt.no_l1_scenes')}</p>
                                         ) : (
                                           l1Scenes.map(scene => {
                                             const selected = editScenesValue.split(',').map(s => s.trim()).includes(scene);
@@ -747,8 +749,8 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         )}
                                       </div>
                                       <div className="flex gap-2">
-                                        <Button onClick={saveScenes} variant="default" size="sm" className="px-3 py-1.5">保存</Button>
-                                        <Button onClick={() => setEditingScenes(null)} variant="secondary" size="sm" className="px-3 py-1.5">取消</Button>
+                                        <Button onClick={saveScenes} variant="default" size="sm" className="px-3 py-1.5">{t('sysprompt.scene_save')}</Button>
+                                        <Button onClick={() => setEditingScenes(null)} variant="secondary" size="sm" className="px-3 py-1.5">{t('sysprompt.scene_cancel')}</Button>
                                       </div>
                                     </div>
                                   ) : (
@@ -758,7 +760,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                           <span key={s} className="text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">{s}</span>
                                         ))
                                       ) : (
-                                        <span className="text-xs text-muted-foreground">全部场景（无过滤）</span>
+                                        <span className="text-xs text-muted-foreground">{t('sysprompt.all_scenes')}</span>
                                       )}
                                     </div>
                                   )}
@@ -767,7 +769,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
 
                               {/* Prompt 内容 */}
                               <div>
-                                <h5 className="text-sm font-medium mb-2">Prompt 内容</h5>
+                                <h5 className="text-sm font-medium mb-2">{t('sysprompt.prompt_content')}</h5>
                                 {isEditing ? (
                                   <textarea
                                     value={editContent}
@@ -805,20 +807,20 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         <div className="w-56 border-r border-border flex flex-col overflow-hidden">
           <div className="p-3 border-b border-border bg-card">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-medium text-muted-foreground">项目列表</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">{t('sysprompt.project_list')}</h3>
               <Button
                 onClick={loadProjectsList}
                 disabled={loadingProjects}
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 disabled:opacity-50"
-                title="刷新"
+                title={t('sysprompt.refresh_btn')}
               >
                 <RefreshCw size={14} className={loadingProjects ? 'animate-spin' : ''} />
               </Button>
             </div>
             <p className="text-xs text-muted-foreground/70">
-              所有 xuanji 操作过的项目
+              {t('sysprompt.project_hint')}
             </p>
           </div>
 
@@ -829,7 +831,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               </div>
             ) : projects.length === 0 ? (
               <div className="text-center py-4 text-xs text-muted-foreground">
-                暂无项目
+                {t('sysprompt.no_projects')}
               </div>
             ) : (
               <div className="space-y-1">
@@ -847,7 +849,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                     <div className="font-medium truncate">{project.name}</div>
                     <div className="text-xs text-muted-foreground truncate">{project.path}</div>
                     {project.hasRules && (
-                      <div className="text-xs text-green-400 mt-1">✓ 有规则文件</div>
+                      <div className="text-xs text-green-400 mt-1">{t('sysprompt.has_rules')}</div>
                     )}
                   </Button>
                 ))}
@@ -860,9 +862,9 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
         {selectedProject && (
           <div className="w-56 border-r border-border flex flex-col overflow-hidden">
             <div className="p-3 border-b border-border bg-card">
-              <h3 className="text-xs font-medium text-muted-foreground mb-2">文档列表</h3>
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">{t('sysprompt.doc_list')}</h3>
               <p className="text-xs text-muted-foreground/70">
-                项目相关文档
+                {t('sysprompt.doc_hint')}
               </p>
             </div>
 
@@ -873,7 +875,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 </div>
               ) : projectDocs.length === 0 ? (
                 <div className="text-center py-4 text-xs text-muted-foreground">
-                  暂无文档
+                  {t('sysprompt.no_docs')}
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -905,7 +907,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
               <div className="p-3 border-b border-border bg-card flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-medium">
-                    {projectDocs.find(d => d.path === selectedDoc)?.name || '文档'}
+                    {projectDocs.find(d => d.path === selectedDoc)?.name || t('sysprompt.prompt_label')}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
                     {projectDocs.find(d => d.path === selectedDoc)?.relativePath}
@@ -919,7 +921,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                         variant="ghost"
                         size="sm"
                       >
-                        取消
+                        {t('sysprompt.cancel_btn')}
                       </Button>
                       <Button
                         onClick={saveProjectRules}
@@ -928,7 +930,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                         className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
                       >
                         <Save size={14} />
-                        保存
+                        {t('sysprompt.btn_save')}
                       </Button>
                     </>
                   ) : (
@@ -939,7 +941,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                       className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
                     >
                       <Edit size={14} />
-                      编辑
+                      {t('sysprompt.edit_btn')}
                     </Button>
                   )}
                 </div>
@@ -954,7 +956,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                   />
                 ) : (
                   <pre className="text-sm font-mono whitespace-pre-wrap bg-card p-4 rounded h-full overflow-auto">
-                    {projectRules || '暂无内容'}
+                    {projectRules || t('sysprompt.no_content')}
                   </pre>
                 )}
               </div>
@@ -1058,7 +1060,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
           }`}
           style={{ borderBottomWidth: 2 }}
         >
-          项目相关
+          {t('sysprompt.tab_projects')}
         </Button>
       </div>
 
@@ -1126,14 +1128,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                   <label className="block text-sm font-medium mb-1">Scene ID *</label>
                   <input type="text" value={createForm.id}
                     onChange={(e) => setCreateForm({ ...createForm, id: e.target.value })}
-                    placeholder="如: write_code"
+                    placeholder={t('sysprompt.create_placeholder_id')}
                     className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">名称 *</label>
                   <input type="text" value={createForm.name}
                     onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                    placeholder="如: 编写代码"
+                    placeholder={t('sysprompt.create_placeholder_name')}
                     className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                 </div>
               </div>
@@ -1160,14 +1162,14 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                     <label className="block text-sm font-medium mb-1">匹配关键词（正则）</label>
                     <input type="text" value={createForm.keywords}
                       onChange={(e) => setCreateForm({ ...createForm, keywords: e.target.value })}
-                      placeholder="如: (写|实现|创建).*(代码|功能)"
+                      placeholder={t('sysprompt.create_placeholder_keywords')}
                       className="w-full bg-background border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">场景描述</label>
                     <input type="text" value={createForm.description}
                       onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                      placeholder="如: 编写代码、实现功能"
+                      placeholder={t('sysprompt.create_placeholder_match_desc')}
                       className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                   </div>
                 </div>
@@ -1181,21 +1183,21 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                     <label className="block text-sm font-medium mb-1">适用场景（逗号分隔）</label>
                     <input type="text" value={createForm.suitableFor}
                       onChange={(e) => setCreateForm({ ...createForm, suitableFor: e.target.value })}
-                      placeholder="如: 实现新功能, 创建新组件"
+                      placeholder={t('sysprompt.create_placeholder_scenes')}
                       className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">所需能力（逗号分隔）</label>
                     <input type="text" value={createForm.requiredCapabilities}
                       onChange={(e) => setCreateForm({ ...createForm, requiredCapabilities: e.target.value })}
-                      placeholder="如: 代码编写, 设计模式应用"
+                      placeholder={t('sysprompt.create_placeholder_content')}
                       className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">协作提示</label>
                     <textarea value={createForm.collaborationHint}
                       onChange={(e) => setCreateForm({ ...createForm, collaborationHint: e.target.value })}
-                      placeholder="如: 1. 使用 explorer 探索代码&#10;2. 使用 planner 规划方案&#10;..."
+                      placeholder={t('sysprompt.create_placeholder_content')}
                       rows={4}
                       className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y" />
                   </div>
@@ -1207,7 +1209,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 <h4 className="text-sm font-medium mb-3 text-primary">Prompt 内容</h4>
                 <textarea value={createForm.content}
                   onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })}
-                  placeholder="输入 Prompt 内容（Markdown 格式）..."
+                  placeholder={t('sysprompt.create_placeholder_content')}
                   rows={12}
                   className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y"
                   style={{ minHeight: '200px' }} />
@@ -1219,7 +1221,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                 variant="ghost"
                 className="bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50 px-4 py-2 flex items-center gap-2">
                 <Plus size={16} />
-                {creating ? '创建中...' : '创建'}
+                {creating ? t('sysprompt.creating') : t('sysprompt.create_btn')}
               </Button>
             </div>
           </div>

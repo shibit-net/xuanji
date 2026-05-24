@@ -10,8 +10,6 @@
 import type { ILLMProvider, ProviderConfig } from '@/shared/types/provider';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
-import { ProviderManager } from '@/core/providers/ProviderManager';
-import type { AppConfig } from '@/core/types';
 import type { ClassifyResult } from './types';
 import { logger } from '@/core/logger';
 
@@ -51,9 +49,15 @@ export interface SceneInfo {
   keywords?: string;
 }
 
+export interface SceneClassifierDeps {
+  agentRegistry: AgentRegistry;
+  /** Provider 工厂函数（统一通过 AgentFactory.providerPool 路径创建） */
+  providerFactory?: (config: { adapter: string }) => ILLMProvider;
+}
+
 export class SceneClassifier {
   private agentRegistry: AgentRegistry;
-  private globalConfig: AppConfig;
+  private providerFactory?: (config: { adapter: string }) => ILLMProvider;
   private classifierConfig: ConfigurableAgentConfig | null = null;
   private systemPrompt: string | null = null;
   private provider: ILLMProvider | null = null;
@@ -64,12 +68,9 @@ export class SceneClassifier {
   );
   private sceneKeywords: Map<string, string> = new Map();
 
-  constructor(deps: {
-    agentRegistry: AgentRegistry;
-    globalConfig: AppConfig;
-  }) {
+  constructor(deps: SceneClassifierDeps) {
     this.agentRegistry = deps.agentRegistry;
-    this.globalConfig = deps.globalConfig;
+    this.providerFactory = deps.providerFactory;
   }
 
   /** 初始化：读取 scene-classifier 配置，注入模板变量，创建 provider */
@@ -90,9 +91,17 @@ export class SceneClassifier {
     this.systemPrompt = (classifierConfig.systemPrompt || '')
       .replace(/\{\{SCENE_LIST\}\}/g, sceneList);
 
-    // 创建 provider
-    const providerManager = new ProviderManager(this.globalConfig);
-    this.provider = providerManager.getProvider(classifierConfig);
+    // 创建 provider — 使用注入的 providerFactory（统一路径），fallback 到直接调用
+    const factory = this.providerFactory;
+    if (factory) {
+      if (!classifierConfig.provider?.adapter) {
+        throw new Error('SceneClassifier: scene-classifier agent 未配置 provider adapter');
+      }
+      this.provider = factory({ adapter: classifierConfig.provider.adapter });
+    } else {
+      const { ProviderManager } = await import('@/core/providers/ProviderManager');
+      this.provider = ProviderManager.getProvider(classifierConfig.provider);
+    }
 
     this.initialized = true;
     log.info('SceneClassifier initialized', {

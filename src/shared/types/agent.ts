@@ -12,7 +12,7 @@ export type MessageRole = 'system' | 'user' | 'assistant';
 /**
  * 内容块类型
  */
-export type ContentBlockType = 'text' | 'thinking' | 'reasoning' | 'tool_use' | 'tool_result' | 'image';
+export type ContentBlockType = 'text' | 'thinking' | 'reasoning' | 'tool_use' | 'tool_result' | 'image' | 'audio' | 'video';
 
 /**
  * 内容块
@@ -30,10 +30,16 @@ export interface ContentBlock {
   tool_use_id?: string;
   content?: string;
   is_error?: boolean;
-  /** 图片内容块：base64 数据 */
+  /** 图片/音频内容块：base64 数据 */
   data?: string;
-  /** 图片内容块：MIME 类型，如 image/png */
+  /** 图片/音频内容块：MIME 类型，如 image/png, audio/wav */
   mimeType?: string;
+  /** 图片远程 URL（非 base64 时使用，如上游生成的图片地址） */
+  imageUrl?: string;
+  /** OpenAI vision 图片 detail 级别 */
+  imageDetail?: 'low' | 'high' | 'auto';
+  /** 音频时长（秒） */
+  audioDuration?: number;
 }
 
 /**

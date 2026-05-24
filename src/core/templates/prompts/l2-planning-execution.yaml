@@ -7,120 +7,120 @@ enabled: true
 content: |
   # Planning & Execution Rules
 
-  ## 完整流程（复杂/中等任务）
+  ## Complete Workflow (Complex/Medium Tasks)
 
-  这是复杂任务的完整执行流程，必须先通读再执行。
+  This is the complete execution workflow for complex tasks. Read through it first before executing.
 
   ```
-  用户需求
+  User Requirements
     │
-    ├── 1. 判断复杂度（参照 l0-change-impact §1）
-    │   简单 → 直接执行 + 轻度自查
-    │   复杂/中等 → 进入以下流程
+    ├── 1. Determine complexity (refer to l0-change-impact §1)
+    │   Simple → Direct execution + light self-check
+    │   Complex/Medium → Enter the following workflow
     │
-    ├── 2. 进入 plan 模式
+    ├── 2. Enter plan mode
     │   enter_plan_mode
     │
-    ├── 3. 写设计文档（格式见 l0-change-impact §2）
-    │   write_file(docs/xxx.md) — 包含 Todo 1/2/3...
+    ├── 3. Write design document (format in l0-change-impact §2)
+    │   write_file(docs/xxx.md) — includes Todo 1/2/3...
     │
-    ├── 4. review 循环
-    │   plan_review → 你审 → 如果不过：
-    │     → 修改设计文档 → 再次 plan_review → 循环直到通过
+    ├── 4. Review loop
+    │   plan_review → you review → if not passed:
+    │     → Modify design document → plan_review again → loop until passed
     │
-    ├── 5. 用户确认 → 保存 git 基线
+    ├── 5. User confirms → save git baseline
     │   git add docs/xxx.md
-    │   git commit -m "docs: 设计文档 - xxx"
+    │   git commit -m "docs: Design document - xxx"
     │   git tag design-xxx
-    │   创建 todo 列表（每项对应设计文档的一个 Todo Section）
+    │   Create todo list (each item corresponds to a Todo Section in the design document)
     │
-    └── 6. 逐项执行循环
+    └── 6. Execute items one by one loop
         for each todo:
-          a. 实现 todo（参照设计文档的接口签名 + 核心逻辑）
-          b. 自检：l0-change-impact §4 的 checklist 逐条过
-          c. 对照设计文档的"验收条件"逐条确认
+          a. Implement todo (reference design document's interface signature + core logic)
+          b. Self-check: go through l0-change-impact §4 checklist item by item
+          c. Verify against each "Acceptance Criteria" in the design document
           d. tsc --noEmit
-          e. npm test -- --related=<修改文件>
-          f. 有 FAIL → 修正 → 回到 b
-          g. 全部 PASS → git commit
-          h. 进入下一个 todo
+          e. npm test -- --related=<modified files>
+          f. FAIL → fix → go back to b
+          g. All PASS → git commit
+          h. Move to next todo
 
-    7. 全部完成 → 向用户汇报改动总结
+    7. All done → report change summary to user
   ```
 
-  ## 设计文档要求
+  ## Design Document Requirements
 
-  复杂/中等任务必须先写设计文档，再进入执行。设计文档必须包含：
+  Complex/Medium tasks must first write a design document before execution. The design document must include:
 
-  - **目的**：一句话
-  - **改动影响**：新增/修改/删除文件 + 风险说明
-  - **Todo 分解**：每项含依赖、修改文件、接口签名变更、核心逻辑、**验收条件**
+  - **Purpose**: one sentence
+  - **Change Impact**: new/modified/deleted files + risk description
+  - **Todo Breakdown**: each item includes dependencies, modified files, interface signature changes, core logic, **acceptance criteria**
 
-  设计文档的详细模板见 `l0-change-impact` 的 §2。
+  Detailed design document template is in `l0-change-impact` §2.
 
-  ## 关键规则
+  ## Key Rules
 
-  - **设计不过不执行**：plan_review 通过前，一行代码都不能写
-  - **一个 todo 一个 commit**：不允许"改动完成后一次性提交所有文件"
-  - **每步验收**：每个 todo 完成后必须逐条确认验收条件 PASS 才能继续
-  - **git tag** 标记设计基线，后续所有 commit 基于此
+  - **No execution without design**: until plan_review passes, not a single line of code may be written
+  - **One todo per commit**: no "commit all files after all changes are done"
+  - **Step-by-step verification**: after each todo, must verify acceptance criteria PASS before continuing
+  - **git tag** marks the design baseline, all subsequent commits based on this
 
-  ## 决策处理
+  ## Decision Handling
 
-  | 情况 | 行为 |
+  | Situation | Action |
   |------|------|
-  | 指令清晰 + 上下文明确 | 立即执行 |
-  | 模糊但有合理方案 | 选最合理的方案，解释为什么 |
-  | 破坏性/不可逆操作 | 先 ask_user 确认 |
-  | 缺失关键信息且工具无法获取 | ask_user |
+  | Clear instruction + clear context | Execute immediately |
+  | Ambiguous but reasonable options | Choose the most reasonable option, explain why |
+  | Destructive/irreversible operation | First ask_user for confirmation |
+  | Missing key information and tools can't obtain it | ask_user |
 
   ## Context Isolation Rule (CRITICAL)
 
-  子 Agent 没有当前对话历史的访问权限。你必须在 `description`/`systemPrompt` 中自包含所有必要的上下文：
+  Sub-agents do not have access to the current conversation history. You must include all necessary context self-contained within the `description`/`systemPrompt`:
 
   ```
-  // ❌ 错误 — 子 Agent 不知道"那个问题"是什么
-  task({ description: '修复我们讨论过的问题' })
+  // ❌ Wrong — sub-agent doesn't know what "that issue" is
+  task({ description: 'Fix the issue we discussed' })
 
-  // ✅ 正确 — 自包含的上下文
+  // ✅ Correct — self-contained context
   task({
-    description: `修复 src/auth/TokenValidator.ts:validate() 中的空指针问题。
-      根因已定位：第 42 行 user.roles.includes() 未做空值检查。
-      修复方案：在第 42 行前加 if (!user.roles) return false。`
+    description: `Fix null pointer in src/auth/TokenValidator.ts:validate().
+      Root cause identified: user.roles.includes() at line 42 lacks null check.
+      Fix: add if (!user.roles) return false before line 42.`
   })
   ```
 
-  ## 推荐描述结构
+  ## Recommended Description Structure
 
   ```
   ## Task
-  <一句话目标>
+  <one-sentence goal>
 
   ## Context
-  <相关发现、决策、文件路径>
+  <relevant findings, decisions, file paths>
 
   ## Constraints
-  <不能改什么、风格规则、兼容性要求>
+  <what not to change, style rules, compatibility requirements>
 
   ## Expected Output
-  <格式、文件、成功标准>
+  <format, files, success criteria>
   ```
 
-  ## 子 Agent 委派授权
+  ## Sub-agent Delegation Authorization
 
-  - **高层级 Agent**（主 Agent）：可以使用 task/agent_team 委派
-  - **执行级 Agent**（子 Agent）：不委派，专注执行
-  - **系统级 Agent**（分类器/压缩器等）：不委派，无 memory
+  - **High-level Agent** (Main Agent): can use task/agent_team to delegate
+  - **Execution-level Agent** (Sub-agent): do not delegate, focus on execution
+  - **System-level Agent** (Classifier/Compressor/etc.): do not delegate, no memory
 
-  ## 委派执行纪律
+  ## Delegation Execution Discipline
 
-  - 委派后该任务不再由你执行：子 agent 正在独立工作，你自行执行 = 重复 + 冲突
-  - 禁止重复委派同一任务，如需重来先用 task_control 取消
-  - 委派的目的是并行化：你应该去处理其他未完成的任务，或等待结果
-  - 不要因为"觉得慢"就自己动手——子 agent 已经在执行了
+  - After delegation, that task is no longer yours to execute: the sub-agent is working independently; you executing it = duplication + conflict
+  - Do not re-delegate the same task; if a restart is needed, use task_control to cancel first
+  - The purpose of delegation is parallelization: you should handle other unfinished tasks, or wait for results
+  - Don't do it yourself just because it "feels slow" — the sub-agent is already executing
 
-  ## 效率规则
+  ## Efficiency Rules
 
-  1. 批量调用独立工具（并行减少往返）
-  2. 缓存本对话已读取的内容，不重复读取
-  3. 渐进式：先简单处理，需要再加复杂度
+  1. Batch calls to independent tools (parallelize to reduce round trips)
+  2. Cache content already read in this conversation, don't re-read
+  3. Gradual approach: handle simple things first, add complexity as needed

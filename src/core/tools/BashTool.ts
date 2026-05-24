@@ -249,20 +249,20 @@ export class BashTool extends BaseTool {
 
   /** 高风险命令模式（与 RESTRICTED_PATHS 无关的全局风险） */
   private static readonly DANGEROUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
-    { pattern: /\beval\s+"?\$/, description: '动态执行变量内容 (eval)' },
-    { pattern: /\bexport\s+\w+=.*\$\(/, description: '环境变量注入命令替换' },
-    { pattern: />\s*\/dev\/[hs]d/, description: '写入裸设备' },
-    { pattern: /\bnc\s+(-[a-zA-Z]*l|-[a-zA-Z]*p)/, description: '网络监听 (nc -l)' },
-    // 新增：命令绕过检测
-    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+-[a-zA-Z]*[rf]/, description: '变量名替换执行高危命令（如 $RM -rf 等）' },
-    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+\//, description: '变量名替换路径操作' },
-    { pattern: /\bdd\s+if=.*of=\/dev\//, description: 'dd 写入裸设备' },
-    { pattern: /\bmkfs\b/, description: '格式化文件系统 (mkfs)' },
-    { pattern: /\|\s*(ba)?sh\b/, description: '管道到 shell 执行，可能绕过权限检测' },
-    { pattern: /\|\s*zsh\b/, description: '管道到 zsh 执行，可能绕过权限检测' },
-    { pattern: /\bxargs\s+.*\brm\b/, description: 'xargs 管道删除操作' },
-    { pattern: /`[^`]*\brm\b[^`]*`/, description: '反引号命令替换中包含 rm' },
-    { pattern: /\$\([^)]*\brm\b[^)]*\)/, description: '$() 命令替换中包含 rm' },
+    { pattern: /\beval\s+"?\$/, description: 'Dynamic variable execution (eval)' },
+    { pattern: /\bexport\s+\w+=.*\$\(/, description: 'Environment variable injection via command substitution' },
+    { pattern: />\s*\/dev\/[hs]d/, description: 'Write to raw device' },
+    { pattern: /\bnc\s+(-[a-zA-Z]*l|-[a-zA-Z]*p)/, description: 'Network listening (nc -l)' },
+    // New: command bypass detection
+    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+-[a-zA-Z]*[rf]/, description: 'Variable substitution executing dangerous command (e.g. $RM -rf)' },
+    { pattern: /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\s+\//, description: 'Variable substitution path operation' },
+    { pattern: /\bdd\s+if=.*of=\/dev\//, description: 'dd write to raw device' },
+    { pattern: /\bmkfs\b/, description: 'Format filesystem (mkfs)' },
+    { pattern: /\|\s*(ba)?sh\b/, description: 'Pipe to shell execution, may bypass permission checks' },
+    { pattern: /\|\s*zsh\b/, description: 'Pipe to zsh execution, may bypass permission checks' },
+    { pattern: /\bxargs\s+.*\brm\b/, description: 'xargs pipe delete operation' },
+    { pattern: /`[^`]*\brm\b[^`]*`/, description: 'Backtick command substitution containing rm' },
+    { pattern: /\$\([^)]*\brm\b[^)]*\)/, description: '$() command substitution containing rm' },
   ];
 
   /**

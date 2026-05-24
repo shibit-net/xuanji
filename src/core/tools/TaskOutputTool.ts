@@ -18,16 +18,16 @@ export class TaskOutputTool extends BaseTool {
     properties: {
       task_id: {
         type: 'string',
-        description: '后台任务 ID（由 bash 工具的 run_in_background 返回）',
+        description: 'Background task ID (returned by bash tool run_in_background)',
       },
       block: {
         type: 'boolean',
-        description: '是否等待任务完成（默认 true）',
+        description: 'Whether to wait for task completion (default true)',
         default: true,
       },
       timeout: {
         type: 'number',
-        description: '最大等待时间（毫秒，默认 30000）',
+        description: 'Max wait time in milliseconds (default 30000)',
         default: 30000,
       },
     },

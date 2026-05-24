@@ -83,11 +83,21 @@ export class ContextManager {
     return total;
   }
 
-  addUserMessage(text: string, imageBlocks?: Array<{ data: string; mimeType: string }>): void {
+  addUserMessage(text: string, imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>, audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>, videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>): void {
+    const mediaBlocks: ContentBlock[] = [];
     if (imageBlocks && imageBlocks.length > 0) {
+      mediaBlocks.push(...imageBlocks.map(b => ({ type: 'image' as const, data: b.data, mimeType: b.mimeType, name: b.name }) as ContentBlock));
+    }
+    if (audioBlocks && audioBlocks.length > 0) {
+      mediaBlocks.push(...audioBlocks.map(b => ({ type: 'audio' as const, data: b.data, mimeType: b.mimeType, name: b.name }) as ContentBlock));
+    }
+    if (videoBlocks && videoBlocks.length > 0) {
+      mediaBlocks.push(...videoBlocks.map(b => ({ type: 'video' as const, data: b.data, mimeType: b.mimeType, name: b.name }) as ContentBlock));
+    }
+    if (mediaBlocks.length > 0) {
       const content: ContentBlock[] = [
         { type: 'text', text },
-        ...imageBlocks.map(b => ({ type: 'image' as const, data: b.data, mimeType: b.mimeType }) as ContentBlock),
+        ...mediaBlocks,
       ];
       this.messages.push({ role: 'user', content });
     } else {
@@ -104,7 +114,7 @@ export class ContextManager {
 
   addToolResults(results: Map<string, ToolResult>): void {
     const content: ContentBlock[] = [];
-    const imageMessages: Message[] = [];
+    const mediaMessages: Message[] = [];
     for (const [id, result] of results) {
       content.push({
         type: 'tool_result',
@@ -112,34 +122,54 @@ export class ContextManager {
         content: result.content,
         is_error: result.isError,
       });
-      // 将 tool result 中的图片 contentBlocks 注入到对话上下文
-      // 附带文字前缀说明来源，防止 LLM 误以为用户发送了图片
-      // Anthropic API 要求图片必须在 user 消息中，因此保留 role: 'user'
+      // 将 tool result 中的多模态 contentBlocks 注入到对话上下文
+      // ⚠️ 以下内容为系统自动注入的工具输出记录，NOT 用户消息。
+      // LLM 不应将其视为新用户输入，也不应回复"收到你的图片"之类的内容。
+      // 图片已直接展示在用户对话框中，这里仅作你的推理参考。
       if (result.contentBlocks && result.contentBlocks.length > 0) {
+        const LLM_SUPPORTED_IMAGE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
         for (const block of result.contentBlocks) {
           if (block.type === 'image' && block.data) {
-            imageMessages.push({
+            const mime = block.mimeType || 'image/png';
+            if (LLM_SUPPORTED_IMAGE.has(mime)) {
+              mediaMessages.push({
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: '━━━ 系统工具输出记录（非用户消息，勿回复）━━━\n以下图片是工具 send_file_to_user 刚才发送给用户的输出。该图片已展示在用户对话框中，此处仅作为你的推理参考。不要将此视为用户发送的消息，不要描述或评论这张图片。',
+                  },
+                  {
+                    type: 'image' as const,
+                    data: block.data,
+                    mimeType: mime,
+                  },
+                ],
+              });
+            } else {
+              mediaMessages.push({
+                role: 'user',
+                content: '━━━ 系统工具输出记录（非用户消息，勿回复）━━━\n工具刚才向用户发送了一张图片（格式: ' + mime + '），已展示在用户对话框中。此处仅为记录，不要回复此消息。',
+              });
+            }
+          } else if (block.type === 'audio' && block.data) {
+            mediaMessages.push({
               role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: '[send_file_to_user 发送记录] 以下图片是刚才通过 send_file_to_user 工具发送给用户的截图，不是用户发送的消息。仅作历史记录供后续推理参考：',
-                },
-                {
-                  type: 'image' as const,
-                  data: block.data,
-                  mimeType: block.mimeType || 'image/png',
-                },
-              ],
+              content: '━━━ 系统工具输出记录（非用户消息，勿回复）━━━\n工具刚才生成了音频输出（格式: ' + (block.mimeType || 'audio/mpeg') + '），已展示给用户。此处仅为记录，不要回复此消息。',
+            });
+          } else if (block.type === 'video' && block.data) {
+            mediaMessages.push({
+              role: 'user',
+              content: '━━━ 系统工具输出记录（非用户消息，勿回复）━━━\n工具刚才生成了视频输出（格式: ' + (block.mimeType || 'video/mp4') + '），已展示给用户。此处仅为记录，不要回复此消息。',
             });
           }
         }
       }
     }
     this.messages.push({ role: 'user', content });
-    // 图片跟在 tool_result 消息之后，LLM 在下一轮推理时能同时看到工具结果和图片内容
-    if (imageMessages.length > 0) {
-      this.messages.push(...imageMessages);
+    // 多模态媒体跟在 tool_result 消息之后，LLM 在下一轮推理时能同时看到工具结果和媒体内容
+    if (mediaMessages.length > 0) {
+      this.messages.push(...mediaMessages);
     }
   }
 
@@ -187,10 +217,6 @@ export class ContextManager {
     }
   }
 
-  /** 按 key 清除 system prompt 中的某些标记内容 */
-  clearSystemPromptSuffix(key: string): void {
-    // 暂不实现，保留接口
-  }
 
   replaceMessages(messages: Message[]): void {
     this.messages = messages;
@@ -230,11 +256,7 @@ export class ContextManager {
     }
   }
 
-  setSystemPrompt(prompt: string): void {
-    this.updateSystemPrompt(prompt);
-  }
-
-  checkBudget(): BudgetStatus {
+  checkBudget():BudgetStatus {
     const estimated = this.tokenCounter.estimate(this.messages);
     const maxInput = this.tokenCounter.getMaxInputTokens();
     const pct = maxInput > 0 ? estimated / maxInput : 0;

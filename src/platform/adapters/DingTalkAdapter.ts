@@ -74,6 +74,18 @@ export class DingTalkAdapter implements PlatformAdapter {
 
     const chatType: 'private' | 'group' = body.conversationType === '1' ? 'private' : 'group';
     const text = body.text?.content || '';
+    const attachments: Array<{ type: 'image' | 'file' | 'voice' | 'audio' | 'video'; url?: string; name?: string; mimeType?: string }> = [];
+
+    const msgType = body.msgtype || body.msgKey;
+    if (msgType === 'picture' || body.pictureUrl) {
+      attachments.push({ type: 'image', url: body.pictureUrl });
+    } else if (msgType === 'file') {
+      attachments.push({ type: 'file', url: body.file?.downloadCode ? `dingtalk://file/${body.file.downloadCode}` : undefined, name: body.file?.fileName, mimeType: body.file?.fileType });
+    } else if (msgType === 'voice') {
+      attachments.push({ type: 'voice', url: body.recognition ? `dingtalk://voice/${body.recognition}` : undefined, mimeType: 'audio/amr' });
+    } else if (msgType === 'video' || msgType === 'shortVideo') {
+      attachments.push({ type: 'video', url: body.video?.downloadCode ? `dingtalk://video/${body.video.downloadCode}` : undefined, name: `video.${body.video?.fileType || 'mp4'}`, mimeType: `video/${body.video?.fileType || 'mp4'}` });
+    }
 
     return {
       id: body.msgId,
@@ -83,6 +95,7 @@ export class DingTalkAdapter implements PlatformAdapter {
       chatId: body.conversationId,
       chatType,
       text,
+      attachments: attachments.length > 0 ? attachments : undefined,
       mentions: body.isInAtList ? [body.chatbotUserId] : [],
       sessionKey: buildSessionKey({ platform: 'dingtalk', chatType, chatId: body.conversationId }),
       raw: { ...body, sessionWebhook: body.sessionWebhook },
@@ -241,6 +254,75 @@ export class DingTalkAdapter implements PlatformAdapter {
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
+  }
+
+  async sendFile(options: { chatId: string; filePath: string; fileName?: string; replyTo?: string }): Promise<string> {
+    const token = await this.credentials.getToken('dingtalk');
+
+    // 1. 上传文件获取 media_id
+    const fileBuffer = readFileSync(options.filePath);
+    const fileName = options.fileName || basename(options.filePath);
+    const boundary = `--DingTalkUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      `https://oapi.dingtalk.com/media/upload?access_token=${token}&type=file`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.errcode !== 0) {
+      throw new Error(`DingTalk file upload failed: ${uploadData.errmsg}`);
+    }
+
+    // 2. 发送文件消息（使用 sessionWebhook 优先）
+    const sessionWebhook = this.sessionWebhooks.get(options.chatId);
+    if (sessionWebhook) {
+      const response = await fetch(sessionWebhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          msgtype: 'file',
+          file: { media_id: uploadData.media_id },
+        }),
+      });
+      const data = await response.json() as any;
+      if (data.errcode) throw new Error(`DingTalk sendFile via webhook failed: ${data.errmsg}`);
+      return data.msgid || '';
+    }
+
+    const sendBody = {
+      robotCode: `ding_${this.config.client_id}`,
+      userId: options.chatId,
+      msgKey: 'sampleFile',
+      msgParam: JSON.stringify({ media_id: uploadData.media_id, fileName }),
+    };
+
+    const sendRes = await fetch('https://oapi.dingtalk.com/v1.0/robot/botSend', {
+      method: 'POST',
+      headers: {
+        'x-acs-dingtalk-access-token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sendBody),
+    });
+
+    const sendData = await sendRes.json() as any;
+    if (!sendRes.ok) throw new Error(`DingTalk sendFile failed: ${JSON.stringify(sendData)}`);
+    return sendData.processQueryKey || '';
+  }
+
+  async sendVoice(options: { chatId: string; voicePath: string; replyTo?: string }): Promise<string> {
+    return this.sendFile({ chatId: options.chatId, filePath: options.voicePath, replyTo: options.replyTo });
   }
 
   // ── Token 刷新（委托给 CredentialManager）──────────────────

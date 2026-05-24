@@ -80,9 +80,22 @@ export class FeishuAdapter implements PlatformAdapter {
     const chatType: 'private' | 'group' = msg.chat_type === 'private' ? 'private' : 'group';
 
     let text = '';
+    const attachments: Array<{ type: 'image' | 'file' | 'voice' | 'audio' | 'video'; url?: string; name?: string; mimeType?: string }> = [];
     try {
       const content = JSON.parse(msg.content);
       text = content.text || '';
+
+      // 根据消息类型提取附件
+      const msgType = msg.message_type;
+      if (msgType === 'image') {
+        attachments.push({ type: 'image', url: content.image_key ? `feishu://image/${content.image_key}` : undefined });
+      } else if (msgType === 'file') {
+        attachments.push({ type: 'file', url: content.file_key ? `feishu://file/${content.file_key}` : undefined, name: content.file_name, mimeType: 'application/octet-stream' });
+      } else if (msgType === 'audio') {
+        attachments.push({ type: 'audio', url: content.file_key ? `feishu://file/${content.file_key}` : undefined, mimeType: 'audio/ogg' });
+      } else if (msgType === 'media') {
+        attachments.push({ type: 'video', url: content.file_key ? `feishu://file/${content.file_key}` : undefined, mimeType: 'video/mp4' });
+      }
     } catch {
       text = msg.content || '';
     }
@@ -96,6 +109,7 @@ export class FeishuAdapter implements PlatformAdapter {
       chatId: msg.chat_id,
       chatType,
       text,
+      attachments: attachments.length > 0 ? attachments : undefined,
       mentions,
       replyTo: msg.upper_message_id || undefined,
       sessionKey: buildSessionKey({ platform: 'feishu', chatType, chatId: msg.chat_id }),
@@ -247,6 +261,125 @@ export class FeishuAdapter implements PlatformAdapter {
 
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
+  }
+
+  async sendFile(options: { chatId: string; filePath: string; fileName?: string; replyTo?: string }): Promise<string> {
+    const token = await this.credentials.getToken('feishu');
+
+    // 1. 上传文件获取 file_key
+    const fileBuffer = readFileSync(options.filePath);
+    const fileName = options.fileName || basename(options.filePath);
+    const boundary = `--FeishuUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file_type"\r\n\r\nstream\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file_name"\r\n\r\n${fileName}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/files',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.code !== 0) {
+      throw new Error(`Feishu file upload failed: ${uploadData.msg}`);
+    }
+
+    // 2. 发送文件消息
+    const sendBody = {
+      receive_id: options.chatId,
+      msg_type: 'file',
+      content: JSON.stringify({ file_key: uploadData.data.file_key }),
+    };
+
+    const sendRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.code !== 0) {
+      throw new Error(`Feishu sendFile failed: ${sendData.msg}`);
+    }
+
+    return sendData.data?.message_id || '';
+  }
+
+  async sendVoice(options: { chatId: string; voicePath: string; replyTo?: string }): Promise<string> {
+    // 飞书音频使用 file 上传接口，发送时 msg_type='audio'
+    const token = await this.credentials.getToken('feishu');
+
+    const fileBuffer = readFileSync(options.voicePath);
+    const fileName = basename(options.voicePath);
+    const boundary = `--FeishuUpload${Date.now()}`;
+
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file_type"\r\n\r\nstream\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file_name"\r\n\r\n${fileName}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      fileBuffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+
+    const uploadRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/files',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+
+    const uploadData = await uploadRes.json() as any;
+    if (uploadData.code !== 0) {
+      throw new Error(`Feishu voice upload failed: ${uploadData.msg}`);
+    }
+
+    const sendBody = {
+      receive_id: options.chatId,
+      msg_type: 'audio',
+      content: JSON.stringify({ file_key: uploadData.data.file_key }),
+    };
+
+    const sendRes = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sendBody),
+      },
+    );
+
+    const sendData = await sendRes.json() as any;
+    if (sendData.code !== 0) {
+      throw new Error(`Feishu sendVoice failed: ${sendData.msg}`);
+    }
+
+    return sendData.data?.message_id || '';
   }
 
   // ── Token 刷新（委托给 CredentialManager）──────────────────

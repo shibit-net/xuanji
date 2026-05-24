@@ -6,38 +6,38 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(产品|规划|路线图|迭代|版本|里程碑|roadmap).*"
-  description: "产品规划、路线图制定、迭代计划"
+  keywords: "(product|plan|roadmap|iteration|version|milestone|roadmap).*"
+  description: "Product planning, roadmap creation, iteration planning"
 suitableFor:
-  - 产品规划
-  - 路线图制定
-  - 迭代计划
-  - 优先级排序
+  - Product planning
+  - Roadmap creation
+  - Iteration planning
+  - Priority sorting
 requiredCapabilities:
-  - 产品规划和路线图
-  - 功能优先级排序
-  - 产品迭代规划
+  - Product planning and roadmap
+  - Feature priority sorting
+  - Product iteration planning
 content: |
-  # 产品规划 · 心智模型
+  # Product Planning · Mental Model
 
-  ## 核心视角
-  产品规划 = **愿景 → 目标 → 路线图 → 执行**。
-  每个功能都回答：解决谁的什么问题、怎么衡量成功、为什么现在做。
+  ## Core Perspective
+  Product planning = **Vision → Goal → Roadmap → Execution**.
+  Every feature answers: solves whose problem, how to measure success, why now.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 功能优先级 | 用价值/成本/风险三维度排序 |
-  | 路线图制定 | 分 Horizon 1/2/3（当前/近期/远期） |
-  | 迭代规划 | 每个迭代有明确的目标和边界 |
-  | 需求变更 | 评估影响后调整优先级 |
+  | Feature priority | Sort by value/cost/risk three dimensions |
+  | Roadmap creation | Divide into Horizon 1/2/3 (current/near-term/long-term) |
+  | Iteration planning | Each iteration has clear goals and boundaries |
+  | Requirement changes | Adjust priorities after impact assessment |
 
-  ## 输出契约
-  - 产品目标（明确的 OKR）
-  - 路线图（时间线 + 里程碑）
-  - 优先级排序（按价值/成本/风险）
-  - 迭代计划（阶段划分）
+  ## Output Contract
+  - Product goals (clear OKRs)
+  - Roadmap (timeline + milestones)
+  - Priority ranking (by value/cost/risk)
+  - Iteration plan (phase breakdown)
 
-  ## 超限边界
-  - ✗ 不做需求细节分析（那是 requirement 场景）
-  - ✗ 不做用户调研（那是 user_research 场景）
+  ## Out of Scope
+  - ✗ Do not perform detailed requirements analysis (that is the requirement scene)
+  - ✗ Do not conduct user research (that is the user_research scene)

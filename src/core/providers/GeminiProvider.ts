@@ -6,6 +6,9 @@ import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, To
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/core/logger';
 
+/** Gemini API 支持的图片 MIME 类型 */
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
 // ── Gemini API 类型 ────────────────────────────────────
 
 interface GeminiPart {
@@ -88,9 +91,33 @@ export class GeminiProvider extends BaseLLMProvider {
           break;
         case 'image':
           if (block.data) {
+            if (SUPPORTED_IMAGE_TYPES.has(block.mimeType || '')) {
+              parts.push({
+                inlineData: {
+                  mimeType: block.mimeType || 'image/png',
+                  data: block.data,
+                },
+              });
+            } else {
+              parts.push({ text: `[Image: ${block.name || block.mimeType || 'image'}]` });
+            }
+          }
+          break;
+        case 'audio':
+          if (block.data) {
             parts.push({
               inlineData: {
-                mimeType: block.mimeType || 'image/png',
+                mimeType: block.mimeType || 'audio/mpeg',
+                data: block.data,
+              },
+            });
+          }
+          break;
+        case 'video':
+          if (block.data) {
+            parts.push({
+              inlineData: {
+                mimeType: block.mimeType || 'video/mp4',
                 data: block.data,
               },
             });

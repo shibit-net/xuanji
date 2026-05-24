@@ -7,7 +7,7 @@
 // src/core/templates/
 // ├── config.json
 // ├── mcp.json
-// ├── prompt.json
+// ├── settings.json
 // ├── agents/
 // └── protocols/
 //
@@ -17,7 +17,7 @@
 //     └── {userId}/        # 每个用户的独立目录
 //         ├── config.json
 //         ├── mcp.json
-//         ├── prompt.json
+//         ├── settings.json
 //         ├── agents/
 //         ├── memory/      # 记忆系统
 //         ├── permissions/  # 权限决策
@@ -200,6 +200,13 @@ export function getUserPermissionPath(userId: string): string {
 }
 
 /**
+ * 获取用户平台会话目录（远端对话持久化）
+ */
+export function getUserPlatformDir(userId: string): string {
+  return join(getUserRoot(userId), 'platform');
+}
+
+/**
  * 获取用户会话目录
  */
 export function getUserSessionsDir(userId: string): string {
@@ -296,6 +303,7 @@ export class PathManager {
   get prompt(): string { return getUserPromptPath(this._userId); }
   get agents(): string { return getUserAgentsDir(this._userId); }
   get memory(): string { return getUserMemoryDir(this._userId); }
+  get platform(): string { return getUserPlatformDir(this._userId); }
   get permissions(): string { return getUserPermissionsDir(this._userId); }
   get sessions(): string { return getUserSessionsDir(this._userId); }
   get protocols(): string { return getUserProtocolsDir(this._userId); }

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import JSON5 from 'json5';
-import { stringify as stringifyYAML } from 'yaml';
+import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import type { AgentCategory, ConfigurableAgentConfig } from './types';
 import { logger } from '@/core/logger';
 import { getUserRoot, getUserAgentsDir } from '@/core/config/PathManager';
@@ -196,9 +196,25 @@ export class AgentConfigManager {
         override.model.thinking = updates.model.thinking;
       }
     }
-    if (category === 'app') {
-      if ('systemPrompt' in updates) override.systemPrompt = updates.systemPrompt ?? null;
-      if (updates.tools) override.tools = updates.tools;
+    // systemPrompt 和 tools 直接写回源 YAML 文件，不存 override
+    if ('systemPrompt' in updates || updates.tools) {
+      // 读取当前 YAML 内容
+      const sourcePath = path.join(getUserAgentsDir(this.userId), agent.id + '.yaml');
+      const existingContent = await fs.readFile(sourcePath, 'utf-8');
+      let yamlConfig = parseYAML(existingContent) as Record<string, any>;
+
+      if ('systemPrompt' in updates) {
+        yamlConfig.systemPrompt = updates.systemPrompt ?? null;
+        override.systemPrompt = updates.systemPrompt ?? null;
+      }
+      if (updates.tools) {
+        yamlConfig.tools = updates.tools;
+        override.tools = updates.tools;
+      }
+
+      const newYamlContent = stringifyYAML(yamlConfig, { lineWidth: -1 });
+      await fs.writeFile(sourcePath, newYamlContent, 'utf-8');
+      log.info(`直接更新 Agent YAML: ${sourcePath}`);
     }
     await this.saveOverrideConfig(override);
     return this.applyOverride(agent, override);

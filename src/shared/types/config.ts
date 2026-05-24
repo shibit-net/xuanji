@@ -218,12 +218,6 @@ export interface LoggingConfig {
 export interface EmbeddingConfig {
   /** 模型 ID */
   model: string;
-  /** 向量维度 */
-  dimensions: number;
-  /** 是否启用缓存 */
-  cacheEnabled: boolean;
-  /** 缓存最大条数 */
-  cacheMaxSize: number;
   /** HuggingFace 镜像地址 */
   hfMirror?: string;
 }
@@ -413,8 +407,6 @@ export interface ToolTimeoutConfig {
  * 并发限制配置
  */
 export interface ConcurrencyConfig {
-  /** 工具并行执行最大数 (默认 5) */
-  maxParallel?: number;
   /** 最大后台任务数 (默认 5) */
   maxBackgroundTasks?: number;
 }
@@ -425,8 +417,6 @@ export interface ConcurrencyConfig {
 export interface OutputLimitsConfig {
   /** 单个工具输出最大长度 (字符, 默认 30000) */
   toolOutput?: number;
-  /** 发给 LLM 的单条 tool_result 最大长度 (字符, 默认 80000) */
-  toolResult?: number;
 }
 
 /**

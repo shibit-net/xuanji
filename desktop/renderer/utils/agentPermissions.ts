@@ -3,7 +3,7 @@
  *
  * 编辑规则：
  * - system: 仅 provider.* + model.* + enabled
- * - app:    system 字段 + systemPrompt + tools
+ * - app:    system 字段 + systemPrompt + tools + execution + permissions + capabilities
  * - custom: 全部字段（编辑时 id 不可改）
  */
 
@@ -28,6 +28,9 @@ export function getEditableFieldList(category: AgentCategory | undefined): strin
       'enabled',
       'systemPrompt',
       'tools',
+      'execution',
+      'permissions',
+      'capabilities',
     ];
   }
 

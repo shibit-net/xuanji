@@ -6,61 +6,61 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(重构|改造|优化|重写|改进|改善).*(代码|架构|结构|实现|模块|性能|质量)"
-  description: "代码重构、改进架构、优化结构"
+  keywords: "(refactor|transform|optimize|rewrite|improve|enhance).*(code|architecture|structure|implementation|module|performance|quality)"
+  description: "Code refactoring, architecture improvement, structure optimization"
 suitableFor:
-  - 代码重构
-  - 架构改进
-  - 性能优化
-  - 代码质量提升
+  - Code refactoring
+  - Architecture improvement
+  - Performance optimization
+  - Code quality improvement
 requiredCapabilities:
-  - 代码重构
-  - 设计模式应用
-  - 代码优化
+  - Code refactoring
+  - Design pattern application
+  - Code optimization
 content: |
-  # 重构 · 心智模型
+  # Refactoring · Mental Model
 
-  ## 核心视角
-  重构的信条：**外部行为不变，内部结构改进**。
-  先识别代码异味（重复、过长、耦合），再选择合适的重构手法。
+  ## Core Perspective
+  The refactoring creed: **external behavior remains unchanged, internal structure improves**.
+  First identify code smells (duplication, excessive length, coupling), then choose the appropriate refactoring technique.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 重复代码 3+ 处 | 提取公共函数/类 |
-  | 函数 > 40 行 | 拆分为更小的函数 |
-  | 条件嵌套 > 3 层 | 提前返回或策略模式 |
-  | 模块间耦合高 | 引入接口抽象层 |
+  | Duplicate code in 3+ places | Extract common function/class |
+  | Function > 40 lines | Split into smaller functions |
+  | Conditional nesting > 3 levels | Early return or strategy pattern |
+  | High coupling between modules | Introduce interface abstraction layer |
 
-  ## 输出契约
-  - 改进目标（什么问题）
-  - 重构手法（做了什么）
-  - 重构后代码（完整可运行）
+  ## Output Contract
+  - Improvement goal (what problem)
+  - Refactoring technique (what was done)
+  - Code after refactoring (complete and runnable)
 
-  ## 超限边界
-  - ✗ 不要新增功能（那是 write_code 场景）
-  - ✗ 不要重写整个模块（分步重构）
+  ## Out of Scope
+  - ✗ Do not add new features (that is the write_code scene)
+  - ✗ Do not rewrite entire modules (refactor incrementally)
 
-  ## 执行协议
+  ## Execution Protocol
 
-  优先阅读并遵循 `l0-change-impact` 中的 Change Impact & Execution Protocol 和跨文件一致性检查清单。
+  First read and follow the Change Impact & Execution Protocol and cross-file consistency checklist in `l0-change-impact`.
 
-  重构场景的额外要求：
+  Additional requirements for the refactoring scene:
 
-  ### 1. 重构前必须确认设计文档
-  重构必须有设计文档明确描述：
-  - 谁从什么变成什么（旧结构 → 新结构）
-  - 受影响的所有调用方（grep 旧接口名，列出所有文件）
-  - 迁移策略（一次性改完还是逐步迁移）
+  ### 1. Design document must be confirmed before refactoring
+  Refactoring must have a design document clearly describing:
+  - What changes from what to what (old structure → new structure)
+  - All affected callers (grep the old interface name, list all files)
+  - Migration strategy (change all at once or gradual migration)
 
-  ### 2. 重构专属检查清单
-  每个 todo 完成后，除通用 checklist 外，额外检查：
-  - [ ] 旧函数/类型名在全仓库无代码引用残留（`grep -rn "旧名称" src/` 返回 0）
-  - [ ] 所有调用方已更新为新接口
-  - [ ] 重构未引入循环依赖（如果项目有 circular-dependency 检测）
-  - [ ] 未使用的 import 已清理
-  - [ ] 重构范围内的测试文件已同步更新
+  ### 2. Refactoring-specific checklist
+  After each todo is completed, in addition to the general checklist, additionally check:
+  - [ ] No remaining code references to old function/type names across the entire repository (`grep -rn "old name" src/` returns 0)
+  - [ ] All callers have been updated to the new interface
+  - [ ] Refactoring did not introduce circular dependencies (if the project has circular-dependency detection)
+  - [ ] Unused imports have been cleaned up
+  - [ ] Test files within the refactoring scope have been updated accordingly
 
-  ### 3. 重构的验收标准
-  - 外部行为不变（原测试全部通过）
-  - 内部结构改进（圈复杂度降低、重复消除、耦合度降低之一）
+  ### 3. Acceptance criteria for refactoring
+  - External behavior unchanged (all original tests pass)
+  - Internal structure improved (one of: cyclomatic complexity reduced, duplication eliminated, coupling reduced)

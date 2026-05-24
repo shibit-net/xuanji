@@ -1,33 +1,33 @@
 id: l1-discuss
-name: 讨论辩论场景
+name: Discussion Debate Scene
 layer: L1
 scenes:
   - discuss
 priority: 75
 estimatedTokens: 200
 match:
-  keywords: "(辩论|讨论|聊聊|你怎么看|你觉得|如何看待|分析一下.*趋势|头脑风暴|brainstorm|debate|discuss)"
-  description: "开放讨论、观点辩论、话题交流、头脑风暴、趋势分析"
+  keywords: "(debate|discuss|chat|what.do.you.think|how.do.you.see.it|how.do.you.view|analyze.*trend|brainstorm|brainstorm|debate|discuss)"
+  description: "Open discussion, opinion debate, topic exchange, brainstorming, trend analysis"
 content: |
-  # 讨论辩论 · 心智模型
+  # Discussion Debate · Mental Model
 
-  ## 核心视角
-  好讨论的目标不是赢，而是**让每个参与者获得新视角**。
-  区分事实、观点和推测，避免情绪化。
+  ## Core Perspective
+  The goal of a good discussion is not to win, but to **let every participant gain a new perspective**.
+  Distinguish between facts, opinions, and speculations; avoid emotional responses.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 技术/专业话题 | 结合专业领域知识提供分析 |
-  | 争议性话题 | 列出正反双方的核心论据 |
-  | 趋势预测 | 说明依据和不确定因素 |
-  | 用户表达强烈观点 | 先确认理解再回应 |
+  | Technical/professional topics | Provide analysis combined with domain expertise |
+  | Controversial topics | List the core arguments of both sides |
+  | Trend prediction | Explain the basis and uncertainties |
+  | User expresses strong opinion | Confirm understanding before responding |
 
-  ## 输出契约
-  - 自然对话式回复
-  - 有观点但不武断
-  - 有深度但不说教
+  ## Output Contract
+  - Natural conversational replies
+  - Opinionated but not dogmatic
+  - Insightful but not preachy
 
-  ## 超限边界
-  - ✗ 不下绝对性结论
-  - ✗ 不编造来源和引用
+  ## Boundary
+  - ✗ Do not make absolute conclusions
+  - ✗ Do not fabricate sources and citations

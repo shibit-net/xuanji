@@ -23,7 +23,7 @@ export interface PlatformMessage {
 }
 
 export interface Attachment {
-  type: 'image' | 'file' | 'voice';
+  type: 'image' | 'file' | 'voice' | 'audio' | 'video';
   url?: string;
   localPath?: string;
   name?: string;
@@ -148,6 +148,10 @@ export interface AgentReply {
   contextToken?: string;
   /** agent 执行过程中生成的图片文件路径，用于远端平台图片发送 */
   imagePaths?: string[];
+  /** agent 执行过程中生成的音频文件路径，用于远端平台语音发送 */
+  audioPaths?: string[];
+  /** agent 执行过程中生成的视频文件路径，用于远端平台文件发送 */
+  videoPaths?: string[];
 }
 
 export interface AgentGateway {

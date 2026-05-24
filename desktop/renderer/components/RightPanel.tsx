@@ -3,12 +3,13 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio } from 'lucide-react';
+import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useMessageStore } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
 import { usePlatformStore } from '../stores/platformStore';
+import { t } from '@/core/i18n';
 import type { StageResult } from '../stores/IntentRoutingStore';
 import ExecutionFlowV2 from './ExecutionFlowV2';
 import PlatformSessionPanel from './PlatformSessionPanel';
@@ -23,13 +24,12 @@ interface RightPanelProps {
   className?: string;
 }
 
-type TabId = 'workspace' | 'tools' | 'logs' | 'remote';
+type TabId = 'workspace' | 'logs' | 'remote';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
-  { id: 'workspace', label: '监控', icon: <Activity size={16} /> },
-  { id: 'tools', label: '工具', icon: <Wrench size={16} /> },
-  { id: 'logs', label: '日志', icon: <FileText size={16} /> },
-  { id: 'remote', label: '远端对话', icon: <Radio size={16} /> },
+  { id: 'workspace', label: t('rightpanel.tab.monitor'), icon: <Activity size={16} /> },
+  { id: 'logs', label: t('rightpanel.tab.logs'), icon: <FileText size={16} /> },
+  { id: 'remote', label: t('rightpanel.tab.remote'), icon: <Radio size={16} /> },
 ];
 
 export default function RightPanel({ onToggle: _onToggle, width, onResize, className }: RightPanelProps) {
@@ -111,7 +111,6 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
       {/* 内容区域 */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'workspace' && <WorkspaceTab />}
-        {activeTab === 'tools' && <ToolsTab />}
         {activeTab === 'logs' && <LogsTab />}
         {activeTab === 'remote' && <RemoteTab />}
       </div>
@@ -121,9 +120,9 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
 
 // 路由方法标签配置
 const METHOD_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  llm: { label: 'AI 意图分析', color: 'text-blue-400', icon: <Zap size={10} /> },
-  embedding: { label: '向量匹配', color: 'text-yellow-400', icon: <Search size={10} /> },
-  default: { label: '默认路由', color: 'text-white/40', icon: <AlertTriangle size={10} /> },
+  llm: { label: t('rightpanel.method_llm'), color: 'text-blue-400', icon: <Zap size={10} /> },
+  embedding: { label: t('rightpanel.method_embedding'), color: 'text-yellow-400', icon: <Search size={10} /> },
+  default: { label: t('rightpanel.method_default'), color: 'text-white/40', icon: <AlertTriangle size={10} /> },
 };
 
 // 路由阶段展示组件（L1/L2 路径，不展示 L3 兜底）
@@ -139,7 +138,7 @@ function RoutingChain({ stages }: { stages: StageResult[] }) {
     <div className="flex items-center gap-1 text-[10px]">
       {visible.map((level, i) => {
         const stage = stageMap.get(level)!;
-        const label = level === 'L1' ? 'LLM' : '向量';
+        const label = level === 'L1' ? t('rightpanel.llm_label') : t('rightpanel.vector_label');
 
         let Icon = Loader2;
         let color = 'text-white/20';
@@ -187,9 +186,9 @@ function WorkspaceTab() {
           {/* 头部：标题 + 状态 + 路由路径（同行） */}
           <div className="flex items-center gap-2">
             <Brain size={13} className="text-blue-400 flex-shrink-0" />
-            <span className="text-[11px] font-semibold">意图分析</span>
+            <span className="text-[11px] font-semibold">{t('rightpanel.intent_analysis')}</span>
             {routeStatus !== 'analyzing' && (
-              <span className="text-[10px] text-green-400">完成</span>
+              <span className="text-[10px] text-green-400">{t('rightpanel.analysis_complete')}</span>
             )}
             {stages.length > 0 && (
               <span className="ml-1">
@@ -203,11 +202,11 @@ function WorkspaceTab() {
               <p className="text-[10px] text-white/30">
                 {stages.length > 0
                   ? `${stages[stages.length - 1].summary}...`
-                  : '正在分析意图，匹配最佳 Agent...'}
+                  : t('rightpanel.analyzing')}
               </p>
               {runningL1?.modelName && (
                 <p className="text-[10px] text-blue-400/70 mt-0.5">
-                  模型: {runningL1.modelName}
+                  {t('rightpanel.model_label', { name: runningL1.modelName })}
                 </p>
               )}
             </div>
@@ -224,9 +223,9 @@ function WorkspaceTab() {
                   </span>
                 )}
                 {isDegraded && (
-                  <span className="text-amber-400/70 flex items-center gap-0.5" title="L1/L2 失败，降级到默认路由">
+                  <span className="text-amber-400/70 flex items-center gap-0.5" title={t('rightpanel.degraded_tooltip')}>
                     <AlertTriangle size={9} />
-                    降级
+                    {t('rightpanel.degraded')}
                   </span>
                 )}
                 {routeResult.confidence > 0 && (
@@ -249,9 +248,9 @@ function WorkspaceTab() {
                 )}
                 {scenes.length > 0 && <span className="text-white/15">·</span>}
                 {routeResult.complexity === 'complex' ? (
-                  <span className="text-amber-400/80">复杂</span>
+                  <span className="text-amber-400/80">{t('rightpanel.complexity_complex')}</span>
                 ) : (
-                  <span className="text-emerald-400/80">简单</span>
+                  <span className="text-emerald-400/80">{t('rightpanel.complexity_simple')}</span>
                 )}
                 {routeResult.method === 'llm' && routeResult.modelName && (
                   <>
@@ -264,12 +263,12 @@ function WorkspaceTab() {
               {promptLayers.length > 0 && (
                 <details className="mt-1">
                   <summary className="text-white/25 cursor-pointer hover:text-white/40 select-none">
-                    Prompt 组件 ({totalComponents}) · ~{estimatedTokens} tokens
+                    {t('rightpanel.prompt_components', { count: totalComponents, tokens: estimatedTokens })}
                   </summary>
                   <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5">
                     {promptLayers.map((layer) => {
                       const layerColors: Record<number, string> = { 0: 'text-blue-400/70', 1: 'text-purple-400/70', 2: 'text-amber-400/70', 3: 'text-emerald-400/70' };
-                      const layerLabels: Record<number, string> = { 0: 'L0·基础', 1: 'L1·能力', 2: 'L2·行为', 3: 'L3·上下文' };
+                      const layerLabels: Record<number, string> = { 0: t('rightpanel.layer_label', { lvl: 0, name: t('rightpanel.layer_base') }), 1: t('rightpanel.layer_label', { lvl: 1, name: t('rightpanel.layer_capability') }), 2: t('rightpanel.layer_label', { lvl: 2, name: t('rightpanel.layer_behavior') }), 3: t('rightpanel.layer_label', { lvl: 3, name: t('rightpanel.layer_context') }) };
                       return (
                         <div key={layer.layer} className="pl-2 border-l border-white/10">
                           <span className={layerColors[layer.layer] || 'text-white/40'}>
@@ -299,172 +298,6 @@ function WorkspaceTab() {
   );
 }
 
-// Checkpoint 标签
-// 工具调用标签（从 chatStore 的流式事件实时统计）
-function ToolsTab() {
-  const messages = useMessageStore((state) => state.messages);
-  const [expandedCall, setExpandedCall] = useState<string | null>(null);
-
-  // 从消息的 toolCalls 中实时统计工具使用，并保留完整的调用信息
-  const { toolStats, allCalls } = useMemo(() => {
-    const counts: Record<string, { total: number; success: number; error: number }> = {};
-    const calls: Array<{
-      id: string;
-      name: string;
-      status: string;
-      timestamp: number;
-      input?: any;
-      output?: any;
-      error?: string;
-    }> = [];
-
-    for (const msg of messages) {
-      if (msg.toolCalls) {
-        for (const tc of msg.toolCalls) {
-          if (!counts[tc.name]) {
-            counts[tc.name] = { total: 0, success: 0, error: 0 };
-          }
-          counts[tc.name].total++;
-          if (tc.status === 'success') counts[tc.name].success++;
-          if (tc.status === 'error') counts[tc.name].error++;
-
-          calls.push({
-            id: tc.id,
-            name: tc.name,
-            status: tc.status,
-            timestamp: msg.timestamp || 0,
-            input: tc.input,
-            output: tc.output,
-            error: tc.error,
-          });
-        }
-      }
-    }
-
-    // 按调用次数排序
-    const sorted = Object.entries(counts)
-      .sort(([, a], [, b]) => b.total - a.total);
-
-    return {
-      toolStats: sorted,
-      allCalls: calls.reverse(), // 最新的在前
-    };
-  }, [messages]);
-
-  const toolIcons: Record<string, string> = {
-    read_file: '📖', write_file: '📝', edit_file: '✏️', multi_edit: '📋',
-    bash: '💻', glob: '🔎', grep: '🔍', ls: '📂',
-    web_fetch: '🌐', plan_review: '📋', ask_user: '❓',
-    todo_create: '✅', todo_list: '📋', todo_update: '🔄',
-  };
-
-  const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-  };
-
-  const toggleExpand = (callId: string) => {
-    setExpandedCall(expandedCall === callId ? null : callId);
-  };
-
-  return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="space-y-3">
-        <div className="text-sm font-semibold mb-2">🛠️ 工具调用统计</div>
-
-        {toolStats.length === 0 ? (
-          <div className="text-center text-sm text-text-secondary py-8">
-            暂无工具调用记录
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2 text-sm">
-              {toolStats.map(([name, stat]) => (
-                <div key={name} className="flex justify-between items-center p-2 bg-background rounded">
-                  <span>{toolIcons[name] || '🔧'} {name}</span>
-                  <div className="flex items-center gap-2">
-                    {stat.error > 0 && (
-                      <span className="text-xs text-red-500">{stat.error} 错误</span>
-                    )}
-                    <span className="text-text-secondary">{stat.total} 次</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {allCalls.length > 0 && (
-              <>
-                <div className="text-sm font-semibold mt-4 mb-2">⏱️ 调用历史</div>
-                <div className="space-y-2">
-                  {allCalls.slice(0, 20).map((call) => {
-                    const isExpanded = expandedCall === call.id;
-                    const statusIcon = call.status === 'success' ? '✓' : call.status === 'error' ? '✗' : '…';
-                    const statusColor = call.status === 'success' ? 'text-green-500' : call.status === 'error' ? 'text-red-500' : 'text-yellow-500';
-
-                    return (
-                      <div key={call.id} className="bg-background rounded overflow-hidden">
-                        <Button
-                          onClick={() => toggleExpand(call.id)}
-                          variant="ghost"
-                          className="w-full p-2 text-left h-auto justify-start"
-                        >
-                          <div className="flex items-center justify-between text-xs w-full">
-                            <div className="flex items-center gap-2">
-                              <span className={statusColor}>{statusIcon}</span>
-                              <span>{toolIcons[call.name] || '🔧'}</span>
-                              <span className="font-medium">{call.name}</span>
-                            </div>
-                            <span className="text-text-secondary">{formatTime(call.timestamp)}</span>
-                          </div>
-                        </Button>
-
-                        {isExpanded && (
-                          <div className="px-2 pb-2 space-y-2 text-xs">
-                            {call.input && (
-                              <div>
-                                <div className="text-text-secondary mb-1">输入参数:</div>
-                                <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs">
-                                  {JSON.stringify(call.input, null, 2)}
-                                </pre>
-                              </div>
-                            )}
-
-                            {call.status === 'success' && call.output && (
-                              <div>
-                                <div className="text-text-secondary mb-1">输出结果:</div>
-                                <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs max-h-40 overflow-y-auto">
-                                  {typeof call.output === 'string' ? call.output : JSON.stringify(call.output, null, 2)}
-                                </pre>
-                              </div>
-                            )}
-
-                            {call.status === 'error' && call.error && (
-                              <div>
-                                <div className="text-red-500 mb-1">错误信息:</div>
-                                <pre className="bg-red-500/10 text-red-500 p-2 rounded overflow-x-auto text-xs">
-                                  {call.error}
-                                </pre>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// 记忆库标签
 // 远端对话标签
 function RemoteTab() {
   const { sessions, activeSessionId } = usePlatformStore();
@@ -472,15 +305,61 @@ function RemoteTab() {
   return <PlatformSessionPanel session={activeSession} />;
 }
 
-// 日志流标签（从 chatStore 读取真实日志）
+// ─── 日志 + 工具合并标签 ──────────────────────────────────
+
+const TOOL_ICONS: Record<string, string> = {
+  read_file: '📖', write_file: '📝', edit_file: '✏️', multi_edit: '📋',
+  bash: '💻', glob: '🔎', grep: '🔍', ls: '📂',
+  web_fetch: '🌐', plan_review: '📋', ask_user: '❓',
+  todo_create: '✅', todo_list: '📋', todo_update: '🔄',
+  memory_search: '🧠', memory_store: '💾', memory_stats: '📊', memory_graph: '🕸️',
+};
+
+type TimelineEntry =
+  | { kind: 'log'; timestamp: number; level: string; message: string; id: string }
+  | { kind: 'tool'; id: string; name: string; status: string; timestamp: number; input?: any; output?: any; error?: string };
+
 function LogsTab() {
   const logs = useSessionStore((state) => state.logs);
   const clearLogs = useSessionStore((state) => state.clearLogs);
+  const messages = useMessageStore((state) => state.messages);
   const [filter, setFilter] = useState<string | null>(null);
+  const [expandedCall, setExpandedCall] = useState<string | null>(null);
 
-  const filteredLogs = filter
-    ? logs.filter((log) => log.level === filter)
-    : logs;
+  // 从 messages 提取工具调用
+  const toolCalls = useMemo(() => {
+    return messages.flatMap(msg =>
+      (msg.toolCalls || []).map(tc => ({
+        kind: 'tool' as const,
+        id: tc.id,
+        name: tc.name,
+        status: tc.status,
+        timestamp: msg.timestamp || 0,
+        input: tc.input,
+        output: tc.output,
+        error: tc.error,
+      }))
+    );
+  }, [messages]);
+
+  // 合并日志 + 工具调用，按时间排序
+  const timeline = useMemo(() => {
+    const logEntries: TimelineEntry[] = logs.map((log, i) => ({
+      kind: 'log',
+      id: `log-${i}-${log.timestamp}`,
+      timestamp: log.timestamp,
+      level: log.level,
+      message: log.message,
+    }));
+    const entries = [...logEntries, ...toolCalls].sort((a, b) => b.timestamp - a.timestamp);
+    return entries;
+  }, [logs, toolCalls]);
+
+  const filtered = useMemo(() => {
+    if (!filter) return timeline;
+    if (filter === 'tool') return timeline.filter(e => e.kind === 'tool');
+    return timeline.filter(e => e.kind === 'log' && e.level === filter);
+  }, [timeline, filter]);
 
   const levelColors: Record<string, string> = {
     error: 'text-red-500',
@@ -492,27 +371,25 @@ function LogsTab() {
 
   const formatTime = (ts: number) => {
     return new Date(ts).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   };
 
   return (
     <div className="h-full flex flex-col p-4 gap-3">
-      <div className="text-sm font-semibold">📋 日志流</div>
+      <div className="text-sm font-semibold">{t('rightpanel.log_stream')}</div>
 
-      <div className="flex gap-2 text-xs flex-shrink-0">
+      <div className="flex gap-2 text-xs flex-shrink-0 flex-wrap">
         {[
-          { value: null, label: '全部' },
-          { value: 'error', label: '错误' },
-          { value: 'warn', label: '警告' },
-          { value: 'info', label: '信息' },
-          { value: 'tool', label: '工具' },
+          { value: null, label: t('rightpanel.filter_all') },
+          { value: 'error', label: t('rightpanel.filter_error') },
+          { value: 'warn', label: t('rightpanel.filter_warn') },
+          { value: 'info', label: t('rightpanel.filter_info') },
+          { value: 'tool', label: t('rightpanel.filter_tool') },
         ].map((item) => (
           <Button
             key={item.label}
-            onClick={() => setFilter(item.value)}
+            onClick={() => { setFilter(item.value); setExpandedCall(null); }}
             variant={filter === item.value ? 'default' : 'ghost'}
             size="sm"
           >
@@ -521,32 +398,93 @@ function LogsTab() {
         ))}
       </div>
 
-      {filteredLogs.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="text-center text-sm text-text-secondary py-8">
-          暂无日志记录
+          {t('rightpanel.no_records')}
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-1 text-xs font-mono">
-          {filteredLogs.slice().reverse().map((log, idx) => (
-            <div key={idx} className="p-2 bg-background rounded">
-              <span className="text-text-secondary">{formatTime(log.timestamp)}</span>{' '}
-              <span className={levelColors[log.level] || 'text-text-secondary'}>
-                {log.level.toUpperCase()}
-              </span>{' '}
-              <span>{log.message}</span>
-            </div>
-          ))}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1 text-xs">
+          {filtered.map((entry) => {
+            if (entry.kind === 'log') {
+              return (
+                <div key={entry.id} className="p-2 bg-background rounded font-mono">
+                  <span className="text-text-secondary">{formatTime(entry.timestamp)}</span>{' '}
+                  <span className={levelColors[entry.level] || 'text-text-secondary'}>
+                    {entry.level.toUpperCase()}
+                  </span>{' '}
+                  <span>{entry.message}</span>
+                </div>
+              );
+            }
+
+            // 工具调用条目
+            const call = entry;
+            const isExpanded = expandedCall === call.id;
+            const statusIcon = call.status === 'success' ? '✓' : call.status === 'error' ? '✗' : '…';
+            const statusColor = call.status === 'success' ? 'text-green-500' : call.status === 'error' ? 'text-red-500' : 'text-yellow-500';
+
+            return (
+              <div key={call.id} className="bg-background rounded overflow-hidden">
+                <button
+                  onClick={() => setExpandedCall(isExpanded ? null : call.id)}
+                  className="w-full p-2 text-left flex items-center justify-between hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={statusColor}>{statusIcon}</span>
+                    <span>{TOOL_ICONS[call.name] || '🔧'}</span>
+                    <span className="font-medium">{call.name}</span>
+                    {!isExpanded && call.status === 'success' && call.output && (
+                      <span className="text-muted-foreground truncate max-w-[120px]">
+                        {typeof call.output === 'string' ? call.output.slice(0, 60) : JSON.stringify(call.output).slice(0, 60)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-text-secondary shrink-0">
+                    <span>{formatTime(call.timestamp)}</span>
+                    {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="px-3 pb-2 space-y-2 text-xs border-t border-border/30 pt-2">
+                    {call.input && (
+                      <div>
+                        <div className="text-text-secondary mb-1">{t('rightpanel.input_params')}</div>
+                        <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs max-h-32 overflow-y-auto">
+                          {JSON.stringify(call.input, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {call.status === 'success' && call.output && (
+                      <div>
+                        <div className="text-text-secondary mb-1">{t('rightpanel.output_result')}</div>
+                        <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs max-h-48 overflow-y-auto">
+                          {typeof call.output === 'string' ? call.output : JSON.stringify(call.output, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {call.status === 'error' && call.error && (
+                      <div>
+                        <div className="text-red-500 mb-1">{t('rightpanel.error_info')}</div>
+                        <pre className="bg-red-500/10 text-red-500 p-2 rounded overflow-x-auto text-xs">
+                          {call.error}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {logs.length > 0 && (
+      {timeline.length > 0 && (
         <div className="flex gap-2 flex-shrink-0">
-          <Button
-            onClick={clearLogs}
-            variant="ghost"
-            size="sm"
-          >
-            清空
+          <Button onClick={clearLogs} variant="ghost" size="sm">
+            {t('rightpanel.clear_logs')}
           </Button>
         </div>
       )}

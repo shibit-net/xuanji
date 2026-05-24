@@ -24,25 +24,25 @@ const log = logger.child({ module: 'UninstallTool' });
 export class UninstallTool extends BaseTool {
   readonly name = 'uninstall';
   readonly description =
-    '卸载已安装的 MCP 服务器或 Skill。' +
-    'uninstall({ packageId: "postgres-123", type: "mcp" }) 卸载 MCP。' +
-    'uninstall({ packageId: "skill-456", type: "skill" }) 卸载 Skill。';
+    'Uninstall an installed MCP server or Skill. ' +
+    'uninstall({ packageId: "postgres-123", type: "mcp" }) uninstalls MCP. ' +
+    'uninstall({ packageId: "skill-456", type: "skill" }) uninstalls Skill.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       packageId: {
         type: 'string',
-        description: '天工坊 packageId（安装时使用的 ID）',
+        description: 'Marketplace packageId (the ID used during installation)',
       },
       type: {
         type: 'string',
         enum: ['mcp', 'skill'],
-        description: '要卸载的插件类型。mcp=MCP服务器, skill=技能',
+        description: 'Plugin type to uninstall. mcp=MCP server, skill=Skill',
       },
       name: {
         type: 'string',
-        description: 'MCP 服务器名称（可选，不传则通过 packageId 自动匹配）。仅 type=mcp 时有效。',
+        description: 'MCP server name (optional, auto-matched via packageId if not provided). Only valid when type=mcp.',
       },
     },
     required: ['packageId', 'type'],

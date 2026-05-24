@@ -327,21 +327,6 @@ export interface SubAgentResult {
   expires_at?: number;
 }
 
-// ─── 记忆事件 Payload ──────────────────────────────────────
-
-export interface MemoryStoredPayload {
-  type: 'entity' | 'fact' | 'event' | 'relation';
-  id: string;
-  scene_tag: string;
-}
-
-export interface MemoryExtractedPayload {
-  sessionId: string;
-  entityCount: number;
-  factCount: number;
-  eventCount: number;
-}
-
 // ─── 时间锚点 (TimeAnchor) ───────────────────────────────────
 
 export interface TimeAnchor {

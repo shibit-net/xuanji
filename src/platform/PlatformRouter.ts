@@ -113,14 +113,14 @@ export class PlatformRouter implements WorkerReplyHandler {
 
   // ── Worker 回复回调 ──────────────────────────────────────
 
-  async sendReply(msg: PlatformMessage, text: string, imagePaths?: string[]): Promise<void> {
+  async sendReply(msg: PlatformMessage, text: string, imagePaths?: string[], audioPaths?: string[], videoPaths?: string[]): Promise<void> {
     const adapter = this.adapters.get(msg.platform);
     if (!adapter) {
       log.error(`No adapter found for platform: ${msg.platform}`);
       return;
     }
 
-    // 先发图片（如有），再发文本
+    // 先发图片
     if (imagePaths?.length) {
       for (const imagePath of imagePaths) {
         try {
@@ -129,6 +129,41 @@ export class PlatformRouter implements WorkerReplyHandler {
           );
         } catch (err) {
           log.error(`Failed to send image to ${msg.platform}: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    // 发送音频（通过 sendVoice 或降级为 sendFile）
+    if (audioPaths?.length) {
+      for (const audioPath of audioPaths) {
+        try {
+          await this.circuitBreaker.call(msg.platform, () => {
+            if (adapter.sendVoice) {
+              return adapter.sendVoice({ chatId: msg.chatId, voicePath: audioPath });
+            }
+            if (adapter.sendFile) {
+              return adapter.sendFile({ chatId: msg.chatId, filePath: audioPath });
+            }
+            return adapter.sendText({ chatId: msg.chatId, text: `[音频文件: ${audioPath}]` });
+          });
+        } catch (err) {
+          log.error(`Failed to send audio to ${msg.platform}: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    // 发送视频（通过 sendFile 降级）
+    if (videoPaths?.length) {
+      for (const videoPath of videoPaths) {
+        try {
+          await this.circuitBreaker.call(msg.platform, () => {
+            if (adapter.sendFile) {
+              return adapter.sendFile({ chatId: msg.chatId, filePath: videoPath });
+            }
+            return adapter.sendText({ chatId: msg.chatId, text: `[视频文件: ${videoPath}]` });
+          });
+        } catch (err) {
+          log.error(`Failed to send video to ${msg.platform}: ${(err as Error).message}`);
         }
       }
     }
@@ -173,9 +208,8 @@ export class PlatformRouter implements WorkerReplyHandler {
   }
 
   private getDefaultChannelPrompt(platform: string): string | undefined {
-    if (platform === 'wechat') {
-      return '你在微信上与用户对话。发送图片/文件请用 send_file_to_user 工具，不要用 MCP 工具。生成图片后必须调用。';
-    }
+    // Channel prompts should be configured via configure() → setChannelPrompts()
+    // If no prompt is configured for this platform, return undefined (no injection)
     return undefined;
   }
 

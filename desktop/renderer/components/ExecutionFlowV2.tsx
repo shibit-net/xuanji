@@ -26,6 +26,7 @@ import {
 } from './flow';
 import { isActiveStatus } from '../utils/flow/FlowNodeTypes';
 import { flowLogger } from '../utils/flow/flowLogger';
+import { t } from '@/core/i18n';
 
 // ============================================================
 // 节点类型注册
@@ -98,9 +99,16 @@ function Flow() {
 
   useEffect(() => {
     const nodeCount = layoutedNodes.length;
-    const key = layoutedNodes.map((n) =>
-      `${n.id}:${Math.round(n.position.x)},${Math.round(n.position.y)}:${n.type}:${(n.data as any)?.status}`
-    ).join('|');
+    const key = layoutedNodes.map((n) => {
+      const d = n.data as any;
+      const momentKey = d?.currentMoment
+        ? `${d.currentMoment.status}:${d.currentMoment.label}:${d.currentMoment.startTime ?? ''}:${d.currentMoment.durationMs ?? ''}`
+        : '';
+      const timelineKey = d?.timelineEvents?.length
+        ? d.timelineEvents.map((t: any) => `${t.id}:${t.status}:${t.duration ?? ''}`).join(',')
+        : '';
+      return `${n.id}:${Math.round(n.position.x)},${Math.round(n.position.y)}:${n.type}:${d?.status}:m=${momentKey}:t=${timelineKey}`;
+    }).join('|');
 
     if (key === prevNodesRef.current) return;
     prevNodesRef.current = key;
@@ -155,8 +163,8 @@ function Flow() {
             </svg>
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground/60">执行监视</p>
-            <p className="text-xs text-muted-foreground/40 max-w-[180px]">实时追踪多 Agent 协作执行过程</p>
+            <p className="text-sm font-medium text-foreground/60">{t('executionflow.exec_monitor')}</p>
+            <p className="text-xs text-muted-foreground/40 max-w-[180px]">{t('executionflow.exec_desc')}</p>
           </div>
         </div>
       </div>

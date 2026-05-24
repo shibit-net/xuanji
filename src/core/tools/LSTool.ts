@@ -45,24 +45,24 @@ export class LSTool extends BaseTool {
     properties: {
       path: {
         type: 'string',
-        description: '目录路径（默认为当前工作目录）',
+        description: 'Directory path (defaults to current working directory)',
       },
       filter: {
         type: 'string',
-        description: 'glob 模式过滤，如 "*.ts" 或 "test*"（默认列出所有文件）',
+        description: 'Glob pattern filter, e.g. "*.ts" or "test*" (default: list all)',
       },
       sort: {
         type: 'string',
         enum: ['name', 'size', 'mtime'],
-        description: '排序方式: name=名称, size=大小, mtime=修改时间（默认 name）',
+        description: 'Sort by: name, size, mtime (default name)',
       },
       recursive: {
         type: 'boolean',
-        description: '是否递归列出子目录（默认 false）',
+        description: 'Whether to list subdirectories recursively (default false)',
       },
       max_depth: {
         type: 'number',
-        description: '递归最大深度（默认 3），仅在 recursive=true 时生效',
+        description: 'Max recursion depth (default 3), only effective when recursive=true',
       },
     },
   };

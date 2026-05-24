@@ -40,11 +40,7 @@ let routedAgentId = 'xuanji';
 // IntentRouter 单例（session 创建后初始化）
 let intentRouter: IntentRouter | null = null;
 
-// 防止重复注册 EventBus 监听器导致文本重复发送
-let hookEventBridgeRegistered = false;
-
-// Phase 2 EventForwarder 实例（USE_EVENT_FORWARDER=true 时创建）
-let eventForwarder: EventForwarder | null = null;
+// EventForwarder 实例（在 handleInit 中创建并注册）
 
 // 🔧 创建子进程消息通道
 // 注意：这里仍使用 ChildMessageChannel，因为它是子进程端的通道
@@ -210,8 +206,11 @@ async function rebuildIntentRouter(): Promise<void> {
   if (!session) return;
   try {
     const agentRegistry = session.getAgentRegistry();
-    const globalConfig = session.getConfig();
-    const sceneClassifier = new SceneClassifier({ agentRegistry, globalConfig });
+    const { ProviderManager: pm } = await import('../../src/core/providers/ProviderManager');
+    const sceneClassifier = new SceneClassifier({
+      agentRegistry,
+      providerFactory: (config) => pm.getProvider(config),
+    });
 
     const promptBuilder = session.getLayeredPromptBuilder();
     if (promptBuilder) {
@@ -275,8 +274,17 @@ async function rebuildIntentRouter(): Promise<void> {
   }
 }
 
-async function handleInit(userId?: string, userName?: string): Promise<{ success: boolean; error?: string }> {
-  try {
+let handleInitInProgress: Promise<{ success: boolean; error?: string; config?: any }> | null = null;
+
+async function handleInit(userId?: string, userName?: string): Promise<{ success: boolean; error?: string; config?: any }> {
+  // 防止并发重复调用
+  if (handleInitInProgress) {
+    log.warn('handleInit: already in progress, returning existing promise');
+    return handleInitInProgress;
+  }
+
+  handleInitInProgress = (async () => {
+    try {
     const uid = userId || currentUserId || 'default';
     log.info(`handleInit: creating session for userId=${uid}, userName=${userName || '(none)'}`);
 
@@ -416,21 +424,70 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
       return true;
     });
 
-    // 注册持久化事件桥接（Feature flag 共存）
-    if (process.env.USE_EVENT_FORWARDER === 'true') {
-      if (!eventForwarder) {
-        eventForwarder = new EventForwarder(
-          (eventType: string, data: any) => channel.send(eventType, data),
-        );
+    // 注册事件桥接（EventForwarder：声明式 EventBus → IPC 映射）
+    // 使用 getter 函数确保运行时始终读取最新的 currentUserId / routedAgentId
+    const forwarder = new EventForwarder(
+      (eventType: string, data: any) => channel.send(eventType, data),
+      () => currentUserId,
+      () => routedAgentId,
+    );
+    forwarder.register();
+    log.info('handleInit: EventForwarder registered');
+
+    // 副作用监听器（不在 EventForwarder 职责范围内）
+
+    // 工具结束 → 写入结构化事件到 session_events 表
+    eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
+      try {
+        const mm = getMemoryManager();
+        if (mm?.currentSessionId) {
+          const durationMs = payload.metadata?.duration_ms ?? payload.metadata?.duration;
+          const toolInput = payload.metadata?.input ? (typeof payload.metadata.input === 'string' ? payload.metadata.input : JSON.stringify(payload.metadata.input)) : undefined;
+          const toolOutput = payload.result?.length ? payload.result.slice(0, 2000) : undefined;
+          mm.writeSessionEvent({
+            sessionId: mm.currentSessionId,
+            timestamp: Date.now(),
+            eventType: payload.isError ? 'tool_error' : 'tool_end',
+            toolName: payload.name,
+            toolInput,
+            toolOutput,
+            filePath: payload.metadata?.filePath || payload.metadata?.file_path,
+            exitCode: payload.metadata?.exitCode ?? payload.metadata?.exit_code,
+            errorMsg: payload.isError ? payload.result?.slice(0, 500) : undefined,
+            durationMs: typeof durationMs === 'number' ? durationMs : undefined,
+            agentId: (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId,
+          });
+        }
+      } catch { /* 静默失败，不阻塞主流程 */ }
+    });
+
+    // 文件变更 → 平台图片收集 + session_events 写入
+    eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
+      if (payload.changes?.length) {
+        for (const change of payload.changes) {
+          const fp = change.filePath || (change as any).file;
+          if (fp && IMAGE_EXTS.has(path.extname(fp).toLowerCase())) {
+            pendingPlatformImagePaths.push(fp);
+            log.info(`[DIAG] Platform image queued: ${fp}`);
+          }
+        }
       }
-      eventForwarder.register();
-      // 将 AsyncTaskStateMachine 注入 EventForwarder，使其能发出 agent:async-task-update IPC 事件
-      const orchestrator = session!.getTaskOrchestrator();
-      eventForwarder.setAsyncTaskStateMachine(orchestrator.getAsyncTaskStateMachine());
-      log.info('handleInit: EventForwarder registered (new path)');
-    } else {
-      registerHookEventBridge();
-    }
+      try {
+        const mm = getMemoryManager();
+        if (mm?.currentSessionId && payload.changes?.length) {
+          for (const change of payload.changes) {
+            mm.writeSessionEvent({
+              sessionId: mm.currentSessionId,
+              timestamp: Date.now(),
+              eventType: 'file_change',
+              filePath: change.filePath || (change as any).file,
+              toolInput: JSON.stringify({ operation: change.operation, stats: change.stats }),
+              toolOutput: change.diffContent?.slice(0, 2000),
+            });
+          }
+        }
+      } catch { /* 静默失败 */ }
+    });
 
     // 初始化 workspace：注册到 ProjectRegistry + 生成 XUANJI.md + 发送 project:info
     await initWorkspace();
@@ -444,11 +501,24 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     // 初始化远端平台消息处理（agent-bridge 收到平台消息后自动处理）
     initPlatformMessageHandler(newSession);
 
-    return { success: true };
+    const resultConfig = newSession.getConfig();
+    const safeConfig = JSON.parse(JSON.stringify(resultConfig));
+    return { success: true, config: safeConfig };
   } catch (err) {
     const msg = err instanceof Error ? (err.message || '(no message)') : String(err);
-    log.error('handleInit failed:', msg, err instanceof Error ? err.stack : '');
+    const stack = err instanceof Error ? err.stack : '';
+    // pino logger 会吞掉 JSON 参数，用 console.error 确保错误信息完整输出
+    console.error('[handleInit] FAILED:', msg);
+    if (stack) console.error('[handleInit] STACK:', stack);
+    log.error('handleInit failed:', msg, stack);
     return { success: false, error: msg };
+  }
+  })();
+
+  try {
+    return await handleInitInProgress;
+  } finally {
+    handleInitInProgress = null;
   }
 }
 
@@ -457,12 +527,13 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
 let platformGateway: AgentGatewayImpl | null = null;
 let platformSession: ChatSession | null = null;
 
-/** 当前 agent 运行期间产生的图片文件路径，AGENT_FILE_CHANGES 事件填充，platform:reply 消费后清空 */
+/** 当前 agent 运行期间产生的图片/音频/视频文件路径，AGENT_FILE_CHANGES 事件填充，platform:reply 消费后清空 */
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.flac', '.wma', '.m4a', '.opus']);
+const VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v']);
 let pendingPlatformImagePaths: string[] = [];
 
 // send_file_to_user 工具触发：收集显式发送的文件路径
-// 注意：此监听在模块顶层注册，确保新旧 EventForwarder 路径下都生效
 eventBus.on('platform:send-file', (payload: { filePath: string; isImage: boolean; message?: string }) => {
   if (payload?.filePath) {
     pendingPlatformImagePaths.push(payload.filePath);
@@ -540,14 +611,18 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         sessionKey: data.sessionKey,
       }, { sessionKey: data.sessionKey });
 
-      // 合并所有文件路径，按类型区分图片和普通文件
+      // 合并所有文件路径，按类型区分图片、音频、视频和普通文件
       const allPaths = [...new Set([
         ...pendingPlatformImagePaths,
         ...(reply.imagePaths || []),
+        ...(reply.audioPaths || []),
+        ...(reply.videoPaths || []),
       ])];
       const imagePaths = allPaths.filter(p => IMAGE_EXTS.has(path.extname(p).toLowerCase()));
-      const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()));
-      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}" images=${imagePaths.length} files=${filePaths.length}`);
+      const audioPaths = allPaths.filter(p => AUDIO_EXTS.has(path.extname(p).toLowerCase()));
+      const videoPaths = allPaths.filter(p => VIDEO_EXTS.has(path.extname(p).toLowerCase()));
+      const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()) && !AUDIO_EXTS.has(path.extname(p).toLowerCase()) && !VIDEO_EXTS.has(path.extname(p).toLowerCase()));
+      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}" images=${imagePaths.length} audios=${audioPaths.length} videos=${videoPaths.length} files=${filePaths.length}`);
 
       // 将回复发回主进程
       channel.send('platform:reply', {
@@ -556,6 +631,8 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         chatId: data.chatId,
         text: reply.text,
         imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
+        audioPaths: audioPaths.length > 0 ? audioPaths : undefined,
+        videoPaths: videoPaths.length > 0 ? videoPaths : undefined,
         filePaths: filePaths.length > 0 ? filePaths : undefined,
       });
 
@@ -668,7 +745,7 @@ async function copyAttachmentsToWorkspace(
   }
 }
 
-async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>; imageBlocks?: Array<{ data: string; mimeType: string }>; agentId?: string }): Promise<void> {
+async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>; agentId?: string }): Promise<void> {
   if (!session) {
     log.warn('handleUserAction: session is null');
     return;
@@ -676,8 +753,8 @@ async function handleUserAction(data: { type: string; message?: string; attachme
   try {
     let fullMessage = data.message || '';
     if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length || data.imageBlocks?.length)) {
-      // 分离非图片附件（图片已由前端分离为 imageBlocks）
-      const fileAttachments = (data.attachments || []).filter(a => !a.mimeType?.startsWith('image/'));
+      // 分离非多模态附件（图片/音频/视频已由前端分离为对应的 content blocks）
+      const fileAttachments = (data.attachments || []).filter(a => a.mimeType && !a.mimeType.startsWith('image/') && !a.mimeType.startsWith('audio/') && !a.mimeType.startsWith('video/'));
       if (fileAttachments.length > 0) {
         await copyAttachmentsToWorkspace(fileAttachments);
         await resolveBinaryAttachments(fileAttachments);
@@ -747,7 +824,7 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       agentLoop.setSessionKey('local');
     }
     try {
-      await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks });
+      await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks, audioBlocks: data.audioBlocks, videoBlocks: data.videoBlocks });
     } finally {
       if (agentLoop) {
         agentLoop.setSessionKey(null);
@@ -803,8 +880,18 @@ function handleGetConfig(): { success: boolean; config?: any; error?: string } {
     return { success: false, error: '会话未初始化' };
   }
   try {
-    const config = session.getConfig();
-    return { success: true, config };
+    // session.getConfig() 经过 EnhancedMessageBus 序列化会丢失 ui 字段
+    // 直接从磁盘读取完整的 config.json 返回
+    const path = require('node:path');
+    const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
+    const configPath = getUserConfigPath(currentUserId || 'default');
+    const fs = require('node:fs');
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      return { success: true, config: JSON.parse(raw) };
+    }
+    const fallback = session.getConfig();
+    return { success: true, config: JSON.parse(JSON.stringify(fallback)) };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -885,9 +972,26 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
       try {
         const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
         const configPath = getUserConfigPath(currentUserId);
-        const currentConfig = session.getConfig();
+
+        // 读取当前磁盘上的 config.json
         const fs = await import('node:fs/promises');
-        await fs.writeFile(configPath, JSON.stringify(currentConfig, null, 2), 'utf-8');
+        let diskConfig: Record<string, any> = {};
+        try {
+          const raw = await fs.readFile(configPath, 'utf-8');
+          diskConfig = JSON.parse(raw);
+        } catch {
+          // 文件不存在或格式错误，从 session config 重建
+        }
+
+        // 仅更新被修改的 section，保留磁盘上其他已有字段
+        if (data?.section && data?.sectionData) {
+          diskConfig[data.section] = { ...(diskConfig[data.section] || {}), ...data.sectionData };
+          if (data.section === 'ui' && data.sectionData.workspacePath !== undefined) {
+            diskConfig.workspacePath = data.sectionData.workspacePath;
+          }
+        }
+
+        await fs.writeFile(configPath, JSON.stringify(diskConfig, null, 2), 'utf-8');
         log.info(`Config persisted to ${configPath}`);
       } catch (persistErr) {
         log.warn('Failed to persist config:', persistErr);
@@ -1111,7 +1215,6 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
       try {
         const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
         const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
-        const { ProviderManager } = await import('../../src/core/providers/ProviderManager.js');
 
         const configLoader = new ConfigLoader(currentUserId, agentId);
         const newConfig = await configLoader.load();
@@ -1123,18 +1226,22 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
         // 同步更新全局 RuntimeConfig
         setRuntimeConfig(newConfig);
 
-        // 用新配置重建 provider，注入 AgentLoop
-        const providerManager = new ProviderManager(newConfig);
+        // 统一走 ProviderManager 创建 provider
+        const { ProviderManager } = await import('../../src/core/providers/ProviderManager');
         const agentConfigWithOverride = agentRegistry.get(agentId);
-        const newProvider = providerManager.getProvider(agentConfigWithOverride);
+        const newProvider = ProviderManager.getProvider((agentConfigWithOverride?.provider as any));
+        const agentModel = (agentConfigWithOverride?.model as any)?.primary;
+        if (!agentModel) {
+          throw new Error('Agent 模型未配置，无法热重载');
+        }
         session.getAgentLoop().applyAgentConfig({
           provider: newProvider,
-          model: newConfig.provider.model,
-          apiKey: (newConfig.provider as any).apiKey,
-          baseURL: (newConfig.provider as any).baseURL,
+          model: agentModel,
+          apiKey: (agentConfigWithOverride?.provider as any)?.apiKey,
+          baseURL: (agentConfigWithOverride?.provider as any)?.baseURL,
         });
 
-        log.info(`Agent ${agentId} config updated and provider reloaded: model=${newConfig.provider.model}`);
+        log.info(`Agent ${agentId} config updated and provider reloaded: model=${agentModel}`);
       } catch (reloadErr) {
         // 热重载失败不阻塞 agent 配置保存结果的返回
         log.warn('Provider hot-reload failed after agent update:', reloadErr);
@@ -2219,261 +2326,6 @@ channel.on('shutdown', () => {
 function safeSend(message: { type: string; data?: any }) {
   channel.send(message.type, message.data);
 }
-
-/**
- * 注册 Hook 事件监听器
- */
-/**
- * 注册 Hook 事件监听器 — 通过 EventBus 统一接收 HookRegistry 转发
- */
-function registerHookEventBridge() {
-  // 防止重复注册：多次 init 会导致同一事件有多个监听器，
-  // 每个监听器都向渲染进程发送消息，造成字符级重复（如"辩辩辩"）
-  if (hookEventBridgeRegistered) return;
-  hookEventBridgeRegistered = true;
-
-  // ── 每个 hook 类型订阅独立 EventBus 事件，直接访问类型化 payload ──
-
-  // SubAgent
-  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_START, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:subagent-start', data: {
-      subAgentId: ctx.subAgentId,
-      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
-      parentId: d.parentId || d.parentAgentId, scene: d.scene, streamToUser: d.streamToUser,
-      executionMode: d.executionMode,
-      isAsync: d.isAsync ?? false,
-    }});
-  });
-  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_TEXT, (ctx) => {
-    safeSend({ type: 'agent:subagent-text', data: { agentId: ctx.subAgentId, text: ctx.text } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_SUBAGENT_END, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:subagent-end', data: { subAgentId: ctx.subAgentId, success: d.success, duration: d.duration, timedOut: d.timedOut } });
-  });
-
-  // Team
-  eventBus.on(XuanjiEvent.HOOK_TEAM_START, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-start', data: { teamId: ctx.teamId, name: d.name, goal: d.goal, strategy: d.strategy, memberCount: d.memberCount, maxRounds: d.maxRounds, members: d.members } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TEAM_MEMBER_START, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-member-start', data: {
-      teamId: ctx.teamId, memberId: d.memberId, subAgentId: d.subAgentId,
-      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
-      strategy: d.strategy, teamName: d.teamName,
-      stepIndex: d.stepIndex, totalSteps: d.totalSteps,
-      currentRound: d.currentRound, maxRounds: d.maxRounds, systemPromptHint: d.systemPromptHint,
-      debateRole: d.debateRole, scene: d.scene, executionMode: (d as any).executionMode,
-    }});
-  });
-  eventBus.on(XuanjiEvent.HOOK_TEAM_MEMBER_END, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-member-end', data: { teamId: ctx.teamId, memberId: d.memberId, subAgentId: d.subAgentId, success: d.success, duration: d.duration, resultSummary: d.resultSummary, teamName: d.teamName, failureReason: d.failureReason, retryCount: d.retryCount } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TEAM_END, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-end', data: { teamId: ctx.teamId, name: d.name, success: d.success, duration: d.duration, error: d.error, timedOut: (d as any).timedOut, cancelled: (d as any).cancelled } });
-  });
-
-  // TeamSubMember（层级策略 leader 动态创建 worker）
-  eventBus.on(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_START, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-submember-start', data: {
-      teamId: ctx.teamId, parentMemberId: ctx.parentMemberId,
-      memberId: d.memberId, subAgentId: d.subAgentId,
-      name: d.name, role: d.role, task: d.task, agentType: d.agentType,
-      scene: d.scene, executionMode: d.executionMode,
-      strategy: d.strategy, teamName: d.teamName,
-      stepIndex: d.stepIndex, totalSteps: d.totalSteps,
-      systemPromptHint: d.systemPromptHint,
-    }});
-  });
-  eventBus.on(XuanjiEvent.HOOK_TEAM_SUB_MEMBER_END, (ctx) => {
-    const d = ctx.data;
-    safeSend({ type: 'agent:team-submember-end', data: {
-      teamId: ctx.teamId, parentMemberId: ctx.parentMemberId,
-      memberId: d.memberId, subAgentId: d.subAgentId,
-      memberName: d.memberName, success: d.success,
-      duration: d.duration, resultSummary: d.resultSummary,
-    }});
-  });
-
-  // Skill
-  eventBus.on(XuanjiEvent.HOOK_SKILL_START, (ctx) => {
-    safeSend({ type: 'agent:skill-start', data: { name: ctx.name } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_SKILL_END, (ctx) => {
-    safeSend({ type: 'agent:skill-end', data: { name: ctx.name, success: ctx.success } });
-  });
-
-  // Memory
-  eventBus.on(XuanjiEvent.HOOK_MEMORY_READ, (ctx) => {
-    safeSend({ type: 'agent:memory-read', data: { query: ctx.query, results: ctx.results } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_MEMORY_WRITE, (ctx) => {
-    safeSend({ type: 'agent:memory-write', data: { content: ctx.content } });
-  });
-
-  // Compress
-  eventBus.on(XuanjiEvent.HOOK_COMPACT_PRE, () => {
-    safeSend({ type: 'agent:compress-start', data: {} });
-  });
-  eventBus.on(XuanjiEvent.HOOK_COMPACT_POST, (ctx) => {
-    safeSend({ type: 'agent:compress-end', data: { original: ctx.originalTokens, compressed: ctx.compressedTokens, ratio: ctx.compressionRatio } });
-  });
-
-  // Workspace 流程事件
-  eventBus.on(XuanjiEvent.HOOK_MODEL_CLASSIFIER_START, (ctx) => {
-    safeSend({ type: 'workspace:model-classifier-start', data: { userInput: ctx.userInput, model: ctx.model, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_MODEL_CLASSIFIER_END, (ctx) => {
-    safeSend({ type: 'workspace:model-classifier-end', data: { userInput: ctx.userInput, model: ctx.model, scene: ctx.scene, complexity: ctx.complexity, durationMs: ctx.durationMs, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_INTENT_ANALYSIS_START, (ctx) => {
-    safeSend({ type: 'workspace:intent-analysis-start', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_INTENT_ANALYSIS_END, (ctx) => {
-    safeSend({ type: 'workspace:intent-analysis-end', data: { userInput: ctx.userInput, scene: ctx.scene, complexity: ctx.complexity, confidence: ctx.confidence, matchMethod: ctx.matchMethod, intentClassifier: ctx.intentClassifier, sessionId: (ctx as any).sessionId, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TASK_PLANNING_START, (ctx) => {
-    safeSend({ type: 'workspace:task-planning-start', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, scene: ctx.scene, complexity: ctx.complexity, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TASK_PLANNING_END, (ctx) => {
-    safeSend({ type: 'workspace:task-planning-end', data: { userInput: ctx.userInput, sessionId: (ctx as any).sessionId, strategy: ctx.strategy, tasks: ctx.tasks, timestamp: (ctx as any).timestamp } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TASK_EXECUTION_START, (ctx) => {
-    safeSend({ type: 'workspace:task-execution-start', data: { userInput: ctx.userInput } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_TASK_EXECUTION_END, (ctx) => {
-    safeSend({ type: 'workspace:task-execution-end', data: { userInput: ctx.userInput, results: ctx.results, summary: ctx.summary } });
-  });
-  eventBus.on(XuanjiEvent.HOOK_RESULT_AGGREGATION_START, () => {
-    safeSend({ type: 'workspace:result-aggregation-start', data: {} });
-  });
-  eventBus.on(XuanjiEvent.HOOK_RESULT_AGGREGATION_END, (ctx) => {
-    safeSend({ type: 'workspace:result-aggregation-end', data: { results: ctx.results } });
-  });
-
-  // ── EventBus 原生事件转发 ──
-  // 根 agent 的 AgentLoop._userId === currentUserId，映射到 routedAgentId
-  // 子 agent 的 AgentLoop._userId 是其 subAgentId，保留原值
-
-  // 异步任务失败（含取消）→ 渲染进程立即更新节点
-  eventBus.on(XuanjiEvent.ASYNC_TASK_FAILED, (payload) => {
-    safeSend({ type: 'agent:task-failed', data: {
-      groupId: payload.groupId,
-      subAgentId: payload.subAgentId,
-      status: payload.status,
-      error: payload.error,
-    }});
-  });
-  // 异步任务完成 → 渲染进程更新状态栏
-  eventBus.on(XuanjiEvent.ASYNC_TASK_COMPLETED, (payload) => {
-    safeSend({ type: 'agent:task-completed', data: {
-      groupId: payload.groupId,
-      subAgentId: payload.subAgentId,
-    }});
-  });
-
-  eventBus.on(XuanjiEvent.AGENT_STARTED, (payload) => {
-    const agentId = payload.userId || routedAgentId;
-    const isForeground = !payload.userId || payload.userId === currentUserId;
-    log.info(`[DIAG] EventBus AGENT_STARTED: model=${payload.model} agentId=${agentId} isForeground=${isForeground} sessionKey=${payload.sessionKey}`);
-    safeSend({ type: 'agent:started', data: { model: payload.model, agentId, isForeground, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload) => {
-    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    log.info(`[DIAG] agent-bridge AGENT_TEXT_DELTA: payload.agentId=${payload.agentId} currentUserId=${currentUserId} routedAgentId=${routedAgentId} → agentId=${agentId} text="${(payload.text || '').substring(0, 50)}"`);
-    safeSend({ type: 'agent:text', data: { text: payload.text, agentId, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_THINKING_DELTA, (payload) => {
-    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:thinking', data: { content: payload.content, agentId, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_TOOL_START, (payload) => {
-    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:tool-start', data: { id: payload.id, name: payload.name, input: payload.input, agentId, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_TOOL_END, (payload) => {
-    const agentId = (payload.agentId && payload.agentId !== currentUserId) ? payload.agentId : routedAgentId;
-    safeSend({ type: 'agent:tool-end', data: { id: payload.id, name: payload.name, result: payload.result, isError: payload.isError, agentId, metadata: payload.metadata, contentBlocks: payload.contentBlocks, sessionKey: payload.sessionKey } });
-
-    // Layer 0: 写入结构化工具事件到 session_events 表
-    try {
-      const mm = getMemoryManager();
-      if (mm?.currentSessionId) {
-        const durationMs = payload.metadata?.duration_ms ?? payload.metadata?.duration;
-        const toolInput = payload.metadata?.input ? (typeof payload.metadata.input === 'string' ? payload.metadata.input : JSON.stringify(payload.metadata.input)) : undefined;
-        const toolOutput = payload.result?.length ? payload.result.slice(0, 2000) : undefined;
-        mm.writeSessionEvent({
-          sessionId: mm.currentSessionId,
-          timestamp: Date.now(),
-          eventType: payload.isError ? 'tool_error' : 'tool_end',
-          toolName: payload.name,
-          toolInput,
-          toolOutput,
-          filePath: payload.metadata?.filePath || payload.metadata?.file_path,
-          exitCode: payload.metadata?.exitCode ?? payload.metadata?.exit_code,
-          errorMsg: payload.isError ? payload.result?.slice(0, 500) : undefined,
-          durationMs: typeof durationMs === 'number' ? durationMs : undefined,
-          agentId,
-        });
-      }
-    } catch { /* 静默失败，不阻塞主流程 */ }
-  });
-  eventBus.on(XuanjiEvent.AGENT_ERROR, (payload) => {
-    safeSend({ type: 'agent:error', data: payload.error });
-  });
-  eventBus.on(XuanjiEvent.CONVERSATION_STATE_CHANGED, (payload) => {
-    safeSend({ type: 'agent:conversation-state', data: { from: payload.from, to: payload.to } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_USAGE, (payload) => {
-    const agentId = (payload.userId && payload.userId !== currentUserId) ? payload.userId : routedAgentId;
-    safeSend({ type: 'agent:usage', data: { tokenUsage: payload.tokenUsage, agentId, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload) => {
-    const agentId = payload.userId || routedAgentId;
-    safeSend({ type: 'agent:end', data: { tokenUsage: payload.tokenUsage, agentId, sessionKey: payload.sessionKey } });
-  });
-  eventBus.on(XuanjiEvent.AGENT_FILE_CHANGES, (payload) => {
-    safeSend({ type: 'agent:file-changes', data: { changes: payload.changes, sessionKey: payload.sessionKey } });
-
-    // 收集平台消息回复所需的图片路径
-    if (payload.changes?.length) {
-      for (const change of payload.changes) {
-        const fp = change.filePath || (change as any).file;
-        if (fp && IMAGE_EXTS.has(path.extname(fp).toLowerCase())) {
-          pendingPlatformImagePaths.push(fp);
-          log.info(`[DIAG] Platform image queued: ${fp}`);
-        }
-      }
-    }
-
-    // Layer 0: 写入文件变更事件
-    try {
-      const mm = getMemoryManager();
-      if (mm?.currentSessionId && payload.changes?.length) {
-        for (const change of payload.changes) {
-          mm.writeSessionEvent({
-            sessionId: mm.currentSessionId,
-            timestamp: Date.now(),
-            eventType: 'file_change',
-            filePath: change.filePath || change.file,
-            toolInput: JSON.stringify({ operation: change.operation, stats: change.stats }),
-            toolOutput: change.diffContent?.slice(0, 2000),
-          });
-        }
-      }
-    } catch { /* 静默失败 */ }
-  });
-  eventBus.on(XuanjiEvent.AGENT_PROMPT_COMPONENTS, (payload) => {
-    safeSend({ type: 'agent:prompt-components', data: payload });
-  });
-}
-
 
 function handlePermissionResponse(data: any) {
   const resolve = pendingPermissions.get(data.id);

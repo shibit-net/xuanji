@@ -26,7 +26,7 @@ export class SleepTool extends BaseTool {
     properties: {
       seconds: {
         type: 'number',
-        description: `等待秒数（1-${MAX_SECONDS}）`,
+        description: `Seconds to wait (1-${MAX_SECONDS})`,
       },
     },
     required: ['seconds'],

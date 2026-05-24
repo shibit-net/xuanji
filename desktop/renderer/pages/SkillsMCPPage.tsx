@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Download, Trash2, Upload, Star, RefreshCw, Package, X, Check, Loader2, Wrench, Puzzle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { t } from '@/core/i18n';
 
 interface SkillsMCPPageProps {
   onClose: () => void;
@@ -132,10 +133,10 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         setTotalPages(res.data.pages);
         setTotalItems(res.data.total);
       } else {
-        setMarketError(res.error || '搜索失败');
+        setMarketError(res.error || t('skills.search_failed'));
       }
     } catch (err) {
-      setMarketError(err instanceof Error ? err.message : '搜索失败');
+      setMarketError(err instanceof Error ? err.message : t('skills.search_failed'));
     } finally {
       setMarketLoading(false);
     }
@@ -217,22 +218,22 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         const res = await window.electron.mcpInstall({ packageId: item.packageId });
         if (res.success) {
           setInstalledMcpIds((prev) => new Set(prev).add(item.packageId));
-          showMessage('success', `MCP "${item.name}" 安装成功`);
+          showMessage('success', t('skills.install_success_mcp', { name: item.name }));
         } else {
-          showMessage('error', res.error || '安装失败');
+          showMessage('error', res.error || t('skills.install_failed'));
         }
       } else {
         const res = await window.electron.skillInstall({ packageId: item.packageId });
         if (res.success) {
           setInstalledSkillIds((prev) => new Set(prev).add(item.packageId));
-          showMessage('success', `Skill "${item.name}" 安装成功`);
+          showMessage('success', t('skills.install_success_skill', { name: item.name }));
         } else {
-          showMessage('error', res.error || '安装失败');
+          showMessage('error', res.error || t('skills.install_failed'));
         }
       }
       await loadInstalled();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '安装失败');
+      showMessage('error', err instanceof Error ? err.message : t('skills.install_failed'));
     } finally {
       setInstalling(null);
     }
@@ -245,23 +246,23 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         const res = await window.electron.mcpUninstall({ packageId: item.packageId });
         if (res.success) {
           setInstalledMcpIds((prev) => { const next = new Set(prev); next.delete(item.packageId); return next; });
-          showMessage('success', `MCP "${item.name}" 已卸载`);
+          showMessage('success', t('skills.uninstall_success_mcp', { name: item.name }));
         } else {
-          showMessage('error', res.error || '卸载失败');
+          showMessage('error', res.error || t('skills.uninstall_failed'));
         }
       } else {
         const skillId = item.packageId.replace('skill-', '');
         const res = await window.electron.skillUninstall({ skillId });
         if (res.success) {
           setInstalledSkillIds((prev) => { const next = new Set(prev); next.delete(item.packageId); return next; });
-          showMessage('success', `Skill "${item.name}" 已卸载`);
+          showMessage('success', t('skills.uninstall_success_skill', { name: item.name }));
         } else {
-          showMessage('error', res.error || '卸载失败');
+          showMessage('error', res.error || t('skills.uninstall_failed'));
         }
       }
       await loadInstalled();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '卸载失败');
+      showMessage('error', err instanceof Error ? err.message : t('skills.uninstall_failed'));
     } finally {
       setUninstalling(null);
     }
@@ -272,16 +273,16 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
     try {
       if (type === 'mcp') {
         const res = await window.electron.mcpUninstall({ serverName: id });
-        if (res.success) showMessage('success', `MCP "${id}" 已卸载`);
-        else showMessage('error', res.error || '卸载失败');
+        if (res.success) showMessage('success', t('skills.uninstall_success_mcp', { name: id }));
+        else showMessage('error', res.error || t('skills.uninstall_failed'));
       } else {
         const res = await window.electron.skillUninstall({ skillId: id });
-        if (res.success) showMessage('success', `Skill "${id}" 已卸载`);
-        else showMessage('error', res.error || '卸载失败');
+        if (res.success) showMessage('success', t('skills.uninstall_success_skill', { name: id }));
+        else showMessage('error', res.error || t('skills.uninstall_failed'));
       }
       await loadInstalled();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '卸载失败');
+      showMessage('error', err instanceof Error ? err.message : t('skills.uninstall_failed'));
     } finally {
       setUninstalling(null);
     }
@@ -292,15 +293,15 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
     try {
       if (type === 'mcp') {
         const res = await window.electron.mcpPublish({ serverName: id });
-        if (res.success) showMessage('success', `MCP "${id}" 已发布到天工坊`);
-        else showMessage('error', res.error || '发布失败');
+        if (res.success) showMessage('success', t('skills.publish_success_mcp', { id }));
+        else showMessage('error', res.error || t('skills.publish_failed'));
       } else {
         const res = await window.electron.skillPublish({ skillId: id });
-        if (res.success) showMessage('success', `Skill "${id}" 已发布到天工坊`);
-        else showMessage('error', res.error || '发布失败');
+        if (res.success) showMessage('success', t('skills.publish_success_skill', { id }));
+        else showMessage('error', res.error || t('skills.publish_failed'));
       }
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '发布失败');
+      showMessage('error', err instanceof Error ? err.message : t('skills.publish_failed'));
     } finally {
       setPublishing(null);
     }
@@ -327,10 +328,10 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       <div className="h-12 border-b border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-white/[0.02] backdrop-blur-xl">
         <div className="flex items-center gap-2">
           <Package size={18} className="text-muted-foreground" />
-          <h1 className="text-base font-semibold">Skills & MCP 管理</h1>
+          <h1 className="text-base font-semibold">{t('skills.title')}</h1>
         </div>
         <div className="flex items-center gap-1">
-          <Button onClick={() => { loadInstalled(); loadMarket(); }} variant="ghost" size="icon" className="h-7 w-7" title="刷新">
+          <Button onClick={() => { loadInstalled(); loadMarket(); }} variant="ghost" size="icon" className="h-7 w-7" title={t('skills.refresh')}>
             <RefreshCw size={14} />
           </Button>
           <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7">
@@ -347,24 +348,24 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="搜索 Skills 或 MCP..."
+            placeholder={t('skills.search_placeholder')}
             className="w-full h-8 pl-9 pr-3 bg-white/[0.06] border border-white/[0.1] rounded-xl text-sm text-foreground placeholder:text-white/30 backdrop-blur-xl focus:outline-none focus:border-primary/50"
           />
         </div>
 
         {/* 类型过滤 */}
         <div className="flex bg-white/[0.06] rounded-xl border border-white/[0.08] backdrop-blur-xl p-0.5">
-          {(['all', 'mcp', 'skill'] as FilterType[]).map((t) => (
+          {(['all', 'mcp', 'skill'] as FilterType[]).map((ft) => (
             <button
-              key={t}
-              onClick={() => { setFilterType(t); setPage(1); }}
+              key={ft}
+              onClick={() => { setFilterType(ft); setPage(1); }}
               className={`px-3 py-1 text-xs rounded-lg transition-all ${
-                filterType === t
+                filterType === ft
                   ? 'bg-white/[0.12] text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t === 'all' ? '全部' : t === 'mcp' ? 'MCP' : 'Skills'}
+              {ft === 'all' ? t('skills.filter_all') : ft === 'mcp' ? t('skills.filter_mcp') : t('skills.filter_skills')}
             </button>
           ))}
         </div>
@@ -379,7 +380,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Package size={12} /> 市场
+            <Package size={12} /> {t('skills.view_marketplace')}
           </button>
           <button
             onClick={() => setViewMode('installed')}
@@ -389,7 +390,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Download size={12} /> 已安装 ({localMcps.length + localSkills.length})
+            <Download size={12} /> {t('skills.view_installed', { count: localMcps.length + localSkills.length })}
           </button>
         </div>
       </div>
@@ -416,12 +417,12 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
               <div className="flex-1 overflow-y-auto">
                 {marketLoading ? (
                   <div className="flex items-center justify-center py-12 text-muted-foreground">
-                    <Loader2 size={20} className="animate-spin mr-2" /> 加载中...
+                    <Loader2 size={20} className="animate-spin mr-2" /> {t('skills.loading')}
                   </div>
                 ) : marketError ? (
                   <div className="p-4 text-red-400 text-sm">{marketError}</div>
                 ) : sortedItems.length === 0 ? (
-                  <div className="p-4 text-muted-foreground text-sm text-center py-12">暂无结果</div>
+                  <div className="p-4 text-muted-foreground text-sm text-center py-12">{t('skills.no_results')}</div>
                 ) : (
                   sortedItems.map((item) => {
                     const itemInstalled = isInstalled(item);
@@ -448,7 +449,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                               <span className="text-sm font-medium truncate">{item.name}</span>
                               {itemInstalled && (
                                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/15 text-green-400 border-green-500/20">
-                                  已安装
+                                  {t('skills.installed_badge')}
                                 </Badge>
                               )}
                             </div>
@@ -469,7 +470,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                                 variant="ghost" size="icon" className="h-6 w-6 text-red-400/70 hover:text-red-300 hover:bg-red-500/10"
                                 onClick={() => handleUninstall(item)}
                                 disabled={uninstalling === item.packageId}
-                                title="卸载"
+                                title={t('skills.uninstall')}
                               >
                                 {uninstalling === item.packageId
                                   ? <Loader2 size={12} className="animate-spin" />
@@ -487,7 +488,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
               {/* 分页 */}
               <div className="h-10 border-t border-white/[0.08] flex items-center justify-between px-3 shrink-0 bg-white/[0.02]">
                 <span className="text-[10px] text-muted-foreground/50">
-                  共 {totalItems} 个 · {sortedItems.length} 个可见
+                  {t('skills.pagination_info', { total: totalItems, visible: sortedItems.length })}
                 </span>
                 {totalPages > 1 && (
                   <div className="flex items-center gap-3">
@@ -496,7 +497,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                       disabled={page <= 1}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
-                      <ChevronLeft size={12} /> 上一页
+                      <ChevronLeft size={12} /> {t('skills.prev_page')}
                     </button>
                     <span className="text-xs text-muted-foreground/70">{page} / {totalPages}</span>
                     <button
@@ -504,7 +505,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                       disabled={page >= totalPages}
                       className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
-                      下一页 <ChevronRight size={12} />
+                      {t('skills.next_page')} <ChevronRight size={12} />
                     </button>
                   </div>
                 )}
@@ -514,7 +515,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
             /* 已安装列表 */
             <div className="flex-1 overflow-y-auto">
               {installedItems.length === 0 ? (
-                <div className="p-4 text-muted-foreground text-sm text-center py-12">暂无已安装的包</div>
+                <div className="p-4 text-muted-foreground text-sm text-center py-12">{t('skills.no_installed')}</div>
               ) : (
                 installedItems.map((item) => (
                   <div key={`${item.type}-${item.id}`} className="px-3 py-3 border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
@@ -529,15 +530,15 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           <span className="text-sm font-medium truncate">{item.name}</span>
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{item.type}</Badge>
                           {item.enabled ? (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/15 text-green-400 border-green-500/20">启用</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/15 text-green-400 border-green-500/20">{t('skills.badge_enabled')}</Badge>
                           ) : (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">禁用</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">{t('skills.badge_disabled')}</Badge>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>
                         <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground/70">
                           <span>{item.extra}</span>
-                          <span>来源: {item.source}</span>
+                          <span>{t('skills.source_label', { source: item.source })}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0 self-start mt-1">
@@ -545,7 +546,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground/60 hover:text-foreground"
                           onClick={() => handlePublishLocal(item.type, item.id)}
                           disabled={publishing === item.id}
-                          title="发布到天工坊"
+                          title={t('skills.publish')}
                         >
                           {publishing === item.id ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                         </Button>
@@ -553,7 +554,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           variant="ghost" size="icon" className="h-6 w-6 text-red-400/70 hover:text-red-300 hover:bg-red-500/10"
                           onClick={() => handleUninstallLocal(item.type, item.id)}
                           disabled={uninstalling === item.id}
-                          title="卸载"
+                          title={t('skills.uninstall')}
                         >
                           {uninstalling === item.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                         </Button>
@@ -571,8 +572,8 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
           {!selectedPkg && !detailData && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
               <Package size={48} className="opacity-20" />
-              <p className="text-sm">选择一个包查看详情</p>
-              <p className="text-xs opacity-50">从左侧列表选择一个 Skill 或 MCP 包</p>
+              <p className="text-sm">{t('skills.select_hint')}</p>
+              <p className="text-xs opacity-50">{t('skills.select_hint_desc')}</p>
             </div>
           )}
 
@@ -580,7 +581,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
             <div className="p-8 max-w-2xl">
               {detailLoading ? (
                 <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 size={20} className="animate-spin mr-2" /> 加载详情...
+                  <Loader2 size={20} className="animate-spin mr-2" /> {t('skills.load_detail')}
                 </div>
               ) : (
                 <>
@@ -596,7 +597,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                         <h2 className="text-xl font-semibold truncate">{selectedPkg.name}</h2>
                         <Badge variant="secondary" className="text-xs">{selectedPkg.type === 'mcp' ? 'MCP' : 'Skill'}</Badge>
                         {isInstalled(selectedPkg) && (
-                          <Badge variant="secondary" className="text-xs bg-green-500/15 text-green-400 border-green-500/20">已安装</Badge>
+                          <Badge variant="secondary" className="text-xs bg-green-500/15 text-green-400 border-green-500/20">{t('skills.installed_badge')}</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -610,7 +611,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                             <Star size={12} /> {selectedPkg.ratingAvg.toFixed(1)} ({selectedPkg.ratingCount})
                           </span>
                         )}
-                        <span className="text-xs text-muted-foreground">{selectedPkg.totalDownloads} 下载</span>
+                        <span className="text-xs text-muted-foreground">{t('skills.downloads_label', { count: selectedPkg.totalDownloads })}</span>
                         {selectedPkg.transport && <span className="text-xs text-muted-foreground">{selectedPkg.transport}</span>}
                       </div>
                     </div>
@@ -625,7 +626,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           {uninstalling === selectedPkg.packageId
                             ? <Loader2 size={14} className="animate-spin" />
                             : <Trash2 size={14} />}
-                          卸载
+                          {t('skills.uninstall')}
                         </Button>
                       ) : selectedPkg.currentVersion ? (
                         <Button
@@ -637,11 +638,11 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           {installing === selectedPkg.packageId
                             ? <Loader2 size={14} className="animate-spin" />
                             : <Download size={14} />}
-                          安装
+                          {t('skills.install')}
                         </Button>
                       ) : (
                         <Button variant="secondary" size="sm" disabled className="flex items-center gap-1.5 h-8">
-                          待发布
+                          {t('skills.pending_publish')}
                         </Button>
                       )}
                     </div>
@@ -649,16 +650,16 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
 
                   {/* 描述 */}
                   <section className="mb-8">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-2">描述</h3>
+                    <h3 className="text-sm font-semibold text-muted-foreground mb-2">{t('skills.description_section')}</h3>
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                      <p className="text-sm text-foreground/80 leading-relaxed">{selectedPkg.description || '无描述'}</p>
+                      <p className="text-sm text-foreground/80 leading-relaxed">{selectedPkg.description || t('skills.no_description')}</p>
                     </div>
                   </section>
 
                   {/* 标签 */}
                   {selectedPkg.tags.length > 0 && (
                     <section className="mb-8">
-                      <h3 className="text-sm font-semibold text-muted-foreground mb-2">标签</h3>
+                      <h3 className="text-sm font-semibold text-muted-foreground mb-2">{t('skills.tags_section')}</h3>
                       <div className="flex flex-wrap gap-1.5">
                         {selectedPkg.tags.map((tag) => (
                           <Badge key={tag} variant="outline" className="text-xs bg-white/[0.04]">{tag}</Badge>
@@ -673,12 +674,12 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                       {/* 版本历史 */}
                       {detailData.versions && detailData.versions.length > 0 && (
                         <section className="mb-8">
-                          <h3 className="text-sm font-semibold text-muted-foreground mb-2">版本历史</h3>
+                          <h3 className="text-sm font-semibold text-muted-foreground mb-2">{t('skills.versions_section')}</h3>
                           <div className="space-y-1.5">
                             {detailData.versions.slice(0, 5).map((v) => (
                               <div key={v.id} className="flex items-center justify-between text-xs px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
                                 <span className="font-medium">v{v.version}</span>
-                                <span className="text-muted-foreground">{v.downloads} 下载</span>
+                                <span className="text-muted-foreground">{t('skills.downloads_label', { count: v.downloads })}</span>
                                 <span className="text-muted-foreground/70">{new Date(v.createdAt).toLocaleDateString()}</span>
                               </div>
                             ))}
@@ -688,35 +689,35 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
 
                       {/* 信息 */}
                       <section className="mb-8">
-                        <h3 className="text-sm font-semibold text-muted-foreground mb-2">信息</h3>
+                        <h3 className="text-sm font-semibold text-muted-foreground mb-2">{t('skills.info_section')}</h3>
                         <div className="space-y-1.5 text-sm">
                           {detailData.license && (
                             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">许可</span>
+                              <span className="text-muted-foreground">{t('skills.license')}</span>
                               <span className="text-foreground/80">{detailData.license}</span>
                             </div>
                           )}
                           {detailData.homepageUrl && (
                             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">主页</span>
+                              <span className="text-muted-foreground">{t('skills.homepage')}</span>
                               <a href={detailData.homepageUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{detailData.homepageUrl}</a>
                             </div>
                           )}
                           {detailData.repositoryUrl && (
                             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">仓库</span>
+                              <span className="text-muted-foreground">{t('skills.repository')}</span>
                               <a href={detailData.repositoryUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{detailData.repositoryUrl}</a>
                             </div>
                           )}
                           <div className="flex gap-2">
                             <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">安全评分</span>
+                              <span className="text-muted-foreground">{t('skills.security_score')}</span>
                               <span className={selectedPkg.securityScore >= 80 ? 'text-green-400' : selectedPkg.securityScore >= 50 ? 'text-yellow-400' : 'text-red-400'}>
                                 {selectedPkg.securityScore}
                               </span>
                             </div>
                             <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">质量评分</span>
+                              <span className="text-muted-foreground">{t('skills.quality_score')}</span>
                               <span className={selectedPkg.qualityScore >= 80 ? 'text-green-400' : selectedPkg.qualityScore >= 50 ? 'text-yellow-400' : 'text-red-400'}>
                                 {selectedPkg.qualityScore}
                               </span>

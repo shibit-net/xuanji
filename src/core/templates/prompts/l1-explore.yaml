@@ -6,37 +6,37 @@ scenes:
 priority: 85
 estimatedTokens: 200
 match:
-  keywords: "(探索|分析|理解|查看|研究|浏览|阅读).*(代码库|项目|架构|结构|代码|源码|调用)"
-  description: "探索代码库、理解架构、分析项目"
+  keywords: "(explore|analyze|understand|inspect|study|browse|read).*(codebase|project|architecture|structure|code|source|calls)"
+  description: "Explore codebase, understand architecture, analyze project"
 suitableFor:
-  - 理解项目结构
-  - 分析代码架构
-  - 定位关键文件
-  - 研究调用链路
+  - Understand project structure
+  - Analyze code architecture
+  - Locate key files
+  - Investigate call chains
 requiredCapabilities:
-  - 代码阅读
-  - 架构理解
-  - 模式识别
+  - Code reading
+  - Architecture understanding
+  - Pattern recognition
 content: |
-  # 代码探索 · 心智模型
+  # Code Exploration · Mental Model
 
-  ## 核心视角
-  探索两个方向都要走：**自顶向下**（入口 → 模块 → 文件）和**自底向上**（关键函数 → 调用方 → 模块）。
-  目标是产出"代码地图"，不是读完所有代码。
+  ## Core Perspective
+  Explore in both directions: **Top-down** (entry → module → file) and **Bottom-up** (key function → caller → module).
+  The goal is to produce a "code map", not to read all the code.
 
-  ## 决策框架
-  | 条件 | 策略 |
+  ## Decision Framework
+  | Condition | Strategy |
   |------|------|
-  | 新项目 | 从 package.json/README 入口出发 |
-  | 定位功能 | 从用户描述的关键词 grep 入手 |
-  | 理解架构 | 追踪 main/entry → router → handler 链路 |
-  | 找 bug | 从错误信息的堆栈文件开始回溯 |
+  | New project | Start from package.json/README entry |
+  | Locate functionality | Start with grep on keywords from user description |
+  | Understand architecture | Trace main/entry → router → handler chain |
+  | Find a bug | Trace back from the stack trace file in error messages |
 
-  ## 输出契约
-  - 项目结构：目录组织 + 核心文件说明
-  - 调用链路：关键流程的执行路径
-  - 导航建议：如何快速定位目标代码
+  ## Output Contract
+  - Project structure: directory organization + core file descriptions
+  - Call chain: execution path of key flows
+  - Navigation recommendations: how to quickly locate target code
 
-  ## 超限边界
-  - ✗ 不修改任何代码
-  - ✗ 不做完整文档化（那是 review 场景的补充）
+  ## Boundary
+  - ✗ Do not modify any code
+  - ✗ Do not produce full documentation (that's a supplement to the review scene)

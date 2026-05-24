@@ -2,10 +2,10 @@
   "provider": {},
   "ui": {
     "theme": "auto",
-    "language": "zh",
+    "language": "en",
     "showTokenUsage": true,
     "showCost": true,
-    "showThinking": false
+    "showThinking": true
   },
   "permission": {
     "fileWrite": "ask",
@@ -51,7 +51,13 @@
     "initialDelay": 1000,
     "maxDelay": 30000,
     "backoffMultiplier": 2,
-    "retryableStatusCodes": [429, 500, 502, 503, 529]
+    "retryableStatusCodes": [
+      429,
+      500,
+      502,
+      503,
+      529
+    ]
   },
   "skills": {
     "enabled": [],
@@ -59,23 +65,13 @@
     "loadCustom": true,
     "customPath": ".xuanji/skills"
   },
-  "memory": {
-    "enabled": true,
-    "shortTermMaxEntries": 100,
-    "longTermMaxEntries": 1000,
-    "retrieveMaxResults": 10,
-    "maxEntryLength": 500,
-    "maxPromptLength": 5000,
-    "compactionThreshold": 500,
-    "decayHalfLifeDays": 30
-  },
   "agent": {
     "maxIterations": null,
     "subAgent": {
       "maxNestingDepth": 3,
       "maxConcurrent": 3,
       "timeout": 300000,
-      "maxIterations": null
+      "maxIterations": 50
     }
   },
   "session": {
@@ -94,7 +90,7 @@
     "maxSessions": 50
   },
   "features": {
-    "intentRouter": true
+    "intentRouter": false
   },
   "routing": {
     "mode": "auto",
@@ -129,7 +125,7 @@
     "stepTimeout": 300000
   },
   "persona": {
-    "name": "璇玑",
+    "name": "\u7487\u7391",
     "talkStyle": "balanced"
   },
   "webSearch": {

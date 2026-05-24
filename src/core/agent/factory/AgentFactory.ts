@@ -5,16 +5,15 @@
  * 替代旧的 SubAgentFactory / TemporaryAgentFactory，统一主 Agent 和子 Agent 的创建流程。
  */
 
-import type { ILLMProvider, IToolRegistry, AgentConfig, ToolSchema } from '@/core/types';
+import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 import { AgentLoop } from '../AgentLoop';
+import { SilentAgentLoop } from '../SilentAgentLoop';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 import { getConfigManager, type ConfigManager } from '@/core/config/ConfigManager';
 import { ProviderPool } from '@/core/providers/ProviderPool';
-import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
-import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
 import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
@@ -50,6 +49,10 @@ export interface AgentCreateOptions {
   strictTools?: boolean;
   /** 覆盖 maxTokens（上下文窗口大小） */
   maxTokens?: number;
+  /** 覆盖 system prompt（跳过工厂内部的 prompt 构建） */
+  systemPromptOverride?: string;
+  /** 上下文压缩器配置（来自 session 级 global config） */
+  compressor?: import('@/shared/types/agent').CompressorConfig;
 }
 
 export interface AgentInstance {
@@ -98,19 +101,35 @@ export interface CreateAndRunResult {
 
 export type SubAgentResult = CreateAndRunResult;
 
-interface PooledAgent {
-  agent: AgentLoop;
-  inUse: boolean;
-  lastUsed: number;
+export interface MemoryAgentCreateOptions {
+  parentConfig?: AgentConfig;
+  systemPrompt: string;
+  workingDir?: string;
+  maxIterations?: number;
+  maxTokens?: number;
+  timeout?: number;
+}
+
+export interface AcpAgentCreateOptions {
+  /** 父进程传入的配置（含 adapter, model, apiKey, baseURL 等） */
+  parentConfig: Record<string, any>;
+  systemPrompt?: string;
+  tools?: string[];
+  workingDir?: string;
+  maxIterations?: number;
+}
+
+export interface CompressionAgentCreateOptions {
+  parentConfig?: AgentConfig;
+  systemPrompt: string;
+  workingDir?: string;
+  maxTokens?: number;
 }
 
 export class AgentFactory {
   private providerPool: ProviderPool;
   private layeredPromptBuilder: LayeredPromptBuilder | null = null;
   private baseRegistry: IToolRegistry;
-  private agentPool = new Map<string, PooledAgent>();
-  private maxPoolSize = 10;
-  private maxIdleMs = 5 * 60 * 1000;
   private hookRegistry: HookRegistry | null = null;
   private temporaryAgents = new Map<string, ConfigurableAgentConfig>();
   private _parentProvider?: ILLMProvider;
@@ -120,16 +139,8 @@ export class AgentFactory {
     this.baseRegistry = baseRegistry;
     this.providerPool = new ProviderPool(
       (config) => {
-        if (!config.adapter) {
-          throw new Error(
-            `Provider adapter not specified for model "${config.model}". ` +
-            `Set 'adapter' in agent config (anthropic / openai / openai-responses).`,
-          );
-        }
-        if (config.adapter === 'anthropic') {
-          return new AnthropicProvider(config);
-        }
-        return new OpenAIProvider(config);
+        const { ProviderManager } = require('@/core/providers/ProviderManager');
+        return ProviderManager.getProvider({ adapter: config.adapter });
       },
     );
   }
@@ -161,19 +172,34 @@ export class AgentFactory {
   }
 
   /**
+   * 为已注册 agent 解析 provider + 工具列表（供 switchForegroundAgent 等运行时热切换使用）。
+   * 不走 parentProvider 兜底 — 已注册 agent 必须有独立配置。
+   */
+  resolveAgentComponents(agentId: string, complexity?: string): { provider: ILLMProvider; toolNames: string[] } {
+    const cfgMgr = getConfigManager();
+    const agentCfg = cfgMgr.getAgentConfig(agentId);
+    if (!agentCfg || agentCfg.enabled === false) {
+      throw new Error(`Agent "${agentId}" not found or disabled`);
+    }
+    const provider = this.resolveProvider(agentCfg);
+    const yamlTools = (agentCfg.tools as any[])?.filter((t: any) => t.enabled !== false).map((t: any) => t.name) || [];
+    const toolNames = augmentToolList(yamlTools, complexity);
+    return { provider, toolNames };
+  }
+
+  /**
    * 创建主 Agent（用于对话管理中心的顶层 Agent）
    */
   async createMainAgent(agentId: string, options: AgentCreateOptions): Promise<AgentInstance> {
     const cfgMgr = getConfigManager();
     const agentCfg = cfgMgr.getAgentConfig(agentId);
-    const settings = cfgMgr.getSettings();
 
     if (!agentCfg || agentCfg.enabled === false) {
       throw new Error(`Agent "${agentId}" not found or disabled`);
     }
 
-    // 解析 provider
-    const provider = this.resolveProvider(agentCfg, options.parentProvider);
+    // 解析 provider（主 agent 作为已注册 agent，必须自有配置）
+    const provider = this.resolveProvider(agentCfg);
 
     // 构建 system prompt
     const systemPrompt = await this.buildMainPrompt(agentCfg, options);
@@ -191,10 +217,15 @@ export class AgentFactory {
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt,
       workingDir: options.workingDir,
-      maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? settings.maxIterations,
-      temperature: agentCfg.model?.temperature ?? settings.temperature,
-      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens ?? settings.maxTokens,
-    }, provider);
+      maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 50,
+      temperature: agentCfg.model?.temperature ?? 0.7,
+      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens ?? 8192,
+    });
+
+    // session 级 compressor 配置（不来自 agent YAML）
+    if (options.compressor) {
+      runtimeConfig.compressor = options.compressor;
+    }
 
     const mainAgentId = options.subAgentId || agentId;
 
@@ -253,12 +284,12 @@ export class AgentFactory {
       const provider = options.parentProvider;
       const subAgentId = options.subAgentId || `subagent-temp-${agentId || 'unknown'}-${Date.now()}`;
 
-      const runtimeConfig = this.buildRuntimeConfig(options.parentConfig, {
+      const runtimeConfig = this.buildRuntimeConfig(options.parentConfig as any, {
         systemPrompt: '',
         workingDir: options.workingDir,
         maxIterations: options.maxIterations ?? 100,
         maxTokens: options.maxTokens ?? (options.parentConfig as any)?.model?.maxTokens,
-      }, provider);
+      });
 
       const allowedTools = options.strictTools
         ? (options.toolWhitelist || [])
@@ -297,7 +328,7 @@ export class AgentFactory {
       agentId,
       agentName: agentCfg.name,
       enabled: agentCfg.enabled,
-      hasIndependentProvider: !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL || agentCfg.provider?.adapter),
+      hasIndependentProvider: !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL),
       hasParentProvider: !!options.parentProvider,
     });
 
@@ -306,21 +337,18 @@ export class AgentFactory {
     }
 
     // 解析 provider（子 Agent 使用自有配置或继承父 provider）
-    const hasIndependentProvider = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL || agentCfg.provider?.adapter);
-    let provider: ILLMProvider;
-
-    if (hasIndependentProvider) {
-      provider = this.providerPool.getProvider({
-        adapter: agentCfg.provider!.adapter!,
-        model: agentCfg.model!.primary!,
-        apiKey: agentCfg.provider!.apiKey!,
-        baseURL: agentCfg.provider!.baseURL!,
-      });
-    } else if (options.parentProvider) {
-      provider = options.parentProvider;
-    } else {
-      throw new Error(`Cannot create sub-agent "${agentId}" without provider config or parent provider`);
+    const hasIndependentProvider = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL);
+    if (!hasIndependentProvider) {
+      throw new Error(`子 Agent "${agentCfg.name}" 未配置 apiKey/baseURL，请在配置页面设置`);
     }
+
+    let provider: ILLMProvider;
+    provider = this.providerPool.getProvider({
+      adapter: agentCfg.provider!.adapter!,
+      model: agentCfg.model!.primary!,
+      apiKey: agentCfg.provider!.apiKey!,
+      baseURL: agentCfg.provider!.baseURL!,
+    });
 
     // 构建 system prompt
     const systemPrompt = await this.buildSubPrompt(agentCfg, options);
@@ -352,7 +380,7 @@ export class AgentFactory {
       maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 100,
       temperature: agentCfg.model?.temperature,
       maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens,
-    }, provider);
+    });
 
     const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
 
@@ -619,6 +647,267 @@ export class AgentFactory {
     };
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // 统一配置加载 + 校验
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 加载 agent 配置，缺失关键字段则抛异常（无兜底）。
+   *
+   * 加载链路：ConfigManager.getAgentConfig(agentId)
+   *   → YAML + JSON + agent-overrides 三层合并
+   */
+  loadAgentConfigOrThrow(agentId: string): ReturnType<ConfigManager['getAgentConfig']> & {} {
+    const cfgMgr = getConfigManager();
+    const config = cfgMgr.getAgentConfig(agentId);
+
+    if (!config) {
+      throw new Error(
+        `Agent "${agentId}" 配置文件未找到。请在 ~/.xuanji/users/{userId}/agents/ 下创建 ${agentId}.yaml`,
+      );
+    }
+    if (config.enabled === false) {
+      throw new Error(`Agent "${config.name || agentId}" 已被禁用，请在配置页面启用`);
+    }
+    if (!config.model?.primary) {
+      throw new Error(`Agent "${config.name || agentId}" 未配置 model.primary`);
+    }
+    if (!config.provider?.adapter) {
+      throw new Error(`Agent "${config.name || agentId}" 未配置 provider.adapter`);
+    }
+
+    return config;
+  }
+
+  /**
+   * 创建 CheapLLMProvider（单轮 LLM 调用，供 MemoryManager/EpisodicMemory/TopicContinuity 等使用）。
+   *
+   * 从 agent YAML 配置读取 adapter/model/apiKey/baseURL，创建独立的 provider。
+   */
+  async createCheapLLMProvider(
+    agentId: string,
+    defaults: { temperature: number; maxTokens: number },
+  ): Promise<any> {
+    const c = this.loadAgentConfigOrThrow(agentId);
+    const { CheapLLMProvider } = await import('@/core/providers/CheapLLMProvider');
+    const { ProviderManager } = await import('@/core/providers/ProviderManager');
+
+    const agentProvider = ProviderManager.getProvider({ adapter: c.provider!.adapter! });
+    const llm = new CheapLLMProvider(agentProvider, {
+      model: c.model!.primary!,
+      apiKey: c.provider!.apiKey || '',
+      baseURL: c.provider!.baseURL || '',
+      temperature: (c.model!.temperature ?? defaults.temperature) as number,
+      maxTokens: (c.model!.maxTokens ?? defaults.maxTokens) as number,
+    });
+    log.info(`[createCheapLLMProvider] ${agentId}: ${c.model!.primary} (adapter=${c.provider!.adapter})`);
+    return llm;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 专用 Agent 创建方法
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 创建 memory-manager Agent（供 MemoryManager 使用）。
+   */
+  async createMemoryAgent(
+    agentId: string,
+    options: MemoryAgentCreateOptions,
+  ): Promise<AgentInstance> {
+    return this.createSilentAgent(agentId, {
+      systemPrompt: options.systemPrompt,
+      workingDir: options.workingDir,
+      toolNames: ['memory_search', 'memory_store', 'memory_stats'],
+      maxIterations: options.maxIterations ?? 60,
+      temperature: undefined,
+      maxTokens: options.maxTokens ?? 8192,
+      idPrefix: 'memory',
+      parentConfig: options.parentConfig,
+    });
+  }
+
+  /**
+   * 创建 context-compressor Agent（供 MemoryManager 使用）。
+   */
+  async createCompressionAgent(
+    agentId: string,
+    options: CompressionAgentCreateOptions,
+  ): Promise<AgentInstance> {
+    return this.createSilentAgent(agentId, {
+      systemPrompt: options.systemPrompt,
+      workingDir: options.workingDir,
+      toolNames: [],
+      maxIterations: 1,
+      temperature: 0.2,
+      maxTokens: options.maxTokens ?? 1024,
+      idPrefix: 'compress',
+      parentConfig: options.parentConfig,
+    });
+  }
+
+  private async createSilentAgent(
+    agentId: string,
+    opts: {
+      systemPrompt: string;
+      workingDir?: string;
+      toolNames: string[];
+      maxIterations: number;
+      temperature: number | undefined;
+      maxTokens: number;
+      idPrefix: string;
+      parentConfig?: AgentConfig;
+    },
+  ): Promise<AgentInstance> {
+    const agentCfg = this.loadAgentConfigOrThrow(agentId);
+
+    const registry = this.createFilteredRegistry(opts.toolNames, {
+      agentId,
+      workingDir: opts.workingDir,
+    });
+
+    const provider = this.providerPool.getProvider({
+      adapter: agentCfg.provider!.adapter!,
+      model: agentCfg.model!.primary!,
+      apiKey: agentCfg.provider!.apiKey || '',
+      baseURL: agentCfg.provider!.baseURL || '',
+    });
+
+    const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
+      systemPrompt: opts.systemPrompt,
+      workingDir: opts.workingDir,
+      maxIterations: opts.maxIterations,
+      temperature: opts.temperature ?? agentCfg.model?.temperature,
+      maxTokens: opts.maxTokens ?? agentCfg.model?.maxTokens,
+    });
+
+    if (!runtimeConfig.apiKey && opts.parentConfig?.apiKey) {
+      runtimeConfig.apiKey = opts.parentConfig.apiKey;
+    }
+    if (!runtimeConfig.baseURL && opts.parentConfig?.baseURL) {
+      runtimeConfig.baseURL = opts.parentConfig.baseURL;
+    }
+
+    const subAgentId = `${opts.idPrefix}-${agentId}-${Date.now()}`;
+    const agentLoop = new SilentAgentLoop(provider, registry, runtimeConfig, subAgentId);
+
+    log.info(`[createSilentAgent] ${opts.idPrefix} 创建完成`, {
+      agentId,
+      subAgentId,
+      model: runtimeConfig.model,
+      adapter: agentCfg.provider?.adapter,
+      maxTokens: runtimeConfig.maxTokens,
+      temperature: runtimeConfig.temperature,
+    });
+
+    return { agentLoop, config: runtimeConfig, subAgentId, depth: 0 };
+  }
+
+  /**
+   * 创建 ACP 子进程 Agent（供 acp-worker.ts 使用）。
+   *
+   * 自动判断 agentId 对应的是已注册 agent 还是临时 agent：
+   * - 已注册 agent：使用自身 YAML + overrides 配置（必须有独立 apiKey/baseURL）
+   * - 临时 agent：使用 parentConfig（主进程传入）
+   */
+  async createAcpAgent(
+    agentId: string,
+    options: AcpAgentCreateOptions,
+  ): Promise<AgentInstance> {
+    let agentCfg: ReturnType<ConfigManager['getAgentConfig']> = null;
+    try {
+      agentCfg = this.loadAgentConfigOrThrow(agentId);
+    } catch (err) {
+      log.warn(`[createAcpAgent] Agent "${agentId}" 未注册，使用 parentConfig 作为临时 agent`);
+    }
+
+    let provider: ILLMProvider;
+    let runtimeConfig: AgentConfig;
+    let effectiveTools: string[];
+
+    if (agentCfg) {
+      const hasIndependent = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL);
+      if (!hasIndependent) {
+        throw new Error(
+          `ACP: 已注册 Agent "${agentCfg.name || agentId}" 未配置 apiKey/baseURL，请在配置页面设置`,
+        );
+      }
+
+      provider = this.providerPool.getProvider({
+        adapter: agentCfg.provider!.adapter!,
+        model: agentCfg.model!.primary!,
+        apiKey: agentCfg.provider!.apiKey!,
+        baseURL: agentCfg.provider!.baseURL!,
+      });
+
+      const configTools = (agentCfg.tools as any[])?.map((t: any) => t.name) || [];
+      effectiveTools = augmentToolList(
+        [...new Set([...configTools, ...(options.tools || [])])],
+      );
+
+      runtimeConfig = this.buildRuntimeConfig(agentCfg, {
+        systemPrompt: options.systemPrompt || '',
+        workingDir: options.workingDir,
+        maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 50,
+        temperature: agentCfg.model?.temperature,
+        maxTokens: agentCfg.model?.maxTokens,
+      });
+    } else {
+      const pc = options.parentConfig;
+      const adapter: string = pc?.adapter || '';
+      const model: string = pc?.model || '';
+
+      if (!adapter) throw new Error('ACP: parentConfig 缺少 adapter');
+      if (!model) throw new Error('ACP: parentConfig 缺少 model');
+
+      provider = this.providerPool.getProvider({
+        adapter,
+        model,
+        apiKey: pc?.apiKey || '',
+        baseURL: pc?.baseURL || '',
+        maxTokens: pc?.maxTokens,
+        temperature: pc?.temperature,
+      });
+
+      effectiveTools = augmentToolList(
+        options.tools && options.tools.length > 0 ? options.tools : DEFAULT_SUBAGENT_TOOLS,
+      );
+
+      runtimeConfig = {
+        model,
+        systemPrompt: options.systemPrompt || '',
+        maxIterations: options.maxIterations ?? 50,
+        temperature: pc?.temperature ?? 0.7,
+        maxTokens: pc?.maxTokens ?? 4096,
+        workingDir: options.workingDir,
+        apiKey: pc?.apiKey || '',
+        baseURL: pc?.baseURL || '',
+      };
+    }
+
+    const registry = this.createFilteredRegistry(effectiveTools, {
+      agentId,
+      workingDir: options.workingDir,
+    });
+
+    const subAgentId = `acp-${agentId}-${Date.now()}`;
+    const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
+
+    if (this.hookRegistry) {
+      agentLoop.setHookRegistry(this.hookRegistry);
+    }
+
+    log.info(`[createAcpAgent] 创建完成`, {
+      agentId,
+      subAgentId,
+      isRegistered: !!agentCfg,
+      model: runtimeConfig.model,
+      toolCount: effectiveTools.length,
+    });
+
+    return { agentLoop, config: runtimeConfig, subAgentId, depth: 0 };
+  }
+
   /**
    * 通过 ACP 子进程执行子 agent
    * 主进程透传 provider 配置（含 apiKey）
@@ -656,26 +945,29 @@ export class AgentFactory {
     // 已注册 agent 用自有配置，临时 agent 继承父配置
     const fallbackConfig = options.parentConfig ?? this._parentConfig;
     log.debug(`executeViaAcp: agentId="${agentIdOrRole}" isTemporary=${isTemporary} hasRegistered=!!${!!registeredConfig} fallbackConfig=${fallbackConfig ? 'yes' : 'no'} fallbackProvider=${JSON.stringify((fallbackConfig as any)?.provider)}`);
-    const agentProviderConfig = registeredConfig && !isTemporary
-      ? {
-          adapter: (registeredConfig as any).provider?.adapter,
-          model: (registeredConfig as any).model?.primary,
-          apiKey: (registeredConfig as any).provider?.apiKey,
-          baseURL: (registeredConfig as any).provider?.baseURL,
-          maxTokens: (registeredConfig as any).model?.maxTokens,
-          temperature: (registeredConfig as any).model?.temperature,
-        }
-      : fallbackConfig
-        ? {
-            // 兼容两种 shape：嵌套 AgentConfig (model.primary / provider.apiKey) 和扁平 ProviderConfig (model / apiKey)
-            adapter: (fallbackConfig as any).adapter || (fallbackConfig as any).provider?.adapter,
-            model: (fallbackConfig as any).model?.primary || (fallbackConfig as any).model || '',
-            apiKey: (fallbackConfig as any).apiKey || (fallbackConfig as any).provider?.apiKey,
-            baseURL: (fallbackConfig as any).baseURL || (fallbackConfig as any).provider?.baseURL,
-            maxTokens: (fallbackConfig as any).maxTokens || (fallbackConfig as any).model?.maxTokens,
-            temperature: (fallbackConfig as any).temperature || (fallbackConfig as any).model?.temperature,
-          }
-        : undefined;
+    let agentProviderConfig: Record<string, any> | undefined;
+
+    if (registeredConfig && !isTemporary) {
+      agentProviderConfig = {
+        adapter: (registeredConfig as any).provider?.adapter,
+        model: (registeredConfig as any).model?.primary,
+        apiKey: (registeredConfig as any).provider?.apiKey,
+        baseURL: (registeredConfig as any).provider?.baseURL,
+        maxTokens: (registeredConfig as any).model?.maxTokens,
+        temperature: (registeredConfig as any).model?.temperature,
+      };
+    } else if (isTemporary && fallbackConfig) {
+      agentProviderConfig = {
+        adapter: (fallbackConfig as any).adapter || '',
+        model: (fallbackConfig as any).model || '',
+        apiKey: (fallbackConfig as any).apiKey || '',
+        baseURL: (fallbackConfig as any).baseURL || '',
+        maxTokens: (fallbackConfig as any).maxTokens,
+        temperature: (fallbackConfig as any).temperature,
+      };
+    } else {
+      throw new Error(`ACP: 子 Agent "${agentIdOrRole}" 未注册且无父配置，无法执行`);
+    }
 
     const result = await acp.run(agentIdOrRole, options.task, {
       userId: (() => { try { return getConfigManager().getUserId() || undefined; } catch { return undefined; } })(),
@@ -687,7 +979,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
       parentConfig: agentProviderConfig,
       onEvent: (event) => {
-        this.forwardAcpEventToEventBus(event.payload.eventType, event.payload.data, subAgentId);
+        forwardAcpEvent(event.payload.eventType, event.payload.data, subAgentId, this.hookRegistry);
       },
     });
 
@@ -727,105 +1019,6 @@ export class AgentFactory {
     };
   }
 
-  /** 将 ACP 事件转发到 EventBus + HookRegistry */
-  private forwardAcpEventToEventBus(
-    eventType: string,
-    data: any,
-    agentId: string,
-  ): void {
-    switch (eventType) {
-      case 'text':
-        eventBus.emitSync(XuanjiEvent.AGENT_TEXT_DELTA, {
-          text: data.text,
-          agentId,
-        });
-        if (this.hookRegistry) {
-          this.hookRegistry.emit('SubAgentText', { subAgentId: agentId, text: data.text }).catch(() => {});
-        }
-        break;
-      case 'thinking':
-        eventBus.emitSync(XuanjiEvent.AGENT_THINKING_DELTA, {
-          content: data.content,
-          agentId,
-        });
-        if (this.hookRegistry) {
-          this.hookRegistry.emit('AgentThinking', { subAgentId: agentId, thinkingContent: data.content }).catch(() => {});
-        }
-        break;
-      case 'tool_start':
-        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_START, {
-          id: data.id,
-          name: data.name,
-          input: data.input,
-          agentId,
-        });
-        if (this.hookRegistry) {
-          this.hookRegistry.emit('ToolStart', { subAgentId: agentId, toolId: data.id, toolName: data.name, toolInput: data.input }).catch(() => {});
-        }
-        break;
-      case 'tool_end':
-        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_END, {
-          id: data.id,
-          name: data.name,
-          result: data.result,
-          isError: data.isError,
-          agentId,
-          metadata: data.metadata,
-        });
-        if (this.hookRegistry) {
-          this.hookRegistry.emit('ToolEnd', { subAgentId: agentId, toolId: data.id, toolName: data.name, toolResult: data.result, toolIsError: data.isError }).catch(() => {});
-        }
-        break;
-      case 'tool_delta':
-        eventBus.emitSync(XuanjiEvent.AGENT_TOOL_DELTA, {
-          id: data.id,
-          name: data.name,
-          receivedBytes: data.receivedBytes,
-        });
-        break;
-    }
-  }
-
-  /** AgentPool: 获取或复用已创建的 agent */
-  acquire(agentId: string): AgentLoop | undefined {
-    const entry = this.agentPool.get(agentId);
-    if (entry && !entry.inUse) {
-      entry.inUse = true;
-      entry.lastUsed = Date.now();
-      return entry.agent;
-    }
-    return undefined;
-  }
-
-  /** AgentPool: 释放引用 */
-  release(agentId: string): void {
-    const entry = this.agentPool.get(agentId);
-    if (entry) entry.inUse = false;
-  }
-
-  /** AgentPool: 缓存 agent */
-  cache(agentId: string, agent: AgentLoop): void {
-    if (this.agentPool.size >= this.maxPoolSize) {
-      this.evictOne();
-    }
-    this.agentPool.set(agentId, { agent, inUse: false, lastUsed: Date.now() });
-  }
-
-  abortAll(): void {
-    for (const [, entry] of this.agentPool) {
-      try { entry.agent.stop(); } catch { /* ignore */ }
-    }
-    this.agentPool.clear();
-  }
-
-  evictIdle(): void {
-    const now = Date.now();
-    for (const [key, entry] of this.agentPool) {
-      if (!entry.inUse && now - entry.lastUsed > this.maxIdleMs) {
-        this.agentPool.delete(key);
-      }
-    }
-  }
 
   // ─── Temporary Agent (接管自 TemporaryAgentFactory) ─────
 
@@ -837,7 +1030,7 @@ export class AgentFactory {
 
     const provider = parentConfig?.provider
       ? { ...parentConfig.provider }
-      : { adapter: 'anthropic' };
+      : {};
 
     const tempAgent: ConfigurableAgentConfig = {
       id: tempId,
@@ -847,7 +1040,7 @@ export class AgentFactory {
       color: 'from-gray-500 to-gray-600',
       category: 'custom',
       model: {
-        primary: model || parentConfig?.model?.primary || 'claude-sonnet-4-6',
+        primary: model || parentConfig?.model?.primary || '',
         maxTokens: 64000,
         thinking: { type: 'adaptive' as const, effort: 'medium' as const },
       },
@@ -884,26 +1077,14 @@ export class AgentFactory {
     return tempAgent;
   }
 
-  getTemporaryAgent(id: string): ConfigurableAgentConfig | undefined {
-    return this.temporaryAgents.get(id);
-  }
-
   cleanupTemporaryAgent(id: string): void {
     if (this.temporaryAgents.has(id)) {
       this.temporaryAgents.delete(id);
     }
   }
 
-  cleanupAllTemporary(): void {
-    this.temporaryAgents.clear();
-  }
-
   isTemporaryAgent(id: string): boolean {
     return id.startsWith('temp-') || this.temporaryAgents.has(id);
-  }
-
-  getAllTemporaryAgents(): ConfigurableAgentConfig[] {
-    return Array.from(this.temporaryAgents.values());
   }
 
   // ─── Private ────────────────────────────────────────────
@@ -932,24 +1113,25 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     return prompt.trim();
   }
 
-  private resolveProvider(agentCfg: ReturnType<ConfigManager['getAgentConfig']>, parentProvider?: ILLMProvider): ILLMProvider {
-    const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL || agentCfg?.provider?.adapter);
-    if (hasIndependent && agentCfg?.provider) {
-      return this.providerPool.getProvider({
-        adapter: agentCfg.provider.adapter!,
-        model: agentCfg.model!.primary!,
-        apiKey: agentCfg.provider.apiKey!,
-        baseURL: agentCfg.provider.baseURL!,
-      });
+  private resolveProvider(agentCfg: ReturnType<ConfigManager['getAgentConfig']>): ILLMProvider {
+    const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL);
+    if (!hasIndependent || !agentCfg?.provider) {
+      throw new Error(`Agent "${agentCfg?.name || agentCfg?.id || 'unknown'}" 未配置 apiKey/baseURL，请在配置页面设置`);
     }
-    if (parentProvider) return parentProvider;
-    throw new Error('No provider available for agent');
+    return this.providerPool.getProvider({
+      adapter: agentCfg.provider.adapter!,
+      model: agentCfg.model!.primary!,
+      apiKey: agentCfg.provider.apiKey!,
+      baseURL: agentCfg.provider.baseURL!,
+    });
   }
 
   private async buildMainPrompt(
     agentCfg: NonNullable<ReturnType<ConfigManager['getAgentConfig']>>,
     options: AgentCreateOptions,
   ): Promise<string> {
+    if (options.systemPromptOverride) return options.systemPromptOverride;
+
     if (this.layeredPromptBuilder) {
       const result = await this.layeredPromptBuilder.build({
         scene: options.scene || 'coding',
@@ -1011,35 +1193,50 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
       temperature?: number;
       maxTokens?: number;
     },
-    _provider: ILLMProvider,
   ): AgentConfig {
     const cfg = agentCfg as any;
-    const thinkingRaw = cfg?.model?.thinking;
+    // 兼容两种 config 格式：YAML 配置 (model: { primary: string }) 和运行时配置 (model: string)
+    const model = typeof cfg?.model === 'string' ? cfg.model : cfg?.model?.primary;
+    const thinkingRaw = typeof cfg?.model === 'object' ? cfg?.model?.thinking : cfg?.thinking;
     const thinking = thinkingRaw?.type && thinkingRaw.type !== 'disabled' ? thinkingRaw : undefined;
 
     return {
-      // 兼容两种配置结构：嵌套 ConfigurableAgentConfig (model.primary) 和扁平 ProviderConfig (model)
-      model: cfg?.model?.primary || cfg?.model || '',
+      model: model!,
       systemPrompt: overrides.systemPrompt,
       maxIterations: overrides.maxIterations,
       temperature: overrides.temperature,
-      maxTokens: overrides.maxTokens ?? cfg?.maxTokens ?? cfg?.model?.maxTokens,
+      maxTokens: overrides.maxTokens ?? (typeof cfg?.model === 'object' ? cfg?.model?.maxTokens : (cfg?.maxTokens ?? undefined)),
       thinking,
       workingDir: overrides.workingDir,
-      apiKey: cfg?.provider?.apiKey || cfg?.apiKey,
-      baseURL: cfg?.provider?.baseURL || cfg?.baseURL,
+      apiKey: cfg?.provider?.apiKey ?? cfg?.apiKey!,
+      baseURL: cfg?.provider?.baseURL ?? cfg?.baseURL!,
     };
   }
 
-  private evictOne(): void {
-    let oldestKey = '';
-    let oldestTime = Infinity;
-    for (const [key, entry] of this.agentPool) {
-      if (!entry.inUse && entry.lastUsed < oldestTime) {
-        oldestKey = key;
-        oldestTime = entry.lastUsed;
-      }
-    }
-    if (oldestKey) this.agentPool.delete(oldestKey);
+}
+
+// ─── ACP 事件转发映射 ─────────────────────────────────────
+
+const ACP_EVENT_BUS_MAP: Record<string, [string, (data: any, agentId: string) => Record<string, unknown>]> = {
+  text: [XuanjiEvent.AGENT_TEXT_DELTA, (d, id) => ({ text: d.text, agentId: id })],
+  thinking: [XuanjiEvent.AGENT_THINKING_DELTA, (d, id) => ({ content: d.content, agentId: id })],
+  tool_start: [XuanjiEvent.AGENT_TOOL_START, (d, id) => ({ id: d.id, name: d.name, input: d.input, agentId: id })],
+  tool_end: [XuanjiEvent.AGENT_TOOL_END, (d, id) => ({ id: d.id, name: d.name, result: d.result, isError: d.isError, agentId: id, metadata: d.metadata })],
+  tool_delta: [XuanjiEvent.AGENT_TOOL_DELTA, (d, id) => ({ id: d.id, name: d.name, receivedBytes: d.receivedBytes })],
+};
+
+const ACP_HOOK_MAP: Record<string, [string, (data: any, agentId: string) => Record<string, unknown>]> = {
+  text: ['SubAgentText', (d, id) => ({ subAgentId: id, text: d.text })],
+  thinking: ['AgentThinking', (d, id) => ({ subAgentId: id, thinkingContent: d.content })],
+  tool_start: ['ToolStart', (d, id) => ({ subAgentId: id, toolId: d.id, toolName: d.name, toolInput: d.input })],
+  tool_end: ['ToolEnd', (d, id) => ({ subAgentId: id, toolId: d.id, toolName: d.name, toolResult: d.result, toolIsError: d.isError })],
+};
+
+function forwardAcpEvent(eventType: string, data: any, agentId: string, hookRegistry: HookRegistry | null): void {
+  const busEntry = ACP_EVENT_BUS_MAP[eventType];
+  if (busEntry) eventBus.emitSync(busEntry[0], busEntry[1](data, agentId));
+  const hookEntry = ACP_HOOK_MAP[eventType];
+  if (hookEntry && hookRegistry) {
+    hookRegistry.emit(hookEntry[0] as any, hookEntry[1](data, agentId)).catch(() => {});
   }
 }

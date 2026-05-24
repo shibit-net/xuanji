@@ -14,23 +14,23 @@ content: |
 
   | User says | Action |
   |-----------|--------|
-  | "每天早上/下午 X 点做 Y" | `scheduler create type:daily hour:X minute:0 message:"Y"` |
-  | "每天 X:30 帮我 Z" | `scheduler create type:daily hour:X minute:30 message:"Z"` |
-  | "每周X提醒/做 Y" | `scheduler create type:weekly dayOfWeek:X message:"Y"` |
-  | "每月 X 号做 Y" | `scheduler create type:monthly dayOfMonth:X message:"Y"` |
-  | "每年 X 月 Y 号做 Z" | `scheduler create type:yearly month:X dayOfMonth:Y message:"Z"` |
-  | "下周三下午 3 点做 X" | `scheduler create type:once scheduledDate:"YYYY-MM-DD" scheduledTime:"15:00" message:"X"` |
-  | "明天 X 点做 Y" | `scheduler create type:once scheduledDate:<tomorrow> scheduledTime:"X:00" message:"Y"` |
-  | "XX 分钟后/小时后做 Y" | 计算绝对时间 → `scheduler create type:once scheduledDate:scheduledTime message:"Y"` |
-  | "我有哪些定时任务" | `scheduler action:list` |
-  | "取消/删除 XX 任务" | `scheduler action:delete id:"XX"` |
-  | "修改 XX 任务的时间" | `scheduler action:update id:"XX" ...` |
+  | "Every morning/afternoon at X do Y" | `scheduler create type:daily hour:X minute:0 message:"Y"` |
+  | "Every day X:30 do Z for me" | `scheduler create type:daily hour:X minute:30 message:"Z"` |
+  | "Weekly X remind/do Y" | `scheduler create type:weekly dayOfWeek:X message:"Y"` |
+  | "Monthly on the Xth do Y" | `scheduler create type:monthly dayOfMonth:X message:"Y"` |
+  | "Yearly on month X day Y do Z" | `scheduler create type:yearly month:X dayOfMonth:Y message:"Z"` |
+  | "Next Wednesday at 3 PM do X" | `scheduler create type:once scheduledDate:"YYYY-MM-DD" scheduledTime:"15:00" message:"X"` |
+  | "Tomorrow at X do Y" | `scheduler create type:once scheduledDate:<tomorrow> scheduledTime:"X:00" message:"Y"` |
+  | "In XX minutes / XX hours do Y" | Calculate absolute time then → `scheduler create type:once scheduledDate:scheduledTime message:"Y"` |
+  | "What scheduled tasks do I have?" | `scheduler action:list` |
+  | "Cancel/delete task XX" | `scheduler action:delete id:"XX"` |
+  | "Change task XX's time" | `scheduler action:update id:"XX" ...` |
 
   ## Key Rules
 
-  1. **MUST create, don't just acknowledge** — when a user mentions any periodic or future-time action, create the scheduler task immediately. Never reply with just "好的我记住了" or "我会提醒你".
+  1. **MUST create, don't just acknowledge** — when a user mentions any periodic or future-time action, create the scheduler task immediately. Never reply with just "OK, I remember" or "I'll remind you".
   2. **After creation, briefly confirm** — tell the user the task ID, schedule, and what it will do.
-  3. **The `message` field is the agent instruction** — it's what will be injected to trigger you at execution time. Write it as a clear task for the AI, not a reminder note for the user. Example: `message: "检查 GitHub issues 并总结今天的新问题"` not `message: "提醒用户检查 GitHub"`.
+  3. **The `message` field is the agent instruction** — it's what will be injected to trigger you at execution time. Write it as a clear task for the AI, not a reminder note for the user. Example: `message: "Check GitHub issues and summarize new ones today"` not `message: "Remind user to check GitHub"`.
   4. **once type needs absolute date** — use `scheduledDate` (YYYY-MM-DD) + `scheduledTime` (HH:mm). Convert relative dates ("tomorrow", "next Wednesday") to absolute dates. Run `date +%Y-%m-%d` first if unsure.
   5. **Periodic types use hour:minute** — daily/weekly/monthly/yearly don't need scheduledDate, just the time pattern.
   6. **When in doubt, scheduler action:list first** — to check existing tasks before creating/modifying.

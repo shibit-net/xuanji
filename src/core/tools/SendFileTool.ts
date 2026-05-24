@@ -13,9 +13,16 @@ import { XuanjiEvent } from '@/core/events/events';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.flac', '.wma', '.m4a', '.opus']);
+const VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v']);
 const MIME_MAP: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.aac': 'audio/aac',
+  '.flac': 'audio/flac', '.wma': 'audio/x-ms-wma', '.m4a': 'audio/mp4', '.opus': 'audio/opus',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska', '.webm': 'video/webm', '.wmv': 'video/x-ms-wmv',
+  '.flv': 'video/x-flv', '.m4v': 'video/mp4',
 };
 
 export class SendFileTool extends BaseTool {
@@ -55,6 +62,8 @@ export class SendFileTool extends BaseTool {
 
     const ext = extname(filePath).toLowerCase();
     const isImage = IMAGE_EXTS.has(ext);
+    const isAudio = AUDIO_EXTS.has(ext);
+    const isVideo = VIDEO_EXTS.has(ext);
 
     // 1) platform:send-file：远端平台发送
     eventBus.emitSync('platform:send-file', {
@@ -74,21 +83,32 @@ export class SendFileTool extends BaseTool {
       ? `${(stat.size / 1024 / 1024).toFixed(1)}MB`
       : `${(stat.size / 1024).toFixed(0)}KB`;
 
+    // 3) contentBlocks：读取文件内容并构造展示块
+    let buffer: Buffer;
+    try {
+      buffer = readFileSync(filePath);
+    } catch (readErr) {
+      return this.error(`文件读取失败: ${filePath} — ${readErr instanceof Error ? readErr.message : String(readErr)}`);
+    }
+
     const result: ToolResult = {
-      content: `已发送给用户，用户已在对话框中看到。${message || ''}`,
+      content: `已成功发送给用户，用户已在对话框中看到。${message ? '附言: ' + message : ''}`,
       isError: false,
       metadata: { filePath, size: stat.size, isImage },
     };
 
-    // 3) contentBlocks：图片用 ImageBlock，其他文件用 FileBlock 卡片展示
     if (isImage) {
-      const buffer = readFileSync(filePath);
       const base64 = buffer.toString('base64');
-      result.contentBlocks = [{
-        type: 'image',
-        mimeType: MIME_MAP[ext] || 'image/png',
-        data: base64,
-      }];
+      const mimeType = MIME_MAP[ext] || 'image/png';
+      result.contentBlocks = [{ type: 'image', mimeType, data: base64 }];
+    } else if (isAudio) {
+      const base64 = buffer.toString('base64');
+      const mimeType = MIME_MAP[ext] || 'audio/mpeg';
+      result.contentBlocks = [{ type: 'audio', mimeType, data: base64 }];
+    } else if (isVideo) {
+      const base64 = buffer.toString('base64');
+      const mimeType = MIME_MAP[ext] || 'video/mp4';
+      result.contentBlocks = [{ type: 'video', mimeType, data: base64 }];
     } else {
       result.contentBlocks = [{
         type: 'file',

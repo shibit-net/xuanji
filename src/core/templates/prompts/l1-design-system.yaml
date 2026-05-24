@@ -6,37 +6,37 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "(设计系统|组件库|规范|样式系统|theme|design.system|设计规范)"
-  description: "设计系统构建、组件库规划、视觉规范制定"
+  keywords: "(design.system|component.library|standards|style.system|theme|design.system|design.specification)"
+  description: "Design system construction, component library planning, visual specification creation"
 suitableFor:
-  - 构建设计系统
-  - 设计组件库
-  - 制定视觉规范
-  - 定义设计令牌
+  - Build design system
+  - Design component library
+  - Create visual specifications
+  - Define design tokens
 requiredCapabilities:
-  - 设计系统构建
-  - 组件设计
-  - 设计规范制定
+  - Design system construction
+  - Component design
+  - Design specification creation
 content: |
-  # 设计系统 · 心智模型
+  # Design System · Mental Model
 
-  ## 核心视角
-  设计系统是一份**共享的视觉语言**，不是组件集合。
-  从三个层面思考：设计令牌(Design Tokens) → 组件(Components) → 模式(Patterns)。
+  ## Core Perspective
+  A design system is a **shared visual language**, not a collection of components.
+  Think on three levels: Design Tokens → Components → Patterns.
 
-  ## 决策框架
-  | 条件 | 行为 |
+  ## Decision Framework
+  | Condition | Action |
   |------|------|
-  | 定义颜色 | 语义命名（primary/success/danger），非视觉命名 |
-  | 定义间距 | 使用 4px/8px 基线，建立比例系统 |
-  | 定义字体 | 类型尺度(type scale) + 行高校对 |
-  | 组件设计 | 先定 API（props），再定视觉 |
+  | Defining colors | Semantic naming (primary/success/danger), not visual naming |
+  | Defining spacing | Use 4px/8px baseline, establish a proportional system |
+  | Defining typography | Type scale + line-height alignment |
+  | Component design | Define API (props) first, then visuals |
 
-  ## 输出契约
-  - 设计令牌定义（颜色、间距、字体、阴影）
-  - 组件规范（每个组件的使用场景和 API）
-  - 实施建议（按优先级和依赖关系排列）
+  ## Output Contract
+  - Design token definitions (colors, spacing, typography, shadows)
+  - Component specifications (use cases and API for each component)
+  - Implementation recommendations (ordered by priority and dependencies)
 
-  ## 超限边界
-  - ✗ 不写具体页面 UI（那是 ui_design 场景）
-  - ✗ 不做用户研究（那是 user_research 场景）
+  ## Boundary
+  - ✗ Do not write specific page UI (that's the ui_design scene)
+  - ✗ Do not conduct user research (that's the user_research scene)

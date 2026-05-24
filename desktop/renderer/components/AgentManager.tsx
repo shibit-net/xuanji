@@ -4,6 +4,7 @@
 
 import { useState, useMemo } from 'react';
 import { Search, Plus, X, Bot, RefreshCw, Filter, ChevronDown } from 'lucide-react';
+import { t } from '@/core/i18n';
 import { useAgentManager } from '../hooks/useAgentManager';
 import { useToast } from './Toast';
 import AgentDetail from './AgentDetail';
@@ -119,11 +120,11 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
   const handleSaveAgent = async (config: any) => {
     try {
       const result = selectedAgent
-        ? await updateAgent(selectedAgent.id, (({ id, ...rest }) => rest)(config))
+        ? await updateAgent(selectedAgent.id, (({ id, metadata, ...rest }) => rest)(config))
         : await createAgent(config);
 
       if (result.success) {
-        toast.success(selectedAgent ? 'Agent 更新成功' : 'Agent 创建成功');
+        toast.success(selectedAgent ? t('agent.toast_update_success') : t('agent.toast_create_success'));
 
         // 主动拉取最新 Agent 详情，避免列表状态更新时序问题
         const latest = await window.electron.agentGet({ agentId: config.id });
@@ -133,43 +134,48 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
         setViewType('detail');
       } else {
-        toast.error(result.error || '操作失败');
+        toast.error(result.error || t('agent.toast_operation_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '操作失败');
+      toast.error(err instanceof Error ? err.message : t('agent.toast_operation_failed'));
     }
   };
 
   const handleDeleteAgent = async () => {
     if (!selectedAgent) return;
-    if (!confirm(`确定要删除 Agent "${selectedAgent.name}" 吗？\n\n此操作不可撤销。`)) return;
+    if (!confirm(t('agent.confirm_delete', { name: selectedAgent.name }))) return;
 
     try {
       const result = await deleteAgent(selectedAgent.id);
       if (result.success) {
-        toast.success('Agent 删除成功');
+        toast.success(t('agent.toast_delete_success'));
         setSelectedAgent(null);
         setViewType(null);
       } else {
-        toast.error(result.error || '删除失败');
+        toast.error(result.error || t('agent.toast_delete_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '删除失败');
+      toast.error(err instanceof Error ? err.message : t('agent.toast_delete_failed'));
     }
   };
 
   const handleToggleEnabled = async (enabled: boolean) => {
     if (!selectedAgent) return;
 
-    try {
-      const updatedConfig = {
-        ...selectedAgent,
-        enabled,
-      };
+    // 启用时校验：非本地模型必须有 API Key
+    if (enabled) {
+      const LOCAL_PROVIDERS = new Set(['ollama', 'vllm', 'lmstudio', 'local-llama']);
+      const adapter = selectedAgent.provider?.adapter || 'anthropic';
+      if (!LOCAL_PROVIDERS.has(adapter) && !selectedAgent.provider?.apiKey) {
+        toast.error(t('agent.editor.error.cannot_enable'));
+        return;
+      }
+    }
 
-      const result = await updateAgent(selectedAgent.id, updatedConfig);
+    try {
+      const result = await updateAgent(selectedAgent.id, { enabled });
       if (result.success) {
-        toast.success(enabled ? 'Agent 已启用' : 'Agent 已禁用');
+        toast.success(enabled ? t('agent.toast_enabled') : t('agent.toast_disabled'));
 
         // 主动拉取最新 Agent 详情
         const latest = await window.electron.agentGet({ agentId: selectedAgent.id });
@@ -177,43 +183,28 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           setSelectedAgent(latest.agent);
         }
       } else {
-        toast.error(result.error || '操作失败');
+        toast.error(result.error || t('agent.toast_operation_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '操作失败');
+      toast.error(err instanceof Error ? err.message : t('agent.toast_operation_failed'));
     }
-  };
-
-  const handleCopyAgent = () => {
-    if (!selectedAgent) return;
-
-    const copiedConfig = {
-      ...selectedAgent,
-      id: `${selectedAgent.id}-copy`,
-      name: `${selectedAgent.name}（副本）`,
-      metadata: undefined, // 移除元数据
-    };
-
-    setSelectedAgent(copiedConfig);
-    setViewType('editor');
-    toast.info('已复制 Agent 配置，请修改后保存');
   };
 
   const handleRefresh = async () => {
     try {
       await reload();
-      toast.success('刷新成功');
+      toast.success(t('agent.toast_refresh_success'));
     } catch (err) {
-      toast.error('刷新失败');
+      toast.error(t('agent.toast_refresh_failed'));
     }
   };
 
   const getGroupLabel = (group: string) => {
     switch (group) {
-      case 'system': return '⚙️ 系统 Agent';
-      case 'app': return '🌟 应用 Agent';
-      case 'custom': return '📝 自定义 Agent';
-      default: return '未知';
+      case 'system': return t('agent.group_system');
+      case 'app': return t('agent.group_app');
+      case 'custom': return t('agent.group_custom');
+      default: return t('agent.group_unknown');
     }
   };
 
@@ -223,44 +214,44 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
     if (agent.metadata?.isMainAgent) {
       return {
-        type: '主 Agent',
+        type: t('agent.type_main'),
         typeEn: 'Main',
         icon: '⭐',
         color: 'text-yellow-400',
         bgColor: 'bg-yellow-500/20',
-        description: '主 Agent，负责所有用户交互和任务执行',
+        description: t('agent.desc_main'),
       };
     }
 
     if (category === 'system') {
       return {
-        type: '系统',
+        type: t('agent.type_system'),
         typeEn: 'System',
         icon: '⚙️',
         color: 'text-gray-400',
         bgColor: 'bg-gray-500/20',
-        description: '系统内置 Agent，不可删除',
+        description: t('agent.desc_system'),
       };
     }
 
     if (category === 'app') {
       return {
-        type: '应用',
+        type: t('agent.type_app'),
         typeEn: 'App',
         icon: '🤖',
         color: 'text-blue-500',
         bgColor: 'bg-blue-500/20',
-        description: '应用 Agent，可配置模型和工具',
+        description: t('agent.desc_app'),
       };
     }
 
     return {
-      type: '自定义',
+      type: t('agent.type_custom'),
       typeEn: 'Custom',
       icon: '📝',
       color: 'text-purple-500',
       bgColor: 'bg-purple-500/20',
-      description: '用户自定义 Agent',
+      description: t('agent.desc_custom'),
     };
   };
 
@@ -270,7 +261,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
       <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
         <div className="flex items-center gap-3">
           <Bot size={24} className="text-primary" />
-          <h2 className="text-lg font-bold">Agent 管理</h2>
+          <h2 className="text-lg font-bold">{t('agent.title')}</h2>
           {agents.length > 0 && (
             <span className="text-xs bg-bg-tertiary px-2 py-1 rounded">
               {filteredAndSortedAgents.length} / {agents.length}
@@ -282,14 +273,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             onClick={handleRefresh}
             disabled={loading}
             className="p-1.5 hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
-            title="刷新"
+            title={t('agent.refresh')}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
-            title="关闭"
+            title={t('agent.close')}
           >
             <X size={20} />
           </button>
@@ -306,7 +297,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               <Search size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
               <input
                 type="text"
-                placeholder="搜索 Agent..."
+                placeholder={t('agent.search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-bg-secondary border border-bg-tertiary rounded px-8 py-1.5 text-sm focus:outline-none focus:border-primary transition-colors"
@@ -320,7 +311,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             >
               <div className="flex items-center gap-2">
                 <Filter size={14} />
-                <span>筛选</span>
+                <span>{t('agent.filter')}</span>
               </div>
               <ChevronDown size={14} className={`transition-transform ${showFilters ? 'rotate-180' : ''}`} />
             </button>
@@ -329,42 +320,42 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             {showFilters && (
               <div className="space-y-2 pt-2 border-t border-bg-tertiary">
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">分类</label>
+                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_category')}</label>
                   <select
                     value={filterSource}
                     onChange={(e) => setFilterSource(e.target.value as FilterSource)}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="all">全部</option>
-                    <option value="system">系统 Agent</option>
-                    <option value="app">应用 Agent</option>
-                    <option value="custom">自定义 Agent</option>
+                    <option value="all">{t('agent.filter_all')}</option>
+                    <option value="system">{t('agent.group_system')}</option>
+                    <option value="app">{t('agent.group_app')}</option>
+                    <option value="custom">{t('agent.group_custom')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">状态</label>
+                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_status')}</label>
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="all">全部</option>
-                    <option value="enabled">已启用</option>
-                    <option value="disabled">已禁用</option>
+                    <option value="all">{t('agent.filter_all')}</option>
+                    <option value="enabled">{t('agent.filter_enabled')}</option>
+                    <option value="disabled">{t('agent.filter_disabled')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">排序</label>
+                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_sort')}</label>
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as SortBy)}
                     className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="name">按名称</option>
-                    <option value="created">按创建时间</option>
-                    <option value="source">按来源</option>
+                    <option value="name">{t('agent.filter_sort_name')}</option>
+                    <option value="created">{t('agent.filter_sort_created')}</option>
+                    <option value="source">{t('agent.filter_sort_source')}</option>
                   </select>
                 </div>
               </div>
@@ -379,7 +370,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors text-sm font-medium disabled:opacity-50"
             >
               <Plus size={16} />
-              <span>创建 Agent</span>
+              <span>{t('agent.create')}</span>
             </button>
           </div>
 
@@ -392,7 +383,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                   onClick={handleRefresh}
                   className="text-sm text-primary hover:underline"
                 >
-                  重试
+                  {t('agent.retry')}
                 </button>
               </div>
             ) : loading ? (
@@ -404,10 +395,10 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             ) : filteredAndSortedAgents.length === 0 ? (
               <div className="text-center text-sm text-text-secondary py-8">
                 {searchQuery || filterSource !== 'all' || filterStatus !== 'all'
-                  ? '没有找到匹配的 Agent'
+                  ? t('agent.empty_no_match')
                   : agents.length === 0
-                  ? '暂无 Agent\n点击"创建 Agent"开始'
-                  : '暂无 Agent'}
+                  ? t('agent.empty_no_agents_hint')
+                  : t('agent.empty_no_agents')}
               </div>
             ) : (
               <div className="space-y-3">
@@ -453,7 +444,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                                 {typeInfo.icon}
                               </span>
                               {agent.enabled === false && (
-                                <span className="text-xs text-red-500">禁</span>
+                                <span className="text-xs text-red-500">{t('agent.disabled_badge')}</span>
                               )}
                             </div>
                             <div className="text-xs text-text-secondary truncate">
@@ -499,8 +490,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
               agent={selectedAgent}
               onEdit={handleEditAgent}
               onDelete={handleDeleteAgent}
-              onCopy={handleCopyAgent}
-              onTest={() => toast.info('测试功能开发中...')}
+              onTest={() => toast.info(t('agent.toast_test_in_progress'))}
               onToggleEnabled={handleToggleEnabled}
             />
           ) : viewType === 'editor' ? (
@@ -514,13 +504,13 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-text-secondary">
                 <Bot size={48} className="mx-auto mb-3 opacity-50" />
-                <p className="text-sm mb-1">选择或创建一个 Agent</p>
+                <p className="text-sm mb-1">{t('agent.select_hint')}</p>
                 {agents.length === 0 && !loading && (
                   <button
                     onClick={handleCreateAgent}
                     className="mt-3 text-xs text-primary hover:underline"
                   >
-                    立即创建 →
+                    {t('agent.create_now')}
                   </button>
                 )}
               </div>

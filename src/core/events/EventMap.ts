@@ -22,10 +22,11 @@ export interface XuanjiEventMap {
   [XuanjiEvent.AGENT_STARTED]: { userId?: string; model: string };
   [XuanjiEvent.AGENT_TOOL_START]: { id: string; name: string; input: Record<string, unknown>; agentId?: string };
   [XuanjiEvent.AGENT_TOOL_DELTA]: { id: string; name: string; receivedBytes: number };
-  [XuanjiEvent.AGENT_TOOL_END]: { id: string; name: string; result: string; isError: boolean; agentId?: string; metadata?: any };
+  [XuanjiEvent.AGENT_TOOL_END]: { id: string; name: string; result: string; isError: boolean; agentId?: string; sessionKey?: string; metadata?: any; contentBlocks?: import('@/shared/types/tools').ToolResult['contentBlocks'] };
   [XuanjiEvent.AGENT_TEXT_DELTA]: { text: string; agentId?: string };
   [XuanjiEvent.AGENT_THINKING_DELTA]: { content: string; agentId?: string };
   [XuanjiEvent.AGENT_FILE_CHANGES]: { changes: any[]; agentId?: string };
+  [XuanjiEvent.AGENT_CONTENT_BLOCKS]: { contentBlocks: import('@/shared/types/agent').ContentBlock[]; agentId?: string; sessionKey?: string };
   [XuanjiEvent.AGENT_COMPLETED]: { userId?: string; iterations: number; tokenUsage: any };
   [XuanjiEvent.AGENT_ERROR]: { error: string; userId?: string };
 
@@ -76,6 +77,8 @@ export interface XuanjiEventMap {
   [XuanjiEvent.HOOK_MEMORY_WRITE]: { content: string };
   [XuanjiEvent.HOOK_COMPACT_PRE]: Record<string, never>;
   [XuanjiEvent.HOOK_COMPACT_POST]: { originalTokens: number; compressedTokens: number; compressionRatio: number };
+  [XuanjiEvent.HOOK_BACKGROUND_TASK_START]: { taskId: string; taskType: string; name: string; model: string };
+  [XuanjiEvent.HOOK_BACKGROUND_TASK_END]: { taskId: string; taskType: string; name: string; durationMs: number; success: boolean; timedOut: boolean; errorMessage?: string };
   [XuanjiEvent.HOOK_ERROR]: { errorMessage: string; errorStack?: string };
   [XuanjiEvent.HOOK_MODEL_CLASSIFIER_START]: { userInput: string; model: string };
   [XuanjiEvent.HOOK_MODEL_CLASSIFIER_END]: { userInput: string; model: string; scene: string; complexity: string; durationMs: number };

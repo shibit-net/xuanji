@@ -16,6 +16,7 @@ import { useAgentStateMachine } from '../../stores/AgentStateMachine';
 import { Avatar } from '../Avatar';
 import { useRealtimeClock, formatDuration } from './hooks';
 import agentAvatar from '../../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
+import { t } from '@/core/i18n';
 
 const NODE_W = 100;
 const AVATAR_SIZE = 64;
@@ -152,39 +153,39 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
       </div>
 
       {/* ─── 左侧：聊天气泡 ─── */}
-      {/* 任务气泡（黄色边框）— 分配了任务但尚未开始思考 */}
+      {/* 任务气泡 — 分配了任务但尚未开始思考 */}
       {showTaskBubble && (
         <div
-          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-yellow-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-muted-foreground/30 shadow-glass-sm min-w-[180px] max-w-[240px]"
           style={{ zIndex: 10 }}
         >
-          <span className="text-[7px] text-yellow-400/70 uppercase tracking-wider">任务</span>
+          <span className="text-[7px] text-muted-foreground/60 uppercase tracking-wider">{t('flow.bubble.task')}</span>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {data.currentTask!.slice(-200)}
           </p>
         </div>
       )}
 
-      {/* 思考气泡（绿色边框）— 正在思考 */}
+      {/* 思考气泡 — 正在思考 */}
       {showThoughtBubble && (
         <div
-          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-green-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-purple-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
           style={{ zIndex: 10 }}
         >
-          <span className="text-[7px] text-muted-foreground/50 uppercase tracking-wider">思考</span>
+          <span className="text-[7px] text-purple-400/70 uppercase tracking-wider">{t('flow.bubble.thinking')}</span>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {liveThinkingText!.slice(-200)}
           </p>
         </div>
       )}
 
-      {/* 汇报气泡（琥珀色边框）— 异步任务完成后汇报结果 */}
+      {/* 汇报气泡 — 异步任务完成后汇报结果 */}
       {showReportingBubble && (
         <div
-          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-amber-400/50 shadow-glass-sm min-w-[180px] max-w-[240px]"
+          className="absolute top-0 right-full mr-0 bg-card/90 backdrop-blur-sm rounded-xl px-2 py-1.5 border border-amber-500/40 shadow-glass-sm min-w-[180px] max-w-[240px]"
           style={{ zIndex: 10 }}
         >
-          <span className="text-[7px] text-amber-400/70 uppercase tracking-wider">汇报</span>
+          <span className="text-[7px] text-amber-400/70 uppercase tracking-wider">{t('flow.bubble.report')}</span>
           <p className="text-[10px] text-muted-foreground leading-relaxed break-words whitespace-pre-wrap mt-0.5">
             {liveResponseText!.slice(-200)}
           </p>

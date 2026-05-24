@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { PermissionRequestData } from '../global';
+import { getDesktopLabel } from '../i18n';
+import { useConfigStore } from '../stores/configStore';
 
 interface PermissionDialogProps {
   request: PermissionRequestData;
@@ -62,10 +64,12 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
   };
 
   const riskLabels = {
-    safe: '安全',
-    warn: '警告',
-    danger: '危险',
+    safe: getDesktopLabel('permdialog.risk_safe', useConfigStore.getState().settings.language as 'zh' | 'en'),
+    warn: getDesktopLabel('permdialog.risk_warn', useConfigStore.getState().settings.language as 'zh' | 'en'),
+    danger: getDesktopLabel('permdialog.risk_danger', useConfigStore.getState().settings.language as 'zh' | 'en'),
   };
+
+  const lang = useConfigStore.getState().settings.language as 'zh' | 'en';
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -73,7 +77,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <Shield size={24} className={riskColors[riskLevel]} />
-            <span>权限确认</span>
+            <span>{getDesktopLabel('permdialog.title', lang)}</span>
             <span className={`text-sm ${riskColors[riskLevel]}`}>
               {riskLabels[riskLevel]}
             </span>
@@ -86,7 +90,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
             <div className="flex items-start gap-3">
               <AlertTriangle size={20} className={riskColors[riskLevel]} />
               <div className="flex-1">
-                <div className="font-semibold mb-1">工具调用</div>
+                <div className="font-semibold mb-1">{getDesktopLabel('permdialog.tool_call', lang)}</div>
                 <div className="text-sm text-muted-foreground">
                   <span className="font-mono">{r.toolName || r.tool}</span>
                 </div>
@@ -97,7 +101,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
           {/* 风险描述 */}
           {r.description && (
             <div>
-              <div className="text-sm font-semibold mb-2">风险描述</div>
+              <div className="text-sm font-semibold mb-2">{getDesktopLabel('permdialog.risk_desc', lang)}</div>
               <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
                 {r.description}
               </div>
@@ -107,7 +111,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
           {/* 建议 */}
           {r.suggestion && (
             <div>
-              <div className="text-sm font-semibold mb-2">建议</div>
+              <div className="text-sm font-semibold mb-2">{getDesktopLabel('permdialog.suggestion', lang)}</div>
               <div className="text-sm text-muted-foreground bg-muted p-3 rounded border border-border">
                 {r.suggestion}
               </div>
@@ -117,7 +121,7 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
           {/* 输入参数 */}
           {r.input && Object.keys(r.input).length > 0 && (
             <div>
-              <div className="text-sm font-semibold mb-2">输入参数</div>
+              <div className="text-sm font-semibold mb-2">{getDesktopLabel('permdialog.input_params', lang)}</div>
               <div className="text-xs font-mono bg-muted p-3 rounded border border-border overflow-x-auto">
                 <pre>{JSON.stringify(r.input, null, 2)}</pre>
               </div>
@@ -127,20 +131,20 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
 
         <DialogFooter className="border-t border-border pt-4">
           <Button variant="outline" onClick={() => handleRespond('never')} disabled={loading}>
-            永不允许
+            {getDesktopLabel('permdialog.btn_never', lang)}
           </Button>
           <Button variant="outline" onClick={() => handleRespond('deny')} disabled={loading}>
-            拒绝
+            {getDesktopLabel('permdialog.btn_deny', lang)}
           </Button>
           <Button onClick={() => handleRespond('allow')} disabled={loading}>
-            允许
+            {getDesktopLabel('permdialog.btn_allow', lang)}
           </Button>
           <Button
             className="bg-green-600 text-white hover:bg-green-700"
             onClick={() => handleRespond('always')}
             disabled={loading}
           >
-            始终允许
+            {getDesktopLabel('permdialog.btn_always', lang)}
           </Button>
         </DialogFooter>
       </DialogContent>

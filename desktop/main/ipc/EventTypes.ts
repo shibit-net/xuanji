@@ -44,6 +44,9 @@ export type AgentEventType =
   // 压缩事件
   | 'agent:compress-start'
   | 'agent:compress-end'
+  // 后台任务事件
+  | 'agent:background-task-start'
+  | 'agent:background-task-end'
   // Memory 事件
   | 'agent:memory-read'
   | 'agent:memory-write'
@@ -139,6 +142,21 @@ export interface EventDataMap {
     success: boolean;
     duration?: number;
     error?: string;
+  };
+  'agent:background-task-start': {
+    taskId: string;
+    taskType: string;
+    name: string;
+    model: string;
+  };
+  'agent:background-task-end': {
+    taskId: string;
+    taskType: string;
+    name: string;
+    durationMs: number;
+    success: boolean;
+    timedOut: boolean;
+    errorMessage?: string;
   };
   'agent:team-start': {
     teamId: string;
