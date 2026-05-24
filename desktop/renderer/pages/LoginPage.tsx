@@ -69,11 +69,12 @@ export default function LoginPage() {
     const date = new Date(timestamp);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
+    const locale = language === 'en' ? 'en-US' : 'zh-CN';
     if (diff < 24 * 60 * 60 * 1000 && date.getDate() === now.getDate()) {
-      return getDesktopLabel('login.last_login_today', language).replace('{time}', date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+      return getDesktopLabel('login.last_login_today', language).replace('{time}', date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
     }
     if (diff < 48 * 60 * 60 * 1000) {
-      return getDesktopLabel('login.last_login_yesterday', language).replace('{time}', date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+      return getDesktopLabel('login.last_login_yesterday', language).replace('{time}', date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
     }
     if (diff < 7 * 24 * 60 * 60 * 1000) {
       const days = [
@@ -85,9 +86,9 @@ export default function LoginPage() {
         getDesktopLabel('login.day_fri', language),
         getDesktopLabel('login.day_sat', language),
       ];
-      return days[date.getDay()] + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      return days[date.getDay()] + ' ' + date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
     }
-    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   };
 
   const displayName = (account: { nickname?: string; email: string }) => {
@@ -135,11 +136,11 @@ export default function LoginPage() {
                 />
 
                 {showDropdown && savedAccounts.length > 0 && (
-                  <div className="absolute z-20 w-full mt-1.5 bg-popover backdrop-blur-2xl border border-white/10 rounded-xl shadow-glass-lg overflow-hidden animate-in fade-in-0 zoom-in-95">
+                  <div className="absolute z-20 w-full mt-1.5 bg-popover backdrop-blur-2xl border border-border rounded-xl shadow-glass-lg overflow-hidden animate-in fade-in-0 zoom-in-95">
                     {savedAccounts.map((account, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-white/[0.06] transition-colors border-b border-white/[0.05] last:border-b-0"
+                        className="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-accent transition-colors border-b border-border/50 last:border-b-0"
                         onClick={() => handleSelectAccount(account.email)}
                       >
                         <div className="flex items-center gap-3 min-w-0">

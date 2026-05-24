@@ -21,6 +21,13 @@ const zh: Record<string, string> = {
   'sidebar.platform_wecom': '企业微信',
   'sidebar.platform_feishu': '飞书',
   'sidebar.platform_dingtalk': '钉钉',
+  'sidebar.session_platform': '📡 {platform} · {name}',
+  'sidebar.session_platform_status': '📡 {platform} · {name} · {status}',
+  'sidebar.add_remote': '远端',
+  'platform.status.online': '在线',
+  'platform.status.offline': '离线',
+  'platform.status.connecting': '连接中',
+  'platform.status.thinking': '思考中',
 
   // TitleBar
   'titlebar.app_name': '璇玑',
@@ -113,6 +120,27 @@ const zh: Record<string, string> = {
   'settings.embedding.download_failed': '创建下载任务失败',
   'settings.embedding.dir_failed': '无法获取 embedding 模型目录',
   'settings.embedding.saved': 'Embedding 配置已保存',
+
+  // LoginPage
+  'login.welcome': '欢迎',
+  'login.desc': '请登录以继续使用 Xuanji',
+  'login.email_label': '邮箱',
+  'login.email_placeholder': 'your@email.com',
+  'login.password_label': '密码',
+  'login.password_placeholder': '••••••••',
+  'login.button': '登录',
+  'login.logging_in': '登录中...',
+  'login.register': '还没有账号？立即注册',
+  'login.remove_account_confirm': '确定要移除账号 {account} 吗？',
+  'login.last_login_today': '今天 {time}',
+  'login.last_login_yesterday': '昨天 {time}',
+  'login.day_sun': '周日',
+  'login.day_mon': '周一',
+  'login.day_tue': '周二',
+  'login.day_wed': '周三',
+  'login.day_thu': '周四',
+  'login.day_fri': '周五',
+  'login.day_sat': '周六',
 
 };
 
@@ -332,11 +360,16 @@ const en: Record<string, string> = {
 
   // Sidebar
   'sidebar.session_platform': '📡 {platform} · {name}',
+  'sidebar.session_platform_status': '📡 {platform} · {name} · {status}',
   'sidebar.platform_wechat': 'WeChat',
   'sidebar.platform_wecom': 'WeCom',
   'sidebar.platform_feishu': 'Feishu',
   'sidebar.platform_dingtalk': 'DingTalk',
   'sidebar.add_remote': 'Remote',
+  'platform.status.online': 'Online',
+  'platform.status.offline': 'Offline',
+  'platform.status.connecting': 'Connecting',
+  'platform.status.thinking': 'Thinking',
 
 };
 
