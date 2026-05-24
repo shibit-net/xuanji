@@ -169,6 +169,18 @@
       {
         "from": "../node_modules/file-uri-to-path",
         "to": "dist-electron/node_modules/file-uri-to-path"
+      },
+      {
+        "from": "../node_modules/@xenova/transformers",
+        "to": "dist-electron/node_modules/@xenova/transformers"
+      },
+      {
+        "from": "../node_modules/@huggingface/jinja",
+        "to": "dist-electron/node_modules/@huggingface/jinja"
+      },
+      {
+        "from": "../node_modules/onnxruntime-node",
+        "to": "dist-electron/node_modules/onnxruntime-node"
       }
     ],
     "mac": {

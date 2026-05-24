@@ -3,10 +3,10 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Wrench, FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useMessageStore } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
+import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
 import { usePlatformStore } from '../stores/platformStore';
 import { t } from '@/core/i18n';
@@ -322,25 +322,25 @@ type TimelineEntry =
 function LogsTab() {
   const logs = useSessionStore((state) => state.logs);
   const clearLogs = useSessionStore((state) => state.clearLogs);
-  const messages = useMessageStore((state) => state.messages);
+  const agentMap = useAgentStateMachine((state) => state.agentMap);
   const [filter, setFilter] = useState<string | null>(null);
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
 
-  // 从 messages 提取工具调用
+  // 从 AgentStateMachine 提取工具调用（按调用顺序排列）
   const toolCalls = useMemo(() => {
-    return messages.flatMap(msg =>
-      (msg.toolCalls || []).map(tc => ({
+    return Object.values(agentMap)
+      .flatMap(a => a.currentTools || [])
+      .map(t => ({
         kind: 'tool' as const,
-        id: tc.id,
-        name: tc.name,
-        status: tc.status,
-        timestamp: msg.timestamp || 0,
-        input: tc.input,
-        output: tc.output,
-        error: tc.error,
-      }))
-    );
-  }, [messages]);
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        timestamp: t.startTime || 0,
+        input: t.input,
+        output: t.output,
+        error: t.status === 'error' ? t.output?.slice(0, 500) : undefined,
+      }));
+  }, [agentMap]);
 
   // 合并日志 + 工具调用，按时间排序
   const timeline = useMemo(() => {

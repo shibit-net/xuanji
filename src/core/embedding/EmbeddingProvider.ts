@@ -60,7 +60,13 @@ export class EmbeddingProvider implements EmbeddingProviderInterface {
   }
 
   private async initPipeline(): Promise<void> {
-    const { pipeline, env } = await import('@xenova/transformers');
+    // 使用 createRequire 解析模块路径：ESM import 在 Electron 打包后
+    // 无法穿透 app.asar 找到 @xenova/transformers，CJS 路径解析支持
+    // NODE_PATH（指向 app.asar.unpacked + dist-electron/node_modules）
+    const { createRequire } = await import('module');
+    const _require = createRequire(import.meta.url);
+    const resolvedPath = _require.resolve('@xenova/transformers');
+    const { pipeline, env } = await import(resolvedPath);
 
     env.cacheDir = this.cacheDir;
     env.allowLocalModels = true;
