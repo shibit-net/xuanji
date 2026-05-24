@@ -98,7 +98,7 @@ export default function RightPanel({ onToggle: _onToggle, width, onResize, class
               className={`flex items-center justify-center gap-2 py-2 px-3 text-sm whitespace-nowrap transition-colors ${
                 activeTab === tab.id
                   ? 'bg-background text-foreground border-b-2 border-primary'
-                  : 'text-muted-foreground hover:bg-bg-secondary border-b-2 border-transparent'
+                  : 'text-muted-foreground hover:bg-card border-b-2 border-transparent'
               }`}
             >
               {tab.icon}
@@ -399,7 +399,7 @@ function LogsTab() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center text-sm text-text-secondary py-8">
+        <div className="text-center text-sm text-muted-foreground py-8">
           {t('rightpanel.no_records')}
         </div>
       ) : (
@@ -408,8 +408,8 @@ function LogsTab() {
             if (entry.kind === 'log') {
               return (
                 <div key={entry.id} className="p-2 bg-background rounded font-mono">
-                  <span className="text-text-secondary">{formatTime(entry.timestamp)}</span>{' '}
-                  <span className={levelColors[entry.level] || 'text-text-secondary'}>
+                  <span className="text-muted-foreground">{formatTime(entry.timestamp)}</span>{' '}
+                  <span className={levelColors[entry.level] || 'text-muted-foreground'}>
                     {entry.level.toUpperCase()}
                   </span>{' '}
                   <span>{entry.message}</span>
@@ -439,7 +439,7 @@ function LogsTab() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 text-text-secondary shrink-0">
+                  <div className="flex items-center gap-1 text-muted-foreground shrink-0">
                     <span>{formatTime(call.timestamp)}</span>
                     {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   </div>
@@ -449,8 +449,8 @@ function LogsTab() {
                   <div className="px-3 pb-2 space-y-2 text-xs border-t border-border/30 pt-2">
                     {call.input && (
                       <div>
-                        <div className="text-text-secondary mb-1">{t('rightpanel.input_params')}</div>
-                        <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs max-h-32 overflow-y-auto">
+                        <div className="text-muted-foreground mb-1">{t('rightpanel.input_params')}</div>
+                        <pre className="bg-card p-2 rounded overflow-x-auto text-xs max-h-32 overflow-y-auto">
                           {JSON.stringify(call.input, null, 2)}
                         </pre>
                       </div>
@@ -458,8 +458,8 @@ function LogsTab() {
 
                     {call.status === 'success' && call.output && (
                       <div>
-                        <div className="text-text-secondary mb-1">{t('rightpanel.output_result')}</div>
-                        <pre className="bg-bg-secondary p-2 rounded overflow-x-auto text-xs max-h-48 overflow-y-auto">
+                        <div className="text-muted-foreground mb-1">{t('rightpanel.output_result')}</div>
+                        <pre className="bg-card p-2 rounded overflow-x-auto text-xs max-h-48 overflow-y-auto">
                           {typeof call.output === 'string' ? call.output : JSON.stringify(call.output, null, 2)}
                         </pre>
                       </div>

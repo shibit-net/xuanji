@@ -29,7 +29,7 @@ function ToolCard({ tool }: { tool: ToolCall }) {
   const getStatusIcon = () => {
     switch (tool.status) {
       case 'pending':
-        return <Clock className="w-4 h-4 text-text-secondary/50" />;
+        return <Clock className="w-4 h-4 text-muted-foreground/50" />;
       case 'running':
         return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
       case 'success':
@@ -76,10 +76,10 @@ function ToolCard({ tool }: { tool: ToolCall }) {
   };
 
   return (
-    <div className="border border-bg-tertiary rounded-lg overflow-hidden bg-bg-secondary">
+    <div className="border border-border rounded-lg overflow-hidden bg-card">
       {/* 工具头部 */}
       <div
-        className="p-3 cursor-pointer hover:bg-bg-tertiary/30 transition-colors"
+        className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
@@ -88,11 +88,11 @@ function ToolCard({ tool }: { tool: ToolCall }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm font-medium">{tool.name}</span>
-              {tool.duration && <span className="text-xs text-text-secondary">· {formatDuration(tool.duration)}</span>}
+              {tool.duration && <span className="text-xs text-muted-foreground">· {formatDuration(tool.duration)}</span>}
             </div>
 
             {!expanded && (
-              <div className="text-xs text-text-secondary mt-0.5 truncate">
+              <div className="text-xs text-muted-foreground mt-0.5 truncate">
                 {getInputPreview(tool.input)}
               </div>
             )}
@@ -112,13 +112,13 @@ function ToolCard({ tool }: { tool: ToolCall }) {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="overflow-hidden border-t border-bg-tertiary"
+            className="overflow-hidden border-t border-border"
           >
             <div className="p-3 space-y-3">
               {/* 输入 */}
               <div>
-                <div className="text-xs text-text-secondary mb-1">输入</div>
-                <pre className="text-xs bg-bg-tertiary/30 rounded p-2 overflow-x-auto">
+                <div className="text-xs text-muted-foreground mb-1">输入</div>
+                <pre className="text-xs bg-muted/30 rounded p-2 overflow-x-auto">
                   {JSON.stringify(tool.input, null, 2)}
                 </pre>
               </div>
@@ -126,8 +126,8 @@ function ToolCard({ tool }: { tool: ToolCall }) {
               {/* 输出 */}
               {tool.output && (
                 <div>
-                  <div className="text-xs text-text-secondary mb-1">输出</div>
-                  <pre className="text-xs bg-bg-tertiary/30 rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
+                  <div className="text-xs text-muted-foreground mb-1">输出</div>
+                  <pre className="text-xs bg-muted/30 rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
                     {tool.output}
                   </pre>
                 </div>
@@ -136,7 +136,7 @@ function ToolCard({ tool }: { tool: ToolCall }) {
               {/* 图片输出 */}
               {(tool as any).contentBlocks?.filter((b: any) => b.type === 'image').map((block: any, i: number) => (
                 <div key={`img-${i}`}>
-                  <div className="text-xs text-text-secondary mb-1">截图</div>
+                  <div className="text-xs text-muted-foreground mb-1">截图</div>
                   <img
                     src={`data:${block.mimeType};base64,${block.data}`}
                     alt="工具截图"

@@ -31,7 +31,7 @@ export default function ExecutionPanel() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-bg-tertiary">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <span className="text-sm font-semibold">{t('execution.todo_list')}</span>
       </div>
 

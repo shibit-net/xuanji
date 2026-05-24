@@ -604,7 +604,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   if (isSystem) {
     return (
       <div className={`flex justify-center my-4${isStreaming ? '' : ' animate-fadeIn'}`}>
-        <div className="max-w-[80%] bg-bg-tertiary/30 border border-border-primary rounded-lg p-3 text-sm text-text-secondary text-center">
+        <div className="max-w-[80%] bg-muted/30 border border-primary/30 rounded-lg p-3 text-sm text-muted-foreground text-center">
           {message.content}
         </div>
       </div>
@@ -621,8 +621,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           isUser
             ? 'bg-primary text-white'
             : isToolSummary
-              ? 'bg-white/[0.04] border border-white/[0.08] backdrop-blur-sm text-text-primary'
-              : 'bg-white/[0.06] text-text-primary'
+              ? 'bg-white/[0.04] border border-white/[0.08] backdrop-blur-sm text-foreground'
+              : 'bg-white/[0.06] text-foreground'
         } rounded-xl p-4 shadow-lg ${
           isStreaming ? 'overflow-hidden' : 'overflow-y-auto max-h-[60vh]'
         }`}
@@ -739,11 +739,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         )}
 
         {!isUser && message.statusHint && (
-          <div className="mb-2 text-xs text-text-secondary animate-pulse">{message.statusHint}</div>
+          <div className="mb-2 text-xs text-muted-foreground animate-pulse">{message.statusHint}</div>
         )}
 
         {/* 消息内容 — 流式时纯文本渲染，完成后 Milkdown 渲染 */}
-        <div ref={containerRef} className="max-w-none text-text-primary milkdown-message-content">
+        <div ref={containerRef} className="max-w-none text-foreground milkdown-message-content">
           {/* 图片块 — 渲染在文本上方（LLM 回复中通常用"上图"指代），跳过已在 markdown 中内联的图片 */}
           {message.contentBlocks?.filter(b => b.type === 'image').filter(block => {
             const imgBlock = block as Extract<ContentBlock, { type: 'image' }>;
@@ -771,7 +771,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
         {/* 耗时 & Token — 气泡外部下方，流式时实时更新；toolSummary 不展示耗时（独立 diff 气泡无需计时） */}
         {!isUser && !isSystem && !isToolSummary && (liveDuration || message.tokensUsed) && (
           <div className={`flex items-center gap-2.5 mt-1.5 px-2 text-[11px] font-mono ${
-            isToolSummary ? 'text-white/25' : 'text-text-tertiary/60'
+            isToolSummary ? 'text-white/25' : 'text-muted-foreground/50/60'
           }`}>
             {liveDuration && (
               <span className="inline-flex items-center gap-1">
@@ -819,7 +819,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
           onClick={() => setExpanded(false)}
         >
           <div
-            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-bg-primary border border-white/[0.1] rounded-2xl shadow-2xl
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-white/[0.1] rounded-2xl shadow-2xl
                        flex flex-col overflow-hidden cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
@@ -828,7 +828,7 @@ function SubAgentBlock({ name, citation }: { name: string; citation: SubAgentRef
               <div className="flex items-center gap-2.5">
                 <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
                 <div>
-                  <h3 className="text-sm font-semibold text-text-primary">{name}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{name}</h3>
                   <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
                     <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
                     <span>●</span>
@@ -891,7 +891,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
           onClick={() => setExpanded(false)}
         >
           <div
-            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-bg-primary border border-white/[0.1] rounded-2xl shadow-2xl
+            className="relative w-full max-w-2xl max-h-[85vh] m-6 bg-background border border-white/[0.1] rounded-2xl shadow-2xl
                        flex flex-col overflow-hidden cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
@@ -900,7 +900,7 @@ function CitationChip({ name, quote, citation }: { name: string; quote: string; 
               <div className="flex items-center gap-2.5">
                 <FileIcon size={16} className="text-blue-400 flex-shrink-0" />
                 <div>
-                  <h3 className="text-sm font-semibold text-text-primary">{name}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{name}</h3>
                   <div className="flex items-center gap-3 text-[10px] text-white/30 mt-0.5">
                     <span>⏱ {((citation.duration ?? 0) / 1000).toFixed(1)}s</span>
                     <span>●</span>

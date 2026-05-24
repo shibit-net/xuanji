@@ -22,7 +22,6 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
   const stats = useMessageStore((state) => state.stats);
   const messages = useMessageStore((state) => state.messages);
   const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
-  const showCost = useConfigStore((s) => s.settings.showCost);
   const [backendStats, setBackendStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
@@ -109,7 +108,6 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
           )}
 
           {/* 费用 */}
-          {showCost && (
           <div>
             <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase">{getDesktopLabel('statsdialog.cost', language)}</div>
             <div className="p-3 bg-muted rounded-lg">
@@ -118,7 +116,6 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
               </div>
             </div>
           </div>
-          )}
 
           {/* 会话统计 */}
           <div>

@@ -33,7 +33,7 @@ export default function CodeEditor({
   const extensions = languageExtensions[language] || [];
 
   return (
-    <div className="border border-bg-tertiary rounded overflow-hidden">
+    <div className="border border-border rounded overflow-hidden">
       <CodeMirror
         value={value}
         height={height}

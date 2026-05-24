@@ -256,14 +256,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-bg-primary overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
       {/* 标题栏 */}
-      <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
           <Bot size={24} className="text-primary" />
           <h2 className="text-lg font-bold">{t('agent.title')}</h2>
           {agents.length > 0 && (
-            <span className="text-xs bg-bg-tertiary px-2 py-1 rounded">
+            <span className="text-xs bg-muted px-2 py-1 rounded">
               {filteredAndSortedAgents.length} / {agents.length}
             </span>
           )}
@@ -272,14 +272,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
+            className="p-1.5 hover:bg-muted rounded transition-colors disabled:opacity-50"
             title={t('agent.refresh')}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+            className="p-1.5 hover:bg-muted rounded transition-colors"
             title={t('agent.close')}
           >
             <X size={20} />
@@ -290,24 +290,24 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
       {/* 主内容区 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：Agent 列表 */}
-        <div className="w-64 border-r border-bg-tertiary flex flex-col">
+        <div className="w-64 border-r border-border flex flex-col">
           {/* 搜索框 */}
-          <div className="p-3 border-b border-bg-tertiary space-y-2">
+          <div className="p-3 border-b border-border space-y-2">
             <div className="relative">
-              <Search size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
+              <Search size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 placeholder={t('agent.search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-bg-secondary border border-bg-tertiary rounded px-8 py-1.5 text-sm focus:outline-none focus:border-primary transition-colors"
+                className="w-full bg-card border border-border rounded px-8 py-1.5 text-sm focus:outline-none focus:border-primary transition-colors"
               />
             </div>
 
             {/* 筛选按钮 */}
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-text-secondary hover:bg-bg-tertiary rounded transition-colors"
+              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted rounded transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Filter size={14} />
@@ -318,13 +318,13 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
 
             {/* 筛选选项 */}
             {showFilters && (
-              <div className="space-y-2 pt-2 border-t border-bg-tertiary">
+              <div className="space-y-2 pt-2 border-t border-border">
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_category')}</label>
+                  <label className="text-xs text-muted-foreground block mb-1">{t('agent.filter_category')}</label>
                   <select
                     value={filterSource}
                     onChange={(e) => setFilterSource(e.target.value as FilterSource)}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
+                    className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
                     <option value="all">{t('agent.filter_all')}</option>
                     <option value="system">{t('agent.group_system')}</option>
@@ -334,11 +334,11 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                 </div>
 
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_status')}</label>
+                  <label className="text-xs text-muted-foreground block mb-1">{t('agent.filter_status')}</label>
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
+                    className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
                     <option value="all">{t('agent.filter_all')}</option>
                     <option value="enabled">{t('agent.filter_enabled')}</option>
@@ -347,11 +347,11 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                 </div>
 
                 <div>
-                  <label className="text-xs text-text-secondary block mb-1">{t('agent.filter_sort')}</label>
+                  <label className="text-xs text-muted-foreground block mb-1">{t('agent.filter_sort')}</label>
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as SortBy)}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
+                    className="w-full bg-background border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-primary"
                   >
                     <option value="name">{t('agent.filter_sort_name')}</option>
                     <option value="created">{t('agent.filter_sort_created')}</option>
@@ -363,7 +363,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           </div>
 
           {/* 创建按钮 */}
-          <div className="p-2 border-b border-bg-tertiary">
+          <div className="p-2 border-b border-border">
             <button
               onClick={handleCreateAgent}
               disabled={loading}
@@ -389,11 +389,11 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             ) : loading ? (
               <div className="space-y-2">
                 {[...Array(5)].map((_, i) => (
-                  <div key={i} className="bg-bg-tertiary animate-pulse rounded p-3 h-20" />
+                  <div key={i} className="bg-muted animate-pulse rounded p-3 h-20" />
                 ))}
               </div>
             ) : filteredAndSortedAgents.length === 0 ? (
-              <div className="text-center text-sm text-text-secondary py-8">
+              <div className="text-center text-sm text-muted-foreground py-8">
                 {searchQuery || filterSource !== 'all' || filterStatus !== 'all'
                   ? t('agent.empty_no_match')
                   : agents.length === 0
@@ -406,7 +406,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                   const agentList = groupAgents as typeof agents;
                   return (
                     <div key={group}>
-                      <div className="text-xs text-text-secondary px-2 py-1 mb-1 flex items-center justify-between">
+                      <div className="text-xs text-muted-foreground px-2 py-1 mb-1 flex items-center justify-between">
                         <span>{getGroupLabel(group)}</span>
                         <span>{agentList.length}</span>
                       </div>
@@ -421,7 +421,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                               w-full text-left px-3 py-2 rounded mb-1 transition-colors
                               ${selectedAgent?.id === agent.id
                                 ? 'bg-primary/20 border-l-2 border-primary'
-                                : 'hover:bg-bg-tertiary'
+                                : 'hover:bg-muted'
                               }
                             `}
                           >
@@ -447,7 +447,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                                 <span className="text-xs text-red-500">{t('agent.disabled_badge')}</span>
                               )}
                             </div>
-                            <div className="text-xs text-text-secondary truncate">
+                            <div className="text-xs text-muted-foreground truncate">
                               {agent.description}
                             </div>
                             {/* Agent 类型英文标签 + Capabilities */}
@@ -460,14 +460,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                               {agent.capabilities && agent.capabilities.slice(0, 2).map((cap: string) => (
                                 <span
                                   key={cap}
-                                  className="text-xs bg-bg-tertiary px-1.5 py-0.5 rounded"
+                                  className="text-xs bg-muted px-1.5 py-0.5 rounded"
                                   title={cap}
                                 >
                                   {cap.length > 8 ? cap.slice(0, 8) + '...' : cap}
                                 </span>
                               ))}
                               {agent.capabilities && agent.capabilities.length > 2 && (
-                                <span className="text-xs text-text-secondary">
+                                <span className="text-xs text-muted-foreground">
                                   +{agent.capabilities.length - 2}
                                 </span>
                               )}
@@ -502,7 +502,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             />
           ) : (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center text-text-secondary">
+              <div className="text-center text-muted-foreground">
                 <Bot size={48} className="mx-auto mb-3 opacity-50" />
                 <p className="text-sm mb-1">{t('agent.select_hint')}</p>
                 {agents.length === 0 && !loading && (

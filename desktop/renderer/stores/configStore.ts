@@ -54,13 +54,11 @@ interface ConfigState {
 
 const defaultSettings: UserSettings = {
   language: 'en',
-  theme: 'dark',
+  theme: 'auto',
   fontSize: 14,
   workspacePath: '',
   showTokenUsage: true,
-  showCost: true,
   showThinking: true,
-  showToolCallDetails: false,
   model: {
     defaultModel: 'claude-3-5-haiku-20241022',
     temperature: 1.0,
@@ -103,9 +101,7 @@ export const useConfigStore = create<ConfigState>()(
                 fontSize: 14,
                 workspacePath: (c.workspacePath as string) || '',
                 showTokenUsage: c.ui?.showTokenUsage ?? true,
-                showCost: c.ui?.showCost ?? true,
                 showThinking: c.ui?.showThinking ?? false,
-                showToolCallDetails: c.ui?.showToolCallDetails ?? false,
                 model: {
                   defaultModel: c.provider?.model || '',
                   temperature: c.provider?.temperature ?? 1.0,
@@ -135,9 +131,7 @@ export const useConfigStore = create<ConfigState>()(
           if (settings.theme !== undefined) uiData.theme = newSettings.theme;
           if (settings.language !== undefined) uiData.language = newSettings.language;
           if (settings.showTokenUsage !== undefined) uiData.showTokenUsage = newSettings.showTokenUsage;
-          if (settings.showCost !== undefined) uiData.showCost = newSettings.showCost;
           if (settings.showThinking !== undefined) uiData.showThinking = newSettings.showThinking;
-          if (settings.showToolCallDetails !== undefined) uiData.showToolCallDetails = newSettings.showToolCallDetails;
 
           const providerData: Record<string, unknown> = {};
           if (settings.model?.defaultModel !== undefined) providerData.model = newSettings.model.defaultModel;

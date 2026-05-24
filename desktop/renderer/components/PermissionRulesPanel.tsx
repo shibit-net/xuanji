@@ -132,7 +132,7 @@ export default function PermissionRulesPanel() {
         <div className="flex items-center gap-3">
           <Shield size={18} className="text-primary" />
           <span className="text-sm font-semibold">{t('permrules.title')}</span>
-          <div className="flex items-center gap-2 text-xs text-text-secondary">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {allowedCount > 0 && (
               <span className="flex items-center gap-1 text-green-500">
                 <ShieldCheck size={12} />
@@ -146,7 +146,7 @@ export default function PermissionRulesPanel() {
               </span>
             )}
             {rules.length === 0 && !loading && (
-              <span className="text-text-secondary">{t('permrules.no_rules')}</span>
+              <span className="text-muted-foreground">{t('permrules.no_rules')}</span>
             )}
           </div>
         </div>
@@ -156,7 +156,7 @@ export default function PermissionRulesPanel() {
           <button
             onClick={loadRules}
             disabled={loading}
-            className="p-1.5 hover:bg-bg-tertiary rounded transition-colors text-text-secondary hover:text-text-primary disabled:opacity-50"
+            className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
             title={t('permrules.refresh')}
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -170,7 +170,7 @@ export default function PermissionRulesPanel() {
               className={`px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 ${
                 confirmClear
                   ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'text-text-secondary hover:text-red-500 hover:bg-bg-tertiary'
+                  : 'text-muted-foreground hover:text-red-500 hover:bg-muted'
               }`}
             >
               {clearing ? (
@@ -194,18 +194,18 @@ export default function PermissionRulesPanel() {
       )}
 
       {/* 提示文字 */}
-      <p className="text-xs text-text-secondary">
+      <p className="text-xs text-muted-foreground">
         {t('permrules.hint')}
       </p>
 
       {/* 规则列表 */}
       {loading ? (
-        <div className="flex items-center justify-center py-8 text-text-secondary">
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
           <Loader2 size={20} className="animate-spin mr-2" />
           <span className="text-sm">{t('permrules.loading')}</span>
         </div>
       ) : rules.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-8 text-text-secondary">
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
           <Shield size={32} className="mb-2 opacity-30" />
           <p className="text-sm">{t('permrules.empty_title')}</p>
           <p className="text-xs mt-1 opacity-60">{t('permrules.empty_hint')}</p>
@@ -215,14 +215,14 @@ export default function PermissionRulesPanel() {
           {Object.entries(rulesByTool).map(([toolName, toolRules]) => (
             <div key={toolName}>
               {/* 工具名称分组标题 */}
-              <div className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1.5 px-1">
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 px-1">
                 {toolName}
               </div>
               <div className="space-y-1">
                 {toolRules.map((rule) => (
                   <div
                     key={rule.cacheKey}
-                    className="flex items-start gap-2 p-2.5 rounded-lg bg-bg-tertiary hover:bg-bg-secondary transition-colors group"
+                    className="flex items-start gap-2 p-2.5 rounded-lg bg-muted hover:bg-card transition-colors group"
                   >
                     {/* 状态图标 */}
                     <div className="flex-shrink-0 mt-0.5">
@@ -239,12 +239,12 @@ export default function PermissionRulesPanel() {
                         {rule.allowed ? t('permrules.rule_always_allow') : t('permrules.rule_never_deny')}
                       </div>
                       <div
-                        className="text-xs text-text-secondary mt-0.5 font-mono break-all"
+                        className="text-xs text-muted-foreground mt-0.5 font-mono break-all"
                         title={rule.cacheKey}
                       >
                         {formatCacheKey(rule.cacheKey)}
                       </div>
-                      <div className="text-xs text-text-secondary opacity-60 mt-1">
+                      <div className="text-xs text-muted-foreground opacity-60 mt-1">
                         {formatTime(String(rule.timestamp))}
                         {rule.expiresAt && (
                           <span className="ml-2 text-yellow-500">
@@ -258,7 +258,7 @@ export default function PermissionRulesPanel() {
                     <button
                       onClick={() => handleDelete(rule.cacheKey)}
                       disabled={deletingKeys.has(rule.cacheKey)}
-                      className="flex-shrink-0 p-1 rounded hover:bg-red-500/10 hover:text-red-500 text-text-secondary opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                      className="flex-shrink-0 p-1 rounded hover:bg-red-500/10 hover:text-red-500 text-muted-foreground opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
                       title={t('permrules.delete_rule')}
                     >
                       {deletingKeys.has(rule.cacheKey) ? (

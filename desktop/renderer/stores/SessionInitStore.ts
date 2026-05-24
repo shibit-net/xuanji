@@ -73,7 +73,6 @@ export const useSessionInitStore = create<SessionInitState>((set, get) => ({
             theme: (config.ui?.theme as 'light' | 'dark') || 'dark',
             workspacePath: config.workspacePath || '',
             showTokenUsage: config.ui?.showTokenUsage ?? true,
-            showCost: config.ui?.showCost ?? true,
             showThinking: config.ui?.showThinking ?? true,
           });
 

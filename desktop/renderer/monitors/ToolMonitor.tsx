@@ -180,7 +180,7 @@ export default function ToolMonitor() {
     return (
       <div className="space-y-3">
         <div className="text-sm font-semibold mb-2">{getDesktopLabel('toolmonitor.title', language)}</div>
-        <div className="p-3 bg-bg-primary rounded-lg text-sm text-text-secondary text-center">
+        <div className="p-3 bg-background rounded-lg text-sm text-muted-foreground text-center">
           {getDesktopLabel('toolmonitor.empty', language)}
         </div>
       </div>
@@ -216,14 +216,14 @@ export default function ToolMonitor() {
           const dur = formatDuration(tool.duration);
 
           return (
-            <div key={tool.id} className="bg-bg-primary rounded overflow-hidden border border-bg-tertiary">
+            <div key={tool.id} className="bg-background rounded overflow-hidden border border-border">
               <Button
                 onClick={() => setExpandedId(isExpanded ? null : tool.id)}
                 variant="ghost"
                 className="w-full flex items-center gap-2 px-3 py-2 text-left h-auto justify-start"
               >
                 {/* 序号 */}
-                <span className="text-xs text-text-tertiary w-5 flex-shrink-0 text-right">{index + 1}</span>
+                <span className="text-xs text-muted-foreground/50 w-5 flex-shrink-0 text-right">{index + 1}</span>
 
                 {/* 状态图标 */}
                 {tool.status === 'running' ? (
@@ -236,10 +236,10 @@ export default function ToolMonitor() {
 
                 {/* 工具图标 + 操作描述 */}
                 <span className="text-xs flex-shrink-0">{icon}</span>
-                <span className="text-sm flex-1 truncate text-text-primary">{desc}</span>
+                <span className="text-sm flex-1 truncate text-foreground">{desc}</span>
 
                 {/* 耗时 */}
-                {dur && <span className="text-xs text-text-secondary flex-shrink-0">{dur}</span>}
+                {dur && <span className="text-xs text-muted-foreground flex-shrink-0">{dur}</span>}
 
                 {/* 展开 */}
                 {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -247,12 +247,12 @@ export default function ToolMonitor() {
 
               {/* 展开详情 */}
               {isExpanded && (
-                <div className="px-3 pb-2 pt-1 border-t border-bg-tertiary space-y-2">
+                <div className="px-3 pb-2 pt-1 border-t border-border space-y-2">
                   {/* 输入参数 */}
                   {tool.input && Object.keys(tool.input).length > 0 && (
                     <div>
-                      <div className="text-xs text-text-secondary mb-1">{getDesktopLabel('toolmonitor.input', language)}</div>
-                      <pre className="text-xs font-mono bg-bg-secondary rounded p-2 overflow-x-auto max-h-32 overflow-y-auto text-text-primary">
+                      <div className="text-xs text-muted-foreground mb-1">{getDesktopLabel('toolmonitor.input', language)}</div>
+                      <pre className="text-xs font-mono bg-card rounded p-2 overflow-x-auto max-h-32 overflow-y-auto text-foreground">
                         {JSON.stringify(tool.input, null, 2)}
                       </pre>
                     </div>
@@ -260,16 +260,16 @@ export default function ToolMonitor() {
                   {/* 输出结果 */}
                   {tool.output && (
                     <div>
-                      <div className="text-xs text-text-secondary mb-1">{getDesktopLabel('toolmonitor.output', language)}</div>
+                      <div className="text-xs text-muted-foreground mb-1">{getDesktopLabel('toolmonitor.output', language)}</div>
                       {isDiffOutput(tool.output) ? (
                         // Diff 输出：完整显示，支持 ANSI 颜色
                         <pre 
-                          className="text-xs font-mono bg-bg-secondary rounded p-2 overflow-x-auto max-h-96 overflow-y-auto text-text-primary whitespace-pre"
+                          className="text-xs font-mono bg-card rounded p-2 overflow-x-auto max-h-96 overflow-y-auto text-foreground whitespace-pre"
                           dangerouslySetInnerHTML={{ __html: ansiToHtml(tool.output) }}
                         />
                       ) : (
                         // 普通输出：截断到 500 字符
-                        <pre className="text-xs font-mono bg-bg-secondary rounded p-2 overflow-x-auto max-h-32 overflow-y-auto text-text-primary whitespace-pre-wrap break-words">
+                        <pre className="text-xs font-mono bg-card rounded p-2 overflow-x-auto max-h-32 overflow-y-auto text-foreground whitespace-pre-wrap break-words">
                           {tool.output.slice(0, 500)}
                           {tool.output.length > 500 && '...'}
                         </pre>

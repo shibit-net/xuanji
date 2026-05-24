@@ -17,7 +17,7 @@ const AgentExecutionPanel: React.FC = () => {
     <div className="h-full min-h-[200px] flex flex-col">
       {/* 面板标题和控制按钮 */}
       <div className="px-6 py-3 border-b border-border-secondary flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-text-primary">Agent 执行面板</h2>
+        <h2 className="text-lg font-semibold text-foreground">Agent 执行面板</h2>
         <div className="flex gap-2">
           <Button variant="default" size="sm">
             开始

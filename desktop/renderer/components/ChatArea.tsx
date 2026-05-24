@@ -30,7 +30,7 @@ function TypingIndicator() {
       <div className="w-8 h-8 rounded-full bg-primary/20 overflow-hidden flex-shrink-0 mt-0.5">
         <img src={agentAvatar} alt="Xuanji" className="w-full h-full object-cover" />
       </div>
-      <div className="flex items-center gap-1.5 px-4 py-3 bg-bg-secondary rounded-2xl rounded-tl-sm">
+      <div className="flex items-center gap-1.5 px-4 py-3 bg-card rounded-2xl rounded-tl-sm">
         {[0, 1, 2].map((i) => (
           <span
             key={i}

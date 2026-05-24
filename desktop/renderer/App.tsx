@@ -25,7 +25,7 @@ const SkillsMCPPage = lazy(() => import('./pages/SkillsMCPPage'));
 // 加载中组件
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen w-screen bg-bg-primary text-text-primary">
+    <div className="flex flex-col items-center justify-center h-screen w-screen bg-background text-foreground">
       <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
       <p className="text-gray-400">加载中...</p>
     </div>
@@ -57,10 +57,25 @@ export default function App() {
   // 主题同步到 html 元素（dark 类控制 shadcn CSS 变量）
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+
+    const applyTheme = (t: string) => {
+      if (t === 'dark') {
+        root.classList.add('dark');
+      } else if (t === 'light') {
+        root.classList.remove('dark');
+      } else {
+        // auto: 跟随系统
+        root.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches);
+      }
+    };
+
+    applyTheme(theme);
+
+    if (theme === 'auto') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = (e: MediaQueryListEvent) => root.classList.toggle('dark', e.matches);
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
     }
   }, [theme]);
 

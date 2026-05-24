@@ -53,10 +53,10 @@ function CodeCopyButton({ code }: { code: string }) {
       onClick={handleCopy}
       variant="ghost"
       size="icon"
-      className="absolute top-2 right-2 h-7 w-7 bg-bg-tertiary/80 opacity-0 group-hover:opacity-100"
+      className="absolute top-2 right-2 h-7 w-7 bg-muted/80 opacity-0 group-hover:opacity-100"
       title={t('milkdown.copy_code')}
     >
-      {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-text-secondary" />}
+      {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-muted-foreground" />}
     </Button>
   );
 }

@@ -46,12 +46,6 @@ export default {
           DEFAULT: 'hsl(var(--warning))',
           foreground: 'hsl(0 0% 100%)',
         },
-        // --- xuanji legacy colors (for remaining old components) ---
-        'bg-primary': '#0D0D12',
-        'bg-secondary': '#14141C',
-        'bg-tertiary': '#1E1E2A',
-        'text-primary': '#E8E8F0',
-        'text-secondary': '#8888A0',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Monaco', 'Courier New', 'monospace'],

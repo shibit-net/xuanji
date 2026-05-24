@@ -55,7 +55,6 @@ export default function ActiveAgentView() {
 
   const mainAgent = newMainAgentId ? buildAgentTree(newAgentMap, newMainAgentId) : null;
   const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
-  const showCost = useConfigStore((s) => s.settings.showCost);
 
   if (!mainAgent) {
     return (
@@ -69,7 +68,7 @@ export default function ActiveAgentView() {
             <Sparkles className="w-10 h-10 text-primary" />
           </div>
           <h3 className="text-lg font-semibold mb-2">{t('activeagent.title')}</h3>
-          <p className="text-sm text-text-secondary leading-relaxed">
+          <p className="text-sm text-muted-foreground leading-relaxed">
             {t('activeagent.desc_start')}
             <br />
             {t('activeagent.desc_see')}
@@ -96,7 +95,7 @@ export default function ActiveAgentView() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* 顶部状态栏 */}
-      <div className="sticky top-0 z-10 bg-bg-primary/95 backdrop-blur-sm border-b border-bg-tertiary px-4 py-3">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -104,7 +103,7 @@ export default function ActiveAgentView() {
               {activeAgents.length > 0 ? `${activeAgents.length} 个 Agent 正在工作` : '任务完成'}
             </span>
           </div>
-          <div className="flex items-center gap-4 text-xs text-text-secondary">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
             {showTokenUsage && (
             <div>
               Token: {stats.input + stats.output}
@@ -114,7 +113,7 @@ export default function ActiveAgentView() {
             </div>
             )}
             <div>工具: {stats.toolCount}</div>
-            {showCost && stats.cost > 0 && <div>${stats.cost.toFixed(4)}</div>}
+            {stats.cost > 0 && <div>${stats.cost.toFixed(4)}</div>}
           </div>
         </div>
       </div>

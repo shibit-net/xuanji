@@ -323,7 +323,6 @@ function UITab({ config, loading, onSave }: TabProps) {
     theme: 'auto',
     language: 'en',
     showTokenUsage: true,
-    showCost: true,
     showThinking: true,
     workspacePath: '',
   });
@@ -337,7 +336,6 @@ function UITab({ config, loading, onSave }: TabProps) {
         theme: config.ui?.theme || 'auto',
         language: config.ui?.language || 'en',
         showTokenUsage: config.ui?.showTokenUsage ?? true,
-        showCost: config.ui?.showCost ?? true,
         showThinking: config.ui?.showThinking ?? false,
         workspacePath: config.workspacePath || '',
       }));
@@ -353,7 +351,6 @@ function UITab({ config, loading, onSave }: TabProps) {
         theme: form.theme,
         language: form.language,
         showTokenUsage: form.showTokenUsage,
-        showCost: form.showCost,
         showThinking: form.showThinking,
         workspacePath: form.workspacePath,
       });
@@ -404,7 +401,6 @@ function UITab({ config, loading, onSave }: TabProps) {
 
       <SectionHeader title={getDesktopLabel('settings.ui.display_options', currentLang)} desc={getDesktopLabel('settings.ui.display_options_desc', currentLang)} />
       <ToggleField label={getDesktopLabel('settings.ui.show_token_usage', currentLang)} value={form.showTokenUsage} onChange={(v) => setForm({ ...form, showTokenUsage: v })} />
-      <ToggleField label={getDesktopLabel('settings.ui.show_cost', currentLang)} value={form.showCost} onChange={(v) => setForm({ ...form, showCost: v })} />
       <ToggleField label={getDesktopLabel('settings.ui.show_thinking', currentLang)} value={form.showThinking} onChange={(v) => setForm({ ...form, showThinking: v })} hint={getDesktopLabel('settings.ui.show_thinking_hint', currentLang)} />
 
       <SaveButton saving={saving} />
@@ -606,7 +602,6 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
         theme: data.theme,
         language: data.language,
         showTokenUsage: data.showTokenUsage,
-        showCost: data.showCost,
         showThinking: data.showThinking,
       });
     }

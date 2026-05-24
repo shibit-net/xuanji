@@ -145,10 +145,10 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
           </div>
           <div>
             <h3 className="text-2xl font-bold mb-1">{agent.name}</h3>
-            <p className="text-sm text-text-secondary">{agent.id}</p>
+            <p className="text-sm text-muted-foreground">{agent.id}</p>
             {category && (
               <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs bg-bg-tertiary px-2 py-1 rounded">
+                <span className="text-xs bg-muted px-2 py-1 rounded">
                   {category === 'system' ? t('agent.detail.badge.system') :
                    category === 'app' ? t('agent.detail.badge.app') : t('agent.detail.badge.custom')}
                 </span>
@@ -180,7 +180,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
           {canEdit && (
             <button
               onClick={onEdit}
-              className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
+              className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2"
             >
               <Edit size={16} />
               {t('agent.detail.btn.edit')}
@@ -206,16 +206,16 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
       </div>
 
       {/* 描述 */}
-      <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+      <div className="bg-card rounded-lg p-4 mb-6">
         <h4 className="font-medium mb-2 flex items-center gap-2">
           <Info size={16} className="text-primary" />
           {t('agent.detail.section.description')}
         </h4>
-        <p className="text-text-secondary whitespace-pre-wrap">{agent.description}</p>
+        <p className="text-muted-foreground whitespace-pre-wrap">{agent.description}</p>
       </div>
 
       {/* 类型与特性 */}
-      <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+      <div className="bg-card rounded-lg p-4 mb-6">
         <h4 className="font-medium mb-3">{t('agent.detail.section.type_features')}</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Agent 类型 */}
@@ -225,13 +225,13 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
               <div className="flex items-center gap-2 flex-1">
                 <span className={`font-medium ${typeInfo.color}`}>{typeInfo.type}</span>
                 {(typeInfo as any).subType && (
-                  <span className="text-xs px-1.5 py-0.5 bg-bg-primary rounded">
+                  <span className="text-xs px-1.5 py-0.5 bg-background rounded">
                     {(typeInfo as any).subType}
                   </span>
                 )}
               </div>
             </div>
-            <p className="text-xs text-text-secondary">{typeInfo.description}</p>
+            <p className="text-xs text-muted-foreground">{typeInfo.description}</p>
           </div>
 
           {/* System Prompt 构建方式 */}
@@ -240,12 +240,12 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
               <span className="text-xl">{promptMode.icon}</span>
               <span className={`font-medium ${promptMode.color}`}>{promptMode.mode}</span>
             </div>
-            <p className="text-xs text-text-secondary mb-2">{promptMode.description}</p>
+            <p className="text-xs text-muted-foreground mb-2">{promptMode.description}</p>
             {promptMode.layers && (
               <div className="mt-3 space-y-1.5">
-                <p className="text-xs font-medium text-text-primary">{t('agent.detail.section.prompt_layers')}</p>
+                <p className="text-xs font-medium text-foreground">{t('agent.detail.section.prompt_layers')}</p>
                 {(promptMode.layers as string[])?.map((layer: string, idx: number) => (
-                  <div key={idx} className="flex items-start gap-2 text-xs text-text-secondary">
+                  <div key={idx} className="flex items-start gap-2 text-xs text-muted-foreground">
                     <span className="text-primary mt-0.5">▸</span>
                     <span>{layer}</span>
                   </div>
@@ -256,13 +256,13 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
           {/* 工具配置 */}
           {agent.tools && agent.tools.length > 0 && (
-            <div className="p-3 rounded-lg bg-bg-primary col-span-2">
+            <div className="p-3 rounded-lg bg-background col-span-2">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔧</span>
                 <span className="font-medium">{t('agent.detail.section.tools')}</span>
               </div>
               <div className="space-y-2">
-                <p className="text-xs text-text-secondary">
+                <p className="text-xs text-muted-foreground">
                   {t('agent.detail.tools.count', { count: agent.tools.length })}
                   {agent.tools.filter((t: any) => t.enabled !== false).length > 0 && (
                     <span className="ml-2">
@@ -284,7 +284,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
                             ? 'bg-gray-500/20 text-gray-500 line-through'
                             : toolRequired
                             ? 'bg-primary/20 text-primary'
-                            : 'bg-bg-tertiary text-text-secondary'
+                            : 'bg-muted text-muted-foreground'
                         }`}
                         title={
                           !toolEnabled
@@ -307,31 +307,31 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
           {/* 执行配置 */}
           {agent.execution && (
-            <div className="p-3 rounded-lg bg-bg-primary">
+            <div className="p-3 rounded-lg bg-background">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">⚡</span>
                 <span className="font-medium">{t('agent.detail.section.execution')}</span>
               </div>
               <div className="space-y-1">
                 {agent.execution.mode && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.execution.mode', { mode: agent.execution.mode.toUpperCase() })}
                   </p>
                 )}
                 {agent.execution.maxIterations !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {agent.execution.maxIterations === Infinity
                       ? t('agent.detail.execution.max_iterations_unlimited')
                       : t('agent.detail.execution.max_iterations', { count: agent.execution.maxIterations })}
                   </p>
                 )}
                 {agent.execution.timeout !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.execution.timeout', { timeout: (agent.execution.timeout / 1000).toFixed(0) })}
                   </p>
                 )}
                 {agent.execution.streaming !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.execution.streaming', {
                       status: agent.execution.streaming
                         ? t('agent.detail.execution.streaming_enabled')
@@ -340,7 +340,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
                   </p>
                 )}
                 {agent.execution.parallelTools !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.execution.parallel_tools', {
                       status: agent.execution.parallelTools
                         ? t('agent.detail.execution.parallel_supported')
@@ -354,14 +354,14 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
           {/* 权限配置 */}
           {agent.permissions && (
-            <div className="p-3 rounded-lg bg-bg-primary">
+            <div className="p-3 rounded-lg bg-background">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔒</span>
                 <span className="font-medium">{t('agent.detail.section.permissions')}</span>
               </div>
               <div className="space-y-1">
                 {agent.permissions.fileRead && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.permission.file_read', {
                       status: agent.permissions.fileRead === 'always'
                         ? t('agent.detail.permission.always')
@@ -372,7 +372,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
                   </p>
                 )}
                 {agent.permissions.fileWrite && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.permission.file_write', {
                       status: agent.permissions.fileWrite === 'always'
                         ? t('agent.detail.permission.always')
@@ -383,7 +383,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
                   </p>
                 )}
                 {agent.permissions.bashExec && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.permission.bash_exec', {
                       status: agent.permissions.bashExec === 'always'
                         ? t('agent.detail.permission.always')
@@ -394,7 +394,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
                   </p>
                 )}
                 {agent.permissions.network && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.permission.network', {
                       status: agent.permissions.network === 'always'
                         ? t('agent.detail.permission.always')
@@ -410,29 +410,29 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
           {/* 模型配置 */}
           {agent.model && (
-            <div className="p-3 rounded-lg bg-bg-primary">
+            <div className="p-3 rounded-lg bg-background">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🧠</span>
                 <span className="font-medium">{t('agent.detail.section.model')}</span>
               </div>
               <div className="space-y-1">
                 {agent.model.primary && (
-                  <p className="text-xs text-text-secondary truncate" title={agent.model.primary}>
+                  <p className="text-xs text-muted-foreground truncate" title={agent.model.primary}>
                     {t('agent.detail.model.primary', { model: agent.model.primary.replace('[CC]', '') })}
                   </p>
                 )}
                 {agent.model.maxTokens !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.model.max_tokens', { count: agent.model.maxTokens.toLocaleString() })}
                   </p>
                 )}
                 {agent.model.temperature !== undefined && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.model.temperature', { value: agent.model.temperature })}
                   </p>
                 )}
                 {agent.model.thinking && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.model.thinking', { type: agent.model.thinking.type, effort: agent.model.thinking.effort })}
                   </p>
                 )}
@@ -442,24 +442,24 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
           {/* Provider 配置 */}
           {agent.provider && (
-            <div className="p-3 rounded-lg bg-bg-primary">
+            <div className="p-3 rounded-lg bg-background">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🔌</span>
                 <span className="font-medium">{t('agent.detail.section.provider')}</span>
               </div>
               <div className="space-y-1">
                 {agent.provider.adapter && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.provider.adapter', { adapter: getProviderName(agent.provider.adapter) })}
                   </p>
                 )}
                 {agent.provider.baseURL && (
-                  <p className="text-xs text-text-secondary truncate" title={agent.provider.baseURL}>
+                  <p className="text-xs text-muted-foreground truncate" title={agent.provider.baseURL}>
                     {t('agent.detail.provider.base_url', { url: agent.provider.baseURL })}
                   </p>
                 )}
                 {agent.provider.apiKey && (
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted-foreground">
                     {t('agent.detail.provider.api_key', { key: agent.provider.apiKey.substring(0, 8) + '...' })}
                   </p>
                 )}
@@ -472,13 +472,13 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
       {/* 标签 */}
       {/* Capabilities（能力） */}
       {agent.capabilities && agent.capabilities.length > 0 && (
-        <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+        <div className="bg-card rounded-lg p-4 mb-6">
           <h4 className="font-medium mb-3">{t('agent.detail.section.capabilities')}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {agent.capabilities.map((capability: string, idx: number) => (
               <div key={idx} className="flex items-start gap-2 text-sm">
                 <span className="text-primary mt-0.5">✓</span>
-                <span className="text-text-secondary">{capability}</span>
+                <span className="text-muted-foreground">{capability}</span>
               </div>
             ))}
           </div>
@@ -487,7 +487,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
       {/* Skills（未来支持） */}
       {agent.skills && agent.skills.length > 0 && (
-        <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+        <div className="bg-card rounded-lg p-4 mb-6">
           <h4 className="font-medium mb-3 flex items-center gap-2">
             <span>🎯</span>
             <span>Skills</span>
@@ -505,13 +505,13 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
 
       {/* System Prompt */}
       {agent.systemPrompt && category !== 'system' && (
-        <div className="bg-bg-secondary rounded-lg p-4 mb-6">
+        <div className="bg-card rounded-lg p-4 mb-6">
           <h4 className="font-medium mb-3 flex items-center gap-2">
             <span>📝</span>
             <span>{t('agent.detail.section.system_prompt')}</span>
           </h4>
-          <div className="bg-bg-primary rounded p-3 max-h-64 overflow-y-auto">
-            <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono">
+          <div className="bg-background rounded p-3 max-h-64 overflow-y-auto">
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono">
               {agent.systemPrompt}
             </pre>
           </div>
@@ -519,7 +519,7 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
       )}
 
       {/* 完整配置（可折叠） */}
-      {category !== 'system' && (<div className="bg-bg-secondary rounded-lg p-4 mb-6">
+      {category !== 'system' && (<div className="bg-card rounded-lg p-4 mb-6">
         <button
           onClick={() => setShowConfig(!showConfig)}
           className="w-full flex items-center justify-between hover:opacity-80 transition-opacity"

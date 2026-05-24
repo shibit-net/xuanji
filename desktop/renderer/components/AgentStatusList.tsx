@@ -105,41 +105,41 @@ const AgentStatusList: React.FC = () => {
   return (
     <div className="w-full h-full overflow-x-auto overflow-y-auto">
       <table className="w-full text-sm">
-        <thead className="bg-bg-secondary">
+        <thead className="bg-card">
           <tr>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.agent')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.type')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.status')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.progress')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.task')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.start_time')}</th>
-            <th className="px-4 py-2 text-left font-medium text-text-secondary">{t('agent.status_list.header.duration')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.agent')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.type')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.status')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.progress')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.task')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.start_time')}</th>
+            <th className="px-4 py-2 text-left font-medium text-muted-foreground">{t('agent.status_list.header.duration')}</th>
           </tr>
         </thead>
         <tbody>
           {agents.map((agent) => (
-            <tr key={agent.id} className="border-t border-border hover:bg-bg-secondary/50 transition-colors">
-              <td className="px-4 py-2 font-medium text-text-primary">
+            <tr key={agent.id} className="border-t border-border hover:bg-card/50 transition-colors">
+              <td className="px-4 py-2 font-medium text-foreground">
                 {agent.parentId ? '└─ ' : ''}{agent.name}
               </td>
-              <td className="px-4 py-2 text-text-secondary">{agent.type === 'main' ? t('agent.status_list.type.main') : agent.type}</td>
+              <td className="px-4 py-2 text-muted-foreground">{agent.type === 'main' ? t('agent.status_list.type.main') : agent.type}</td>
               <td className="px-4 py-2">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(agent.status)} text-white`}>
                   {getStatusText(agent.status)}
                 </span>
               </td>
               <td className="px-4 py-2">
-                <div className="w-32 h-2 bg-bg-secondary rounded-full overflow-hidden">
+                <div className="w-32 h-2 bg-card rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-primary rounded-full transition-all duration-300 ease-in-out" 
                     style={{ width: `${agent.progress}%` }}
                   />
                 </div>
-                <span className="text-xs text-text-secondary ml-2">{agent.progress}%</span>
+                <span className="text-xs text-muted-foreground ml-2">{agent.progress}%</span>
               </td>
-              <td className="px-4 py-2 text-text-secondary">{agent.tool || '-'}</td>
-              <td className="px-4 py-2 text-text-secondary">{agent.startTime}</td>
-              <td className="px-4 py-2 text-text-secondary">{agent.duration}</td>
+              <td className="px-4 py-2 text-muted-foreground">{agent.tool || '-'}</td>
+              <td className="px-4 py-2 text-muted-foreground">{agent.startTime}</td>
+              <td className="px-4 py-2 text-muted-foreground">{agent.duration}</td>
             </tr>
           ))}
         </tbody>

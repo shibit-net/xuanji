@@ -32,7 +32,7 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
   };
 
   return (
-    <div className="flex-shrink-0 h-10 bg-bg-secondary flex items-center justify-between px-4 select-none drag">
+    <div className="flex-shrink-0 h-10 bg-card flex items-center justify-between px-4 select-none drag">
       {/* 左侧：占位 */}
       <div className="w-20"></div>
 

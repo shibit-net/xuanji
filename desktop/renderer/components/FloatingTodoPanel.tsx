@@ -34,7 +34,7 @@ export function FloatingTodoPanel() {
       >
         {/* 紧凑头部 */}
         <div
-          className="bg-bg-secondary/90 backdrop-blur-sm border border-bg-tertiary/50 rounded-t-lg px-3 py-2 cursor-pointer hover:bg-bg-tertiary/30 transition-colors"
+          className="bg-card/90 backdrop-blur-sm border border-border/50 rounded-t-lg px-3 py-2 cursor-pointer hover:bg-muted/30 transition-colors"
           onClick={() => setIsExpanded(!isExpanded)}
         >
           <div className="flex items-center gap-2 text-xs">
@@ -42,33 +42,33 @@ export function FloatingTodoPanel() {
             {inProgress.length > 0 ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin flex-shrink-0" />
-                <span className="text-text-primary font-medium flex-1 truncate">
+                <span className="text-foreground font-medium flex-1 truncate">
                   {inProgress[0].subject}
-                  {inProgress.length > 1 && <span className="text-text-secondary ml-1">+{inProgress.length - 1}</span>}
+                  {inProgress.length > 1 && <span className="text-muted-foreground ml-1">+{inProgress.length - 1}</span>}
                 </span>
               </>
             ) : pending.length > 0 ? (
               <>
                 <Circle className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                <span className="text-text-secondary flex-1 truncate">
+                <span className="text-muted-foreground flex-1 truncate">
                   {pending.length} 个待处理任务
                 </span>
               </>
             ) : (
               <>
                 <CheckCircle className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-                <span className="text-text-secondary flex-1">全部完成</span>
+                <span className="text-muted-foreground flex-1">全部完成</span>
               </>
             )}
 
-            <span className="text-text-tertiary text-[10px] px-1.5 py-0.5 bg-bg-tertiary/50 rounded">
+            <span className="text-muted-foreground/50 text-[10px] px-1.5 py-0.5 bg-muted/50 rounded">
               {completed.length}/{todos.length}
             </span>
 
             {(isExpanded || shouldAutoExpand) ? (
-              <ChevronDown className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+              <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+              <ChevronUp className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             )}
           </div>
         </div>
@@ -81,7 +81,7 @@ export function FloatingTodoPanel() {
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="overflow-hidden bg-bg-secondary/90 backdrop-blur-sm border-x border-b border-bg-tertiary/50 rounded-b-lg"
+              className="overflow-hidden bg-card/90 backdrop-blur-sm border-x border-b border-border/50 rounded-b-lg"
             >
               <div className="px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
                 {/* 进行中 */}
@@ -95,7 +95,7 @@ export function FloatingTodoPanel() {
                 ))}
 
                 {pending.length > 10 && (
-                  <div className="text-[10px] text-text-tertiary text-center py-1">
+                  <div className="text-[10px] text-muted-foreground/50 text-center py-1">
                     +{pending.length - 10} 个待处理
                   </div>
                 )}
@@ -107,7 +107,7 @@ export function FloatingTodoPanel() {
                       <TaskRow key={todo.id} todo={todo} />
                     ))}
                     {completed.length > 5 && (
-                      <div className="text-[10px] text-text-tertiary text-center py-1">
+                      <div className="text-[10px] text-muted-foreground/50 text-center py-1">
                         +{completed.length - 5} 个已完成
                       </div>
                     )}
@@ -137,9 +137,9 @@ function TaskRow({ todo }: { todo: TodoItem }) {
   };
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-bg-tertiary/30 transition-colors">
+    <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 transition-colors">
       <div className="flex-shrink-0">{getIcon()}</div>
-      <span className={`text-xs flex-1 truncate ${todo.status === 'completed' ? 'line-through text-text-tertiary' : 'text-text-secondary'}`}>
+      <span className={`text-xs flex-1 truncate ${todo.status === 'completed' ? 'line-through text-muted-foreground/50' : 'text-muted-foreground'}`}>
         {todo.subject}
       </span>
       {todo.activeForm && todo.status === 'in_progress' && (

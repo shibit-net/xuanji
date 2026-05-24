@@ -88,19 +88,19 @@ export default function AgentPanel({ onToggle }: AgentPanelProps) {
   }, [messages]);
 
   return (
-    <div className="w-96 bg-bg-secondary flex flex-col border-l border-bg-tertiary">
+    <div className="w-96 bg-card flex flex-col border-l border-border">
       {/* 标题 */}
-      <div className="flex items-center justify-between p-4 border-b border-bg-tertiary">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">
           <div className="text-lg">🤖</div>
           <div className="font-semibold">{t('agent.panel.title')}</div>
         </div>
         <button
           onClick={onToggle}
-          className="p-1.5 hover:bg-bg-tertiary rounded transition-colors"
+          className="p-1.5 hover:bg-muted rounded transition-colors"
           title={t('agent.panel.close')}
         >
-          <X size={16} className="text-text-secondary" />
+          <X size={16} className="text-muted-foreground" />
         </button>
       </div>
 
@@ -130,7 +130,7 @@ function AgentCard({ agent }: { agent: AgentInfo }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="bg-bg-primary rounded-xl p-4 shadow-lg"
+      className="bg-background rounded-xl p-4 shadow-lg"
     >
       {/* Agent 头像和信息 */}
       <div className="flex items-start gap-3 mb-3">
@@ -146,7 +146,7 @@ function AgentCard({ agent }: { agent: AgentInfo }) {
         {/* Agent 信息 */}
         <div className="flex-1">
           <div className="font-semibold text-lg">{agent.name}</div>
-          <div className="text-sm text-text-secondary">
+          <div className="text-sm text-muted-foreground">
             {agent.role === 'main' && t('agent.panel.role.main')}
             {agent.role === 'worker' && t('agent.panel.role.worker')}
             {agent.role === 'planner' && t('agent.panel.role.planner')}
@@ -205,7 +205,7 @@ function ThinkingBubble({ thought, status }: { thought: string; status: AgentInf
       className={`relative p-3 rounded-lg mb-3 ${
         isActive
           ? 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30'
-          : 'bg-bg-secondary'
+          : 'bg-card'
       }`}
     >
       {/* 气泡尾巴 */}
@@ -269,7 +269,7 @@ function CurrentToolCard({ tool }: { tool: AgentInfo['currentTool'] }) {
         <div className="flex-1">
           <div className="font-medium text-sm">{tool.name}</div>
           {tool.duration !== undefined && (
-            <div className="text-xs text-text-secondary">{tool.duration}ms</div>
+            <div className="text-xs text-muted-foreground">{tool.duration}ms</div>
           )}
         </div>
         {tool.status === 'running' && (
@@ -327,7 +327,7 @@ function ToolCallHistory() {
 
   return (
     <div className="mt-6">
-      <div className="text-sm font-semibold mb-3 text-text-secondary">{t('agent.panel.tool_call_title')}</div>
+      <div className="text-sm font-semibold mb-3 text-muted-foreground">{t('agent.panel.tool_call_title')}</div>
       <div className="space-y-2">
         {recentTools.map((tool, idx) => {
           const time = new Date(tool.timestamp).toLocaleTimeString('zh-CN', {
@@ -342,11 +342,11 @@ function ToolCallHistory() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="flex items-center gap-2 p-2 bg-bg-primary rounded-lg text-sm"
+              className="flex items-center gap-2 p-2 bg-background rounded-lg text-sm"
             >
               <div className="text-base">{toolIcons[tool.name] || '🔧'}</div>
               <div className="flex-1 truncate">{tool.name}</div>
-              <div className="text-xs text-text-secondary">{time}</div>
+              <div className="text-xs text-muted-foreground">{time}</div>
               <div className="w-4">
                 {tool.status === 'success' && <span className="text-green-500">✓</span>}
                 {tool.status === 'error' && <span className="text-red-500">✗</span>}
@@ -382,19 +382,19 @@ function AgentStats() {
   }, [messages]);
 
   return (
-    <div className="border-t border-bg-tertiary p-4 bg-bg-primary">
+    <div className="border-t border-border p-4 bg-background">
       <div className="grid grid-cols-3 gap-3 text-center text-xs">
         <div>
           <div className="text-2xl font-bold text-primary">{stats.totalTools}</div>
-          <div className="text-text-secondary mt-1">{t('agent.panel.stats.tool_calls')}</div>
+          <div className="text-muted-foreground mt-1">{t('agent.panel.stats.tool_calls')}</div>
         </div>
         <div>
           <div className="text-2xl font-bold text-green-500">{stats.successTools}</div>
-          <div className="text-text-secondary mt-1">{t('agent.panel.stats.success')}</div>
+          <div className="text-muted-foreground mt-1">{t('agent.panel.stats.success')}</div>
         </div>
         <div>
           <div className="text-2xl font-bold text-red-500">{stats.errorTools}</div>
-          <div className="text-text-secondary mt-1">{t('agent.panel.stats.error')}</div>
+          <div className="text-muted-foreground mt-1">{t('agent.panel.stats.error')}</div>
         </div>
       </div>
     </div>

@@ -133,7 +133,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
     >
       {/* 连接线（SubAgent） */}
       {level > 0 && (
-        <div className="absolute -left-6 top-6 w-6 h-px bg-bg-tertiary" />
+        <div className="absolute -left-6 top-6 w-6 h-px bg-muted" />
       )}
 
       {/* 主卡片 */}
@@ -163,12 +163,12 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
             {hasSubAgents && (
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="flex-shrink-0 p-1 hover:bg-bg-tertiary/50 rounded transition-colors"
+                className="flex-shrink-0 p-1 hover:bg-muted/50 rounded transition-colors"
               >
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-text-secondary" />
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-text-secondary" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 )}
               </button>
             )}
@@ -222,7 +222,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
             </div>
 
             {/* 统计信息 */}
-            <div className="flex-shrink-0 flex items-center gap-3 text-[10px] text-text-tertiary">
+            <div className="flex-shrink-0 flex items-center gap-3 text-[10px] text-muted-foreground/50">
               {agent.currentTools.length > 0 && (
                 <div className="flex items-center gap-1">
                   <Wrench className="w-3 h-3" />
@@ -247,7 +247,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="overflow-hidden border-t border-bg-tertiary/50"
+              className="overflow-hidden border-t border-border/50"
             >
               <div className="px-4 py-3 space-y-3">
                 {/* 思考内容 */}
@@ -257,7 +257,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                       <Brain className="w-3.5 h-3.5" />
                       <span className="font-medium">{t('agent.work_card.thinking_title')}</span>
                     </div>
-                    <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed max-h-28 overflow-y-auto">
+                    <div className="text-xs text-muted-foreground bg-muted/30 rounded px-2.5 py-2 leading-relaxed max-h-28 overflow-y-auto">
                       {agent.currentThought}
                     </div>
                   </div>
@@ -274,12 +274,12 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                       {agent.currentTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="flex items-center gap-2 text-xs bg-bg-tertiary/30 rounded px-2.5 py-1.5"
+                          className="flex items-center gap-2 text-xs bg-muted/30 rounded px-2.5 py-1.5"
                         >
                           <Loader2 className="w-3 h-3 text-blue-400 animate-spin flex-shrink-0" />
-                          <span className="flex-1 truncate text-text-secondary">{tool.name}</span>
+                          <span className="flex-1 truncate text-muted-foreground">{tool.name}</span>
                           {tool.duration && (
-                            <span className="text-[10px] text-text-tertiary flex items-center gap-0.5">
+                            <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
                               <Clock className="w-2.5 h-2.5" />
                               {tool.duration}ms
                             </span>
@@ -297,7 +297,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
                       <Sparkles className="w-3.5 h-3.5" />
                       <span className="font-medium">{t('agent.work_card.responding_title')}</span>
                     </div>
-                    <div className="text-xs text-text-secondary bg-bg-tertiary/30 rounded px-2.5 py-2 leading-relaxed line-clamp-3">
+                    <div className="text-xs text-muted-foreground bg-muted/30 rounded px-2.5 py-2 leading-relaxed line-clamp-3">
                       {agent.currentResponse}
                     </div>
                   </div>
@@ -314,7 +314,7 @@ export function AgentWorkCard({ agent, level, isRoot = false }: AgentWorkCardPro
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-t border-bg-tertiary/50 px-4 py-3"
+              className="overflow-hidden border-t border-border/50 px-4 py-3"
             >
               <div className="space-y-2">
                 {agent.subAgents.map((subAgent) => (

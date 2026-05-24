@@ -155,7 +155,7 @@ export default function LogsView() {
   const getLevelIcon = (level: string) => {
     switch (level) {
       case 'debug':
-        return <Bug size={12} className="text-text-secondary" />;
+        return <Bug size={12} className="text-muted-foreground" />;
       case 'info':
         return <Info size={12} className="text-blue-500" />;
       case 'warn':
@@ -163,14 +163,14 @@ export default function LogsView() {
       case 'error':
         return <AlertCircle size={12} className="text-error" />;
       default:
-        return <FileText size={12} className="text-text-secondary" />;
+        return <FileText size={12} className="text-muted-foreground" />;
     }
   };
 
   const getLevelColor = (level: string) => {
     switch (level) {
       case 'debug':
-        return 'text-text-secondary';
+        return 'text-muted-foreground';
       case 'info':
         return 'text-blue-500';
       case 'warn':
@@ -178,7 +178,7 @@ export default function LogsView() {
       case 'error':
         return 'text-error';
       default:
-        return 'text-text-primary';
+        return 'text-foreground';
     }
   };
 
@@ -233,11 +233,11 @@ export default function LogsView() {
       <div className="flex items-center gap-2 text-xs">
         {/* 级别筛选 */}
         <div className="flex items-center gap-1">
-          <Filter size={12} className="text-text-secondary" />
+          <Filter size={12} className="text-muted-foreground" />
           <select
             value={filterLevel}
             onChange={(e) => setFilterLevel(e.target.value as LogLevel)}
-            className="bg-bg-primary border border-bg-tertiary rounded px-2 py-1 text-xs focus:outline-none focus:border-primary"
+            className="bg-background border border-border rounded px-2 py-1 text-xs focus:outline-none focus:border-primary"
           >
             <option value="all">{getDesktopLabel('logs.filter_all', language)}</option>
             <option value="debug">Debug</option>
@@ -248,8 +248,8 @@ export default function LogsView() {
         </div>
 
         {/* 关键词搜索 */}
-        <div className="flex-1 flex items-center gap-1 bg-bg-primary border border-bg-tertiary rounded px-2 py-1">
-          <Search size={12} className="text-text-secondary" />
+        <div className="flex-1 flex items-center gap-1 bg-background border border-border rounded px-2 py-1">
+          <Search size={12} className="text-muted-foreground" />
           <input
             type="text"
             value={keyword}
@@ -260,7 +260,7 @@ export default function LogsView() {
         </div>
 
         {/* 统计 */}
-        <div className="text-text-secondary">
+        <div className="text-muted-foreground">
           {filteredLogs.length} / {logs.length} 条
         </div>
       </div>
@@ -268,18 +268,18 @@ export default function LogsView() {
       {/* 日志列表 */}
       <div
         ref={logsContainerRef}
-        className="overflow-y-auto bg-bg-primary rounded-lg p-2 space-y-1 font-mono text-xs"
+        className="overflow-y-auto bg-background rounded-lg p-2 space-y-1 font-mono text-xs"
         style={{ maxHeight: '600px', minHeight: '300px' }}
       >
         {filteredLogs.length === 0 ? (
-          <div className="text-center text-text-secondary py-8">
+          <div className="text-center text-muted-foreground py-8">
             {isLoading ? '加载中...' : '暂无日志'}
           </div>
         ) : (
           filteredLogs.map((log, index) => (
-            <div key={`${log.timestamp}-${index}`} className="flex items-start gap-2 py-1 hover:bg-bg-secondary rounded px-2">
+            <div key={`${log.timestamp}-${index}`} className="flex items-start gap-2 py-1 hover:bg-card rounded px-2">
               {/* 时间 */}
-              <span className="text-text-tertiary flex-shrink-0 w-20">
+              <span className="text-muted-foreground/50 flex-shrink-0 w-20">
                 {formatTime(log.timestamp)}
               </span>
 
@@ -297,7 +297,7 @@ export default function LogsView() {
               </span>
 
               {/* 消息内容 */}
-              <span className="text-text-primary flex-1 break-words">{log.message}</span>
+              <span className="text-foreground flex-1 break-words">{log.message}</span>
             </div>
           ))
         )}

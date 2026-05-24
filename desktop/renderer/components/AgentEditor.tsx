@@ -590,7 +590,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               onChange={(e) => handleChange(e.target.value)}
               disabled={isDisabled}
               rows={3}
-              className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             />
           )
         ) : type === 'select' ? (
@@ -621,21 +621,21 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   }}
                   disabled={isDisabled}
                   placeholder={t('agent.editor.model_search_placeholder')}
-                  className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+                  className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
                 />
                 {modelsLoading && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <Loader2 size={16} className="animate-spin text-text-secondary" />
+                    <Loader2 size={16} className="animate-spin text-muted-foreground" />
                   </div>
                 )}
                 {!modelsLoading && (
-                  <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+                  <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
                 )}
               </div>
 
               {/* 下拉建议列表 */}
               {showModelDropdown && !modelsLoading && filteredModels.length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-bg-primary border border-bg-tertiary rounded shadow-lg max-h-60 overflow-y-auto">
+                <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded shadow-lg max-h-60 overflow-y-auto">
                   {filteredModels.map((model, idx) => (
                     <button
                       key={model.id || `${model.model || 'model'}-${idx}`}
@@ -645,15 +645,15 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         setModelSearchQuery(model.name);
                         setShowModelDropdown(false);
                       }}
-                      className="w-full text-left px-3 py-2 hover:bg-bg-tertiary transition-colors text-sm"
+                      className="w-full text-left px-3 py-2 hover:bg-muted transition-colors text-sm"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{model.name}</div>
-                          <div className="text-xs text-text-secondary truncate">{model.model}</div>
+                          <div className="text-xs text-muted-foreground truncate">{model.model}</div>
                         </div>
                         {(model.inputPrice !== undefined || model.outputPrice !== undefined) && (
-                          <div className="ml-2 text-xs text-text-tertiary whitespace-nowrap">
+                          <div className="ml-2 text-xs text-muted-foreground/50 whitespace-nowrap">
                             {model.inputPrice !== undefined && model.outputPrice !== undefined ? (
                               <span>
                                 ¥{model.inputPrice}/{model.outputPrice}
@@ -677,7 +677,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               value={value || ''}
               onChange={(e) => handleChange(e.target.value)}
               disabled={isDisabled}
-              className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             >
               {currentOptions?.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
@@ -712,7 +712,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 handleChange(0);
               }
             }}
-            className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
           />
         ) : (
           <input
@@ -720,7 +720,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             disabled={isDisabled}
             value={value != null ? String(value) : ''}
             onChange={(e) => handleChange(e.target.value)}
-            className={`w-full border ${error ? 'border-red-500' : 'border-bg-tertiary'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-bg-tertiary text-text-secondary cursor-not-allowed' : 'bg-bg-primary'}`}
+            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
           />
         )}
       </div>
@@ -737,11 +737,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     const isExpanded = expandedSections.has(id);
 
     return (
-      <div className="bg-bg-secondary rounded-lg overflow-hidden">
+      <div className="bg-card rounded-lg overflow-hidden">
         <button
           type="button"
           onClick={() => toggleSection(id)}
-          className="w-full flex items-center gap-3 p-4 hover:bg-bg-tertiary/50 transition-colors"
+          className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
         >
           {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
           {icon}
@@ -764,7 +764,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           <h3 className="text-2xl font-bold">
             {agent ? t('agent.editor.title.edit') : t('agent.editor.title.create')}
           </h3>
-          <p className="text-sm text-text-secondary mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {t('agent.editor.subtitle')}
           </p>
         </div>
@@ -772,14 +772,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           <button
             type="button"
             onClick={() => setMode(mode === 'form' ? 'json5' : 'form')}
-            className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
+            className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2"
           >
             <FileCode size={16} />
             {mode === 'form' ? t('agent.editor.json5_mode') : t('agent.editor.form_mode')}
           </button>
           <button
             onClick={onCancel}
-            className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2"
+            className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2"
           >
             <X size={16} />
             {t('agent.editor.cancel')}
@@ -797,7 +797,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       {mode === 'json5' && category !== 'system' ? (
         /* JSON5 代码编辑模式 */
         <div className="space-y-4">
-          <div className="bg-bg-secondary rounded-lg p-4">
+          <div className="bg-card rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-medium">{t('agent.editor.json5_title')}</h4>
               <button
@@ -844,14 +844,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
                   step < creationStep ? 'bg-primary text-white' :
                   step === creationStep ? 'bg-primary text-white ring-2 ring-primary/30' :
-                  'bg-bg-tertiary text-text-tertiary'
+                  'bg-muted text-muted-foreground/50'
                 }`}>
                   {step < creationStep ? <Check size={14} /> : step}
                 </div>
-                <span className={`text-xs ${step <= creationStep ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                <span className={`text-xs ${step <= creationStep ? 'text-foreground' : 'text-muted-foreground/50'}`}>
                   {step === 1 ? t('agent.editor.wizard.step.identity') : step === 2 ? t('agent.editor.wizard.step.brain') : step === 3 ? t('agent.editor.wizard.step.tools') : t('agent.editor.wizard.step.review')}
                 </span>
-                {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-bg-tertiary'}`} />}
+                {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-muted'}`} />}
               </div>
             ))}
           </div>
@@ -859,7 +859,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* Step 1: 身份 */}
           {creationStep === 1 && (
             <div className="space-y-4">
-              <div className="bg-bg-secondary rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Settings size={18} className="text-primary" />
                   {t('agent.editor.basic_info')}
@@ -892,7 +892,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       setSelectedTemplate(e.target.value);
                       applyTemplate(e.target.value);
                     }}
-                    className="w-full bg-bg-primary border border-blue-500/30 rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                    className="w-full bg-background border border-blue-500/30 rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                   >
                     <option value="">{t('agent.editor.template.empty')}</option>
                     {builtinAgents.map((template) => (
@@ -904,7 +904,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 </div>
               )}
 
-              <div className="bg-bg-secondary rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Zap size={18} className="text-yellow-500" />
                   {t('agent.editor.model_section')}
@@ -918,7 +918,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         setConfig({ ...config, provider: { ...config.provider, adapter: e.target.value } });
                         loadModels(e.target.value);
                       }}
-                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                     >
                       <option value="anthropic">Anthropic</option>
                       <option value="openai">OpenAI</option>
@@ -933,7 +933,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     onChange={(e) => setConfig({ ...config, systemPrompt: e.target.value })}
                     placeholder={t('agent.editor.system_prompt_placeholder')}
                     rows={10}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-3">
@@ -947,7 +947,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* Step 3: 工具与能力 */}
           {creationStep === 3 && (
             <div className="space-y-4">
-              <div className="bg-bg-secondary rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <FileCode size={18} className="text-green-500" />
                   {t('agent.editor.capabilities_section')}
@@ -960,11 +960,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   })}
                   placeholder={t('agent.editor.capabilities_placeholder')}
                   rows={4}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono"
                 />
               </div>
 
-              <div className="bg-bg-secondary rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Database size={18} className="text-blue-500" />
                   {t('agent.editor.tools_section')}
@@ -972,19 +972,19 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 {/* 搜索和批量操作 */}
                 <div className="space-y-3 mb-4">
                   <div className="relative">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
                     <input
                       type="text"
                       placeholder={t('agent.editor.search_tools')}
                       value={toolSearchQuery}
                       onChange={(e) => setToolSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-3 py-2 bg-bg-primary border border-bg-tertiary rounded text-sm focus:outline-none focus:border-primary"
+                      className="w-full pl-10 pr-3 py-2 bg-background border border-border rounded text-sm focus:outline-none focus:border-primary"
                     />
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={selectAllTools} className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded">{t('agent.editor.tools_select_all')}</button>
-                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded">{t('agent.editor.tools_deselect_all')}</button>
-                    <span className="ml-auto text-xs text-text-tertiary self-center">
+                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-muted text-muted-foreground hover:bg-muted/80 rounded">{t('agent.editor.tools_deselect_all')}</button>
+                    <span className="ml-auto text-xs text-muted-foreground/50 self-center">
                       {t('agent.editor.tools_enabled_count', { enabled: (config.tools || []).filter((t: any) => t.enabled !== false).length, total: (config.tools || []).length })}
                     </span>
                   </div>
@@ -992,18 +992,18 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {Object.entries(groupedTools).map(([cat, tools]) => (
                     <div key={cat}>
-                      <h4 className="text-sm font-medium text-text-primary mb-2 sticky top-0 bg-bg-secondary py-1">{cat}</h4>
+                      <h4 className="text-sm font-medium text-foreground mb-2 sticky top-0 bg-card py-1">{cat}</h4>
                       <div className="space-y-1 pl-2">
                         {tools.map((tool: any) => {
                           const toolConfig = (config.tools || []).find((t: any) => t.name === tool.name);
                           const isEnabled = toolConfig ? toolConfig.enabled !== false : false;
                           return (
-                            <div key={tool.name} className="p-2 hover:bg-bg-tertiary/50 rounded">
+                            <div key={tool.name} className="p-2 hover:bg-muted/50 rounded">
                               <label className="flex items-start gap-3 cursor-pointer">
                                 <input type="checkbox" checked={isEnabled} onChange={() => toggleTool(tool.name)} className="mt-0.5 rounded" />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-sm font-medium">{tool.name}</div>
-                                  {tool.description && <div className="text-xs text-text-tertiary mt-0.5">{tool.description}</div>}
+                                  {tool.description && <div className="text-xs text-muted-foreground/50 mt-0.5">{tool.description}</div>}
                                 </div>
                               </label>
                             </div>
@@ -1020,27 +1020,27 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* Step 4: 审核保存 */}
           {creationStep === 4 && (
             <div className="space-y-4">
-              <div className="bg-bg-secondary rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <h4 className="font-medium mb-3">{t('agent.editor.review_section')}</h4>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.id')}</span><span className="font-mono">{config.id || t('agent.editor.review.not_filled')}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.name')}</span><span>{config.name || t('agent.editor.review.not_filled')}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.model')}</span><span className="font-mono">{config.model?.primary || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.provider')}</span><span>{config.provider?.adapter || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.system_prompt')}</span><span>{config.systemPrompt ? `${config.systemPrompt.substring(0, 50)}${t('agent.editor.review.ellipsis')}` : t('agent.editor.review.none')}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.tool_count')}</span><span>{(config.tools || []).filter((t: any) => t.enabled !== false).length} {t('agent.editor.tools_enabled_count_suffix').trim()}</span></div>
-                  <div className="flex justify-between"><span className="text-text-tertiary">{t('agent.editor.review.capability_count')}</span><span>{(config.capabilities || []).length} {t('agent.editor.review.ellipsis')}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.id')}</span><span className="font-mono">{config.id || t('agent.editor.review.not_filled')}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.name')}</span><span>{config.name || t('agent.editor.review.not_filled')}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.model')}</span><span className="font-mono">{config.model?.primary || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.provider')}</span><span>{config.provider?.adapter || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.system_prompt')}</span><span>{config.systemPrompt ? `${config.systemPrompt.substring(0, 50)}${t('agent.editor.review.ellipsis')}` : t('agent.editor.review.none')}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.tool_count')}</span><span>{(config.tools || []).filter((t: any) => t.enabled !== false).length} {t('agent.editor.tools_enabled_count_suffix').trim()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground/50">{t('agent.editor.review.capability_count')}</span><span>{(config.capabilities || []).length} {t('agent.editor.review.ellipsis')}</span></div>
                 </div>
               </div>
 
               {/* 高级设置 */}
-              <details className="bg-bg-secondary rounded-lg p-4">
+              <details className="bg-card rounded-lg p-4">
                 <summary className="font-medium cursor-pointer">{t('agent.editor.advanced_settings')}</summary>
                 <div className="mt-3 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.exec_mode')}</label>
-                      <select value={config.execution?.mode || 'react'} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, mode: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                      <select value={config.execution?.mode || 'react'} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, mode: e.target.value } })} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
                         <option value="react">{t('agent.editor.execution_mode_react')}</option>
                         <option value="plan">{t('agent.editor.execution_mode_plan')}</option>
                         <option value="chain">{t('agent.editor.execution_mode_chain')}</option>
@@ -1048,7 +1048,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
-                      <input type="number" value={config.execution?.maxIterations || 20} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, maxIterations: parseInt(e.target.value) } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
+                      <input type="number" value={config.execution?.maxIterations || 20} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, maxIterations: parseInt(e.target.value) } })} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1058,13 +1058,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_read')}</label>
-                      <select value={config.permissions?.fileRead || 'always'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileRead: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                      <select value={config.permissions?.fileRead || 'always'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileRead: e.target.value } })} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
                         <option value="always">{t('agent.editor.perm_always')}</option><option value="ask">{t('agent.editor.perm_ask')}</option><option value="deny">{t('agent.editor.perm_deny')}</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.file_write')}</label>
-                      <select value={config.permissions?.fileWrite || 'ask'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileWrite: e.target.value } })} className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
+                      <select value={config.permissions?.fileWrite || 'ask'} onChange={(e) => setConfig({ ...config, permissions: { ...config.permissions, fileWrite: e.target.value } })} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary">
                         <option value="always">{t('agent.editor.perm_always')}</option><option value="ask">{t('agent.editor.perm_ask')}</option><option value="deny">{t('agent.editor.perm_deny')}</option>
                       </select>
                     </div>
@@ -1077,7 +1077,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* 导航按钮 */}
           <div className="flex justify-between pt-4 border-t border-border">
             {creationStep > 1 ? (
-              <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-bg-tertiary rounded hover:bg-bg-tertiary transition-colors text-sm flex items-center gap-2">
+              <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2">
                 <ArrowLeft size={16} />{t('agent.editor.prev_step')}
               </button>
             ) : <div />}
@@ -1133,7 +1133,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   }}
                   disabled={!canEdit('enabled')}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    config.enabled !== false ? 'bg-primary' : 'bg-bg-tertiary'
+                    config.enabled !== false ? 'bg-primary' : 'bg-muted'
                   } ${!canEdit('enabled') ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
@@ -1157,9 +1157,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   placeholder={t('agent.editor.capabilities_placeholder')}
                   rows={5}
                   disabled={!canEdit('capabilities')}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                <p className="text-xs text-text-secondary mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {t('agent.editor.field.capabilities_hint')}
                 </p>
               </div>
@@ -1176,7 +1176,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <p className="text-xs text-blue-400 mb-2">
                   {t('agent.editor.system_prompt_hint_title')}
                 </p>
-                <ul className="text-xs text-text-secondary space-y-1 ml-4">
+                <ul className="text-xs text-muted-foreground space-y-1 ml-4">
                   <li>{t('agent.editor.system_prompt_hint_item1')}</li>
                   <li>{t('agent.editor.system_prompt_hint_item2')}</li>
                   <li>{t('agent.editor.system_prompt_hint_item3')}</li>
@@ -1192,9 +1192,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   disabled={!canEdit('systemPrompt')}
                   placeholder={t('agent.editor.system_prompt_edit_placeholder')}
                   rows={15}
-                  className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                <p className="text-xs text-text-secondary mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {t('agent.editor.system_prompt_footer')}
                 </p>
               </div>
@@ -1222,7 +1222,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       loadModels(newAdapter);
                     }}
                     disabled={!canEdit('provider.adapter')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="anthropic">Anthropic Claude</option>
                     <option value="openai">OpenAI</option>
@@ -1256,7 +1256,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 {config.provider?.adapter === 'local-llama' ? (
                   <div>
                     <label className="block text-sm font-medium mb-2">{t('agent.editor.field.primary_model')}{t('agent.editor.provider_local_suffix')}</label>
-                    <div className="space-y-2 max-h-80 overflow-y-auto border border-bg-tertiary rounded-lg p-2">
+                    <div className="space-y-2 max-h-80 overflow-y-auto border border-border rounded-lg p-2">
                       {[
                         { id: 'qwen2.5-0.5b-q4', name: 'Qwen2.5-0.5B Q4', desc: t('agent.editor.local_model_desc_fast'), filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' },
                         { id: 'qwen2.5-1.5b-q4', name: 'Qwen2.5-1.5B Q4', desc: t('agent.editor.local_model_desc_balanced'), filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf' },
@@ -1267,7 +1267,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         const installed = localModelStatuses[preset.id]?.installed;
                         const downloading = localModelStatuses[preset.id]?.downloading;
                         return (
-                          <label key={preset.id} className="flex items-center justify-between p-3 rounded-lg border border-bg-tertiary bg-bg-primary cursor-pointer hover:border-primary/40">
+                          <label key={preset.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background cursor-pointer hover:border-primary/40">
                             <div className="flex items-center gap-2">
                               <input
                                 type="radio"
@@ -1281,7 +1281,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                               />
                               <div>
                                 <p className="text-sm font-medium">{preset.name}</p>
-                                <p className="text-xs text-text-secondary">{preset.desc}</p>
+                                <p className="text-xs text-muted-foreground">{preset.desc}</p>
                               </div>
                             </div>
                             {!installed && !downloading && (
@@ -1318,14 +1318,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
                       {scannedModels.length > 0 && (
                         <>
-                          <div className="text-xs text-text-secondary px-2 py-1 border-t border-bg-tertiary mt-2 pt-2">
+                          <div className="text-xs text-muted-foreground px-2 py-1 border-t border-border mt-2 pt-2">
                             {t('agent.editor.local_models_title')}
                           </div>
                           {scannedModels.map((item) => {
                             const modelId = item.filename;
                             const isSelected = config.model?.primary === modelId;
                             return (
-                              <label key={item.filename} className="flex items-center justify-between p-3 rounded-lg border border-bg-tertiary bg-bg-primary cursor-pointer hover:border-primary/40">
+                              <label key={item.filename} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background cursor-pointer hover:border-primary/40">
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <input
                                     type="radio"
@@ -1339,7 +1339,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                   />
                                   <div className="min-w-0 flex-1">
                                     <p className="text-sm font-medium truncate">{item.filename}</p>
-                                    <p className="text-xs text-text-secondary">
+                                    <p className="text-xs text-muted-foreground">
                                       {(item.size / 1024 / 1024 / 1024).toFixed(2)} GB
                                     </p>
                                   </div>
@@ -1384,7 +1384,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       })}
                       placeholder={t('agent.editor.api_key_placeholder')}
                       disabled={!canEdit('provider.apiKey')}
-                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
@@ -1398,7 +1398,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       })}
                       placeholder={t('agent.editor.base_url_placeholder')}
                       disabled={!canEdit('provider.baseURL')}
-                      className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -1440,7 +1440,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <p className="text-xs text-blue-400 mb-2">
                   {t('agent.editor.tools_hint_intro')}
                 </p>
-                <ul className="text-xs text-text-secondary space-y-1 ml-4">
+                <ul className="text-xs text-muted-foreground space-y-1 ml-4">
                   <li>{t('agent.editor.tools_hint_item1')}</li>
                   <li>{t('agent.editor.tools_hint_item2')}</li>
                   <li>{t('agent.editor.tools_hint_item3')}</li>
@@ -1448,19 +1448,19 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               </div>
 
               {toolsLoading ? (
-                <p className="text-sm text-text-secondary">{t('agent.editor.loading_tools')}</p>
+                <p className="text-sm text-muted-foreground">{t('agent.editor.loading_tools')}</p>
               ) : (
                 <>
                   {/* 搜索和批量操作 */}
                   <div className="space-y-3 mb-4">
                     <div className="relative">
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
                       <input
                         type="text"
                         placeholder={t('agent.editor.search_tools_ext')}
                         value={toolSearchQuery}
                         onChange={(e) => setToolSearchQuery(e.target.value)}
-                        className="w-full pl-10 pr-3 py-2 bg-bg-primary border border-bg-tertiary rounded text-sm focus:outline-none focus:border-primary"
+                        className="w-full pl-10 pr-3 py-2 bg-background border border-border rounded text-sm focus:outline-none focus:border-primary"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -1474,11 +1474,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       <button
                         type="button"
                         onClick={deselectAllTools}
-                        className="px-3 py-1.5 text-xs bg-bg-tertiary text-text-secondary hover:bg-bg-tertiary/80 rounded"
+                        className="px-3 py-1.5 text-xs bg-muted text-muted-foreground hover:bg-muted/80 rounded"
                       >
                         {t('agent.editor.tools_deselect_all')}
                       </button>
-                      <span className="ml-auto text-xs text-text-tertiary self-center">
+                      <span className="ml-auto text-xs text-muted-foreground/50 self-center">
                         {t('agent.editor.tools_enabled_count', { enabled: (config.tools || []).filter((t: any) => t.enabled !== false).length, total: (config.tools || []).length })}<span className="ml-0.5">{t('agent.editor.tools_enabled_count_suffix').trim()}</span>
                       </span>
                     </div>
@@ -1488,7 +1488,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   <div className="space-y-4 max-h-96 overflow-y-auto">
                     {Object.entries(groupedTools).map(([category, tools]) => (
                       <div key={category}>
-                        <h4 className="text-sm font-medium text-text-primary mb-2 sticky top-0 bg-bg-secondary py-1">
+                        <h4 className="text-sm font-medium text-foreground mb-2 sticky top-0 bg-card py-1">
                           {category}
                         </h4>
                         <div className="space-y-2 pl-2">
@@ -1499,7 +1499,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                             return (
                               <div
                                 key={tool.name}
-                                className="p-2 hover:bg-bg-tertiary/50 rounded"
+                                className="p-2 hover:bg-muted/50 rounded"
                               >
                                 <label className={`flex items-start gap-3 ${canEdit('tools') ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                                   <input
@@ -1510,9 +1510,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                     className="mt-0.5 rounded disabled:opacity-50"
                                   />
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-text-primary">{tool.name}</div>
+                                    <div className="text-sm font-medium text-foreground">{tool.name}</div>
                                     {tool.description && (
-                                      <div className="text-xs text-text-tertiary mt-0.5">{tool.description}</div>
+                                      <div className="text-xs text-muted-foreground/50 mt-0.5">{tool.description}</div>
                                     )}
                                     {/* 自定义描述（可选） */}
                                     {isEnabled && toolConfig?.description && (
@@ -1531,7 +1531,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   </div>
 
                   {filteredTools.length === 0 && (
-                    <p className="text-sm text-text-tertiary text-center py-4">
+                    <p className="text-sm text-muted-foreground/50 text-center py-4">
                       {t('agent.editor.tools_no_match')}
                     </p>
                   )}
@@ -1561,7 +1561,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       execution: { ...config.execution, mode: e.target.value },
                     })}
                     disabled={!canEdit('execution.mode')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="react">{t('agent.editor.execution_mode_react')}</option>
                     <option value="plan">{t('agent.editor.execution_mode_plan')}</option>
@@ -1580,7 +1580,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       execution: { ...config.execution, maxIterations: parseInt(e.target.value) },
                     })}
                     disabled={!canEdit('execution.maxIterations')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -1595,7 +1595,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       execution: { ...config.execution, timeout: parseInt(e.target.value) },
                     })}
                     disabled={!canEdit('execution.timeout')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -1670,7 +1670,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       permissions: { ...config.permissions, fileRead: e.target.value },
                     })}
                     disabled={!canEdit('permissions.fileRead')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">{t('agent.editor.perm_always')}</option>
                     <option value="ask">{t('agent.editor.perm_ask')}</option>
@@ -1688,7 +1688,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       permissions: { ...config.permissions, fileWrite: e.target.value },
                     })}
                     disabled={!canEdit('permissions.fileWrite')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">{t('agent.editor.perm_always')}</option>
                     <option value="ask">{t('agent.editor.perm_ask')}</option>
@@ -1706,7 +1706,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       permissions: { ...config.permissions, bashExec: e.target.value },
                     })}
                     disabled={!canEdit('permissions.bashExec')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">{t('agent.editor.perm_always')}</option>
                     <option value="ask">{t('agent.editor.perm_ask')}</option>
@@ -1724,7 +1724,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       permissions: { ...config.permissions, network: e.target.value },
                     })}
                     disabled={!canEdit('permissions.network')}
-                    className="w-full bg-bg-primary border border-bg-tertiary rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="always">{t('agent.editor.perm_always')}</option>
                     <option value="ask">{t('agent.editor.perm_ask')}</option>

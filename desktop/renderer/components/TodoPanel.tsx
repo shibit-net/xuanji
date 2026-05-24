@@ -96,23 +96,23 @@ export default function TodoPanel() {
   const hiddenCount = sortedTodos.length - visibleTodos.length;
 
   return (
-    <div className="flex-shrink-0 border-t border-bg-tertiary bg-bg-secondary">
+    <div className="flex-shrink-0 border-t border-border bg-card">
       {/* 头部 */}
       <div
-        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-bg-tertiary transition-colors"
+        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-muted transition-colors"
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-3">
-          <div className="text-sm font-semibold text-text-primary">
+          <div className="text-sm font-semibold text-foreground">
             📋 任务列表
           </div>
-          <div className="text-xs text-text-secondary">
+          <div className="text-xs text-muted-foreground">
             {completed}/{total} 已完成
             {inProgress > 0 && <span className="ml-2 text-primary">· {inProgress} 进行中</span>}
             {pending > 0 && <span className="ml-2">· {pending} 待处理</span>}
             {failed > 0 && <span className="ml-2 text-red-500">· {failed} 失败</span>}
             {archivedCount > 0 && (
-              <span className="ml-2 text-text-tertiary">· {archivedCount} 已归档</span>
+              <span className="ml-2 text-muted-foreground/50">· {archivedCount} 已归档</span>
             )}
           </div>
         </div>
@@ -128,7 +128,7 @@ export default function TodoPanel() {
               disabled={archiving}
               variant="ghost"
               size="sm"
-              className="flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50 h-auto"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 h-auto"
               title={`归档 ${completed} 个已完成任务`}
             >
               <Archive size={12} className={archiving ? 'animate-pulse' : ''} />
@@ -137,7 +137,7 @@ export default function TodoPanel() {
           )}
 
           {/* 进度条 */}
-          <div className="w-32 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+          <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full bg-primary transition-all duration-300"
               style={{ width: `${progress}%` }}
@@ -146,9 +146,9 @@ export default function TodoPanel() {
 
           {/* 折叠按钮 */}
           {collapsed ? (
-            <ChevronDown size={16} className="text-text-secondary" />
+            <ChevronDown size={16} className="text-muted-foreground" />
           ) : (
-            <ChevronUp size={16} className="text-text-secondary" />
+            <ChevronUp size={16} className="text-muted-foreground" />
           )}
         </div>
       </div>
@@ -156,14 +156,14 @@ export default function TodoPanel() {
       {/* 收起时显示当前正在执行的任务 */}
       {collapsed && currentTask && (
         <div className="px-4 pb-2">
-          <div className="flex items-start gap-2 p-2 rounded bg-bg-tertiary">
+          <div className="flex items-start gap-2 p-2 rounded bg-muted">
             <Loader2 size={16} className="text-primary animate-spin flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-primary font-medium truncate">
                 {currentTask.subject}
               </div>
               {currentTask.activeForm && (
-                <div className="text-xs text-text-secondary mt-0.5 truncate">
+                <div className="text-xs text-muted-foreground mt-0.5 truncate">
                   {currentTask.activeForm}
                 </div>
               )}
@@ -184,22 +184,22 @@ export default function TodoPanel() {
               ) : todo.status === 'failed' ? (
                 <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
               ) : (
-                <Circle size={16} className="text-text-secondary flex-shrink-0" />
+                <Circle size={16} className="text-muted-foreground flex-shrink-0" />
               );
 
             const statusColor =
               todo.status === 'completed'
-                ? 'text-text-secondary line-through'
+                ? 'text-muted-foreground line-through'
                 : todo.status === 'in_progress'
                 ? 'text-primary font-medium'
                 : todo.status === 'failed'
                 ? 'text-red-500'
-                : 'text-text-primary';
+                : 'text-foreground';
 
             return (
               <div
                 key={todo.id}
-                className="flex items-start gap-2 p-2 rounded hover:bg-bg-tertiary transition-colors"
+                className="flex items-start gap-2 p-2 rounded hover:bg-muted transition-colors"
               >
                 {statusIcon}
                 <div className="flex-1 min-w-0">
@@ -207,7 +207,7 @@ export default function TodoPanel() {
                     {todo.subject}
                   </div>
                   {todo.activeForm && todo.status === 'in_progress' && (
-                    <div className="text-xs text-text-secondary mt-0.5 truncate">
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">
                       {todo.activeForm}
                     </div>
                   )}
@@ -218,7 +218,7 @@ export default function TodoPanel() {
 
           {/* 隐藏任务提示 */}
           {hiddenCount > 0 && (
-            <div className="text-xs text-text-secondary text-center py-1">
+            <div className="text-xs text-muted-foreground text-center py-1">
               {hiddenCompletedCount > 0
                 ? `还有 ${hiddenCompletedCount} 个已完成任务未显示`
                 : `还有 ${hiddenCount} 个任务未显示`}

@@ -9,11 +9,59 @@
    - 玻璃材质（毛玻璃 + 半透明）
    - 大圆角，悬浮感
    - 极简层次，宽松间距
-   - 深色背景 + 白色文字 + 彩色点缀
    ============================================================ */
 
 @layer base {
   :root {
+    /* 背景 */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 4%;
+
+    /* 卡片 */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 4%;
+
+    /* 弹出菜单 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+
+    /* 主色 — 蓝色 */
+    --primary: 211 100% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    /* 次级背景 */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    /* 静默态 */
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    /* 强调 */
+    --accent: 211 100% 45% / 0.1;
+    --accent-foreground: 211 100% 40%;
+
+    /* 危险 */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* 边框 */
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+
+    /* 焦点环 */
+    --ring: 211 100% 45%;
+
+    /* 圆角 */
+    --radius: 0.75rem;
+
+    /* 语义色 */
+    --success: 150 60% 40%;
+    --warning: 35 90% 50%;
+    --info: 211 100% 45%;
+  }
+
+  .dark {
     /* 背景 — 最深层，纯黑 */
     --background: 0 0% 0%;
     --foreground: 0 0% 92%;
@@ -53,9 +101,6 @@
     /* 焦点环 */
     --ring: 211 100% 50%;
 
-    /* 圆角 — 大圆角 */
-    --radius: 0.75rem;
-
     /* 语义色 */
     --success: 150 60% 50%;
     --warning: 35 90% 55%;
@@ -78,7 +123,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* 滚动条 — 极简透明 */
+  /* 滚动条 — 极简 */
   ::-webkit-scrollbar {
     @apply w-1 h-1;
   }
@@ -86,12 +131,12 @@
     @apply bg-transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-white/10 rounded-full hover:bg-white/20;
+    @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/30;
   }
 
   /* 选中 */
   ::selection {
-    @apply bg-primary/30 text-white;
+    @apply bg-primary/30 text-foreground;
   }
 
   /* diff 语法高亮 — 利用 lang-diff 代码块的行前缀字符染色 */
@@ -114,12 +159,12 @@
   }
   .token.coord { color: #94a3b8; }
 
-  /* 代码块 — 玻璃拟态 */
+  /* 代码块 */
   pre {
-    @apply bg-white/[0.04] rounded-xl p-4 overflow-x-auto border border-white/[0.06];
+    @apply bg-secondary rounded-xl p-4 overflow-x-auto border border-border;
   }
   code {
-    @apply font-mono text-sm text-white/80;
+    @apply font-mono text-sm text-foreground/80;
   }
 
   /* toolSummary 消息气泡内的 Markdown 内容紧凑 */
@@ -170,7 +215,7 @@
     padding: 0.15em 0.35em;
     border-radius: 4px;
     background: hsl(var(--muted));
-    color: #e2e8f0;
+    color: hsl(var(--foreground) / 0.85);
   }
   .markdown-streaming-body pre {
     margin: 0.5rem 0;
@@ -404,7 +449,7 @@
 .mermaid-rendered-svg {
   margin: 1rem 0;
   cursor: zoom-in;
-  background: #1a1a2e;
+  background: hsl(var(--secondary));
   border-radius: 0.75rem;
   padding: 1rem;
   overflow-x: auto;
@@ -514,7 +559,7 @@ div[data-type="diagram"] {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  background: #1a1a2e;
+  background: hsl(var(--secondary));
 }
 
 .mermaid-preview-body svg {
