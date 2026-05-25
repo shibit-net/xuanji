@@ -47,7 +47,7 @@ function registerAgentIpcHandlers() {
   });
 
   ipcMain.handle('agent:reset', async () => {
-    // 清除缓存，即使 session 未就绪也清除
+    // 清除缓存
     setCachedConfig(null);
 
     if (!isSessionReady()) {
@@ -55,8 +55,10 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      const result = await sendRequest('reset');
-      return result;
+      // kill 旧子进程，下次 agentInit 会重新 spawn
+      const { cleanupAgentProcess } = await import('../agent/index.js');
+      await cleanupAgentProcess();
+      return { success: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };

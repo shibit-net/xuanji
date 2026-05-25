@@ -110,10 +110,12 @@ export default function FallbackProviderSetupPage() {
         }
         console.log(`[DIAG] setup verify pass, disk fallbackProvider=`, JSON.stringify(verify?.config?.fallbackProvider));
 
-        // 验证通过 → 更新 store，全量重载到首页重新初始化
+        // 验证通过 → kill 旧子进程 + 全量重载到首页重新初始化
         useConfigStore.setState({
           fallbackProvider: verify.config.fallbackProvider,
         });
+        // kill 旧子进程（重置 session 状态），让重载后的 agentInit 重新 spawn
+        await window.electron.agentReset?.().catch(() => {});
         toast.success(t('setup.save_success'));
         window.location.hash = '#/';
       } else {

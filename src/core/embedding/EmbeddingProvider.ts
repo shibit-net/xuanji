@@ -78,6 +78,12 @@ export class EmbeddingProvider implements EmbeddingProviderInterface {
 
     env.cacheDir = this.cacheDir;
     env.allowLocalModels = true;
+    // 强制使用 onnxruntime-web (WASM)，避免 onnxruntime-node 在 Node.js 22 下 protobuf 解析失败
+    env.backends = {
+      'onnxruntime-web': {
+        wasm: { numThreads: 1 },
+      },
+    };
     // 优先使用本地已下载的模型，缺失时才从 HF 下载
     env.allowRemoteModels = true;
     const rtConfig = getRuntimeConfig();
