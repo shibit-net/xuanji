@@ -19,6 +19,7 @@ export interface SavedAccount {
 export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
+  isCheckingAuth: boolean;
   user: User | null;
   error: string | null;
   savedAccounts: SavedAccount[];
@@ -36,6 +37,7 @@ export interface AuthState {
 export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
   isLoading: false,
+  isCheckingAuth: false,
   user: null,
   error: null,
   savedAccounts: [],
@@ -93,10 +95,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   checkAuth: async () => {
     if (!window.electron?.authCheck) {
-      set({ isLoading: false, isAuthenticated: false, user: null });
+      set({ isCheckingAuth: false, isAuthenticated: false, user: null });
       return;
     }
-    set({ isLoading: true });
+    set({ isCheckingAuth: true });
     try {
       const result = await window.electron.authCheck();
       if (result.success && result.data) {
@@ -115,7 +117,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.error('检查认证状态失败:', err);
       set({ isAuthenticated: false, user: null });
     } finally {
-      set({ isLoading: false });
+      set({ isCheckingAuth: false });
     }
   },
 

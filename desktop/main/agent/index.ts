@@ -92,11 +92,12 @@ function initChatSession(): Promise<boolean> {
       let scriptPath: string;
       let args: string[];
 
+      const desktopRoot = path.join(__dirname, '../');
+      const projectRoot = path.join(desktopRoot, '../');
+
       if (isDev) {
         // 开发环境：使用 tsx 直接运行源文件
-        const desktopRoot = path.join(__dirname, '../');
         scriptPath = path.join(desktopRoot, 'main/agent-bridge.ts');
-        const projectRoot = path.join(desktopRoot, '../');
 
         if (process.platform === 'win32') {
           // Windows: node_modules/.bin/tsx 是 bash 脚本，node 无法执行
@@ -108,9 +109,10 @@ function initChatSession(): Promise<boolean> {
           args = [tsxPath, scriptPath];
         }
       } else {
-        // 生产环境：extraResources → Resources/dist-electron/agent-bridge.mjs
+        // 生产环境：使用 Electron 内置 Node 运行子进程
+        // 避免系统 Node 与 electron-builder 编译的 native 模块 NODE_MODULE_VERSION 不匹配
+        nodePath = process.execPath;
         scriptPath = path.join(process.resourcesPath!, 'dist-electron', 'agent-bridge.mjs');
-        // createRequire(import.meta.url) 已处理 ESM/CJS 互操作，无需 --experimental-require-module
         args = [scriptPath];
       }
 
@@ -123,16 +125,21 @@ function initChatSession(): Promise<boolean> {
       // 生产环境：设置 NODE_PATH 让子进程能找到 native 模块
       // electron-builder 自动将 native 模块解包到 app.asar.unpacked/node_modules
       if (!isDev) {
+        // 让 Electron 以纯 Node 模式运行（使用 Electron 内置的 Node 而非系统 Node）
+        spawnEnv.ELECTRON_RUN_AS_NODE = '1';
         const resourcesPath = process.resourcesPath!;
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');
         spawnEnv.NODE_PATH = `${extraModules}${path.delimiter}${unpackedModules}`;
         // 模板文件通过 extraResources 打包到 Resources/templates/
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
+        // Python 运行时（XLS 解析器回退）
+        spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(resourcesPath, 'python-runtime');
       } else {
         // 开发环境：模板在项目源码中
-        const projectRoot = path.join(__dirname, '../../../');
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'core', 'templates');
+        // 开发环境：Python 运行时在 desktop/python-runtime/
+        spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(desktopRoot, 'python-runtime');
       }
 
       agentProcess = spawn(nodePath, args, {
@@ -145,7 +152,7 @@ function initChatSession(): Promise<boolean> {
       // PinoLogger 已在子进程内完成格式化，此处只需透传
       const handleStdout = (data: Buffer) => {
         const text = data.toString('utf8').trim();
-        if (text) console.log(text);
+        // stdout forwarding suppressed to reduce noise
       };
 
       const handleStderr = (data: Buffer) => {

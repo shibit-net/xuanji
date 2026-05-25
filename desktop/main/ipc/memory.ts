@@ -93,6 +93,13 @@ function registerMemoryIpcHandlers() {
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
+  // ─── 手动触发 LLM 记忆整理 ──────────────────────────
+  ipcMain.handle('memory:maintenance-trigger', async () => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('memory-maintenance-trigger'); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
   // ─── 清空全部 ──────────────────────────────────────────
   ipcMain.handle('memory:clear-all', async () => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };

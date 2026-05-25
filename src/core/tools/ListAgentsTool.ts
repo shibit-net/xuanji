@@ -73,13 +73,10 @@ export class ListAgentsTool extends BaseTool {
     const enabledOnly = filter?.enabled_only ?? true;
     const includeSubagents = filter?.include_subagents ?? true;
 
-    // 获取所有 Agent
-    let agents = this.agentRegistry.getAllIds().map(id => this.agentRegistry!.get(id)!);
-
-    // 过滤启用状态
-    if (enabledOnly) {
-      agents = agents.filter(a => a.enabled !== false);
-    }
+    // 获取 Agent（启用状态过滤）
+    let agents = enabledOnly
+      ? this.agentRegistry.getEnabled()
+      : this.agentRegistry.getAll();
 
     // 🔧 排除系统内置 agent（不应被 LLM 选为团队成员）
     agents = agents.filter(a => a.metadata?.category !== 'system');

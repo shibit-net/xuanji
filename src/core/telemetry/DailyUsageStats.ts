@@ -17,6 +17,9 @@ import { join } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { UsageStatsRecorder } from './UsageStatsRecorder';
+import { getUTC8Timestamp, dateToUTC8Timestamp, getUTC8Components } from '@/shared/utils/time/formatters';
+
+const padStr = (n: number) => String(n).padStart(2, '0');
 
 // ── 类型定义 ──
 
@@ -109,8 +112,8 @@ export class DailyUsageStats {
   async aggregate(startDate?: Date, endDate?: Date): Promise<DailyUsageRecord[]> {
     // 读取原始记录
     const filter: { startTime?: string; endTime?: string } = {};
-    if (startDate) filter.startTime = startDate.toISOString();
-    if (endDate) filter.endTime = endDate.toISOString();
+    if (startDate) filter.startTime = dateToUTC8Timestamp(startDate);
+    if (endDate) filter.endTime = dateToUTC8Timestamp(endDate);
 
     const records = await this.usageRecorder.query(filter);
     if (records.length === 0) return [];
@@ -119,7 +122,8 @@ export class DailyUsageStats {
     const grouped = new Map<string, DailyUsageRecord>();
 
     for (const record of records) {
-      const date = new Date(record.timestamp).toISOString().split('T')[0]!;
+      const dc = getUTC8Components(new Date(record.timestamp));
+      const date = `${dc.year}-${padStr(dc.month)}-${padStr(dc.day)}`;
       const key = `${date}:${record.model}`;
 
       if (!grouped.has(key)) {
@@ -188,7 +192,9 @@ export class DailyUsageStats {
       if (existing.records.length > 0) {
         const lastDate = existing.records[0]!.date; // 已按日期降序排序
         // 从该日期开始重新聚合（避免增量计算复杂性）
-        lastUpdateTime = new Date(`${lastDate}T00:00:00Z`);
+        // 使用 UTC+8 日期构造起始时间
+        const [ly, lm, ld] = lastDate.split('-').map(Number);
+        lastUpdateTime = new Date(Date.UTC(ly!, (lm! - 1), ld!) - 8 * 60 * 60 * 1000); // UTC+8 日期转 UTC
         lastUpdateTime.setDate(lastUpdateTime.getDate() - 1); // 往前一天重新聚合
         reprocessDates.add(lastDate); // 最后一天需要重新处理
       }
@@ -290,7 +296,7 @@ export class DailyUsageStats {
         return {
           version: DailyUsageStats.VERSION,
           records: [],
-          lastUpdate: new Date().toISOString(),
+          lastUpdate: getUTC8Timestamp(),
         };
       }
 
@@ -301,7 +307,7 @@ export class DailyUsageStats {
       return {
         version: DailyUsageStats.VERSION,
         records: [],
-        lastUpdate: new Date().toISOString(),
+        lastUpdate: getUTC8Timestamp(),
       };
     }
   }
@@ -316,7 +322,7 @@ export class DailyUsageStats {
       const data: AggregatedStorage = {
         version: DailyUsageStats.VERSION,
         records,
-        lastUpdate: new Date().toISOString(),
+        lastUpdate: getUTC8Timestamp(),
       };
 
       await writeFile(
@@ -393,7 +399,7 @@ export class DailyUsageStats {
           JSON.stringify({
             version: DailyUsageStats.VERSION,
             records: [],
-            lastUpdate: new Date().toISOString(),
+            lastUpdate: getUTC8Timestamp(),
           }, null, 2),
           'utf-8',
         );

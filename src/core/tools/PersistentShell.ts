@@ -136,7 +136,12 @@ export class PersistentShell {
     }
 
     log.info(`[DIAG] Using node-pty, shell=${getPlatformShell()}, PATH=${process.env.PATH?.substring(0, 80)}...`);
-    return this.executePty(ptyMod, command, timeout, workDir);
+    try {
+      return await this.executePty(ptyMod, command, timeout, workDir);
+    } catch (err) {
+      log.warn(`[DIAG] node-pty spawn failed (${(err as Error).message}), falling back to child_process.exec`);
+      return this.executeFallback(command, timeout, workDir);
+    }
   }
 
   private executePty(

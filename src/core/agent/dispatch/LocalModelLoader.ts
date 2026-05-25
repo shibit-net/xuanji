@@ -6,12 +6,30 @@
 
 import { logger } from '@/core/logger/index.js';
 import { DownloadManager } from '@/core/download/DownloadManager.js';
+import { getRuntimeConfig } from '@/core/config/RuntimeConfig.js';
+import type { DownloadSource } from '@/shared/types/config';
 import { homedir, platform } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 const log = logger.child({ module: 'LocalModelLoader' });
 
 const MODEL_DIR = path.join(homedir(), '.xuanji', 'models');
+
+/** 根据下载源和仓库路径构造模型下载 URL */
+function buildDownloadUrl(source: DownloadSource, repoPath: string, filename: string, customMirror?: string): string {
+  switch (source) {
+    case 'huggingface':
+      return `https://huggingface.co/${repoPath}/resolve/main/${filename}`;
+    case 'modelscope':
+      return `https://www.modelscope.cn/models/${repoPath}/resolve/master/${filename}`;
+    case 'custom':
+      return `${customMirror || 'https://huggingface.co'}/${repoPath}/resolve/main/${filename}`;
+    case 'hf-mirror':
+      return `https://hf-mirror.com/${repoPath}/resolve/main/${filename}`;
+    default:
+      return `https://huggingface.co/${repoPath}/resolve/main/${filename}`;
+  }
+}
 
 /** GGUF 文件魔数：GGUF 格式以 "GGUF" 开头（0x47 0x47 0x55 0x46） */
 const GGUF_MAGIC = Buffer.from([0x47, 0x47, 0x55, 0x46]);
@@ -24,8 +42,12 @@ export interface ModelConfig {
   modelId: string;
   /** 系统提示词 */
   systemPrompt?: string;
-  /** 上下文窗口大小（token 数），默认 2048 */
+  /** 上下文窗口大小（token 数），默认 32768 */
   contextSize?: number;
+  /** 下载源类型 */
+  downloadSource?: string;
+  /** 自定义镜像地址（source=custom 时生效） */
+  hfMirror?: string;
 }
 
 export class LocalModelLoader {
@@ -76,10 +98,10 @@ export class LocalModelLoader {
     if (!filename) throw new Error(`Invalid model ID: ${this.config.modelId}`);
 
     const localPath = path.join(MODEL_DIR, filename);
-    log.info(`[LocalModelLoader] predownload: modelId=${this.config.modelId}, localPath=${localPath}`);
+    log.debug(`[LocalModelLoader] predownload: modelId=${this.config.modelId}, localPath=${localPath}`);
 
     if (fs.existsSync(localPath)) {
-      log.info(`[LocalModelLoader] Model already exists, skip download: ${localPath}`);
+      log.debug(`[LocalModelLoader] Model already exists, skip download: ${localPath}`);
       return;
     }
 
@@ -98,23 +120,29 @@ export class LocalModelLoader {
 
     const localPath = path.join(MODEL_DIR, filename);
     if (fs.existsSync(localPath)) {
-      log.info(`[LocalModelLoader] Model already exists: ${localPath}`);
+      log.debug(`[LocalModelLoader] Model already exists: ${localPath}`);
       return '';
     }
 
     fs.mkdirSync(MODEL_DIR, { recursive: true });
 
     const downloadManager = DownloadManager.getInstance();
-    const downloadUrl = `https://hf-mirror.com/${repoPath}/resolve/main/${filename}`;
+    const rtConfig = getRuntimeConfig();
+    const source = (this.config.downloadSource as DownloadSource)
+      || rtConfig?.download?.source
+      || 'huggingface';
+    const customMirror = this.config.hfMirror
+      || rtConfig?.download?.hfMirror;
+    const downloadUrl = buildDownloadUrl(source, repoPath, filename, customMirror);
 
-    log.info(`[LocalModelLoader] Creating download task: ${downloadUrl} -> ${localPath}`);
+    log.debug(`[LocalModelLoader] Creating download task: ${downloadUrl} -> ${localPath}`);
     this.downloadTaskId = await downloadManager.download({
       url: downloadUrl,
       dest: localPath,
       name: `Model: ${filename}`,
       category: 'model',
     });
-    log.info(`[LocalModelLoader] Download task created: ${this.downloadTaskId}`);
+    log.debug(`[LocalModelLoader] Download task created: ${this.downloadTaskId}`);
     return this.downloadTaskId;
   }
 
@@ -216,32 +244,32 @@ export class LocalModelLoader {
 
   private async _load(): Promise<void> {
     const modelPath = await this.downloadModelIfNeeded(this.config.modelId);
-    log.info(`Model path resolved: ${modelPath}`);
+    log.debug(`Model path resolved: ${modelPath}`);
 
     // 校验 GGUF 文件头
     this.validateGgufFile(modelPath);
 
-    log.info('Importing node-llama-cpp...');
+    log.debug('Importing node-llama-cpp...');
     const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
-    log.info('node-llama-cpp imported successfully');
+    log.debug('node-llama-cpp imported successfully');
 
-    log.info(`Loading model: ${this.config.modelId}...`);
+    log.debug(`Loading model: ${this.config.modelId}...`);
     const startTime = Date.now();
 
     // 使用 auto 自动检测 GPU：有 GPU 用 GPU，没有则 CPU 降级
-    log.info('Calling getLlama() with gpu=auto...');
+    log.debug('Calling getLlama() with gpu=auto...');
     this.llama = await getLlama({ gpu: 'auto' as const });
     const gpuType = (this.llama as any).gpu;
-    log.info(`getLlama() done, gpu=${gpuType || 'cpu'}`);
+    log.debug(`getLlama() done, gpu=${gpuType || 'cpu'}`);
 
-    log.info('Loading model file into memory...');
+    log.debug('Loading model file into memory...');
     try {
       const loadModelOpts: Record<string, any> = { modelPath };
       // macOS Metal 有 GPU 命令缓冲超时限制，大模型全层放 GPU 会触发
       // kIOAccelCommandBufferCallbackErrorTimeout，仅当 GPU 可用时限制层数
       if (platform() === 'darwin' && gpuType === 'metal') {
         loadModelOpts.gpuLayers = 20;
-        log.info('macOS Metal detected, limiting gpuLayers to 20 to avoid GPU timeout');
+        log.debug('macOS Metal detected, limiting gpuLayers to 20 to avoid GPU timeout');
       }
       this.model = await this.llama.loadModel(loadModelOpts);
     } catch (err: any) {
@@ -253,19 +281,19 @@ export class LocalModelLoader {
       }
       throw err;
     }
-    log.info('Model file loaded');
+    log.debug('Model file loaded');
 
-    log.info('Creating context...');
-    const contextSize = this.config.contextSize || 4096;
+    log.debug('Creating context...');
+    const contextSize = this.config.contextSize || 32768;
     this.context = await this.model.createContext({ contextSize });
-    log.info('Context created');
+    log.debug('Context created');
 
     this.session = new LlamaChatSession({
       contextSequence: this.context.getSequence(),
       systemPrompt: this.config.systemPrompt,
     });
 
-    log.info(`Model loaded in ${Date.now() - startTime}ms`);
+    log.debug(`Model loaded in ${Date.now() - startTime}ms`);
   }
 
   /**
@@ -281,7 +309,7 @@ export class LocalModelLoader {
       if (!fs.existsSync(localPath)) {
         throw new Error(`本地模型文件不存在: ${localPath}`);
       }
-      log.info(`Using local model file: ${localPath}`);
+      log.debug(`Using local model file: ${localPath}`);
       return localPath;
     }
 
@@ -297,7 +325,7 @@ export class LocalModelLoader {
     const localPath = path.join(MODEL_DIR, filename);
 
     if (fs.existsSync(localPath)) {
-      log.info(`Model already exists: ${localPath}`);
+      log.debug(`Model already exists: ${localPath}`);
       return localPath;
     }
 
@@ -314,17 +342,17 @@ export class LocalModelLoader {
       if (this.session) {
         await this.unload();
       }
-      log.info('Model file not found, starting background download...');
+      log.debug('Model file not found, starting background download...');
       this.startDownload().catch((err) => log.error('Background download failed:', err));
       throw new Error('Local model not downloaded yet. Download started in background, please retry later.');
     }
 
     // Ensure model infrastructure is loaded
     if (!this.llama || !this.context) {
-      log.info('Loading model into memory...');
+      log.debug('Loading model into memory...');
       try {
         await this.load();
-        log.info('Model loaded successfully');
+        log.debug('Model loaded successfully');
       } catch (err: any) {
         log.error('Model load failed:', err.message, err.stack);
         throw err;
@@ -349,7 +377,7 @@ export class LocalModelLoader {
         maxTokens: options?.maxTokens ?? 128,
         temperature: options?.temperature ?? 0.3,
       });
-      log.info(`Prompt completed in ${Date.now() - t0}ms, result length: ${result.length}`);
+      log.debug(`Prompt completed in ${Date.now() - t0}ms, result length: ${result.length}`);
       return result;
     } catch (err: any) {
       log.error('Model prompt failed:', err.message, err.stack);
@@ -366,6 +394,6 @@ export class LocalModelLoader {
     if (this.context) { await this.context.dispose(); this.context = null; }
     if (this.model) { await this.model.dispose(); this.model = null; }
     if (this.llama) { await this.llama.dispose(); this.llama = null; }
-    log.info('Model unloaded');
+    log.debug('Model unloaded');
   }
 }

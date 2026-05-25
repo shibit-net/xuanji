@@ -21,6 +21,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemoryPage = lazy(() => import('./pages/MemoryPage'));
 const SchedulerPage = lazy(() => import('./pages/SchedulerPage'));
 const SkillsMCPPage = lazy(() => import('./pages/SkillsMCPPage'));
+const FallbackProviderSetupPage = lazy(() => import('./pages/FallbackProviderSetupPage'));
 
 // 加载中组件
 function LoadingScreen() {
@@ -34,13 +35,13 @@ function LoadingScreen() {
 
 // 认证检查组件
 function AuthCheck({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+  const { isAuthenticated, isCheckingAuth, checkAuth } = useAuthStore();
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  if (isLoading) {
+  if (isCheckingAuth) {
     return <LoadingScreen />;
   }
 
@@ -51,17 +52,52 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// 兜底 Provider 配置检查组件 — fallbackProvider 未配置则重定向到 /setup
+function SetupGuard({ children }: { children: React.ReactNode }) {
+  const loaded = useConfigStore((s) => s.loaded);
+  const fallbackProvider = useConfigStore((s) => s.fallbackProvider);
+
+  if (!loaded) {
+    return <LoadingScreen />;
+  }
+
+  if (!fallbackProvider?.adapter) {
+    return <Navigate to="/setup" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// /setup 路由守卫 — 已配置 fallbackProvider 则重定向到 /
+function SetupRouteGuard({ children }: { children: React.ReactNode }) {
+  const loaded = useConfigStore((s) => s.loaded);
+  const fallbackProvider = useConfigStore((s) => s.fallbackProvider);
+
+  if (!loaded) {
+    return <LoadingScreen />;
+  }
+
+  if (fallbackProvider?.adapter) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 export default function App() {
   const theme = useConfigStore((s) => s.settings.theme);
   const loaded = useConfigStore((s) => s.loaded);
+  const loading = useConfigStore((s) => s.loading);
   const loadConfig = useConfigStore((s) => s.loadConfig);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   // 唯一的配置加载入口：认证通过后，加载一次配置到 store
+  // loading 变化时也检查，防止 loaded=false+loading=true 时错过重新加载
   useEffect(() => {
-    if (!loaded) {
+    if (!loaded && !loading && isAuthenticated) {
       loadConfig();
     }
-  }, [loaded, loadConfig]);
+  }, [loaded, loading, loadConfig, isAuthenticated]);
 
   // 主题同步到 html 元素（dark 类控制 shadcn CSS 变量）
   useEffect(() => {
@@ -97,26 +133,40 @@ export default function App() {
             {/* 登录页面 */}
             <Route path="/login" element={<LoginPage />} />
 
+            {/* 兜底 Provider 配置页（独立路由，认证后访问） */}
+            <Route
+              path="/setup"
+              element={
+                <AuthCheck>
+                  <SetupRouteGuard>
+                    <FallbackProviderSetupPage />
+                  </SetupRouteGuard>
+                </AuthCheck>
+              }
+            />
+
             {/* 主应用路由（需要认证） */}
             <Route
               path="/*"
               element={
                 <AuthCheck>
-                  <MainLayout>
-                    <Routes>
-                      <Route path="/" element={<MainPage />} />
-                      <Route path="/chat" element={<MainPage />} />
-                      <Route path="/agents" element={<AgentsPage onClose={() => window.history.back()} />} />
-                      <Route path="/tools" element={<ToolsPage onClose={() => window.history.back()} />} />
-                      <Route path="/system-prompt" element={<SystemPromptPage onClose={() => window.history.back()} />} />
-                      <Route path="/permissions" element={<PermissionsPage onClose={() => window.history.back()} />} />
-                      <Route path="/settings" element={<SettingsPage onClose={() => window.history.back()} />} />
-                      <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
-                      <Route path="/scheduler" element={<SchedulerPage onClose={() => window.history.back()} />} />
-                      <Route path="/skills-mcp" element={<SkillsMCPPage onClose={() => window.history.back()} />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                  </MainLayout>
+                  <SetupGuard>
+                    <MainLayout>
+                      <Routes>
+                        <Route path="/" element={<MainPage />} />
+                        <Route path="/chat" element={<MainPage />} />
+                        <Route path="/agents" element={<AgentsPage onClose={() => window.history.back()} />} />
+                        <Route path="/tools" element={<ToolsPage onClose={() => window.history.back()} />} />
+                        <Route path="/system-prompt" element={<SystemPromptPage onClose={() => window.history.back()} />} />
+                        <Route path="/permissions" element={<PermissionsPage onClose={() => window.history.back()} />} />
+                        <Route path="/settings" element={<SettingsPage onClose={() => window.history.back()} />} />
+                        <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
+                        <Route path="/scheduler" element={<SchedulerPage onClose={() => window.history.back()} />} />
+                        <Route path="/skills-mcp" element={<SkillsMCPPage onClose={() => window.history.back()} />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </MainLayout>
+                  </SetupGuard>
                 </AuthCheck>
               }
             />

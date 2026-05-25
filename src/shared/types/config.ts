@@ -225,11 +225,14 @@ export interface EmbeddingConfig {
 /**
  * 下载配置
  */
+/** 下载源类型 */
+export type DownloadSource = 'huggingface' | 'hf-mirror' | 'modelscope' | 'custom';
+
 export interface DownloadConfig {
-  /** HuggingFace 镜像地址（默认 https://hf-mirror.com） */
+  /** 下载源（默认 hf-mirror） */
+  source?: DownloadSource;
+  /** 自定义镜像地址（source=custom 时生效） */
   hfMirror?: string;
-  /** 代理地址（可选） */
-  proxy?: string;
 }
 
 /**
@@ -282,6 +285,8 @@ export interface AppConfig {
   logging?: LoggingConfig;
   /** 是否已完成首次引导（onboarding） */
   onboardingDone?: boolean;
+  /** 兜底 Provider 配置（用户级，Agent 配置不健全时使用） */
+  fallbackProvider?: ProviderConfig;
 }
 
 /**

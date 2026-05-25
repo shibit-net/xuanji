@@ -59,7 +59,7 @@ export interface LocalModelStatus {
   error?: string;
 }
 
-export function useLocalModel(modelId: string | undefined) {
+export function useLocalModel(modelId: string | undefined, downloadSource?: string, hfMirror?: string) {
   const [status, setStatus] = useState<LocalModelStatus>({
     installed: false,
     downloading: false,
@@ -116,7 +116,7 @@ export function useLocalModel(modelId: string | undefined) {
     if (!isLocalModel || !modelInfo) return;
 
     try {
-      const result = await window.electron.localModelDownload(modelId);
+      const result = await window.electron.localModelDownload(modelId, downloadSource, hfMirror);
       if (result.success) {
         setStatus((prev) => ({ ...prev, downloading: true, progress: 0 }));
       } else {

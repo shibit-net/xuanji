@@ -89,14 +89,6 @@ export async function parseXlsx(filePath: string): Promise<FileParserResult> {
 }
 
 /**
- * 解析 .xls 文件（旧格式）
- */
-export async function parseXls(filePath: string): Promise<FileParserResult> {
-  const workbook = XLSX.readFile(filePath, { ...READ_OPTIONS, type: 'file' });
-  return renderWorkbook(workbook, 'EXCEL');
-}
-
-/**
  * 解析 .csv 文件
  */
 export async function parseCsv(filePath: string): Promise<FileParserResult> {

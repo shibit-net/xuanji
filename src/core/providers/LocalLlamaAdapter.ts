@@ -100,6 +100,19 @@ export class LocalLlamaAdapter implements ILLMProvider {
       return;
     }
 
+    // local-llama 不支持工具调用，当 agent 需要工具时立即报错中止
+    if (_tools.length > 0) {
+      yield {
+        type: 'error',
+        error: new Error(
+          `本地模型 (local-llama) 不支持工具调用（当前需要 ${_tools.length} 个工具）。` +
+          `请使用 ollama / vllm / lmstudio 等支持 OpenAI 兼容 API 的本地服务，` +
+          `或切换为云端 API provider。`,
+        ),
+      };
+      return;
+    }
+
     // 提取 system prompt 和最后一条用户消息
     const systemMsg = messages.find(m => m.role === 'system');
     const userMessages = messages.filter(m => m.role === 'user');

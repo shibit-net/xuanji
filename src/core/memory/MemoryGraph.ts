@@ -32,6 +32,8 @@ export interface GraphNode {
   type: string;
   scene_tag: string;
   category?: string | null;
+  summary?: string | null;
+  importance?: number | null;
   metadata?: string | null;
 }
 
@@ -93,9 +95,9 @@ export class MemoryGraph {
   loadFromDB(db: Database): void {
     this.clear();
 
-    const entities = db.prepare('SELECT id, name, type, scene_tag, category, metadata FROM entities').all() as any[];
+    const entities = db.prepare('SELECT id, name, type, scene_tag, category, summary, importance, metadata FROM entities').all() as any[];
     for (const e of entities) {
-      this.addNode({ id: e.id, name: e.name, type: e.type, scene_tag: e.scene_tag || '', category: e.category ?? null, metadata: e.metadata ?? null });
+      this.addNode({ id: e.id, name: e.name, type: e.type, scene_tag: e.scene_tag || '', category: e.category ?? null, summary: e.summary ?? null, importance: e.importance ?? null, metadata: e.metadata ?? null });
     }
 
     const relations = db.prepare(

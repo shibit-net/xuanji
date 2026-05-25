@@ -92,6 +92,8 @@ export interface ProviderConfig {
   adapter?: string;
   /** 🔧 AbortSignal：用于取消正在进行的请求 */
   signal?: AbortSignal;
+  /** 上下文窗口大小（tokens），仅本地模型使用 */
+  contextSize?: number;
 }
 
 /**

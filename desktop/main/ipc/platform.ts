@@ -21,7 +21,7 @@ let messageHandlerRegistered = false;
 /** 将平台消息转发到 agent-bridge 子进程进行自动处理 */
 function forwardToAgentBridge(msg: any): void {
   const agentChannel = enhancedMessageBus.getChannel('agent');
-  log.info(`[DIAG] forwardToAgentBridge: channel=${!!agentChannel} connected=${agentChannel?.isConnected()}`);
+  log.debug(`[DIAG] forwardToAgentBridge: channel=${!!agentChannel} connected=${agentChannel?.isConnected()}`);
   if (agentChannel && agentChannel.isConnected()) {
     agentChannel.send('platform:message', {
       id: msg.id,
@@ -33,7 +33,7 @@ function forwardToAgentBridge(msg: any): void {
       chatType: msg.chatType,
       channelPrompt: msg.channelPrompt,
     });
-    log.info(`[DIAG] Forwarded platform message to agent-bridge: ${msg.id} platform=${msg.platform} text="${(msg.text || '').slice(0, 50)}"`);
+    log.debug(`[DIAG] Forwarded platform message to agent-bridge: ${msg.id} platform=${msg.platform} text="${(msg.text || '').slice(0, 50)}"`);
   } else {
     log.warn(`[DIAG] Cannot forward platform message: channel not ready`);
   }
@@ -51,7 +51,7 @@ async function handleAgentBridgeReply(data: {
   filePaths?: string[];
 }): Promise<void> {
   try {
-    log.info(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} audios=${data.audioPaths?.length || 0} videos=${data.videoPaths?.length || 0} files=${data.filePaths?.length || 0}`);
+    log.debug(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} audios=${data.audioPaths?.length || 0} videos=${data.videoPaths?.length || 0} files=${data.filePaths?.length || 0}`);
     if (!platformRouter) {
       log.warn(`[DIAG] handleAgentBridgeReply: platformRouter is null, skipping reply`);
       return;
@@ -68,7 +68,7 @@ async function handleAgentBridgeReply(data: {
       for (const imagePath of data.imagePaths) {
         try {
           await adapter.sendImage({ chatId: data.chatId, imagePath, replyTo: undefined });
-          log.info(`[DIAG] Agent image sent to ${data.platform}/${data.chatId}: ${imagePath}`);
+          log.debug(`[DIAG] Agent image sent to ${data.platform}/${data.chatId}: ${imagePath}`);
         } catch (imgErr) {
           log.error(`[DIAG] Failed to send image to ${data.platform}: ${(imgErr as Error).message}`);
         }
@@ -81,10 +81,10 @@ async function handleAgentBridgeReply(data: {
         try {
           if (typeof adapter.sendVoice === 'function') {
             await adapter.sendVoice({ chatId: data.chatId, voicePath: audioPath, replyTo: undefined });
-            log.info(`[DIAG] Agent voice sent to ${data.platform}/${data.chatId}: ${audioPath}`);
+            log.debug(`[DIAG] Agent voice sent to ${data.platform}/${data.chatId}: ${audioPath}`);
           } else if (typeof adapter.sendFile === 'function') {
             await adapter.sendFile({ chatId: data.chatId, filePath: audioPath, replyTo: undefined });
-            log.info(`[DIAG] Agent audio sent to ${data.platform}/${data.chatId} (via sendFile): ${audioPath}`);
+            log.debug(`[DIAG] Agent audio sent to ${data.platform}/${data.chatId} (via sendFile): ${audioPath}`);
           }
         } catch (voiceErr) {
           log.error(`[DIAG] Failed to send audio to ${data.platform}: ${(voiceErr as Error).message}`);
@@ -97,7 +97,7 @@ async function handleAgentBridgeReply(data: {
       for (const videoPath of data.videoPaths) {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath: videoPath, replyTo: undefined });
-          log.info(`[DIAG] Agent video sent to ${data.platform}/${data.chatId}: ${videoPath}`);
+          log.debug(`[DIAG] Agent video sent to ${data.platform}/${data.chatId}: ${videoPath}`);
         } catch (fileErr) {
           log.error(`[DIAG] Failed to send video to ${data.platform}: ${(fileErr as Error).message}`);
         }
@@ -109,7 +109,7 @@ async function handleAgentBridgeReply(data: {
       for (const filePath of data.filePaths) {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath, replyTo: undefined });
-          log.info(`[DIAG] Agent file sent to ${data.platform}/${data.chatId}: ${filePath}`);
+          log.debug(`[DIAG] Agent file sent to ${data.platform}/${data.chatId}: ${filePath}`);
         } catch (fileErr) {
           log.error(`[DIAG] Failed to send file to ${data.platform}: ${(fileErr as Error).message}`);
         }
@@ -123,7 +123,7 @@ async function handleAgentBridgeReply(data: {
       role: 'agent',
       timestamp: Date.now(),
     });
-    log.info(`[DIAG] Agent reply sent to ${data.platform}/${data.chatId}`);
+    log.debug(`[DIAG] Agent reply sent to ${data.platform}/${data.chatId}`);
   } catch (err) {
     log.error(`[DIAG] Failed to send agent reply: ${(err as Error).message}`);
   }

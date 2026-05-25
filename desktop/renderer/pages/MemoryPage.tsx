@@ -10,7 +10,7 @@ import {
   Brain, X, Search, Trash2, Database, GitGraph,
   BarChart3, Clock, User, FileText, Star,
   Calendar, Tag, RefreshCw, AlertCircle,
-  ZoomIn, ZoomOut, Maximize2,
+  ZoomIn, ZoomOut, Maximize2, Sparkles,
 } from 'lucide-react';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
@@ -474,6 +474,7 @@ function GraphTab() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [maintaining, setMaintaining] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -535,18 +536,16 @@ function GraphTab() {
         const canonicalUserId = statusRes.success ? statusRes.userEntityId : null;
 
         if (canonicalUserId) {
-          // 精确加载用户根节点的 2 跳子图
-          await focusOnNode(canonicalUserId, 2);
-          // 获取实体详情用于侧边栏展示
-          const entityRes = await window.electron.memoryEntities({ type: 'user', limit: 1 });
-          const userEntity = entityRes.success && entityRes.entities?.length > 0 ? entityRes.entities[0] : null;
-          if (userEntity) {
+          // 精确加载用户根节点的 2 跳子图，从返回的子图中提取中心节点
+          const subgraph = await focusOnNode(canonicalUserId, 2);
+          const centerNode = subgraph?.nodes?.find((n: any) => n.id === canonicalUserId);
+          if (centerNode) {
             setSelectedNode({
-              id: userEntity.id,
-              name: userEntity.name,
-              type: userEntity.type,
-              summary: userEntity.summary || '',
-              importance: userEntity.importance || 1,
+              id: centerNode.id,
+              name: centerNode.name,
+              type: centerNode.type,
+              summary: centerNode.summary || '',
+              importance: centerNode.importance || 1,
             });
           }
         } else {
@@ -577,8 +576,14 @@ function GraphTab() {
   // ── 以某节点为中心加载子图 ────────────────────────────
   const focusOnNode = useCallback(async (entityId: string, maxHops: number = 2) => {
     setLoading(true);
+    setError(null);
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setError(t('memory.status_query_error'));
+    }, 15000);
     try {
       const res = await window.electron.memoryGraphNeighborhood({ entityId, maxHops });
+      clearTimeout(timer);
       if (res.success && res.nodes && res.edges) {
         setCenterId(entityId);
         setGraphNodes(prev => {
@@ -597,14 +602,19 @@ function GraphTab() {
           }
           return next;
         });
+        return res;
       } else {
         setError(res.error || t('memory.graph.load_failed'));
+        return null;
       }
     } catch (err) {
+      clearTimeout(timer);
       setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));
+      return null;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [t]);
 
   // ── 选择搜索结果（清空并聚焦到该节点） ─────────────────
   const selectSearchResult = useCallback(async (node: any) => {
@@ -762,13 +772,13 @@ function GraphTab() {
     animationEasing: 'ease-out' as const,
     animationDuration: 1000,
     randomize: true,
-    idealEdgeLength: 180,
-    nodeRepulsion: 12000,
-    gravity: 0.15,
-    numIter: 3000,
+    idealEdgeLength: 350,
+    nodeRepulsion: 50000,
+    gravity: 0.04,
+    numIter: 4000,
     tile: true,
     fit: true,
-    padding: 50,
+    padding: 80,
   };
 
   // 类型统计（从当前 visible 节点算）
@@ -796,13 +806,17 @@ function GraphTab() {
       setSelectedNode(null);
     }
   };
-  const handleClear = () => {
-    setGraphNodes(new Map());
-    setGraphEdges(new Map());
-    setCenterId(null);
-    setSelectedNode(null);
-    setSearchQuery('');
-    setSearchResults([]);
+  const handleTriggerMaintenance = async () => {
+    setMaintaining(true);
+    try {
+      const res = await window.electron.memoryMaintenanceTrigger();
+      if (!res.success) {
+        setError(res.error || '记忆整理失败');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '记忆整理失败');
+    }
+    setMaintaining(false);
   };
 
   if (error) return <ErrorBanner message={error} onRetry={() => setError(null)} />;
@@ -889,17 +903,21 @@ function GraphTab() {
           </div>
         </div>
 
-        {/* 清空按钮 — 有图时显示 */}
-        {graphNodes.size > 0 && (
-          <div className="absolute top-3 right-3 z-10 flex gap-1.5">
-            <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
-              <button onClick={handleClear}
-                className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-                title={t('memory.graph.tooltip_clear')}
-              ><Trash2 size={15} /></button>
-            </div>
+        {/* 手动触发记忆整理 */}
+        <div className="absolute top-3 right-3 z-10 flex gap-1.5">
+          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+            <button onClick={handleTriggerMaintenance}
+              disabled={maintaining}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              title={t('memory.graph.tooltip_trigger_maintenance')}
+            >
+              <Sparkles size={14} className={maintaining ? 'animate-spin' : ''} />
+              <span className="text-xs font-medium">
+                {maintaining ? t('memory.graph.triggering_maintenance') : t('memory.graph.trigger_maintenance')}
+              </span>
+            </button>
           </div>
-        )}
+        </div>
 
         {/* 节点数徽标 */}
         {graphNodes.size > 0 && (
@@ -919,11 +937,15 @@ function GraphTab() {
           cy={(cy: cytoscape.Core) => {
             cyRef.current = cy;
 
-            // 元素变化时重新布局
+            // 元素批量变化时防抖布局（避免每个节点 add 都触发完整布局计算）
+            let layoutTimer: ReturnType<typeof setTimeout> | null = null;
             cy.on('add', 'node', () => {
               if (cy.nodes().length <= (centerId ? 1 : 0)) return;
-              const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 180, nodeRepulsion: 12000, gravity: 0.15, numIter: 3000, tile: true, fit: true, padding: 50 });
-              l.run();
+              if (layoutTimer) clearTimeout(layoutTimer);
+              layoutTimer = setTimeout(() => {
+                const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 350, nodeRepulsion: 50000, gravity: 0.04, numIter: 4000, tile: true, fit: true, padding: 80 });
+                l.run();
+              }, 150);
             });
 
             cy.on('tap', 'node', (evt: cytoscape.EventObject) => {

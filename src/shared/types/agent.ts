@@ -125,6 +125,8 @@ export interface AgentConfig {
   thinking?: ThinkingConfig;
   /** 工作目录（用于解析相对路径，默认为 process.cwd()） */
   workingDir?: string;
+  /** 上下文窗口大小（tokens），仅本地模型使用 */
+  contextSize?: number;
 }
 
 /**

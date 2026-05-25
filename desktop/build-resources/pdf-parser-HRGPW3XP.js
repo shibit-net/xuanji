@@ -1,0 +1,1 @@
+import"./chunk-DGJUBN33.js";import{readFile as o}from"fs/promises";async function l(a){let{PDFParse:r}=await import("pdf-parse"),s=await o(a),t=new r({data:new Uint8Array(s)});try{let e=await t.getText(),n=e.pages.length;return{content:e.text,metadata:{pages:n}}}finally{await t.destroy()}}export{l as parsePdf};

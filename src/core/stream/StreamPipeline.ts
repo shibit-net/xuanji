@@ -67,7 +67,7 @@ export class StreamPipeline {
     const maxRetries = options?.maxRetries ?? 3;
     let lastError: Error | null = null;
 
-    log.info(`[DIAG] StreamPipeline.execute: calling provider.stream, model=${options?.config?.model} provider=${this.provider?.name || 'unknown'} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
+    log.debug(`[DIAG] StreamPipeline.execute: calling provider.stream, model=${options?.config?.model} provider=${this.provider?.name || 'unknown'} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
 
     if (!this.provider || typeof this.provider.stream !== 'function') {
       throw new Error(
@@ -242,7 +242,7 @@ export class StreamPipeline {
 
     // 诊断日志：确认 contentBlocks 中包含 reasoning 和 tool_use 块
     const blockTypes = contentBlocks.map(b => b.type);
-    log.info(`StreamPipeline result: textLen=${fullText.length}, thinkingLen=${fullThinking.length}, reasoningLen=${fullReasoning.length}, toolCalls=${toolCalls.length}, blockTypes=[${blockTypes.join(', ')}]`);
+    log.debug(`StreamPipeline result: textLen=${fullText.length}, thinkingLen=${fullThinking.length}, reasoningLen=${fullReasoning.length}, toolCalls=${toolCalls.length}, blockTypes=[${blockTypes.join(', ')}]`);
 
     return { contentBlocks, toolCalls, stopReason, usage, text: fullText };
   }

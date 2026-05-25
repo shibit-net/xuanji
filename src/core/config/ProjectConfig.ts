@@ -51,6 +51,7 @@ const ENV_MAPPINGS: Record<string, { path: string; transform?: (v: string) => un
   'XUANJI_EMBEDDING_MODEL': { path: 'embedding.model' },
   'XUANJI_EMBEDDING_HF_MIRROR': { path: 'embedding.hfMirror' },
   'HF_ENDPOINT': { path: 'embedding.hfMirror' },
+  'XUANJI_HF_MIRROR': { path: 'download.hfMirror' },
 
   'XUANJI_THEME':         { path: 'ui.theme' },
   'XUANJI_LANGUAGE':      { path: 'ui.language' },

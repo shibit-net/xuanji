@@ -85,6 +85,7 @@
   settingsGetConfig: () => ipcRenderer.invoke('settings:get-config'),
   settingsGetFullConfig: () => ipcRenderer.invoke('settings:get-full-config'),
   settingsUpdateConfig: (data: any) => ipcRenderer.invoke('settings:update-config', data),
+  settingsReadDiskConfig: (userId?: string) => ipcRenderer.invoke('settings:read-disk-config', userId),
 
   // ============ 会话管理 ============
   sessionSave: (data: any) => ipcRenderer.invoke('session:save', data),
@@ -228,7 +229,7 @@
 
   // ============ 本地模型管理 ============
   localModelCheck: (modelId: string) => ipcRenderer.invoke('local-model:check', modelId),
-  localModelDownload: (modelId: string) => ipcRenderer.invoke('local-model:download', modelId),
+  localModelDownload: (modelId: string, downloadSource?: string, hfMirror?: string) => ipcRenderer.invoke('local-model:download', modelId, downloadSource, hfMirror),
   localModelList: () => ipcRenderer.invoke('local-model:list'),
   localModelDelete: (filename: string) => ipcRenderer.invoke('local-model:delete', filename),
   localModelOpenDir: () => ipcRenderer.invoke('local-model:open-dir'),
@@ -296,6 +297,7 @@
     ipcRenderer.invoke('memory:graph-neighborhood', data),
   memoryDeleteEntity: (data: { id: string }) => ipcRenderer.invoke('memory:delete-entity', data),
   memoryClearAll: () => ipcRenderer.invoke('memory:clear-all'),
+  memoryMaintenanceTrigger: () => ipcRenderer.invoke('memory:maintenance-trigger'),
 
   // ============ 定时任务管理 ============
   schedulerJobs: () => ipcRenderer.invoke('scheduler:jobs'),

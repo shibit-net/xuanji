@@ -123,11 +123,9 @@ export class MatchAgentTool extends BaseTool {
       });
     }
 
-    // 获取所有启用的 Agent（排除系统/internal/主 agent）
-    const agents = this.agentRegistry.getAllIds()
-      .map(id => this.agentRegistry!.get(id)!)
+    // 获取所有启用的 Agent（排除主 agent / system / internal）
+    const agents = this.agentRegistry.getEnabled()
       .filter(a => {
-        if (a.enabled === false) return false;
         if (a.metadata?.isMainAgent === true) return false;
         if (a.metadata?.category === 'system') return false;
         if (a.metadata?.internal === true) return false;

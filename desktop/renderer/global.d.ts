@@ -167,6 +167,7 @@ export interface ElectronAPI {
   settingsGetConfig: () => Promise<any>;
   settingsGetFullConfig: () => Promise<any>;
   settingsUpdateConfig: (data: any) => Promise<any>;
+  settingsReadDiskConfig: (userId?: string) => Promise<{ success: boolean; config?: any; error?: string }>;
 
   // 会话管理
   sessionSave: (data: any) => Promise<any>;
@@ -481,7 +482,7 @@ export interface ElectronAPI {
     installed?: boolean;
     error?: string;
   }>;
-  localModelDownload: (modelId: string) => Promise<{
+  localModelDownload: (modelId: string, downloadSource?: string, hfMirror?: string) => Promise<{
     success: boolean;
     message?: string;
     error?: string;
@@ -726,6 +727,8 @@ export interface ElectronAPI {
       type: string;
       scene_tag: string;
       category?: string | null;
+      summary?: string | null;
+      importance?: number | null;
       metadata?: string | null;
     }>;
     edges?: Array<{
@@ -738,6 +741,7 @@ export interface ElectronAPI {
   }>;
   memoryDeleteEntity: (data: { id: string }) => Promise<{ success: boolean; error?: string }>;
   memoryClearAll: () => Promise<{ success: boolean; error?: string }>;
+  memoryMaintenanceTrigger: () => Promise<{ success: boolean; error?: string }>;
 
   // ============ 定时任务管理 ============
   schedulerJobs: () => Promise<{

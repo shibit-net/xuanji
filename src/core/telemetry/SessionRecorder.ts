@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { join, basename, extname } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserRoot } from '@/core/config/PathManager';
+import { getUTC8DateString, getUTC8Components } from '@/shared/utils/time/formatters';
 
 /**
  * 会话记录
@@ -57,10 +58,9 @@ export class SessionRecorder {
     this.baseName = basename(fullPath, ext); // sessions
   }
 
-  /** 获取当天日志文件路径 */
+  /** 获取当天日志文件路径（按 UTC+8 日期） */
   private getCurrentLogPath(): string {
-    const today = new Date().toISOString().split('T')[0]!;
-    return join(this.logDir, `${this.baseName}-${today}.jsonl`);
+    return join(this.logDir, `${this.baseName}-${getUTC8DateString()}.jsonl`);
   }
 
   /** 扫描目录下所有匹配的轮转日志文件 */
@@ -155,9 +155,10 @@ export class SessionRecorder {
    * 清理超过保留期的旧会话日志文件
    */
   async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+    const cutoffDate = new Date(Date.now() - retentionDays * 86400000);
+    const c = getUTC8Components(cutoffDate);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const cutoffStr = `${c.year}-${p(c.month)}-${p(c.day)}`;
 
     try {
       const logFiles = await SessionRecorder.findLogFiles(this.logDir, this.baseName);

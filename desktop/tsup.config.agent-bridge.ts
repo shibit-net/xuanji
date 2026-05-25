@@ -15,7 +15,7 @@ export default defineConfig({
   // 禁用代码分割，避免拆成独立 chunk（打包后 node_modules 不可用）
   splitting: false,
   // 内联所有非 native 的 npm 包（pino, yaml, json5, axios 等），native 包保持 external
-  noExternal: [/^(?!(@node-llama-cpp|@reflink|better-sqlite3|sqlite-vec|@xenova|tree-sitter))/],
+  noExternal: [/^(?!(@node-llama-cpp|node-llama-cpp|@reflink|better-sqlite3|sqlite-vec|@xenova|tree-sitter))/],
   external: [
     'better-sqlite3',
     'sqlite-vec',
@@ -24,6 +24,7 @@ export default defineConfig({
     'tree-sitter-typescript',
     'tree-sitter-python',
     'tree-sitter-java',
+    'node-llama-cpp',
     '@node-llama-cpp/darwin-arm64',
     '@node-llama-cpp/darwin-x64',
     '@node-llama-cpp/linux-x64-cuda',

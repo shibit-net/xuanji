@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserLogsDir } from '@/core/config/PathManager';
+import { getUTC8Timestamp, getUTC8DateString, getUTC8Components } from '@/shared/utils/time/formatters';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '../../permission/types';
 
 // ── 类型定义 ──
@@ -104,10 +105,9 @@ export class AuditLogger {
     this.baseName = basename(fullPath, '.log');
   }
 
-  /** 获取当天日志文件路径 */
+  /** 获取当天日志文件路径（按 UTC+8 日期） */
   private getCurrentLogPath(): string {
-    const today = new Date().toISOString().split('T')[0]!;
-    return join(this.logDir, `${this.baseName}-${today}.log`);
+    return join(this.logDir, `${this.baseName}-${getUTC8DateString()}.log`);
   }
 
   /** 扫描目录下所有匹配的轮转日志文件 */
@@ -135,7 +135,7 @@ export class AuditLogger {
     remembered?: boolean,
   ): Promise<void> {
     const record: AuditRecord = {
-      timestamp: new Date().toISOString(),
+      timestamp: getUTC8Timestamp(),
       eventType: 'permission_check',
       requestId: request.requestId,
       toolName: request.toolName,
@@ -161,7 +161,7 @@ export class AuditLogger {
     result: PlanReviewResult,
   ): Promise<void> {
     const record: AuditRecord = {
-      timestamp: new Date().toISOString(),
+      timestamp: getUTC8Timestamp(),
       eventType: 'plan_review',
       requestId: `plan-${Date.now()}`,
       planPreview: this.truncate(plan, MAX_SANITIZE_LENGTH),
@@ -233,9 +233,10 @@ export class AuditLogger {
    * 清理超过保留期的旧审计日志文件
    */
   async cleanupOldFiles(retentionDays = LOG_RETENTION_DAYS): Promise<number> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-    const cutoffStr = cutoff.toISOString().split('T')[0]!;
+    const cutoffDate = new Date(Date.now() - retentionDays * 86400000);
+    const c = getUTC8Components(cutoffDate);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const cutoffStr = `${c.year}-${p(c.month)}-${p(c.day)}`;
 
     try {
       const logFiles = await AuditLogger.findLogFiles(this.logDir, this.baseName);

@@ -74,45 +74,38 @@ export class IntentRouter {
       log.warn('L1 intent analysis failed, falling back to L2:', err);
     }
 
-    // L2: 语义向量匹配 scene（无 embedding 模型时直接降级 L3）
-    if (!this.embeddingMatcher.hasEmbedder) {
-      onProgress?.({
-        level: 'L2', status: 'done', method: 'embedding', durationMs: 0, success: false,
-        reason: '向量模型未安装，跳过语义匹配',
-      });
-    } else {
-      const l2Start = Date.now();
-      onProgress?.({ level: 'L2', status: 'start', method: 'embedding', durationMs: 0, success: false });
-      try {
-        const matches = await this.embeddingMatcher.match(message);
-        const l2Duration = Date.now() - l2Start;
-        if (matches.length > 0 && matches[0].score >= 0.35) {
-          const topMatch = matches[0];
-          onProgress?.({
-            level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: true,
-            scene: topMatch.scene, complexity: topMatch.complexity, confidence: topMatch.score,
-            matchCount: matches.length, reason: topMatch.reason,
-          });
-          return {
-            scene: topMatch.scene || '',
-            complexity: topMatch.complexity || 'complex',
-            confidence: topMatch.score,
-            method: 'embedding',
-            reason: topMatch.reason,
-          };
-        }
+    // L2: 语义向量匹配 scene（EmbeddingMatcher 内部会延迟初始化 embedder）
+    const l2Start = Date.now();
+    onProgress?.({ level: 'L2', status: 'start', method: 'embedding', durationMs: 0, success: false });
+    try {
+      const matches = await this.embeddingMatcher.match(message);
+      const l2Duration = Date.now() - l2Start;
+      if (matches.length > 0 && matches[0].score >= 0.35) {
+        const topMatch = matches[0];
         onProgress?.({
-          level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
-          matchCount: matches.length, reason: matches.length > 0 ? '最高分低于阈值' : '无匹配结果',
+          level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: true,
+          scene: topMatch.scene, complexity: topMatch.complexity, confidence: topMatch.score,
+          matchCount: matches.length, reason: topMatch.reason,
         });
-      } catch (err) {
-        const l2Duration = Date.now() - l2Start;
-        onProgress?.({
-          level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
-          reason: err instanceof Error ? err.message : '语义匹配异常',
-        });
-        log.warn('L2 embedding match failed, falling back to default:', err);
+        return {
+          scene: topMatch.scene || '',
+          complexity: topMatch.complexity || 'complex',
+          confidence: topMatch.score,
+          method: 'embedding',
+          reason: topMatch.reason,
+        };
       }
+      onProgress?.({
+        level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
+        matchCount: matches.length, reason: matches.length > 0 ? '最高分低于阈值' : '无匹配结果',
+      });
+    } catch (err) {
+      const l2Duration = Date.now() - l2Start;
+      onProgress?.({
+        level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
+        reason: err instanceof Error ? err.message : '语义匹配异常',
+      });
+      log.warn('L2 embedding match failed, falling back to default:', err);
     }
 
     // L3: 默认兜底

@@ -189,10 +189,20 @@ export class ConfigManager {
     this.requireUser();
     const synced: string[] = [];
 
+    // 参照 AgentRegistry.copyBuiltinAgentsToUserDir() 的模式：
+    // 模板目录不存在时打 warning，不要静默跳过
+    if (!fs.existsSync(this.templateDir)) {
+      log.warn(`模板目录不存在: ${this.templateDir}，跳过配置同步`);
+      return synced;
+    }
+
     // 同步子目录文件（agents/、prompts/）
     for (const sub of ['agents', 'prompts']) {
       const tmplDir = path.join(this.templateDir, sub);
-      if (!fs.existsSync(tmplDir)) continue;
+      if (!fs.existsSync(tmplDir)) {
+        log.warn(`模板子目录不存在: ${tmplDir}`);
+        continue;
+      }
       // 同步子目录到用户目录
       const usrDir = path.join(this.userConfigDir, sub);
       for (const f of fs.readdirSync(tmplDir)) {
@@ -210,9 +220,11 @@ export class ConfigManager {
       const tmplPath = path.join(this.templateDir, fileName);
       const usrPath = path.join(this.userConfigDir, fileName);
 
-      if (!fs.existsSync(tmplPath)) continue;
+      if (!fs.existsSync(tmplPath)) {
+        log.warn(`模板文件不存在: ${tmplPath}`);
+        continue;
+      }
 
-      // mcp.json：模板文件直接复制（不含 _examples 等非标准字段时）
       if (!fs.existsSync(usrPath)) {
         if (fileName === 'mcp.json') {
           // 从模板 mcp.json 仅提取有效字段，过滤 _examples

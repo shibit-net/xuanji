@@ -1,0 +1,109 @@
+id: memory-maintenance
+name: Memory Maintenance Scene
+layer: L1
+internal: true
+scenes:
+  - memory-maintenance
+priority: 90
+estimatedTokens: 1400
+match:
+  keywords: "记忆整理 记忆维护 去重 合并 清理 整理记忆库"
+  description: "对记忆库进行定期维护：去重、合并、关联、抽象重组、清理、修正"
+content: |
+  # 记忆整理 · 任务指令
+
+  当前任务：对记忆库进行全面维护，提升记忆质量和结构化程度。
+
+  ## 过程
+
+  ### 第一步：全局扫描
+  使用 memory_search 和 memory_stats 遍历记忆库，建立全局认知：
+  - 有哪些实体种类、各类数量
+  - 哪些事实、哪些话题
+  - 当前的关系密度
+  - 哪些区域有冗余/过期的迹象
+
+  ### 第二步：实体去重与合并
+  这是最关键的一步。不局限于同名同类：
+
+  **识别重复实体的线索（综合使用，不是单选）：**
+  1. 名称相似度（完全相同 > 同义词 > 缩略/全称 > 中英文对照）
+  2. summary 语义相似度（描述的是同一事物）
+  3. 共享的 relation（两个实体指向相同的关联对象）
+  4. 共现模式（在上下文中被互换使用）
+
+  **跨类型识别（重要）：**
+  同一个人/事物可能以不同 type 存在。例如：
+  - "张三" type=user 和 "小张" type=person 可能是同一个人
+  - "xuanji项目" type=project 和 "xuanji" type=concept 可能指向同一事物
+  - 不要因为 type 不同就跳过合并判断
+
+  **合并流程：**
+  1. 选出 importance 最高的实体作为 canonical
+  2. 合并 summary：将两者的 summary 融合为更完整的描述
+  3. 调用 memory_store({type:"relation", data:{action:"transfer", from_entity:"旧名", to_entity:"新名"}}) 转移所有关系
+  4. 调用 memory_store({type:"entity", data:{action:"delete", id:"重复实体id"}}) 删除重复
+
+  ### 第三步：关系发现与补全
+  遍历实体，寻找应建立但缺失的关系：
+
+  - 同 category 的实体之间应有关联（如：所有 "language" category 的实体互相关联）
+  - event/fact 内容中提到的实体应与该 event/fact 关联
+  - 频繁共现的实体应建立关系
+  - entity 与其所属的 project/group 之间应有关联
+  - 新产生的 entity 如果处于孤立状态，搜索相关实体建立关联
+
+  对发现的关系断点 → 调用 memory_store({type:"relation", ...}) 补全
+
+  ### 第四步：记忆抽象与结构重组
+  识别可以提升抽象层次的机会：
+
+  - 一组紧密关联的实体（如：同一项目的 5 个模块）→ 考虑创建上层概念实体，将模块归类其下
+  - 多条语义相似但分散的 fact → 合并为一条更精炼的总结，evidence_count 累加
+  - 重复出现的用户行为模式 → 提炼为 user_profile，而非保留多条 fact
+  - 分散的相关 topic → 考虑合并并提升为目标（goal）
+
+  ### 第五步：清理冗余与过期内容
+  按以下规则清理：
+
+  | 清理对象 | 条件 | 操作 |
+  |---------|------|------|
+  | 低价值 fact | importance≤2 且 90 天未更新 | 删除 |
+  | 过期实体 | 180 天未更新 且 importance≤2 | 归档（summary 前缀加 [Archived]） |
+  | 孤立实体 | 30 天未更新 且 无 relation | 删除 |
+  | 过期时间锚点 | trigger_time 已过 且 无 cron_expr | 标记 [Expired] |
+  | 废弃话题 | 长期未提及 | status → abandoned |
+  | 重复项目快照 | 同一项目 24h 内多个 | 保留最新一条 |
+
+  ### 第六步：修正错误记忆
+  - 搜索相互矛盾的 fact（同一主题但结论相反）
+  - 以最新的 fact 为准，用户纠正类 fact 具有最高权威
+  - 更新或删除过时的 fact
+  - 如果 entity.summary 与实际 fact 记录矛盾 → 更新 summary
+
+  ### 第七步：画像刷新
+  - 检查 user_profile 中 pending_count ≥ 3 的维度
+  - 综合该维度相关的所有 fact，重新生成更准确的 summary
+  - confidence 低于 0.5 的画像维度 → 标记为待验证
+
+  ## 方案
+
+  - **语义判断优先于机械匹配**：判断两个实体是否重复时，summary 语义相似度 > name 字符串匹配 > type 相同
+  - **合并前先 transfer**：永远先迁移关系再删除实体，避免关系丢失
+  - **清理而非破坏**：过期内容优先标记/归档，不确定时保留
+  - **每次整理输出变更记录**：让用户知晓记忆库发生了什么变化
+
+  ## 结果
+
+  整理完成后，在文本中输出整理报告：
+
+  ```
+  ## 记忆整理报告
+
+  - 合并了 X 个重复实体（涉及 Z 条关系迁移）
+  - 新增了 Y 条关系链接
+  - 抽象/重组了 N 组相关记忆
+  - 清理了 Z 条过期记录
+  - 修正了 M 条矛盾信息
+  - 刷新了 K 个用户画像维度
+  ```

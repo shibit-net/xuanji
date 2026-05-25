@@ -272,9 +272,6 @@ export class MessageChannel extends EventEmitter {
    */
   private async handleMessage(msg: Message): Promise<void> {
     this.log(`收到消息: ${msg.type}`, msg);
-    if (msg.type === 'agent:text' || msg.type === 'agent:started' || msg.type === 'agent:end') {
-      console.log(`[DIAG] MessageChannel.handleMessage: type=${msg.type}`);
-    }
     if (msg.requestId) {
       const pending = this.pendingRequests.get(msg.requestId);
       if (pending) {

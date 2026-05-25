@@ -28,6 +28,7 @@ export class CheapLLMProvider implements CheapLLM {
       maxTokens: config?.maxTokens ?? 1024,
       apiKey: config?.apiKey,
       baseURL: config?.baseURL,
+      contextSize: config?.contextSize,
     };
   }
 

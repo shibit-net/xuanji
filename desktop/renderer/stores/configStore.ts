@@ -10,6 +10,7 @@
 
 import { create } from 'zustand';
 import { setLanguage } from '@/core/i18n';
+import { useAuthStore } from '../stores/authStore';
 import type {
   UserSettings,
   ModelConfig,
@@ -30,6 +31,7 @@ interface ConfigState {
   loaded: boolean;
   loading: boolean;
   error: string | null;
+  fallbackProvider: any | null;
 
   // ========== 统一配置加载（唯一入口） ==========
   loadConfig: () => Promise<void>;
@@ -87,6 +89,7 @@ export const useConfigStore = create<ConfigState>()(
       loaded: false,
       loading: false,
       error: null,
+      fallbackProvider: null,
 
       // ========== 统一配置加载（唯一入口） ==========
       loadConfig: async () => {
@@ -94,56 +97,89 @@ export const useConfigStore = create<ConfigState>()(
         if (get().loaded || get().loading) return;
         set({ loading: true, error: null });
 
-        const doLoad = async (): Promise<any> => {
-          const result = await window.electron.settingsGetFullConfig?.()
-            ?? await window.electron.settingsGetConfig?.();
-          if (result?.success && result.config) {
-            return result.config;
-          }
-          if (result?.error) {
-            throw new Error(result.error);
-          }
-          return null;
-        };
-
-        // 轮询等待 session 就绪（最多 30 秒）
-        const maxRetries = 30;
-        for (let i = 0; i < maxRetries; i++) {
-          try {
-            const c = await doLoad();
-            if (c) {
-              const language = (c.ui?.language as 'zh' | 'en') || 'en';
-              console.log('[configStore] loadConfig language:', language, 'ui:', JSON.stringify(c.ui));
-              setLanguage(language);
-              set({
-                fullConfig: c,
-                settings: {
-                  language,
-                  theme: (c.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
-                  fontSize: 14,
-                  workspacePath: (c.workspacePath as string) || '',
-                  showTokenUsage: c.ui?.showTokenUsage ?? true,
-                  showThinking: c.ui?.showThinking ?? true,
-                  model: {
-                    defaultModel: c.provider?.model || '',
-                    temperature: c.provider?.temperature ?? 1.0,
-                    maxTokens: c.provider?.maxTokens ?? 8000,
-                    streaming: true,
-                  },
-                  api: {},
-                  permissions: get().settings.permissions,
+        try {
+          // 第一步：直接从磁盘读配置（不依赖 session），快速决定路由
+          const userId = useAuthStore.getState().user?.userId;
+          console.log(`[DIAG] loadConfig: userId=${userId}`);
+          const diskResult = await window.electron.settingsReadDiskConfig?.(userId);
+          if (diskResult?.success && diskResult.config) {
+            const c = diskResult.config;
+            const language = (c.ui?.language as 'zh' | 'en') || 'en';
+            console.log('[configStore] loadConfig from disk, fallbackProvider:', JSON.stringify(c.fallbackProvider));
+            setLanguage(language);
+            set({
+              fullConfig: c,
+              settings: {
+                language,
+                theme: (c.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
+                fontSize: 14,
+                workspacePath: (c.workspacePath as string) || '',
+                showTokenUsage: c.ui?.showTokenUsage ?? true,
+                showThinking: c.ui?.showThinking ?? true,
+                model: {
+                  defaultModel: c.provider?.model || '',
+                  temperature: c.provider?.temperature ?? 1.0,
+                  maxTokens: c.provider?.maxTokens ?? 8000,
+                  streaming: true,
                 },
-                loaded: true,
-                loading: false,
-              });
-              return;
-            }
-          } catch (err) {
-            console.warn(`[configStore] loadConfig attempt ${i + 1} failed:`, err);
+                api: {},
+                permissions: get().settings.permissions,
+              },
+              fallbackProvider: c.fallbackProvider || null,
+              loaded: true,
+              loading: false,
+            });
+
+            // 第二步：后台异步初始化 session（不影响 UI 展示）
+            window.electron.agentInit?.().then((result) => {
+              if (result?.config) {
+                // session 初始化成功，用完整配置刷新 store
+                const config = result.config;
+                const lang = (config.ui?.language as 'zh' | 'en') || language;
+                set({
+                  fullConfig: config,
+                  settings: {
+                    language: lang,
+                    theme: (config.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
+                    fontSize: 14,
+                    workspacePath: (config.workspacePath as string) || '',
+                    showTokenUsage: config.ui?.showTokenUsage ?? true,
+                    showThinking: config.ui?.showThinking ?? true,
+                    model: {
+                      defaultModel: config.provider?.model || '',
+                      temperature: config.provider?.temperature ?? 1.0,
+                      maxTokens: config.provider?.maxTokens ?? 8000,
+                      streaming: true,
+                    },
+                    api: {},
+                    permissions: get().settings.permissions,
+                  },
+                  fallbackProvider: config.fallbackProvider || null,
+                  error: result.success ? null : (result.error || null),
+                });
+              } else {
+                console.warn('[configStore] session init failed:', result?.error);
+                set({ error: result?.error || 'Session 初始化失败' });
+              }
+            }).catch((err: any) => {
+              console.warn('[configStore] session init error:', err);
+            });
+
+            return;
           }
-          await new Promise(r => setTimeout(r, 1000));
+
+          // 磁盘无配置（首次登录），直接设置 loaded=true，让 SetupGuard 跳转到引导页
+          set({
+            loaded: true,
+            loading: false,
+            fallbackProvider: null,
+          });
+          return;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[configStore] loadConfig failed:', msg);
+          set({ loading: false, error: msg });
         }
-        set({ loading: false, error: '配置加载超时' });
       },
 
       initSettings: (settings) => {
@@ -154,8 +190,11 @@ export const useConfigStore = create<ConfigState>()(
       loadSettings: async () => {
         set({ loading: true, error: null });
         try {
-          const result = await window.electron.settingsGetFullConfig?.()
-            ?? await window.electron.settingsGetConfig?.();
+          const initResult = await window.electron.agentInit?.();
+          const result = initResult?.success && initResult.config
+            ? initResult
+            : await window.electron.settingsGetFullConfig?.()
+              ?? await window.electron.settingsGetConfig?.();
           if (result?.success && result.config) {
             const c = result.config;
             const language = (c.ui?.language as 'zh' | 'en') || 'en';
@@ -178,6 +217,7 @@ export const useConfigStore = create<ConfigState>()(
                 api: {},
                 permissions: get().settings.permissions,
               },
+              fallbackProvider: c.fallbackProvider || null,
               loaded: true,
             });
           } else if (result?.error) {

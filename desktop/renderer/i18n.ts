@@ -121,6 +121,37 @@ const zh: Record<string, string> = {
   'settings.embedding.dir_failed': '无法获取 embedding 模型目录',
   'settings.embedding.saved': 'Embedding 配置已保存',
 
+  // SettingsPage — Download Tab
+  'settings.download': '下载配置',
+  'settings.download.title': '下载配置',
+  'settings.download.desc': '选择模型下载源，国内用户建议用魔搭或镜像',
+  'settings.download.source': '下载源',
+  'settings.download.source_hint': '切换后所有模型下载（本地模型 + 向量模型）都走所选源',
+  'settings.download.hf_mirror': '自定义镜像地址',
+  'settings.download.hf_mirror_hint': '国内用户可设置镜像地址加速下载。留空使用官方 huggingface.co',
+  'settings.download.saved': '下载配置已保存',
+
+  // FallbackProviderSetupPage
+  'setup.title': '配置 LLM Provider',
+  'setup.desc': '配置默认的 LLM Provider，Agent 将使用此配置调用大模型',
+  'setup.provider_label': 'Provider',
+  'setup.provider_placeholder': '选择 Provider...',
+  'setup.api_key_label': 'API Key',
+  'setup.api_key_optional': '（可选）',
+  'setup.api_key_placeholder_local': '本地模型无需 API Key',
+  'setup.api_key_placeholder': '输入 API Key',
+  'setup.base_url_label': 'API Base URL',
+  'setup.base_url_placeholder': 'https://api.example.com/v1',
+  'setup.model_label': '模型名称',
+  'setup.model_placeholder': '例如: claude-sonnet-4-6, gpt-5, deepseek-chat',
+  'setup.error_select_provider': '请选择 Provider',
+  'setup.error_api_key': '请输入 API Key',
+  'setup.error_model': '请输入模型名称',
+  'setup.saving': '保存中...',
+  'setup.save_button': '保存并开始使用',
+  'setup.save_failed': '保存失败',
+  'setup.save_success': 'LLM Provider 配置成功',
+
   // LoginPage
   'login.welcome': '欢迎',
   'login.desc': '请登录以继续使用 Xuanji',
@@ -249,6 +280,14 @@ const en: Record<string, string> = {
   'settings.embedding.dir_failed': 'Failed to get embedding model directory',
   'settings.embedding.saved': 'Embedding settings saved',
 
+  // SettingsPage — Download Tab
+  'settings.download': 'Download',
+  'settings.download.title': 'Download Settings',
+  'settings.download.desc': 'Configure model download mirror',
+  'settings.download.hf_mirror': 'HuggingFace Mirror',
+  'settings.download.hf_mirror_hint': 'Use a mirror for faster model downloads. Leave empty for default https://hf-mirror.com',
+  'settings.download.saved': 'Download settings saved',
+
   // MainLayout
   'mainlayout.compact_done': 'Compressed!\\nOriginal: {original} tokens\\nCompressed: {compressed} tokens\\nRatio: {ratio}%',
   'mainlayout.compact_failed': 'Compression failed: {error}',
@@ -312,6 +351,27 @@ const en: Record<string, string> = {
   'toast.error': 'Error',
   'toast.warning': 'Warning',
   'toast.info': 'Info',
+
+  // FallbackProviderSetupPage
+  'setup.title': 'Configure LLM Provider',
+  'setup.desc': 'Configure the default LLM Provider. Agents will use this configuration to call the LLM.',
+  'setup.provider_label': 'Provider',
+  'setup.provider_placeholder': 'Select Provider...',
+  'setup.api_key_label': 'API Key',
+  'setup.api_key_optional': ' (optional)',
+  'setup.api_key_placeholder_local': 'Local model, no API Key needed',
+  'setup.api_key_placeholder': 'Enter API Key',
+  'setup.base_url_label': 'API Base URL',
+  'setup.base_url_placeholder': 'https://api.example.com/v1',
+  'setup.model_label': 'Model Name',
+  'setup.model_placeholder': 'e.g. claude-sonnet-4-6, gpt-5, deepseek-chat',
+  'setup.error_select_provider': 'Please select a Provider',
+  'setup.error_api_key': 'Please enter an API Key',
+  'setup.error_model': 'Please enter a model name',
+  'setup.saving': 'Saving...',
+  'setup.save_button': 'Save and Start',
+  'setup.save_failed': 'Save failed',
+  'setup.save_success': 'LLM Provider configured successfully',
 
   // LoginPage
   'login.welcome': 'Welcome',

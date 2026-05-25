@@ -22,6 +22,20 @@ import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/core/tools/FilteredTo
 
 const log = logger.child({ module: 'AgentFactory' });
 
+/** 占位 Provider：允许新用户未配置 apiKey/baseURL 时也能初始化会话，访问设置页面 */
+function createUnconfiguredProvider(agentName: string): ILLMProvider {
+  return {
+    name: 'unconfigured',
+    models: [],
+    isSupported: () => false,
+    stream: async function* () {
+      throw new Error(
+        `Agent "${agentName}" 未配置 apiKey/baseURL，请在设置页面配置后重新初始化会话`,
+      );
+    },
+  };
+}
+
 export interface TemporaryAgentOptions {
   role: string;
   capabilities: string[];
@@ -119,13 +133,6 @@ export interface AcpAgentCreateOptions {
   maxIterations?: number;
 }
 
-export interface CompressionAgentCreateOptions {
-  parentConfig?: AgentConfig;
-  systemPrompt: string;
-  workingDir?: string;
-  maxTokens?: number;
-}
-
 export class AgentFactory {
   private providerPool: ProviderPool;
   private layeredPromptBuilder: LayeredPromptBuilder | null = null;
@@ -134,13 +141,14 @@ export class AgentFactory {
   private temporaryAgents = new Map<string, ConfigurableAgentConfig>();
   private _parentProvider?: ILLMProvider;
   private _parentConfig?: AgentConfig;
+  private _fallbackProviderConfig?: { adapter: string; apiKey?: string; baseURL?: string; model?: string };
 
   constructor(baseRegistry: IToolRegistry) {
     this.baseRegistry = baseRegistry;
     this.providerPool = new ProviderPool(
       (config) => {
-        const { ProviderManager } = require('@/core/providers/ProviderManager');
-        return ProviderManager.getProvider({ adapter: config.adapter });
+        const { createProviderByAdapter } = require('@/core/providers/ProviderRegistry');
+        return createProviderByAdapter(config.adapter);
       },
     );
   }
@@ -159,6 +167,14 @@ export class AgentFactory {
 
   setParentConfig(config: AgentConfig): void {
     this._parentConfig = config;
+  }
+
+  setFallbackProviderConfig(config: { adapter: string; apiKey?: string; baseURL?: string; model?: string } | undefined): void {
+    this._fallbackProviderConfig = config;
+  }
+
+  getFallbackProviderConfig(): { adapter: string; apiKey?: string; baseURL?: string; model?: string } | undefined {
+    return this._fallbackProviderConfig;
   }
 
   /**
@@ -181,6 +197,7 @@ export class AgentFactory {
     if (!agentCfg || agentCfg.enabled === false) {
       throw new Error(`Agent "${agentId}" not found or disabled`);
     }
+    this.ensureProviderComplete(agentCfg);
     const provider = this.resolveProvider(agentCfg);
     const yamlTools = (agentCfg.tools as any[])?.filter((t: any) => t.enabled !== false).map((t: any) => t.name) || [];
     const toolNames = augmentToolList(yamlTools, complexity);
@@ -198,7 +215,9 @@ export class AgentFactory {
       throw new Error(`Agent "${agentId}" not found or disabled`);
     }
 
-    // 解析 provider（主 agent 作为已注册 agent，必须自有配置）
+    // 系统 agent 自身凭证缺失时，用兜底 provider 替换 agentCfg.provider
+    this.ensureProviderComplete(agentCfg);
+
     const provider = this.resolveProvider(agentCfg);
 
     // 构建 system prompt
@@ -213,7 +232,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
     });
 
-    // 构建 AgentConfig
+    // 构建 AgentConfig（此时 agentCfg.provider 已确保完整，apiKey/baseURL 来自兜底）
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt,
       workingDir: options.workingDir,
@@ -255,7 +274,7 @@ export class AgentFactory {
       log.warn(`[createSubAgent] ConfigManager.getAgentConfig failed for "${agentId}":`, err);
     }
 
-    log.info(`[createSubAgent] entry`, {
+    log.debug(`[createSubAgent] entry`, {
       agentId,
       hasAgentCfg: !!agentCfg,
       agentCfgName: agentCfg?.name,
@@ -269,7 +288,7 @@ export class AgentFactory {
 
     // 空 ID 或未注册（临时 agent），仅继承 provider 和适配器
     if (!agentCfg) {
-      log.info(`[createSubAgent] 进入临时 agent 路径`, {
+      log.debug(`[createSubAgent] 进入临时 agent 路径`, {
         agentId,
         hasParentProvider: !!options.parentProvider,
         parentProviderType: options.parentProvider?.constructor?.name || 'unknown',
@@ -297,7 +316,7 @@ export class AgentFactory {
       const effectiveTools = options.strictTools
         ? allowedTools
         : augmentToolList(allowedTools.length > 0 ? allowedTools : DEFAULT_SUBAGENT_TOOLS);
-      log.info(`[createSubAgent] 临时 agent 工具解析完成`, {
+      log.debug(`[createSubAgent] 临时 agent 工具解析完成`, {
         agentId,
         strictTools: options.strictTools,
         toolWhitelist: options.toolWhitelist,
@@ -312,7 +331,7 @@ export class AgentFactory {
       const agentLoop = new AgentLoop(provider, registry, runtimeConfig, subAgentId);
       if (this.hookRegistry) agentLoop.setHookRegistry(this.hookRegistry);
 
-      log.info(`[createSubAgent] 临时 agent 创建成功`, {
+      log.debug(`[createSubAgent] 临时 agent 创建成功`, {
         agentId,
         subAgentId,
         depth: options.depth,
@@ -324,7 +343,7 @@ export class AgentFactory {
       return { agentLoop, config: runtimeConfig, subAgentId, depth: options.depth ?? 0 };
     }
 
-    log.info(`[createSubAgent] 进入预置 agent 路径`, {
+    log.debug(`[createSubAgent] 进入预置 agent 路径`, {
       agentId,
       agentName: agentCfg.name,
       enabled: agentCfg.enabled,
@@ -336,19 +355,23 @@ export class AgentFactory {
       throw new Error(`Agent "${agentCfg.name}" is disabled`);
     }
 
-    // 解析 provider（子 Agent 使用自有配置或继承父 provider）
-    const hasIndependentProvider = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL);
-    if (!hasIndependentProvider) {
+    // 系统 agent 自身凭证缺失时，用兜底 provider 替换 agentCfg.provider
+    this.ensureProviderComplete(agentCfg);
+
+    // 解析 provider（agentCfg.provider 已确保完整，仅非系统 agent 可能需继承父 provider）
+    let provider: ILLMProvider;
+    if (AgentFactory.isProviderComplete(agentCfg)) {
+      provider = this.providerPool.getProvider({
+        adapter: agentCfg.provider!.adapter!,
+        model: agentCfg.model!.primary!,
+        apiKey: agentCfg.provider!.apiKey!,
+        baseURL: agentCfg.provider!.baseURL!,
+      });
+    } else if (options.parentProvider) {
+      provider = options.parentProvider;
+    } else {
       throw new Error(`子 Agent "${agentCfg.name}" 未配置 apiKey/baseURL，请在配置页面设置`);
     }
-
-    let provider: ILLMProvider;
-    provider = this.providerPool.getProvider({
-      adapter: agentCfg.provider!.adapter!,
-      model: agentCfg.model!.primary!,
-      apiKey: agentCfg.provider!.apiKey!,
-      baseURL: agentCfg.provider!.baseURL!,
-    });
 
     // 构建 system prompt
     const systemPrompt = await this.buildSubPrompt(agentCfg, options);
@@ -358,7 +381,7 @@ export class AgentFactory {
       ? (options.toolWhitelist || [])
       : this.resolveTools(agentCfg, options.toolWhitelist);
     const effectiveTools = options.strictTools ? allowedTools : augmentToolList(allowedTools);
-    log.info(`[createSubAgent] 工具解析完成`, {
+    log.debug(`[createSubAgent] 工具解析完成`, {
       agentId,
       agentName: agentCfg.name,
       strictTools: options.strictTools,
@@ -373,7 +396,7 @@ export class AgentFactory {
 
     const subAgentId = options.subAgentId || `subagent-${agentId}-${Date.now()}`;
 
-    // 构建 runtime config
+    // 构建 runtime config（此时 agentCfg.provider 已确保完整）
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt,
       workingDir: options.workingDir,
@@ -423,7 +446,7 @@ export class AgentFactory {
     const parentProvider = options.parentProvider ?? this._parentProvider;
     const parentConfig = options.parentConfig ?? this._parentConfig;
 
-    log.info(`[createAndRun] provider 解析`, {
+    log.debug(`[createAndRun] provider 解析`, {
       agentId: agentIdOrRole,
       isTemporary,
       hasOptionsProvider: !!options.parentProvider,
@@ -692,15 +715,29 @@ export class AgentFactory {
     const { CheapLLMProvider } = await import('@/core/providers/CheapLLMProvider');
     const { ProviderManager } = await import('@/core/providers/ProviderManager');
 
-    const agentProvider = ProviderManager.getProvider({ adapter: c.provider!.adapter! });
+    const agentProvider = ProviderManager.getProvider(
+      { adapter: c.provider!.adapter!, apiKey: c.provider!.apiKey, baseURL: c.provider!.baseURL },
+      this._fallbackProviderConfig,
+    );
+
+    if (!agentProvider) {
+      log.warn(`[createCheapLLMProvider] ${agentId}: 未配置 provider，使用占位 CheapLLM`);
+      return {
+        complete: async () => {
+          throw new Error(`Agent "${agentId}" 未配置 provider，请在设置页面配置`);
+        },
+      };
+    }
+
     const llm = new CheapLLMProvider(agentProvider, {
       model: c.model!.primary!,
-      apiKey: c.provider!.apiKey || '',
-      baseURL: c.provider!.baseURL || '',
+      apiKey: c.provider!.apiKey || this._fallbackProviderConfig?.apiKey || '',
+      baseURL: c.provider!.baseURL || this._fallbackProviderConfig?.baseURL || '',
       temperature: (c.model!.temperature ?? defaults.temperature) as number,
       maxTokens: (c.model!.maxTokens ?? defaults.maxTokens) as number,
+      contextSize: (c.model as any)?.contextSize,
     });
-    log.info(`[createCheapLLMProvider] ${agentId}: ${c.model!.primary} (adapter=${c.provider!.adapter})`);
+    log.debug(`[createCheapLLMProvider] ${agentId}: ${c.model!.primary} (adapter=${c.provider!.adapter})`);
     return llm;
   }
 
@@ -727,25 +764,6 @@ export class AgentFactory {
     });
   }
 
-  /**
-   * 创建 context-compressor Agent（供 MemoryManager 使用）。
-   */
-  async createCompressionAgent(
-    agentId: string,
-    options: CompressionAgentCreateOptions,
-  ): Promise<AgentInstance> {
-    return this.createSilentAgent(agentId, {
-      systemPrompt: options.systemPrompt,
-      workingDir: options.workingDir,
-      toolNames: [],
-      maxIterations: 1,
-      temperature: 0.2,
-      maxTokens: options.maxTokens ?? 1024,
-      idPrefix: 'compress',
-      parentConfig: options.parentConfig,
-    });
-  }
-
   private async createSilentAgent(
     agentId: string,
     opts: {
@@ -766,12 +784,10 @@ export class AgentFactory {
       workingDir: opts.workingDir,
     });
 
-    const provider = this.providerPool.getProvider({
-      adapter: agentCfg.provider!.adapter!,
-      model: agentCfg.model!.primary!,
-      apiKey: agentCfg.provider!.apiKey || '',
-      baseURL: agentCfg.provider!.baseURL || '',
-    });
+    // 系统 agent 自身凭证缺失时，用兜底 provider 替换 agentCfg.provider
+    this.ensureProviderComplete(agentCfg);
+
+    const provider = this.resolveProvider(agentCfg);
 
     const runtimeConfig = this.buildRuntimeConfig(agentCfg, {
       systemPrompt: opts.systemPrompt,
@@ -791,7 +807,7 @@ export class AgentFactory {
     const subAgentId = `${opts.idPrefix}-${agentId}-${Date.now()}`;
     const agentLoop = new SilentAgentLoop(provider, registry, runtimeConfig, subAgentId);
 
-    log.info(`[createSilentAgent] ${opts.idPrefix} 创建完成`, {
+    log.debug(`[createSilentAgent] ${opts.idPrefix} 创建完成`, {
       agentId,
       subAgentId,
       model: runtimeConfig.model,
@@ -826,8 +842,10 @@ export class AgentFactory {
     let effectiveTools: string[];
 
     if (agentCfg) {
-      const hasIndependent = !!(agentCfg.provider?.apiKey || agentCfg.provider?.baseURL);
-      if (!hasIndependent) {
+      // 系统 agent 自身凭证缺失时，用兜底 provider 替换 agentCfg.provider
+      this.ensureProviderComplete(agentCfg);
+
+      if (!AgentFactory.isProviderComplete(agentCfg)) {
         throw new Error(
           `ACP: 已注册 Agent "${agentCfg.name || agentId}" 未配置 apiKey/baseURL，请在配置页面设置`,
         );
@@ -897,7 +915,7 @@ export class AgentFactory {
       agentLoop.setHookRegistry(this.hookRegistry);
     }
 
-    log.info(`[createAcpAgent] 创建完成`, {
+    log.debug(`[createAcpAgent] 创建完成`, {
       agentId,
       subAgentId,
       isRegistered: !!agentCfg,
@@ -948,11 +966,12 @@ export class AgentFactory {
     let agentProviderConfig: Record<string, any> | undefined;
 
     if (registeredConfig && !isTemporary) {
+      this.ensureProviderComplete(registeredConfig);
       agentProviderConfig = {
         adapter: (registeredConfig as any).provider?.adapter,
         model: (registeredConfig as any).model?.primary,
-        apiKey: (registeredConfig as any).provider?.apiKey,
-        baseURL: (registeredConfig as any).provider?.baseURL,
+        apiKey: (registeredConfig as any).provider?.apiKey || '',
+        baseURL: (registeredConfig as any).provider?.baseURL || '',
         maxTokens: (registeredConfig as any).model?.maxTokens,
         temperature: (registeredConfig as any).model?.temperature,
       };
@@ -1113,16 +1132,59 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     return prompt.trim();
   }
 
+  private static LOCAL_ADAPTERS = new Set(['ollama', 'vllm', 'lmstudio', 'local-llama']);
+
+  /** 检查 agent 自身的 provider 配置是否完整（本地 adapter 不需要 apiKey） */
+  private static isProviderComplete(agentCfg: ReturnType<ConfigManager['getAgentConfig']>): boolean {
+    const adapter = agentCfg?.provider?.adapter;
+    if (!adapter) return false;
+    if (AgentFactory.LOCAL_ADAPTERS.has(adapter)) return true;
+    return !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL);
+  }
+
+  /**
+   * 确保 agent 的 provider 配置完整。
+   * 系统 agent 自身凭证缺失时，用兜底 provider 直接替换 agentCfg.provider，
+   * 使后续 buildRuntimeConfig / resolveProvider 自动拿到正确值，无需事后打补丁。
+   */
+  private ensureProviderComplete(agentCfg: ReturnType<ConfigManager['getAgentConfig']>): void {
+    if (!agentCfg) return;
+
+    const agentName = agentCfg.name || agentCfg.id || 'unknown';
+    const category = agentCfg.metadata?.category;
+    const isSystem = category === 'system';
+    const isComplete = AgentFactory.isProviderComplete(agentCfg);
+    const hasFallback = !!this._fallbackProviderConfig?.adapter;
+
+    log.debug(`[ensureProviderComplete] agent=${agentName} category=${category} isSystem=${isSystem} isComplete=${isComplete} hasFallback=${hasFallback} fallbackAdapter=${this._fallbackProviderConfig?.adapter || 'none'}`);
+
+    if (isComplete) return;
+    if (!isSystem) return;
+    if (!hasFallback) return;
+
+    log.debug(`Agent "${agentName}" provider 不完整，替换为兜底 provider: ${this._fallbackProviderConfig!.adapter}`);
+    agentCfg.provider = {
+      adapter: this._fallbackProviderConfig!.adapter,
+      apiKey: this._fallbackProviderConfig!.apiKey || '',
+      baseURL: this._fallbackProviderConfig!.baseURL || '',
+    };
+    if (this._fallbackProviderConfig!.model) {
+      agentCfg.model = { ...agentCfg.model, primary: this._fallbackProviderConfig!.model };
+    }
+  }
+
   private resolveProvider(agentCfg: ReturnType<ConfigManager['getAgentConfig']>): ILLMProvider {
-    const hasIndependent = !!(agentCfg?.provider?.apiKey || agentCfg?.provider?.baseURL);
-    if (!hasIndependent || !agentCfg?.provider) {
-      throw new Error(`Agent "${agentCfg?.name || agentCfg?.id || 'unknown'}" 未配置 apiKey/baseURL，请在配置页面设置`);
+    const adapter = agentCfg?.provider?.adapter;
+    if (!adapter) {
+      const agentName = agentCfg?.name || agentCfg?.id || 'unknown';
+      log.warn(`Agent "${agentName}" 未配置 provider adapter，使用占位 Provider`);
+      return createUnconfiguredProvider(agentName);
     }
     return this.providerPool.getProvider({
-      adapter: agentCfg.provider.adapter!,
-      model: agentCfg.model!.primary!,
-      apiKey: agentCfg.provider.apiKey!,
-      baseURL: agentCfg.provider.baseURL!,
+      adapter,
+      model: agentCfg!.model!.primary!,
+      apiKey: agentCfg!.provider!.apiKey!,
+      baseURL: agentCfg!.provider!.baseURL!,
     });
   }
 
@@ -1200,7 +1262,8 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     const thinkingRaw = typeof cfg?.model === 'object' ? cfg?.model?.thinking : cfg?.thinking;
     const thinking = thinkingRaw?.type && thinkingRaw.type !== 'disabled' ? thinkingRaw : undefined;
 
-    return {
+    const contextSize = typeof cfg?.model === 'object' ? cfg?.model?.contextSize : undefined;
+    const runtimeConfig: AgentConfig = {
       model: model!,
       systemPrompt: overrides.systemPrompt,
       maxIterations: overrides.maxIterations,
@@ -1210,7 +1273,12 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
       workingDir: overrides.workingDir,
       apiKey: cfg?.provider?.apiKey ?? cfg?.apiKey!,
       baseURL: cfg?.provider?.baseURL ?? cfg?.baseURL!,
+      contextSize,
     };
+
+    log.debug(`[buildRuntimeConfig] model=${runtimeConfig.model} baseURL=${runtimeConfig.baseURL || 'none'}`);
+
+    return runtimeConfig;
   }
 
 }

@@ -171,13 +171,13 @@ export class SessionFactory {
     const userId = options.userId || this.userId;
     const agentId = options.agentId || this.agentId;
 
-    log.info(`Creating session for user: ${userId}, agent: ${agentId}`);
+    log.debug(`Creating session for user: ${userId}, agent: ${agentId}`);
 
     // 1. 加载配置
     const config = await this.loadConfig({ ...options, userId, agentId });
     this.container.registerSingleton('config', config);
     setRuntimeConfig(config);
-    log.info('RuntimeConfig initialized');
+    log.debug('RuntimeConfig initialized');
 
     // 2. 基础设施
     this.container.register('sessionManager', () => new SessionManager({
@@ -190,7 +190,10 @@ export class SessionFactory {
     this.container.register('provider', async () => {
       if (options.provider) return options.provider;
       const { ProviderManager } = await import('@/core/providers/ProviderManager');
-      return ProviderManager.getProvider(config.provider as any);
+      return ProviderManager.getProvider(
+        config.provider as any,
+        config.fallbackProvider as any,
+      );
     });
 
     this.container.register('toolRegistry', () => {
@@ -320,7 +323,7 @@ export class SessionFactory {
       if (prompt.prompt) {
         systemPrompt = prompt.prompt;
         promptRequiredTools = prompt.requiredTools || [];
-        log.info(`Main agent prompt built: ${prompt.components.length} components, ~${prompt.estimatedTokens} tokens, requiredTools=[${promptRequiredTools.join(', ')}]`);
+        log.debug(`Main agent prompt built: ${prompt.components.length} components, ~${prompt.estimatedTokens} tokens, requiredTools=[${promptRequiredTools.join(', ')}]`);
       }
     } catch (err) {
       log.warn('Failed to build initial system prompt:', err);
@@ -358,6 +361,16 @@ export class SessionFactory {
     const agentFactory = await this.container.resolve<AgentFactory>('agentFactory');
     agentFactory.setHookRegistry(hookRegistry);
     agentFactory.setLayeredPromptBuilder(layeredPromptBuilder);
+    // 注入兜底 provider 配置（仅对系统 agent 生效）
+    console.log(`[DIAG] SessionFactory: config.fallbackProvider=`, JSON.stringify(config.fallbackProvider));
+    if (config.fallbackProvider?.adapter) {
+      agentFactory.setFallbackProviderConfig({
+        adapter: config.fallbackProvider.adapter,
+        apiKey: config.fallbackProvider.apiKey,
+        baseURL: config.fallbackProvider.baseURL,
+        model: config.fallbackProvider.model,
+      });
+    }
 
     const { agentLoop, config: agentConfig } = await agentFactory.createMainAgent(this.agentId, {
       parentProvider: provider,
@@ -393,7 +406,7 @@ export class SessionFactory {
           const raw = JSON.parse(await readFile(configPath, 'utf-8'));
           raw.persona = persona;
           await writeFile(configPath, JSON.stringify(raw, null, 2), 'utf-8');
-          log.info('Persona config saved');
+          log.debug('Persona config saved');
         } catch (err) {
           log.error('Failed to save persona config:', err);
         }
@@ -409,7 +422,7 @@ export class SessionFactory {
               updatedPrompt += '\n' + mcpSection;
             }
             agentLoop.getContextManager().updateSystemPrompt(updatedPrompt);
-            log.info('System prompt updated with new persona');
+            log.debug('System prompt updated with new persona');
           }
         } catch (err) {
           log.error('Failed to rebuild prompt with persona:', err);
@@ -445,7 +458,7 @@ export class SessionFactory {
         },
         isRunning: () => (agentLoop as any).running ?? false,
       };
-      log.info('TaskCompletionHandler onRun + onAutoSummarize + onCitationData hooked');
+      log.debug('TaskCompletionHandler onRun + onAutoSummarize + onCitationData hooked');
     }
 
     // 15.5. 接线：异步任务生命周期 → SessionStateMachine
@@ -484,7 +497,7 @@ export class SessionFactory {
     // 17. MCP 工具热重载 — 延迟到 init-complete 之后（避免阻塞会话初始化）
     // 见 agent-bridge.ts handleInit 中的 scheduleMCPToolSync()
 
-    log.info('Session created successfully');
+    log.debug('Session created successfully');
     return session;
   }
 
@@ -603,40 +616,54 @@ export class SessionFactory {
 
       const dbPath = getUserMemoryPath(userId);
       const memoryManager = new MemoryManager(dbPath, cheapLLM, hookRegistry);
+      log.debug('[initMemoryManager] step=created');
       memoryManager.agentFactory = agentFactory;
       memoryManager.parentProvider = provider;
       memoryManager.parentConfig = agentConfig;
       memoryManager.layeredPromptBuilder = layeredPromptBuilder;
       await memoryManager.init();
+      log.debug('[initMemoryManager] step=memoryManager.init done');
       // 处理上次未完成的记忆提取任务（进程意外退出补偿）
       memoryManager.processPendingExtractions().catch(err => log.error('processPendingExtractions failed:', err));
 
       // 将用户 ID 注入 MemoryManager，用于知识图谱的"我"锚定
       memoryManager.setUserId(userId);
+      log.debug('[initMemoryManager] step=setUserId done');
 
       // 如果 auth 提供了昵称，将用户实体从数字 ID 重命名为人类可读名称
       if (userName) {
         await memoryManager.setUserName(userName);
+        log.debug('[initMemoryManager] step=setUserName done');
       }
+
+      // 确保用户实体已创建，作为知识图谱的根节点
+      // 所有后续记忆（实体、事实、关系）都将锚定到此用户节点
+      await memoryManager.ensureUserEntity();
+      log.debug('[initMemoryManager] step=ensureUserEntity done');
 
       // 注入 SemanticIndex
       if (semanticIndex) {
         memoryManager.semanticIndex = semanticIndex;
       }
+      log.debug('[initMemoryManager] step=semanticIndex done');
 
       // 创建 CareManager 并注入到 MemoryManager
       const { CareManager } = await import('@/core/memory/CareManager');
       const careManager = new CareManager(memoryManager.dbInstance, memoryManager.episodicMemory);
       (memoryManager as any).careManager = careManager;
+      log.debug('[initMemoryManager] step=careManager done');
 
       // 注入到 ContextManager（archiveDelegate）
       contextManager.setArchiveDelegate(memoryManager);
+      log.debug('[initMemoryManager] step=setArchiveDelegate done');
 
       // 注入到 LayeredPromptBuilder（重新获取 builder 以设置 memoryManager）
       (layeredPromptBuilder as any).memoryManager = memoryManager;
+      log.debug('[initMemoryManager] step=layeredPromptBuilder.memoryManager done');
 
       // 注册全局引用（供工具使用）
       registerMemoryManager(memoryManager);
+      log.debug('[initMemoryManager] step=registerMemoryManager done');
 
       // 初始化 SubAgentResultStore 并注入到 MemoryManager
       const subAgentDir = join(getUserMemoryDir(userId), 'subagent_results');
@@ -686,11 +713,11 @@ export class SessionFactory {
         log.debug(`[Memory] Searched: "${payload.query}" type=${payload.type} → ${payload.resultCount} results`);
       });
       eventBus.on(XuanjiEvent.MEMORY_EXTRACTED, (payload: any) => {
-        log.info(`[Memory] Extracted from session=${payload.sessionId}: ${payload.entityCount}E/${payload.factCount}F/${payload.eventCount}Ev`);
+        log.debug(`[Memory] Extracted from session=${payload.sessionId}: ${payload.entityCount}E/${payload.factCount}F/${payload.eventCount}Ev`);
       });
       eventBus.on(XuanjiEvent.MEMORY_LEARNING_PROGRESS, (payload: any) => {
         const emoji = payload.stage === 'started' ? '▶' : payload.stage === 'completed' ? '✓' : '✗';
-        log.info(`[Memory] Learning ${emoji} goal="${payload.goal}" stage=${payload.stage}${payload.error ? ' err=' + payload.error : ''}`);
+        log.debug(`[Memory] Learning ${emoji} goal="${payload.goal}" stage=${payload.stage}${payload.error ? ' err=' + payload.error : ''}`);
       });
 
       // ─── 注入 LearnTool 依赖 ────────────────────────────────────
@@ -713,7 +740,7 @@ export class SessionFactory {
           webSearchFn,
           baseDir: getUserMemoryDir(userId),
         });
-        log.info('LearnTool dependencies injected (cheapLLM, webSearchFn, baseDir)');
+        log.debug('LearnTool dependencies injected (cheapLLM, webSearchFn, baseDir)');
 
         // ─── 注入 MCPSettingsTool 依赖 ─────────────────────────────
         const mcpSettingsTool = toolRegistry.get('mcp_settings') as any;
@@ -795,7 +822,7 @@ export class SessionFactory {
         scheduler.customActions.set('subagent-cleanup', async () => {
           const count = await subAgentStore.cleanExpired();
           if (count > 0) {
-            log.info(`[Memory] SubAgentResultStore cleaned ${count} expired entries`);
+            log.debug(`[Memory] SubAgentResultStore cleaned ${count} expired entries`);
             eventBus.emitSync(XuanjiEvent.MEMORY_MAINTENANCE, {
               action: 'subagent-cleanup',
               detail: `Cleaned ${count} expired sub-agent results`,
@@ -804,7 +831,7 @@ export class SessionFactory {
         });
 
         scheduler.customActions.set('memory-maintenance', async () => {
-          log.info('[Memory] Daily maintenance triggered');
+          log.debug('[Memory] Daily maintenance triggered');
           try {
             memoryManager.decayFactAccess();
             memoryManager.runDailyMaintenance();
@@ -813,35 +840,12 @@ export class SessionFactory {
           }
         });
 
-        scheduler.customActions.set('weekly-maintenance', async () => {
-          log.info('[Memory] Weekly maintenance triggered');
+        scheduler.customActions.set('daily-llm-maintenance', async () => {
+          log.debug('[Memory] Daily LLM maintenance triggered');
           try {
-            const stats = memoryManager.getStats();
-            const message = `请执行每日记忆深度精炼任务：
-
-## 当前记忆统计
-- 实体数: ${stats.entityCount}
-- 事实数: ${stats.factCount}
-- 事件数: ${stats.eventCount}
-- 关系数: ${stats.relationCount}
-- 叙事数: ${stats.episodeCount}
-
-请委派记忆管理机器人完成以下任务：
-
-1. **去重**：查找 name+type 重复的实体和 facts，合并为一个，更新所有关联关系
-2. **跨名用户识别** (重要)：查找所有 type='user' 的实体，若存在多个，通过关系重叠、摘要相似度、共现模式判断是否指向同一人，若是则合并实体并迁移关系
-3. **合并**：查找 content 相似度高的 facts，合并为单一事实
-4. **关联**：检查同 category 实体是否缺少 relation，事件中实体之间是否缺关系
-5. **清理**：标记 importance <= 2 且超过 90 天未更新的低价值数据
-6. **画像更新**：检查 user_profile 中 pending_count >= 3 的维度，重新生成摘要`;
-
-            if (scheduler.sessionTrigger) {
-              await scheduler.sessionTrigger(message);
-            } else {
-              log.warn('[Memory] No sessionTrigger available for weekly LLM tasks');
-            }
+            await memoryManager.runMaintenanceAgent();
           } catch (err) {
-            log.error('[Memory] Weekly maintenance failed:', err);
+            log.error('[Memory] Daily LLM maintenance failed:', err);
           }
         });
 
@@ -869,26 +873,27 @@ export class SessionFactory {
         });
 
         await scheduler.addCron({
-          id: 'memory-maintenance-weekly',
+          id: 'memory-maintenance-daily-llm',
           userId,
           type: 'daily',
           hour: 3,
           minute: 30,
           action: 'custom',
-          params: { handler: 'weekly-maintenance' },
+          params: { handler: 'daily-llm-maintenance' },
+          message: '请委派记忆管理机器人执行每日记忆深度精炼：1.去重 2.跨名用户识别 3.合并 4.关联 5.清理 6.画像更新',
           description: '每日记忆深度精炼：LLM 去重/合并/跨名用户识别 + 关系链接 + 数据清理 + 画像更新',
           system: true,
         });
 
-        await scheduler.start();
+        // scheduler.start() 延迟到 agent-bridge 接线 sessionTrigger 之后调用
         (memoryManager as any).scheduler = scheduler;
         this._scheduler = scheduler;
-        log.info('Scheduler started with default memory jobs');
+        log.debug('Scheduler created with default memory jobs (start deferred)');
       } catch (err) {
         log.warn('Scheduler initialization failed (non-critical):', err);
       }
 
-      log.info('MemoryManager + CareManager + Scheduler + SubAgentResultStore initialized');
+      log.debug('MemoryManager + CareManager + Scheduler + SubAgentResultStore initialized');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error(`Failed to initialize MemoryManager: ${msg}`);

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Settings, X, Save, Database, Wrench,
   Palette, CheckCircle, AlertCircle, Zap,
+  Download,
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
@@ -16,7 +17,7 @@ interface SettingsPageProps {
   onClose: () => void;
 }
 
-type TabType = 'tools' | 'ui' | 'embedding' | 'features';
+type TabType = 'tools' | 'ui' | 'embedding' | 'features' | 'download';
 
 // ============================================================
 // 通用工具
@@ -415,7 +416,6 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
   const currentLang = useConfigStore((s) => s.settings.language);
   const [form, setForm] = useState({
     model: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-    hfMirror: 'https://hf-mirror.com',
   });
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -428,7 +428,6 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     if (config?.embedding) {
       setForm({
         model: config.embedding.model || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
-        hfMirror: config.embedding.hfMirror || 'https://hf-mirror.com',
       });
     }
   }, [config]);
@@ -471,9 +470,21 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
       if (!dirResult.success || !dirResult.dir) throw new Error('无法获取 embedding 模型目录');
       const embeddingDir = dirResult.dir;
       const modelId = form.model;
-      const hfMirror = form.hfMirror || 'https://hf-mirror.com';
+      const source = config?.download?.source || 'modelscope';
+      const customMirror = config?.download?.hfMirror;
+      let baseUrl: string;
+      switch (source) {
+        case 'huggingface':
+          baseUrl = `https://huggingface.co/${modelId}/resolve/main`; break;
+        case 'modelscope':
+          baseUrl = `https://www.modelscope.cn/models/${modelId}/resolve/master`; break;
+        case 'custom':
+          baseUrl = `${customMirror || 'https://huggingface.co'}/${modelId}/resolve/main`; break;
+        case 'hf-mirror':
+        default:
+          baseUrl = `https://hf-mirror.com/${modelId}/resolve/main`; break;
+      }
       const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
-      const baseUrl = `${hfMirror}/${modelId}/resolve/main`;
       for (const file of files) {
         const url = `${baseUrl}/${file}`;
         const dest = `${embeddingDir}/${modelId}/${file}`;
@@ -539,7 +550,79 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
       {!checkingModel && modelInstalled === true && <p className="text-xs text-green-400">{getDesktopLabel('settings.embedding.installed', currentLang)}</p>}
       {!checkingModel && modelInstalled === false && <p className="text-xs text-yellow-400">{getDesktopLabel('settings.embedding.not_installed', currentLang)}</p>}
 
-      <TextField label={getDesktopLabel('settings.embedding.hf_mirror', currentLang)} value={form.hfMirror || ''} onChange={(v) => setForm({ ...form, hfMirror: v })} placeholder="https://hf-mirror.com" hint={getDesktopLabel('settings.embedding.hf_mirror_hint', currentLang)} />
+      <SaveButton saving={saving} />
+    </form>
+  );
+}
+
+// ============================================================
+// Tab: 下载配置
+// ============================================================
+function DownloadTab({ config, loading, onSave }: TabProps) {
+  const currentLang = useConfigStore((s) => s.settings.language);
+  const [form, setForm] = useState({
+    source: 'modelscope' as string,
+    hfMirror: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (config?.download) {
+      setForm({
+        source: config.download.source || 'modelscope',
+        hfMirror: config.download.hfMirror || '',
+      });
+    }
+  }, [config]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onSave('download', form);
+      setMessage({ type: 'success', text: getDesktopLabel('settings.download.saved', currentLang) });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : getDesktopLabel('settings.save_failed', currentLang) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sourceOptions: { value: string; label: string }[] = [
+    { value: 'hf-mirror', label: 'hf-mirror.com（国内社区镜像）' },
+    { value: 'huggingface', label: 'huggingface.co（官方）' },
+    { value: 'modelscope', label: 'ModelScope 魔搭（阿里云国内）' },
+    { value: 'custom', label: '自定义地址' },
+  ];
+
+  if (loading) return <div className="p-6 text-muted-foreground text-sm">{getDesktopLabel('settings.loading', currentLang)}</div>;
+
+  return (
+    <form onSubmit={handleSave} className="p-6 space-y-5">
+      <MessageBanner message={message} />
+
+      <SectionHeader title={getDesktopLabel('settings.download.title', currentLang)} desc={getDesktopLabel('settings.download.desc', currentLang)} />
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">{getDesktopLabel('settings.download.source', currentLang)}</label>
+        <select
+          value={form.source}
+          onChange={(e) => setForm({ ...form, source: e.target.value })}
+          className="w-full px-3 py-2 bg-background border border-border rounded text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        >
+          {sourceOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">{getDesktopLabel('settings.download.source_hint', currentLang)}</p>
+      </div>
+
+      {form.source === 'custom' && (
+        <TextField label={getDesktopLabel('settings.download.hf_mirror', currentLang)} value={form.hfMirror} onChange={(v) => setForm({ ...form, hfMirror: v })} placeholder="https://your-mirror.com" hint="输入镜像地址，格式同 HuggingFace" />
+      )}
 
       <SaveButton saving={saving} />
     </form>
@@ -598,6 +681,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
     { id: 'features', label: getDesktopLabel('settings.features', language), icon: <Zap size={16} /> },
     { id: 'ui', label: getDesktopLabel('settings.ui', language), icon: <Palette size={16} /> },
     { id: 'embedding', label: getDesktopLabel('settings.embedding', language), icon: <Database size={16} /> },
+    { id: 'download', label: getDesktopLabel('settings.download', language), icon: <Download size={16} /> },
   ];
 
   const tabProps: TabProps = { config, loading, onSave: handleSave };
@@ -639,6 +723,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
           {activeTab === 'features' && <FeaturesTab {...tabProps} />}
           {activeTab === 'ui' && <UITab {...tabProps} />}
           {activeTab === 'embedding' && <EmbeddingTab {...tabProps} />}
+          {activeTab === 'download' && <DownloadTab {...tabProps} />}
         </div>
       </div>
     </div>

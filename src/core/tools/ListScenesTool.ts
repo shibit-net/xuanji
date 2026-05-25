@@ -60,7 +60,7 @@ export class ListScenesTool extends BaseTool {
 
     // 过滤出 L1 层的场景组件
     const sceneComponents = Array.from(allComponents.values()).filter(
-      component => component.layer === 'L1'
+      component => component.layer === 'L1' && !component.internal
     );
 
     if (sceneComponents.length === 0) {

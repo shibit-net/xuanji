@@ -11,7 +11,7 @@ import {
 function registerAgentIpcHandlers() {
   ipcMain.handle('agent:init', async () => {
     if (isSessionReady() && getCachedConfig()) {
-      return { success: true, config: getCachedConfig() };
+      return getCachedConfig();
     }
 
     if (!isSessionReady()) {
@@ -22,10 +22,10 @@ function registerAgentIpcHandlers() {
     }
 
     try {
-      const config = await sendRequest('get-config');
-      console.log('AGENT:INIT get-config response:', JSON.stringify({ hasUi: config?.ui !== undefined, ui: config?.ui }));
-      setCachedConfig(config);
-      return { success: true, config };
+      const result = await sendRequest('get-config');
+      console.log('AGENT:INIT get-config response:', JSON.stringify({ hasUi: result?.config?.ui !== undefined, ui: result?.config?.ui }));
+      setCachedConfig(result);
+      return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: msg };
@@ -47,8 +47,11 @@ function registerAgentIpcHandlers() {
   });
 
   ipcMain.handle('agent:reset', async () => {
+    // 清除缓存，即使 session 未就绪也清除
+    setCachedConfig(null);
+
     if (!isSessionReady()) {
-      return { success: false, error: '会话未初始化' };
+      return { success: true };
     }
 
     try {

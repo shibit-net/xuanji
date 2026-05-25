@@ -56,7 +56,7 @@ export class AgentRegistry {
           continue;
         }
         const files = await glob(configPath + '/**/*.{yaml,yml}');
-        log.info('扫描配置目录: ' + configPath);
+        log.debug('扫描配置目录: ' + configPath);
         for (const file of files) {
           await this.loadAgentConfig(file);
         }
@@ -75,7 +75,7 @@ export class AgentRegistry {
       file.endsWith('.yaml') || file.endsWith('.yml')
     );
     if (!hasConfigFiles) {
-      log.info('用户配置目录为空，正在复制内置 Agent...');
+      log.debug('用户配置目录为空，正在复制内置 Agent...');
       await this.copyBuiltinAgentsToUserDir();
     } else {
       // 已有配置文件，同步内置系统 agent 的更新（覆盖 internal:true 的 agent）
@@ -129,7 +129,7 @@ export class AgentRegistry {
           await fs.writeFile(destPath, content, 'utf-8');
           syncState[fileName] = templateHash;
           updated++;
-          log.info(`新增内置 Agent: ${fileName}`);
+          log.debug(`新增内置 Agent: ${fileName}`);
           continue;
         }
 
@@ -149,7 +149,7 @@ export class AgentRegistry {
           await fs.writeFile(destPath, content, 'utf-8');
           syncState[fileName] = templateHash;
           updated++;
-          log.info(`更新内置 Agent: ${fileName}（模板已更新，用户未自定义）`);
+          log.debug(`更新内置 Agent: ${fileName}（模板已更新，用户未自定义）`);
         } else {
           skipped++;
           log.debug(`跳过内置 Agent: ${fileName}（用户已自定义）`);
@@ -161,7 +161,7 @@ export class AgentRegistry {
 
     await this.saveAgentSyncState(syncState);
     if (updated > 0 || skipped > 0) {
-      log.info(`内置 Agent 同步完成: ${updated} 更新, ${skipped} 跳过（用户自定义）`);
+      log.debug(`内置 Agent 同步完成: ${updated} 更新, ${skipped} 跳过（用户自定义）`);
     }
   }
 
@@ -235,7 +235,7 @@ export class AgentRegistry {
   register(config: ConfigurableAgentConfig): void {
     const existing = this.agents.get(config.id);
     if (existing) {
-      log.info('覆盖 Agent 配置: ' + config.id + ' (' + existing.metadata?.filePath + ' -> ' + config.metadata?.filePath + ')');
+      log.debug('覆盖 Agent 配置: ' + config.id + ' (' + existing.metadata?.filePath + ' -> ' + config.metadata?.filePath + ')');
     }
     this.agents.set(config.id, config);
   }
@@ -416,7 +416,7 @@ export class AgentRegistry {
     }
     const yamlContent = stringifyYAML(configWithMeta);
     await fs.writeFile(filePath, yamlContent, 'utf-8');
-    log.info('保存 Agent 配置: ' + filePath);
+    log.debug('保存 Agent 配置: ' + filePath);
     await this.reload();
   }
 
@@ -430,7 +430,7 @@ export class AgentRegistry {
       throw new Error('只有自定义 Agent 可以删除: ' + agentId);
     }
     await fs.unlink(agent.metadata.filePath);
-    log.info('删除 Agent 配置: ' + agent.metadata.filePath);
+    log.debug('删除 Agent 配置: ' + agent.metadata.filePath);
     await this.reload();
   }
 

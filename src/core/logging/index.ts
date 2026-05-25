@@ -4,6 +4,7 @@
 
 import { ColorUtil, getUnifiedLogManager, type LogSource } from './UnifiedLogManager';
 import type { LokiClientConfig } from './LokiClient';
+import { getUTC8Timestamp } from '@/shared/utils/time/formatters';
 
 export {
   UnifiedLogManager,
@@ -73,7 +74,7 @@ export function addUnifiedLog(
 ) {
   const manager = getUnifiedLogManager();
   manager.addLog({
-    timestamp: new Date().toISOString(), // 保持 ISO 格式用于存储和传输
+    timestamp: getUTC8Timestamp(),
     source,
     level,
     message,

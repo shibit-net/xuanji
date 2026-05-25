@@ -163,20 +163,37 @@ async function updateMatchAgentEmbedding(sess: ChatSession): Promise<void> {
   }
 }
 
-/** 触发 embedding 模型自动下载：检查缺失文件，通过下载中心下载，下次 rebuild 自动启用 */
+/** 构造 embedding 模型下载 URL（与 SettingsPage 的 EmbeddingTab 保持一致） */
+function buildEmbeddingDownloadBaseUrl(globalConfig: any, modelId: string): string {
+  const downloadConfig = globalConfig?.download;
+  const source = downloadConfig?.source || 'modelscope';
+  const customMirror = downloadConfig?.hfMirror;
+  switch (source) {
+    case 'huggingface':
+      return `https://huggingface.co/${modelId}/resolve/main`;
+    case 'modelscope':
+      return `https://www.modelscope.cn/models/${modelId}/resolve/master`;
+    case 'custom':
+      return `${customMirror || 'https://huggingface.co'}/${modelId}/resolve/main`;
+    case 'hf-mirror':
+      return `https://hf-mirror.com/${modelId}/resolve/main`;
+    default:
+      return `https://huggingface.co/${modelId}/resolve/main`;
+  }
+}
+
+/** 触发 embedding 模型自动下载：检查缺失文件，通过下载中心下载，下次 match() 延迟初始化自动启用 */
 function triggerEmbeddingModelDownload(globalConfig: any): void {
   try {
     const fs = require('node:fs');
     const path = require('node:path');
     const os = require('node:os');
     const embeddingConfig = globalConfig?.embedding;
-    // 使用配置中的 modelId，若未配置则使用默认模型
     const modelId = embeddingConfig?.model || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
-    const hfMirror = embeddingConfig?.hfMirror || 'https://hf-mirror.com';
     const modelDir = path.join(os.homedir(), '.xuanji', 'embedding-models', modelId);
+    const baseUrl = buildEmbeddingDownloadBaseUrl(globalConfig, modelId);
 
     const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'onnx/model_quantized.onnx'];
-    const baseUrl = `${hfMirror}/${modelId}/resolve/main`;
 
     let downloadCount = 0;
     for (const file of files) {
@@ -194,7 +211,7 @@ function triggerEmbeddingModelDownload(globalConfig: any): void {
       }
     }
     if (downloadCount > 0) {
-      log.info(`triggerEmbeddingModelDownload: ${downloadCount} files queued for ${modelId}`);
+      log.info(`triggerEmbeddingModelDownload: ${downloadCount} files queued for ${modelId} from ${baseUrl}`);
     }
   } catch (err) {
     log.warn('triggerEmbeddingModelDownload failed:', err);
@@ -204,6 +221,10 @@ function triggerEmbeddingModelDownload(globalConfig: any): void {
 /** 重建 IntentRouter（热重载：agent 配置变更后调用，不影响已在执行的任务） */
 async function rebuildIntentRouter(): Promise<void> {
   if (!session) return;
+
+  // 先清空旧实例，防止重建失败时继续使用过期的 IntentRouter
+  intentRouter = null;
+
   try {
     const agentRegistry = session.getAgentRegistry();
     const { ProviderManager: pm } = await import('../../src/core/providers/ProviderManager');
@@ -224,7 +245,11 @@ async function rebuildIntentRouter(): Promise<void> {
       );
     }
 
-    await sceneClassifier.initialize();
+    try {
+      await sceneClassifier.initialize();
+    } catch (err) {
+      log.warn('rebuildIntentRouter: SceneClassifier L1 init failed, will fall back to L2/L3:', err);
+    }
 
     // 创建 EmbeddingProvider：模型文件存在时启用向量匹配，不存在时触发下载并降级
     let embedder: EmbeddingProvider | null = null;
@@ -236,7 +261,7 @@ async function rebuildIntentRouter(): Promise<void> {
       } else {
         log.info('rebuildIntentRouter: Embedding model not downloaded, triggering download and falling back');
         // 触发下载：模型缺失文件通过下载中心下载，下次 rebuild 时自动启用
-        triggerEmbeddingModelDownload(globalConfig);
+        triggerEmbeddingModelDownload(session.getConfig());
       }
     } catch (err) {
       log.warn('rebuildIntentRouter: Failed to create EmbeddingProvider:', err);
@@ -284,8 +309,8 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
   }
 
   handleInitInProgress = (async () => {
-    try {
     const uid = userId || currentUserId || 'default';
+    try {
     log.info(`handleInit: creating session for userId=${uid}, userName=${userName || '(none)'}`);
 
     // 在创建 session 之前，先切换到配置的 workspace 目录
@@ -342,18 +367,19 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     log.info('handleInit: session created successfully');
 
     // 注册工具执行钩子 — 自动检测文件操作涉及的项目并注册到 ProjectRegistry
-    // 主 agent ToolRegistry 无 setOnBeforeExecute，通过包装 execute 方法实现
+    // 包装 ToolGateway.execute 而非 FilteredToolRegistry.execute，因为 switchForegroundAgent()
+    // 会创建新的 FilteredToolRegistry 实例替换旧的（含钩子），导致钩子丢失。
+    // ToolGateway 实例在 agent 切换时不变（只更新内部 registry 引用），钩子得以保留。
     try {
       const agentLoop = session.getAgentLoop();
-      const toolRegistry = agentLoop?.getToolRegistry();
-      if (toolRegistry) {
-        const originalExecute = toolRegistry.execute.bind(toolRegistry);
-        toolRegistry.execute = async (toolName: string, input: Record<string, unknown>, signal?: AbortSignal) => {
-          // 在工具执行前检测项目（fire-and-forget，不阻塞工具调用）
-          detectProjectFromToolCall(toolName, input).catch(() => {});
-          return originalExecute(toolName, input, signal);
+      const toolGateway = agentLoop?.getToolGateway();
+      if (toolGateway) {
+        const originalExecute = toolGateway.execute.bind(toolGateway);
+        toolGateway.execute = async (toolCall, context) => {
+          detectProjectFromToolCall(toolCall.name, toolCall.input).catch(() => {});
+          return originalExecute(toolCall, context);
         };
-        log.info('Project detection hook registered via ToolRegistry.execute wrapper');
+        log.info('Project detection hook registered via ToolGateway.execute wrapper');
       }
     } catch (e) {
       log.warn('Failed to set tool execute hook:', e);
@@ -373,6 +399,10 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
         await handleUserAction({ type: 'SEND_MESSAGE', message, attachments: [] });
       };
       log.info('Scheduler sessionTrigger wired via handleUserAction');
+
+      // sessionTrigger 接线完成后启动调度器，确保 catchUpMissedJobs 能正常触发 agent 消息
+      await scheduler.start();
+      log.info('Scheduler started after sessionTrigger wiring');
     } else {
       log.warn('Scheduler not found on session, sessionTrigger not wired');
     }
@@ -516,7 +546,24 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     console.error('[handleInit] FAILED:', msg);
     if (stack) console.error('[handleInit] STACK:', stack);
     log.error('handleInit failed:', msg, stack);
-    return { success: false, error: msg };
+
+    // 即使 session 创建失败，也尝试从磁盘读取配置
+    // 新用户无 provider 配置时 session 创建会失败，但前端 SetupGuard 需要 config 来判断是否跳转 /setup
+    let diskConfig: any = undefined;
+    try {
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const fs = await import('node:fs');
+      const configPath = path.join(os.homedir(), '.xuanji', 'users', uid, 'config.json');
+      if (fs.existsSync(configPath)) {
+        diskConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        log.info('handleInit: returning disk config despite session creation failure');
+      }
+    } catch (configErr) {
+      log.warn('handleInit: failed to read disk config', configErr);
+    }
+
+    return { success: false, error: msg, config: diskConfig };
   }
   })();
 
@@ -668,14 +715,18 @@ async function resolveBinaryAttachments(
     const tempFiles: string[] = [];
     try {
       let filePath: string;
-      if (att.path) {
+      if (att.path && fs.existsSync(att.path)) {
         filePath = att.path;
-      } else {
+      } else if (att.content) {
+        // path 不可用时，从 renderer 传入的 base64 内容恢复到临时文件
+        if (att.path) log.warn(`File path inaccessible, falling back to base64 content: "${att.path}"`);
         const buf = Buffer.from(att.content, 'base64');
         const tmpPath = path.join(os.tmpdir(), `xuanji-attachment-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
         fs.writeFileSync(tmpPath, buf);
         tempFiles.push(tmpPath);
         filePath = tmpPath;
+      } else {
+        continue;
       }
 
       const loadParser = FORMAT_PARSERS[ext];
@@ -724,6 +775,21 @@ async function copyAttachmentsToWorkspace(
         // 拖放文件：已有真实路径，直接使用，无需复制
         att.path = path.resolve(att.path);
         continue;
+      }
+      if (att.path && !fs.existsSync(att.path)) {
+        log.warn(`Attachment path does not exist in main process: "${att.path}", name="${att.name}". Falling back to base64 content.`);
+        if (att.content) {
+          const buf = Buffer.from(att.content, 'base64');
+          const tmpDir = path.join(os.tmpdir(), 'xuanji-attachments');
+          if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true });
+          }
+          const tmpPath = path.join(tmpDir, att.name);
+          fs.writeFileSync(tmpPath, buf);
+          log.info(`Wrote sandbox-fallback attachment: ${tmpPath}`);
+          att.path = tmpPath;
+          continue;
+        }
       }
       if (att.content && !att.path) {
         // 粘贴的二进制文件（base64 内容，无路径）→ 写入临时目录
@@ -805,7 +871,7 @@ async function handleUserAction(data: { type: string; message?: string; attachme
         channel.send('agent:switch-foreground', { agentId: userAgentId, name: agentConfig?.name || userAgentId, agentType: 'builtin' });
       }
     }
-    log.info('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));
+    log.debug('[DIAG] handleUserAction: calling session.userAction, type=' + data.type + ' message=' + (fullMessage || '').substring(0, 40));
 
     // 中断时清理所有 pending 的 ask_user / permission / planReview promises
     if (data.type === 'INTERRUPT') {
@@ -835,7 +901,7 @@ async function handleUserAction(data: { type: string; message?: string; attachme
         agentLoop.setSessionKey(null);
       }
     }
-    log.info('[DIAG] handleUserAction: session.userAction returned');
+    log.debug('[DIAG] handleUserAction: session.userAction returned');
   } catch (err) {
     log.error('handleUserAction failed:', err);
     const errMsg = (err as Error).message || String(err);
@@ -885,17 +951,20 @@ function handleGetConfig(): { success: boolean; config?: any; error?: string } {
     return { success: false, error: '会话未初始化' };
   }
   try {
-    // session.getConfig() 经过 EnhancedMessageBus 序列化会丢失 ui 字段
-    // 直接从磁盘读取完整的 config.json 返回
+    // 使用 os.homedir() 确保路径一致性，不受 cwd 变化影响
     const path = require('node:path');
-    const { getUserConfigPath } = require('../../src/core/config/PathManager.js');
-    const configPath = getUserConfigPath(currentUserId || 'default');
+    const os = require('node:os');
+    const userId = currentUserId || 'default';
+    const configPath = path.join(os.homedir(), '.xuanji', 'users', userId, 'config.json');
     const fs = require('node:fs');
     if (fs.existsSync(configPath)) {
       const raw = fs.readFileSync(configPath, 'utf-8');
-      return { success: true, config: JSON.parse(raw) };
+      const config = JSON.parse(raw);
+      log.info(`handleGetConfig: read from disk, has fallbackProvider=${!!config.fallbackProvider}, path=${configPath}`);
+      return { success: true, config };
     }
     const fallback = session.getConfig();
+    log.info(`handleGetConfig: config file not found at ${configPath}, using session.getConfig() fallback, has fallbackProvider=${!!fallback?.fallbackProvider}`);
     return { success: true, config: JSON.parse(JSON.stringify(fallback)) };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -958,6 +1027,12 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         case 'memory':
           partial.memory = data.sectionData;
           break;
+        case 'download':
+          partial.download = data.sectionData;
+          break;
+        case 'fallbackProvider':
+          partial.fallbackProvider = data.sectionData;
+          break;
       }
 
       if (Object.keys(partial).length > 0) {
@@ -975,11 +1050,14 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
     // 持久化到 config.json，确保重启后配置不丢失
     if (currentUserId) {
       try {
-        const { getUserConfigPath } = await import('../../src/core/config/PathManager.js');
-        const configPath = getUserConfigPath(currentUserId);
+        // 使用 os.homedir() 确保路径一致性，不受 cwd 变化影响
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const configPath = path.join(os.homedir(), '.xuanji', 'users', currentUserId, 'config.json');
 
         // 读取当前磁盘上的 config.json
         const fs = await import('node:fs/promises');
+        const { existsSync, mkdirSync } = await import('node:fs');
         let diskConfig: Record<string, any> = {};
         try {
           const raw = await fs.readFile(configPath, 'utf-8');
@@ -1003,10 +1081,15 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
           }
         }
 
+        // 确保目标目录存在
+        const dir = path.dirname(configPath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
         await fs.writeFile(configPath, JSON.stringify(diskConfig, null, 2), 'utf-8');
         log.info(`Config persisted to ${configPath}`);
       } catch (persistErr) {
-        log.warn('Failed to persist config:', persistErr);
+        log.error('Failed to persist config:', persistErr);
       }
     }
 
@@ -1781,6 +1864,18 @@ channel.handle('memory-clear-all', async () => {
     for (const e of entities) {
       try { await mm.deleteEntity(e.id); } catch { /* skip */ }
     }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// ─── 手动触发 LLM 记忆整理 ─────────────────────────
+channel.handle('memory-maintenance-trigger', async () => {
+  const mm = getMemoryManager();
+  if (!mm) return { success: false, error: '记忆系统未初始化' };
+  try {
+    await mm.runMaintenanceAgent();
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

@@ -19,10 +19,12 @@ import {
 
 async function initUserConfig(userId: string): Promise<void> {
   try {
-    const { getUserConfigPath } = await import('../../../src/core/config/PathManager.js');
     const { mkdir } = await import('node:fs/promises');
-    const { dirname } = await import('node:path');
-    await mkdir(dirname(getUserConfigPath(userId)), { recursive: true });
+    const { join } = await import('node:path');
+    const { homedir } = await import('node:os');
+    // 使用 os.homedir() 确保路径一致性，不受 cwd 变化影响
+    const userConfigDir = join(homedir(), '.xuanji', 'users', userId);
+    await mkdir(userConfigDir, { recursive: true });
   } catch (err) {
     console.error('初始化用户配置失败:', err);
   }

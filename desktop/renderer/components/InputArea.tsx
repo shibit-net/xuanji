@@ -538,26 +538,26 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
 
         if (isBinary) {
           const isMedia = isImageFile(file) || file.type.startsWith('audio/') || file.type.startsWith('video/');
-          if (dropPath) {
-            newAttachments.push({
-              name: file.name,
-              path: dropPath,
-              content: '',
-              size: file.size,
-              ...(isMedia ? { mimeType: file.type } : {}),
-            });
-          } else if (isMedia) {
-            const arrayBuffer = await file.arrayBuffer();
-            const bytes = new Uint8Array(arrayBuffer);
-            let binary = '';
-            for (let j = 0; j < bytes.length; j++) {
-              binary += String.fromCharCode(bytes[j]);
+          if (isMedia || dropPath) {
+            // 把二进制文件读成 base64，避免 main process 因沙箱限制无法通过路径访问文件
+            let base64Content = '';
+            try {
+              const arrayBuffer = await file.arrayBuffer();
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = '';
+              for (let j = 0; j < bytes.length; j++) {
+                binary += String.fromCharCode(bytes[j]);
+              }
+              base64Content = btoa(binary);
+            } catch {
+              // base64 读取失败不阻塞，保留空内容依赖 path
             }
             newAttachments.push({
               name: file.name,
-              content: btoa(binary),
+              path: dropPath || undefined,
+              content: base64Content,
               size: file.size,
-              mimeType: file.type,
+              ...(isMedia ? { mimeType: file.type } : {}),
             });
           } else {
             skippedUnsupported = true;

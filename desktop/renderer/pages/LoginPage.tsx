@@ -25,15 +25,24 @@ export default function LoginPage() {
   } = useAuthStore();
 
   useEffect(() => {
-    clearError();
     loadSavedAccounts();
-  }, [clearError, loadSavedAccounts]);
+  }, [loadSavedAccounts]);
 
   useEffect(() => {
     if (savedAccounts.length > 0 && !email) {
       setEmail(savedAccounts[0].email);
     }
   }, [savedAccounts, email]);
+
+  // 用户开始输入时清除之前的错误
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value);
+    if (error) clearError();
+  };
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value);
+    if (error) clearError();
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -49,7 +58,8 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
+    e.stopPropagation();
+    if (!email || !password || isLoading) return;
     await login(email, password);
   };
 
@@ -128,7 +138,7 @@ export default function LoginPage() {
                 <Input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={handleEmailChange}
                   onFocus={() => savedAccounts.length > 0 && setShowDropdown(true)}
                   placeholder={getDesktopLabel('login.email_placeholder', language)}
                   required
@@ -182,7 +192,7 @@ export default function LoginPage() {
                   <Input
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={handlePasswordChange}
                     placeholder={getDesktopLabel('login.password_placeholder', language)}
                     required
                     disabled={isLoading}

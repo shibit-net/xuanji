@@ -48,10 +48,17 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const setPlanReviewRequest = useSessionStore((state) => state.setPlanReviewRequest);
   const setAskUserRequest = useSessionStore((state) => state.setAskUserRequest);
 
-  // 用户登录成功后，加载 agent 配置（UI 设置由 SessionInit 同步）
+  // 用户登录成功后，加载 agent 配置 + 初始化 session
   useEffect(() => {
     if (user?.userId) {
       loadAgents();
+      // 延迟初始化 session（让 UI 先渲染再发起重量级操作）
+      const timer = setTimeout(() => {
+        window.electron.agentInit?.().catch((err: any) => {
+          console.warn('[MainLayout] session init failed:', err);
+        });
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [user?.userId, loadAgents]);
 

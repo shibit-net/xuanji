@@ -14,6 +14,21 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'EmbeddingMatcher' });
 
+/** 延迟初始化 embedder（模型可能在 EmbeddingMatcher 构造之后才下载完成） */
+async function tryCreateEmbedder(): Promise<EmbeddingProviderInterface | null> {
+  try {
+    const { EmbeddingProvider } = await import('@/core/embedding/EmbeddingProvider');
+    const candidate = new EmbeddingProvider();
+    if (candidate.modelExists()) {
+      log.info('EmbeddingMatcher: lazy-init embedder succeeded');
+      return candidate;
+    }
+  } catch (err) {
+    log.warn('EmbeddingMatcher: lazy-init embedder failed:', err);
+  }
+  return null;
+}
+
 export interface SceneInfo {
   scene: string;
   description?: string;
@@ -39,9 +54,13 @@ export class EmbeddingMatcher {
   }
 
   async match(message: string, topK: number = 3): Promise<MatchResult[]> {
+    // 延迟初始化：模型可能在构造之后才下载完成
+    if (!this.embedder) {
+      this.embedder = await tryCreateEmbedder();
+    }
+
     const agents = this.getTargetAgents();
 
-    // 无 embedder → 全部 score=0，由 IntentRouter L2 入口跳过
     if (!this.embedder) return [];
 
     const messageVec = await this.safeEmbed(message);

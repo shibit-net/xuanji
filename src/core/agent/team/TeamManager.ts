@@ -114,7 +114,7 @@ export class TeamManager implements ITeamManager {
     if (registeredAgent) {
       const category = registeredAgent.metadata?.category || 'custom';
       const agentType = category === 'system' ? 'builtin' : category === 'app' ? 'preset' : 'custom';
-      log.info(`[${memberId}] Using ${agentType} agent: ${agentId}`);
+      log.debug(`[${memberId}] Using ${agentType} agent: ${agentId}`);
       return agentId;
     }
 
@@ -150,7 +150,7 @@ export class TeamManager implements ITeamManager {
       startTime: Date.now(),
     };
 
-    log.info(`Team "${config.name}" created with ${config.members.length} members, strategy: ${config.strategy}`);
+    log.debug(`Team "${config.name}" created with ${config.members.length} members, strategy: ${config.strategy}`);
   }
 
   /**
@@ -219,7 +219,7 @@ export class TeamManager implements ITeamManager {
       for (const [memberId, cp] of this.recoveredCheckpoints) {
         if (cp.success && this.context.config.members.some(m => m.id === memberId)) {
           recoveredMemberIds.push(memberId);
-          log.info(`Recovered checkpoint for ${memberId} (duration: ${(cp.duration / 1000).toFixed(1)}s)`);
+          log.debug(`Recovered checkpoint for ${memberId} (duration: ${(cp.duration / 1000).toFixed(1)}s)`);
         }
       }
     }
@@ -268,7 +268,7 @@ export class TeamManager implements ITeamManager {
     }
 
     try {
-      log.info(`Team "${this.context.config.name}" executing goal: ${goal}`);
+      log.debug(`Team "${this.context.config.name}" executing goal: ${goal}`);
 
       // 输出超时分配方案
       this.logTimeoutAllocation();
@@ -279,7 +279,7 @@ export class TeamManager implements ITeamManager {
       }
 
       // 执行策略
-      log.info(`[TEAM] 执行策略: "${this.context!.config.strategy}", 成员数: ${this.context!.config.members.length}, teamName: "${this.context!.config.name}"`);
+      log.debug(`[TEAM] 执行策略: "${this.context!.config.strategy}", 成员数: ${this.context!.config.members.length}, teamName: "${this.context!.config.name}"`);
       const strategyPromise = (): Promise<TaskExecutionResult[]> => {
         switch (this.context!.config.strategy) {
           case 'sequential':
@@ -448,7 +448,7 @@ export class TeamManager implements ITeamManager {
     if (this.teamAbortController) {
       this.teamAbortController.abort();
     }
-    log.info('Team execution stopped (aborted)');
+    log.debug('Team execution stopped (aborted)');
   }
 
   // ─── 私有方法 ─────────────────────────────────────────
@@ -566,7 +566,7 @@ export class TeamManager implements ITeamManager {
     // P2-5: 策略推荐 — 分析 goal 特征，提示最佳策略
     const suggested = this.suggestStrategy(config);
     if (suggested && suggested !== config.strategy) {
-      log.info(
+      log.debug(
         `Strategy hint: task looks like "${suggested}" pattern. ` +
         `Current strategy is "${config.strategy}". If execution fails, consider switching to "${suggested}".`
       );
@@ -630,12 +630,12 @@ export class TeamManager implements ITeamManager {
     }
 
     if (recommended && recommended !== strategy) {
-      log.info(
+      log.debug(
         `Strategy hint: ${reason}. ` +
         `Current strategy is "${strategy}". If execution fails, consider switching to "${recommended}".`
       );
     } else if (recommended === strategy) {
-      log.info(`Strategy confirmed: ${reason}`);
+      log.debug(`Strategy confirmed: ${reason}`);
     }
 
     return recommended !== strategy ? recommended : null;
@@ -678,14 +678,14 @@ export class TeamManager implements ITeamManager {
     const useWorktreeIsolation = this.worktreeManager.isGitRepo(this.workingDir) && members.length > 1;
 
     if (useWorktreeIsolation) {
-      log.info(`Creating ${members.length} worktree(s) for parallel isolation`);
+      log.debug(`Creating ${members.length} worktree(s) for parallel isolation`);
       for (const member of members) {
         if (signal?.aborted) break;
         try {
           const info = await this.worktreeManager.create(`team-${this.teamId}-${member.id}`);
           worktreePaths.set(member.id, info.path);
           this.activeWorktrees.set(member.id, info);
-          log.info(`Worktree created for ${member.id}: ${info.path}`);
+          log.debug(`Worktree created for ${member.id}: ${info.path}`);
         } catch (err) {
           log.warn(`Failed to create worktree for ${member.id}, falling back to shared workspace:`, err);
         }
@@ -759,7 +759,7 @@ export class TeamManager implements ITeamManager {
           execFileSync('git', ['merge', info.branch, '--strategy=ort', '--no-edit'], {
             cwd: this.workingDir, stdio: 'pipe',
           });
-          log.info(`Merged worktree changes from ${memberId} (branch: ${info.branch})`);
+          log.debug(`Merged worktree changes from ${memberId} (branch: ${info.branch})`);
         }
       } catch (err) {
         log.warn(`Failed to merge worktree for ${memberId}:`, err);
@@ -774,7 +774,7 @@ export class TeamManager implements ITeamManager {
     for (const [memberId, info] of this.activeWorktrees) {
       try {
         await this.worktreeManager.remove(info.path);
-        log.info(`Cleaned up worktree for ${memberId}`);
+        log.debug(`Cleaned up worktree for ${memberId}`);
       } catch (err) {
         log.warn(`Failed to cleanup worktree for ${memberId}:`, err);
       }
@@ -836,7 +836,7 @@ export class TeamManager implements ITeamManager {
       tools: ['task', 'list_scenes', 'match_agent'],
     };
 
-    log.info(`Hierarchical: Leader "${leader.name || leader.id}" in-process with ${placeholderSlots.length} placeholder slots`);
+    log.debug(`Hierarchical: Leader "${leader.name || leader.id}" in-process with ${placeholderSlots.length} placeholder slots`);
     const leaderResult = await TeamContextStore.run({
       teamId: this.teamId,
       teamName: this.context!.config.name,
@@ -913,7 +913,7 @@ export class TeamManager implements ITeamManager {
     // ─── P1: Judge 预读阶段 ───────────────────────────────
     let factSummary = '';
     if (judge) {
-      log.info('Debate: Judge pre-reading phase — collecting key facts before debate');
+      log.debug('Debate: Judge pre-reading phase — collecting key facts before debate');
 
       const preReadTask = [
         '⚖️ 预读阶段（仅你执行，正反方暂不参与）：',
@@ -950,7 +950,7 @@ export class TeamManager implements ITeamManager {
 
       if (judgePreReadResult.success) {
         factSummary = judgePreReadResult.result;
-        log.info(`Debate: Judge pre-read complete, fact summary: ${factSummary.length} chars`);
+        log.debug(`Debate: Judge pre-read complete, fact summary: ${factSummary.length} chars`);
       }
     }
 
@@ -962,7 +962,7 @@ export class TeamManager implements ITeamManager {
       if (signal?.aborted) break;
 
       this.context!.currentRound = round + 1;
-      log.info(`Debate round ${round + 1}/${maxRounds}`);
+      log.debug(`Debate round ${round + 1}/${maxRounds}`);
 
       const roundStartIndex = results.length;
 
@@ -1015,11 +1015,11 @@ export class TeamManager implements ITeamManager {
           const prevRoundResults = results.slice(prevRoundStartIndex, roundStartIndex);
           const novelty = this.detectArgumentNovelty(prevRoundResults, currentRoundResults);
 
-          log.info(`Debate round ${round + 1} novelty: ${(novelty * 100).toFixed(0)}%`);
+          log.debug(`Debate round ${round + 1} novelty: ${(novelty * 100).toFixed(0)}%`);
 
           if (novelty < (1.0 - convergenceThreshold)) {
             consecutiveLowNoveltyRounds++;
-            log.info(`Low novelty detected (${consecutiveLowNoveltyRounds} consecutive rounds)`);
+            log.debug(`Low novelty detected (${consecutiveLowNoveltyRounds} consecutive rounds)`);
           } else {
             consecutiveLowNoveltyRounds = 0;
           }
@@ -1037,7 +1037,7 @@ export class TeamManager implements ITeamManager {
               : noveltyLowAndDeep
                 ? `low novelty in late round (${(novelty * 100).toFixed(0)}%, round ${round + 1})`
                 : 'no new arguments for 2 consecutive rounds';
-            log.info(`Arguments converged — ${reason}. Triggering early conclusion.`);
+            log.debug(`Arguments converged — ${reason}. Triggering early conclusion.`);
 
             // 找到裁判成员做最终裁决
             if (judge) {
@@ -1079,7 +1079,7 @@ export class TeamManager implements ITeamManager {
       const allAgree = roundResults.length > 0 && roundResults.every(r => agreePattern.test(r.result));
 
       if (allAgree) {
-        log.info('Consensus reached, ending debate');
+        log.debug('Consensus reached, ending debate');
         break;
       }
     }
@@ -1171,9 +1171,9 @@ export class TeamManager implements ITeamManager {
       if (!this.running || signal?.aborted) break;
       const member = members[i];
 
-      log.info(`[PIPELINE] >>> 开始执行成员 ${i + 1}/${members.length}: ${member.id} (${member.name || member.agentId}) @ ${Date.now()}`);
+      log.debug(`[PIPELINE] >>> 开始执行成员 ${i + 1}/${members.length}: ${member.id} (${member.name || member.agentId}) @ ${Date.now()}`);
       const result = await this.executeMemberTask(member, currentInput, results, undefined, i, signal);
-      log.info(`[PIPELINE] <<< 成员 ${i + 1}/${members.length} 完成: ${member.id} success=${result.success} @ ${Date.now()}`);
+      log.debug(`[PIPELINE] <<< 成员 ${i + 1}/${members.length} 完成: ${member.id} success=${result.success} @ ${Date.now()}`);
 
       // 提取产出文件路径，仅在磁盘验证通过的路径才传播给下游
       if (result.success && result.result) {
@@ -1199,7 +1199,7 @@ export class TeamManager implements ITeamManager {
         const stageFile = path.join(pipelineDir, `stage_${i}_${member.id}.txt`);
         try {
           fs.writeFileSync(stageFile, result.result, 'utf-8');
-          log.info(`Pipeline stage ${i} output written to ${stageFile} (${result.result.length} chars)`);
+          log.debug(`Pipeline stage ${i} output written to ${stageFile} (${result.result.length} chars)`);
         } catch (err) {
           log.warn(`Failed to write pipeline stage output to ${stageFile}:`, err);
         }
@@ -1269,7 +1269,7 @@ export class TeamManager implements ITeamManager {
     // P1-1: Checkpoint 快速恢复 — 如果该成员已有成功的 checkpoint，直接复用
     const recoveredCp = this.recoveredCheckpoints.get(member.id);
     if (recoveredCp?.success && retryCount === 0) {
-      log.info(`Recovering ${member.id} from checkpoint (saved at ${new Date(recoveredCp.savedAt || 0).toISOString()})`);
+      log.debug(`Recovering ${member.id} from checkpoint (saved at ${new Date(recoveredCp.savedAt || 0).toISOString()})`);
       // 触发 TeamMemberStart → TeamMemberEnd（前端感知一致性）
       const shortResult = recoveredCp.result.substring(0, 200);
       if (this.hookRegistry) {
@@ -1389,7 +1389,7 @@ export class TeamManager implements ITeamManager {
     })();
 
     if (this.hookRegistry) {
-      log.info(`[PIPELINE] --- TeamMemberStart 发射: memberId=${member.id}, subAgentId=${subAgentId}, name=${displayName} @ ${Date.now()}`);
+      log.debug(`[PIPELINE] --- TeamMemberStart 发射: memberId=${member.id}, subAgentId=${subAgentId}, name=${displayName} @ ${Date.now()}`);
       this.hookRegistry.emit('TeamMemberStart', {
         teamId: this.teamId,
         data: {
@@ -2484,7 +2484,7 @@ ${enriched}`;
       return;
     }
 
-    log.info(`Hierarchical: Waiting for ${filePaths.length} leader-produced files to be ready...`);
+    log.debug(`Hierarchical: Waiting for ${filePaths.length} leader-produced files to be ready...`);
 
     const MAX_WAIT_MS = 5000;
     const CHECK_INTERVAL_MS = 200;
@@ -2494,7 +2494,7 @@ ${enriched}`;
       while (Date.now() - startTime < MAX_WAIT_MS) {
         try {
           if (fs.existsSync(filePath)) {
-            log.info(`  ✓ File ready: ${filePath}`);
+            log.debug(`  ✓ File ready: ${filePath}`);
             break;
           }
         } catch {
@@ -2536,7 +2536,7 @@ ${enriched}`;
         savedAt: Date.now(),
       };
       fs.writeFileSync(checkpointFile, JSON.stringify(checkpoint, null, 2), 'utf-8');
-      log.info(`Checkpoint saved: ${memberId} (success: ${result.success})`);
+      log.debug(`Checkpoint saved: ${memberId} (success: ${result.success})`);
     } catch (err) {
       log.warn(`Failed to save checkpoint for ${memberId}:`, err);
     }
@@ -2573,7 +2573,7 @@ ${enriched}`;
     try {
       if (fs.existsSync(this.checkpointDir)) {
         fs.rmSync(this.checkpointDir, { recursive: true, force: true });
-        log.info('Checkpoints cleared');
+        log.debug('Checkpoints cleared');
       }
     } catch (err) {
       log.warn('Failed to clear checkpoints:', err);

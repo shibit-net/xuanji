@@ -9,6 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getUTC8DateString } from '@/shared/utils/time/formatters';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB total disk quota
@@ -27,8 +28,8 @@ export class RotatingFileStream {
   }
 
   write(data: string): void {
-    // 检查是否需要按天轮转
-    const today = new Date().toISOString().slice(0, 10);
+    // 检查是否需要按天轮转（按 UTC+8 日期）
+    const today = getUTC8DateString();
     if (today !== this.currentDate) {
       this.rotate();
     }
@@ -52,7 +53,7 @@ export class RotatingFileStream {
 
   private rotate(): void {
     this.close();
-    this.currentDate = new Date().toISOString().slice(0, 10);
+    this.currentDate = getUTC8DateString();
     this.currentSeq = this.findNextSeq(this.currentDate);
     const filePath = this.getFilePath(this.currentDate, this.currentSeq);
     this.stream = fs.createWriteStream(filePath, { flags: 'a' });

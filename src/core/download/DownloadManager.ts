@@ -65,8 +65,8 @@ export class DownloadManager extends EventEmitter {
     super();
     this.instanceId = ++DownloadManager.instanceCounter;
     this.shouldRestoreTasks = shouldRestoreTasks;
-    log.info(`[DownloadManager] 创建实例 #${this.instanceId}, shouldRestoreTasks=${shouldRestoreTasks}`);
-    log.info(`[DownloadManager] Constructor called, getStateFilePath()=${getStateFilePath()}, shouldRestoreTasks=${shouldRestoreTasks}`);
+    log.debug(`[DownloadManager] 创建实例 #${this.instanceId}, shouldRestoreTasks=${shouldRestoreTasks}`);
+    log.debug(`[DownloadManager] Constructor called, getStateFilePath()=${getStateFilePath()}, shouldRestoreTasks=${shouldRestoreTasks}`);
     if (shouldRestoreTasks) {
       this.loadState();
     }
@@ -75,7 +75,7 @@ export class DownloadManager extends EventEmitter {
   static getInstance(shouldRestoreTasks: boolean = true): DownloadManager {
     if (!DownloadManager.instance) {
       DownloadManager.instance = new DownloadManager(shouldRestoreTasks);
-      log.info(`[DownloadManager] 首次创建单例实例 #${DownloadManager.instance.instanceId}`);
+      log.debug(`[DownloadManager] 首次创建单例实例 #${DownloadManager.instance.instanceId}`);
     } else {
       log.debug(`[DownloadManager] 返回已存在的实例 #${DownloadManager.instance.instanceId}, 当前 task-created 监听器数量: ${DownloadManager.instance.listenerCount('task-created')}`);
     }
@@ -98,18 +98,18 @@ export class DownloadManager extends EventEmitter {
    */
   private loadState(): void {
     try {
-      log.info(`[DownloadManager] Loading state from: ${getStateFilePath()}`);
+      log.debug(`[DownloadManager] Loading state from: ${getStateFilePath()}`);
       if (!fs.existsSync(getStateFilePath())) {
-        log.info('[DownloadManager] No state file found, starting fresh');
+        log.debug('[DownloadManager] No state file found, starting fresh');
         return;
       }
 
       const data = fs.readFileSync(getStateFilePath(), 'utf-8');
       const savedTasks: DownloadTask[] = JSON.parse(data);
-      log.info(`[DownloadManager] Found ${savedTasks.length} saved tasks`);
+      log.debug(`[DownloadManager] Found ${savedTasks.length} saved tasks`);
 
       for (const task of savedTasks) {
-        log.info(`[DownloadManager] Processing saved task: ${task.name} (${task.id}), status=${task.status}`);
+        log.debug(`[DownloadManager] Processing saved task: ${task.name} (${task.id}), status=${task.status}`);
         // 只恢复未完成的任务
         if (task.status === 'pending' || task.status === 'downloading') {
           // 重置为 pending 状态，准备重新下载
@@ -121,14 +121,14 @@ export class DownloadManager extends EventEmitter {
             speed: 0,
           };
           this.tasks.set(task.id, task);
-          log.info(`[DownloadManager] Restored task: ${task.name} (${task.id}), will restart download`);
+          log.debug(`[DownloadManager] Restored task: ${task.name} (${task.id}), will restart download`);
 
           // 自动重启下载
           this.startDownload(task.id).catch((err) => {
             log.error(`Failed to restart download: ${task.name}`, err);
           });
         } else {
-          log.info(`[DownloadManager] Skipping task with status: ${task.status}`);
+          log.debug(`[DownloadManager] Skipping task with status: ${task.status}`);
         }
       }
     } catch (err) {
@@ -153,7 +153,7 @@ export class DownloadManager extends EventEmitter {
 
       const tasks = Array.from(this.tasks.values());
       fs.writeFileSync(getStateFilePath(), JSON.stringify(tasks, null, 2), 'utf-8');
-      log.info(`[DownloadManager] Saved ${tasks.length} tasks to state file`);
+      log.debug(`[DownloadManager] Saved ${tasks.length} tasks to state file`);
     } catch (err) {
       log.warn('[DownloadManager] Failed to save state:', err);
     }
@@ -168,8 +168,8 @@ export class DownloadManager extends EventEmitter {
     name: string;
     category?: string;
   }): Promise<string> {
-    log.info(`[DownloadManager] download() called: dest=${options.dest}, name=${options.name}`);
-    log.info(`[DownloadManager] Current tasks count: ${this.tasks.size}`);
+    log.debug(`[DownloadManager] download() called: dest=${options.dest}, name=${options.name}`);
+    log.debug(`[DownloadManager] Current tasks count: ${this.tasks.size}`);
 
     // 检查是否已有相同目标文件的下载任务
     const existingTask = Array.from(this.tasks.values()).find(
@@ -177,12 +177,12 @@ export class DownloadManager extends EventEmitter {
     );
 
     if (existingTask) {
-      log.info(`[DownloadManager] Task already exists for ${options.dest}, reusing task ${existingTask.id}, status=${existingTask.status}`);
+      log.debug(`[DownloadManager] Task already exists for ${options.dest}, reusing task ${existingTask.id}, status=${existingTask.status}`);
       return existingTask.id;
     }
 
-    log.info(`[DownloadManager] No existing task found, creating new task`);
-    log.info(`[DownloadManager] Existing tasks: ${Array.from(this.tasks.values()).map(t => `${t.id}:${t.dest}:${t.status}`).join(', ')}`);
+    log.debug(`[DownloadManager] No existing task found, creating new task`);
+    log.debug(`[DownloadManager] Existing tasks: ${Array.from(this.tasks.values()).map(t => `${t.id}:${t.dest}:${t.status}`).join(', ')}`);
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -202,13 +202,13 @@ export class DownloadManager extends EventEmitter {
     };
 
     this.tasks.set(id, task);
-    log.info(`[DownloadManager] Task created: ${task.name} (${id}), category=${task.category}`);
+    log.debug(`[DownloadManager] Task created: ${task.name} (${id}), category=${task.category}`);
     this.saveState(); // 保存状态
-    log.info(`[DownloadManager] 实例 #${this.instanceId} 触发 'task-created' 事件 for task ${id}`);
-    log.info(`[DownloadManager] task-created 监听器数量: ${this.listenerCount('task-created')}`);
+    log.debug(`[DownloadManager] 实例 #${this.instanceId} 触发 'task-created' 事件 for task ${id}`);
+    log.debug(`[DownloadManager] task-created 监听器数量: ${this.listenerCount('task-created')}`);
 
     this.emitEvent('task-created', task);
-    log.info(`[DownloadManager] 'task-created' event emitted for task ${id}`);
+    log.debug(`[DownloadManager] 'task-created' event emitted for task ${id}`);
 
     // 启动下载（异步）
     this.startDownload(id).catch((err) => {
@@ -245,14 +245,14 @@ export class DownloadManager extends EventEmitter {
       task.progress.percent = 100;
       this.saveState(); // 保存状态
       this.emitEvent('task-completed', task);
-      log.info(`Download completed: ${task.name}`);
+      log.debug(`Download completed: ${task.name}`);
 
       // 自动清理已完成的任务（延迟清理，给UI时间显示完成状态）
       const cleanupTimer = setTimeout(() => {
         this.tasks.delete(taskId);
         this.cleanupTimers.delete(taskId);
         this.saveState();
-        log.info(`[DownloadManager] Auto-cleaned completed task: ${taskId}`);
+        log.debug(`[DownloadManager] Auto-cleaned completed task: ${taskId}`);
       }, 5000);
       this.cleanupTimers.set(taskId, cleanupTimer);
     } catch (err: any) {
@@ -260,7 +260,7 @@ export class DownloadManager extends EventEmitter {
         task.status = 'cancelled';
         this.saveState(); // 保存状态
         this.emitEvent('task-cancelled', task);
-        log.info(`Download cancelled: ${task.name}`);
+        log.debug(`Download cancelled: ${task.name}`);
       } else {
         task.status = 'failed';
         task.error = err.message;
@@ -287,7 +287,7 @@ export class DownloadManager extends EventEmitter {
       const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
       if (proxy) {
-        log.info(`Using proxy: ${proxy}`);
+        log.debug(`Using proxy: ${proxy}`);
       }
 
       // 确保目标目录存在
@@ -454,7 +454,7 @@ export class DownloadManager extends EventEmitter {
    * 清除已完成/失败的任务
    */
   clearFinished(): void {
-    log.info('[DownloadManager] Clearing finished tasks...');
+    log.debug('[DownloadManager] Clearing finished tasks...');
     let count = 0;
     for (const [id, task] of this.tasks.entries()) {
       if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
@@ -467,7 +467,7 @@ export class DownloadManager extends EventEmitter {
         }
       }
     }
-    log.info(`[DownloadManager] Cleared ${count} finished tasks`);
+    log.debug(`[DownloadManager] Cleared ${count} finished tasks`);
     this.saveState();
   }
 

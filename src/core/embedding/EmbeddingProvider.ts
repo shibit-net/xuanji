@@ -8,6 +8,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import { logger } from '@/core/logger';
+import { getRuntimeConfig } from '@/core/config/RuntimeConfig.js';
+import type { DownloadSource } from '@/shared/types/config';
 
 const log = logger.child({ module: 'EmbeddingProvider' });
 
@@ -25,6 +27,7 @@ export interface EmbeddingProviderConfig {
   modelId?: string;
   cacheDir?: string;
   dimensions?: number;
+  hfMirror?: string;
 }
 
 const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.xuanji', 'embedding-models');
@@ -77,6 +80,21 @@ export class EmbeddingProvider implements EmbeddingProviderInterface {
     env.allowLocalModels = true;
     // 优先使用本地已下载的模型，缺失时才从 HF 下载
     env.allowRemoteModels = true;
+    const rtConfig = getRuntimeConfig();
+    const source: DownloadSource = rtConfig?.download?.source || 'huggingface';
+    let remoteHost: string;
+    switch (source) {
+      case 'hf-mirror':
+        remoteHost = 'https://hf-mirror.com'; break;
+      case 'modelscope':
+        remoteHost = 'https://www.modelscope.cn/models'; break;
+      case 'custom':
+        remoteHost = rtConfig?.download?.hfMirror || 'https://huggingface.co'; break;
+      case 'huggingface':
+      default:
+        remoteHost = 'https://huggingface.co'; break;
+    }
+    env.remoteHost = remoteHost;
 
     log.info(`[EmbeddingProvider] 初始化 pipeline, modelId=${this.modelId}, cacheDir=${this.cacheDir}`);
 

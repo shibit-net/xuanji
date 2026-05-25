@@ -43,8 +43,8 @@ export class MemorySearchTool extends BaseTool {
       },
       scope: {
         type: 'string',
-        enum: ['keyword', 'active_context'],
-        description: 'Search scope. keyword=search by keyword (default), active_context=search user recent plans/goals/constraints/preferences (no keyword needed)',
+        enum: ['keyword', 'active_context', 'list_all'],
+        description: 'Search scope. keyword=search by keyword (default), active_context=search user recent plans/goals/constraints/preferences, list_all=list all records of a type (no keyword needed, for maintenance tasks)',
         default: 'keyword',
       },
       include_neighbors: {
@@ -53,7 +53,7 @@ export class MemorySearchTool extends BaseTool {
         default: false,
       },
     },
-    required: ['query'],
+    required: [],
   };
 
   override readonly readonly = true;
@@ -62,7 +62,10 @@ export class MemorySearchTool extends BaseTool {
     const query = input.query as string;
     const type = (input.type as string) ?? 'all';
     const sceneTag = input.scene_tag as string | undefined;
-    const limit = Math.min((input.limit as number) ?? 10, 50);
+    const scope = (input.scope as string) ?? 'keyword';
+    // list_all 模式允许更大批量（维护任务需要全量对比）
+    const maxLimit = scope === 'list_all' ? 500 : 50;
+    const limit = Math.min((input.limit as number) ?? 10, maxLimit);
     const minImportance = input.min_importance as number | undefined;
 
     // 将用户可见的类型名映射到 FTS5 source_table 实际表名
@@ -80,9 +83,24 @@ export class MemorySearchTool extends BaseTool {
     }
 
     const includeNeighbors = input.include_neighbors === true;
-    const scope = (input.scope as string) ?? 'keyword';
 
     try {
+      // 批量列举模式：不依赖关键词，直接列出所有记录（供记忆维护任务使用）
+      if (scope === 'list_all') {
+        const results = await manager.listAll(sourceTable, { limit, scene_tag: sceneTag, minImportance });
+        if (results.length === 0) {
+          return this.success('暂无该类型记录。', { count: 0, scope: 'list_all' });
+        }
+        const lines = results.map((r: any) => {
+          let line = `[ID:${r.id}] **${r.title || r.name}**: ${r.content || r.summary}`;
+          if (r.type) line += ` (类型: ${r.type})`;
+          if (r.importance) line += ` [重要性: ${r.importance}]`;
+          if (r.scene_tag) line += ` [场景: ${r.scene_tag}]`;
+          return line;
+        });
+        return this.success(lines.join('\n\n'), { count: results.length, scope: 'list_all' });
+      }
+
       // 活跃上下文模式：不依赖关键词，直接查用户的最近计划/目标/约束
       if (scope === 'active_context') {
         const results = await manager.search({

@@ -138,6 +138,7 @@ export class MemoryManager {
   private userId: string = '';
   private userName: string = '';
   private userEntityId: string | null = null;
+  private _creatingUserEntity = false;
   private lastActiveAt: number = 0;
   private _skipPassiveInjection = false;
   private recentMessages: any[] = [];
@@ -161,7 +162,7 @@ export class MemoryManager {
   /** 记忆提取用的 system prompt（来自 memory-manager.yaml） */
   public memoryExtractionPrompt?: string;
 
-  /** AgentFactory 引用 — 用于创建 memory-manager / context-compressor AgentLoop */
+  /** AgentFactory 引用 — 用于创建 memory-manager AgentLoop */
   public agentFactory?: import('@/core/agent/factory/AgentFactory').AgentFactory;
 
   /** 父 agent 的 ILLMProvider（供 memory-manager/compressor 共享 API 凭证） */
@@ -170,17 +171,17 @@ export class MemoryManager {
   /** 父 agent 的 runtime config（供 memory-manager/compressor 继承 apiKey/baseURL） */
   public parentConfig?: AgentConfig;
 
-  /** 上下文压缩用的 system prompt（来自 context-compressor.yaml） */
-  public compressionPrompt?: string;
-
-  /** 分层 Prompt 构建器引用，用于为 memory-manager/compressor 注入 L0 基础组件 */
+  /** 分层 Prompt 构建器引用，用于为 memory-manager 注入 L0 基础组件 + 加载 scene prompt */
   public layeredPromptBuilder?: any;
 
   /** 是否正在执行记忆提取（竞态标记，供前端按钮感知自动执行） */
   public isExtracting = false;
 
-  /** 是否正在执行上下文压缩（竞态标记，供前端按钮感知自动执行） */
+  /** 是否正在执行上下文压缩（竞态标记，与 isExtracting 独立） */
   public isCompressing = false;
+
+  /** 上一次压缩产生的摘要（滚动压缩用） */
+  public lastCompressionSummary = '';
 
   /** 当前活跃会话 ID（由 SessionManager.save() 设置，用于 EpisodicMemory 关联） */
   public currentSessionId: string | null = null;
@@ -248,7 +249,7 @@ export class MemoryManager {
       this.currentSessionId = randomUUID();
     }
 
-    // 加载 memory-manager / context-compressor 的 systemPrompt
+    // 加载 memory-manager 的 systemPrompt
     try {
       const { getConfigManager } = await import('@/core/config/ConfigManager');
       const cfgMgr = getConfigManager();
@@ -256,12 +257,8 @@ export class MemoryManager {
       if (memCfg?.systemPrompt) {
         this.memoryExtractionPrompt = memCfg.systemPrompt as string;
       }
-      const compCfg = cfgMgr.getAgentConfig('context-compressor');
-      if (compCfg?.systemPrompt) {
-        this.compressionPrompt = compCfg.systemPrompt as string;
-      }
     } catch (err) {
-      log.warn('加载 memory-manager/context-compressor 配置失败:', err);
+      log.warn('加载 memory-manager 配置失败:', err);
     }
 
     this.initialized = true;
@@ -874,14 +871,14 @@ export class MemoryManager {
       insertFts.run('entities', e.id, cjkSplit(e.name), cjkSplit(e.summary), e.scene_tag || '');
     }
 
-    // events
-    const events = this.db.prepare('SELECT id, content, scene_tag FROM events').all() as any[];
+    // events (only latest version)
+    const events = this.db.prepare('SELECT id, content, scene_tag FROM events WHERE is_latest = 1').all() as any[];
     for (const ev of events) {
       insertFts.run('events', ev.id, cjkSplit(ev.content), cjkSplit(ev.content), ev.scene_tag || '');
     }
 
-    // facts
-    const facts = this.db.prepare('SELECT id, title, content, scene_tag FROM facts').all() as any[];
+    // facts (only latest version, skip soft-deleted)
+    const facts = this.db.prepare('SELECT id, title, content, scene_tag FROM facts WHERE is_latest = 1').all() as any[];
     for (const f of facts) {
       insertFts.run('facts', f.id, cjkSplit(f.title), cjkSplit(f.content), f.scene_tag || '');
     }
@@ -990,6 +987,59 @@ export class MemoryManager {
       ? (typeof input.metadata === 'string' ? input.metadata : JSON.stringify(input.metadata))
       : null;
 
+    // 用户实体统一：所有 type='user' 映射到唯一用户实体，而非按 name 创建多个
+    if (input.type === 'user') {
+      const canonicalId = await this.ensureUserEntity();
+      if (canonicalId) {
+        const canonical = this.db.prepare('SELECT * FROM entities WHERE id = ?').get(canonicalId) as any;
+        if (canonical && canonical.name !== input.name) {
+          // 记录别名到 metadata
+          let aliases: string[] = [];
+          if (canonical.metadata) {
+            try { const m = JSON.parse(canonical.metadata); aliases = m.aliases || []; } catch {}
+          }
+          if (!aliases.includes(input.name)) {
+            aliases.push(input.name);
+            const newMeta = JSON.stringify({ ...(canonical.metadata ? JSON.parse(canonical.metadata) : {}), aliases });
+            this.db.prepare('UPDATE entities SET metadata = ? WHERE id = ?').run(newMeta, canonicalId);
+          }
+          // 合并 summary：新名字的描述追加到已有 summary
+          const mergedSummary = canonical.summary
+            ? `${canonical.summary}；别名 ${input.name}：${input.summary || ''}`
+            : input.summary;
+          this.db.prepare(`
+            UPDATE entities SET summary = ?, belief = COALESCE(?, belief),
+              importance = MAX(importance, ?), evidence_count = evidence_count + 1,
+              confidence = MIN(1.0, confidence + ?), updated_at = ?
+            WHERE id = ?
+          `).run(
+            mergedSummary, input.belief ?? null,
+            input.importance ?? 3, MemoryManager.CONFIDENCE_INCREMENT_CHANGED,
+            now, canonicalId
+          );
+        } else if (canonical) {
+          // 同名 → 正常更新 summary 等字段
+          const prev = canonical;
+          const contentChanged = prev.summary !== input.summary || prev.belief !== (input.belief ?? null);
+          const confIncr = contentChanged ? MemoryManager.CONFIDENCE_INCREMENT_CHANGED : MemoryManager.CONFIDENCE_INCREMENT_UNCHANGED;
+          this.db.prepare(`
+            UPDATE entities SET summary = ?, belief = ?, scene_tag = ?, importance = ?,
+              category = ?, metadata = ?,
+              evidence_count = evidence_count + ${contentChanged ? 1 : 0},
+              confidence = MIN(1.0, confidence + ${confIncr}), updated_at = ?
+            WHERE id = ?
+          `).run(
+            input.summary, input.belief ?? null, sceneTag,
+            input.importance ?? 3, input.category ?? null, metadataStr, now, canonicalId
+          );
+        }
+        const entity = this.db.prepare('SELECT * FROM entities WHERE id = ?').get(canonicalId) as any;
+        this.graphUpdateNode(entity);
+        this.semanticIndex?.index(entity.id, 'entities', `${entity.name} ${entity.summary}`).catch((err: any) => log.warn('Semantic index failed:', err));
+        return this.rowToEntity(entity);
+      }
+    }
+
     const existing = this.db.prepare(
       'SELECT id FROM entities WHERE name = ? AND type = ?'
     ).get(input.name, input.type) as { id: string } | undefined;
@@ -1039,11 +1089,6 @@ export class MemoryManager {
       // setUserName 已删除此重复实体并重命名根实体，跳过后续锚定
     }
 
-    // 自锚定：新实体若非用户本人，自动关联到"我"
-    if (!isHumanUserEntity && this.userId && entity.name !== this.userId && entity.type !== 'user') {
-      await this.ensureUserAnchor(entity.id).catch(err => log.warn('Auto-anchor failed:', err));
-    }
-
     // 语义索引
     this.semanticIndex?.index(entity.id, 'entities', `${entity.name} ${entity.summary}`).catch((err: any) => log.warn('Semantic index failed:', err));
 
@@ -1085,6 +1130,70 @@ export class MemoryManager {
   async deleteEntity(id: string): Promise<void> {
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(id);
     this.graph.removeNode(id);
+    // 从 FTS5 索引中移除
+    try { this.db.prepare('DELETE FROM memory_fts WHERE source_table = ? AND source_id = ?').run('entities', id); } catch {}
+  }
+
+  /** 软删除 fact（标记 is_latest=0 并从 FTS5 索引中移除） */
+  async deleteFact(id: string): Promise<void> {
+    const now = Date.now();
+    this.db.prepare('UPDATE facts SET is_latest = 0, updated_at = ? WHERE id = ?').run(now, id);
+    // 从 FTS5 索引中移除，防止搜索仍返回已删除记录
+    try { this.db.prepare('DELETE FROM memory_fts WHERE source_table = ? AND source_id = ?').run('facts', id); } catch {}
+  }
+
+  /** 按 ID 更新实体字段（供 memory_store 维护操作使用） */
+  async updateEntityById(id: string, updates: { name?: string; summary?: string; importance?: number; metadata?: string }): Promise<void> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    if (updates.name !== undefined) { sets.push('name = ?'); params.push(updates.name); }
+    if (updates.summary !== undefined) { sets.push('summary = ?'); params.push(updates.summary); }
+    if (updates.importance !== undefined) { sets.push('importance = ?'); params.push(updates.importance); }
+    if (updates.metadata !== undefined) { sets.push('metadata = ?'); params.push(updates.metadata); }
+    if (sets.length === 0) return;
+    sets.push('updated_at = ?');
+    params.push(Date.now());
+    params.push(id);
+    this.db.prepare(`UPDATE entities SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+    // 同步内存图
+    const row = this.db.prepare('SELECT * FROM entities WHERE id = ?').get(id) as any;
+    if (row) this.graphUpdateNode(row);
+  }
+
+  /**
+   * 批量列举记录（供 memory_search scope=list_all 使用）。
+   * 不走 FTS5/语义搜索，直接查询原始表，排除已删除/旧版本。
+   */
+  async listAll(sourceTable: string, options: { limit?: number; scene_tag?: string; minImportance?: number } = {}): Promise<any[]> {
+    const { limit = 100, scene_tag, minImportance } = options;
+    let sql = '';
+    const params: any[] = [];
+
+    switch (sourceTable) {
+      case 'entities':
+        sql = 'SELECT id, name, type, summary, importance, scene_tag FROM entities WHERE 1=1';
+        if (minImportance) { sql += ' AND importance >= ?'; params.push(minImportance); }
+        sql += ' ORDER BY importance DESC, updated_at DESC LIMIT ?';
+        break;
+      case 'facts':
+        sql = 'SELECT id, title, content, importance, scene_tag, updated_at FROM facts WHERE is_latest = 1';
+        if (minImportance) { sql += ' AND importance >= ?'; params.push(minImportance); }
+        sql += ' ORDER BY importance DESC, updated_at DESC LIMIT ?';
+        break;
+      case 'events':
+        sql = 'SELECT id, content, importance, scene_tag, time FROM events WHERE is_latest = 1';
+        if (minImportance) { sql += ' AND importance >= ?'; params.push(minImportance); }
+        sql += ' ORDER BY time DESC LIMIT ?';
+        break;
+      case 'episodes':
+        sql = 'SELECT id, title, narrative, scene_tag, created_at FROM episodes WHERE 1=1';
+        sql += ' ORDER BY created_at DESC LIMIT ?';
+        break;
+      default:
+        return [];
+    }
+    params.push(limit);
+    return this.db.prepare(sql).all(...params);
   }
 
   // ─── Relation CRUD ───────────────────────────────────────
@@ -1141,6 +1250,53 @@ export class MemoryManager {
       objectId: rel.object_id, strength: rel.strength,
     });
     return this.rowToRelation(rel);
+  }
+
+  /**
+   * 转移关系：将 fromEntityId 所有关联的边（出/入）迁移到 toEntityId。
+   * 用于实体合并时保留关系拓扑。
+   */
+  async transferRelations(fromEntityId: string, toEntityId: string): Promise<number> {
+    let count = 0;
+    const now = Date.now();
+
+    // 去重检测：toEntity 是否已存在相同的 subject+relation+object
+    const outEdges = this.db.prepare(
+      'SELECT * FROM relations WHERE subject_id = ? AND is_active = 1'
+    ).all(fromEntityId) as any[];
+    for (const edge of outEdges) {
+      const dup = this.db.prepare(
+        'SELECT id FROM relations WHERE subject_id = ? AND object_id = ? AND relation = ? AND is_active = 1'
+      ).get(toEntityId, edge.object_id, edge.relation);
+      if (dup) {
+        // toEntity 已有相同关系 → 删除旧边，避免重复
+        this.db.prepare('UPDATE relations SET is_active = 0, updated_at = ? WHERE id = ?').run(now, edge.id);
+      } else {
+        this.db.prepare('UPDATE relations SET subject_id = ?, updated_at = ? WHERE id = ?').run(toEntityId, now, edge.id);
+        this.graph.removeEdge(fromEntityId, edge.object_id, edge.relation);
+        this.graph.addEdge({ subjectId: toEntityId, relation: edge.relation, objectId: edge.object_id, strength: edge.strength ?? 3 });
+      }
+      count++;
+    }
+
+    const inEdges = this.db.prepare(
+      'SELECT * FROM relations WHERE object_id = ? AND is_active = 1'
+    ).all(fromEntityId) as any[];
+    for (const edge of inEdges) {
+      const dup = this.db.prepare(
+        'SELECT id FROM relations WHERE subject_id = ? AND object_id = ? AND relation = ? AND is_active = 1'
+      ).get(edge.subject_id, toEntityId, edge.relation);
+      if (dup) {
+        this.db.prepare('UPDATE relations SET is_active = 0, updated_at = ? WHERE id = ?').run(now, edge.id);
+      } else {
+        this.db.prepare('UPDATE relations SET object_id = ?, updated_at = ? WHERE id = ?').run(toEntityId, now, edge.id);
+        this.graph.removeEdge(edge.subject_id, fromEntityId, edge.relation);
+        this.graph.addEdge({ subjectId: edge.subject_id, relation: edge.relation, objectId: toEntityId, strength: edge.strength ?? 3 });
+      }
+      count++;
+    }
+
+    return count;
   }
 
   async deactivateRelation(subjectId: string, objectId: string, relation: string, reason?: string): Promise<void> {
@@ -1853,7 +2009,7 @@ export class MemoryManager {
   ): Promise<MemorySearchResultWithGraph[]> {
     const results = await this.search({
       query,
-      source: 'entities',
+      source: 'entity',
       scene_tag: options.scene_tag,
       limit: options.limit ?? 10,
       minImportance: options.minImportance,
@@ -2138,6 +2294,30 @@ export class MemoryManager {
     return event;
   }
 
+  /**
+   * 直接存储叙事记忆（供 memory_store({type:"episode"}) 调用）。
+   * LLM 已生成 title + narrative，直接写入 episodes 表。
+   */
+  async storeEpisode(data: { title: string; narrative: string }): Promise<{ id: string }> {
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO episodes (id, timestamp, title, narrative, scene_tag, importance, session_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, '', 3, ?, ?, ?)
+    `).run(id, now, data.title, data.narrative, this.currentSessionId, now, now);
+
+    // 索引到语义搜索
+    if (this.semanticIndex) {
+      try {
+        await this.semanticIndex.indexEpisode(id, data.narrative);
+      } catch (err: any) {
+        log.warn('Failed to index episode:', err);
+      }
+    }
+
+    return { id };
+  }
+
   recordToolCall(toolName: string, sessionId?: string, dedupKey?: string): void {
     this.recentToolCalls.push({ toolName, sessionId, time: Date.now(), dedupKey });
     // 只保留最近 50 条
@@ -2235,7 +2415,6 @@ export class MemoryManager {
     if (messages.length === 0) return '';
     if (this.isCompressing) return ''; // 竞态：已有压缩在进行中
 
-    // 提取关键消息为事件
     const importantMessages = messages.filter((m: any) => {
       const role = m.role || m.type;
       return role === 'assistant' || role === 'user';
@@ -2243,11 +2422,10 @@ export class MemoryManager {
 
     if (importantMessages.length === 0) return '';
 
-    // 格式化消息文本（跳过空内容气泡，避免压缩摘要出现空条目）
+    // 格式化消息文本
     const text = importantMessages
       .map((m: any) => {
         const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        // 跳过没有文本内容的消息（纯工具调用气泡）
         const trimmed = (content || '').trim();
         if (!trimmed) return null;
         return `[${m.role || m.type}]: ${content}`;
@@ -2256,40 +2434,44 @@ export class MemoryManager {
       .join('\n')
       .slice(0, 6000);
 
-    // 尝试使用 context-compressor agent（需要 agentFactory + parentProvider）
+    // 使用 memory-manager agent 的 memory-compression 场景
     if (this.agentFactory && this.parentProvider) {
       this.isCompressing = true;
       try {
-        const response = await this.runCompressionAgent('', text);
+        // 加载压缩场景 prompt
+        const sceneContent = await this.loadSceneContent('memory-compression');
+        const identity = this.memoryExtractionPrompt || '你是记忆管理专家。';
+        const scenePrompt = sceneContent || '';
+
+        const systemPrompt = [identity, scenePrompt].filter(Boolean).join('\n\n')
+          .replace('{{EXISTING_MEMORIES}}', this.buildExistingMemoryContext() || '暂无已有记忆');
+
+        // 滚动压缩：已有摘要拼在新消息前面
+        const previousSummary = this.lastCompressionSummary
+          ? `## 已有压缩摘要\n${this.lastCompressionSummary}\n\n---\n\n`
+          : '';
+        const userMessage = `${previousSummary}待压缩消息：\n\n${text}`;
+
+        const response = await this.runMemoryAgent({
+          systemPrompt,
+          userMessage,
+          taskType: 'memory-compression',
+          taskName: '上下文压缩',
+          timeout: 120000,
+          returnResponse: true,
+        });
+
+        // 从响应中提取 ## 压缩摘要 部分
         if (response) {
-          const parsed = this.parseCompressionJson(response);
-          if (parsed) {
-            for (const ev of parsed.events || []) {
-              await this.recordEvent({
-                entityNames: ev.entities || [],
-                content: ev.content,
-                importance: 2,
-                scene_tag: '',
-                operator: 'archive',
-              });
-            }
-            for (const fact of parsed.facts || []) {
-              await this.storeFact({
-                title: fact.title,
-                content: fact.content,
-                source: 'agent_discovered',
-              });
-            }
-
-            await this.episodicMemory?.createFromMessages(importantMessages).catch((err: any) => {
-              log.warn('archiveMessages episodic creation failed:', err);
-            });
-
-            return parsed.summary || '';
+          const summaryMatch = response.match(/##\s*压缩摘要\s*\n([\s\S]*?)(?=\n##\s|\n---\s|$)/);
+          const summary = summaryMatch ? summaryMatch[1].trim() : response.slice(0, 500);
+          if (summary) {
+            this.lastCompressionSummary = summary;
           }
+          return summary || '';
         }
       } catch (err) {
-        log.warn('archiveMessages compression agent failed:', err);
+        log.warn('archiveMessages compression failed:', err);
       } finally {
         this.isCompressing = false;
       }
@@ -2395,13 +2577,13 @@ export class MemoryManager {
         conversationText = '...(早期对话已截断)\n' + conversationText.slice(-maxInputChars);
       }
 
-      // 构建系统 prompt：memory-manager 规则 + 已有记忆（用于去重上下文）
+      // 构建系统 prompt：identity + 记忆提取场景 + 已有记忆
+      const sceneContent = await this.loadSceneContent('memory-extraction');
+      const identity = this.memoryExtractionPrompt || '你是记忆管理专家。';
+      const scenePrompt = sceneContent || '';
       const existingSummary = this.buildExistingMemoryContext();
-      const systemPrompt = this.memoryExtractionPrompt
-        ? this.memoryExtractionPrompt
-            .replace('{{EXISTING_MEMORIES}}', existingSummary || '暂无已有记忆')
-            .replace('{{CONVERSATION_CONTENT}}', conversationText)
-        : `你是记忆管理专家。从对话中提取值得长期记忆的信息，使用 memory_search 查重，memory_store 存储。\n\n## 已有记忆\n${existingSummary || '暂无'}`;
+      const systemPrompt = [identity, scenePrompt].filter(Boolean).join('\n\n')
+        .replace('{{EXISTING_MEMORIES}}', existingSummary || '暂无已有记忆');
 
       // 用户消息：触发提取
       const userMessage = `请从以下对话中提取关键信息，先搜索已有记忆进行去重，再存储新记忆。\n\n对话：\n${conversationText}`;
@@ -2410,7 +2592,12 @@ export class MemoryManager {
       const beforeCounts = this.getExtractionCounts();
 
       // 创建 AgentLoop 并执行
-      await this.runMemoryAgent(systemPrompt, userMessage);
+      await this.runMemoryAgent({
+        systemPrompt,
+        userMessage,
+        taskType: 'memory-extraction',
+        taskName: '记忆提取',
+      });
 
       // 获取统计快照（提取后），计算增量
       const afterCounts = this.getExtractionCounts();
@@ -2443,7 +2630,18 @@ export class MemoryManager {
     }
   }
 
-  /** 获取 L0 基础 prompt 组件内容（用于注入到 memory-manager / compressor agent） */
+  /** 加载场景 prompt 内容（委托给 LayeredPromptBuilder.loadSceneContent） */
+  private async loadSceneContent(scene: string): Promise<string | null> {
+    if (!this.layeredPromptBuilder) return null;
+    try {
+      return await this.layeredPromptBuilder.loadSceneContent(scene);
+    } catch {
+      log.warn(`loadSceneContent failed for scene: ${scene}`);
+      return null;
+    }
+  }
+
+  /** 获取 L0 基础 prompt 组件内容（用于注入到 memory-manager agent） */
   private async getL0PromptContent(): Promise<string> {
     if (!this.layeredPromptBuilder) return '';
     try {
@@ -2464,62 +2662,69 @@ export class MemoryManager {
   }
 
   /**
-   * 运行 memory-manager agent 的 React 循环。
+   * 统一 memory-manager agent 执行入口（三模式：提取 / 整理 / 压缩）。
    *
-   * 创建独立的 AgentLoop，仅注册 memory_search / memory_store / memory_stats 三个工具。
-   * agent 在自己的 React 循环中调用这些工具，直接操作全局 MemoryManager（本实例）。
+   * @param opts.taskType - 任务类型标识（memory-extraction / memory-maintenance / memory-compression）
+   * @param opts.taskName - 任务展示名称
+   * @param opts.returnResponse - 是否返回 agent 文本响应（压缩模式需要）
    */
-  private async runMemoryAgent(systemPrompt: string, userMessage: string): Promise<void> {
-    // 注入 L0 基础 prompt 组件（记忆指导、格式标准化等）
+  private async runMemoryAgent(opts: {
+    systemPrompt: string;
+    userMessage: string;
+    taskType: string;
+    taskName: string;
+    timeout?: number;
+    returnResponse?: boolean;
+  }): Promise<string | null> {
+    // 注入 L0 基础 prompt 组件
     const l0Content = await this.getL0PromptContent();
-    const fullSystemPrompt = l0Content ? `${l0Content}\n\n${systemPrompt}` : systemPrompt;
+    const fullSystemPrompt = l0Content ? `${l0Content}\n\n${opts.systemPrompt}` : opts.systemPrompt;
 
     if (!this.agentFactory || !this.parentProvider) {
-      log.error('[memory-manager] agentFactory 或 parentProvider 未注入，无法创建 AgentLoop');
-      return;
+      log.error(`[memory-manager] agentFactory 或 parentProvider 未注入，无法创建 AgentLoop`);
+      return null;
     }
 
-    // 通过 AgentFactory 创建 memory-manager AgentLoop（配置来自 YAML + agent-overrides）
     const { agentLoop, subAgentId } = await this.agentFactory.createMemoryAgent('memory-manager', {
       parentConfig: this.parentConfig,
       systemPrompt: fullSystemPrompt,
       maxTokens: this.parentConfig?.maxTokens ?? 8192,
-      maxIterations: this.parentConfig?.maxIterations ?? 60,
+      maxIterations: this.parentConfig?.maxIterations ?? 200,
     });
 
     const startedAt = Date.now();
     eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_START, {
-      taskId: subAgentId, taskType: 'memory-extraction', name: '记忆提取',
+      taskId: subAgentId, taskType: opts.taskType, name: opts.taskName,
       model: this.parentConfig?.model || 'unknown',
     });
 
-    const timeout = 360000; // 默认 6 分钟超时
+    const timeoutMs = opts.timeout ?? 360000;
 
     let timedOut = false;
     let errorOccurred = false;
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       const timeoutId = setTimeout(() => {
         timedOut = true;
         agentLoop.requestAbort();
-        log.warn(`[memory-manager] extraction timed out after ${timeout}ms`);
+        log.warn(`[memory-manager] ${opts.taskName} timed out after ${timeoutMs}ms`);
         resolve();
-      }, timeout);
+      }, timeoutMs);
 
       agentLoop.on({
         onEnd: () => {
-          clearTimeout(timeout);
+          clearTimeout(timeoutId);
           resolve();
         },
-        onError: (error: string) => {
-          clearTimeout(timeout);
+        onError: (error: Error) => {
+          clearTimeout(timeoutId);
           errorOccurred = true;
-          log.warn('Memory agent loop error: %s', error);
+          log.warn('Memory agent loop error:', error.message);
           resolve();
         },
       });
 
-      agentLoop.run(userMessage).catch((err: Error) => {
-        clearTimeout(timeout);
+      agentLoop.run(opts.userMessage).catch((err: Error) => {
+        clearTimeout(timeoutId);
         errorOccurred = true;
         log.warn('Memory agent run failed: %s', err.message);
         resolve();
@@ -2527,10 +2732,67 @@ export class MemoryManager {
     });
 
     eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_END, {
-      taskId: subAgentId, taskType: 'memory-extraction', name: '记忆提取',
+      taskId: subAgentId, taskType: opts.taskType, name: opts.taskName,
       durationMs: Date.now() - startedAt, success: !timedOut && !errorOccurred, timedOut,
       errorMessage: errorOccurred ? 'Agent execution failed' : undefined,
     });
+
+    // returnResponse 模式下提取 agent 文本响应
+    if (opts.returnResponse && !errorOccurred && !timedOut) {
+      try {
+        const agentMessages = agentLoop.getContextManager().getMessages();
+        for (let i = agentMessages.length - 1; i >= 0; i--) {
+          const msg = agentMessages[i];
+          if (msg.role === 'assistant') {
+            if (typeof msg.content === 'string') return msg.content;
+            if (Array.isArray(msg.content)) {
+              const textBlocks = msg.content.filter((b: any) => b.type === 'text' && b.text);
+              if (textBlocks.length > 0) return textBlocks.map((b: any) => b.text).join('\n');
+            }
+          }
+        }
+      } catch {
+        log.warn('[memory-manager] Failed to extract response text');
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 手动触发 LLM 记忆整理（去重/合并/关联/清理/画像更新）。
+   * 绕过意图路由，直接创建 SilentAgentLoop 执行 memory-manager 的维护规则。
+   */
+  async runMaintenanceAgent(): Promise<void> {
+    const stats = this.getStats();
+
+    // 构建 system prompt：identity + 记忆整理场景 + 已有记忆
+    const sceneContent = await this.loadSceneContent('memory-maintenance');
+    const identity = this.memoryExtractionPrompt || '你是记忆管理专家。';
+    const scenePrompt = sceneContent || '';
+    const existingContext = this.buildExistingMemoryContext();
+    const systemPrompt = [identity, scenePrompt].filter(Boolean).join('\n\n')
+      .replace('{{EXISTING_MEMORIES}}', existingContext || '暂无已有记忆');
+
+    const userMessage = `请执行记忆整理任务。
+
+## 当前记忆统计
+- 实体数: ${stats.entityCount}
+- 事实数: ${stats.factCount}
+- 事件数: ${stats.eventCount}
+- 关系数: ${stats.relationCount}
+- 叙事数: ${stats.episodeCount}
+
+请对记忆库进行全面维护：去重、合并、关联、清理、画像刷新。`;
+
+    await this.runMemoryAgent({
+      systemPrompt,
+      userMessage,
+      taskType: 'memory-maintenance',
+      taskName: '记忆整理',
+      timeout: 600000,
+    });
+    log.info('Maintenance agent completed');
   }
 
   /** 获取当前记忆统计快照（用于计算增量） */
@@ -2541,131 +2803,6 @@ export class MemoryManager {
     const events = (this.db.prepare('SELECT COUNT(*) as n FROM events').get() as any).n;
     const snapshots = (this.db.prepare('SELECT COUNT(*) as n FROM project_snapshots').get() as any).n;
     return { entities, relations, facts, events, snapshots };
-  }
-
-  /**
-   * 运行 context-compressor agent 的 React 循环。
-   *
-   * 创建独立的 AgentLoop，无工具（tools: []），仅一个 LLM 回合。
-   * 使用 context-compressor.yaml 的 systemPrompt 生成结构化摘要。
-   */
-  private async runCompressionAgent(existingSummary: string, messagesText: string): Promise<string | null> {
-    const baseSystemPrompt = (this.compressionPrompt || '你是上下文压缩专家。将对话压缩为 JSON 摘要。')
-      .replace('{{EXISTING_SUMMARY}}', existingSummary || '（无已有摘要）')
-      .replace('{{NEW_MESSAGES}}', messagesText);
-    // 注入 L0 基础 prompt 组件
-    const l0Content = await this.getL0PromptContent();
-    const systemPrompt = l0Content ? `${l0Content}\n\n${baseSystemPrompt}` : baseSystemPrompt;
-
-    if (!this.agentFactory || !this.parentProvider) {
-      log.error('[context-compressor] agentFactory 或 parentProvider 未注入，无法创建 AgentLoop');
-      return null;
-    }
-
-    // 通过 AgentFactory 创建 context-compressor AgentLoop（配置来自 YAML + agent-overrides）
-    const { agentLoop, subAgentId } = await this.agentFactory.createCompressionAgent('context-compressor', {
-      parentConfig: this.parentConfig,
-      systemPrompt,
-      maxTokens: this.parentConfig?.maxTokens ?? 1024,
-    });
-
-    const startedAt = Date.now();
-    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_START, {
-      taskId: subAgentId, taskType: 'context-compression', name: '上下文压缩',
-      model: this.parentConfig?.model || 'unknown',
-    });
-
-    let timedOut = false;
-    let errorOccurred = false;
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        agentLoop.requestAbort();
-        resolve();
-      }, 60000);
-
-      agentLoop.on({
-        onEnd: () => {
-          clearTimeout(timeout);
-          resolve();
-        },
-        onError: (error: string) => {
-          clearTimeout(timeout);
-          errorOccurred = true;
-          log.warn('Compression agent error: %s', error);
-          resolve();
-        },
-      });
-
-      agentLoop.run(messagesText).catch((err: Error) => {
-        clearTimeout(timeout);
-        errorOccurred = true;
-        log.warn('Compression agent run failed: %s', err.message);
-        resolve();
-      });
-    });
-
-    eventBus.emitSync(XuanjiEvent.HOOK_BACKGROUND_TASK_END, {
-      taskId: subAgentId, taskType: 'context-compression', name: '上下文压缩',
-      durationMs: Date.now() - startedAt, success: !timedOut && !errorOccurred, timedOut,
-      errorMessage: errorOccurred ? 'Agent execution failed' : undefined,
-    });
-
-    // 提取最后一个 assistant 消息作为 JSON 输出
-    const agentMessages = agentLoop.getContextManager().getMessages();
-    for (let i = agentMessages.length - 1; i >= 0; i--) {
-      const msg = agentMessages[i];
-      if (msg.role === 'assistant') {
-        if (typeof msg.content === 'string') return msg.content;
-        if (Array.isArray(msg.content)) {
-          for (const b of msg.content) {
-            if (b.type === 'text' && b.text) return b.text;
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  /** 从 context-compressor agent 的响应中解析 JSON。三级降级策略，每级独立 try/catch。 */
-  private parseCompressionJson(response: string): { summary?: string; events?: any[]; facts?: any[] } | null {
-    // 优先级 1：遍历所有 markdown 代码块，尝试 JSON.parse
-    const codeBlockRe = /```(?:\w+)?\s*([\s\S]*?)```/g;
-    let match;
-    while ((match = codeBlockRe.exec(response)) !== null) {
-      try {
-        const inner = match[1].trim();
-        if (inner.startsWith('{') || inner.startsWith('[')) {
-          return JSON.parse(inner);
-        }
-      } catch { /* 当前代码块非有效 JSON，继续下一个 */ }
-    }
-
-    // 优先级 2：花括号配对扫描，从文本中提取首个完整 JSON 对象
-    try {
-      const firstBrace = response.indexOf('{');
-      if (firstBrace >= 0) {
-        let depth = 0, inString = false, escaped = false;
-        for (let i = firstBrace; i < response.length; i++) {
-          const ch = response[i];
-          if (escaped) { escaped = false; continue; }
-          if (ch === '\\') { escaped = true; continue; }
-          if (ch === '"') { inString = !inString; continue; }
-          if (inString) continue;
-          if (ch === '{') depth++;
-          else if (ch === '}') { depth--; if (depth === 0) { return JSON.parse(response.slice(firstBrace, i + 1)); } }
-        }
-      }
-    } catch { /* 提取出的片段非有效 JSON，降级到优先级 3 */ }
-
-    // 优先级 3：直接解析整个响应
-    try {
-      const trimmed = response.trim();
-      if (trimmed.startsWith('{') && trimmed.endsWith('}')) return JSON.parse(trimmed);
-    } catch { /* 整个响应非纯 JSON */ }
-
-    log.warn('Failed to parse compression agent JSON response');
-    return null;
   }
 
   /** 查询已有记忆摘要，填充 prompt 中的 {{EXISTING_MEMORIES}} 占位符 */
@@ -2908,8 +3045,9 @@ export class MemoryManager {
   }
 
   /** 确保用户实体存在，作为知识图谱的根节点 */
-  private async ensureUserEntity(): Promise<string | null> {
+  async ensureUserEntity(): Promise<string | null> {
     if (this.userEntityId) return this.userEntityId;
+    if (this._creatingUserEntity) return null; // 防止 upsertEntity 回调造成无限递归
     if (!this.userId) return null;
 
     // 1. 优先按 human-readable name 查找
@@ -2957,14 +3095,20 @@ export class MemoryManager {
     }
 
     // 4. 完全不存在 → 创建
-    const entity = await this.upsertEntity({
-      name: this.userName || this.userId,
-      type: 'user',
-      summary: this.userName ? `用户 ${this.userName}` : '系统用户',
-      importance: 5,
-    });
-    this.userEntityId = entity.id;
-    return entity.id;
+    // 设置 _creatingUserEntity 防止 upsertEntity 回调 ensureUserEntity 导致无限递归
+    this._creatingUserEntity = true;
+    try {
+      const entity = await this.upsertEntity({
+        name: this.userName || this.userId,
+        type: 'user',
+        summary: this.userName ? `用户 ${this.userName}` : '系统用户',
+        importance: 5,
+      });
+      this.userEntityId = entity.id;
+      return entity.id;
+    } finally {
+      this._creatingUserEntity = false;
+    }
   }
 
   /** 确保新实体锚定到用户（用户 → 实体，默认关系 "knows"） */
@@ -2991,7 +3135,7 @@ export class MemoryManager {
   private graphUpdateNode(row: any): void {
     this.graph.addNode({
       id: row.id, name: row.name, type: row.type, scene_tag: row.scene_tag || '',
-      category: row.category ?? null, metadata: row.metadata ?? null,
+      category: row.category ?? null, summary: row.summary ?? null, importance: row.importance ?? null, metadata: row.metadata ?? null,
     });
   }
 

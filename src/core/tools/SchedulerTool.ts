@@ -173,11 +173,13 @@ export class SchedulerTool extends BaseTool {
       const status = j.enabled === false ? ' [已禁用]' : (j.executed ? ' [已完成]' : ' [运行中]');
       const desc = j.description ? ` — ${j.description}` : '';
       const schedule = this.buildScheduleDesc(j);
-      const actionDesc = j.action === 'learn'
-        ? `学习: ${j.prompt || '无目标'}`
-        : j.message
-          ? `触发Agent: "${j.message.slice(0, 60)}"`
-          : `自定义: ${j.params?.handler || '无handler'}`;
+      const actionDesc = j.system
+        ? `系统: ${j.description || ''}`
+        : j.action === 'learn'
+          ? `学习: ${j.prompt || '无目标'}`
+          : j.message
+            ? `触发Agent: "${j.message.slice(0, 60)}"`
+            : `自定义: ${j.params?.handler || '无handler'}`;
       return `**${j.id}**${tag}${status}${desc}\\n  调度: ${schedule}\\n  动作: ${actionDesc}`;
     });
 
@@ -262,6 +264,12 @@ export class SchedulerTool extends BaseTool {
   private async handleUpdate(scheduler: any, input: Record<string, unknown>): Promise<ToolResult> {
     const id = input.id as string;
     if (!id) return this.error('update 操作需要指定 id。');
+
+    const jobs: CronJob[] = scheduler.getJobs();
+    const target = jobs.find(j => j.id === id);
+    if (target?.system) {
+      return this.error(`系统级任务 ${id} 不能修改。系统任务由代码自动管理。`);
+    }
 
     const updates: Record<string, unknown> = {};
 

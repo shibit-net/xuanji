@@ -310,14 +310,14 @@ export function registerDownloadHandlers() {
   });
 
   // 下载本地模型
-  ipcMain.handle('local-model:download', async (_event, modelId: string) => {
+  ipcMain.handle('local-model:download', async (_event, modelId: string, downloadSource?: string, hfMirror?: string) => {
     try {
       const modelUri = MODEL_IDS[modelId];
       if (!modelUri) {
         return { success: false, error: 'Unknown model ID' };
       }
 
-      const loader = new LocalModelLoader({ modelId: modelUri });
+      const loader = new LocalModelLoader({ modelId: modelUri, downloadSource, hfMirror });
 
       // 如果已下载，直接返回
       if (loader.isDownloaded()) {

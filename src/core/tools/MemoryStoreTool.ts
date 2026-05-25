@@ -20,7 +20,7 @@ export class MemoryStoreTool extends BaseTool {
     properties: {
       type: {
         type: 'string',
-        enum: ['entity', 'fact', 'event', 'relation', 'time_anchor', 'topic', 'user_profile', 'project_snapshot'],
+        enum: ['entity', 'fact', 'event', 'relation', 'time_anchor', 'topic', 'user_profile', 'project_snapshot', 'episode'],
         description: 'Memory type. entity=entity, fact=fact, event=event, relation=relation, time_anchor=time anchor (deadline/schedule), topic=topic (goal/plan/interest), user_profile=user profile dimension, project_snapshot=project progress snapshot',
       },
       data: {
@@ -124,6 +124,26 @@ export class MemoryStoreTool extends BaseTool {
     try {
       switch (memoryType) {
         case 'entity': {
+          // 维护操作：删除实体
+          if (data.action === 'delete') {
+            if (!data.id) return this.error('删除实体需要提供 id 字段');
+            await manager.deleteEntity(data.id);
+            manager.recordToolCall('memory_store', undefined, dedupKey);
+            return this.success(`已删除实体: ${data.id}`);
+          }
+          // 维护操作：按 ID 更新实体
+          if (data.action === 'update') {
+            if (!data.id) return this.error('更新实体需要提供 id 字段');
+            await manager.updateEntityById(data.id, {
+              name: data.name,
+              summary: data.summary,
+              importance: data.importance ?? importance,
+              metadata: data.metadata,
+            });
+            manager.recordToolCall('memory_store', undefined, dedupKey);
+            return this.success(`已更新实体: ${data.name || data.id}`);
+          }
+          // 默认：创建/upsert
           if (!data.name || !data.entity_type || !data.summary) {
             const missing = [!data.name && 'name', !data.entity_type && 'entity_type', !data.summary && 'summary'].filter(Boolean).join(', ');
             return this.error(`entity 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('entity')}。请修正后重试。`);
@@ -148,6 +168,13 @@ export class MemoryStoreTool extends BaseTool {
         }
 
         case 'fact': {
+          // 维护操作：删除 fact
+          if (data.action === 'delete') {
+            if (!data.id) return this.error('删除 fact 需要提供 id 字段');
+            await manager.deleteFact(data.id);
+            manager.recordToolCall('memory_store', undefined, dedupKey);
+            return this.success(`已删除事实: ${data.id}`);
+          }
           if (!data.title || !data.content) {
             const missing = [!data.title && 'title', !data.content && 'content'].filter(Boolean).join(', ');
             return this.error(`fact 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('fact')}。请修正后重试。`);
@@ -189,6 +216,31 @@ export class MemoryStoreTool extends BaseTool {
         }
 
         case 'relation': {
+          // 维护操作：删除关系
+          if (data.action === 'delete') {
+            if (!data.subject_name || !data.object_name || !data.relation) {
+              return this.error('删除关系需要提供 subject_name、object_name、relation 字段');
+            }
+            // 按名称解析实体 ID
+            const subj = await manager.findEntityByName(data.subject_name);
+            const obj = await manager.findEntityByName(data.object_name);
+            if (!subj || !obj) return this.error(`找不到实体: ${!subj ? data.subject_name : data.object_name}`);
+            await manager.deactivateRelation(subj.id, obj.id, data.relation, 'agent cleanup');
+            manager.recordToolCall('memory_store', undefined, dedupKey);
+            return this.success(`已删除关系: ${data.subject_name} → ${data.relation} → ${data.object_name}`);
+          }
+          // 维护操作：转移关系（将 from_entity 的所有关系迁移到 to_entity，用于实体合并）
+          if (data.action === 'transfer') {
+            if (!data.from_entity || !data.to_entity) {
+              return this.error('转移关系需要提供 from_entity 和 to_entity 字段（实体名称）');
+            }
+            const from = await manager.findEntityByName(data.from_entity);
+            const to = await manager.findEntityByName(data.to_entity);
+            if (!from || !to) return this.error(`找不到实体: ${!from ? data.from_entity : data.to_entity}`);
+            const transferred = await manager.transferRelations(from.id, to.id);
+            manager.recordToolCall('memory_store', undefined, dedupKey);
+            return this.success(`已转移 ${transferred} 条关系: ${data.from_entity} → ${data.to_entity}`);
+          }
           if (!data.subject_name || !data.object_name || !data.relation) {
             const missing = [!data.subject_name && 'subject_name', !data.object_name && 'object_name', !data.relation && 'relation'].filter(Boolean).join(', ');
             return this.error(`relation 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('relation')}。请修正后重试。`);
@@ -295,8 +347,26 @@ export class MemoryStoreTool extends BaseTool {
           );
         }
 
+        case 'episode': {
+          if (!data.title || !data.narrative) {
+            const missing = [!data.title && 'title', !data.narrative && 'narrative'].filter(Boolean).join(', ');
+            return this.error(`episode 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: memory_store({type:"episode", data:{title:"叙事标题", narrative:"叙事正文"}})。请修正后重试。`);
+          }
+          const episode = await manager.storeEpisode({
+            title: data.title,
+            narrative: data.narrative,
+          });
+          manager.recordToolCall('memory_store', undefined, dedupKey);
+          eventBus.emitSync(XuanjiEvent.MEMORY_STORED, { type: 'episode', id: episode.id, scene_tag: sceneTag || '' });
+          eventBus.emitSync(XuanjiEvent.HOOK_MEMORY_WRITE, { content: `[episode] ${data.title}` });
+          return this.success(
+            `已存储叙事记忆: **${data.title}**`,
+            { id: episode.id, type: 'episode' }
+          );
+        }
+
         default:
-          return this.error(`不支持的记忆类型 "${memoryType}"。支持: entity, fact, event, relation, time_anchor, topic, user_profile, project_snapshot。请修正 type 后重试。`);
+          return this.error(`不支持的记忆类型 "${memoryType}"。支持: entity, fact, event, relation, time_anchor, topic, user_profile, project_snapshot, episode。请修正 type 后重试。`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

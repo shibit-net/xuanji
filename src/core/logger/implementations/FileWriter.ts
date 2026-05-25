@@ -5,6 +5,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import type { LogLevel } from '../types';
+import { getUTC8Components, getUTC8DateString } from '@/shared/utils/time/formatters';
 
 /**
  * 异步文件写入器
@@ -47,19 +48,13 @@ export class FileWriter {
   }
 
   /**
-   * 格式化时间戳为易读格式
+   * 格式化时间戳为 UTC+8 易读格式
    * 格式: 2026-04-17 13:55:08.012
    */
   private formatTimestamp(): string {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const ms = String(now.getMilliseconds()).padStart(3, '0');
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
+    const c = getUTC8Components(new Date());
+    const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+    return `${c.year}-${pad(c.month)}-${pad(c.day)} ${pad(c.hours)}:${pad(c.minutes)}:${pad(c.seconds)}.${pad(c.ms, 3)}`;
   }
 
   /**
@@ -87,7 +82,7 @@ export class FileWriter {
         if (stat.size > MAX_LOG_FILE_SIZE) {
           await handle.close();
           // 轮转：重命名为 <level>-YYYY-MM-DD.log
-          const today = new Date().toISOString().split('T')[0]!;
+          const today = getUTC8DateString();
           const rotatedPath = path.join(this.baseDir, `${level}-${today}.log`);
           await fs.rename(filePath, rotatedPath);
           // 创建新的活跃文件并写入当前日志行

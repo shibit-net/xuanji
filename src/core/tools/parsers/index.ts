@@ -20,7 +20,7 @@ export const FORMAT_PARSERS: Record<string, ParserLoader> = {
   '.dot':  () => import('./doc-parser').then(m => m.parseDoc),
   '.docx': () => import('./docx-parser').then(m => m.parseDocx),
   '.xlsx': () => import('./xlsx-parser').then(m => m.parseXlsx),
-  '.xls':  () => import('./xlsx-parser').then(m => m.parseXls),
+  '.xls':  () => import('./xls-parser').then(m => m.parseXls),
   '.csv':  () => import('./xlsx-parser').then(m => m.parseCsv),
   '.tsv':  () => import('./xlsx-parser').then(m => m.parseTsv),
   '.pptx': () => import('./pptx-parser').then(m => m.parsePptx),

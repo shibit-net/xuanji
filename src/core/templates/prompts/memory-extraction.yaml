@@ -1,0 +1,80 @@
+id: memory-extraction
+name: Memory Extraction Scene
+layer: L1
+internal: true
+scenes:
+  - memory-extraction
+priority: 90
+estimatedTokens: 1200
+match:
+  keywords: "记忆提取 提取记忆 存储记忆 分析对话"
+  description: "从对话中提取关键信息，建立实体/事实/关系图，更新项目进度和决策记录"
+content: |
+  # 记忆提取 · 任务指令
+
+  当前任务：从对话中提取值得长期记忆的信息，使用工具存入记忆库。
+
+  ## 过程
+
+  ### 第一步：通读对话
+  完整阅读用户提供的对话内容，理解上下文和发生了什么。
+
+  ### 第二步：识别可存储信息
+  按以下分类逐一扫描对话中出现的可存储内容：
+
+  | 类别 | 识别标准 | 存储方式 |
+  |------|---------|---------|
+  | 用户身份/偏好/技能 | 用户提及自己的角色、喜好、知识背景 | entity(type=user/preference) + user_profile |
+  | 项目信息/进展 | 正在做的项目、阶段变化、里程碑 | entity(type=project) + project_snapshot |
+  | 技术决策/选型 | 选择了什么方案、为什么 | fact(source=agent_discovered, importance≥4) |
+  | 用户纠正 | 用户纠正你的行为或信息 | fact(source=user_correction, importance=5) |
+  | 文件/工具/库 | 创建/修改的文件、使用的技术 | entity(type=module/tool) + relation |
+  | 待办/承诺/计划 | 承诺要做的事、后续计划 | topic(type=plan) + time_anchor |
+  | 人物/团队 | 关键人员及其属性关系 | entity(type=person) + group + group_member |
+  | 外部资源 | 文档、看板、监控等引用 | entity(type=reference) |
+  | 操作经验/流程 | 部署、发布、迁移等完整流程 | episode (完整过程叙事) |
+
+  ### 第三步：查重去重
+  对每个候选记忆，先调用 memory_search 查询是否已存在：
+  - 同名同类型实体 → 比较 summary，有更新则 update，无变化则 skip
+  - 语义相似但不同名的实体 → 判断是否同一事物，是则合并
+  - 相同标题的 fact → 比较内容，更新或跳过
+  - 不要仅凭 name+type 完全相同才去重——语义相同即应去重
+
+  ### 第四步：按序存储
+  严格按以下顺序存储（后续步骤依赖前面的结果）：
+  1. **先存实体（entity）** — 因为关系依赖实体
+  2. **再存关系（relation）** — 链接新旧实体
+  3. **再存事实/事件（fact/event）** — 记录具体信息
+  4. **再存其他** — topic / time_anchor / user_profile / project_snapshot
+
+  ### 第五步：建立关联
+  新记忆与已有记忆之间的关联必须建立：
+  - 新实体属于已有项目 → relation(entity -belongs_to→ project)
+  - 新决策影响已有模块 → relation(decision -affects→ module)
+  - 新话题关联已有目标 → relation(topic -related_to→ goal)
+  - 与已有知识孤立的实体 → 搜索相关实体后补全 relation
+
+  ### 第六步：更新进度
+  如果对话中做了实质性开发工作（写代码、修 bug、重构、部署）：
+  - 调用 memory_store({type:"project_snapshot", ...}) 更新项目进度
+  - 即使不确定精确百分比，也要估算一个大致值
+  - 记录当前聚焦的工作、阻塞项、下一步计划
+
+  ## 方案
+
+  - **宁可多存不可漏**：不确定是否值得记录 → 存。后续记忆整理会处理冗余。
+  - **信息分解粒度**：一条用户消息包含多个独立信息点时，拆成多个 entity + relation 存储，不要合并为一条模糊的 fact。
+  - **关联优先于孤立**：新实体必须通过 relation 连接到已有实体网络。孤立的实体是死节点。
+  - **去重以语义为准**：不要求 title/name 完全相同才去重，语义相同即应合并。
+
+  ## 结果
+
+  任务完成时，对话中的所有关键信息应已存入记忆库：
+  - 新的实体（entity）+ 关联关系（relation）
+  - 新的事实（fact）+ 事件（event）
+  - 更新后的项目快照（project_snapshot，如有进展）
+  - 更新后的用户画像（user_profile，如有新发现）
+  - 新话题（topic）+ 时间锚点（time_anchor）
+
+  如果确实没有值得长期记忆的内容，输出 "无需提取"。

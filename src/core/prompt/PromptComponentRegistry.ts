@@ -61,6 +61,7 @@ export interface PromptComponentConfig {
   collaborationHint?: string;  // 复杂任务的协作建议（仅L1场景组件）
   suitableFor?: string[];  // 适用任务类型（仅L1场景组件）
   requiredCapabilities?: string[];  // 需要的能力（仅L1场景组件）
+  internal?: boolean;  // 内部场景：list_scenes 不返回，不可删除
   content: string;  // Markdown 格式的 prompt 内容
   enabled?: boolean;  // 是否启用（默认 true）
 }
@@ -178,7 +179,7 @@ export class PromptComponentRegistry {
 
     // 如果用户目录为空，复制所有模板文件
     if (!hasConfigFiles) {
-      log.info('用户 prompts 目录为空，正在创建示例文件...');
+      log.debug('用户 prompts 目录为空，正在创建示例文件...');
       await this.createExampleFiles();
       return;
     }
@@ -253,7 +254,7 @@ export class PromptComponentRegistry {
       await this.saveSyncState(syncState);
 
       if (synced > 0 || updated > 0 || skipped > 0) {
-        log.info(`Prompt 组件同步完成: ${synced} 新增, ${updated} 更新, ${skipped} 跳过（用户自定义）`);
+        log.debug(`Prompt 组件同步完成: ${synced} 新增, ${updated} 更新, ${skipped} 跳过（用户自定义）`);
       }
     } catch (error: any) {
       log.warn('同步模板文件失败:', error.message);
@@ -273,7 +274,7 @@ export class PromptComponentRegistry {
         return;
       }
 
-      log.info(`从模板复制 ${templateFiles.length} 个 Prompt 组件到用户目录...`);
+      log.debug(`从模板复制 ${templateFiles.length} 个 Prompt 组件到用户目录...`);
 
       const syncState: Record<string, string> = {};
 
@@ -290,7 +291,7 @@ export class PromptComponentRegistry {
           await fs.writeFile(destPath, content, 'utf-8');
           // 记录模板 hash，用于后续智能同步
           syncState[fileName] = this.computeHash(content);
-          log.info(`复制: ${fileName}`);
+          log.debug(`复制: ${fileName}`);
         } catch (error: any) {
           log.error(`复制文件失败: ${srcPath}`, error.message);
         }
@@ -298,7 +299,7 @@ export class PromptComponentRegistry {
 
       await this.saveSyncState(syncState);
 
-      log.info('内置 Prompt 组件复制完成');
+      log.debug('内置 Prompt 组件复制完成');
     } catch (error: any) {
       log.error('复制模板文件失败:', error.message);
     }
@@ -316,7 +317,7 @@ export class PromptComponentRegistry {
       }
 
       const files = await glob(this.userPromptsDir + '/**/*.{yaml,yml}');
-      log.info(`扫描用户 prompts 目录: ${this.userPromptsDir}`);
+      log.debug(`扫描用户 prompts 目录: ${this.userPromptsDir}`);
 
       for (const file of files) {
         await this.loadComponentConfig(file, 'user', false); // 初始加载不触发事件
@@ -340,7 +341,7 @@ export class PromptComponentRegistry {
       }
 
       const files = await glob(this.projectPromptsDir + '/**/*.{yaml,yml}');
-      log.info(`扫描项目 prompts 目录: ${this.projectPromptsDir}`);
+      log.debug(`扫描项目 prompts 目录: ${this.projectPromptsDir}`);
 
       for (const file of files) {
         await this.loadComponentConfig(file, 'project', false); // 初始加载不触发事件
@@ -372,7 +373,7 @@ export class PromptComponentRegistry {
       component.enabled = config.enabled ?? true;
       this.components.set(config.id, component);
 
-      log.info(`加载${source === 'user' ? '用户' : '项目'}组件: ${config.id} (${config.name})`);
+      log.debug(`加载${source === 'user' ? '用户' : '项目'}组件: ${config.id} (${config.name})`);
 
       // 触发变化事件
       if (emitEvent) {
@@ -428,6 +429,7 @@ export class PromptComponentRegistry {
       requiredTools: config.requiredTools,
       thinking: config.thinking,
       source, // 标记来源
+      internal: config.internal,
       render: (_context: PromptBuildContext) => config.content,
     };
 
@@ -466,7 +468,7 @@ export class PromptComponentRegistry {
               // 简单匹配：假设文件名包含组件 id
               if (filename.includes(id)) {
                 this.components.delete(id);
-                log.info(`组件已移除: ${id}`);
+                log.debug(`组件已移除: ${id}`);
                 this.emitChange({ type: 'removed', componentId: id });
               }
             }
@@ -522,6 +524,7 @@ export class PromptComponentRegistry {
         estimatedTokens: component.estimatedTokens,
         requiredTools: component.requiredTools,
         thinking: component.thinking,
+        internal: (component as any).internal,
         content: renderedContent,
         enabled: (component as any).enabled ?? true,
       };
@@ -536,7 +539,7 @@ export class PromptComponentRegistry {
 
       const content = stringifyYAML(config);
       await fs.writeFile(filePath, content, 'utf-8');
-      log.info(`组件已保存: ${component.id}`);
+      log.debug(`组件已保存: ${component.id}`);
     } catch (error: any) {
       log.error(`保存组件失败: ${component.id}`, error.message);
       throw error;
@@ -550,7 +553,7 @@ export class PromptComponentRegistry {
     try {
       const filePath = path.join(this.userPromptsDir, `${id}.yaml`);
       await fs.unlink(filePath);
-      log.info(`组件已删除: ${id}`);
+      log.debug(`组件已删除: ${id}`);
     } catch (error: any) {
       log.error(`删除组件失败: ${id}`, error.message);
       throw error;
@@ -565,7 +568,7 @@ export class PromptComponentRegistry {
       const filePath = path.join(this.userPromptsDir, `${config.id}.yaml`);
       const content = stringifyYAML(config);
       await fs.writeFile(filePath, content, 'utf-8');
-      log.info(`组件已创建: ${config.id}`);
+      log.debug(`组件已创建: ${config.id}`);
     } catch (error: any) {
       log.error(`创建组件失败: ${config.id}`, error.message);
       throw error;

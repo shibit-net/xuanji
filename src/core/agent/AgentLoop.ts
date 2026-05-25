@@ -130,7 +130,7 @@ export class AgentLoop {
     });
     this.streamPipeline.on({
       onText: (text) => {
-        this.log.info(`[DIAG] AgentLoop onText called: len=${text.length} text="${text.substring(0, 50)}"`);
+        this.log.debug(`[DIAG] AgentLoop onText called: len=${text.length} text="${text.substring(0, 50)}"`);
         this._streamingOutputStarted = true;
         this._hasOutputInThisRun = true;
         this.callbacks.onText?.(text);
@@ -234,7 +234,10 @@ export class AgentLoop {
     this.config = config;
     this._userId = userId;
 
-    this.contextManager = new ContextManager(config.maxTokens, config.maxTokens ? Math.floor(config.maxTokens * 0.2) : undefined);
+    // 上下文窗口：优先用 model.contextSize（实际上下文窗口），fallback 到 model.maxTokens 或 128K 默认值
+    const contextWindow = config.contextSize || config.maxTokens || 131072;
+    const reserveForOutput = Math.floor(contextWindow * 0.15);
+    this.contextManager = new ContextManager(contextWindow, reserveForOutput);
     this.contextManager.updateSystemPrompt(config.systemPrompt ?? '');
 
     this.streamPipeline = new StreamPipeline(provider);
@@ -264,7 +267,7 @@ export class AgentLoop {
     this._abortRequested = false;
     const maxIterations = Math.min(this.config.maxIterations ?? Infinity, HARD_MAX_ITERATIONS);
 
-    this.log.info(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} apiKey=${((this.config as any).apiKey || '').substring(0, 8)}... baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}, attachments=${attachments?.length || 0}`);
+    this.log.debug(`[DIAG] AgentLoop.run: starting, model=${(this.config as any).model} baseURL=${(this.config as any).baseURL} toolCount=${this.registry.getSchemas().length} maxIterations=${maxIterations}, attachments=${attachments?.length || 0}`);
 
     if (!this._suppressEventBus) {
       eventBus.emitSync(XuanjiEvent.AGENT_STARTED, {
@@ -321,11 +324,12 @@ export class AgentLoop {
           baseURL: (this.config as any).baseURL,
           maxTokens: this.config.maxTokens,
           thinking: this.thinkingConfig || (this.config as any).thinking,
+          contextSize: (this.config as any).contextSize,
         };
         if (!streamConfig.model) {
           throw new Error(`Agent 模型未配置，请在配置页面设置`);
         }
-        this.log.info(`[DIAG] AgentLoop.run: calling streamPipeline.execute, model=${streamConfig.model} apiKey=${streamConfig.apiKey.substring(0, 8)}... baseURL=${streamConfig.baseURL} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
+        this.log.debug(`[DIAG] AgentLoop.run: calling streamPipeline.execute, model=${streamConfig.model} baseURL=${streamConfig.baseURL} msgCount=${messages.length} toolCount=${toolSchemas.length}`);
         const result = await this.streamPipeline.execute(messages, toolSchemas, {
           signal: signal,
           maxRetries: 3,
@@ -337,7 +341,7 @@ export class AgentLoop {
             return true;
           },
         });
-        this.log.info(`[DIAG] AgentLoop.run: streamPipeline.execute returned, contentBlocks=${result.contentBlocks?.length || 0} toolCalls=${result.toolCalls?.length || 0} stopReason=${result.stopReason}`);
+        this.log.debug(`[DIAG] AgentLoop.run: streamPipeline.execute returned, contentBlocks=${result.contentBlocks?.length || 0} toolCalls=${result.toolCalls?.length || 0} stopReason=${result.stopReason}`);
 
         if (signal?.aborted) break;
 
@@ -568,7 +572,7 @@ export class AgentLoop {
       this.callbacks.onError?.(err);
       throw err;
     } finally {
-      this.log.info(`[DIAG] AgentLoop.run: finally block, hasOutput=${this._hasOutputInThisRun} iterations=${this.currentIteration}`);
+      this.log.debug(`[DIAG] AgentLoop.run: finally block, hasOutput=${this._hasOutputInThisRun} iterations=${this.currentIteration}`);
       this.running = false;
       this.callbacks.onEnd?.(this.getState());
       if (!this._suppressEventBus) {
@@ -608,8 +612,19 @@ export class AgentLoop {
     return this.contextManager;
   }
 
+  /** 压缩会话上下文（供 compact IPC 调用） */
+  async compact(_data?: any): Promise<{ originalTokens: number; compressedTokens: number; compressionRatio: number; summary: string }> {
+    const budget = this.contextManager.checkBudget();
+    const strategy = budget.level === 'red' ? 'aggressive' : 'summarize_early';
+    return this.contextManager.compress(strategy);
+  }
+
   getToolRegistry(): IToolRegistry {
     return this.registry;
+  }
+
+  getToolGateway(): ToolGateway {
+    return this.toolGateway;
   }
 
   getMessageHistory(): Message[] {
@@ -660,10 +675,10 @@ export class AgentLoop {
     if (cfg.model) {
       this.config.model = cfg.model;
     }
-    if (cfg.apiKey !== undefined) {
+    if (cfg.apiKey) {
       (this.config as any).apiKey = cfg.apiKey;
     }
-    if (cfg.baseURL !== undefined) {
+    if (cfg.baseURL) {
       (this.config as any).baseURL = cfg.baseURL;
     }
     if (cfg.maxIterations !== undefined) {

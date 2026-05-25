@@ -8,7 +8,7 @@
  * - 按 execId 过滤可拿到完整执行链路
  *
  * 文件格式（JSONL）：
- *   {"time":"2026-05-02T10:00:00.000Z","level":"info","ns":"xuanji:AgentLoop","msg":"agent started","execId":"exec-abc","depth":1}
+ *   {"time":"2026-05-02T18:00:00.000+08:00","level":"info","ns":"xuanji:AgentLoop","msg":"agent started","execId":"exec-abc","depth":1}
  */
 
 import pino from 'pino';
@@ -18,6 +18,7 @@ import fs from 'fs';
 import { Writable } from 'node:stream';
 import type { ILogger, LogMetadata } from '../types';
 import { RotatingFileStream } from './RotatingFileStream';
+import { getUTC8Components } from '@/shared/utils/time/formatters';
 
 // ─── 控制台可读输出流 ─────────────────────────────
 
@@ -30,15 +31,17 @@ const LEVEL_COLORS: Record<string, string> = {
 const RESET = '\x1b[0m';
 const DIM = '\x1b[2m';
 
+const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+
 /**
- * 将 UTC ISO 时间戳转为本地时间字符串：YYYY-MM-DD HH:mm:ss.SSS
+ * 将时间戳转为 UTC+8 时间字符串：YYYY-MM-DD HH:mm:ss.SSS
  */
 function formatLocalTime(isoTime?: string): string {
   if (!isoTime) return '';
   const d = new Date(isoTime);
-  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  const c = getUTC8Components(d);
+  return `${c.year}-${pad(c.month)}-${pad(c.day)} ` +
+    `${pad(c.hours)}:${pad(c.minutes)}:${pad(c.seconds)}.${pad(c.ms, 3)}`;
 }
 
 /**
@@ -158,7 +161,10 @@ export class PinoLogger implements ILogger {
     this.pino = pino(
       {
         level: process.env.XUANJI_LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
-        timestamp: pino.stdTimeFunctions.isoTime,
+        timestamp: () => {
+          const c = getUTC8Components(new Date());
+          return `${c.year}-${pad(c.month)}-${pad(c.day)}T${pad(c.hours)}:${pad(c.minutes)}:${pad(c.seconds)}.${pad(c.ms, 3)}+08:00`;
+        },
         formatters: {
           level(label) {
             return { level: label };

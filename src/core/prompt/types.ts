@@ -108,6 +108,9 @@ export interface PromptComponent {
   /** 是否启用（用于 GUI 管理） */
   enabled?: boolean;
 
+  /** 内部场景：list_scenes 不返回，不可删除，System Prompt 配置页正常展示和编辑 */
+  internal?: boolean;
+
   /** 渲染方法 */
   render(context: PromptBuildContext): string | Promise<string>;
 }

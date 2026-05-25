@@ -1,5 +1,9 @@
 {
   "provider": {},
+  "download": {
+    "source": "modelscope",
+    "hfMirror": ""
+  },
   "ui": {
     "theme": "auto",
     "language": "en",
@@ -140,5 +144,6 @@
     "level": "info"
   },
   "workspacePath": "",
-  "onboardingDone": false
+  "onboardingDone": false,
+  "fallbackProvider": null
 }

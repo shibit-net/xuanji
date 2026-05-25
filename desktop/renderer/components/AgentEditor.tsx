@@ -9,6 +9,7 @@ import CodeEditor from './CodeEditor';
 import MilkdownEditor from './MilkdownEditor';
 import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
 import { t } from '@/core/i18n';
+import { useConfigStore } from '../stores/configStore';
 
 interface AgentEditorProps {
   agent: any | null;
@@ -200,10 +201,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
 
   // 下载本地模型（启动下载 + 轮询完成状态）
   const pollTimersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const downloadSource = useConfigStore((s) => s.fullConfig?.download?.source);
+  const hfMirror = useConfigStore((s) => s.fullConfig?.download?.hfMirror);
 
   const downloadLocalModel = async (modelId: string) => {
     try {
-      const result = await window.electron.localModelDownload(modelId);
+      const result = await window.electron.localModelDownload(modelId, downloadSource, hfMirror);
       if (result.success) {
         setLocalModelStatuses(prev => ({
           ...prev,

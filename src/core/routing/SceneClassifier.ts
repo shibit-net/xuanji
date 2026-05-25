@@ -52,12 +52,12 @@ export interface SceneInfo {
 export interface SceneClassifierDeps {
   agentRegistry: AgentRegistry;
   /** Provider 工厂函数（统一通过 AgentFactory.providerPool 路径创建） */
-  providerFactory?: (config: { adapter: string }) => ILLMProvider;
+  providerFactory?: (config: { adapter: string; apiKey?: string; baseURL?: string }) => ILLMProvider;
 }
 
 export class SceneClassifier {
   private agentRegistry: AgentRegistry;
-  private providerFactory?: (config: { adapter: string }) => ILLMProvider;
+  private providerFactory?: (config: { adapter: string; apiKey?: string; baseURL?: string }) => ILLMProvider;
   private classifierConfig: ConfigurableAgentConfig | null = null;
   private systemPrompt: string | null = null;
   private provider: ILLMProvider | null = null;
@@ -97,7 +97,11 @@ export class SceneClassifier {
       if (!classifierConfig.provider?.adapter) {
         throw new Error('SceneClassifier: scene-classifier agent 未配置 provider adapter');
       }
-      this.provider = factory({ adapter: classifierConfig.provider.adapter });
+      this.provider = factory({
+        adapter: classifierConfig.provider.adapter,
+        apiKey: classifierConfig.provider.apiKey,
+        baseURL: classifierConfig.provider.baseURL,
+      });
     } else {
       const { ProviderManager } = await import('@/core/providers/ProviderManager');
       this.provider = ProviderManager.getProvider(classifierConfig.provider);

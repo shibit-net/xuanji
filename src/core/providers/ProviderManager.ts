@@ -29,18 +29,44 @@ export interface AgentProviderConfig {
 
 export class ProviderManager {
   /**
-   * 根据 Agent 自身 provider 配置创建 Provider
+   * 根据 Agent 自身 provider 配置创建 Provider，支持兜底
    *
    * agentProvider 来自 agent 的 YAML 配置文件 + agent-overrides 合并结果。
-   * 每个 agent 的配置文件一定存在（首次登录从模板复制），不存在全局兜底。
+   * 如果 agent 的 provider 配置不健全（缺 adapter），会尝试使用 fallbackProvider。
+   *
+   * @param agentProvider  Agent 自身的 provider 配置
+   * @param fallbackProvider  用户配置的兜底 provider（可选）
    */
-  static getProvider(agentProvider?: AgentProviderConfig): ILLMProvider {
-    if (!agentProvider?.adapter) {
-      throw new Error('Agent 未配置 provider adapter，请在配置页面设置');
+  /** 本地/内网 provider，不需要 apiKey，仅需 adapter + baseURL */
+  private static LOCAL_ADAPTERS = new Set(['ollama', 'vllm', 'lmstudio', 'local-llama']);
+
+  /** agent provider 是否有可用凭证（apiKey 或 baseURL），仅有 adapter 不足以发起真实调用 */
+  private static hasCredentials(p?: AgentProviderConfig): boolean {
+    if (!p?.adapter) return false;
+    if (this.LOCAL_ADAPTERS.has(p.adapter)) return true;
+    return !!(p.apiKey || p.baseURL);
+  }
+
+  static getProvider(agentProvider?: AgentProviderConfig, fallbackProvider?: AgentProviderConfig): ILLMProvider | null {
+    // 优先使用 agent 自身的 provider（必须有 adapter + apiKey/baseURL）
+    if (this.hasCredentials(agentProvider)) {
+      const provider = createProviderByAdapter(agentProvider!.adapter!);
+      log.info(`ProviderManager created: ${provider.name} for adapter=${agentProvider!.adapter}`);
+      return provider;
     }
 
-    const provider = createProviderByAdapter(agentProvider.adapter);
-    log.info(`ProviderManager created: ${provider.name} for adapter=${agentProvider.adapter}`);
-    return provider;
+    if (agentProvider?.adapter) {
+      log.warn(`ProviderManager: agent provider has adapter=${agentProvider.adapter} but no apiKey/baseURL, trying fallback`);
+    }
+
+    // 兜底 provider
+    if (this.hasCredentials(fallbackProvider)) {
+      const provider = createProviderByAdapter(fallbackProvider!.adapter!);
+      log.info(`ProviderManager fallback: ${provider.name} for adapter=${fallbackProvider!.adapter}`);
+      return provider;
+    }
+
+    log.warn('ProviderManager: 未配置 provider adapter 且未配置兜底 provider，返回 null');
+    return null;
   }
 }

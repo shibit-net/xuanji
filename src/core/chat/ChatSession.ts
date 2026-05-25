@@ -125,7 +125,7 @@ export class ChatSession {
 
     const execId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setLogContext({ execId, depth: 0 });
-    log.info(`[DIAG] Session run started: agentLoop.running=${(this.agentLoop as any).running} input="${input.substring(0, 80)}"`);
+    log.debug(`[DIAG] Session run started: agentLoop.running=${(this.agentLoop as any).running} input="${input.substring(0, 80)}"`);
 
     try {
       await this.callbacks?.onBeforeExecution?.(input);
@@ -171,9 +171,9 @@ export class ChatSession {
       // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
       this.repairOrphanedToolUse();
 
-      log.info('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
+      log.debug('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
       await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks, attachments);
-      log.info('[DIAG] ChatSession.run: agentLoop.run completed');
+      log.debug('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint + 渠道标识
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
@@ -447,12 +447,14 @@ export class ChatSession {
       const toolRegistry: IToolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
 
       // 3. 应用 agent 自身配置到 AgentLoop
+      // agent 自身凭证优先，缺失时回退到兜底 provider
       const agentProvider = agentConfig.provider;
+      const fallback = agentFactory.getFallbackProviderConfig();
 
       this.agentLoop.applyAgentConfig({
         provider: newProvider,
-        apiKey: agentProvider?.apiKey,
-        baseURL: agentProvider?.baseURL,
+        apiKey: agentProvider?.apiKey || fallback?.apiKey,
+        baseURL: agentProvider?.baseURL || fallback?.baseURL,
         systemPrompt,
         toolRegistry,
         model: agentConfig.model.primary,
@@ -497,7 +499,7 @@ export class ChatSession {
     }
     const state = this.stateTracker.getState();
     const agentLoopStatus = this.agentLoop.getState().status;
-    log.info(`[DIAG] handleUserInput: state=${state} agentLoopStatus=${agentLoopStatus} _useNewPath=${this._useNewPath} _stateMachine=${!!this._stateMachine} input="${input.substring(0, 60)}"`);
+    log.debug(`[DIAG] handleUserInput: state=${state} agentLoopStatus=${agentLoopStatus} _useNewPath=${this._useNewPath} _stateMachine=${!!this._stateMachine} input="${input.substring(0, 60)}"`);
 
     switch (state) {
       case 'idle':
