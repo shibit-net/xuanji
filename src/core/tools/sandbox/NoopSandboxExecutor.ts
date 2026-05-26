@@ -43,6 +43,7 @@ export class NoopSandboxExecutor implements SandboxExecutor {
           timeout,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: process.env,
+          windowsHide: true,
         },
       );
 

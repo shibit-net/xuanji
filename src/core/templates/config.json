@@ -21,8 +21,7 @@
     "deniedCommands": [],
     "allowedPaths": [],
     "deniedPaths": [],
-    "persistDecisions": true,
-    "decisionsFile": ".xuanji/permission-decisions.db"
+    "persistDecisions": true
   },
   "tools": {
     "enabled": [],

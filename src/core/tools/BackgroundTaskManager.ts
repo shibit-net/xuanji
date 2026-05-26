@@ -61,6 +61,7 @@ function spawnBackgroundTask(command: string, env?: Record<string, string>): Chi
   return spawn(getPlatformShell(), getShellExecArgs(command), {
     cwd: process.cwd(),
     env: env ?? { ...process.env },
+    windowsHide: true,
   });
 }
 

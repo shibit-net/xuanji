@@ -141,7 +141,7 @@ export class PermissionController implements IPermissionController {
     try {
       const dbPath = this.config.decisionsFile
         ? resolve(this.config.decisionsFile)
-        : join(homedir(), '.xuanji', this.userId, 'permission-decisions.db');
+        : join(homedir(), '.xuanji', 'users', this.userId, 'permissions', 'decisions.db');
 
       this.decisionStore = new DecisionStore(dbPath);
       await this.decisionStore.init();

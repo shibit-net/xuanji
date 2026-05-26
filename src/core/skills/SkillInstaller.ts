@@ -365,11 +365,13 @@ export class SkillInstaller {
       // 6. npm install
       try {
         log.info(`Running npm install for ${packageId}...`);
-        execSync('npm install --production --ignore-scripts', {
+        const npmCmd = this.findNpmExecCommand();
+        execSync(`${npmCmd} install --production --ignore-scripts`, {
           cwd: skillDir,
           timeout: 120_000,
           maxBuffer: 1024 * 1024,
           encoding: 'utf-8',
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -475,6 +477,26 @@ export class SkillInstaller {
   /**
    * 清理临时目录和文件
    */
+  /**
+   * 查找 npm 可执行命令（用于 execSync）
+   *
+   * 优先使用 Electron 内置 Node 运行打包的 npm-cli.js，
+   * 避免依赖系统安装的 Node.js。
+   */
+  private findNpmExecCommand(): string {
+    try {
+      const pRes = (process as any).resourcesPath as string | undefined;
+      if (pRes) {
+        const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        if (require('fs').existsSync(npmCliPath)) {
+          // 用引号包裹路径以防包含空格
+          return `"${process.execPath}" "${npmCliPath}"`;
+        }
+      }
+    } catch { /* 兜底 */ }
+    return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  }
+
   private async cleanup(tmpDir: string, tarFile: string): Promise<void> {
     try { await fs.unlink(tarFile); } catch {}
     try {

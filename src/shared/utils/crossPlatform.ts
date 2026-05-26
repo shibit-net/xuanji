@@ -36,7 +36,7 @@ let bashAvailable: boolean | null = null;
 export function isBashAvailable(): boolean {
   if (bashAvailable !== null) return bashAvailable;
   try {
-    execSync(isWindows ? 'where bash' : 'which bash', { stdio: 'ignore', timeout: 3000 });
+    execSync(isWindows ? 'where bash' : 'which bash', { stdio: 'ignore', timeout: 3000, windowsHide: true });
     bashAvailable = true;
   } catch {
     bashAvailable = false;
@@ -49,7 +49,7 @@ export function isPowerShellAvailable(): boolean {
   try {
     execSync(
       isWindows ? 'where pwsh 2>nul || where powershell 2>nul' : 'which pwsh',
-      { stdio: 'ignore', timeout: 3000, shell: isWindows ? 'cmd.exe' : '/bin/sh' },
+      { stdio: 'ignore', timeout: 3000, shell: isWindows ? 'cmd.exe' : '/bin/sh', windowsHide: true },
     );
     return true;
   } catch {
@@ -65,6 +65,7 @@ export function getPowerShellBinary(): string {
       stdio: 'ignore',
       timeout: 3000,
       shell: isWindows ? 'cmd.exe' : '/bin/sh',
+      windowsHide: true,
     });
     _pwshBinary = 'pwsh';
   } catch {
@@ -210,6 +211,7 @@ export function crossPlatformKill(proc: ChildProcess, signal?: 'SIGTERM' | 'SIGK
       execSync(`taskkill /F /T /PID ${proc.pid}`, {
         timeout: 3000,
         stdio: 'ignore',
+        windowsHide: true,
       });
     } catch {
       try { proc.kill(); } catch { /* 进程可能已退出 */ }
@@ -234,6 +236,7 @@ export function crossPlatformTerminate(proc: ChildProcess): boolean {
       execSync(`taskkill /PID ${proc.pid}`, {
         timeout: 3000,
         stdio: 'ignore',
+        windowsHide: true,
       });
       return true;
     } catch {
@@ -256,6 +259,7 @@ export function crossPlatformInterrupt(proc: ChildProcess): boolean {
       execSync(`taskkill /PID ${proc.pid}`, {
         timeout: 3000,
         stdio: 'ignore',
+        windowsHide: true,
       });
       return true;
     } catch {

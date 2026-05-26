@@ -1,12 +1,39 @@
 import { app } from 'electron';
 import type { ChildProcess } from 'child_process';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { getMainWindow } from '../window/index.js';
 import { enhancedMessageBus } from '../ipc/GlobalMessageBus.js';
 import { initAgentBridgeForwarding } from '../ipc/platform.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── 日志文件（Windows 用户看不到控制台，必须写文件） ──────────────
+let _agentLogPath: string | null = null;
+
+function getAgentLogPath(): string {
+  if (_agentLogPath) return _agentLogPath;
+  if (app.isPackaged) {
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    try { fs.mkdirSync(logsDir, { recursive: true }); } catch {}
+    _agentLogPath = path.join(logsDir, 'agent-bridge.log');
+  } else {
+    _agentLogPath = path.join(os.tmpdir(), 'xuanji-agent-bridge.log');
+  }
+  return _agentLogPath;
+}
+
+function agentLog(message: string): void {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${message}\n`;
+  try {
+    fs.appendFileSync(getAgentLogPath(), line, 'utf-8');
+  } catch {}
+  // 开发环境也输出到控制台
+  console.log(`[Agent] ${message}`);
+}
 
 let agentProcess: ChildProcess | null = null;
 let sessionReady = false;
@@ -42,7 +69,7 @@ function findNodePath(): string {
   try {
     if (process.platform === 'win32') {
       // Windows: where node 可能返回多行，取第一个
-      return execSync('where node', { encoding: 'utf8' }).trim().split(/\r?\n/)[0].trim();
+      return execSync('where node', { encoding: 'utf8', windowsHide: true }).trim().split(/\r?\n/)[0].trim();
     }
     return execSync('which node', { encoding: 'utf8' }).trim();
   } catch {
@@ -86,12 +113,11 @@ function initChatSession(): Promise<boolean> {
       const mainWindow = getMainWindow();
       mainWindow?.webContents.send('session:init-start');
 
-      let nodePath = findNodePath();
-
-      const isDev = !app.isPackaged;
       let scriptPath: string;
       let args: string[];
+      let nodePath: string;
 
+      const isDev = !app.isPackaged;
       const desktopRoot = path.join(__dirname, '../');
       const projectRoot = path.join(desktopRoot, '../');
 
@@ -105,18 +131,38 @@ function initChatSession(): Promise<boolean> {
           nodePath = path.join(projectRoot, 'node_modules', '.bin', 'tsx.cmd');
           args = [scriptPath];
         } else {
+          nodePath = findNodePath();
           const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
           args = [tsxPath, scriptPath];
         }
       } else {
-        // 生产环境：使用 Electron 内置 Node 运行子进程
-        // 避免系统 Node 与 electron-builder 编译的 native 模块 NODE_MODULE_VERSION 不匹配
-        nodePath = process.execPath;
-        scriptPath = path.join(process.resourcesPath!, 'dist-electron', 'agent-bridge.mjs');
-        args = [scriptPath];
+        // 生产环境：优先使用独立 Node.js 二进制，避免 ELECTRON_RUN_AS_NODE=1
+        // 在 Windows 上创建控制台窗口。
+        const pRes = process.resourcesPath!;
+        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+        const bundledNode = path.join(pRes, 'node', 'bin', nodeName);
+        const noBundledFlag = path.join(pRes, 'dist-electron', '.no-bundled-node');
+        scriptPath = path.join(pRes, 'dist-electron', 'agent-bridge.mjs');
+
+        // 检测 bundled Node.js 是否存在，以及是否有标志文件说明它不可用
+        // 标志文件由 after-pack.mjs 在 downloadNodeBinary 失败时写入
+        if (fs.existsSync(bundledNode) && !fs.existsSync(noBundledFlag)) {
+          nodePath = bundledNode;
+          args = [scriptPath];
+        } else {
+          // 回退到 Electron 内置 Node（ELECTRON_RUN_AS_NODE=1）
+          // 这种方式 native 模块要用 Electron 编译的版本
+          nodePath = process.execPath;
+          args = [scriptPath];
+          if (!fs.existsSync(bundledNode)) {
+            agentLog(`Bundled Node.js not found at ${bundledNode}`);
+          } else if (fs.existsSync(noBundledFlag)) {
+            agentLog(`Bundled Node.js download failed (flag file: ${noBundledFlag})`);
+          }
+          agentLog('Falling back to ELECTRON_RUN_AS_NODE=1 (using Electron-compiled native modules)');
+        }
       }
 
-      const { spawn } = require('child_process');
       const spawnEnv: Record<string, any> = {
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || 'development',
@@ -125,12 +171,23 @@ function initChatSession(): Promise<boolean> {
       // 生产环境：设置 NODE_PATH 让子进程能找到 native 模块
       // electron-builder 自动将 native 模块解包到 app.asar.unpacked/node_modules
       if (!isDev) {
-        // 让 Electron 以纯 Node 模式运行（使用 Electron 内置的 Node 而非系统 Node）
-        spawnEnv.ELECTRON_RUN_AS_NODE = '1';
+        // 仅在使用 Electron 内置 Node 回退时才设置 ELECTRON_RUN_AS_NODE
+        if (nodePath === process.execPath) {
+          spawnEnv.ELECTRON_RUN_AS_NODE = '1';
+        }
         const resourcesPath = process.resourcesPath!;
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');
-        spawnEnv.NODE_PATH = `${extraModules}${path.delimiter}${unpackedModules}`;
+
+        // NODE_PATH = dist-electron/node_modules (JS 依赖) + app.asar.unpacked/node_modules (Electron native)
+        // dist-electron/node_modules 始终放在前面，因为 JS 依赖都在这里
+        // app.asar.unpacked/node_modules 包含 Electron 编译的 native 模块（用于 ELECTRON_RUN_AS_NODE 回退）
+        const nodePathDirs = [extraModules];
+        if (fs.existsSync(unpackedModules)) {
+          nodePathDirs.push(unpackedModules);
+          agentLog(`NODE_PATH includes app.asar.unpacked: ${unpackedModules}`);
+        }
+        spawnEnv.NODE_PATH = nodePathDirs.join(path.delimiter);
         // 模板文件通过 extraResources 打包到 Resources/templates/
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
         // Python 运行时（XLS 解析器回退）
@@ -142,28 +199,59 @@ function initChatSession(): Promise<boolean> {
         spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(desktopRoot, 'python-runtime');
       }
 
+      const spawnCwd = path.resolve(__dirname, '../../');
+
+      // 诊断日志：记录 spawn 参数
+      agentLog(`Spawning agent-bridge:`);
+      agentLog(`  node: ${nodePath} (exists: ${fs.existsSync(nodePath)})`);
+      agentLog(`  script: ${scriptPath} (exists: ${fs.existsSync(scriptPath)})`);
+      agentLog(`  cwd: ${spawnCwd}`);
+      agentLog(`  NODE_PATH: ${spawnEnv.NODE_PATH || '(not set)'}`);
+      agentLog(`  ELECTRON_RUN_AS_NODE: ${spawnEnv.ELECTRON_RUN_AS_NODE || '(not set)'}`);
+
+      const { spawn } = require('child_process');
       agentProcess = spawn(nodePath, args, {
-        cwd: path.resolve(__dirname, '../../'),
+        cwd: spawnCwd,
         env: spawnEnv,
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        windowsHide: true,
       });
 
-      // 子进程 stdout/stderr 直接转发到父进程控制台
-      // PinoLogger 已在子进程内完成格式化，此处只需透传
+      agentLog(`Agent-bridge spawned, PID: ${agentProcess.pid}`);
+
+      // 收集 stdout 用于崩溃诊断（PinoLogger 输出到 stdout）
+      let stdoutTail = '';
+      const STDOUT_TAIL_MAX = 8192;
       const handleStdout = (data: Buffer) => {
-        const text = data.toString('utf8').trim();
-        // stdout forwarding suppressed to reduce noise
+        const text = data.toString('utf8');
+        stdoutTail += text;
+        if (stdoutTail.length > STDOUT_TAIL_MAX) {
+          stdoutTail = stdoutTail.slice(-STDOUT_TAIL_MAX);
+        }
+        const trimmed = text.trim();
+        if (trimmed) agentLog(`[bridge] ${trimmed}`);
       };
 
       const handleStderr = (data: Buffer) => {
         const text = data.toString('utf8').trim();
-        if (text) console.error(text);
+        if (text) agentLog(`[bridge:err] ${text}`);
       };
 
       agentProcess!.stdout?.on('data', handleStdout);
       agentProcess!.stderr?.on('data', handleStderr);
 
-      agentProcess!.on('exit', (_code: number, _signal: string) => {
+      // 记录子进程启动时间，用于检测快速崩溃
+      const spawnTime = Date.now();
+
+      agentProcess!.on('exit', (code: number, signal: string) => {
+        const livedMs = Date.now() - spawnTime;
+        agentLog(`Agent-bridge EXITED: code=${code}, signal=${signal}, pid=${agentProcess?.pid}, lived=${livedMs}ms`);
+
+        // 输出崩溃前的 stdout 尾部到日志文件，便于诊断
+        if (code !== 0 && stdoutTail.trim()) {
+          agentLog(`Last stdout before crash:\n${stdoutTail.trim().slice(-4096)}`);
+        }
+
         if (agentProcess) {
           agentProcess.stdout?.removeAllListeners();
           agentProcess.stderr?.removeAllListeners();
@@ -171,6 +259,7 @@ function initChatSession(): Promise<boolean> {
         }
         agentProcess = null;
         sessionReady = false;
+        stdoutTail = '';
 
         // 非清理状态下的意外退出 → 自动重启
         if (!isCleaningUp && restartAttempts < MAX_RESTART_ATTEMPTS) {
@@ -190,19 +279,18 @@ function initChatSession(): Promise<boolean> {
             });
           }, delay);
         } else if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
-          console.warn(`Agent sub-process max restarts reached: 次，放弃自动重启`);
-          // 通知 renderer 子进程无法恢复
+          agentLog(`Max restarts (${MAX_RESTART_ATTEMPTS}) reached, giving up`);
           const mainWindow = getMainWindow();
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('agent:crash', {
-              message: 'Agent 子进程多次崩溃，已停止自动重启。请手动重新初始化。',
+              message: `Agent 子进程多次崩溃（code=${code}），已停止自动重启。请手动重新初始化。`,
             });
           }
         }
       });
 
       agentProcess!.on('error', (err: Error) => {
-        console.warn('[Agent] sub-process error:', err);
+        agentLog(`Agent-bridge spawn error: ${err.message}\n${err.stack || ''}`);
       });
 
       // 创建并绑定 agent 消息通道
@@ -228,16 +316,17 @@ function initChatSession(): Promise<boolean> {
 
       // 监听子进程就绪
       agentChannel.once('child-ready', (data) => {
-        console.log(`[Agent] Sub-process ready, PID: ${data?.pid || 'unknown'}`);
+        agentLog(`Sub-process ready, PID: ${data?.pid || 'unknown'}`);
       });
 
       // 监听初始化完成
       agentChannel.on('init-complete', (data) => {
         if (data.success) {
           sessionReady = true;
+          agentLog('Session init complete');
           mainWindow?.webContents.send('session:init-complete');
         } else {
-          console.error('[Agent] Session 初始化失败:', data.error);
+          agentLog(`Session init FAILED: ${data.error || 'unknown'}`);
           mainWindow?.webContents.send('session:init-failed', {
             error: data.error || '会话初始化失败',
           });
@@ -252,7 +341,8 @@ function initChatSession(): Promise<boolean> {
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('ChatSession 初始化超时'));
+          const pid = agentProcess?.pid || 'unknown';
+          reject(new Error(`ChatSession 初始化超时 (60s), pid=${pid}, 子进程可能卡在模块加载或 init 消息处理`));
         }, 60000);
 
         const checkReady = () => {
@@ -264,21 +354,21 @@ function initChatSession(): Promise<boolean> {
 
         const interval = setInterval(checkReady, 100);
 
-        agentProcess?.once('exit', () => {
+        agentProcess?.once('exit', (code: number, signal: string) => {
           clearInterval(interval);
           clearTimeout(timeout);
-          reject(new Error('ChatSession 子进程意外退出'));
+          reject(new Error(`ChatSession 子进程退出 code=${code} signal=${signal}`));
         });
       });
 
       // 成功后重置重启计数
       if (restartAttempts > 0) {
-        console.log(`[Agent] Auto-restart succeeded after ${restartAttempts} attempts, counter reset`);
+        agentLog(`Auto-restart succeeded after ${restartAttempts} attempts, counter reset`);
       }
       restartAttempts = 0;
       return true;
     } catch (err) {
-      console.error('❌ ChatSession 初始化失败:', err);
+      agentLog(`ChatSession init FAILED: ${err instanceof Error ? err.message : String(err)}`);
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('session:init-failed', {
@@ -300,7 +390,7 @@ function forceKillProcess(proc: ChildProcess): void {
   if (process.platform === 'win32') {
     const { execSync } = require('child_process');
     try {
-      execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 3000, stdio: 'ignore' });
+      execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 3000, stdio: 'ignore', windowsHide: true });
     } catch {
       try { proc.kill(); } catch { /* 进程可能已退出 */ }
     }

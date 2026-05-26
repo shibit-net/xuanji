@@ -843,9 +843,12 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       if (intentRouter && intentEnabled) {
         // 意图分析：只获取 scene + complexity，agent 由用户选择
         channel.send('agent:intent-route:start');
+        console.log(`[DIAG] intentRouter.analyze calling, message length=${fullMessage.length}`);
         const analysis = await intentRouter.analyze(fullMessage, (progress) => {
+          console.log(`[DIAG] intentRouter progress: level=${progress.level} status=${progress.status} method=${progress.method} success=${progress.success}`);
           channel.send('agent:intent-route:progress', progress);
         });
+        console.log(`[DIAG] intentRouter.analyze done: method=${analysis.method} scene=${analysis.scene} complexity=${analysis.complexity} confidence=${analysis.confidence}`);
         await session.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
         const agentConfig = session.getAgentRegistry()?.get(userAgentId);
         const agentType = !agentConfig ? 'temporary'
@@ -3232,6 +3235,7 @@ async function detectProjectFromCwd() {
           gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
             cwd: workspacePath,
             encoding: 'utf-8',
+            windowsHide: true,
           }).trim();
         } catch {}
       }

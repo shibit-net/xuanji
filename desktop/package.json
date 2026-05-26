@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "rebuild": "electron-builder install-app-deps",
     "setup:python-runtime": "bash scripts/setup-python-runtime.sh",
-    "build:pre": "npm run setup:python-runtime && node -e \"['better-sqlite3','sharp'].forEach(m=>{const p='node_modules/'+m+'/build';if(require('fs').existsSync(p))require('fs').rmSync(p,{recursive:true,force:true})})\" && (npm run build:acp-worker & npm run build:agent-bridge & wait) && vite build && npm run build:copy-deps",
+    "build:pre": "npm run setup:python-runtime && node -e \"['better-sqlite3','sharp'].forEach(m=>{const p='node_modules/'+m+'/build';if(require('fs').existsSync(p))require('fs').rmSync(p,{recursive:true,force:true})})\" && (npm run build:acp-worker & npm run build:agent-bridge & wait) && vite build && node scripts/install-dist-deps.mjs",
     "build:copy-deps": "node scripts/copy-native-deps.cjs",
     "build:acp-worker": "cd .. && npx tsup --config tsup.config.acp-worker.ts",
     "build:agent-bridge": "tsup --config tsup.config.agent-bridge.ts",
@@ -113,9 +113,14 @@
       "output": "release"
     },
     "npmRebuild": true,
+    "afterPack": "scripts/after-pack.mjs",
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
+      "dist-electron/*.js",
+      "dist-electron/*.mjs",
+      "dist-electron/*.css",
+      "dist-electron/*.html",
+      "dist-electron/assets/**",
       "build/**/*"
     ],
     "extraResources": [
@@ -125,6 +130,7 @@
         "filter": [
           "*.mjs",
           "*.node",
+          "node_modules/**",
           "skill-worker.js"
         ]
       },
@@ -140,132 +146,12 @@
         "to": "templates"
       },
       {
-        "from": "../node_modules/tree-sitter",
-        "to": "dist-electron/node_modules/tree-sitter"
-      },
-      {
-        "from": "../node_modules/tree-sitter-typescript",
-        "to": "dist-electron/node_modules/tree-sitter-typescript"
-      },
-      {
-        "from": "../node_modules/tree-sitter-python",
-        "to": "dist-electron/node_modules/tree-sitter-python"
-      },
-      {
-        "from": "../node_modules/tree-sitter-java",
-        "to": "dist-electron/node_modules/tree-sitter-java"
-      },
-      {
-        "from": "./node_modules/better-sqlite3",
-        "to": "dist-electron/node_modules/better-sqlite3"
-      },
-      {
-        "from": "./node_modules/sqlite-vec",
-        "to": "dist-electron/node_modules/sqlite-vec"
-      },
-      {
-        "from": "../node_modules/node-gyp-build",
-        "to": "dist-electron/node_modules/node-gyp-build"
-      },
-      {
-        "from": "../node_modules/bindings",
-        "to": "dist-electron/node_modules/bindings"
-      },
-      {
-        "from": "../node_modules/file-uri-to-path",
-        "to": "dist-electron/node_modules/file-uri-to-path"
-      },
-      {
-        "from": "../node_modules/@xenova/transformers",
-        "to": "dist-electron/node_modules/@xenova/transformers"
-      },
-      {
-        "from": "../node_modules/@huggingface/jinja",
-        "to": "dist-electron/node_modules/@huggingface/jinja"
-      },
-      {
-        "from": "../node_modules/onnxruntime-node",
-        "to": "dist-electron/node_modules/onnxruntime-node"
-      },
-      {
-        "from": "../node_modules/onnxruntime-web",
-        "to": "dist-electron/node_modules/onnxruntime-web"
-      },
-      {
-        "from": "../node_modules/onnxruntime-common",
-        "to": "dist-electron/node_modules/onnxruntime-common"
-      },
-      {
-        "from": "../node_modules/onnx-proto",
-        "to": "dist-electron/node_modules/onnx-proto"
-      },
-      {
-        "from": "../node_modules/flatbuffers",
-        "to": "dist-electron/node_modules/flatbuffers"
-      },
-      {
-        "from": "../node_modules/long",
-        "to": "dist-electron/node_modules/long"
-      },
-      {
-        "from": "../node_modules/platform",
-        "to": "dist-electron/node_modules/platform"
-      },
-      {
-        "from": "../node_modules/guid-typescript",
-        "to": "dist-electron/node_modules/guid-typescript"
-      },
-      {
-        "from": "./node_modules/node-pty",
-        "to": "dist-electron/node_modules/node-pty"
-      },
-      {
-        "from": "../node_modules/node-llama-cpp",
-        "to": "dist-electron/node_modules/node-llama-cpp"
-      },
-      {
-        "from": "../node_modules/@node-llama-cpp",
-        "to": "dist-electron/node_modules/@node-llama-cpp"
-      },
-      {
         "from": "python-runtime",
         "to": "python-runtime"
       },
       {
-        "from": "../node_modules/lifecycle-utils",
-        "to": "dist-electron/node_modules/lifecycle-utils"
-      },
-      {
-        "from": "../node_modules/@huggingface/jinja",
-        "to": "dist-electron/node_modules/@huggingface/jinja"
-      },
-      {
-        "from": "../node_modules/sharp",
-        "to": "dist-electron/node_modules/sharp"
-      },
-      {
-        "from": "../node_modules/got",
-        "to": "dist-electron/node_modules/got"
-      },
-      {
-        "from": "../node_modules/tunnel-agent",
-        "to": "dist-electron/node_modules/tunnel-agent"
-      },
-      {
-        "from": "../node_modules/@kwsites",
-        "to": "dist-electron/node_modules/@kwsites"
-      },
-      {
-        "from": "../node_modules/@simple-git",
-        "to": "dist-electron/node_modules/@simple-git"
-      },
-      {
-        "from": "../node_modules/@isaacs",
-        "to": "dist-electron/node_modules/@isaacs"
-      },
-      {
-        "from": "../node_modules/@tinyhttp",
-        "to": "dist-electron/node_modules/@tinyhttp"
+        "from": "extraResources/node",
+        "to": "node"
       }
     ],
     "mac": {

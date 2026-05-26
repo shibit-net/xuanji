@@ -130,41 +130,6 @@ export const useConfigStore = create<ConfigState>()(
               loading: false,
             });
 
-            // 第二步：后台异步初始化 session（不影响 UI 展示）
-            window.electron.agentInit?.().then((result) => {
-              if (result?.config) {
-                // session 初始化成功，用完整配置刷新 store
-                const config = result.config;
-                const lang = (config.ui?.language as 'zh' | 'en') || language;
-                set({
-                  fullConfig: config,
-                  settings: {
-                    language: lang,
-                    theme: (config.ui?.theme as 'light' | 'dark' | 'auto') || 'auto',
-                    fontSize: 14,
-                    workspacePath: (config.workspacePath as string) || '',
-                    showTokenUsage: config.ui?.showTokenUsage ?? true,
-                    showThinking: config.ui?.showThinking ?? true,
-                    model: {
-                      defaultModel: config.provider?.model || '',
-                      temperature: config.provider?.temperature ?? 1.0,
-                      maxTokens: config.provider?.maxTokens ?? 8000,
-                      streaming: true,
-                    },
-                    api: {},
-                    permissions: get().settings.permissions,
-                  },
-                  fallbackProvider: config.fallbackProvider || null,
-                  error: result.success ? null : (result.error || null),
-                });
-              } else {
-                console.warn('[configStore] session init failed:', result?.error);
-                set({ error: result?.error || 'Session 初始化失败' });
-              }
-            }).catch((err: any) => {
-              console.warn('[configStore] session init error:', err);
-            });
-
             return;
           }
 

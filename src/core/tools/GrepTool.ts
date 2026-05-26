@@ -185,6 +185,7 @@ export class GrepTool extends BaseTool {
       const proc = spawn('rg', args, {
         cwd,
         env: { ...process.env },
+        windowsHide: true,
       });
 
       const chunks: Buffer[] = [];

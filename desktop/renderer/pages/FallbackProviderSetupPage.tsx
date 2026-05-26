@@ -110,14 +110,17 @@ export default function FallbackProviderSetupPage() {
         }
         console.log(`[DIAG] setup verify pass, disk fallbackProvider=`, JSON.stringify(verify?.config?.fallbackProvider));
 
-        // 验证通过 → kill 旧子进程 + 全量重载到首页重新初始化
+        // 验证通过 → kill 旧子进程 + 导航到首页
         useConfigStore.setState({
           fallbackProvider: verify.config.fallbackProvider,
         });
-        // kill 旧子进程（重置 session 状态），让重载后的 agentInit 重新 spawn
+        // kill 旧子进程（重置 session 状态），让首页的 session 初始化重新读到 fallbackProvider
         await window.electron.agentReset?.().catch(() => {});
+        // 预加载首页组件，避免路由切换时的 LoadingScreen 闪烁
+        import('../layouts/MainLayout').catch(() => {});
+        import('./MainPage').catch(() => {});
         toast.success(t('setup.save_success'));
-        window.location.hash = '#/';
+        navigate('/');
       } else {
         setError(result?.error || t('setup.save_failed'));
       }

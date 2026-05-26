@@ -303,7 +303,7 @@ export class SessionManager {
    */
   private getGitInfo(): { branch: string; commit: string } | undefined {
     try {
-      const opts = { encoding: 'utf-8' as const, timeout: 5000 };
+      const opts = { encoding: 'utf-8' as const, timeout: 5000, windowsHide: true };
       const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).trim();
       const commit = execSync('git rev-parse --short HEAD', opts).trim();
       return { branch, commit };

@@ -384,7 +384,7 @@ export interface PermissionConfig {
   deniedPaths?: string[];
   /** 是否启用决策持久化（默认 true） */
   persistDecisions?: boolean;
-  /** 决策存储文件路径（默认 .xuanji/permission-decisions.json） */
+  /** 决策存储文件路径（默认 .xuanji/users/{userId}/permissions/decisions.db） */
   decisionsFile?: string;
 }
 

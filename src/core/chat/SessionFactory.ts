@@ -371,6 +371,8 @@ export class SessionFactory {
         model: config.fallbackProvider.model,
       });
     }
+    // 设置父 provider，供子 agent 继承
+    agentFactory.setParentProvider(provider);
 
     const { agentLoop, config: agentConfig } = await agentFactory.createMainAgent(this.agentId, {
       parentProvider: provider,
@@ -387,6 +389,8 @@ export class SessionFactory {
         summaryMaxLength: 500,
       } : undefined,
     });
+    // 设置父 config，供子 agent 继承
+    agentFactory.setParentConfig(agentConfig);
 
     // 11. 初始化 TaskCompletionHandler — 后台任务完成通知
     // 后台任务完成时自动注入到 system prompt，主 agent 空闲时自动触发汇总

@@ -40,6 +40,7 @@ export async function executeCommandHandler(
         env: { ...process.env, ...env },
         shell: getExecShellPath(),
         maxBuffer: 1024 * 1024, // 1MB
+        windowsHide: true,
       },
       (error, stdout, stderr) => {
         clearTimeout(fallbackTimer);

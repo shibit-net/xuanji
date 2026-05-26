@@ -361,7 +361,7 @@ export function registerDownloadHandlers() {
 
       // 新目录自动 git init
       if (!fs.existsSync(path.join(targetPath, '.git'))) {
-        try { require('node:child_process').execSync('git init', { cwd: targetPath, encoding: 'utf-8', timeout: 5000 }); } catch {}
+        try { require('node:child_process').execSync('git init', { cwd: targetPath, encoding: 'utf-8', timeout: 5000, windowsHide: true }); } catch {}
       }
 
       // 检测 git 分支
@@ -435,6 +435,7 @@ export function registerDownloadHandlers() {
         cwd: dirPath,
         encoding: 'utf-8',
         timeout: 5000,
+        windowsHide: true,
       }).trim();
       const status: Record<string, string> = {};
       if (output) {

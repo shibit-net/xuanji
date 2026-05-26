@@ -311,15 +311,52 @@ export class MCPInstaller {
   }
 
   /**
+   * 查找 npm 可执行文件路径
+   *
+   * 优先使用 Electron 内置 Node 运行打包的 npm-cli.js，
+   * 避免依赖系统安装的 Node.js 或平台特定的 npm 脚本。
+   */
+  private findNpmCommand(): { command: string; args: string[] } {
+    try {
+      const pRes = (process as any).resourcesPath as string | undefined;
+      if (pRes) {
+        // 打包环境：使用 Electron 内置 Node 运行 npm-cli.js
+        const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        if (require('fs').existsSync(npmCliPath)) {
+          log.debug(`npm using Electron Node + bundled npm-cli.js`);
+          return { command: process.execPath, args: [npmCliPath] };
+        }
+      }
+    } catch { /* 兜底 */ }
+
+    // 回退到系统 npm
+    const npmName = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    return { command: npmName, args: [] };
+  }
+
+  /**
    * 执行 npm install
    */
   private npmInstall(cwd: string, timeout: number): Promise<void> {
+    const { command, args: npmArgs } = this.findNpmCommand();
     return new Promise((resolve, reject) => {
-      const child = spawn('npm', ['install', '--production', '--no-audit', '--no-fund'], {
+      const spawnEnv = {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        PATH: [
+          process.env.PATH,
+          '/usr/local/bin',
+          '/opt/homebrew/bin',
+          '/usr/bin',
+          '/bin',
+        ].filter(Boolean).join(path.delimiter),
+      };
+      const child = spawn(command, [...npmArgs, 'install', '--production', '--no-audit', '--no-fund'], {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout,
-        env: { ...process.env },
+        env: spawnEnv,
+        windowsHide: true,
       });
 
       let stderr = '';
@@ -375,11 +412,26 @@ export class MCPInstaller {
 
     return new Promise((resolve, reject) => {
       log.debug(`npm install ${packageId} in ${appDir}`);
-      const child = spawn('npm', ['install', packageId, '--no-audit', '--no-fund'], {
+      const { command: npmCommand, args: npmArgs } = this.findNpmCommand();
+      log.debug(`npm install using: ${npmCommand}${npmArgs.length ? ' ' + npmArgs.join(' ') : ''}`);
+      // 确保 PATH 包含常见的 npm 安装路径（打包后 Electron 的 PATH 可能不完整）
+      const spawnEnv = {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        PATH: [
+          process.env.PATH,
+          '/usr/local/bin',
+          '/opt/homebrew/bin',
+          '/usr/bin',
+          '/bin',
+        ].filter(Boolean).join(path.delimiter),
+      };
+      const child = spawn(npmCommand, [...npmArgs, 'install', packageId, '--no-audit', '--no-fund'], {
         cwd: appDir,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout,
-        env: { ...process.env },
+        env: spawnEnv,
+        windowsHide: true,
       });
 
       let stderr = '';

@@ -7,6 +7,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
 import { crossPlatformKill } from '@/shared/utils/crossPlatform';
@@ -133,6 +135,28 @@ export class MCPClient extends EventEmitter {
   }
 
   /**
+   * 解析 npx 命令为可执行文件路径
+   *
+   * 打包环境下优先使用 Electron 内置 Node 运行 npm-cli.js，
+   * 避免 npx bash 脚本在 Windows 上无法执行的问题。
+   */
+  private resolveNpxCommand(): { command: string; extraArgs: string[] } {
+    try {
+      const pRes = (process as any).resourcesPath as string | undefined;
+      if (pRes) {
+        const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        if (existsSync(npmCliPath)) {
+          // npx -y <pkg> 等价于 node npm-cli.js exec <pkg> --yes
+          return { command: process.execPath, extraArgs: [npmCliPath, 'exec', '--yes'] };
+        }
+      }
+    } catch { /* 兜底 */ }
+    // 回退到系统 npx/npx.cmd
+    const npxName = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    return { command: npxName, extraArgs: [] };
+  }
+
+  /**
    * 内部启动逻辑
    */
   private async _startInternal(): Promise<void> {
@@ -141,14 +165,24 @@ export class MCPClient extends EventEmitter {
       // 合并环境变量
       const env = {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
         ...this.config.env,
       };
 
+      // 解析命令：npx → Electron 内置 Node + npm-cli.js
+      let { command, args } = { command: this.config.command, args: this.config.args ?? [] };
+      if (command === 'npx' || command === 'npx.cmd') {
+        const resolved = this.resolveNpxCommand();
+        command = resolved.command;
+        args = [...resolved.extraArgs, ...args];
+      }
+
       // 启动子进程
-      this.process = spawn(this.config.command, this.config.args ?? [], {
+      this.process = spawn(command, args, {
         cwd: this.config.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'], // stdin, stdout, stderr
+        windowsHide: true,
       });
 
       // 监听输出

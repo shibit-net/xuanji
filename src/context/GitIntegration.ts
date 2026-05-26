@@ -122,6 +122,7 @@ export class GitIntegration {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
     });
   }
 }
