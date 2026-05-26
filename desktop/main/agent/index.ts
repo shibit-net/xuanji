@@ -136,31 +136,11 @@ function initChatSession(): Promise<boolean> {
           args = [tsxPath, scriptPath];
         }
       } else {
-        // 生产环境：优先使用独立 Node.js 二进制，避免 ELECTRON_RUN_AS_NODE=1
-        // 在 Windows 上创建控制台窗口。
+        // 生产环境：使用 Electron 内置 Node.js + ELECTRON_RUN_AS_NODE=1
         const pRes = process.resourcesPath!;
-        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
-        const bundledNode = path.join(pRes, 'node', 'bin', nodeName);
-        const noBundledFlag = path.join(pRes, 'dist-electron', '.no-bundled-node');
         scriptPath = path.join(pRes, 'dist-electron', 'agent-bridge.mjs');
-
-        // 检测 bundled Node.js 是否存在，以及是否有标志文件说明它不可用
-        // 标志文件由 after-pack.mjs 在 downloadNodeBinary 失败时写入
-        if (fs.existsSync(bundledNode) && !fs.existsSync(noBundledFlag)) {
-          nodePath = bundledNode;
-          args = [scriptPath];
-        } else {
-          // 回退到 Electron 内置 Node（ELECTRON_RUN_AS_NODE=1）
-          // 这种方式 native 模块要用 Electron 编译的版本
-          nodePath = process.execPath;
-          args = [scriptPath];
-          if (!fs.existsSync(bundledNode)) {
-            agentLog(`Bundled Node.js not found at ${bundledNode}`);
-          } else if (fs.existsSync(noBundledFlag)) {
-            agentLog(`Bundled Node.js download failed (flag file: ${noBundledFlag})`);
-          }
-          agentLog('Falling back to ELECTRON_RUN_AS_NODE=1 (using Electron-compiled native modules)');
-        }
+        nodePath = process.execPath;
+        args = [scriptPath];
       }
 
       const spawnEnv: Record<string, any> = {
@@ -171,10 +151,7 @@ function initChatSession(): Promise<boolean> {
       // 生产环境：设置 NODE_PATH 让子进程能找到 native 模块
       // electron-builder 自动将 native 模块解包到 app.asar.unpacked/node_modules
       if (!isDev) {
-        // 仅在使用 Electron 内置 Node 回退时才设置 ELECTRON_RUN_AS_NODE
-        if (nodePath === process.execPath) {
-          spawnEnv.ELECTRON_RUN_AS_NODE = '1';
-        }
+        spawnEnv.ELECTRON_RUN_AS_NODE = '1';
         const resourcesPath = process.resourcesPath!;
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');

@@ -73,16 +73,7 @@ writeFileSync(
 
 console.log('[install-dist-deps] package.json created');
 
-// ── 3. 检测是否跨平台构建
-// macOS 上跑 build:win 时 process.platform === 'darwin' 但目标是 win32
-// 跨平台时 native 模块不能从本地复制（架构/平台不匹配），交给 after-pack.mjs 下载。
-const isBuildPlatform = process.env.ELECTRON_BUILDER_PLATFORM || '';
-const isCrossPlatform = isBuildPlatform &&
-  isBuildPlatform !== process.platform;
-
-console.log(`[install-dist-deps] Platform: ${process.platform}, build target: ${isBuildPlatform || '(auto)'}, cross-platform: ${isCrossPlatform}`);
-
-// ── 4. npm install（跳过编译脚本，只下载 prebuilt 包）
+// ── 3. npm install（跳过编译脚本，只下载 prebuilt 包）
 console.log('[install-dist-deps] Running npm install...');
 execSync('npm install --no-audit --no-fund --ignore-scripts --loglevel=warn', {
   cwd: distElectronDir,
@@ -91,10 +82,9 @@ execSync('npm install --no-audit --no-fund --ignore-scripts --loglevel=warn', {
   timeout: 300000, // 5min
 });
 
-// ── 5. 复制 native 模块的 prebuilt .node 文件从项目根 node_modules
+// ── 4. 复制 native 模块的 prebuilt .node 文件从项目根 node_modules
 // npm install --ignore-scripts 不会编译 native 模块，
 // 所以需要从项目根复制已经编译好的二进制。
-// 跨平台构建时跳过——在项目根编译的是当前平台的架构，复制过去会破坏包。
 const nativeModules = [
   'better-sqlite3',
   'node-pty',
@@ -103,14 +93,6 @@ const nativeModules = [
   'onnxruntime-node',
 ];
 for (const mod of nativeModules) {
-  // 跨平台构建：跳过 native 二进制复制
-  // macOS arm64 的 .node 文件放到 Windows x64 包里只会导致 ABI 崩溃。
-  // after-pack.mjs 会从网络下载正确的目标平台预编译二进制。
-  if (isCrossPlatform) {
-    console.log(`[install-dist-deps] Cross-platform: skipping native binary copy for ${mod} (relies on afterPack)`);
-    continue;
-  }
-
   const srcBuild = join(projectRoot, 'node_modules', mod, 'build');
   const srcBuildRelease = join(projectRoot, 'node_modules', mod, 'build', 'Release');
   const destDir = join(distElectronDir, 'node_modules', mod);
