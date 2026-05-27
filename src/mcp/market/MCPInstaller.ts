@@ -150,14 +150,37 @@ export class MCPInstaller {
       const downloadInfo = await this.market.getDownloadInfo(packageId, options.version);
       let installPath: string;
 
+      // 解析 configTemplate 判断传输类型
+      let parsedTemplate: Partial<MCPServerConfig> = {};
+      if (installConfig.configTemplate) {
+        try {
+          parsedTemplate = JSON.parse(installConfig.configTemplate);
+        } catch { /* ignore parse errors, handled in buildServerConfig */ }
+      }
+      const isRemoteTransport = parsedTemplate.transport === 'sse' || parsedTemplate.transport === 'http';
+
       if (downloadInfo.downloadUrl) {
         // Type A: 自托管 — 下载 tar.gz → 解压 → npm install
         log.info(`Downloading ${packageId}@${effectiveVersion}`);
         const { tempPath } = await this.market.download(packageId, options.version);
         installPath = this.getInstallPath(packageId);
         await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
+      } else if (installConfig.configTemplate && isRemoteTransport) {
+        // Type B: 远程 SSE/HTTP 服务 — 无需下载，直接注册配置
+        log.info(`Registering remote MCP ${packageId}@${effectiveVersion} (${parsedTemplate.transport})`);
+        installPath = this.getInstallPath(packageId);
+        await fs.mkdir(installPath, { recursive: true });
+
+        await fs.writeFile(
+          path.join(installPath, '.xuanji-mcp.json'),
+          JSON.stringify({
+            packageId, version: effectiveVersion,
+            type: 'remote', transport: parsedTemplate.transport, installedAt: new Date().toISOString(),
+          }, null, 2),
+          'utf-8',
+        );
       } else if (installConfig.configTemplate) {
-        // Type B: 外部引用（npm/pip/等）— npm install + 注册
+        // Type C: 外部引用（npm/pip/等）— npm install + 注册
         log.info(`Installing external MCP ${packageId}@${effectiveVersion}`);
         installPath = this.getInstallPath(packageId);
         await fs.mkdir(installPath, { recursive: true });

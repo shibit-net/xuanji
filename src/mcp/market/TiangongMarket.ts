@@ -97,7 +97,7 @@ export interface DownloadInfo {
   version: string;
   versionId: number;
   /** 包类型（Starship 返回），用于 skill 安装管道路由 */
-  packageType?: 'skill:json' | 'skill:tar';
+  packageType?: 'skill:zip';
 }
 
 export interface UpdateCheckItem {
@@ -356,9 +356,7 @@ export class TiangongMarket {
     const data = this.unwrap(raw);
     return {
       ...data,
-      packageType: (data.packageType === 'skill:json' || data.packageType === 'skill:tar')
-        ? data.packageType
-        : undefined,
+      packageType: data.packageType === 'skill:zip' ? data.packageType : undefined,
     };
   }
 
@@ -371,12 +369,13 @@ export class TiangongMarket {
   async download(
     packageId: string,
     version?: string,
+    extension = '.tar.gz',
   ): Promise<{ tempPath: string; sha256: string }> {
     const info = await this.getDownloadInfo(packageId, version);
     const downloadUrl = this.resolveUrl(info.downloadUrl);
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `xuanji-mcp-${packageId}-`));
-    const tempFile = path.join(tempDir, `${packageId}-${info.version}.tar.gz`);
+    const tempFile = path.join(tempDir, `${packageId}-${info.version}${extension}`);
 
     await this.downloadFile(downloadUrl, tempFile);
 
@@ -395,7 +394,8 @@ export class TiangongMarket {
    * @returns 文本内容
    */
   async downloadText(urlStr: string): Promise<string> {
-    const downloadUrl = new URL(urlStr);
+    const resolved = this.resolveUrl(urlStr);
+    const downloadUrl = new URL(resolved);
 
     return new Promise((resolve, reject) => {
       const client = downloadUrl.protocol === 'https:' ? https : http;
