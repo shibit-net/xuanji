@@ -1,13 +1,13 @@
-# Dependencies
+# dependencies
 node_modules/
 
-# Build outputs
+# build output
 dist/
-dist-electron/
-release/
 
-# TypeScript
-*.tsbuildinfo
+# environment
+.env
+.env.*
+!.env.example
 
 # IDE
 .vscode/
@@ -20,16 +20,14 @@ release/
 .DS_Store
 Thumbs.db
 
-# Logs
+# test coverage
+coverage/
+
+# debug logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Environment
-.env
-.env.local
-.env.*.local
+# project config (user-created, not tracked)
+.xuanji/
 
-# Electron
-out/
+# embedding models (downloaded at runtime)
+models/

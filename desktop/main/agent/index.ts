@@ -35,7 +35,7 @@ function agentLog(message: string): void {
   console.log(`[Agent] ${message}`);
 }
 
-let agentProcess: ChildProcess | null = null;
+let agentProcess: any = null;
 let sessionReady = false;
 let cachedConfig: any = null;
 let initializationInProgress: Promise<boolean> | null = null;
@@ -136,10 +136,10 @@ function initChatSession(): Promise<boolean> {
           args = [tsxPath, scriptPath];
         }
       } else {
-        // 生产环境：使用 Electron 内置 Node.js + ELECTRON_RUN_AS_NODE=1
+        // 生产环境：使用打包内置的 Node.js 二进制（与 embedding-worker 相同方式）
         const pRes = process.resourcesPath!;
         scriptPath = path.join(pRes, 'dist-electron', 'agent-bridge.mjs');
-        nodePath = process.execPath;
+        nodePath = path.join(pRes, 'node', 'bin', 'node');
         args = [scriptPath];
       }
 
@@ -148,43 +148,38 @@ function initChatSession(): Promise<boolean> {
         NODE_ENV: process.env.NODE_ENV || 'development',
       };
 
-      // 生产环境：设置 NODE_PATH 让子进程能找到 native 模块
-      // electron-builder 自动将 native 模块解包到 app.asar.unpacked/node_modules
-      if (!isDev) {
-        spawnEnv.ELECTRON_RUN_AS_NODE = '1';
-        const resourcesPath = process.resourcesPath!;
+      const resourcesPath = !isDev ? process.resourcesPath! : null;
+
+      // 设置 NODE_PATH 让子进程能找到 native 模块
+      if (!isDev && resourcesPath) {
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');
-
-        // NODE_PATH = dist-electron/node_modules (JS 依赖) + app.asar.unpacked/node_modules (Electron native)
-        // dist-electron/node_modules 始终放在前面，因为 JS 依赖都在这里
-        // app.asar.unpacked/node_modules 包含 Electron 编译的 native 模块（用于 ELECTRON_RUN_AS_NODE 回退）
         const nodePathDirs = [extraModules];
         if (fs.existsSync(unpackedModules)) {
           nodePathDirs.push(unpackedModules);
-          agentLog(`NODE_PATH includes app.asar.unpacked: ${unpackedModules}`);
         }
         spawnEnv.NODE_PATH = nodePathDirs.join(path.delimiter);
-        // 模板文件通过 extraResources 打包到 Resources/templates/
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
-        // Python 运行时（XLS 解析器回退）
         spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(resourcesPath, 'python-runtime');
       } else {
-        // 开发环境：模板在项目源码中
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'core', 'templates');
-        // 开发环境：Python 运行时在 desktop/python-runtime/
         spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(desktopRoot, 'python-runtime');
       }
 
       const spawnCwd = path.resolve(__dirname, '../../');
 
-      // 诊断日志：记录 spawn 参数
-      agentLog(`Spawning agent-bridge:`);
-      agentLog(`  node: ${nodePath} (exists: ${fs.existsSync(nodePath)})`);
-      agentLog(`  script: ${scriptPath} (exists: ${fs.existsSync(scriptPath)})`);
-      agentLog(`  cwd: ${spawnCwd}`);
-      agentLog(`  NODE_PATH: ${spawnEnv.NODE_PATH || '(not set)'}`);
-      agentLog(`  ELECTRON_RUN_AS_NODE: ${spawnEnv.ELECTRON_RUN_AS_NODE || '(not set)'}`);
+      // 诊断日志
+      if (isDev) {
+        agentLog(`Spawning agent-bridge (dev mode):`);
+        agentLog(`  node: ${nodePath} (exists: ${fs.existsSync(nodePath)})`);
+        agentLog(`  script: ${scriptPath} (exists: ${fs.existsSync(scriptPath)})`);
+        agentLog(`  cwd: ${spawnCwd}`);
+      } else {
+        agentLog(`Spawning agent-bridge (prod mode via bundled node):`);
+        agentLog(`  node: ${nodePath} (exists: ${fs.existsSync(nodePath)})`);
+        agentLog(`  script: ${scriptPath} (exists: ${fs.existsSync(scriptPath)})`);
+        agentLog(`  NODE_PATH: ${spawnEnv.NODE_PATH || '(not set)'}`);
+      }
 
       const { spawn } = require('child_process');
       agentProcess = spawn(nodePath, args, {
@@ -266,6 +261,7 @@ function initChatSession(): Promise<boolean> {
         }
       });
 
+      // ChildProcess 的 error 事件
       agentProcess!.on('error', (err: Error) => {
         agentLog(`Agent-bridge spawn error: ${err.message}\n${err.stack || ''}`);
       });
@@ -277,7 +273,7 @@ function initChatSession(): Promise<boolean> {
         retryDelay: 1000,
         enableLogging: false,
       });
-      agentChannel.attach(agentProcess!);
+      agentChannel.attach(agentProcess! as ChildProcess);
 
       // 初始化平台回复转发（依赖 agent 通道，必须在此处注册）
       initAgentBridgeForwarding();
@@ -363,7 +359,7 @@ function initChatSession(): Promise<boolean> {
 }
 
 /** 跨平台强制终止子进程 */
-function forceKillProcess(proc: ChildProcess): void {
+function forceKillProcess(proc: any): void {
   if (process.platform === 'win32') {
     const { execSync } = require('child_process');
     try {
@@ -424,7 +420,7 @@ function sendRequest(type: string, data?: any, timeoutMs = 10000): Promise<any> 
   return agentChannel.request(type, data, timeoutMs);
 }
 
-function getAgentProcess(): ChildProcess | null {
+function getAgentProcess(): any {
   return agentProcess;
 }
 

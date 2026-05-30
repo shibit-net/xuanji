@@ -1,32 +1,33 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
     "module": "ESNext",
-    "skipLibCheck": true,
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
+    "lib": ["ES2022"],
     "jsx": "react-jsx",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./renderer/*"],
-      "@main/*": ["./main/*"],
-      "@shared/*": ["./shared/*"],
-      "@/core/*": ["../src/core/*"],
-      "@core/*": ["../src/core/*"],
-      "@/mcp/*": ["../src/mcp/*"],
-      "@root/src/*": ["../src/*"]
-    }
+      "@/*": ["./src/*"]
+    },
+    "types": ["node", "vitest/globals"]
   },
-  "include": ["renderer", "main", "shared"],
-  "exclude": ["main/agent-bridge.ts"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test/integration/lesson-system-e2e.test.ts",
+    "test/integration/electron-integration.test.ts"
+  ]
 }
