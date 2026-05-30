@@ -234,8 +234,9 @@ export class AgentLoop {
     this.config = config;
     this._userId = userId;
 
-    // 上下文窗口：优先用 model.contextSize（实际上下文窗口），fallback 到 model.maxTokens 或 128K 默认值
-    const contextWindow = config.contextSize || config.maxTokens || 131072;
+    // 上下文窗口：使用 model.contextSize（模型上下文窗口），默认 1M
+    // 注意：不能 fallback 到 model.maxTokens，那是输出长度上限，不是上下文窗口
+    const contextWindow = config.contextSize || 1_000_000;
     const reserveForOutput = Math.floor(contextWindow * 0.15);
     this.contextManager = new ContextManager(contextWindow, reserveForOutput);
     this.contextManager.updateSystemPrompt(config.systemPrompt ?? '');

@@ -16,6 +16,7 @@ import type {
 } from './types';
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { promises as fs, existsSync } from 'node:fs';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
@@ -36,6 +37,54 @@ export class SkillRegistry {
       cacheSize: options.cacheSize ?? 100,
       validateDependencies: options.validateDependencies ?? true,
     };
+
+    if (this.options.autoLoad) {
+      this.scanInstalled().catch((err) =>
+        log.warn('Failed to scan installed skills on startup:', err),
+      );
+    }
+  }
+
+  /**
+   * 扫描 installed/ 目录下的 manifest.json，加载所有已安装的 marketplace skill。
+   * 解决重启后 SkillRegistry 丢失的问题（MCP 有 mcp.json 中心化注册表，Skills 没有）。
+   */
+  async scanInstalled(): Promise<number> {
+    const installedDir = path.join(this.options.customPath, 'installed');
+    let count = 0;
+
+    try {
+      const entries = await fs.readdir(installedDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith('.')) continue;
+
+        const manifestPath = path.join(installedDir, entry.name, 'manifest.json');
+        try {
+          const raw = await fs.readFile(manifestPath, 'utf-8');
+          const skill = JSON.parse(raw) as Skill;
+          if (skill.id && skill.name) {
+            // 保留 manifest 中的 source/packageId 等字段
+            this.register({
+              ...skill,
+              source: skill.source || 'marketplace',
+              enabled: skill.enabled !== false,
+            });
+            count++;
+            log.debug(`Loaded installed skill: ${skill.id} from ${manifestPath}`);
+          }
+        } catch {
+          // manifest.json 不存在或损坏，跳过
+        }
+      }
+    } catch {
+      // installed/ 目录不存在，跳过
+    }
+
+    if (count > 0) {
+      log.info(`Scanned ${count} installed skills from ${installedDir}`);
+    }
+    return count;
   }
 
   /**
@@ -301,6 +350,25 @@ export class SkillRegistry {
       content = options.transformer(content, params);
     }
 
+    // ── ClawHub 兼容：追加 references/ 目录中的参考文档 ──
+    if (skill.references && skill.references.length > 0) {
+      const refContents: string[] = [];
+      for (const refPath of skill.references) {
+        try {
+          const { readFile } = await import('node:fs/promises');
+          const refText = await readFile(refPath, 'utf-8');
+          if (refText.trim()) {
+            refContents.push(refText.trim());
+          }
+        } catch {
+          // 参考文件读取失败则跳过
+        }
+      }
+      if (refContents.length > 0) {
+        content = content + '\n\n---\n\n' + refContents.join('\n\n---\n\n');
+      }
+    }
+
     // 缓存结果（FIFO 淘汰）
     if (this.cache.size >= this.options.cacheSize) {
       const firstKey = this.cache.keys().next().value;
@@ -329,49 +397,10 @@ export class SkillRegistry {
   // ────────── Workflow Skill 执行 ──────────
 
   /**
-   * 执行 Workflow Skill
-   *
-   * 查找 category='workflow' 的 Skill 并调用其 execute() 方法。
-   * 返回标准化的 WorkflowResult。
+   * 获取所有具有斜杠命令的 Skill
    */
-  async executeWorkflow(skillId: string, params?: Record<string, any>): Promise<WorkflowResult> {
-    const skill = this.get(skillId);
-    if (!skill) {
-      return { success: false, error: `Workflow skill not found: ${skillId}` };
-    }
-    if (skill.category !== 'workflow') {
-      return { success: false, error: `Skill "${skillId}" is not a workflow (category: ${skill.category})` };
-    }
-    if (!skill.execute) {
-      return { success: false, error: `Workflow skill "${skillId}" has no execute method` };
-    }
-
-    try {
-      log.info(`Executing workflow: ${skillId}`);
-      const result = await skill.execute(params);
-
-      // 如果返回的是 WorkflowResult 格式，直接返回
-      if (result && typeof result === 'object' && 'success' in result) {
-        return result as WorkflowResult;
-      }
-
-      // 否则包装为成功结果
-      return {
-        success: true,
-        output: typeof result === 'string' ? result : JSON.stringify(result),
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`Workflow "${skillId}" failed:`, err);
-      return { success: false, error: message };
-    }
-  }
-
-  /**
-   * 获取所有具有斜杠命令的 Workflow Skill
-   */
-  getWorkflowCommands(): Array<{ skillId: string; command: string; description: string }> {
-    return this.list({ category: 'workflow' })
+  getSlashCommands(): Array<{ skillId: string; command: string; description: string }> {
+    return this.list()
       .filter((s) => s.slashCommand)
       .map((s) => ({
         skillId: s.id,
@@ -397,8 +426,6 @@ export class SkillRegistry {
       totalSkills: this.skills.size,
       byCategory: {
         prompt: 0,
-        action: 0,
-        workflow: 0,
       },
       byTag: {} as Record<string, number>,
       enabled: 0,

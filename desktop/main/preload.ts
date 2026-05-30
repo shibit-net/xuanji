@@ -322,6 +322,18 @@
   skillInstall: (data: { packageId: string; version?: string }) => ipcRenderer.invoke('skill:install', data),
   skillPublish: (data: { skillId: string }) => ipcRenderer.invoke('skill:publish', data),
 
+  // Skill / MCP 状态变更推送（LLM 工具层安装/卸载后自动刷新 UI）
+  onSkillStateChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('skill:state-changed', handler);
+    return () => { ipcRenderer.removeListener('skill:state-changed', handler); };
+  },
+  onMcpStateChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('mcp:state-changed', handler);
+    return () => { ipcRenderer.removeListener('mcp:state-changed', handler); };
+  },
+
   // ============ 天工坊市场 ============
   tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) =>
     ipcRenderer.invoke('tiangong:search', data),
@@ -329,6 +341,13 @@
   tiangongInstalledIds: () => ipcRenderer.invoke('tiangong:installedIds'),
   tiangongCheckUpdates: () => ipcRenderer.invoke('tiangong:checkUpdates'),
   tiangongDeletePackage: (data: { id: number }) => ipcRenderer.invoke('tiangong:deletePackage', data),
+  tiangongCategories: () => ipcRenderer.invoke('tiangong:categories'),
+  tiangongTags: () => ipcRenderer.invoke('tiangong:tags'),
+  tiangongCheckInstallPermission: (data: { packageId: string }) =>
+    ipcRenderer.invoke('tiangong:checkInstallPermission', data),
+  tiangongRecordDownload: (data: { packageId: number; versionId: number }) =>
+    ipcRenderer.invoke('tiangong:recordDownload', data),
+  tiangongSubscriptions: () => ipcRenderer.invoke('tiangong:subscriptions'),
 
   // ============ 远端平台接入 ============
   platformEnable: (data: { platform: string; config: Record<string, any> }) =>
@@ -361,7 +380,4 @@
   onPlatformSessionUpdated: (callback: (data: any) => void) => {
     ipcRenderer.on('platform:session-updated', (_event, data) => callback(data));
   },
-
-  // ============ 调试日志（写入磁盘文件） ============
-  debugLog: (message: string) => ipcRenderer.invoke('debug:log', message),
 });

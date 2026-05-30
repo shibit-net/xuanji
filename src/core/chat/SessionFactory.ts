@@ -30,6 +30,7 @@ import { TeamTool } from '@/core/tools/TeamTool';
 import { ListAgentsTool } from '@/core/tools/ListAgentsTool';
 import { ListScenesTool } from '@/core/tools/ListScenesTool';
 import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
+import { MatchSceneTool } from '@/core/tools/MatchSceneTool';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import { augmentToolList } from '@/core/tools/FilteredToolRegistry';
 import { getTodoManager } from '@/core/tools/TodoManager';
@@ -61,53 +62,36 @@ export interface SessionOptions {
 }
 
 /**
- * 构建 MCP Tools 的 system prompt 段
- * 按 MCP 服务器分组，提示 LLM 使用 mcp_call 统一入口调用
+ * 构建 MCP Tools 的 system prompt 段（精简版，引导 agent 自行发现）
+ * 不再将所有 MCP 工具列在 prompt 中，而是提示使用 mcp_settings 和 mcp_call
  */
 function buildMCPSystemPromptSection(registry: IToolRegistry): string {
   const mcpSchemas = (registry as any).getMCPSchemas?.() ?? [];
   if (mcpSchemas.length === 0) return '';
 
+  // 统计服务器和工具数量
+  const servers = new Set<string>();
+  let toolCount = 0;
+  for (const s of mcpSchemas) {
+    servers.add(s.serverName);
+    toolCount++;
+  }
+
   const sections: string[] = [
     '',
     '## MCP Tools',
     '',
-    'Use the `mcp_call` tool to access MCP (Model Context Protocol) tools from installed servers.',
-    'Call syntax: `mcp_call(server="<name>", tool="<name>", arguments={...})`.',
-    '',
-    'Available MCP servers and tools:',
-    '',
+    `You have ${toolCount} MCP tool(s) across ${servers.size} server(s): ${[...servers].map(s => `\`${s}\``).join(', ')}.`,
+    'Use `mcp_settings(list)` to discover available MCP servers and their tools at runtime.',
+    'Use `mcp_call(server="<name>", tool="<name>", arguments={...})` to call a specific MCP tool.',
   ];
-
-  // 按 server 分组
-  const byServer = new Map<string, typeof mcpSchemas>();
-  for (const s of mcpSchemas) {
-    const group = byServer.get(s.serverName) ?? [];
-    group.push(s);
-    byServer.set(s.serverName, group);
-  }
-
-  for (const [serverName, tools] of byServer) {
-    sections.push(`### Server: \`${serverName}\``);
-    sections.push('');
-    for (const t of tools) {
-      sections.push(`#### \`${t.toolName}\``);
-      sections.push(t.description || '');
-      if (t.inputSchema) {
-        sections.push('```json');
-        sections.push(JSON.stringify(t.inputSchema, null, 2));
-        sections.push('```');
-      }
-      sections.push('');
-    }
-  }
 
   return sections.join('\n');
 }
 
 /**
- * 构建 Skills 的 system prompt 段
- * 按分类分组，提示 LLM 使用 skill_call 统一入口调用
+ * 构建 Skills 的 system prompt 段（精简版，引导 agent 自行发现）
+ * 不再将所有 Skill 列在 prompt 中，而是提示使用 skill_manage 和 skill_call
  */
 function buildSkillSystemPromptSection(skillRegistry: any): string {
   if (!skillRegistry) return '';
@@ -115,42 +99,14 @@ function buildSkillSystemPromptSection(skillRegistry: any): string {
   const enabled = skills.filter((s: any) => s.enabled !== false);
   if (enabled.length === 0) return '';
 
-  // 按 category 分组
-  const byCategory = new Map<string, any[]>();
-  for (const s of enabled) {
-    const cat = s.category || 'other';
-    const group = byCategory.get(cat) ?? [];
-    group.push(s);
-    byCategory.set(cat, group);
-  }
-
-  const catLabels: Record<string, string> = {
-    workflow: 'Workflow — multi-step automated tasks (e.g., git commit, review PR)',
-    prompt: 'Prompt — content/template rendering for system prompt injection',
-    action: 'Action — single-step operations',
-  };
-
   const sections: string[] = [
     '',
     '## Skills',
     '',
-    'Use the `skill_call` tool to invoke an installed Skill.',
-    'Call syntax: `skill_call(skillId="<id>", params={...})`.',
-    '',
-    'Available Skills:',
-    '',
+    `You have ${enabled.length} installed Skill(s). Use \`skill_manage(list)\` to discover available Skills and their descriptions at runtime.`,
+    'Use `skill_call(skillId="<id>")` to invoke a Skill once you know its ID.',
+    'Use the backtick-quoted `id` for `uninstall` and `skill_call`.',
   ];
-
-  for (const [category, catSkills] of byCategory) {
-    const label = catLabels[category] || category;
-    sections.push(`### ${label}`);
-    sections.push('');
-    for (const s of catSkills) {
-      const cmd = s.slashCommand ? ` (command: \`${s.slashCommand}\`)` : '';
-      sections.push(`- **${s.name}** \`${s.id}\`${cmd} — ${s.description || ''}`);
-    }
-    sections.push('');
-  }
 
   return sections.join('\n');
 }
@@ -232,7 +188,7 @@ export class SessionFactory {
 
     // 3.5. Skill 系统
     // SkillRegistry: 所有 Skill 的唯一注册入口
-    this.container.register('skillRegistry', () => new SkillRegistry({ autoLoad: false }));
+    this.container.register('skillRegistry', () => new SkillRegistry({ autoLoad: true }));
     log.debug('SkillRegistry registered');
 
     // 3.6. MCP 商城模块
@@ -353,7 +309,7 @@ export class SessionFactory {
     const mcpGatewayTools = mcpSchemas.length > 0 ? ['mcp_call'] : [];
     const skillCount = skillRegistry?.list?.().filter((s: any) => s.enabled !== false).length ?? 0;
     const skillGatewayTools = skillCount > 0 ? ['skill_call'] : [];
-    const alwaysAvailable = ['mcp_call', 'skill_call', 'skill_manage', 'mcp_settings', 'uninstall'];
+    const alwaysAvailable = ['mcp_call', 'skill_call', 'skill_manage', 'mcp_settings', 'install', 'uninstall'];
     const allTools = [...new Set([...agentTools, ...promptRequiredTools, ...mcpGatewayTools, ...skillGatewayTools, ...alwaysAvailable])];
     const augmentedTools = augmentToolList(allTools);
 
@@ -557,7 +513,16 @@ export class SessionFactory {
     listScenesTool.setPromptRegistry(promptRegistry);
     registry.register(listScenesTool);
 
-    log.debug('Advanced tools registered (including list_agents, match_agent, and list_scenes)');
+    const matchSceneTool = new MatchSceneTool();
+    matchSceneTool.setEmbedder(options.embeddingProvider ?? null);
+    // 从 PromptComponentRegistry 获取场景列表（L1 组件）
+    const sceneComponents = Array.from(promptRegistry.getComponents().values())
+      .filter(c => c.layer === 'L1' && !c.internal)
+      .map(c => ({ scene: c.id, description: c.match?.description, keywords: c.match?.keywords ? (typeof c.match.keywords === 'string' ? c.match.keywords : (c.match.keywords as any).source) : undefined }));
+    matchSceneTool.setSceneList(sceneComponents);
+    registry.register(matchSceneTool);
+
+    log.debug('Advanced tools registered (including list_agents, match_agent, list_scenes, and match_scene)');
 
     // ── 注入 InstallTool / UninstallTool 的 marketplace 依赖 ─────
     try {

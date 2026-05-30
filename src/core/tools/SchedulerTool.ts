@@ -14,6 +14,19 @@ const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '
 
 export class SchedulerTool extends BaseTool {
   readonly name = 'scheduler';
+
+  /** 当前平台会话上下文（由 agent-bridge 在处理平台消息前设置） */
+  private platformContext: { platform: string; chatId: string } | null = null;
+
+  /** 设置当前平台上下文，创建定时任务时会自动附加到 CronJob */
+  setPlatformContext(platform: string | null, chatId: string | null): void {
+    if (platform && chatId) {
+      this.platformContext = { platform, chatId };
+    } else {
+      this.platformContext = null;
+    }
+  }
+
   readonly description = [
     'Manage scheduled tasks. You can create, view, update, and delete scheduled tasks, allowing the system to automatically execute actions at a future time.',
     '',
@@ -242,6 +255,12 @@ export class SchedulerTool extends BaseTool {
 
     if (input.message) {
       job.message = input.message as string;
+    }
+
+    // 自动附加平台上下文（定时任务触发时推回发起端）
+    if (this.platformContext && job.message) {
+      job.platform = this.platformContext.platform;
+      job.chatId = this.platformContext.chatId;
     }
 
     if (job.action === 'custom') {

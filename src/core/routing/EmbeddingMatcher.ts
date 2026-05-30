@@ -127,6 +127,35 @@ export class EmbeddingMatcher {
       .filter((a) => a.metadata?.internal !== true);
   }
 
+  /** 语义匹配场景，返回按相似度排序的结果 */
+  async matchScenes(message: string, topK: number = 5): Promise<Array<{ scene: string; score: number; description?: string }>> {
+    if (!this.embedder) {
+      this.embedder = await tryCreateEmbedder();
+    }
+    if (!this.embedder || this.sceneList.length === 0) return [];
+
+    const messageVec = await this.safeEmbed(message);
+    if (!messageVec) return [];
+
+    const results: Array<{ scene: string; score: number; description?: string }> = [];
+    for (const s of this.sceneList) {
+      const sceneText = [s.keywords || '', s.description || ''].join(' ');
+      const vec = await this.safeEmbed(sceneText);
+      if (!vec) continue;
+      const sim = this.embedder.cosineSimilarity(messageVec, vec);
+      if (sim > 0.2) {
+        results.push({ scene: s.scene, score: sim, description: s.description });
+      }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, topK);
+  }
+
+  getSceneList(): SceneInfo[] {
+    return this.sceneList;
+  }
+
   /** 匹配最佳 scene，返回 top 3 相似度 > 0.3 的场景，逗号分隔 */
   private matchBestScene(
     messageVec: number[] | null,

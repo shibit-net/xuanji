@@ -26,9 +26,11 @@ export class InstallTool extends BaseTool {
   readonly name = 'install';
   readonly description =
     'Search and install external plugins (MCP servers or Skills). Call this tool when a required tool is missing.\n\n' +
-    'Search mode: install({ goal: "PostgreSQL database", type: "mcp" }) → returns search results\n' +
-    'Install mode: install({ packageId: "postgres-123", type: "mcp", version: "1.0.0" }) → download and register\n\n' +
-    'Type info: mcp=MCP server (tools), skill=Skill (workflow/prompt)';
+    'PRIORITY: Always try marketplace first (default). If not found, retry with source: "npm".\n\n' +
+    'Search: install({ goal: "PostgreSQL database", type: "mcp" }) → search marketplace\n' +
+    'Install (marketplace): install({ packageId: "xxx", type: "mcp" }) → install from Tiangong\n' +
+    'Install (npm): install({ packageId: "xxx", type: "mcp", source: "npm" }) → install from npm\n\n' +
+    'Type: mcp=MCP server (tools), skill=Skill (workflow/prompt)';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -47,11 +49,17 @@ export class InstallTool extends BaseTool {
       packageId: {
         type: 'string',
         description:
-          'Directly install the specified marketplace packageId (from search results). Skips search when provided.',
+          'Package ID to install. Default (marketplace) auto-falls back to npm if not found. Use mcp_settings/skill_manage to discover already-installed packages first.',
       },
       version: {
         type: 'string',
         description: 'Specify version (default: latest). Only used when packageId is provided.',
+      },
+      source: {
+        type: 'string',
+        enum: ['marketplace', 'npm'],
+        description: 'Install source. marketplace = Tiangong marketplace (default, try first). npm = install directly from npm registry (try when marketplace fails).',
+        default: 'marketplace',
       },
     },
   };
@@ -84,19 +92,19 @@ export class InstallTool extends BaseTool {
     const type = (input.type as string) ?? 'auto';
     const packageId = input.packageId as string | undefined;
     const version = input.version as string | undefined;
+    const source = (input.source as string) ?? 'marketplace';
 
-    // 依赖检查
+    // ── npm 直装路径 ──────────────────────────────
+    if (source === 'npm') {
+      if (!packageId || packageId.trim().length === 0) {
+        return this.error('npm 安装需要提供 packageId 参数');
+      }
+      return this.installFromNpm(packageId.trim(), type, version);
+    }
+
+    // 依赖检查（marketplace 路径需要）
     if (!this.market) {
-      return this.formatError({
-        type: 'Marketplace not configured',
-        message: 'Marketplace service unavailable',
-        reason: 'Marketplace dependency not injected. Check the mcp.marketplace field in Xuanji config.',
-        solutions: [
-          'Configure baseUrl in xuanji.json mcp.marketplace (Starship marketplace address)',
-          'Ensure marketplace.enabled is not set to false',
-        ],
-        example: '"mcp": { "marketplace": { "baseUrl": "https://api.shibit.com/api/tiangong" } }',
-      });
+      return this.error('Marketplace 服务不可用，请使用 source: "npm" 从 npm 安装');
     }
 
     // ── Mode 1: 直接安装（packageId 明确） ──────────
@@ -131,13 +139,13 @@ export class InstallTool extends BaseTool {
       // Search MCP
       if (type === 'mcp' || type === 'auto') {
         const mcpResult = await this.market!.search({ type: 'mcp', query: goal, pageSize: 5 });
-        mcpItems = mcpResult.items;
+        mcpItems = mcpResult.mcp?.items ?? [];
       }
 
       // Search Skill
       if (type === 'skill' || type === 'auto') {
         const skillResult = await this.market!.search({ type: 'skill', query: goal, pageSize: 5 });
-        skillItems = skillResult.items;
+        skillItems = skillResult.skill?.items ?? [];
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -278,5 +286,70 @@ export class InstallTool extends BaseTool {
     return this.error(
       `Cannot install \`${packageId}\`: both MCP and Skill install failed. Please explicitly specify type="mcp" or type="skill".`,
     );
+  }
+
+  // ============================================================
+  // Private: npm 直装
+  // ============================================================
+
+  private async installFromNpm(
+    packageId: string,
+    type: string,
+    version?: string,
+  ): Promise<ToolResult> {
+    const parts: string[] = [`## npm 直装: \`${packageId}\``];
+
+    // ── MCP npm 安装 ──
+    if (type === 'mcp' || type === 'auto') {
+      if (!this.mcpInstaller || typeof (this.mcpInstaller as any).installFromNpm !== 'function') {
+        if (type === 'mcp') return this.error('npm MCP 安装器未初始化');
+      } else {
+        try {
+          const result = await (this.mcpInstaller as any).installFromNpm(packageId, { version });
+          if (result.success) {
+            parts.push(`\n✅ MCP server installed from npm!`);
+            parts.push(`- Name: **${result.config.name}**`);
+            parts.push(`- Version: ${result.version}`);
+            parts.push(`- Path: \`${result.installPath}\``);
+            return this.success(parts.join('\n'), {
+              packageId, type: 'mcp', source: 'npm',
+              version: result.version, name: result.config.name,
+            });
+          }
+          if (type === 'mcp') return this.error(`npm MCP 安装失败: ${result.error}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (type === 'mcp') return this.error(`npm MCP 安装失败: ${msg}`);
+          log.warn(`npm MCP install error (will try skill): ${msg}`);
+        }
+      }
+    }
+
+    // ── Skill npm 安装 ──
+    if (type === 'skill' || type === 'auto') {
+      if (!this.skillInstaller || typeof (this.skillInstaller as any).installFromNpm !== 'function') {
+        if (type === 'skill') return this.error('npm Skill 安装器未初始化');
+      } else {
+        try {
+          const result = await (this.skillInstaller as any).installFromNpm(packageId, { packageId, version });
+          if (result.success) {
+            parts.push(`\n✅ Skill installed from npm!`);
+            parts.push(`- ID: **${result.skillId}**`);
+            parts.push(`- Version: ${result.version}`);
+            parts.push(`- Path: \`${result.filePath}\``);
+            return this.success(parts.join('\n'), {
+              packageId, type: 'skill', source: 'npm',
+              version: result.version, skillId: result.skillId,
+            });
+          }
+          return this.error(`npm Skill 安装失败: ${result.error}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return this.error(`npm Skill 安装失败: ${msg}`);
+        }
+      }
+    }
+
+    return this.error(`npm 安装失败: 无法将 \`${packageId}\` 作为 ${type} 安装`);
   }
 }

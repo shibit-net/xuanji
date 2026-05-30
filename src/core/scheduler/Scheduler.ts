@@ -31,6 +31,9 @@ export class Scheduler {
   /** 触发 agent 会话的回调（注入 message 到当前 session） */
   public sessionTrigger: ((message: string) => Promise<void>) | null = null;
 
+  /** 推送到发起平台的回调（platform + chatId + message → 平台适配器） */
+  public platformPush: ((platform: string, chatId: string, message: string) => Promise<void>) | null = null;
+
   constructor(
     private db: Database.Database,
     private sessionManager?: any,
@@ -261,8 +264,16 @@ export class Scheduler {
           } catch (err) {
             log.error(`Custom job ${job.id} (${handlerName}) failed:`, err);
           }
+        } else if (job.message && job.platform && job.chatId && this.platformPush) {
+          // 有 platform + chatId → 推回发起端
+          try {
+            log.info(`Job ${job.id} pushing to platform ${job.platform}/${job.chatId}: "${job.message.slice(0, 100)}"`);
+            await this.platformPush(job.platform, job.chatId, job.message);
+          } catch (err) {
+            log.error(`Job ${job.id} platform push failed:`, err);
+          }
         } else if (job.message && this.sessionTrigger) {
-          // 没有 handler 但有 message → 直接触发 agent 对话
+          // 没有 platform 信息但有 message → 触发 agent 对话
           try {
             log.info(`Job ${job.id} triggering agent session with message: "${job.message.slice(0, 100)}"`);
             await this.sessionTrigger(job.message);

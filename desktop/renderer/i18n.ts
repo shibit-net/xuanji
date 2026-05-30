@@ -51,6 +51,12 @@ const zh: Record<string, string> = {
   'settings.loading': '加载中...',
   'settings.unsaved_changes': '有未保存的更改',
 
+  // Toast
+  'toast.success': '成功',
+  'toast.error': '错误',
+  'toast.warning': '警告',
+  'toast.info': '信息',
+
   // SettingsPage — UI Tab
   'settings.ui.appearance': '外观',
   'settings.ui.theme': '主题',
@@ -172,6 +178,20 @@ const zh: Record<string, string> = {
   'login.day_thu': '周四',
   'login.day_fri': '周五',
   'login.day_sat': '周六',
+
+  // PermissionDialog
+  'permdialog.title': '权限确认',
+  'permdialog.tool_call': '工具调用',
+  'permdialog.risk_safe': '安全',
+  'permdialog.risk_warn': '警告',
+  'permdialog.risk_danger': '危险',
+  'permdialog.risk_desc': '风险描述',
+  'permdialog.suggestion': '建议',
+  'permdialog.input_params': '输入参数',
+  'permdialog.btn_never': '永不允许',
+  'permdialog.btn_deny': '拒绝',
+  'permdialog.btn_allow': '允许',
+  'permdialog.btn_always': '始终允许',
 
 };
 

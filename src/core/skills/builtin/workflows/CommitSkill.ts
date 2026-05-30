@@ -18,8 +18,8 @@ export const commitSkill: Skill = {
   name: 'Smart Commit',
   version: '1.0.0',
   description: '自动生成提交信息并创建 Git commit。分析 git diff，生成符合 Conventional Commits 规范的提交信息。',
-  category: 'workflow',
-  tags: ['git', 'commit', 'workflow'],
+  category: 'prompt',
+  tags: ['git', 'commit'],
   slashCommand: '/commit',
   priority: 10,
   moduleType: 'skill',
@@ -43,6 +43,11 @@ export const commitSkill: Skill = {
     priority: 80,
   },
   requiredTools: ['bash'],
+
+  async render(options?: any): Promise<string> {
+    const result = await (this as any).execute(options?.params);
+    return result.output ?? result.error ?? '';
+  },
 
   async execute(params?: Record<string, any>): Promise<WorkflowResult> {
     try {

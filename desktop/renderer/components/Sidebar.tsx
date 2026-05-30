@@ -241,7 +241,7 @@ export default function Sidebar({ onToggle: _onToggle, onOpenSettings, onOpenAge
         </Button>
         <Button
           variant="ghost"
-          onClick={() => window.open('https://github.com/shibit/xuanji', '_blank')}
+          onClick={() => window.open('https://work.weixin.qq.com/ca/cawcde6fa830e97aad', '_blank')}
           className="w-full justify-start h-9"
         >
           <HelpCircle size={16} className="mr-2 text-muted-foreground" />

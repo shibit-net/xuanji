@@ -18,8 +18,8 @@ export const reviewPRSkill: Skill = {
   name: 'PR Code Review',
   version: '1.0.0',
   description: '分析 GitHub PR 并生成代码审查报告。需要 gh CLI 已安装并认证。',
-  category: 'workflow',
-  tags: ['git', 'github', 'pr', 'review', 'workflow'],
+  category: 'prompt',
+  tags: ['git', 'github', 'pr', 'review'],
   slashCommand: '/review-pr',
   priority: 10,
   moduleType: 'skill',
@@ -43,6 +43,11 @@ export const reviewPRSkill: Skill = {
     priority: 80,
   },
   requiredTools: ['bash'],
+
+  async render(options?: any): Promise<string> {
+    const result = await (this as any).execute(options?.params);
+    return result.output ?? result.error ?? '';
+  },
 
   async execute(params?: Record<string, any>): Promise<WorkflowResult> {
     try {

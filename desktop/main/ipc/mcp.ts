@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { sendRequest, isSessionReady } from '../agent/index.js';
+import { getAuthState } from '../config/auth.js';
 
 function registerMcpIpcHandlers() {
   // ============ MCP 管理 ============
@@ -50,7 +51,7 @@ function registerMcpIpcHandlers() {
 
   ipcMain.handle('mcp:install', async (_event, data: { packageId: string; version?: string }) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('mcp-install', data); }
+    try { return await sendRequest('mcp-install', { ...data, token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
@@ -87,7 +88,7 @@ function registerMcpIpcHandlers() {
 
   ipcMain.handle('skill:install', async (_event, data: { packageId: string; version?: string }) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('skill-install', data); }
+    try { return await sendRequest('skill-install', { ...data, token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
@@ -100,13 +101,43 @@ function registerMcpIpcHandlers() {
   // ============ 天工坊市场 ============
   ipcMain.handle('tiangong:search', async (_event, data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('tiangong-search', data); }
+    try { return await sendRequest('tiangong-search', { ...data, token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
   ipcMain.handle('tiangong:detail', async (_event, data: { packageId: string }) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('tiangong-detail', data); }
+    try { return await sendRequest('tiangong-detail', { ...data, token: getAuthState().accessToken }); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  ipcMain.handle('tiangong:categories', async () => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('tiangong-categories', { token: getAuthState().accessToken }); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  ipcMain.handle('tiangong:tags', async () => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('tiangong-tags', { token: getAuthState().accessToken }); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  ipcMain.handle('tiangong:checkInstallPermission', async (_event, data: { packageId: string }) => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('tiangong-check-install-permission', { ...data, token: getAuthState().accessToken }); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  ipcMain.handle('tiangong:recordDownload', async (_event, data: { packageId: number; versionId: number }) => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('tiangong-record-download', { ...data, token: getAuthState().accessToken }); }
+    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  });
+
+  ipcMain.handle('tiangong:subscriptions', async () => {
+    if (!isSessionReady()) return { success: false, error: '会话未初始化' };
+    try { return await sendRequest('tiangong-subscriptions', { token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
@@ -129,13 +160,13 @@ function registerMcpIpcHandlers() {
 
   ipcMain.handle('tiangong:deletePackage', async (_event, data: { id: number }) => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('tiangong-delete', data); }
+    try { return await sendRequest('tiangong-delete', { ...data, token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 
   ipcMain.handle('tiangong:checkUpdates', async () => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('tiangong-check-updates'); }
+    try { return await sendRequest('tiangong-check-updates', { token: getAuthState().accessToken }); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 }

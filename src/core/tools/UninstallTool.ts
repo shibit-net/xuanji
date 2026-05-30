@@ -33,7 +33,9 @@ export class UninstallTool extends BaseTool {
     properties: {
       packageId: {
         type: 'string',
-        description: 'Marketplace packageId (the ID used during installation)',
+        description:
+          '要卸载的 skill ID（即系统提示中 Skills 列表里反引号包裹的 id，如 `skill-superpowers`，' +
+          '注意不要传 skill 名称）。卸载 MCP 时传 marketplace packageId。',
       },
       type: {
         type: 'string',

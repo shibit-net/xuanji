@@ -5,10 +5,7 @@
  * LLM 通过此单一工具调用所有已安装的 Skill。
  * 可用 Skill 列表通过 system prompt 注入。
  *
- * 支持三种 Skill 类型：
- * - workflow: 调用 skillRegistry.executeWorkflow()
- * - prompt:   调用 skillRegistry.render()，返回渲染后的提示词内容
- * - action:   调用 skill.execute()，执行具体操作
+ * 所有 Skill 统一为 prompt 类型，调用 skillRegistry.render() 返回渲染内容。
  */
 
 import type { ToolResult, JSONSchema } from '@/core/types';
@@ -20,8 +17,7 @@ const log = logger.child({ module: 'SkillCallTool' });
 export class SkillCallTool extends BaseTool {
   readonly name = 'skill_call';
   readonly description =
-    'Invoke an installed Skill. Available skills are listed in the system prompt under "Skills". ' +
-    'Use this for workflows (e.g., commit, review), prompt rendering, and action execution.';
+    'Invoke an installed Skill by its ID. Use `skill_manage(list)` to discover available Skills and their descriptions first.';
   readonly readonly = false;
 
   readonly input_schema: JSONSchema = {
@@ -29,7 +25,7 @@ export class SkillCallTool extends BaseTool {
     properties: {
       skillId: {
         type: 'string',
-        description: 'The Skill ID to invoke (listed in the system prompt under "Skills")',
+        description: 'The Skill ID to invoke. Use skill_manage(list) to discover available Skill IDs.',
       },
       params: {
         type: 'object',
@@ -71,38 +67,38 @@ export class SkillCallTool extends BaseTool {
     const params = (input.params ?? {}) as Record<string, any>;
 
     try {
-      switch (skill.category) {
-        case 'workflow': {
-          const result = await this.skillRegistry.executeWorkflow(skillId, params);
-          if (result.success) {
-            return this.success(result.output || 'Workflow completed', result.metadata);
-          }
-          return this.error(result.error || 'Workflow failed');
-        }
+      const content = await this.skillRegistry.render(skillId, { params });
 
-        case 'prompt': {
-          const content = await this.skillRegistry.render(skillId, { params });
-          return this.success(content, { skillId, category: 'prompt' });
-        }
-
-        case 'action': {
-          if (typeof skill.execute === 'function') {
-            const result = await skill.execute(params);
-            const output = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-            return this.success(output, { skillId, category: 'action' });
-          }
-          return this.error(
-            `Skill "${skill.name}" (${skillId}) 是 action 类型但没有 execute 方法。`,
-          );
-        }
-
-        default:
-          return this.error(`不支持的 Skill 类型: ${skill.category}`);
+      // 附带 ClawHub 元数据，帮助 LLM 了解 Skill 的能力边界
+      const metadata: Record<string, unknown> = { skillId, category: 'prompt' };
+      if (skill.allowedTools && skill.allowedTools.length > 0) {
+        metadata.allowedTools = skill.allowedTools;
       }
+      if (skill.clawhubMetadata) {
+        const domains = extractClawhubDomains(skill.clawhubMetadata);
+        if (domains.length > 0) {
+          metadata.domains = domains;
+        }
+      }
+
+      return this.success(content, metadata);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Skill "${skillId}" execution failed:`, err);
       return this.error(`Skill 执行失败: ${message}`, { skillId });
     }
   }
+}
+
+/** 从 clawhubMetadata 中提取领域关键词 */
+function extractClawhubDomains(metadata: Record<string, unknown>): string[] {
+  const domains: string[] = [];
+  for (const [key, value] of Object.entries(metadata)) {
+    if (typeof value === 'string' && value.length > 0 && value.length < 100) {
+      domains.push(value);
+    } else if (key && key !== 'tags' && key !== 'version') {
+      domains.push(key);
+    }
+  }
+  return [...new Set(domains)].slice(0, 10);
 }

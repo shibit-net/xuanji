@@ -24,6 +24,8 @@ import { logger } from '@/core/logger';
 import type { MCPServerConfig } from '../types';
 import type { TiangongMarket, InstallConfig, MarketPackage } from './TiangongMarket';
 import { MCPManager } from '../MCPManager';
+import { eventBus } from '@/core/events/EventBus';
+import { XuanjiEvent } from '@/core/events/events';
 
 const exec = promisify(execCb);
 const log = logger.child({ module: 'MCPInstaller' });
@@ -102,7 +104,7 @@ export class MCPInstaller {
    */
   async search(options: InstallerSearchOptions = {}): Promise<InstallerSearchResult> {
     const result = await this.market.search({ ...options, type: 'mcp' });
-    return { items: result.items, total: result.total };
+    return { items: result.mcp?.items ?? [], total: result.mcp?.total ?? 0 };
   }
 
   /**
@@ -129,6 +131,120 @@ export class MCPInstaller {
   }
 
   /**
+   * 直接从 npm registry 安装 MCP 包（绕过 marketplace API）
+   *
+   * 流程:
+   *   1. npm install {packageName}
+   *   2. 检测 package.json 中的 bin / mcp 字段确定入口命令
+   *   3. 构建 MCPServerConfig (source=npm)
+   *   4. mcpManager.addServer() 注册
+   */
+  async installFromNpm(packageName: string, options: InstallOptions = {}): Promise<InstallResult> {
+    const timeout = options.timeout ?? 120000;
+    const installPath = this.getInstallPath(packageName);
+
+    try {
+      log.info(`Installing MCP from npm: ${packageName}`);
+      await fs.mkdir(installPath, { recursive: true });
+
+      // npm install
+      const appDir = path.join(installPath, 'app');
+      await this.npmInitAndInstall(installPath, packageName, timeout);
+
+      // 在 node_modules 中找到已安装的包目录
+      const pkgDir = path.join(appDir, 'node_modules', ...packageName.split('/'));
+      let pkgJson: any = {};
+      try {
+        pkgJson = JSON.parse(await fs.readFile(path.join(pkgDir, 'package.json'), 'utf-8'));
+      } catch {
+        log.warn(`Cannot read package.json for ${packageName}, using defaults`);
+      }
+
+      // 检测入口命令
+      let command = 'npx';
+      let args: string[] = [packageName];
+      let cwd = appDir;
+      let detectedEntry: string | undefined;
+
+      // 1. 检查 package.json 的 bin 字段
+      if (pkgJson.bin) {
+        if (typeof pkgJson.bin === 'string') {
+          detectedEntry = pkgJson.bin;
+        } else if (typeof pkgJson.bin === 'object') {
+          const firstBin = Object.values(pkgJson.bin)[0] as string;
+          if (firstBin) detectedEntry = firstBin;
+        }
+      }
+
+      // 2. 检查 mcp 相关字段 (自定义约定)
+      if (!detectedEntry) {
+        const mcpEntry = pkgJson.mcp || pkgJson['mcp-server'] || pkgJson.main;
+        if (typeof mcpEntry === 'string' && mcpEntry) {
+          detectedEntry = mcpEntry;
+        }
+      }
+
+      if (detectedEntry) {
+        // 检测入口文件类型
+        const entryPath = path.resolve(pkgDir, detectedEntry);
+        if (detectedEntry.endsWith('.js') || detectedEntry.endsWith('.mjs')) {
+          command = 'node';
+          args = [entryPath];
+          cwd = pkgDir;
+        } else if (detectedEntry.endsWith('.py')) {
+          command = process.platform === 'win32' ? 'python' : 'python3';
+          args = [entryPath];
+          cwd = pkgDir;
+        } else {
+          // bin 指向的可能是命令行工具，用 node 执行
+          command = 'node';
+          args = [entryPath];
+          cwd = pkgDir;
+        }
+      }
+
+      const now = new Date().toISOString();
+      const config: MCPServerConfig = {
+        name: packageName,
+        transport: 'stdio',
+        command,
+        args,
+        env: {},
+        cwd,
+        disabled: false,
+        source: 'npm' as const,
+        packageId: packageName,
+        installedVersion: pkgJson.version || 'unknown',
+        installPath,
+        installedAt: now,
+      };
+
+      await this.mcpManager.addServer(config);
+      eventBus.emit(XuanjiEvent.MCP_INSTALLED, { serverName: config.name, packageId: packageName });
+
+      log.info(`MCP from npm installed: ${packageName} v${config.installedVersion}`);
+      return {
+        success: true,
+        packageId: packageName,
+        version: config.installedVersion || 'unknown',
+        installPath,
+        config,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`MCP npm install failed for ${packageName}: ${msg}`);
+      return {
+        success: false,
+        packageId: packageName,
+        version: 'unknown',
+        installPath: '',
+        config: {} as MCPServerConfig,
+        error: `npm 安装失败: ${msg}`,
+      };
+    }
+  }
+
+  /**
    * 安装指定 packageId 的 MCP 包
    *
    * 完整安装流程:
@@ -146,75 +262,97 @@ export class MCPInstaller {
       const installConfig = await this.market.getInstallConfig(packageId, options.version);
       const effectiveVersion = installConfig.version || 'unknown';
 
-      // ── Step 2: 判断安装类型 ────────────────────────────
-      const downloadInfo = await this.market.getDownloadInfo(packageId, options.version);
-      let installPath: string;
-
-      // 解析 configTemplate 判断传输类型
+      // ── Step 2: 解析 configTemplate 判断 transport ──────
       let parsedTemplate: Partial<MCPServerConfig> = {};
       if (installConfig.configTemplate) {
         try {
           parsedTemplate = JSON.parse(installConfig.configTemplate);
-        } catch { /* ignore parse errors, handled in buildServerConfig */ }
+        } catch { /* ignore parse errors */ }
       }
-      const isRemoteTransport = parsedTemplate.transport === 'sse' || parsedTemplate.transport === 'http';
+      const transport = parsedTemplate.transport;
 
-      if (downloadInfo.downloadUrl) {
-        // Type A: 自托管 — 下载 tar.gz → 解压 → npm install
-        log.info(`Downloading ${packageId}@${effectiveVersion}`);
-        const { tempPath } = await this.market.download(packageId, options.version);
-        installPath = this.getInstallPath(packageId);
-        await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
-      } else if (installConfig.configTemplate && isRemoteTransport) {
-        // Type B: 远程 SSE/HTTP 服务 — 无需下载，直接注册配置
-        log.info(`Registering remote MCP ${packageId}@${effectiveVersion} (${parsedTemplate.transport})`);
-        installPath = this.getInstallPath(packageId);
-        await fs.mkdir(installPath, { recursive: true });
+      const installPath = this.getInstallPath(packageId);
+      await fs.mkdir(installPath, { recursive: true });
 
+      // ── Step 3: 根据 transport 类型分流安装 ──────────────
+      if (installConfig.configTemplate && (transport === 'stdio' || transport === 'sse' || transport === 'http')) {
+        // 基于 configTemplate 直接注册（stdio/sse/http 不需要下载文件）
+        log.info(`Registering ${transport} MCP ${packageId}@${effectiveVersion} from configTemplate`);
         await fs.writeFile(
           path.join(installPath, '.xuanji-mcp.json'),
           JSON.stringify({
             packageId, version: effectiveVersion,
-            type: 'remote', transport: parsedTemplate.transport, installedAt: new Date().toISOString(),
+            type: transport, installedAt: new Date().toISOString(),
           }, null, 2),
           'utf-8',
         );
-      } else if (installConfig.configTemplate) {
-        // Type C: 外部引用（npm/pip/等）— npm install + 注册
-        log.info(`Installing external MCP ${packageId}@${effectiveVersion}`);
-        installPath = this.getInstallPath(packageId);
-        await fs.mkdir(installPath, { recursive: true });
-
-        // 初始化 package.json 并安装 npm 包
-        await this.npmInitAndInstall(installPath, packageId, timeout);
-
+      } else if (transport === 'bundle') {
+        // bundle transport: 下载 ZIP → 解压 → npm install
+        log.info(`Installing bundle MCP ${packageId}@${effectiveVersion} from ZIP`);
+        const downloadInfo = await this.market.getDownloadInfo(packageId, options.version);
+        if (!downloadInfo.downloadUrl) {
+          return {
+            success: false, packageId, version: effectiveVersion,
+            installPath: '', config: {} as MCPServerConfig,
+            error: `包 "${packageId}" (bundle) 缺少文件下载地址`,
+          };
+        }
+        const { tempPath } = await this.market.download(packageId, options.version, '.zip');
+        await this.extractZipAndInstall(tempPath, installPath, timeout);
         await fs.writeFile(
           path.join(installPath, '.xuanji-mcp.json'),
           JSON.stringify({
             packageId, version: effectiveVersion,
-            type: 'external', installedAt: new Date().toISOString(),
+            type: 'bundle', installedAt: new Date().toISOString(),
           }, null, 2),
           'utf-8',
         );
       } else {
-        return {
-          success: false, packageId, version: effectiveVersion,
-          installPath: '', config: {} as MCPServerConfig,
-          error: `包 "${packageId}" 不可安装：缺少文件下载地址和配置模板`,
-        };
+        // 非标准 transport 或旧格式 → 尝试下载安装
+        log.info(`Attempting download-based install for ${packageId}@${effectiveVersion}`);
+        try {
+          const downloadInfo = await this.market.getDownloadInfo(packageId, options.version);
+          if (downloadInfo.downloadUrl) {
+            const { tempPath } = await this.market.download(packageId, options.version);
+            await this.extractAndInstall(tempPath, installPath, installConfig, timeout);
+          } else if (installConfig.configTemplate) {
+            await this.npmInitAndInstall(installPath, packageId, timeout);
+          } else {
+            return {
+              success: false, packageId, version: effectiveVersion,
+              installPath: '', config: {} as MCPServerConfig,
+              error: `包 "${packageId}" 不可安装：缺少文件下载地址和配置模板`,
+            };
+          }
+          await fs.writeFile(
+            path.join(installPath, '.xuanji-mcp.json'),
+            JSON.stringify({
+              packageId, version: effectiveVersion,
+              type: transport || 'legacy', installedAt: new Date().toISOString(),
+            }, null, 2),
+            'utf-8',
+          );
+        } catch (downloadErr) {
+          // 下载失败时，如果 configTemplate 存在则回退到直接注册
+          if (installConfig.configTemplate) {
+            log.warn(`Download failed for ${packageId}, falling back to configTemplate direct registration`);
+          } else {
+            throw downloadErr;
+          }
+        }
       }
 
-      // ── Step 3: 构建配置并注册 ──────────────────────────
+      // ── Step 4: 构建配置并注册 ──────────────────────────
       const config = this.buildServerConfig(packageId, effectiveVersion, installPath, installConfig);
       await this.mcpManager.addServer(config);
       log.info(`Installed MCP server: ${config.name} (${packageId}@${effectiveVersion})`);
 
+      eventBus.emit(XuanjiEvent.MCP_INSTALLED, { packageId, version: effectiveVersion, serverName: config.name });
       return { success: true, packageId, version: effectiveVersion, installPath, config };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`Failed to install ${packageId}:`, err);
 
-      // 清理残留的安装目录
       const targetPath = this.getInstallPath(packageId);
       try {
         await fs.rm(targetPath, { recursive: true, force: true });
@@ -257,6 +395,7 @@ export class MCPInstaller {
     const removed = await this.mcpManager.removeServer(targetName);
     if (removed) {
       await this.cleanupInstall(packageId);
+      eventBus.emit(XuanjiEvent.MCP_UNINSTALLED, { packageId, serverName: targetName });
     }
     return removed;
   }
@@ -264,6 +403,28 @@ export class MCPInstaller {
   // ============================================================
   // Private: Install Pipeline
   // ============================================================
+
+  /**
+   * 解压 ZIP 并执行 npm install（bundle transport）
+   */
+  private async extractZipAndInstall(
+    tempPath: string,
+    installPath: string,
+    timeout: number,
+  ): Promise<void> {
+    await fs.mkdir(installPath, { recursive: true });
+
+    log.debug(`Extracting ZIP ${tempPath} → ${installPath}`);
+    await exec(`unzip -o "${tempPath}" -d "${installPath}"`, { timeout });
+
+    // 检查是否有 package.json，有则执行 npm install
+    const hasPackageJson = await fs.access(path.join(installPath, 'package.json'))
+      .then(() => true).catch(() => false);
+    if (hasPackageJson) {
+      log.debug(`Running npm install --production in ${installPath}`);
+      await this.npmInstall(installPath, timeout);
+    }
+  }
 
   /**
    * 解压 tar.gz 并执行 npm install

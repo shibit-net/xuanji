@@ -38,6 +38,7 @@ export interface MarketConfig {
 // ============================================================
 
 export interface MarketPackage {
+  id: number;                     // 数据库自增 ID
   packageId: string;
   name: string;
   type: 'mcp' | 'skill';        // 1 → mcp, 2 → skill
@@ -54,6 +55,9 @@ export interface MarketPackage {
   currentVersion: string;
   proxyEnabled: boolean;
   pricingModel: number;         // 0=free, 1=per-call, 2=subscription
+  unitPrice?: number;
+  subscriptionPriceMonthly?: number;
+  subscriptionPriceYearly?: number;
   source: number;
   isPrivate: boolean;
 }
@@ -111,6 +115,37 @@ export interface UpdateCheckItem {
   fileSize?: number;
 }
 
+export interface InstallPermission {
+  packageId: string;
+  status: number;       // 1=testing, 2=live, 3=offline
+  canInstall: boolean;
+  reason?: string;
+}
+
+export interface UserSubscription {
+  subscriptionId: number;
+  packageId: string;
+  packageName: string;
+  status: number;       // 1=active
+  expiresAt?: string;
+  autoRenewal: boolean;
+  pricingType: number;  // 0=free, 1=pay-per-use, 2=monthly, 3=yearly
+  subscriptionAmount?: number;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+}
+
+export interface Tag {
+  id: number;
+  tagName: string;
+}
+
 export interface SearchOptions {
   type?: 'mcp' | 'skill';
   query?: string;
@@ -122,12 +157,17 @@ export interface SearchOptions {
   pageSize?: number;
 }
 
-export interface SearchResult {
+export interface PageResult {
   items: MarketPackage[];
   total: number;
   pageNum: number;
   pageSize: number;
   pages: number;
+}
+
+export interface SearchResult {
+  mcp: PageResult | null;
+  skill: PageResult | null;
 }
 
 // ============================================================
@@ -150,6 +190,11 @@ interface PageResponse<T> {
   list: T[];
 }
 
+interface PackageSearchApiResponse {
+  mcp: PageResponse<PackageListRaw> | null;
+  skill: PageResponse<PackageListRaw> | null;
+}
+
 interface PackageListRaw {
   id: number;
   packageId: string;
@@ -168,6 +213,9 @@ interface PackageListRaw {
   currentVersion: string;
   proxyEnabled: boolean;
   pricingModel: number;
+  unitPrice?: number;
+  subscriptionPriceMonthly?: number;
+  subscriptionPriceYearly?: number;
   source: number;
   isPrivate: boolean;
 }
@@ -293,15 +341,23 @@ export class TiangongMarket {
     params.set('pageSize', String(options.pageSize ?? 10));
 
     const path = `/public/packages?${params.toString()}`;
-    const raw = await this.get<PageResponse<PackageListRaw>>(path);
+    const raw = await this.get<PackageSearchApiResponse>(path);
     const data = this.unwrap(raw);
 
+    const mapPage = (page: PageResponse<PackageListRaw> | null): PageResult | null => {
+      if (!page) return null;
+      return {
+        items: (page.list ?? []).map(p => this.mapPackage(p)),
+        total: page.total,
+        pageNum: page.pageNum,
+        pageSize: page.pageSize,
+        pages: page.pages,
+      };
+    };
+
     return {
-      items: (data.list ?? []).map(p => this.mapPackage(p)),
-      total: data.total,
-      pageNum: data.pageNum,
-      pageSize: data.pageSize,
-      pages: data.pages,
+      mcp: mapPage(data.mcp ?? null),
+      skill: mapPage(data.skill ?? null),
     };
   }
 
@@ -510,6 +566,67 @@ export class TiangongMarket {
     const path = `/admin/packages/${id}`;
     const raw = await this.delete<null>(path);
     this.unwrap(raw);
+  }
+
+  /**
+   * 获取所有分类
+   *
+   * GET /public/categories
+   */
+  async getCategories(): Promise<Category[]> {
+    const path = '/public/categories';
+    const raw = await this.get<Category[]>(path);
+    return this.unwrap(raw);
+  }
+
+  /**
+   * 获取所有标签
+   *
+   * GET /public/tags
+   */
+  async getTags(): Promise<Tag[]> {
+    const path = '/public/tags';
+    const raw = await this.get<Tag[]>(path);
+    return this.unwrap(raw);
+  }
+
+  /**
+   * 检查用户安装权限（需登录）
+   *
+   * GET /user/packages/install-permission?packageId=X
+   */
+  async checkInstallPermission(packageId: string): Promise<InstallPermission> {
+    const path = `/user/packages/install-permission?packageId=${encodeURIComponent(packageId)}`;
+    const raw = await this.get<InstallPermission>(path);
+    return this.unwrap(raw);
+  }
+
+  /**
+   * 记录下载（需登录，会递增 total_downloads）
+   *
+   * POST /user/downloads
+   * Body: { packageId (number), versionId (number), deviceFingerprint (string) }
+   */
+  async recordDownload(packageId: number, versionId: number): Promise<void> {
+    const path = '/public/downloads';
+    const body = JSON.stringify({
+      packageId,
+      versionId,
+      deviceFingerprint: 'xuanji-desktop',
+    });
+    const raw = await this.post<null>(path, body);
+    this.unwrap(raw);
+  }
+
+  /**
+   * 获取用户订阅列表（需登录）
+   *
+   * GET /user/subscriptions
+   */
+  async getSubscriptions(): Promise<UserSubscription[]> {
+    const path = '/user/subscriptions';
+    const raw = await this.get<UserSubscription[]>(path);
+    return this.unwrap(raw);
   }
 
   // ============================================================
@@ -730,6 +847,7 @@ export class TiangongMarket {
     }
 
     return {
+      id: raw.id,
       packageId: raw.packageId,
       name: raw.name,
       type: raw.type === 1 ? 'mcp' : 'skill',
@@ -746,6 +864,9 @@ export class TiangongMarket {
       currentVersion: raw.currentVersion ?? '',
       proxyEnabled: raw.proxyEnabled ?? false,
       pricingModel: raw.pricingModel ?? 0,
+      unitPrice: raw.unitPrice,
+      subscriptionPriceMonthly: raw.subscriptionPriceMonthly,
+      subscriptionPriceYearly: raw.subscriptionPriceYearly,
       source: raw.source ?? 0,
       isPrivate: raw.isPrivate ?? false,
     };

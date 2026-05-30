@@ -810,35 +810,17 @@ export interface ElectronAPI {
   skillUninstall: (data: { skillId: string }) => Promise<{ success: boolean; error?: string }>;
   skillInstall: (data: { packageId: string; version?: string }) => Promise<{ success: boolean; skillId?: string; error?: string }>;
   skillPublish: (data: { skillId: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  /** 监听 Skill 状态变更（LLM 工具层安装/卸载后自动通知 UI 刷新） */
+  onSkillStateChanged: (callback: () => void) => () => void;
+  /** 监听 MCP 状态变更（LLM 工具层安装/卸载后自动通知 UI 刷新） */
+  onMcpStateChanged: (callback: () => void) => () => void;
 
   // ============ 天工坊市场 ============
   tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => Promise<{
     success: boolean;
     data?: {
-      items: Array<{
-        packageId: string;
-        name: string;
-        type: 'mcp' | 'skill';
-        description: string;
-        authorName: string;
-        categoryName: string;
-        totalDownloads: number;
-        ratingAvg: number;
-        ratingCount: number;
-        qualityScore: number;
-        securityScore: number;
-        tags: string[];
-        transport?: string;
-        currentVersion: string;
-        proxyEnabled: boolean;
-        pricingModel: number;
-        source: number;
-        isPrivate: boolean;
-      }>;
-      total: number;
-      pageNum: number;
-      pageSize: number;
-      pages: number;
+      mcp?: TiangongPageResult | null;
+      skill?: TiangongPageResult | null;
     };
     error?: string;
   }>;
@@ -860,6 +842,30 @@ export interface ElectronAPI {
   }>;
   tiangongDeletePackage: (data: { id: number }) => Promise<{
     success: boolean;
+    error?: string;
+  }>;
+  tiangongCategories: () => Promise<{
+    success: boolean;
+    data?: Array<{ id: number; name: string; slug: string; description: string; icon: string }>;
+    error?: string;
+  }>;
+  tiangongTags: () => Promise<{
+    success: boolean;
+    data?: Array<{ id: number; tagName: string }>;
+    error?: string;
+  }>;
+  tiangongCheckInstallPermission: (data: { packageId: string }) => Promise<{
+    success: boolean;
+    data?: { packageId: string; status: number; canInstall: boolean; reason?: string };
+    error?: string;
+  }>;
+  tiangongRecordDownload: (data: { packageId: number; versionId: number }) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
+  tiangongSubscriptions: () => Promise<{
+    success: boolean;
+    data?: Array<{ subscriptionId: number; packageId: string; packageName: string; status: number; expiresAt?: string; autoRenewal: boolean; pricingType: number; subscriptionAmount?: number }>;
     error?: string;
   }>;
 
@@ -920,8 +926,36 @@ export interface ElectronAPI {
   }) => void) => void;
 
   // 调试日志
-  debugLog: (message: string) => Promise<{ success: boolean; error?: string }>;
+}
 
+interface TiangongPackageRaw {
+  id: number;
+  packageId: string;
+  name: string;
+  type: 'mcp' | 'skill';
+  description: string;
+  authorName: string;
+  categoryName: string;
+  totalDownloads: number;
+  ratingAvg: number;
+  ratingCount: number;
+  qualityScore: number;
+  securityScore: number;
+  tags: string[];
+  transport?: string;
+  currentVersion: string;
+  proxyEnabled: boolean;
+  pricingModel: number;
+  source: number;
+  isPrivate: boolean;
+}
+
+interface TiangongPageResult {
+  items: TiangongPackageRaw[];
+  total: number;
+  pageNum: number;
+  pageSize: number;
+  pages: number;
 }
 
 declare global {

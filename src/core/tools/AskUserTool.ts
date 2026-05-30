@@ -12,6 +12,7 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
 import { BaseTool } from './BaseTool';
+import { t } from '@/core/i18n';
 
 /**
  * AskUser 请求参数
@@ -54,43 +55,44 @@ export type AskUserHandler = (request: AskUserRequest) => Promise<string>;
  */
 export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
-  readonly description = [
-    'Ask the user a question and wait for their response.',
-    'Use when you need clarification, a decision, or additional information to proceed.',
-    'Supports multiple choice options (single/multi select), priority (1-10), and timeout.',
-  ].join('\n');
 
-  readonly input_schema: JSONSchema = {
-    type: 'object',
-    properties: {
-      question: {
-        type: 'string',
-        description: 'Question to ask the user (clear, specific, concise)',
+  get description(): string {
+    return t('tool.ask_user.description');
+  }
+
+  get input_schema(): JSONSchema {
+    return {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: t('tool.ask_user.param.question'),
+        },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: t('tool.ask_user.param.options'),
+        },
+        multiSelect: {
+          type: 'boolean',
+          description: t('tool.ask_user.param.multiSelect'),
+        },
+        default: {
+          type: 'string',
+          description: t('tool.ask_user.param.default'),
+        },
+        priority: {
+          type: 'number',
+          description: t('tool.ask_user.param.priority'),
+        },
+        timeout: {
+          type: 'number',
+          description: t('tool.ask_user.param.timeout'),
+        },
       },
-      options: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Option list (optional, displays as multiple choice if provided)',
-      },
-      multiSelect: {
-        type: 'boolean',
-        description: 'Whether to allow multiple selections (default false, only effective when options provided)',
-      },
-      default: {
-        type: 'string',
-        description: 'Default value (optional)',
-      },
-      priority: {
-        type: 'number',
-        description: 'Question priority (1-10, default 5, higher value = higher priority)',
-      },
-      timeout: {
-        type: 'number',
-        description: 'Timeout in milliseconds (default 300000 = 5 minutes)',
-      },
-    },
-    required: ['question'],
-  };
+      required: ['question'],
+    };
+  }
 
   /** 只读工具：不产生副作用 */
   readonly readonly = true;
@@ -115,16 +117,15 @@ export class AskUserTool extends BaseTool {
   async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const question = input.question as string;
     if (!question?.trim()) {
-      return this.error('问题不能为空');
+      return this.error(t('tool.ask_user.error.empty_question'));
     }
 
     if (!this.handler) {
-      return this.error('用户交互不可用（非交互模式）');
+      return this.error(t('tool.ask_user.error.no_handler'));
     }
 
-    // 信号已触发则立即取消
     if (signal?.aborted) {
-      return this.error('用户取消了提问');
+      return this.error(t('tool.ask_user.error.cancelled'));
     }
 
     const request: AskUserRequest = {
@@ -147,16 +148,15 @@ export class AskUserTool extends BaseTool {
     return serialize(async () => {
       const timeout = request.context?.timeout ?? 300000;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('用户回复超时')), timeout);
+        setTimeout(() => reject(new Error(t('tool.ask_user.error.timeout'))), timeout);
       });
 
-      // 将 AbortSignal 转换为 Promise，信号触发时取消等待
       const abortPromise = signal
         ? new Promise<never>((_, reject) => {
             if (signal.aborted) {
-              reject(new Error('已取消'));
+              reject(new Error(t('tool.ask_user.error.cancelled')));
             } else {
-              signal.addEventListener('abort', () => reject(new Error('已取消')), { once: true });
+              signal.addEventListener('abort', () => reject(new Error(t('tool.ask_user.error.cancelled'))), { once: true });
             }
           })
         : null;
@@ -174,12 +174,12 @@ export class AskUserTool extends BaseTool {
               : String(answer ?? ''));
 
         if (!answerStr.trim()) {
-          return this.success('（用户未回复）');
+          return this.success(t('tool.ask_user.error.no_response'));
         }
         return this.success(answerStr);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return this.error(`等待用户回复失败: ${message}`);
+        return this.error(t('tool.ask_user.error.wait_failed', { message }));
       }
     });
   }

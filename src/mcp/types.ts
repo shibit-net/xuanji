@@ -268,8 +268,8 @@ export interface MCPServerConfig {
 
   // ────────── Marketplace 相关 ──────────
 
-  /** 来源标记: builtin(内置) | project(项目配置) | marketplace(市场安装) | custom(自定义) */
-  source?: 'builtin' | 'project' | 'marketplace' | 'custom';
+  /** 来源标记: builtin(内置) | project(项目配置) | marketplace(市场安装) | custom(自定义) | npm(npm直装) */
+  source?: 'builtin' | 'project' | 'marketplace' | 'custom' | 'npm';
 
   /** 天工坊 packageId（从 marketplace 安装时填充） */
   packageId?: string;

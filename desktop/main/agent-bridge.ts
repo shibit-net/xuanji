@@ -88,6 +88,22 @@ eventBus.on('queue:consumed', () => {
 });
 
 // ============================================================
+// Skill / MCP 状态变更 → 转发到渲染进程，保持 UI 与 LLM 工具层同步
+// ============================================================
+eventBus.on(XuanjiEvent.SKILL_INSTALLED, () => {
+  channel.send('skill:state-changed', {});
+});
+eventBus.on(XuanjiEvent.SKILL_UNINSTALLED, () => {
+  channel.send('skill:state-changed', {});
+});
+eventBus.on(XuanjiEvent.MCP_INSTALLED, () => {
+  channel.send('mcp:state-changed', {});
+});
+eventBus.on(XuanjiEvent.MCP_UNINSTALLED, () => {
+  channel.send('mcp:state-changed', {});
+});
+
+// ============================================================
 // 内存监控 — 每 5 分钟记录堆使用量，超过 1GB 触发告警
 // ============================================================
 const MEMORY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -400,6 +416,17 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
       };
       log.info('Scheduler sessionTrigger wired via handleUserAction');
 
+      // 接线 platformPush：定时任务触发时推回发起平台
+      scheduler.platformPush = async (platform: string, chatId: string, message: string) => {
+        log.info(`[Scheduler] Pushing to platform ${platform}/${chatId}: "${message.slice(0, 80)}"`);
+        channel.send('platform:reply', {
+          platform,
+          chatId,
+          text: message,
+        } as any);
+      };
+      log.info('Scheduler platformPush wired');
+
       // sessionTrigger 接线完成后启动调度器，确保 catchUpMissedJobs 能正常触发 agent 消息
       await scheduler.start();
       log.info('Scheduler started after sessionTrigger wiring');
@@ -652,6 +679,12 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         }
       }
 
+      // 设置调度器的平台上下文（创建定时任务时自动附加 platform/chatId）
+      const schedulerTool = platformSession?.getAgentLoop()?.getToolRegistry()?.get('scheduler');
+      if (schedulerTool && typeof (schedulerTool as any).setPlatformContext === 'function') {
+        (schedulerTool as any).setPlatformContext(data.platform, data.chatId);
+      }
+
       const reply = await platformGateway!.process({
         id: data.id,
         platform: data.platform,
@@ -689,6 +722,12 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       });
 
       log.info(`[DIAG] Platform reply sent to main: platform=${data.platform} chatId=${data.chatId}`);
+
+      // 清理平台上下文
+      if (schedulerTool && typeof (schedulerTool as any).setPlatformContext === 'function') {
+        (schedulerTool as any).setPlatformContext(null, null);
+      }
+
       return { success: true };
     } catch (err) {
       log.error(`[DIAG] Platform message processing failed: ${(err as Error).message}`);
@@ -2007,12 +2046,13 @@ channel.handle('mcp-detail', (data: { name: string }) => {
   }
 });
 
-channel.handle('skill-list', () => {
+channel.handle('skill-list', async () => {
   const mm = getMemoryManager();
   if (!mm) return { success: false, error: '记忆系统未初始化' };
   try {
     const registry = mm.skillRegistry;
     if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
+    await registry.scanInstalled();
     const skills = (registry.list?.() || []).map((s: any) => ({
       id: s.id,
       name: s.name,
@@ -2253,7 +2293,7 @@ channel.handle('skill-detail', (data: { id: string }) => {
   });
 
   // ============ 获取已安装的 MCP/Skill ID 列表（用于前端标记安装状态） ============
-  channel.handle('tiangong-installed-ids', () => {
+  channel.handle('tiangong-installed-ids', async () => {
     const mm = getMemoryManager();
     if (!mm) return { success: false, error: '记忆系统未初始化' };
     try {
@@ -2269,6 +2309,10 @@ channel.handle('skill-detail', (data: { id: string }) => {
         }
       }
       if (registry) {
+        // 先扫描磁盘确保 registry 中包含已安装的 marketplace skill
+        if (typeof registry.scanInstalled === 'function') {
+          await registry.scanInstalled();
+        }
         const skills = registry.list?.() || [];
         for (const s of skills) {
           if (s.packageId) installedSkillIds.push(s.packageId);
@@ -2282,11 +2326,11 @@ channel.handle('skill-detail', (data: { id: string }) => {
   });
 
   // ============ 更新检查 ============
-  channel.handle('tiangong-check-updates', async () => {
+  channel.handle('tiangong-check-updates', async (data: { token?: string }) => {
     const mm = getMemoryManager();
     if (!mm) return { success: false, error: '记忆系统未初始化' };
     try {
-      const market = mm.tiangongMarket;
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊未配置' };
       const mcpManager = mm.mcpManager;
       const registry = mm.skillRegistry;
@@ -2316,9 +2360,9 @@ channel.handle('skill-detail', (data: { id: string }) => {
   });
 
   // ============ 删除包（管理员） ============
-  channel.handle('tiangong-delete', async (data: { id: number }) => {
+  channel.handle('tiangong-delete', async (data: { id: number; token?: string }) => {
     try {
-      const market = await _getOrCreateMarket();
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊未配置' };
       await market.adminDelete(data.id);
       return { success: true };
@@ -2327,25 +2371,34 @@ channel.handle('skill-detail', (data: { id: string }) => {
     }
   });
 
-  // 懒初始化天工坊市场（SessionFactory 已用默认 URL，此处兜底）
-  const _getOrCreateMarket = async () => {
-    const mm = getMemoryManager();
-    if (!mm) return null;
-    if (mm.tiangongMarket) return mm.tiangongMarket;
+  // 懒初始化天工坊市场
+  let _marketToken: string | null = null;
+  let _market: any = null;
+
+  const _getOrCreateMarket = async (token?: string | null) => {
+    const effectiveToken = token ?? null;
+    // token 变化时重建实例
+    if (_market && effectiveToken === _marketToken) return _market;
     try {
       const { TiangongMarket } = await import('../../src/mcp/market/TiangongMarket.js');
-      const market = new TiangongMarket({ baseUrl: 'https://shibit.net/api/tiangong' });
-      mm.tiangongMarket = market;
-      return market;
+      _marketToken = effectiveToken;
+      _market = new TiangongMarket({
+        baseUrl: 'https://shibit.net/api/tiangong',
+        apiKey: effectiveToken || undefined,
+      });
+      // 同步到 MemoryManager
+      const mm = getMemoryManager();
+      if (mm) mm.tiangongMarket = _market;
+      return _market;
     } catch { return null; }
   };
 
   // 更新 tiangong-search 使用懒初始化
   // (需要重新注册以覆盖之前的 handler)
   channel.unhandle('tiangong-search');
-  channel.handle('tiangong-search', async (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => {
+  channel.handle('tiangong-search', async (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number; token?: string }) => {
     try {
-      const market = await _getOrCreateMarket();
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊服务暂不可用，请稍后重试' };
       const result = await market.search({
         type: data.type,
@@ -2364,9 +2417,9 @@ channel.handle('skill-detail', (data: { id: string }) => {
 
   // 更新 tiangong-detail 使用懒初始化
   channel.unhandle('tiangong-detail');
-  channel.handle('tiangong-detail', async (data: { packageId: string }) => {
+  channel.handle('tiangong-detail', async (data: { packageId: string; token?: string }) => {
     try {
-      const market = await _getOrCreateMarket();
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊未配置' };
       const detail = await market.getDetail(data.packageId);
       return { success: true, data: detail };
@@ -2377,9 +2430,9 @@ channel.handle('skill-detail', (data: { id: string }) => {
 
   // 更新 mcp-install 使用懒初始化
   channel.unhandle('mcp-install');
-  channel.handle('mcp-install', async (data: { packageId: string; version?: string }) => {
+  channel.handle('mcp-install', async (data: { packageId: string; version?: string; token?: string }) => {
     try {
-      const market = await _getOrCreateMarket();
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊未配置' };
       const mm = getMemoryManager();
       if (!mm) return { success: false, error: '记忆系统未初始化' };
@@ -2401,9 +2454,9 @@ channel.handle('skill-detail', (data: { id: string }) => {
 
   // 更新 skill-install 使用懒初始化
   channel.unhandle('skill-install');
-  channel.handle('skill-install', async (data: { packageId: string; version?: string }) => {
+  channel.handle('skill-install', async (data: { packageId: string; version?: string; token?: string }) => {
     try {
-      const market = await _getOrCreateMarket();
+      const market = await _getOrCreateMarket(data.token);
       if (!market) return { success: false, error: '天工坊未配置' };
       const mm = getMemoryManager();
       if (!mm) return { success: false, error: '记忆系统未初始化' };
@@ -2417,6 +2470,66 @@ channel.handle('skill-detail', (data: { id: string }) => {
       }
       const result = await installer.install({ packageId: data.packageId, version: data.version });
       return { success: result.success, ...(result.success ? { skillId: result.skillId } : { error: result.error || '安装失败' }) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 天工坊分类 ============
+  channel.handle('tiangong-categories', async (data: { token?: string }) => {
+    try {
+      const market = await _getOrCreateMarket(data.token);
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const categories = await market.getCategories();
+      return { success: true, data: categories };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 天工坊标签 ============
+  channel.handle('tiangong-tags', async (data: { token?: string }) => {
+    try {
+      const market = await _getOrCreateMarket(data.token);
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const tags = await market.getTags();
+      return { success: true, data: tags };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 安装权限检查 ============
+  channel.handle('tiangong-check-install-permission', async (data: { packageId: string; token?: string }) => {
+    try {
+      const market = await _getOrCreateMarket(data.token);
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const permission = await market.checkInstallPermission(data.packageId);
+      return { success: true, data: permission };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 记录下载 ============
+  channel.handle('tiangong-record-download', async (data: { packageId: number; versionId: number; token?: string }) => {
+    try {
+      const market = await _getOrCreateMarket(data.token);
+      if (!market) return { success: false, error: '天工坊未配置' };
+      await market.recordDownload(data.packageId, data.versionId);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // ============ 用户订阅列表 ============
+  channel.handle('tiangong-subscriptions', async (data: { token?: string }) => {
+    try {
+      const market = await _getOrCreateMarket(data.token);
+      if (!market) return { success: false, error: '天工坊未配置' };
+      const subscriptions = await market.getSubscriptions();
+      return { success: true, data: subscriptions };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }

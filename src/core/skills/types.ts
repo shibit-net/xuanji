@@ -21,8 +21,8 @@ export interface SkillMetadata {
   /** 功能描述 */
   description: string;
 
-  /** 分类 */
-  category: 'prompt' | 'action' | 'workflow';
+  /** 分类（统一为 prompt） */
+  category: 'prompt';
 
   /** 标签 (e.g., ["system", "core"]) */
   tags: string[];
@@ -137,8 +137,8 @@ export interface Skill<T = any> extends SkillMetadata {
 
   // ────────── Marketplace 相关 ──────────
 
-  /** 来源标记: builtin(内置) | custom(自定义) | learned(自学习) | marketplace(市场安装) */
-  source?: 'builtin' | 'custom' | 'learned' | 'marketplace';
+  /** 来源标记: builtin(内置) | custom(自定义) | learned(自学习) | marketplace(市场安装) | npm(npm直装) */
+  source?: 'builtin' | 'custom' | 'learned' | 'marketplace' | 'npm';
 
   /** 天工坊 packageId（从 marketplace 安装时填充） */
   packageId?: string;
@@ -148,6 +148,23 @@ export interface Skill<T = any> extends SkillMetadata {
 
   /** 安装时间 (ISO 8601) */
   installedAt?: string;
+
+  // ────────── ClawHub / OpenClaw 兼容字段 ──────────
+
+  /** ClawHub: 此 Skill 允许使用的工具列表 (e.g. ["Bash", "Read", "Write"]) */
+  allowedTools?: string[];
+
+  /** ClawHub: SKILL.md frontmatter 中 metadata.* 域的原始数据 */
+  clawhubMetadata?: Record<string, any>;
+
+  /** ClawHub: 安装目录下 references/ 中 .md 文件的绝对路径 */
+  references?: string[];
+
+  /** ClawHub: _meta.json 的解析内容 (ownerId, slug, version 等) */
+  metaJson?: Record<string, any>;
+
+  /** ClawHub / xuanji: SKILL.md frontmatter 中的 license 字段 */
+  license?: string;
 }
 
 /**
@@ -226,7 +243,7 @@ export interface SkillValidationResult {
  */
 export interface SkillQueryFilter {
   /** 分类 */
-  category?: 'prompt' | 'action' | 'workflow';
+  category?: 'prompt';
 
   /** 标签 */
   tags?: string[];

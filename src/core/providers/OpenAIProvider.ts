@@ -10,6 +10,12 @@ import { logger } from '@/core/logger';
 /** OpenAI Chat Completions API 支持的图片 MIME 类型 */
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
+/** 检测 API 错误是否为 image_url 不支持（DeepSeek 等纯文本模型会拒绝 image_url 块） */
+function isVisionRejectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /image_url|unknown variant.*image/i.test(msg);
+}
+
 /**
  * OpenAI GPT Provider
  * 支持 GPT-4o, GPT-4, GPT-3.5-turbo, o1, o3 等模型
@@ -49,7 +55,7 @@ export class OpenAIProvider extends BaseLLMProvider {
    * 3. tool_result blocks 转为独立的 role:'tool' messages
    * 4. 保持消息顺序：先输出 text/tool_use（assistant），再输出 tool_result（tool）
    */
-  private convertMessage(msg: Message): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  private convertMessage(msg: Message, forceTextOnly = false): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     // 简单字符串消息（system / user / assistant）
@@ -173,7 +179,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           parts.push({ type: 'text', text: combinedText.trim() });
         }
         for (const img of imageBlocks) {
-          if (SUPPORTED_IMAGE_TYPES.has(img.mimeType || '')) {
+          if (!forceTextOnly && SUPPORTED_IMAGE_TYPES.has(img.mimeType || '')) {
             parts.push({
               type: 'image_url',
               image_url: {
@@ -200,44 +206,77 @@ export class OpenAIProvider extends BaseLLMProvider {
     return result;
   }
 
+  /**
+   * 构建 OpenAI 消息数组（提取为方法以便 vision 降级重试）
+   */
+  private buildMessages(
+    messages: Message[],
+    forceTextOnly: boolean,
+  ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+    const systemMessages = messages.filter((m) => m.role === 'system');
+    const chatMessages = messages.filter((m) => m.role !== 'system');
+
+    const systemText = systemMessages
+      .map((m) => {
+        if (typeof m.content === 'string') return m.content;
+        if (Array.isArray(m.content)) {
+          return (m.content as ContentBlock[])
+            .filter((b) => b.type === 'text' && b.text)
+            .map((b) => b.text)
+            .join('\n\n');
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    if (systemText) {
+      result.push({ role: 'system', content: systemText });
+    }
+    for (const msg of chatMessages) {
+      result.push(...this.convertMessage(msg, forceTextOnly));
+    }
+    return result;
+  }
+
   async *stream(
     messages: Message[],
     tools: ToolSchema[],
     config: ProviderConfig,
   ): AsyncIterable<StreamEvent> {
+    let forceTextOnly = false;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        yield* this.doStream(messages, tools, config, forceTextOnly);
+        return; // 成功，退出重试循环
+      } catch (err) {
+        // Vision 降级重试：非 vision 模型（如 DeepSeek）拒绝 image_url → 转为 [Image: ...] 文本重试
+        if (attempt === 0 && !forceTextOnly && isVisionRejectionError(err)) {
+          this.log.info(`检测到 ${config.model} 不支持 image_url，已将图片降级为文本描述并重试`);
+          forceTextOnly = true;
+          continue;
+        }
+        // 最终失败：增强错误信息
+        throw this.enhanceStreamError(err, config, messages);
+      }
+    }
+  }
+
+  /**
+   * 执行一次流式 API 调用（不含重试逻辑）
+   */
+  private async *doStream(
+    messages: Message[],
+    tools: ToolSchema[],
+    config: ProviderConfig,
+    forceTextOnly: boolean,
+  ): AsyncIterable<StreamEvent> {
     const client = this.getClient(config);
     let openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-
-    try {
-      // 分离 system 消息和对话消息
-      // system 消息可能携带 ContentBlock[]（结构化 system prompt），需单独提取为纯文本
-      const systemMessages = messages.filter((m) => m.role === 'system');
-      const chatMessages = messages.filter((m) => m.role !== 'system');
-
-      // 提取 system prompt 文本（兼容 string 和 ContentBlock[] 两种格式）
-      // OpenAI 自动缓存前缀匹配的 prompt，无需显式标记
-      const systemText = systemMessages
-        .map((m) => {
-          if (typeof m.content === 'string') return m.content;
-          if (Array.isArray(m.content)) {
-            return (m.content as ContentBlock[])
-              .filter((b) => b.type === 'text' && b.text)
-              .map((b) => b.text)
-              .join('\n\n');
-          }
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
-
-      // 转换对话消息为 OpenAI 格式
-      openaiMessages = [];
-      if (systemText) {
-        openaiMessages.push({ role: 'system', content: systemText });
-      }
-      for (const msg of chatMessages) {
-        openaiMessages.push(...this.convertMessage(msg));
-      }
+      // 构建消息（首次 forceTextOnly=false，失败降级后重试）
+      openaiMessages = this.buildMessages(messages, forceTextOnly);
 
       // 校验 tool_calls/tool 配对，剔除无法匹配的 tool_calls
       // DeepSeek 等 API 严格要求每个 assistant(tool_calls) 的所有 tool_call_id 都有对应的 tool 消息
@@ -572,109 +611,59 @@ export class OpenAIProvider extends BaseLLMProvider {
         stopReason,
         usage: { input: 0, output: 0 },
       };
-    } catch (err) {
-      // 捕获并增强错误信息
-      const errorDetails = {
-        provider: 'openai',
-        model: config.model,
-        baseURL: config.baseURL,
-        messageCount: messages.length,
-        toolCount: tools.length,
-      };
+  }
 
-      let errorMessage = err instanceof Error ? err.message : String(err);
+  /**
+   * 增强 API 错误信息（诊断 + 中文提示）
+   */
+  private enhanceStreamError(err: unknown, config: ProviderConfig, messages: Message[]): Error {
+    const errorDetails = {
+      provider: 'openai',
+      model: config.model,
+      baseURL: config.baseURL,
+      messageCount: messages.length,
+    };
 
-      const errAny = err as any;
-      const isApiError = errAny?.status !== undefined || errAny?.code !== undefined || errAny?.type !== undefined;
+    let errorMessage = err instanceof Error ? err.message : String(err);
+    const errAny = err as any;
+    const isApiError = errAny?.status !== undefined || errAny?.code !== undefined || errAny?.type !== undefined;
 
-      if (isApiError) {
-        this.log.error(`API 调用失败: status=${errAny?.status}, code=${errAny?.code}, param=${errAny?.param}, type=${errAny?.type}`);
-        if (errAny?.error) {
-          this.log.error(`API 原始错误体: ${JSON.stringify(errAny.error)}`);
-        }
-      } else {
-        this.log.error(`API 调用失败 (网络错误): ${errorMessage}`);
-        this.log.error(`请求信息: 模型=${config.model}, baseURL=${config.baseURL || 'default'}, 消息数=${messages.length}, 工具数=${tools.length}`);
-      }
-
-      // 增强错误信息
-      if (isApiError && (errorMessage.includes('status code') || errorMessage.includes('Bad Request') || errorMessage.includes('400'))) {
-        // 详细诊断日志：记录每条消息的 reasoning_content 状态
-        const msgDiag = openaiMessages.map((m, i) => {
-          const msg = m as unknown as Record<string, unknown>;
-          const hasReasoning = !!(msg as any).reasoning_content;
-          const reasoningLen = typeof (msg as any).reasoning_content === 'string' ? (msg as any).reasoning_content.length : 0;
-          const reasoningContent = (msg as any).reasoning_content;
-          const reasoningIsEmptyString = typeof reasoningContent === 'string' && reasoningContent.length === 0;
-          const hasToolCalls = !!(msg as any).tool_calls;
-          const contentVal = msg.content;
-          const contentIsEmptyStr = typeof contentVal === 'string' && contentVal.length === 0;
-          const contentIsNull = contentVal === null || contentVal === undefined;
-          const contentLen = typeof contentVal === 'string' ? contentVal.length : (contentVal ? JSON.stringify(contentVal).length : 0);
-          return `[${i}] role=${msg.role} contentLen=${contentLen} contentEmptyStr=${contentIsEmptyStr} contentNull=${contentIsNull} hasToolCalls=${hasToolCalls} hasReasoning=${hasReasoning} reasoningLen=${reasoningLen} reasoningEmptyStr=${reasoningIsEmptyString}`;
-        });
-        this.log.error(`400 错误消息诊断 (共 ${openaiMessages.length} 条):\n${msgDiag.join('\n')}`);
-
-        // 打印完整消息体（截断长 content）
-        const msgBodyDump = openaiMessages.map((m, i) => {
-          const msg = m as unknown as Record<string, unknown>;
-          const content = typeof msg.content === 'string' ? msg.content.substring(0, 200) : JSON.stringify(msg.content).substring(0, 200);
-          const reasoning = (msg as any).reasoning_content;
-          const reasoningPreview = typeof reasoning === 'string' ? reasoning.substring(0, 100) : String(reasoning || 'N/A');
-          const toolCalls = (msg as any).tool_calls;
-          const toolCallNames = Array.isArray(toolCalls) ? toolCalls.map((tc: any) => tc.function?.name || tc.name || '?').join(',') : 'none';
-          return `[${i}] role=${msg.role} content="${content}" reasoning="${reasoningPreview}" toolCalls=[${toolCallNames}]`;
-        });
-        this.log.error(`完整消息体:\n${msgBodyDump.join('\n')}`);
-
-        // 诊断：检查 reasoning_content 缺失情况
-        if (config.thinking) {
-          const assistantMsgs = openaiMessages
-            .map((m, i) => ({ msg: m as any, idx: i }))
-            .filter(({ msg }) => msg.role === 'assistant');
-          const withReasoning = assistantMsgs.filter(({ msg }) => !!msg.reasoning_content);
-          const withoutReasoning = assistantMsgs.filter(({ msg }) => !msg.reasoning_content);
-          this.log.error(`reasoning_content 诊断: ${assistantMsgs.length} 条 assistant 消息, ${withReasoning.length} 条有 reasoning_content, ${withoutReasoning.length} 条缺失`);
-          if (withoutReasoning.length > 0) {
-            this.log.error(`缺失 reasoning_content 的 assistant 消息索引: ${withoutReasoning.map(m => m.idx).join(', ')}`);
-          }
-          if (withReasoning.length > 0) {
-            this.log.error(`有 reasoning_content 的 assistant 消息索引: ${withReasoning.map(m => m.idx).join(', ')}`);
-          }
-        }
-
-        errorMessage += `\n\n调试信息:\n` +
-          `- Provider: ${errorDetails.provider}\n` +
-          `- 模型: ${errorDetails.model}\n` +
-          `- Base URL: ${errorDetails.baseURL || 'https://api.openai.com/v1'}\n` +
-          `- 消息数: ${errorDetails.messageCount}\n` +
-          `- 工具数: ${errorDetails.toolCount}\n\n` +
-          `常见原因:\n` +
-          `1. API Key 无效或过期\n` +
-          `2. 模型名称错误（请检查 agent 配置文件的 model 字段）\n` +
-          `3. baseURL 配置错误（如使用代理服务）\n` +
-          `4. API 服务暂时不可用（请稍后重试）`;
-      } else if (!isApiError) {
-        errorMessage += `\n\n网络连接失败:\n` +
-          `- 模型: ${errorDetails.model}\n` +
-          `- Base URL: ${errorDetails.baseURL || 'https://api.openai.com/v1'}\n` +
-          `- 消息数: ${errorDetails.messageCount}\n` +
-          `- 工具数: ${errorDetails.toolCount}\n\n` +
-          `可能原因:\n` +
-          `1. 网络连接不可用（请检查网络）\n` +
-          `2. Base URL 无法访问（${errorDetails.baseURL || 'API 地址'}）\n` +
-          `3. 代理/VPN 配置问题\n` +
-          `4. API 服务端不可用或超时`;
-      }
-
-      const wrappedError = new Error(errorMessage);
-      if (err instanceof Error) {
-        wrappedError.name = err.name;
-        if ('status' in err) (wrappedError as any).status = (err as any).status;
-        if ('code' in err) (wrappedError as any).code = (err as any).code;
-      }
-      throw wrappedError;
+    if (isApiError) {
+      this.log.error(`API 调用失败: status=${errAny?.status}, code=${errAny?.code}, param=${errAny?.param}, type=${errAny?.type}`);
+    } else {
+      this.log.error(`API 调用失败 (网络错误): ${errorMessage}`);
     }
+
+    if (isApiError && (errorMessage.includes('status code') || errorMessage.includes('Bad Request') || errorMessage.includes('400'))) {
+      errorMessage += `\n\n调试信息:\n` +
+        `- Provider: ${errorDetails.provider}\n` +
+        `- 模型: ${errorDetails.model}\n` +
+        `- Base URL: ${errorDetails.baseURL || 'https://api.openai.com/v1'}\n` +
+        `- 消息数: ${errorDetails.messageCount}\n` +
+        `\n常见原因:\n` +
+        `1. API Key 无效或过期\n` +
+        `2. 模型名称错误（请检查 agent 配置文件的 model 字段）\n` +
+        `3. baseURL 配置错误（如使用代理服务）\n` +
+        `4. API 服务暂时不可用（请稍后重试）`;
+    } else if (!isApiError) {
+      errorMessage += `\n\n网络连接失败:\n` +
+        `- 模型: ${errorDetails.model}\n` +
+        `- Base URL: ${errorDetails.baseURL || 'https://api.openai.com/v1'}\n` +
+        `- 消息数: ${errorDetails.messageCount}\n` +
+        `\n可能原因:\n` +
+        `1. 网络连接不可用（请检查网络）\n` +
+        `2. Base URL 无法访问（${errorDetails.baseURL || 'API 地址'}）\n` +
+        `3. 代理/VPN 配置问题\n` +
+        `4. API 服务端不可用或超时`;
+    }
+
+    const wrappedError = new Error(errorMessage);
+    if (err instanceof Error) {
+      wrappedError.name = err.name;
+      if ('status' in err) (wrappedError as any).status = (err as any).status;
+      if ('code' in err) (wrappedError as any).code = (err as any).code;
+    }
+    return wrappedError;
   }
 
   /**

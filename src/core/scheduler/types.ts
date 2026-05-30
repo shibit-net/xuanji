@@ -30,6 +30,10 @@ export interface CronJob {
   createdAt?: number;
   /** 是否为系统级任务（由代码注册，非用户创建） */
   system?: boolean;
+  /** 发起任务的平台（如 wechat、dingtalk），存在时定时触发将推回该平台 */
+  platform?: string;
+  /** 发起任务的会话 ID，与 platform 配合使用 */
+  chatId?: string;
 }
 
 export interface SchedulerLog {

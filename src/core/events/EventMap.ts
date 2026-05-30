@@ -40,7 +40,7 @@ export interface XuanjiEventMap {
   [XuanjiEvent.PROVIDER_HEALTH_CHANGED]: { provider: string; healthy: boolean };
   [XuanjiEvent.PROVIDER_FALLBACK_TRIGGERED]: { from: string; to: string; reason: string };
 
-  [XuanjiEvent.CONTEXT_COMPRESSION_STARTED]: { reason: string };
+  [XuanjiEvent.CONTEXT_COMPRESSION_STARTED]: { strategy: string; messageCount: number; originalTokens: number };
   [XuanjiEvent.CONTEXT_COMPRESSION_DONE]: { originalTokens: number; compressedTokens: number; compressionRatio: number };
   [XuanjiEvent.TOKEN_BUDGET_WARNING]: { level: string; usage: number };
 

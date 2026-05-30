@@ -99,6 +99,12 @@ export enum XuanjiEvent {
   HOOK_RESULT_AGGREGATION_START = 'hook.result-aggregation.start',
   HOOK_RESULT_AGGREGATION_END = 'hook.result-aggregation.end',
 
+  // === Marketplace (MCP / Skill 安装/卸载) ===
+  SKILL_INSTALLED = 'skill.installed',
+  SKILL_UNINSTALLED = 'skill.uninstalled',
+  MCP_INSTALLED = 'mcp.installed',
+  MCP_UNINSTALLED = 'mcp.uninstalled',
+
   // === Platform Integration ===
   PLATFORM_MESSAGE_RECEIVED = 'platform.message.received',
   PLATFORM_MESSAGE_SENT = 'platform.message.sent',

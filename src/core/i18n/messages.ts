@@ -550,6 +550,21 @@ const zh: Messages = {
   'agent.ask_user.submit': '提交',
   'agent.ask_user.submit_selection': '提交选择 ({count})',
 
+  // ── Ask User Tool (工具描述/参数/错误提示) ──
+  'tool.ask_user.description': '向用户提问并等待回复。\n当需要用户澄清需求、做出选择或提供补充信息时使用。\n支持多选项（单选/多选）、优先级（1-10）和超时设置。',
+  'tool.ask_user.param.question': '向用户提出的问题（清晰、具体、简洁）',
+  'tool.ask_user.param.options': '选项列表（可选，提供后会显示为选择题）',
+  'tool.ask_user.param.multiSelect': '是否允许多选（默认 false，仅在提供 options 时生效）',
+  'tool.ask_user.param.default': '默认值（可选）',
+  'tool.ask_user.param.priority': '问题优先级（1-10，默认 5，数值越大优先级越高）',
+  'tool.ask_user.param.timeout': '超时时间（毫秒，默认 300000 = 5 分钟）',
+  'tool.ask_user.error.empty_question': '问题不能为空',
+  'tool.ask_user.error.no_handler': '用户交互不可用（非交互模式）',
+  'tool.ask_user.error.cancelled': '已取消',
+  'tool.ask_user.error.timeout': '用户回复超时',
+  'tool.ask_user.error.no_response': '（用户未回复）',
+  'tool.ask_user.error.wait_failed': '等待用户回复失败: {message}',
+
   // ── Flow (流程图组件) ──
   'flow.bubble.task': '任务',
   'flow.bubble.thinking': '思考',
@@ -1000,6 +1015,17 @@ const zh: Messages = {
   'skills.refresh': '刷新',
   'skills.source_label': '来源: {source}',
   'skills.downloads_label': '{count} 下载',
+  'skills.all_categories': '全部分类',
+  'skills.install_permission_denied': '无安装权限',
+  'skills.uninstalling': '正在卸载...',
+  'skills.installing': '正在安装...',
+  'skills.pricing_pay_per_use': '按次付费',
+  'skills.pricing_subscription': '订阅制',
+  'skills.pricing_per_call': '¥{price}/次',
+  'skills.pricing_monthly': '¥{price}/月',
+  'skills.pricing_yearly': '¥{price}/年',
+  'skills.tools_count': '工具数: {count}',
+  'skills.no_version': '无可用版本',
 
   // ── Scheduler Page ──
   'scheduler.title': '定时任务',
@@ -1854,6 +1880,21 @@ const en: Messages = {
   'agent.ask_user.submit': 'Submit',
   'agent.ask_user.submit_selection': 'Submit Selection ({count})',
 
+  // ── Ask User Tool (tool description / params / errors) ──
+  'tool.ask_user.description': 'Ask the user a question and wait for their response.\nUse when you need clarification, a decision, or additional information to proceed.\nSupports multiple choice options (single/multi select), priority (1-10), and timeout.',
+  'tool.ask_user.param.question': 'Question to ask the user (clear, specific, concise)',
+  'tool.ask_user.param.options': 'Option list (optional, displays as multiple choice if provided)',
+  'tool.ask_user.param.multiSelect': 'Whether to allow multiple selections (default false, only effective when options provided)',
+  'tool.ask_user.param.default': 'Default value (optional)',
+  'tool.ask_user.param.priority': 'Question priority (1-10, default 5, higher value = higher priority)',
+  'tool.ask_user.param.timeout': 'Timeout in milliseconds (default 300000 = 5 minutes)',
+  'tool.ask_user.error.empty_question': 'Question cannot be empty',
+  'tool.ask_user.error.no_handler': 'User interaction unavailable (non-interactive mode)',
+  'tool.ask_user.error.cancelled': 'Cancelled',
+  'tool.ask_user.error.timeout': 'User response timed out',
+  'tool.ask_user.error.no_response': '(User did not respond)',
+  'tool.ask_user.error.wait_failed': 'Waiting for user response failed: {message}',
+
   // ── Flow (Flowchart Components) ──
   'flow.bubble.task': 'Task',
   'flow.bubble.thinking': 'Thinking',
@@ -2304,6 +2345,17 @@ const en: Messages = {
   'skills.refresh': 'Refresh',
   'skills.source_label': 'Source: {source}',
   'skills.downloads_label': '{count} downloads',
+  'skills.all_categories': 'All Categories',
+  'skills.install_permission_denied': 'Permission Denied',
+  'skills.uninstalling': 'Uninstalling...',
+  'skills.installing': 'Installing...',
+  'skills.pricing_pay_per_use': 'Pay-per-use',
+  'skills.pricing_subscription': 'Subscription',
+  'skills.pricing_per_call': '¥{price}/call',
+  'skills.pricing_monthly': '¥{price}/mo',
+  'skills.pricing_yearly': '¥{price}/yr',
+  'skills.tools_count': 'Tools: {count}',
+  'skills.no_version': 'No version',
 
   // ── Scheduler Page ──
   'scheduler.title': 'Scheduler',

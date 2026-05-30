@@ -2,7 +2,7 @@
 // ChatArea - 对话区组件
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo, memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
@@ -71,7 +71,7 @@ const VirtualMessageList = memo(function VirtualMessageList({
   afterMessages: Message[];
 }) {
   const [ready, setReady] = useState(false);
-  useEffect(() => { setReady(true); }, []);
+  useLayoutEffect(() => { setReady(true); }, []);
 
   const stableCount = stableMessages.length;
   const getScrollElement = useCallback(() => scrollElementRef.current, [scrollElementRef]);

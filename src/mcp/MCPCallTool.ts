@@ -15,7 +15,7 @@ export class MCPCallTool extends BaseTool {
   readonly name = 'mcp_call';
   readonly description =
     'Call an MCP (Model Context Protocol) tool from an installed server. ' +
-    'Available MCP servers, tools, and their parameter schemas are listed in the system prompt under "MCP Tools".';
+    'Use `mcp_settings(list)` to discover available MCP servers and their tools first.';
   readonly readonly = true;
 
   readonly input_schema: JSONSchema = {
@@ -23,11 +23,11 @@ export class MCPCallTool extends BaseTool {
     properties: {
       server: {
         type: 'string',
-        description: 'The MCP server name (listed under "Server:" headings in the system prompt)',
+        description: 'The MCP server name. Use mcp_settings(list) to discover available servers.',
       },
       tool: {
         type: 'string',
-        description: 'The tool name to call on that server (listed under each server section)',
+        description: 'The tool name to call on that server. Use mcp_settings(status, serverName="xxx") to see tool details.',
       },
       arguments: {
         type: 'object',
@@ -46,7 +46,7 @@ export class MCPCallTool extends BaseTool {
 
     if (!server || !tool) {
       return this.error(
-        'Missing required parameters: "server" and "tool" are required. Check the system prompt for available MCP tools.',
+        'Missing required parameters: "server" and "tool" are required. Use mcp_settings(list) to discover available MCP tools.',
       );
     }
 

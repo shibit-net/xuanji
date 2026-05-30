@@ -9,15 +9,17 @@ describe('天工坊集成测试 - test.shibit.net', () => {
 
   it('搜索 Skill - 能找到 code-review-skill', async () => {
     const result = await market.search({ type: 'skill', pageSize: 10 });
-    expect(result.items.length).toBeGreaterThan(0);
-    const ids = result.items.map(i => i.packageId);
+    const items = result.skill?.items ?? [];
+    expect(items.length).toBeGreaterThan(0);
+    const ids = items.map(i => i.packageId);
     expect(ids).toContain('code-review-skill');
   }, 15000);
 
   it('搜索 MCP - 能找到 hello-mcp-server', async () => {
     const result = await market.search({ type: 'mcp', pageSize: 10 });
-    expect(result.items.length).toBeGreaterThanOrEqual(3);
-    const ids = result.items.map(i => i.packageId);
+    const items = result.mcp?.items ?? [];
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    const ids = items.map(i => i.packageId);
     expect(ids).toContain('hello-mcp-server');
   }, 15000);
 

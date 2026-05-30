@@ -57,11 +57,16 @@ export class ContextManager {
     const byteSize = this.estimateContextBytes();
     if (byteSize > MAX_CONTEXT_BYTES) {
       const oldTokens = this.tokenCounter.estimate(this.messages);
-      await this.aggressiveCompress(oldTokens);
-      eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
+      eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_STARTED, {
+        strategy: 'aggressive',
+        messageCount: this.messages.length,
         originalTokens: oldTokens,
-        compressedTokens: this.tokenCounter.estimate(this.messages),
-        compressionRatio: 0,
+      });
+      const result = await this.aggressiveCompress(oldTokens);
+      eventBus.emitSync(XuanjiEvent.CONTEXT_COMPRESSION_DONE, {
+        originalTokens: result.originalTokens,
+        compressedTokens: result.compressedTokens,
+        compressionRatio: result.compressionRatio,
       });
     }
   }

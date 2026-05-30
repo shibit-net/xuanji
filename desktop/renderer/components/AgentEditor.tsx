@@ -45,7 +45,6 @@ const DEFAULT_CONFIG = {
 
   model: {
     primary: 'claude-sonnet-4-6',
-    maxTokens: 32000,
     temperature: 0.3,
     thinking: {
       type: 'adaptive',
@@ -68,7 +67,7 @@ const DEFAULT_CONFIG = {
 
   execution: {
     mode: 'react',
-    maxIterations: 20,
+    maxIterations: 100,
     timeout: 300000,
     streaming: true,
     parallelTools: true,
@@ -1051,7 +1050,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
-                      <input type="number" value={config.execution?.maxIterations || 20} onChange={(e) => setConfig({ ...config, execution: { ...config.execution, maxIterations: parseInt(e.target.value) } })} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
+                      <input type="number" value={Number.isFinite(config.execution?.maxIterations) ? config.execution.maxIterations : ''} placeholder="∞ 无限" onChange={(e) => { const v = e.target.value; setConfig({ ...config, execution: { ...config.execution, maxIterations: v === '' ? Infinity : parseInt(v) } }); }} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1426,8 +1425,13 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               )}
               <div className="grid grid-cols-2 gap-4">
                 {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number')}
-                {config.provider?.adapter === 'local-llama' && renderFormField(t('agent.editor.field.context_window'), 'model.contextSize', 'number')}
+                {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number')}
               </div>
+              {config.provider?.adapter === 'local-llama' && (
+                <div className="mt-3">
+                  {renderFormField(t('agent.editor.field.context_window'), 'model.contextSize', 'number')}
+                </div>
+              )}
             </>
           )}
 
@@ -1575,11 +1579,9 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
                   <input
                     type="number"
-                    value={config.execution?.maxIterations || 20}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      execution: { ...config.execution, maxIterations: parseInt(e.target.value) },
-                    })}
+                    value={Number.isFinite(config.execution?.maxIterations) ? config.execution.maxIterations : ''}
+                    placeholder="∞ 无限"
+                    onChange={(e) => { const v = e.target.value; setConfig({ ...config, execution: { ...config.execution, maxIterations: v === '' ? Infinity : parseInt(v) } }); }}
                     disabled={!canEdit('execution.maxIterations')}
                     className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />

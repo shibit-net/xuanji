@@ -63,13 +63,13 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
     danger: 'bg-red-500/10 border-red-500/30',
   };
 
-  const riskLabels = {
-    safe: getDesktopLabel('permdialog.risk_safe', useConfigStore.getState().settings.language as 'zh' | 'en'),
-    warn: getDesktopLabel('permdialog.risk_warn', useConfigStore.getState().settings.language as 'zh' | 'en'),
-    danger: getDesktopLabel('permdialog.risk_danger', useConfigStore.getState().settings.language as 'zh' | 'en'),
-  };
+  const lang = useConfigStore((s) => s.settings.language) as 'zh' | 'en';
 
-  const lang = useConfigStore.getState().settings.language as 'zh' | 'en';
+  const riskLabels = {
+    safe: getDesktopLabel('permdialog.risk_safe', lang),
+    warn: getDesktopLabel('permdialog.risk_warn', lang),
+    danger: getDesktopLabel('permdialog.risk_danger', lang),
+  };
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>

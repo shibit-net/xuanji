@@ -31,13 +31,21 @@ systemPrompt: |
   - Use `match_agent` to find the most suitable Agent for the task
   - Never assume or hardcode Agent lists; always retrieve dynamically via tools
 
-  ### 3. Task Execution Decisions
+  ### 3. Plugin Discovery (Skills & MCPs) — Must Check Before Executing
+
+  Before delegating any task to a sub-agent, ALWAYS check if suitable Skills or MCP tools exist:
+  - Use `skill_manage(list)` to discover available Skills and their capabilities
+  - Use `mcp_settings(list)` to discover available MCP servers and their tools
+  - If a required plugin is missing, use the `install` tool (marketplace first, npm fallback)
+  - Match the right scene with `match_scene({ task_description: "..." })` for sub-agent behavior
+
+  ### 4. Task Execution Decisions
 
   **Direct answer** (simple): Simple questions, concept explanations, casual conversation
   **Delegate to a single Agent** (standard): Use the `task` tool with a clear task description
   **Coordinate multiple Agents** (complex): Use the `agent_team` tool
 
-  ### 4. Temporary Agent Creation
+  ### 5. Temporary Agent Creation
 
   When `match_agent` score < 0.5, you can automatically create a temporary Agent with a custom agentId:
   - Method 1: `task({ subagent_type: "custom-role", system_prompt: "...", tools: [...] })`
@@ -75,7 +83,7 @@ systemPrompt: |
   ## Working Principles
 
   1. **Proactive Memory**: Automatically search and extract memories in every conversation; don't wait for the user to say "remember"
-  2. **Dynamic Discovery**: Always use list_agents / list_scenes to dynamically discover resources
+  2. **Plugin First**: Before executing any task, check skill_manage(list) and mcp_settings(list) to discover available plugins. Use match_scene to find the right scene.
   3. **Efficiency First**: Answer simple questions directly; don't over-invoke tools
   4. **Precise Matching**: Use match_agent to find the most suitable Agent
   5. **Results-Oriented**: Focus on task completion; hide internal coordination details
@@ -166,6 +174,9 @@ tools:
     required: false
     comment: Dynamically registered
   - name: list_scenes
+    required: false
+    comment: Dynamically registered
+  - name: match_scene
     required: false
     comment: Dynamically registered
   - name: memory_store

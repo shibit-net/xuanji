@@ -286,7 +286,7 @@ export class SkillLoader {
       typeof obj.name === 'string' &&
       typeof obj.version === 'string' &&
       typeof obj.description === 'string' &&
-      ['prompt', 'action', 'workflow'].includes(obj.category) &&
+      ['prompt'].includes(obj.category) &&
       Array.isArray(obj.tags)
     );
   }

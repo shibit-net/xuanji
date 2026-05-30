@@ -14,6 +14,7 @@ interface SkillsMCPPageProps {
 
 // ─── 市场包类型 ────────────────────────────────────────
 interface MarketPackage {
+  id: number;
   packageId: string;
   name: string;
   type: 'mcp' | 'skill';
@@ -28,6 +29,10 @@ interface MarketPackage {
   tags: string[];
   transport?: string;
   currentVersion: string;
+  pricingModel: number;
+  unitPrice?: number;
+  subscriptionPriceMonthly?: number;
+  subscriptionPriceYearly?: number;
 }
 
 interface MarketDetail extends MarketPackage {
@@ -76,19 +81,26 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
 
-  // 市场数据
-  const [marketItems, setMarketItems] = useState<MarketPackage[]>([]);
+  // 市场数据 — MCP / Skill 各自独立分页
+  const [mcpItems, setMcpItems] = useState<MarketPackage[]>([]);
+  const [mcpPage, setMcpPage] = useState(1);
+  const [mcpTotalPages, setMcpTotalPages] = useState(1);
+  const [mcpTotalItems, setMcpTotalItems] = useState(0);
+
+  const [skillItems, setSkillItems] = useState<MarketPackage[]>([]);
+  const [skillPage, setSkillPage] = useState(1);
+  const [skillTotalPages, setSkillTotalPages] = useState(1);
+  const [skillTotalItems, setSkillTotalItems] = useState(0);
+
   const [marketLoading, setMarketLoading] = useState(false);
   const [marketError, setMarketError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
 
   // 本地数据
   const [localMcps, setLocalMcps] = useState<LocalMCP[]>([]);
   const [localSkills, setLocalSkills] = useState<LocalSkill[]>([]);
   const [installedMcpIds, setInstalledMcpIds] = useState<Set<string>>(new Set());
   const [installedSkillIds, setInstalledSkillIds] = useState<Set<string>>(new Set());
+  const [subscribedPackageIds, setSubscribedPackageIds] = useState<Set<string>>(new Set());
 
   // UI 状态
   const [selectedPkg, setSelectedPkg] = useState<MarketPackage | null>(null);
@@ -99,13 +111,18 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
   const [publishing, setPublishing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // 分类
+  const [categories, setCategories] = useState<Array<{ id: number; name: string; slug: string; description: string; icon: string }>>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(undefined);
+
   // ─── 数据加载 ────────────────────────────────────────
   const loadInstalled = useCallback(async () => {
     try {
-      const [mcpRes, skillRes, idsRes] = await Promise.all([
+      const [mcpRes, skillRes, idsRes, subsRes] = await Promise.all([
         window.electron.mcpList(),
         window.electron.skillList(),
         window.electron.tiangongInstalledIds(),
+        window.electron.tiangongSubscriptions().catch(() => ({ success: false })),
       ]);
       if (mcpRes.success) setLocalMcps(mcpRes.servers || []);
       if (skillRes.success) setLocalSkills(skillRes.skills || []);
@@ -113,60 +130,116 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         setInstalledMcpIds(new Set(idsRes.mcpIds || []));
         setInstalledSkillIds(new Set(idsRes.skillIds || []));
       }
+      if (subsRes.success && subsRes.data) {
+        setSubscribedPackageIds(new Set(subsRes.data.filter(s => s.status === 1).map(s => s.packageId)));
+      }
     } catch { /* 静默失败 */ }
   }, []);
 
   const loadMarket = useCallback(async () => {
     setMarketLoading(true);
     setMarketError(null);
-    try {
-      const typeParam = filterType === 'all' ? undefined : filterType;
-      const res = await window.electron.tiangongSearch({
-        type: typeParam,
+    const makeCall = (type: 'mcp' | 'skill', pg: number) =>
+      window.electron.tiangongSearch({
+        type,
         query: searchQuery || undefined,
-        page,
+        categoryId: selectedCategoryId,
+        page: pg,
         pageSize: 20,
         sort: 'downloads',
       });
-      if (res.success && res.data) {
-        setMarketItems(res.data.items);
-        setTotalPages(res.data.pages);
-        setTotalItems(res.data.total);
+
+    try {
+      if (filterType === 'all') {
+        const [mcpRes, skillRes] = await Promise.all([
+          makeCall('mcp', mcpPage),
+          makeCall('skill', skillPage),
+        ]);
+        const mcpData = mcpRes.success ? mcpRes.data?.mcp : null;
+        const skillData = skillRes.success ? skillRes.data?.skill : null;
+        if (!mcpRes.success && !skillRes.success) {
+          setMarketError(mcpRes.error || skillRes.error || t('skills.search_failed'));
+        }
+        if (mcpData) {
+          setMcpItems(mcpData.items); setMcpTotalPages(mcpData.pages); setMcpTotalItems(mcpData.total);
+        }
+        if (skillData) {
+          setSkillItems(skillData.items); setSkillTotalPages(skillData.pages); setSkillTotalItems(skillData.total);
+        }
+      } else if (filterType === 'mcp') {
+        setSkillItems([]);
+        const res = await makeCall('mcp', mcpPage);
+        const data = res.success ? res.data?.mcp : null;
+        if (data) {
+          setMcpItems(data.items); setMcpTotalPages(data.pages); setMcpTotalItems(data.total);
+        } else {
+          setMarketError(res.error || t('skills.search_failed'));
+        }
       } else {
-        setMarketError(res.error || t('skills.search_failed'));
+        setMcpItems([]);
+        const res = await makeCall('skill', skillPage);
+        const data = res.success ? res.data?.skill : null;
+        if (data) {
+          setSkillItems(data.items); setSkillTotalPages(data.pages); setSkillTotalItems(data.total);
+        } else {
+          setMarketError(res.error || t('skills.search_failed'));
+        }
       }
     } catch (err) {
       setMarketError(err instanceof Error ? err.message : t('skills.search_failed'));
     } finally {
       setMarketLoading(false);
     }
-  }, [filterType, searchQuery, page]);
+  }, [filterType, searchQuery, mcpPage, skillPage, selectedCategoryId]);
 
   useEffect(() => { loadInstalled(); loadMarket(); }, [loadInstalled, loadMarket]);
+
+  // 加载分类列表
+  useEffect(() => {
+    window.electron.tiangongCategories().then((res) => {
+      if (res.success && res.data) setCategories(res.data);
+    }).catch(() => {});
+  }, []);
 
   // 搜索防抖
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearchQuery(searchInput);
-      setPage(1);
+      setMcpPage(1); setSkillPage(1);
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // ─── 排序：已安装的排前面，隐藏草稿包 ──────────────
-  const sortedItems = useMemo(() => {
-    // 仅展示已发布且有版本号的包（currentVersion 非空）
-    const visible = marketItems.filter((item) => item.currentVersion);
-    const installed = visible.filter((item) => {
+  // Skill / MCP 状态变更推送：LLM 工具层安装/卸载后自动刷新 UI
+  useEffect(() => {
+    const unsubSkill = window.electron.onSkillStateChanged(() => loadInstalled());
+    const unsubMcp = window.electron.onMcpStateChanged(() => loadInstalled());
+    return () => { unsubSkill(); unsubMcp(); };
+  }, [loadInstalled]);
+
+  // ─── 排序+过滤：已安装排前面，订阅制需已订阅才显示 ───
+  const sortAndFilter = (items: MarketPackage[]): MarketPackage[] => {
+    const visible = items.filter((item) => {
+      if (item.pricingModel === 2 && item.type === 'mcp') {
+        return subscribedPackageIds.has(item.packageId);
+      }
+      return true;
+    });
+    const withVersion = visible.filter((item) => item.currentVersion);
+    const withoutVersion = visible.filter((item) => !item.currentVersion);
+    const installed = withVersion.filter((item) => {
       if (item.type === 'mcp') return installedMcpIds.has(item.packageId);
       return installedSkillIds.has(item.packageId);
     });
-    const notInstalled = visible.filter((item) => {
+    const notInstalled = withVersion.filter((item) => {
       if (item.type === 'mcp') return !installedMcpIds.has(item.packageId);
       return !installedSkillIds.has(item.packageId);
     });
-    return [...installed, ...notInstalled];
-  }, [marketItems, installedMcpIds, installedSkillIds]);
+    return [...installed, ...notInstalled, ...withoutVersion];
+  };
+
+  const sortedMcpItems = useMemo(() => sortAndFilter(mcpItems), [mcpItems, installedMcpIds, installedSkillIds, subscribedPackageIds]);
+  const sortedSkillItems = useMemo(() => sortAndFilter(skillItems), [skillItems, installedMcpIds, installedSkillIds, subscribedPackageIds]);
 
   // 已安装的本地列表（用于 installed 视图）
   const installedItems = useMemo(() => {
@@ -181,7 +254,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         source: m.source,
         enabled: m.enabled,
         tags: [m.transport],
-        extra: `工具数: ${m.toolCount}`,
+        extra: t('skills.tools_count', { count: m.toolCount }),
       });
     }
     for (const s of localSkills) {
@@ -212,13 +285,37 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
   };
 
   const handleInstall = async (item: MarketPackage) => {
+    // ── 付费包预检 ──────────────────────────────────────
+    if (item.pricingModel > 0 && item.type === 'mcp') {
+      try {
+        const permRes = await window.electron.tiangongCheckInstallPermission({ packageId: item.packageId });
+        if (permRes.success && permRes.data && !permRes.data.canInstall) {
+          showMessage('error', permRes.data.reason || t('skills.install_permission_denied'));
+          return;
+        }
+      } catch {
+        // 权限检查失败不阻塞安装（可能未登录）
+      }
+    }
+
     setInstalling(item.packageId);
     try {
+      let versionId = 0;
+      // 获取 versionId 用于记录下载
+      try {
+        const detailRes = await window.electron.tiangongDetail({ packageId: item.packageId });
+        if (detailRes.success && detailRes.data?.versions?.length > 0) {
+          versionId = detailRes.data.versions[0].id;
+        }
+      } catch { /* 非关键 */ }
+
       if (item.type === 'mcp') {
         const res = await window.electron.mcpInstall({ packageId: item.packageId });
         if (res.success) {
           setInstalledMcpIds((prev) => new Set(prev).add(item.packageId));
           showMessage('success', t('skills.install_success_mcp', { name: item.name }));
+          // 记录下载（fire-and-forget）
+          window.electron.tiangongRecordDownload({ packageId: item.id, versionId }).catch(() => {});
         } else {
           showMessage('error', res.error || t('skills.install_failed'));
         }
@@ -227,6 +324,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         if (res.success) {
           setInstalledSkillIds((prev) => new Set(prev).add(item.packageId));
           showMessage('success', t('skills.install_success_skill', { name: item.name }));
+          window.electron.tiangongRecordDownload({ packageId: item.id, versionId }).catch(() => {});
         } else {
           showMessage('error', res.error || t('skills.install_failed'));
         }
@@ -251,8 +349,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
           showMessage('error', res.error || t('skills.uninstall_failed'));
         }
       } else {
-        const skillId = item.packageId.replace('skill-', '');
-        const res = await window.electron.skillUninstall({ skillId });
+        const res = await window.electron.skillUninstall({ skillId: item.packageId });
         if (res.success) {
           setInstalledSkillIds((prev) => { const next = new Set(prev); next.delete(item.packageId); return next; });
           showMessage('success', t('skills.uninstall_success_skill', { name: item.name }));
@@ -353,12 +450,42 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
           />
         </div>
 
+        {/* 分类过滤 */}
+        {categories.length > 0 && (
+          <div className="flex items-center gap-1 overflow-x-auto max-w-[300px] no-scrollbar">
+            <button
+              onClick={() => { setSelectedCategoryId(undefined); setMcpPage(1); setSkillPage(1); }}
+              className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-all shrink-0 ${
+                !selectedCategoryId
+                  ? 'bg-primary/20 text-primary border border-primary/30'
+                  : 'bg-white/[0.04] text-muted-foreground border border-white/[0.06] hover:text-foreground'
+              }`}
+            >
+              {t('skills.all_categories')}
+            </button>
+            {categories.slice(0, 8).map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => { setSelectedCategoryId(cat.id); setMcpPage(1); setSkillPage(1); }}
+                className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-all shrink-0 ${
+                  selectedCategoryId === cat.id
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-white/[0.04] text-muted-foreground border border-white/[0.06] hover:text-foreground'
+                }`}
+                title={cat.description}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* 类型过滤 */}
         <div className="flex bg-white/[0.06] rounded-xl border border-white/[0.08] backdrop-blur-xl p-0.5">
           {(['all', 'mcp', 'skill'] as FilterType[]).map((ft) => (
             <button
               key={ft}
-              onClick={() => { setFilterType(ft); setPage(1); }}
+              onClick={() => { setFilterType(ft); setMcpPage(1); setSkillPage(1); }}
               className={`px-3 py-1 text-xs rounded-lg transition-all ${
                 filterType === ft
                   ? 'bg-white/[0.12] text-foreground shadow-sm'
@@ -412,105 +539,19 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         {/* 左侧列表 */}
         <div className="w-80 border-r border-white/[0.08] flex flex-col shrink-0">
           {viewMode === 'marketplace' ? (
-            <>
-              {/* 市场列表 */}
-              <div className="flex-1 overflow-y-auto">
-                {marketLoading ? (
-                  <div className="flex items-center justify-center py-12 text-muted-foreground">
-                    <Loader2 size={20} className="animate-spin mr-2" /> {t('skills.loading')}
-                  </div>
-                ) : marketError ? (
-                  <div className="p-4 text-red-400 text-sm">{marketError}</div>
-                ) : sortedItems.length === 0 ? (
-                  <div className="p-4 text-muted-foreground text-sm text-center py-12">{t('skills.no_results')}</div>
-                ) : (
-                  sortedItems.map((item) => {
-                    const itemInstalled = isInstalled(item);
-                    const isSelected = selectedPkg?.packageId === item.packageId;
-                    return (
-                      <div
-                        key={item.packageId}
-                        onClick={() => handleSelectPackage(item)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectPackage(item); }}}
-                        role="button"
-                        tabIndex={0}
-                        className={`w-full text-left px-3 py-3 border-b border-white/[0.04] transition-all hover:bg-white/[0.04] cursor-pointer ${
-                          isSelected ? 'bg-white/[0.06] border-l-2 border-l-primary' : ''
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-white/[0.06] flex items-center justify-center shrink-0 mt-0.5">
-                            {item.type === 'mcp'
-                              ? <Wrench size={14} className="text-blue-400" />
-                              : <Puzzle size={14} className="text-purple-400" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-medium truncate">{item.name}</span>
-                              {itemInstalled && (
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/15 text-green-400 border-green-500/20">
-                                  {t('skills.installed_badge')}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.description}</p>
-                            <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground/70">
-                              <span>{item.authorName}</span>
-                              {item.currentVersion && <span>v{item.currentVersion}</span>}
-                              {item.ratingAvg > 0 && (
-                                <span className="flex items-center gap-0.5 text-yellow-400/70">
-                                  <Star size={9} /> {item.ratingAvg.toFixed(1)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {itemInstalled && (
-                            <div className="shrink-0 self-start mt-1" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="ghost" size="icon" className="h-6 w-6 text-red-400/70 hover:text-red-300 hover:bg-red-500/10"
-                                onClick={() => handleUninstall(item)}
-                                disabled={uninstalling === item.packageId}
-                                title={t('skills.uninstall')}
-                              >
-                                {uninstalling === item.packageId
-                                  ? <Loader2 size={12} className="animate-spin" />
-                                  : <Trash2 size={12} />}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* 分页 */}
-              <div className="h-10 border-t border-white/[0.08] flex items-center justify-between px-3 shrink-0 bg-white/[0.02]">
-                <span className="text-[10px] text-muted-foreground/50">
-                  {t('skills.pagination_info', { total: totalItems, visible: sortedItems.length })}
-                </span>
-                {totalPages > 1 && (
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setPage(page - 1)}
-                      disabled={page <= 1}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <ChevronLeft size={12} /> {t('skills.prev_page')}
-                    </button>
-                    <span className="text-xs text-muted-foreground/70">{page} / {totalPages}</span>
-                    <button
-                      onClick={() => setPage(page + 1)}
-                      disabled={page >= totalPages}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {t('skills.next_page')} <ChevronRight size={12} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
+            <MarketplaceList
+              loading={marketLoading}
+              error={marketError}
+              filterType={filterType}
+              isInstalled={isInstalled}
+              mcpItems={sortedMcpItems} mcpTotalItems={mcpTotalItems} mcpPage={mcpPage} mcpTotalPages={mcpTotalPages}
+              skillItems={sortedSkillItems} skillTotalItems={skillTotalItems} skillPage={skillPage} skillTotalPages={skillTotalPages}
+              selectedPkg={selectedPkg}
+              installing={installing} uninstalling={uninstalling}
+              onSelect={handleSelectPackage}
+              onInstall={handleInstall} onUninstall={handleUninstall}
+              onMcpPageChange={setMcpPage} onSkillPageChange={setSkillPage}
+            />
           ) : (
             /* 已安装列表 */
             <div className="flex-1 overflow-y-auto">
@@ -528,11 +569,11 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-medium truncate">{item.name}</span>
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{item.type}</Badge>
+                          <Badge variant="secondary" className="text-[10px] px-1.5">{item.type}</Badge>
                           {item.enabled ? (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/15 text-green-400 border-green-500/20">{t('skills.badge_enabled')}</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 bg-green-500/15 text-green-400 border-green-500/20">{t('skills.badge_enabled')}</Badge>
                           ) : (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">{t('skills.badge_disabled')}</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">{t('skills.badge_disabled')}</Badge>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>
@@ -612,8 +653,29 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground">{t('skills.downloads_label', { count: selectedPkg.totalDownloads })}</span>
-                        {selectedPkg.transport && <span className="text-xs text-muted-foreground">{selectedPkg.transport}</span>}
+                        {selectedPkg.transport && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            selectedPkg.transport === 'stdio' ? 'bg-blue-500/15 text-blue-400' :
+                            selectedPkg.transport === 'sse' ? 'bg-green-500/15 text-green-400' :
+                            selectedPkg.transport === 'http' ? 'bg-yellow-500/15 text-yellow-400' :
+                            'bg-white/[0.08] text-muted-foreground'
+                          }`}>{selectedPkg.transport}</span>
+                        )}
                       </div>
+                      {selectedPkg.pricingModel === 1 && selectedPkg.unitPrice != null && (
+                        <div className="mt-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/20 rounded-lg inline-block">
+                          <span className="text-xs text-orange-400">{t('skills.pricing_per_call', { price: selectedPkg.unitPrice })}</span>
+                        </div>
+                      )}
+                      {selectedPkg.pricingModel === 2 && (
+                        <div className="mt-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg inline-block">
+                          <span className="text-xs text-purple-400">
+                            {t('skills.pricing_subscription')}
+                            {selectedPkg.subscriptionPriceMonthly != null && ` · ${t('skills.pricing_monthly', { price: selectedPkg.subscriptionPriceMonthly })}`}
+                            {selectedPkg.subscriptionPriceYearly != null && ` · ${t('skills.pricing_yearly', { price: selectedPkg.subscriptionPriceYearly })}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isInstalled(selectedPkg) ? (
@@ -624,9 +686,8 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           className="flex items-center gap-1.5 h-8"
                         >
                           {uninstalling === selectedPkg.packageId
-                            ? <Loader2 size={14} className="animate-spin" />
-                            : <Trash2 size={14} />}
-                          {t('skills.uninstall')}
+                            ? <><Loader2 size={14} className="animate-spin" /> {t('skills.uninstalling')}</>
+                            : <><Trash2 size={14} /> {t('skills.uninstall')}</>}
                         </Button>
                       ) : selectedPkg.currentVersion ? (
                         <Button
@@ -636,9 +697,8 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           className="flex items-center gap-1.5 h-8"
                         >
                           {installing === selectedPkg.packageId
-                            ? <Loader2 size={14} className="animate-spin" />
-                            : <Download size={14} />}
-                          {t('skills.install')}
+                            ? <><Loader2 size={14} className="animate-spin" /> {t('skills.installing')}</>
+                            : <><Download size={14} /> {t('skills.install')}</>}
                         </Button>
                       ) : (
                         <Button variant="secondary" size="sm" disabled className="flex items-center gap-1.5 h-8">
@@ -733,6 +793,205 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── 市场列表子组件（MCP / Skill 双列表） ──────────────
+
+interface SectionProps {
+  type: 'mcp' | 'skill';
+  items: MarketPackage[];
+  totalItems: number;
+  page: number;
+  totalPages: number;
+  selectedPkg: MarketPackage | null;
+  installing: string | null;
+  uninstalling: string | null;
+  isInstalled: (item: MarketPackage) => boolean;
+  onSelect: (item: MarketPackage) => void;
+  onInstall: (item: MarketPackage) => void;
+  onUninstall: (item: MarketPackage) => void;
+  onPageChange: (p: number) => void;
+}
+
+function PackageListSection({
+  type, items, totalItems, page, totalPages,
+  selectedPkg, installing, uninstalling,
+  isInstalled, onSelect, onInstall, onUninstall, onPageChange,
+}: SectionProps) {
+  const icon = type === 'mcp' ? <Wrench size={12} className="text-blue-400" /> : <Puzzle size={12} className="text-purple-400" />;
+  const label = type === 'mcp' ? 'MCP' : 'Skill';
+
+  return (
+    <div className="flex flex-col border-b border-white/[0.08] last:border-b-0" style={{ maxHeight: '50%' }}>
+      {/* 段头 */}
+      <div className="h-7 flex items-center gap-1.5 px-3 bg-white/[0.03] border-b border-white/[0.06] shrink-0">
+        {icon}
+        <span className="text-[11px] font-semibold text-foreground/80">{label}</span>
+        <span className="text-[10px] text-muted-foreground/50">({totalItems})</span>
+      </div>
+
+      {/* 列表 */}
+      <div className="flex-1 overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="py-8 text-center text-[11px] text-muted-foreground/50">
+            {type === 'mcp' ? '暂无 MCP 工具' : '暂无 Skill'}
+          </div>
+        ) : (
+          items.map((item) => {
+            const installed = isInstalled(item);
+            const isSelected = selectedPkg?.packageId === item.packageId;
+            return (
+              <div
+                key={item.packageId}
+                onClick={() => onSelect(item)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(item); }}}
+                role="button"
+                tabIndex={0}
+                className={`w-full text-left px-3 py-2 border-b border-white/[0.03] transition-all hover:bg-white/[0.04] cursor-pointer ${
+                  isSelected ? 'bg-white/[0.06] border-l-2 border-l-primary' : ''
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[12px] font-medium truncate">{item.name}</span>
+                      {installed && (
+                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 bg-green-500/15 text-green-400 border-green-500/20">
+                          {t('skills.installed_badge')}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>
+                    <div className="flex items-center gap-1.5 mt-1 text-[9px] text-muted-foreground/60">
+                      <span>{item.authorName}</span>
+                      {item.transport && (
+                        <span className={`px-1 py-0.5 rounded text-[8px] font-medium ${
+                          item.transport === 'stdio' ? 'bg-blue-500/15 text-blue-400' :
+                          item.transport === 'sse' ? 'bg-green-500/15 text-green-400' :
+                          item.transport === 'http' ? 'bg-yellow-500/15 text-yellow-400' :
+                          'bg-white/[0.08] text-muted-foreground'
+                        }`}>{item.transport}</span>
+                      )}
+                      {item.pricingModel > 0 && (
+                        <span className="px-1 py-0.5 rounded text-[8px] font-medium bg-orange-500/15 text-orange-400">
+                          {item.pricingModel === 1 ? t('skills.pricing_pay_per_use') : t('skills.pricing_subscription')}
+                        </span>
+                      )}
+                      {item.currentVersion && <span>v{item.currentVersion}</span>}
+                    </div>
+                  </div>
+                  {installed && (
+                    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost" size="icon" className="h-5 w-5 text-red-400/70 hover:text-red-300 hover:bg-red-500/10"
+                        onClick={() => onUninstall(item)}
+                        disabled={uninstalling === item.packageId}
+                        title={t('skills.uninstall')}
+                      >
+                        {uninstalling === item.packageId
+                          ? <Loader2 size={10} className="animate-spin" />
+                          : <Trash2 size={10} />}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div className="h-7 border-t border-white/[0.06] flex items-center justify-between px-2 shrink-0 bg-white/[0.01]">
+          <span className="text-[9px] text-muted-foreground/40">{page}/{totalPages}</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onPageChange(page - 1)}
+              disabled={page <= 1}
+              className="text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={10} />
+            </button>
+            <button
+              onClick={() => onPageChange(page + 1)}
+              disabled={page >= totalPages}
+              className="text-[9px] text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed"
+            >
+              <ChevronRight size={10} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface MarketplaceListProps {
+  loading: boolean;
+  error: string | null;
+  filterType: FilterType;
+  mcpItems: MarketPackage[]; mcpTotalItems: number; mcpPage: number; mcpTotalPages: number;
+  skillItems: MarketPackage[]; skillTotalItems: number; skillPage: number; skillTotalPages: number;
+  selectedPkg: MarketPackage | null;
+  installing: string | null;
+  uninstalling: string | null;
+  onSelect: (item: MarketPackage) => void;
+  onInstall: (item: MarketPackage) => void;
+  onUninstall: (item: MarketPackage) => void;
+  isInstalled: (item: MarketPackage) => boolean;
+  onMcpPageChange: (p: number) => void;
+  onSkillPageChange: (p: number) => void;
+}
+
+function MarketplaceList({
+  loading, error, filterType, isInstalled,
+  mcpItems, mcpTotalItems, mcpPage, mcpTotalPages,
+  skillItems, skillTotalItems, skillPage, skillTotalPages,
+  selectedPkg, installing, uninstalling,
+  onSelect, onInstall, onUninstall,
+  onMcpPageChange, onSkillPageChange,
+}: MarketplaceListProps) {
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <Loader2 size={20} className="animate-spin mr-2" /> {t('skills.loading')}
+      </div>
+    );
+  }
+
+  if (error) {
+    return <div className="p-4 text-red-400 text-sm">{error}</div>;
+  }
+
+  const showMcp = filterType === 'all' || filterType === 'mcp';
+  const showSkill = filterType === 'all' || filterType === 'skill';
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {showMcp && (
+        <PackageListSection
+          type="mcp"
+          items={mcpItems} totalItems={mcpTotalItems} page={mcpPage} totalPages={mcpTotalPages}
+          selectedPkg={selectedPkg} installing={installing} uninstalling={uninstalling}
+          isInstalled={isInstalled}
+          onSelect={onSelect} onInstall={onInstall} onUninstall={onUninstall}
+          onPageChange={onMcpPageChange}
+        />
+      )}
+      {showSkill && (
+        <PackageListSection
+          type="skill"
+          items={skillItems} totalItems={skillTotalItems} page={skillPage} totalPages={skillTotalPages}
+          selectedPkg={selectedPkg} installing={installing} uninstalling={uninstalling}
+          isInstalled={isInstalled}
+          onSelect={onSelect} onInstall={onInstall} onUninstall={onUninstall}
+          onPageChange={onSkillPageChange}
+        />
+      )}
     </div>
   );
 }
