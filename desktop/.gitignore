@@ -3,6 +3,10 @@ node_modules/
 
 # build output
 dist/
+dist-electron/
+build-resources/
+python-runtime/
+release/
 
 # environment
 .env

@@ -296,7 +296,14 @@ export class ReadTool extends BaseTool {
 
   private async readPDF(filePath: string, pages?: string): Promise<ToolResult> {
     try {
-      const { PDFParse } = await import('pdf-parse');
+      const [{ PDFParse }, { createRequire }, { pathToFileURL }] = await Promise.all([
+        import('pdf-parse'),
+        import('node:module'),
+        import('node:url'),
+      ]);
+      const req = createRequire(import.meta.url);
+      const workerPath = pathToFileURL(req.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')).href;
+      PDFParse.setWorker(workerPath);
       const dataBuffer = await readFile(filePath);
 
       const parser = new PDFParse({ data: new Uint8Array(dataBuffer) });

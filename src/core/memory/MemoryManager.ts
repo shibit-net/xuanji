@@ -2688,7 +2688,7 @@ export class MemoryManager {
     const { agentLoop, subAgentId } = await this.agentFactory.createMemoryAgent('memory-manager', {
       parentConfig: this.parentConfig,
       systemPrompt: fullSystemPrompt,
-      maxTokens: this.parentConfig?.maxTokens ?? 8192,
+      maxTokens: this.parentConfig?.maxTokens,
       maxIterations: this.parentConfig?.maxIterations ?? 200,
     });
 

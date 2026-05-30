@@ -238,7 +238,7 @@ export class AgentFactory {
       workingDir: options.workingDir,
       maxIterations: options.maxIterations ?? agentCfg.execution?.maxIterations ?? 50,
       temperature: agentCfg.model?.temperature ?? 0.7,
-      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens ?? 8192,
+      maxTokens: options.maxTokens ?? agentCfg.model?.maxTokens,
     });
 
     // session 级 compressor 配置（不来自 agent YAML）
@@ -758,7 +758,7 @@ export class AgentFactory {
       toolNames: ['memory_search', 'memory_store', 'memory_stats'],
       maxIterations: options.maxIterations ?? 60,
       temperature: undefined,
-      maxTokens: options.maxTokens ?? 8192,
+      maxTokens: options.maxTokens,
       idPrefix: 'memory',
       parentConfig: options.parentConfig,
     });
@@ -896,7 +896,7 @@ export class AgentFactory {
         systemPrompt: options.systemPrompt || '',
         maxIterations: options.maxIterations ?? 50,
         temperature: pc?.temperature ?? 0.7,
-        maxTokens: pc?.maxTokens ?? 4096,
+        maxTokens: pc?.maxTokens,
         workingDir: options.workingDir,
         apiKey: pc?.apiKey || '',
         baseURL: pc?.baseURL || '',

@@ -21,6 +21,7 @@ import * as os from 'node:os';
 import { exec as execCb, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '@/core/logger';
+import { findNpmCliPath } from '@/shared/utils/crossPlatform';
 import type { MCPServerConfig } from '../types';
 import type { TiangongMarket, InstallConfig, MarketPackage } from './TiangongMarket';
 import { MCPManager } from '../MCPManager';
@@ -415,7 +416,14 @@ export class MCPInstaller {
     await fs.mkdir(installPath, { recursive: true });
 
     log.debug(`Extracting ZIP ${tempPath} → ${installPath}`);
-    await exec(`unzip -o "${tempPath}" -d "${installPath}"`, { timeout });
+    if (process.platform === 'win32') {
+      await exec(
+        `powershell -Command "Expand-Archive -Path '${tempPath}' -DestinationPath '${installPath}' -Force"`,
+        { timeout },
+      );
+    } else {
+      await exec(`unzip -o "${tempPath}" -d "${installPath}"`, { timeout });
+    }
 
     // 检查是否有 package.json，有则执行 npm install
     const hasPackageJson = await fs.access(path.join(installPath, 'package.json'))
@@ -501,19 +509,12 @@ export class MCPInstaller {
    * 避免依赖系统安装的 Node.js 或平台特定的 npm 脚本。
    */
   private findNpmCommand(): { command: string; args: string[] } {
-    try {
-      const pRes = (process as any).resourcesPath as string | undefined;
-      if (pRes) {
-        // 打包环境：使用 Electron 内置 Node 运行 npm-cli.js
-        const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
-        if (require('fs').existsSync(npmCliPath)) {
-          log.debug(`npm using Electron Node + bundled npm-cli.js`);
-          return { command: process.execPath, args: [npmCliPath] };
-        }
-      }
-    } catch { /* 兜底 */ }
-
-    // 回退到系统 npm
+    const { nodePath, npmCliPath } = findNpmCliPath();
+    if (npmCliPath) {
+      log.debug(`npm using ${nodePath} + ${npmCliPath}`);
+      return { command: nodePath, args: [npmCliPath] };
+    }
+    // 终极回退
     const npmName = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     return { command: npmName, args: [] };
   }
@@ -526,7 +527,7 @@ export class MCPInstaller {
     return new Promise((resolve, reject) => {
       const spawnEnv = {
         ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
+        ...((process as any).resourcesPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
         PATH: [
           process.env.PATH,
           '/usr/local/bin',
@@ -601,7 +602,7 @@ export class MCPInstaller {
       // 确保 PATH 包含常见的 npm 安装路径（打包后 Electron 的 PATH 可能不完整）
       const spawnEnv = {
         ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
+        ...((process as any).resourcesPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
         PATH: [
           process.env.PATH,
           '/usr/local/bin',
@@ -706,7 +707,7 @@ export class MCPInstaller {
       name: template.name ?? packageId,
       transport: template.transport ?? 'stdio',
       command: template.command ?? 'node',
-      args: (template.args ?? []).map(arg => {
+      args: (template.args ?? []).filter(arg => arg != null).map(arg => {
         if (arg === '{{installPath}}') return installPath;
         // 只解析明确是文件路径的 arg：
         //   - 以 / ~ ./ ../ 开头 → 绝对/显式相对路径

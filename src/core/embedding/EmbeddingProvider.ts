@@ -25,25 +25,23 @@ function getResourcesRoot(): string | null {
   const pRes = (process as any).resourcesPath as string | undefined;
   if (pRes) return pRes;
 
-  // 从 import.meta.url 向上查找项目根目录（适用 dev + 打包环境）
-  // dev 模式：tsx 直接运行 TypeScript，import.meta.url = .../src/core/embedding/EmbeddingProvider.ts
-  // 打包环境：agent-bridge.mjs 位于 resources/dist-electron/ 下
+  // 独立 Node 子进程（agent-bridge）：从脚本路径反推
+  // agent-bridge.mjs 位于 resources/dist-electron/ 下
+  try {
+    const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+    const root = path.join(scriptDir, '..');
+    if (fs.existsSync(path.join(root, 'dist-electron'))) return root;
+  } catch {}
+
+  // 开发模式（tsx 运行源文件）：从 src/core/embedding/ 向上找项目根
+  // 项目根的特征：同时存在 desktop/extraResources/ 和 src/
   try {
     let dir = path.dirname(fileURLToPath(import.meta.url));
-    // 向上遍历最多 10 层，找到包含 package.json + src/ 的目录（项目根）
     for (let i = 0; i < 10; i++) {
-      if (fs.existsSync(path.join(dir, 'package.json')) &&
+      if (fs.existsSync(path.join(dir, 'desktop', 'extraResources')) &&
           fs.existsSync(path.join(dir, 'src'))) {
-        return dir;
+        return path.join(dir, 'desktop');
       }
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    // 打包环境兜底：检查 dist-electron/
-    dir = path.dirname(fileURLToPath(import.meta.url));
-    for (let i = 0; i < 10; i++) {
-      if (fs.existsSync(path.join(dir, 'dist-electron'))) return dir;
       const parent = path.dirname(dir);
       if (parent === dir) break;
       dir = parent;
@@ -79,8 +77,12 @@ function getWorkerNodePath(): string | null {
   const root = getResourcesRoot();
   if (root) {
     const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
-    const bundled = path.join(root, 'node', 'bin', nodeName);
-    if (fs.existsSync(bundled)) return bundled;
+    // 打包环境: {root}/node/bin/node
+    const packaged = path.join(root, 'node', 'bin', nodeName);
+    if (fs.existsSync(packaged)) return packaged;
+    // 开发环境: {root}/extraResources/node/bin/node
+    const dev = path.join(root, 'extraResources', 'node', 'bin', nodeName);
+    if (fs.existsSync(dev)) return dev;
   }
   return process.execPath;
 }
@@ -89,11 +91,11 @@ function getWorkerNodePath(): string | null {
 function getWorkerPath(): string | null {
   const root = getResourcesRoot();
   if (root) {
-    // 打包环境: Resources/node/embedding-worker.js (extraResources)
+    // 打包环境: {root}/node/embedding-worker.js (extraResources 合并到 Resources)
     const packaged = path.join(root, 'node', 'embedding-worker.js');
     if (fs.existsSync(packaged)) return packaged;
-    // Dev 模式: {project}/desktop/extraResources/node/embedding-worker.js
-    const dev = path.join(root, 'desktop', 'extraResources', 'node', 'embedding-worker.js');
+    // 开发环境: {root}/extraResources/node/embedding-worker.js
+    const dev = path.join(root, 'extraResources', 'node', 'embedding-worker.js');
     if (fs.existsSync(dev)) return dev;
   }
   return null;
@@ -102,12 +104,8 @@ function getWorkerPath(): string | null {
 function getDistNodeModulesPath(): string | null {
   const root = getResourcesRoot();
   if (root) {
-    // 打包环境: Resources/dist-electron/node_modules (@xenova/transformers)
-    const packaged = path.join(root, 'dist-electron', 'node_modules');
-    if (fs.existsSync(packaged)) return packaged;
-    // Dev 模式: {project}/node_modules (@xenova/transformers)
-    const dev = path.join(root, 'node_modules');
-    if (fs.existsSync(dev)) return dev;
+    const p = path.join(root, 'dist-electron', 'node_modules');
+    if (fs.existsSync(p)) return p;
   }
   return null;
 }

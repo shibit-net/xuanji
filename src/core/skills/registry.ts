@@ -17,6 +17,7 @@ import type {
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { promises as fs, existsSync } from 'node:fs';
+import { parse as parseYAML } from 'yaml';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
@@ -59,22 +60,84 @@ export class SkillRegistry {
         if (!entry.isDirectory()) continue;
         if (entry.name.startsWith('.')) continue;
 
-        const manifestPath = path.join(installedDir, entry.name, 'manifest.json');
+        const skillDir = path.join(installedDir, entry.name);
+        const manifestPath = path.join(skillDir, 'manifest.json');
+
+        let skill: Skill | null = null;
+
+        // 1. 尝试从 manifest.json 加载
         try {
           const raw = await fs.readFile(manifestPath, 'utf-8');
-          const skill = JSON.parse(raw) as Skill;
-          if (skill.id && skill.name) {
-            // 保留 manifest 中的 source/packageId 等字段
-            this.register({
-              ...skill,
-              source: skill.source || 'marketplace',
-              enabled: skill.enabled !== false,
-            });
-            count++;
-            log.debug(`Loaded installed skill: ${skill.id} from ${manifestPath}`);
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+          if (parsed.id && parsed.name) {
+            // 新格式：manifest.json = 完整 Skill 对象
+            skill = {
+              ...parsed,
+              source: (parsed.source as Skill['source']) || 'marketplace',
+              enabled: parsed.enabled !== false,
+            } as unknown as Skill;
+          } else if (parsed.skillId) {
+            // 旧格式：manifest.json 只有元数据，从 SKILL.md 重建
+            const skillMdPath = path.join(skillDir, 'SKILL.md');
+            try {
+              const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
+              const fm = parseSkillFrontmatter(skillMdContent);
+              if (fm) {
+                skill = {
+                  id: String(fm.id ?? parsed.skillId),
+                  name: String(fm.name ?? parsed.skillId),
+                  version: String(fm.version ?? parsed.version ?? '0.0.0'),
+                  description: String(fm.description ?? ''),
+                  category: 'prompt',
+                  tags: normalizeSkillTags(fm.tags),
+                  author: typeof fm.author === 'string' ? fm.author : undefined,
+                  content: fm.body ?? skillMdContent,
+                  source: 'marketplace' as const,
+                  packageId: parsed.packageId as string,
+                  installedVersion: parsed.version as string,
+                  installedAt: parsed.installedAt as string,
+                  enabled: true,
+                };
+              }
+            } catch {
+              // SKILL.md 不可读，跳过
+            }
           }
         } catch {
-          // manifest.json 不存在或损坏，跳过
+          // manifest.json 不存在或损坏，尝试从 SKILL.md 直接恢复
+          const skillMdPath = path.join(skillDir, 'SKILL.md');
+          try {
+            const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
+            const fm = parseSkillFrontmatter(skillMdContent);
+            if (fm) {
+              skill = {
+                id: String(fm.id ?? path.basename(skillDir)),
+                name: String(fm.name ?? path.basename(skillDir)),
+                version: String(fm.version ?? '0.0.0'),
+                description: String(fm.description ?? ''),
+                category: 'prompt',
+                tags: normalizeSkillTags(fm.tags),
+                author: typeof fm.author === 'string' ? fm.author : undefined,
+                content: fm.body ?? skillMdContent,
+                source: 'marketplace' as const,
+                enabled: true,
+                installedAt: new Date().toISOString(),
+              };
+              // 补写 manifest.json
+              try {
+                await fs.writeFile(manifestPath, JSON.stringify(skill, null, 2), 'utf-8');
+              } catch { /* 写失败不阻塞 */ }
+            }
+          } catch {
+            // SKILL.md 也不可读，跳过
+          }
+        }
+
+        if (skill && skill.id && skill.name) {
+          this.register(skill);
+          count++;
+          log.debug(`Loaded installed skill: ${skill.id} from ${skillDir}`);
         }
       }
     } catch {
@@ -450,6 +513,63 @@ export class SkillRegistry {
 
     return stats;
   }
+}
+
+// ============================================================
+// scanInstalled 辅助函数
+// ============================================================
+
+interface SkillFrontmatter {
+  id?: string;
+  name?: string;
+  version?: string;
+  description?: string;
+  category?: string;
+  tags?: unknown;
+  author?: string;
+  parameters?: unknown;
+  dependencies?: unknown;
+  conflicts?: unknown;
+  requiredTools?: unknown;
+  enabled?: unknown;
+  priority?: unknown;
+  body?: string;
+  [key: string]: unknown;
+}
+
+function parseSkillFrontmatter(content: string): SkillFrontmatter | null {
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith('---')) return null;
+
+  const endIdx = trimmed.indexOf('---', 3);
+  if (endIdx === -1) return null;
+
+  const yamlBlock = trimmed.substring(3, endIdx).trim();
+  const body = trimmed.substring(endIdx + 3).trim();
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseYAML(yamlBlock) as Record<string, unknown>;
+  } catch {
+    log.warn('Failed to parse SKILL.md YAML frontmatter');
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null;
+  return { ...parsed, body: body || undefined };
+}
+
+function normalizeSkillTags(tags: unknown): string[] {
+  if (Array.isArray(tags)) return tags.map(String);
+  if (typeof tags === 'string') {
+    try {
+      const parsed = JSON.parse(tags);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return tags.split(',').map(t => t.trim()).filter(Boolean);
+    }
+  }
+  return [];
 }
 
 /**

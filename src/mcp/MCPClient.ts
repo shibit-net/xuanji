@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { existsSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { logger } from '@/core/logger';
-import { crossPlatformKill } from '@/shared/utils/crossPlatform';
+import { crossPlatformKill, findNpmCliPath } from '@/shared/utils/crossPlatform';
 import { sleep } from '@/shared/utils/sleep';
 import type {
   JSONRPCRequest,
@@ -141,17 +141,11 @@ export class MCPClient extends EventEmitter {
    * 避免 npx bash 脚本在 Windows 上无法执行的问题。
    */
   private resolveNpxCommand(): { command: string; extraArgs: string[] } {
-    try {
-      const pRes = (process as any).resourcesPath as string | undefined;
-      if (pRes) {
-        const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
-        if (existsSync(npmCliPath)) {
-          // npx -y <pkg> 等价于 node npm-cli.js exec <pkg> --yes
-          return { command: process.execPath, extraArgs: [npmCliPath, 'exec', '--yes'] };
-        }
-      }
-    } catch { /* 兜底 */ }
-    // 回退到系统 npx/npx.cmd
+    const { nodePath, npmCliPath } = findNpmCliPath();
+    if (npmCliPath) {
+      return { command: nodePath, extraArgs: [npmCliPath, 'exec', '--yes'] };
+    }
+    // 终极回退（npm-cli.js 不存在时不太可能到达）
     const npxName = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     return { command: npxName, extraArgs: [] };
   }
@@ -165,7 +159,7 @@ export class MCPClient extends EventEmitter {
       // 合并环境变量
       const env = {
         ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
+        ...((process as any).resourcesPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
         ...this.config.env,
       };
 
@@ -174,7 +168,17 @@ export class MCPClient extends EventEmitter {
       if (command === 'npx' || command === 'npx.cmd') {
         const resolved = this.resolveNpxCommand();
         command = resolved.command;
-        args = [...resolved.extraArgs, ...args];
+        // 过滤掉与 npm exec --yes 重复的 -y/--yes
+        const userArgs = args.filter(a => a !== '-y' && a !== '--yes');
+        // 在包名之后插入 -- 分隔符，确保后续参数不被 npm 截断
+        const pkgIdx = userArgs.findIndex(a => !a.startsWith('-'));
+        if (pkgIdx >= 0) {
+          const beforePkg = userArgs.slice(0, pkgIdx);
+          const pkgAndAfter = userArgs.slice(pkgIdx);
+          args = [...resolved.extraArgs, ...beforePkg, ...pkgAndAfter.slice(0, 1), '--', ...pkgAndAfter.slice(1)];
+        } else {
+          args = [...resolved.extraArgs, ...userArgs];
+        }
       }
 
       // 启动子进程

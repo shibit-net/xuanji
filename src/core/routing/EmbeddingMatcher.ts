@@ -14,15 +14,13 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'EmbeddingMatcher' });
 
-/** 延迟初始化 embedder（模型可能在 EmbeddingMatcher 构造之后才下载完成） */
+/** 延迟初始化 embedder（首次 embed() 会自动触发模型下载） */
 async function tryCreateEmbedder(): Promise<EmbeddingProviderInterface | null> {
   try {
     const { EmbeddingProvider } = await import('@/core/embedding/EmbeddingProvider');
     const candidate = new EmbeddingProvider();
-    if (candidate.modelExists()) {
-      log.info('EmbeddingMatcher: lazy-init embedder succeeded');
-      return candidate;
-    }
+    log.info('EmbeddingMatcher: lazy-init embedder created');
+    return candidate;
   } catch (err) {
     log.warn('EmbeddingMatcher: lazy-init embedder failed:', err);
   }

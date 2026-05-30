@@ -325,6 +325,24 @@ export class MCPManager {
    * - 文件中有但内存中没有 → addServer()
    * - 内存中有但文件中没有 → removeServer()
    */
+
+  /**
+   * Compare critical fields between two server configs for hot-reload diff.
+   * Only compares fields that affect subprocess startup/connection.
+   */
+  private hasServerConfigChanged(oldCfg: MCPServerConfig, newCfg: MCPServerConfig): boolean {
+    const compareKeys: (keyof MCPServerConfig)[] = [
+      'command', 'args', 'env', 'cwd', 'transport',
+      'sseUrl', 'httpUrl', 'url', 'headers', 'timeout',
+      'disabled',
+    ];
+    for (const key of compareKeys) {
+      if (JSON.stringify(oldCfg[key]) !== JSON.stringify(newCfg[key])) {
+        return true;
+      }
+    }
+    return false;
+  }
   async reloadConfig(): Promise<void> {
     if (!this.initialized) {
       log.debug('Not initialized, skipping hot reload');
@@ -351,6 +369,18 @@ export class MCPManager {
         if (!fileNames.has(name)) {
           log.info(`[hot-reload] Removing server: ${name}`);
           await this.removeServer(name);
+        }
+      }
+
+      // Config-changed servers (both sides exist, but args/env/command etc. changed)
+      for (const fileServer of fileServers) {
+        if (!memoryNames.has(fileServer.name)) continue;
+        const memServer = this.config?.servers.find(s => s.name === fileServer.name);
+        if (!memServer) continue;
+
+        if (this.hasServerConfigChanged(memServer, fileServer)) {
+          log.info(`[hot-reload] Config changed for server: ${fileServer.name}, restarting...`);
+          await this.addServer(fileServer);
         }
       }
 

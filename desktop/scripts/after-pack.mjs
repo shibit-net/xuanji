@@ -1,21 +1,25 @@
 /**
  * after-pack.mjs — electron-builder afterPack hook
  *
- * electron-builder 的 npmRebuild 会将项目根 node_modules 的 native 模块
- * 重新编译为 Electron 的 NODE_MODULE_VERSION。
+ * electron-builder 的默认排除规则 `!**\/node_modules/**` 会导致
+ * dist-electron/node_modules 无法通过 extraResources 复制到打包产物中。
  *
- * 此 hook 在 electron-builder 打包完成后，将 Electron 版本的 native 二进制
- * 覆盖到 Resources/dist-electron/node_modules/ 中，确保 agent-bridge
- * 子进程 (ELECTRON_RUN_AS_NODE=1) 能正确加载 better-sqlite3 等模块。
+ * 此 hook 在打包完成后，直接用 Node.js fs 将 dist-electron/node_modules
+ * 完整复制到 Resources/dist-electron/，绕开 electron-builder 的文件过滤。
+ *
+ * 同时也将项目根 node_modules 中 electron-rebuild 编译好的 native 模块
+ * 覆盖过去，确保与 Electron 的 NODE_MODULE_VERSION 匹配。
  */
 
-import { cpSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default async function afterPack(context) {
   const { appOutDir, electronPlatformName, packager } = context;
 
-  // 确定 Resources 路径
   let resourcesDir;
   if (electronPlatformName === 'darwin') {
     if (appOutDir.endsWith('.app')) {
@@ -29,19 +33,35 @@ export default async function afterPack(context) {
     resourcesDir = join(appOutDir, 'resources');
   }
 
-  const distModules = join(resourcesDir, 'dist-electron', 'node_modules');
-  if (!existsSync(distModules)) {
-    console.log('[afterPack] dist-electron/node_modules not found at', distModules);
+  const resourcesDistDir = join(resourcesDir, 'dist-electron');
+  const srcNodeModules = join(packager.projectDir, 'dist-electron', 'node_modules');
+  const destNodeModules = join(resourcesDistDir, 'node_modules');
+
+  if (!existsSync(srcNodeModules)) {
+    console.log('[afterPack] dist-electron/node_modules not found at', srcNodeModules);
     return;
   }
 
-  // 从项目根 node_modules 复制 Electron 编译的 native 模块
+  // 确保目标目录存在
+  mkdirSync(destNodeModules, { recursive: true });
+
+  // 完整复制 dist-electron/node_modules → resources/dist-electron/node_modules
+  console.log('[afterPack] Copying dist-electron/node_modules to resources/dist-electron/node_modules...');
+  try {
+    cpSync(srcNodeModules, destNodeModules, { recursive: true, force: true });
+    console.log('[afterPack] node_modules copy complete');
+  } catch (err) {
+    console.error('[afterPack] Failed to copy node_modules:', err.message);
+    return;
+  }
+
+  // 覆盖 Electron 编译版本的 native 模块（npmRebuild 编译产物在项目根 node_modules）
   const projectNodeModules = join(packager.projectDir, 'node_modules');
-  const nativeModules = ['better-sqlite3', 'node-pty', 'sharp', 'sqlite-vec', 'onnxruntime-node'];
+  const nativeModules = ['better-sqlite3', 'sharp', 'sqlite-vec', 'onnxruntime-node', 'node-pty'];
 
   for (const mod of nativeModules) {
     const srcBuild = join(projectNodeModules, mod, 'build');
-    const destMod = join(distModules, mod);
+    const destMod = join(destNodeModules, mod);
 
     if (!existsSync(srcBuild) || !existsSync(destMod)) continue;
 
@@ -52,7 +72,6 @@ export default async function afterPack(context) {
       console.warn(`[afterPack] Failed to replace build/ for ${mod}:`, err.message);
     }
 
-    // sharp 还需要 vendor/ (libvips)
     if (mod === 'sharp') {
       const srcVendor = join(projectNodeModules, mod, 'vendor');
       if (existsSync(srcVendor)) {
@@ -61,8 +80,15 @@ export default async function afterPack(context) {
           console.log('[afterPack] Replaced vendor/ for sharp');
         } catch {}
       }
+      const srcInstall = join(projectNodeModules, mod, 'install');
+      if (existsSync(srcInstall)) {
+        try {
+          cpSync(srcInstall, join(destMod, 'install'), { recursive: true, force: true });
+          console.log('[afterPack] Replaced install/ for sharp');
+        } catch {}
+      }
     }
   }
 
-  console.log('[afterPack] Native module replacement done');
+  console.log('[afterPack] Done');
 }

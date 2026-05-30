@@ -60,6 +60,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
     return new Anthropic({
       apiKey: config.apiKey,
+      authToken: config.apiKey, // 同时设 authToken，防止环境变量 ANTHROPIC_AUTH_TOKEN 覆盖
       baseURL: config.baseURL,
       timeout,
       ...(customFetch ? { fetch: customFetch } : {}),
@@ -145,7 +146,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
     // 🆕 动态计算 max_tokens：基于输入内容和模型限制
     const estimatedInputTokens = this.estimateInputTokens(systemBlocks, chatMessages, tools);
-    const adjustedMaxTokens = this.calculateMaxTokens(config.maxTokens || 65536, estimatedInputTokens);
+    const adjustedMaxTokens = this.calculateMaxTokens(config.maxTokens || 0, estimatedInputTokens);
 
     // 构造 Anthropic API 请求参数
     const params: Anthropic.MessageCreateParamsStreaming = {
@@ -574,8 +575,10 @@ export class AnthropicProvider extends BaseLLMProvider {
     // 基于上下文窗口的最大输出
     const contextBasedMax = Math.max(0, contextWindow - estimatedInputTokens - safetyMargin);
 
-    // 取用户配置与上下文限制的最小值
-    const finalMaxTokens = Math.min(requestedMaxTokens, contextBasedMax);
+    // 用户未配置时，让 API 自行决定；已配置则取用户值与上下文限制的最小值
+    const finalMaxTokens = requestedMaxTokens
+      ? Math.min(requestedMaxTokens, contextBasedMax)
+      : contextBasedMax;
 
     // 日志记录
     if (finalMaxTokens < requestedMaxTokens) {

@@ -193,6 +193,8 @@ tools:
     required: false
   - name: install
     required: false
+  - name: uninstall
+    required: false
   - name: web_fetch
     required: false
   - name: web_search
@@ -228,6 +230,8 @@ tools:
   - name: mcp_call
     required: false
   - name: skill_call
+    required: false
+  - name: skill_manage
     required: false
   - name: mcp_settings
     required: false

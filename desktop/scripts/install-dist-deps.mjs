@@ -3,10 +3,6 @@
  * install-dist-deps.mjs
  *
  * 在 vite 构建完成后，为 dist-electron/ 安装运行时依赖。
- * 这样 agent-bridge 子进程、EmbeddingProvider worker 等都能通过
- * Resources/dist-electron/node_modules/ 找到完整的依赖树。
- *
- * 只在打包构建时运行，不影响开发环境。
  */
 
 import { execSync } from 'node:child_process';
@@ -18,118 +14,87 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const distElectronDir = join(__dirname, '..', 'dist-electron');
 const projectRoot = join(__dirname, '..', '..');
 
-// ── 1. 清理旧的 node_modules（如果有残余）
+// 1. 清理
 const nmDir = join(distElectronDir, 'node_modules');
 if (existsSync(nmDir)) {
   rmSync(nmDir, { recursive: true, force: true });
 }
 
-// ── 2. 创建 dist-electron/package.json
-// 只包含 agent-bridge 运行时真正需要的依赖
+// 2. 创建 dist-electron/package.json（版本与项目 package.json 对齐）
 const pkg = {
   name: 'xuanji-dist-electron',
   version: '0.1.0',
   private: true,
   type: 'module',
   dependencies: {
-    // 核心运行时
+    '@anthropic-ai/sdk': '^0.60.0',
     '@xenova/transformers': '^2.17.2',
     'better-sqlite3': '^12.10.0',
+    'consola': '^3.4.2',
+    'debug': '^4.4.3',
+    'docx': '^9.6.1',
+    'fast-glob': '^3.3.3',
+    'glob': '^10.3.10',
+    'https-proxy-agent': '^7.0.4',
+    'js-yaml': '^4.1.0',
+    'json5': '^2.2.3',
+    'jszip': '^3.10.1',
+    'mammoth': '^1.12.0',
     'node-llama-cpp': '^3.0.0',
     'node-pty': '^1.1.0',
     'onnxruntime-node': '^1.14.0',
     'onnxruntime-web': '^1.14.0',
+    'openai': '^6.22.0',
+    'pdf-lib': '^1.17.1',
+    'pdf-parse': '^2.4.5',
+    'picomatch': '^4.0.2',
+    'pino': '^10.3.1',
     'sharp': '^0.34.5',
+    'ssh2': '^1.17.0',
     'sqlite-vec': '^0.1.7-alpha.2',
-
-    // tree-sitter（node-llama-cpp 通过 ESM import 使用）
     'tree-sitter': '^0.21.0',
     'tree-sitter-typescript': '^0.21.0',
     'tree-sitter-python': '^0.21.0',
     'tree-sitter-java': '^0.21.0',
-
-    // 工具库（agent-bridge 直接 import）
-    'consola': '^3.2.3',
-    'debug': '^4.3.4',
-    'fast-glob': '^3.3.2',
-    'glob': '^10.3.10',
-    'https-proxy-agent': '^7.0.4',
-    'json5': '^2.2.3',
-    'jszip': '^3.10.1',
-    'mammoth': '^1.6.0',
-    'openai': '^4.0.0',
-    'pino': '^10.3.1',
-    'ssh2': '^1.15.0',
+    'turndown': '^7.2.2',
     'xlsx': '^0.18.5',
-    'yaml': '^2.3.4',
+    'yaml': '^2.8.2',
   },
 };
 
-writeFileSync(
-  join(distElectronDir, 'package.json'),
-  JSON.stringify(pkg, null, 2),
-  'utf-8',
-);
-
+writeFileSync(join(distElectronDir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf-8');
 console.log('[install-dist-deps] package.json created');
 
-// ── 3. npm install（跳过编译脚本，只下载 prebuilt 包）
+// 3. npm install
 console.log('[install-dist-deps] Running npm install...');
 execSync('npm install --no-audit --no-fund --ignore-scripts --loglevel=warn', {
   cwd: distElectronDir,
   stdio: 'inherit',
   env: { ...process.env },
-  timeout: 300000, // 5min
+  timeout: 300000,
 });
 
-// ── 4. 复制 native 模块的 prebuilt .node 文件从项目根 node_modules
-// npm install --ignore-scripts 不会编译 native 模块，
-// 所以需要从项目根复制已经编译好的二进制。
-const nativeModules = [
-  'better-sqlite3',
-  'node-pty',
-  'sharp',
-  'sqlite-vec',
-  'onnxruntime-node',
-];
+// 4. 复制 native 模块的预编译二进制
+const nativeModules = ['better-sqlite3', 'node-pty', 'sharp', 'sqlite-vec', 'onnxruntime-node'];
 for (const mod of nativeModules) {
   const srcBuild = join(projectRoot, 'node_modules', mod, 'build');
-  const srcBuildRelease = join(projectRoot, 'node_modules', mod, 'build', 'Release');
   const destDir = join(distElectronDir, 'node_modules', mod);
-
-  // 复制 build/（编译产物）
   if (existsSync(srcBuild)) {
     cpSync(srcBuild, join(destDir, 'build'), { recursive: true, force: true });
     console.log(`[install-dist-deps] Copied build/ for ${mod}`);
-  } else if (existsSync(srcBuildRelease)) {
-    mkdirSync(join(destDir, 'build', 'Release'), { recursive: true });
-    cpSync(srcBuildRelease, join(destDir, 'build', 'Release'), { recursive: true, force: true });
-    console.log(`[install-dist-deps] Copied build/Release for ${mod}`);
   }
-
-  // 复制 sharp 的 vendor/（libvips 预编译二进制）
   if (mod === 'sharp') {
-    const srcVendor = join(projectRoot, 'node_modules', mod, 'vendor');
-    if (existsSync(srcVendor)) {
-      cpSync(srcVendor, join(destDir, 'vendor'), { recursive: true, force: true });
-      console.log('[install-dist-deps] Copied vendor/ for sharp');
-    }
-    // 复制 sharp 的 build 文件夹下的 install 脚本结果
-    const srcInstall = join(projectRoot, 'node_modules', mod, 'install');
-    if (existsSync(srcInstall)) {
-      cpSync(srcInstall, join(destDir, 'install'), { recursive: true, force: true });
-      console.log('[install-dist-deps] Copied install/ for sharp');
+    for (const sub of ['vendor', 'install']) {
+      const s = join(projectRoot, 'node_modules', mod, sub);
+      if (existsSync(s)) cpSync(s, join(destDir, sub), { recursive: true, force: true });
     }
   }
 }
 
-// ── 5. 处理 @xenova/transformers 内嵌的 sharp
-// npm 可能因版本冲突在 transformers 下创建嵌套 node_modules/sharp，
-// 但其 native 构建文件未被处理。删除嵌套目录使其回退到父级 sharp（有完整构建文件）。
-const nestedSharpDir = join(distElectronDir, 'node_modules', '@xenova', 'transformers', 'node_modules', 'sharp');
+// 5. 清理嵌套 sharp
+const nestedSharpDir = join(nmDir, '@xenova', 'transformers', 'node_modules', 'sharp');
 if (existsSync(nestedSharpDir)) {
   rmSync(nestedSharpDir, { recursive: true, force: true });
-  console.log('[install-dist-deps] Removed nested sharp in @xenova/transformers (falls back to parent)');
 }
 
 console.log('[install-dist-deps] Done');

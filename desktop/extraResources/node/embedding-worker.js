@@ -24,15 +24,17 @@ let resourcesDir;
 if (typeof process.resourcesPath === 'string') {
   resourcesDir = process.resourcesPath;
 } else {
-  // 兜底：假设 execPath 在 Resources 子目录下
-  const workerDir = path.dirname(process.execPath);
-  resourcesDir = path.resolve(workerDir, '..', '..');
+  // 开发模式：从 worker 脚本位置反推 desktop/ 目录
+  // worker 位于 desktop/extraResources/node/embedding-worker.js
+  // 向上 3 级 → desktop/
+  resourcesDir = path.resolve(__dirname, '..', '..');
 }
 const distNodeModules = path.join(resourcesDir, 'dist-electron', 'node_modules');
 const bundledNodeModules = path.join(resourcesDir, 'node', 'node_modules');
+const projectNodeModules = path.join(resourcesDir, '..', 'node_modules');
 
 const pathSep = process.platform === 'win32' ? ';' : ':';
-process.env.NODE_PATH = [process.env.NODE_PATH, distNodeModules, bundledNodeModules].filter(Boolean).join(pathSep);
+process.env.NODE_PATH = [process.env.NODE_PATH, distNodeModules, bundledNodeModules, projectNodeModules].filter(Boolean).join(pathSep);
 require('module').Module._initPaths();
 
 // 立即通知父进程 worker 已就绪（在加载 transformers 之前发送）
@@ -43,29 +45,36 @@ let pipeline = null;
 let initialized = false;
 
 // ESM import 不使用 NODE_PATH，需要按绝对路径导入
-// 多路径搜索 @xenova/transformers（打包环境 + dev 模式）
-function resolveTransformers(searchPaths) {
-  for (const base of searchPaths) {
+// 查找 @xenova/transformers 入口路径
+//   1. 打包环境: dist-electron/node_modules
+//   2. 开发模式: NODE_PATH 中查找
+//   3. 兜底: 相对 distNodeModules
+function resolveTransformersEntry() {
+  // 1. dist-electron/node_modules（打包环境）
+  const distDir = path.join(distNodeModules, '@xenova', 'transformers');
+  if (fs.existsSync(distDir)) {
     try {
-      const transformersDir = path.join(base, '@xenova', 'transformers');
-      const pkgJson = JSON.parse(fs.readFileSync(path.join(transformersDir, 'package.json'), 'utf-8'));
+      const pkgJson = JSON.parse(fs.readFileSync(path.join(distDir, 'package.json'), 'utf-8'));
       const mainExport = (pkgJson.exports && pkgJson.exports['.']) || pkgJson.main || './src/transformers.js';
-      return path.join(transformersDir, mainExport);
-    } catch { continue; }
+      return path.join(distDir, mainExport);
+    } catch {}
   }
-  return null;
+  // 2. NODE_PATH 中查找（开发模式）
+  const nodePathDirs = (process.env.NODE_PATH || '').split(pathSep).filter(Boolean);
+  for (const dir of nodePathDirs) {
+    const candidate = path.join(dir, '@xenova', 'transformers');
+    if (fs.existsSync(candidate)) {
+      try {
+        const pkgJson = JSON.parse(fs.readFileSync(path.join(candidate, 'package.json'), 'utf-8'));
+        const mainExport = (pkgJson.exports && pkgJson.exports['.']) || pkgJson.main || './src/transformers.js';
+        return path.join(candidate, mainExport);
+      } catch {}
+    }
+  }
+  // 3. 兜底
+  return path.join(distNodeModules, '@xenova', 'transformers', 'src', 'transformers.js');
 }
-
-let transformersEntry = resolveTransformers([
-  distNodeModules,
-  bundledNodeModules,
-  // NODE_PATH 中的目录（dev 模式下父进程传入项目 node_modules）
-  ...(process.env.NODE_PATH || '').split(pathSep).filter(Boolean),
-]);
-if (!transformersEntry) {
-  // 最后的 fallback
-  transformersEntry = path.join(distNodeModules, '@xenova', 'transformers', 'src', 'transformers.js');
-}
+let transformersEntry = resolveTransformersEntry();
 
 async function initPipeline(modelId, cacheDir, remoteHost) {
   let createPipeline, env;

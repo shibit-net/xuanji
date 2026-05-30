@@ -93,6 +93,10 @@ export class SkillManageTool extends BaseTool {
 
   private async listSkills(filter?: Record<string, string>): Promise<ToolResult> {
     try {
+      // 确保已扫描 marketplace 安装的 skill
+      if (typeof this.skillRegistry.scanInstalled === 'function') {
+        await this.skillRegistry.scanInstalled();
+      }
       let skills = this.skillRegistry.list?.() || [];
 
       // Filter

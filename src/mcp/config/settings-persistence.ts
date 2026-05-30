@@ -50,12 +50,25 @@ export class MCPSettingsPersistence {
       console.debug(`Loaded ${this.cache.servers.length} MCP servers from ${this.configFile}`);
     } catch (err: any) {
       if (err.code === 'ENOENT') {
-        // first run – start empty
         this.cache = { servers: [] };
         console.info('No existing mcp.json, starting fresh');
       } else {
-        console.error(`Failed to load mcp.json: ${err.message}`);
-        throw err;
+        console.error(`Failed to load mcp.json (${err.message}), backing up and resetting`);
+        // 备份损坏文件，避免数据丢失
+        try {
+          const backupPath = this.configFile + '.bak.' + Date.now();
+          await fs.copyFile(this.configFile, backupPath);
+          console.info(`Corrupted mcp.json backed up to ${backupPath}`);
+        } catch {
+          // 备份失败不阻塞
+        }
+        this.cache = { servers: [] };
+        // 立即写入空配置
+        try {
+          await fs.writeFile(this.configFile, JSON.stringify(this.cache, null, 2), 'utf-8');
+        } catch {
+          // 写入失败不阻塞，下次 save() 会重试
+        }
       }
     }
     return this.cache;

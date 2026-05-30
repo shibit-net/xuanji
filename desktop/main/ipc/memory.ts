@@ -96,7 +96,7 @@ function registerMemoryIpcHandlers() {
   // ─── 手动触发 LLM 记忆整理 ──────────────────────────
   ipcMain.handle('memory:maintenance-trigger', async () => {
     if (!isSessionReady()) return { success: false, error: '会话未初始化' };
-    try { return await sendRequest('memory-maintenance-trigger'); }
+    try { return await sendRequest('memory-maintenance-trigger', undefined, 120000); }
     catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
   });
 

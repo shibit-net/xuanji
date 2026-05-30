@@ -792,7 +792,7 @@ function formatAttachments(attachments: Array<{ name: string; path?: string; con
     if (f.path) formatted += `<path>${f.path}</path>\n`;
     formatted += '<content>\n';
     formatted += f.content;
-    if (!f.content.endsWith('\n')) formatted += '\n';
+    if (f.content && !f.content.endsWith('\n')) formatted += '\n';
     formatted += '</content>\n';
     formatted += '</file>\n';
   }

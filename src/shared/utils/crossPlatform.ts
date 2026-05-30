@@ -9,6 +9,8 @@
 
 import { type ChildProcess } from 'node:child_process';
 import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
 
 const isWindows = process.platform === 'win32';
 
@@ -291,6 +293,75 @@ export function getSpawnShellOption(): string | boolean {
   if (shell === 'bash') return 'bash';
   if (shell === 'pwsh') return getPowerShellBinary();
   return true; // Let Node auto-detect via COMSPEC
+}
+
+// ============================================================
+// npm-cli.js 路径查找（跨平台，避免 .cmd spawn 问题）
+// ============================================================
+
+/**
+ * 查找 npm-cli.js 的绝对路径
+ *
+ * 优先级:
+ *   1. Electron 打包环境: {resourcesPath}/node/lib/node_modules/npm/bin/npm-cli.js
+ *   2. 系统 Node.js: {node安装目录}/node_modules/npm/bin/npm-cli.js
+ *
+ * 返回 { nodePath, npmCliPath } — node 可执行文件和 npm-cli.js 路径。
+ * 调用方用 nodePath + npmCliPath 替代 npx.cmd / npm.cmd 的 spawn。
+ */
+export function findNpmCliPath(): { nodePath: string; npmCliPath: string } {
+  // 1. Electron 打包环境: 使用内置 Node + npm-cli.js
+  try {
+    const pRes = (process as any).resourcesPath as string | undefined;
+    if (pRes) {
+      const npmCliPath = path.join(pRes, 'node', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      if (existsSync(npmCliPath)) {
+        return { nodePath: process.execPath, npmCliPath };
+      }
+    }
+  } catch { /* 兜底 */ }
+
+  // 2. 系统 Node.js: npm-cli.js 在 node 安装目录下
+  return findSystemNpmCliPath();
+}
+
+/**
+ * 查找系统 Node.js 附带的 npm-cli.js
+ */
+function findSystemNpmCliPath(): { nodePath: string; npmCliPath: string } {
+  // 先找到系统 node 的路径
+  let nodePath: string;
+  try {
+    if (isWindows) {
+      nodePath = execSync('where node', { encoding: 'utf8', timeout: 3000, windowsHide: true })
+        .trim().split(/\r?\n/)[0].trim();
+    } else {
+      nodePath = execSync('which node', { encoding: 'utf8', timeout: 3000 }).trim();
+    }
+  } catch {
+    nodePath = isWindows ? 'node' : '/usr/local/bin/node';
+  }
+
+  if (!nodePath || nodePath === 'node') {
+    // 无法定位 node，回退
+    return { nodePath: 'node', npmCliPath: '' };
+  }
+
+  // npm-cli.js 位于 node 安装目录的 node_modules/npm/bin/ 下
+  const nodeDir = path.dirname(nodePath);
+  const npmCliPath = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+
+  if (existsSync(npmCliPath)) {
+    return { nodePath, npmCliPath };
+  }
+
+  // 某些 Linux 发行版将 npm 放在 /usr/lib/node_modules/ 下
+  const altNpmCliPath = '/usr/lib/node_modules/npm/bin/npm-cli.js';
+  if (existsSync(altNpmCliPath)) {
+    return { nodePath, npmCliPath: altNpmCliPath };
+  }
+
+  return { nodePath, npmCliPath: '' };
 }
 
 // ============================================================

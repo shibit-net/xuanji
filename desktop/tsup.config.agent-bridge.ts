@@ -15,7 +15,7 @@ export default defineConfig({
   // 禁用代码分割，避免拆成独立 chunk（打包后 node_modules 不可用）
   splitting: false,
   // 内联所有非 native 的 npm 包（pino, yaml, json5, axios 等），native 包保持 external
-  noExternal: [/^(?!(@node-llama-cpp|node-llama-cpp|@reflink|better-sqlite3|sqlite-vec|@xenova|tree-sitter))/],
+  noExternal: [/^(?!(@node-llama-cpp|node-llama-cpp|@reflink|better-sqlite3|sqlite-vec|@xenova|tree-sitter|ssh2|cpu-features|node-pty))/],
   external: [
     'better-sqlite3',
     'sqlite-vec',
@@ -39,6 +39,9 @@ export default defineConfig({
     '@node-llama-cpp/win-x64',
     '@node-llama-cpp/win-arm64',
     '@reflink',
+    'ssh2',
+    'cpu-features',
+    'node-pty',
   ],
   esbuildOptions: (options) => {
     const aliases = buildAliases(path.resolve(__dirname, '..'));

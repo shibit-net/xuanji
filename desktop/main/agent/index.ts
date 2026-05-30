@@ -126,32 +126,48 @@ function initChatSession(): Promise<boolean> {
         scriptPath = path.join(desktopRoot, 'main/agent-bridge.ts');
 
         if (process.platform === 'win32') {
-          // Windows: node_modules/.bin/tsx 是 bash 脚本，node 无法执行
-          // tsx.cmd 可以直接 spawn，不需要通过 node 调用
-          nodePath = path.join(projectRoot, 'node_modules', '.bin', 'tsx.cmd');
-          args = [scriptPath];
+          // Windows: spawn tsx.cmd 实际通过 cmd.exe 执行，IPC 通道无法连通
+          // 改为直接 spawn node.exe + tsx CLI 入口，确保 IPC 通道正常
+          nodePath = findNodePath();
+          const tsxCliPath = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+          args = [tsxCliPath, scriptPath];
         } else {
           nodePath = findNodePath();
           const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
           args = [tsxPath, scriptPath];
         }
       } else {
-        // 生产环境：使用打包内置的 Node.js 二进制（与 embedding-worker 相同方式）
+        // 生产环境：优先使用内置 Node.js，不存在则用 Electron + ELECTRON_RUN_AS_NODE=1
         const pRes = process.resourcesPath!;
         scriptPath = path.join(pRes, 'dist-electron', 'agent-bridge.mjs');
-        nodePath = path.join(pRes, 'node', 'bin', 'node');
-        args = [scriptPath];
+        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+        const bundledNode = path.join(pRes, 'node', 'bin', nodeName);
+        if (fs.existsSync(bundledNode)) {
+          nodePath = bundledNode;
+          args = [scriptPath];
+        } else {
+          nodePath = process.execPath;
+          args = [scriptPath];
+        }
       }
 
       const spawnEnv: Record<string, any> = {
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || 'development',
       };
+      // 清除可能干扰 Provider 配置的环境变量（SDK 会自动读取作为默认值）
+      delete spawnEnv.ANTHROPIC_AUTH_TOKEN;
+      delete spawnEnv.ANTHROPIC_API_KEY;
+      delete spawnEnv.ANTHROPIC_BASE_URL;
+      delete spawnEnv.ANTHROPIC_MODEL;
+      delete spawnEnv.OPENAI_API_KEY;
+      delete spawnEnv.OPENAI_BASE_URL;
 
       const resourcesPath = !isDev ? process.resourcesPath! : null;
 
       // 设置 NODE_PATH 让子进程能找到 native 模块
       if (!isDev && resourcesPath) {
+        spawnEnv.ELECTRON_RUN_AS_NODE = '1';
         const unpackedModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
         const extraModules = path.join(resourcesPath, 'dist-electron', 'node_modules');
         const nodePathDirs = [extraModules];
