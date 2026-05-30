@@ -10,6 +10,12 @@ import { logger } from '@/core/logger';
 /** Anthropic Messages API 支持的图片 MIME 类型 */
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
+/** 检测 API 错误是否为 image 不支持（纯文本模型会拒绝 image 块） */
+function isVisionRejectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /image_url|image input|do not support image|unknown variant.*image/i.test(msg);
+}
+
 /**
  * Anthropic Claude Provider
  */
@@ -65,13 +71,40 @@ export class AnthropicProvider extends BaseLLMProvider {
     tools: ToolSchema[],
     config: ProviderConfig,
   ): AsyncIterable<StreamEvent> {
-    // 图片块转为 Anthropic source 格式
+    let forceTextOnly = false;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        yield* this.doStream(messages, tools, config, forceTextOnly);
+        return;
+      } catch (err) {
+        // Vision 降级重试：非 vision 模型拒绝 image → 转为 [Image: ...] 文本重试
+        if (attempt === 0 && !forceTextOnly && isVisionRejectionError(err)) {
+          this.log.info(`检测到 ${config.model} 不支持 image，已将图片降级为文本描述并重试`);
+          forceTextOnly = true;
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * 执行一次流式 API 调用（不含重试逻辑）
+   */
+  private async *doStream(
+    messages: Message[],
+    tools: ToolSchema[],
+    config: ProviderConfig,
+    forceTextOnly: boolean,
+  ): AsyncIterable<StreamEvent> {
+    // 图片块转为 Anthropic source 格式，forceTextOnly 时全部降级为文本
     const convertAnthropicContent = (content: Message['content']) => {
       if (typeof content === 'string') return content;
       if (!Array.isArray(content)) return content;
       return content.map((block: ContentBlock) => {
         if (block.type === 'image') {
-          if (SUPPORTED_IMAGE_TYPES.has(block.mimeType || '')) {
+          if (!forceTextOnly && SUPPORTED_IMAGE_TYPES.has(block.mimeType || '')) {
             return {
               type: 'image' as const,
               source: {
@@ -84,15 +117,12 @@ export class AnthropicProvider extends BaseLLMProvider {
           return { type: 'text' as const, text: `[Image: ${block.name || block.mimeType || 'image'}]` };
         }
         if (block.type === 'audio') {
-          // Anthropic does not natively support audio input, use text placeholder
           return { type: 'text' as const, text: `[Audio file: ${block.name || 'audio'}]` };
         }
         if (block.type === 'video') {
-          // Anthropic does not natively support video input, use text placeholder
           return { type: 'text' as const, text: `[Video file: ${block.name || 'video'}]` };
         }
         if (block.type === 'reasoning') {
-          // DeepSeek/OpenAI reasoning_content → Anthropic thinking 块
           return {
             type: 'thinking' as const,
             thinking: (block as any).reasoning || '',
@@ -102,6 +132,7 @@ export class AnthropicProvider extends BaseLLMProvider {
         return block as any;
       });
     };
+
     const client = this.getClient(config);
 
     // 分离 system prompt 和普通消息

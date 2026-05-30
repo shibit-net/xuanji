@@ -1,0 +1,187 @@
+{
+  "skill-everything-claude-code": {
+    "versionId": 151,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/affaan-m/everything-claude-code/archive/refs/heads/main.zip"
+  },
+  "skill-superpowers": {
+    "versionId": 152,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/obra/superpowers/archive/refs/heads/main.zip"
+  },
+  "skill-karpathy-skills": {
+    "versionId": 153,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/multica-ai/andrej-karpathy-skills/archive/refs/heads/main.zip"
+  },
+  "skill-planning-with-files": {
+    "versionId": 154,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/OthmanAdi/planning-with-files/archive/refs/heads/main.zip"
+  },
+  "skill-caveman": {
+    "versionId": 156,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/JuliusBrussee/caveman/archive/refs/heads/main.zip"
+  },
+  "skill-continuous-claude": {
+    "versionId": 160,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/parcadei/Continuous-Claude-v3/archive/refs/heads/main.zip"
+  },
+  "skill-claude-subconscious": {
+    "versionId": 163,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/letta-ai/claude-subconscious/archive/refs/heads/main.zip"
+  },
+  "skill-opencontext": {
+    "versionId": 167,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/0xranx/OpenContext/archive/refs/heads/main.zip"
+  },
+  "skill-using-tmux": {
+    "versionId": 169,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/obra/superpowers-lab/archive/refs/heads/main.zip"
+  },
+  "skill-notebooklm-skill": {
+    "versionId": 172,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/PleasePrompto/notebooklm-skill/archive/refs/heads/main.zip"
+  },
+  "skill-ai-research": {
+    "versionId": 173,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/zechenzhangAGI/AI-research-SKILLs/archive/refs/heads/main.zip"
+  },
+  "skill-marketing-skills": {
+    "versionId": 175,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/coreyhaines31/marketingskills/archive/refs/heads/main.zip"
+  },
+  "skill-playwright-skill": {
+    "versionId": 176,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/lackeyjb/playwright-skill/archive/refs/heads/main.zip"
+  },
+  "skill-wooyun-legacy": {
+    "versionId": 183,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/tanweai/wooyun-legacy/archive/refs/heads/main.zip"
+  },
+  "skill-last30days": {
+    "versionId": 184,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/mvanhorn/last30days-skill/archive/refs/heads/main.zip"
+  },
+  "skill-x-article-publisher": {
+    "versionId": 185,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/wshuyi/x-article-publisher-skill/archive/refs/heads/main.zip"
+  },
+  "skill-videocut": {
+    "versionId": 186,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/Ceeon/videocut-skills/archive/refs/heads/main.zip"
+  },
+  "skill-obsidian": {
+    "versionId": 187,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/axtonliu/axton-obsidian-visual-skills/archive/refs/heads/main.zip"
+  },
+  "skill-repren": {
+    "versionId": 188,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/jlevy/repren/archive/refs/heads/main.zip"
+  },
+  "skill-humanizer": {
+    "versionId": 189,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/blader/humanizer/archive/refs/heads/main.zip"
+  },
+  "skill-claudeception": {
+    "versionId": 190,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/blader/Claudeception/archive/refs/heads/main.zip"
+  },
+  "skill-awesome-claude-code": {
+    "versionId": 191,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/hesreallyhim/awesome-claude-code/archive/refs/heads/main.zip"
+  },
+  "skill-claude-code-showcase": {
+    "versionId": 192,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/ChrisWiles/claude-code-showcase/archive/refs/heads/main.zip"
+  },
+  "skill-oh-my-claudecode": {
+    "versionId": 193,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/Yeachan-Heo/oh-my-claudecode/archive/refs/heads/main.zip"
+  },
+  "skill-ruflo": {
+    "versionId": 194,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/ruvnet/ruflo/archive/refs/heads/main.zip"
+  },
+  "skill-hermes-agent": {
+    "versionId": 195,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/NousResearch/hermes-agent/archive/refs/heads/main.zip"
+  },
+  "skill-claude-code-best-practice": {
+    "versionId": 196,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/shanraisshan/claude-code-best-practice/archive/refs/heads/main.zip"
+  },
+  "skill-skill-forge": {
+    "versionId": 197,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/tripleyak/SkillForge/archive/refs/heads/main.zip"
+  },
+  "skill-skill-codex": {
+    "versionId": 198,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/skills-directory/skill-codex/archive/refs/heads/main.zip"
+  },
+  "skill-buildwithclaude": {
+    "versionId": 199,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/davepoon/buildwithclaude/archive/refs/heads/main.zip"
+  },
+  "skill-pinme": {
+    "versionId": 200,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/glitternetwork/pinme/archive/refs/heads/main.zip"
+  },
+  "skill-serena": {
+    "versionId": 202,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/oraios/serena"
+  },
+  "skill-claude-hud": {
+    "versionId": 203,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/anthropics/claude-code"
+  },
+  "skill-repomix": {
+    "versionId": 204,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/repomix"
+  },
+  "skill-superskills-pack": {
+    "versionId": 211,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/ariadoss/superskills"
+  },
+  "skill-llm-prompt-engineering": {
+    "versionId": 243,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/prompt-eng/skills"
+  },
+  "skill-microservices-patterns": {
+    "versionId": 247,
+    "version": "1.0.0",
+    "downloadUrl": "https://github.com/architecture-community/skills"
+  }
+}

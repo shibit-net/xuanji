@@ -1,0 +1,6 @@
+{
+  "skillId": "skill-continuous-claude",
+  "packageId": "skill-continuous-claude",
+  "version": "1.0.0",
+  "format": "xuanji-skill-zip-v1"
+}

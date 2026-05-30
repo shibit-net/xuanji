@@ -1,0 +1,224 @@
+[
+  {
+    "skillId": "skill-everything-claude-code",
+    "name": "Everything Claude Code",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-everything-claude-code"
+  },
+  {
+    "skillId": "skill-superpowers",
+    "name": "Superpowers",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-superpowers"
+  },
+  {
+    "skillId": "skill-karpathy-skills",
+    "name": "Andrej Karpathy Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-karpathy-skills"
+  },
+  {
+    "skillId": "skill-planning-with-files",
+    "name": "Planning with Files",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-planning-with-files"
+  },
+  {
+    "skillId": "skill-caveman",
+    "name": "Caveman",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-caveman"
+  },
+  {
+    "skillId": "skill-continuous-claude",
+    "name": "Continuous Claude v3",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-continuous-claude"
+  },
+  {
+    "skillId": "skill-claude-subconscious",
+    "name": "Claude Subconscious",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-claude-subconscious"
+  },
+  {
+    "skillId": "skill-opencontext",
+    "name": "OpenContext",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-opencontext"
+  },
+  {
+    "skillId": "skill-using-tmux",
+    "name": "Using Tmux for Interactive Commands",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-using-tmux"
+  },
+  {
+    "skillId": "skill-notebooklm-skill",
+    "name": "NotebookLM Skill",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-notebooklm-skill"
+  },
+  {
+    "skillId": "skill-ai-research",
+    "name": "AI Research Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-ai-research"
+  },
+  {
+    "skillId": "skill-marketing-skills",
+    "name": "Marketing Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-marketing-skills"
+  },
+  {
+    "skillId": "skill-playwright-skill",
+    "name": "Playwright Skill",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-playwright-skill"
+  },
+  {
+    "skillId": "skill-wooyun-legacy",
+    "name": "WooYun Legacy",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-wooyun-legacy"
+  },
+  {
+    "skillId": "skill-last30days",
+    "name": "Last 30 Days Skill",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-last30days"
+  },
+  {
+    "skillId": "skill-x-article-publisher",
+    "name": "X Article Publisher",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-x-article-publisher"
+  },
+  {
+    "skillId": "skill-videocut",
+    "name": "VideoCut Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-videocut"
+  },
+  {
+    "skillId": "skill-obsidian",
+    "name": "Obsidian Visual Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-obsidian"
+  },
+  {
+    "skillId": "skill-repren",
+    "name": "Repren Refactoring",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-repren"
+  },
+  {
+    "skillId": "skill-humanizer",
+    "name": "Humanizer",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-humanizer"
+  },
+  {
+    "skillId": "skill-claudeception",
+    "name": "Claudeception",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-claudeception"
+  },
+  {
+    "skillId": "skill-awesome-claude-code",
+    "name": "Awesome Claude Code",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-awesome-claude-code"
+  },
+  {
+    "skillId": "skill-claude-code-showcase",
+    "name": "Claude Code Showcase",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-claude-code-showcase"
+  },
+  {
+    "skillId": "skill-oh-my-claudecode",
+    "name": "Oh My ClaudeCode",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-oh-my-claudecode"
+  },
+  {
+    "skillId": "skill-ruflo",
+    "name": "RUFLO (Claude Flow)",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-ruflo"
+  },
+  {
+    "skillId": "skill-hermes-agent",
+    "name": "Hermes Agent (Nous Research)",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-hermes-agent"
+  },
+  {
+    "skillId": "skill-claude-code-best-practice",
+    "name": "Claude Code Best Practice Guide",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-claude-code-best-practice"
+  },
+  {
+    "skillId": "skill-skill-forge",
+    "name": "SkillForge",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-skill-forge"
+  },
+  {
+    "skillId": "skill-skill-codex",
+    "name": "Skill Codex",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-skill-codex"
+  },
+  {
+    "skillId": "skill-buildwithclaude",
+    "name": "Build With Claude",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-buildwithclaude"
+  },
+  {
+    "skillId": "skill-pinme",
+    "name": "PinMe",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-pinme"
+  },
+  {
+    "skillId": "skill-serena",
+    "name": "Serena - Semantic Coding Agent",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-serena"
+  },
+  {
+    "skillId": "skill-claude-hud",
+    "name": "Claude HUD - Real-time Context Panel",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-claude-hud"
+  },
+  {
+    "skillId": "skill-repomix",
+    "name": "Repomix - Repo Packer for AI",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-repomix"
+  },
+  {
+    "skillId": "skill-superskills-pack",
+    "name": "SuperSkills - Curated Skills Pack",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-superskills-pack"
+  },
+  {
+    "skillId": "skill-llm-prompt-engineering",
+    "name": "LLM Prompt Engineering Skills",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-llm-prompt-engineering"
+  },
+  {
+    "skillId": "skill-microservices-patterns",
+    "name": "Microservices Design Patterns",
+    "version": "1.0.0",
+    "zipDir": "/Users/kevinshi/Documents/workspace/codebase/shibit/xuanji/output/skills/skill-microservices-patterns"
+  }
+]
