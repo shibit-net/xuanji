@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distElectronDir = join(__dirname, '..', 'dist-electron');
-const projectRoot = join(__dirname, '..', '..');
+const desktopDir = join(__dirname, '..');
 
 // 1. 清理
 const nmDir = join(distElectronDir, 'node_modules');
@@ -74,18 +74,18 @@ execSync('npm install --no-audit --no-fund --ignore-scripts --loglevel=warn', {
   timeout: 300000,
 });
 
-// 4. 复制 native 模块的预编译二进制
+// 4. 复制 native 模块的预编译二进制（从 desktop/node_modules/ — 由 postinstall 的 electron-builder install-app-deps 针对 Electron ABI 编译）
 const nativeModules = ['better-sqlite3', 'node-pty', 'sharp', 'sqlite-vec', 'onnxruntime-node'];
 for (const mod of nativeModules) {
-  const srcBuild = join(projectRoot, 'node_modules', mod, 'build');
+  const srcBuild = join(desktopDir, 'node_modules', mod, 'build');
   const destDir = join(distElectronDir, 'node_modules', mod);
   if (existsSync(srcBuild)) {
     cpSync(srcBuild, join(destDir, 'build'), { recursive: true, force: true });
-    console.log(`[install-dist-deps] Copied build/ for ${mod}`);
+    console.log(`[install-dist-deps] Copied build/ for ${mod} (from desktop/node_modules — Electron ABI)`);
   }
   if (mod === 'sharp') {
     for (const sub of ['vendor', 'install']) {
-      const s = join(projectRoot, 'node_modules', mod, sub);
+      const s = join(desktopDir, 'node_modules', mod, sub);
       if (existsSync(s)) cpSync(s, join(destDir, sub), { recursive: true, force: true });
     }
   }

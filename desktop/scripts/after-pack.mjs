@@ -55,7 +55,7 @@ export default async function afterPack(context) {
     return;
   }
 
-  // 覆盖 Electron 编译版本的 native 模块（npmRebuild 编译产物在项目根 node_modules）
+  // 覆盖 Electron 编译版本的 native 模块（由 postinstall 的 electron-builder install-app-deps 编译，位于 desktop/node_modules）
   const projectNodeModules = join(packager.projectDir, 'node_modules');
   const nativeModules = ['better-sqlite3', 'sharp', 'sqlite-vec', 'onnxruntime-node', 'node-pty'];
 
