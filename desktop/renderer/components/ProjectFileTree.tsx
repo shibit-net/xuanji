@@ -1,0 +1,292 @@
+// ============================================================
+// ProjectFileTree - 嵌入侧栏的项目文件树（纯树形内容）
+// 从 ProjectFilesPanel 提取核心渲染逻辑，去掉面板 chrome
+// ============================================================
+
+import { useState, useEffect, useCallback } from 'react';
+import { ChevronRight, ChevronDown, RefreshCw, ExternalLink, Copy, FolderOpen } from 'lucide-react';
+
+interface FileEntry {
+  name: string; path: string; isDirectory: boolean; size: number; modifiedAt: number;
+}
+interface TreeNode {
+  entry: FileEntry; depth: number; expanded: boolean; children?: TreeNode[]; loading?: boolean;
+}
+
+// ============================================================
+// git 状态
+// ============================================================
+
+const GIT_COLORS: Record<string, string> = {
+  M: '#FBBF24', A: '#34D399', D: '#F87171', '?': '#60A5FA',
+};
+
+function gitColor(code: string): string | null {
+  if (!code) return null;
+  const k = code[0] === '?' ? '?' : code[0];
+  return GIT_COLORS[k] || null;
+}
+
+// ============================================================
+// 图标 & 格式化
+// ============================================================
+
+const FILE_ICONS: Record<string, string> = {
+  ts: '📘', tsx: '⚛️', js: '📒', jsx: '⚛️', json: '📋', md: '📝',
+  css: '🎨', html: '🌐', yml: '⚙️', yaml: '⚙️', py: '🐍', go: '🔷',
+  rs: '🦀', java: '☕', sh: '💻', vue: '💚',
+};
+
+function fileIcon(name: string): string {
+  return FILE_ICONS[name.split('.').pop()?.toLowerCase() || ''] || '📄';
+}
+
+function fmtSize(b: number): string {
+  if (!b) return '';
+  if (b < 1024) return `${b}B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)}KB`;
+  return `${(b / 1024 / 1024).toFixed(1)}MB`;
+}
+
+// ============================================================
+// TreeItem（递归）
+// ============================================================
+
+const IGNORE_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', '__pycache__', '.cache']);
+
+function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRelPath }: {
+  node: TreeNode; onToggle: (n: TreeNode) => void; onOpenFile: (p: string) => void;
+  onContextMenu: (e: React.MouseEvent, n: TreeNode) => void;
+  gitStatus: Record<string, string>; rootRelPath: (p: string) => string;
+}) {
+  const { entry, depth, expanded, children, loading } = node;
+  const isDir = entry.isDirectory;
+  if (IGNORE_DIRS.has(entry.name) && depth > 0) return null;
+
+  const gColor = gitColor(gitStatus[rootRelPath(entry.path)]);
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-white/5 transition-colors text-xs group"
+        style={{ paddingLeft: 6 + depth * 12 }}
+        onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
+        onContextMenu={(e) => onContextMenu(e, node)}
+        title={entry.path}
+      >
+        {isDir ? (
+          <span className="w-3 flex items-center justify-center flex-shrink-0 text-muted-foreground/40">
+            {loading ? <RefreshCw size={9} className="animate-spin" /> : expanded ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
+          </span>
+        ) : <span className="w-3" />}
+
+        {gColor ? (
+          <span className="text-[7px] w-1.5 text-center flex-shrink-0" style={{ color: gColor }}>●</span>
+        ) : <span className="w-1.5" />}
+
+        <span className="flex-shrink-0 text-[10px] w-3 text-center">
+          {isDir ? (expanded ? '📂' : '📁') : fileIcon(entry.name)}
+        </span>
+
+        <span className="truncate min-w-0 ml-0.5 text-foreground/60 group-hover:text-foreground transition-colors text-[11px]">
+          {entry.name}
+        </span>
+      </div>
+
+      {isDir && expanded && children && (
+        <div>
+          {children.length > 0
+            ? children.map(c => <TreeItem key={c.entry.path} node={c} onToggle={onToggle} onOpenFile={onOpenFile} onContextMenu={onContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />)
+            : <div className="text-[9px] text-muted-foreground/30 italic pl-8 py-0.5">空目录</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function updateNode(nodes: TreeNode[], targetPath: string, updates: Partial<Pick<TreeNode, 'expanded' | 'loading' | 'children'>>): TreeNode[] {
+  return nodes.map(n => {
+    if (n.entry.path === targetPath) return { ...n, ...updates };
+    if (n.children) return { ...n, children: updateNode(n.children, targetPath, updates) };
+    return n;
+  });
+}
+
+// ============================================================
+// 主组件
+// ============================================================
+
+export default function ProjectFileTree() {
+  const [treeData, setTreeData] = useState<TreeNode[]>([]);
+  const [rootPath, setRootPath] = useState('');
+  const [gitStatus, setGitStatus] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+
+  const rootRelPath = useCallback((p: string) => rootPath ? p.replace(rootPath, '').replace(/^\//, '') : p, [rootPath]);
+
+  const loadGitStatus = useCallback(async (dir: string) => {
+    try { const r = await window.electron.workspaceGetGitStatus(dir); if (r.success && r.status) setGitStatus(r.status); } catch {}
+  }, []);
+
+  const loadRoot = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const r = await window.electron.workspaceReadDirectory();
+      if (r.success && r.items) {
+        setRootPath(r.currentPath || '');
+        setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
+        if (r.currentPath) loadGitStatus(r.currentPath);
+      } else {
+        setError(r.error || '无法读取目录');
+      }
+    } catch (e: any) {
+      setError(e.message || '读取目录失败');
+    }
+    setLoading(false);
+  }, [loadGitStatus]);
+
+  useEffect(() => { loadRoot(); }, [loadRoot]);
+
+  useEffect(() => {
+    const refresh = (data: { path: string }) => {
+      window.electron.workspaceReadDirectory(data.path).then(r => {
+        if (!r.success || !r.items) return;
+        setRootPath(r.currentPath || '');
+        setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
+        setError('');
+        if (r.currentPath) loadGitStatus(r.currentPath);
+      });
+    };
+
+    window.electron.onWorkspaceDirectoryChanged(refresh);
+    window.electron.on?.('agent:tool-end', (data: any) => {
+      if (data.name === 'change_directory' && !data.isError && data.metadata?.path) {
+        refresh({ path: data.metadata.path });
+      }
+    });
+
+    return () => {
+      window.electron.offWorkspaceDirectoryChanged(refresh);
+      window.electron.off?.('agent:tool-end', refresh);
+    };
+  }, [loadGitStatus]);
+
+  const handleToggle = useCallback(async (node: TreeNode) => {
+    if (node.expanded) {
+      setTreeData(p => updateNode(p, node.entry.path, { expanded: false, children: undefined }));
+      return;
+    }
+    if (!node.children && !node.loading) {
+      setTreeData(p => updateNode(p, node.entry.path, { loading: true }));
+      try {
+        const r = await window.electron.workspaceReadDirectory(node.entry.path);
+        if (r.success && r.items) {
+          setTreeData(p => updateNode(p, node.entry.path, { expanded: true, loading: false, children: (r.items ?? []).map(i => ({ entry: i, depth: node.depth + 1, expanded: false })) }));
+        } else {
+          setTreeData(p => updateNode(p, node.entry.path, { loading: false }));
+        }
+      } catch {
+        setTreeData(p => updateNode(p, node.entry.path, { loading: false }));
+      }
+    } else {
+      setTreeData(p => updateNode(p, node.entry.path, { expanded: true }));
+    }
+  }, []);
+
+  const handleOpenFile = useCallback(async (fp: string) => { try { await window.electron.workspaceOpenFile(fp); } catch {} }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, node: TreeNode) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, node });
+  }, []);
+
+  useEffect(() => {
+    const close = () => setCtxMenu(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+
+  const handleShowInFolder = useCallback(async () => {
+    if (!ctxMenu) return;
+    await window.electron.workspaceShowInFolder(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const handleCopyPath = useCallback(async () => {
+    if (!ctxMenu) return;
+    await navigator.clipboard.writeText(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  const handleOpenInSystem = useCallback(async () => {
+    if (!ctxMenu) return;
+    await window.electron.workspaceOpenFile(ctxMenu.node.entry.path);
+    setCtxMenu(null);
+  }, [ctxMenu]);
+
+  return (
+    <div className="min-h-0 overflow-y-auto overflow-x-hidden px-1 py-1">
+      {loading && (
+        <div className="flex items-center justify-center py-4">
+          <RefreshCw size={12} className="animate-spin text-muted-foreground/30" />
+        </div>
+      )}
+      {error && <div className="p-2 text-[10px] text-destructive/80">{error}</div>}
+      {!loading && !error && treeData.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-4">
+          <FolderOpen size={14} className="text-muted-foreground/30 mb-1" />
+          <p className="text-[10px] text-muted-foreground/40">空目录</p>
+        </div>
+      )}
+      {!loading && !error && treeData.map(n => (
+        <TreeItem key={n.entry.path} node={n} onToggle={handleToggle} onOpenFile={handleOpenFile} onContextMenu={handleContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />
+      ))}
+
+      {/* 右键菜单 */}
+      {ctxMenu && (
+        <div
+          className="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[140px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+        >
+          {!ctxMenu.node.entry.isDirectory && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+              onClick={handleOpenInSystem}
+            >
+              <ExternalLink size={11} className="text-muted-foreground" />
+              打开文件
+            </button>
+          )}
+          {ctxMenu.node.entry.isDirectory && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+              onClick={handleOpenInSystem}
+            >
+              <ExternalLink size={11} className="text-muted-foreground" />
+              打开文件夹
+            </button>
+          )}
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+            onClick={handleShowInFolder}
+          >
+            <FolderOpen size={11} className="text-muted-foreground" />
+            在文件夹中显示
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+            onClick={handleCopyPath}
+          >
+            <Copy size={11} className="text-muted-foreground" />
+            复制路径
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
