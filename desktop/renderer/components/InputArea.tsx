@@ -781,9 +781,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               const totalReporting = completedTaskCount - cancelledTaskCount;
               const totalCancelled = cancelledTaskCount;
               const parts: string[] = [];
-              if (totalRunning > 0) parts.push(`${totalRunning} 个任务运行中`);
-              if (totalCancelled > 0) parts.push(`${totalCancelled} 个已取消`);
-              if (totalReporting > 0) parts.push(`${totalReporting} 个待汇报`);
+              if (totalRunning > 0) parts.push(t('input.task_running', { count: totalRunning }));
+              if (totalCancelled > 0) parts.push(t('input.task_cancelled', { count: totalCancelled }));
+              if (totalReporting > 0) parts.push(t('input.task_reporting', { count: totalReporting }));
               return parts.join(' · ');
             })()}
           </span>
@@ -913,7 +913,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               <div ref={listRef} className="overflow-y-auto max-h-52">
                 {filteredAgents.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    暂无可用 Agent
+                    {t('input.no_agents')}
                   </div>
                 ) : (
                   filteredAgents.map((agent, index) => (
@@ -965,7 +965,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
             onClick={handleStop}
           >
             <StopCircle size={16} className="mr-1" />
-            停止
+            {t('input.send_button_stop')}
           </Button>
         ) : (
           <Button

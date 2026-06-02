@@ -388,7 +388,7 @@ export default function ChatArea() {
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-full shadow-lg text-xs hover:bg-primary/90 transition-all"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-            回到底部
+            {t('chat.scroll_to_bottom')}
           </button>
         </div>
       )}
@@ -405,7 +405,7 @@ export default function ChatArea() {
           variant="default"
           className="absolute bottom-4 right-6 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all animate-bounce"
         >
-          <span className="text-sm">新消息</span>
+          <span className="text-sm">{t('chat.new_message')}</span>
           <ChevronDown size={16} />
         </Button>
       )}
