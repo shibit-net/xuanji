@@ -754,7 +754,7 @@ export interface ElectronAPI {
       minute?: number;
       dayOfWeek?: number;
       scheduledAt?: number;
-      action: 'learn' | 'custom';
+      action: 'custom';
       params?: Record<string, any>;
       prompt?: string;
       enabled?: boolean;

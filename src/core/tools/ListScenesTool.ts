@@ -14,7 +14,7 @@ export class ListScenesTool extends BaseTool {
   readonly description = [
     'List available scenes (behavior modes) for sub-agents.',
     '',
-    'Always call this before task or agent_team to discover what scenes are available.',
+    'Use this when intent analysis or task planning needs available scene IDs for task or agent_team calls.',
     'Each scene defines a sub-agent\'s behavior mode (e.g., write_code focuses on implementation,',
     'test focuses on testing). Pass the scene ID in task or agent_team calls.',
   ].join('\n');
@@ -77,7 +77,7 @@ export class ListScenesTool extends BaseTool {
         (scene.match?.description && scene.match.description.toLowerCase().includes(keyword)) ||
         (scene.match?.keywords && (
           (typeof scene.match.keywords === 'string' && scene.match.keywords.toLowerCase().includes(keyword)) ||
-          (scene.match.keywords.source && scene.match.keywords.source.toLowerCase().includes(keyword))
+          (Array.isArray(scene.match.keywords) && scene.match.keywords.some((item: string) => item.toLowerCase().includes(keyword)))
         ))
       );
     }

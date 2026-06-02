@@ -100,7 +100,11 @@ export class XlsxEditTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const operation = input.operation as string;
-    const filePath = this.resolvePath(input.file_path as string);
+    const rawPath = input.file_path as string | undefined;
+    if (!rawPath || typeof rawPath !== 'string') {
+      return this.error('缺少 file_path 参数。请提供 Excel 文件路径。');
+    }
+    const filePath = this.resolvePath(rawPath);
 
     if (this.isSensitivePath(filePath)) {
       return this.error(`安全限制: 不允许编辑路径 "${filePath}"。`);

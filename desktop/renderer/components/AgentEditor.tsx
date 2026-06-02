@@ -539,7 +539,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     field: string,
     type: 'text' | 'textarea' | 'number' | 'select' = 'text',
     options?: string[],
-    disabled?: boolean
+    disabled?: boolean,
+    placeholder?: string
   ) => {
     const value = field.split('.').reduce((obj, key) => obj?.[key], config);
     const error = errors[field];
@@ -692,6 +693,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             inputMode="decimal"
             disabled={isDisabled}
             value={field in numberInputCache ? numberInputCache[field] : (value != null ? String(value) : '')}
+            placeholder={placeholder ?? ''}
             onChange={(e) => {
               const raw = e.target.value;
               setNumberInputCache(prev => ({ ...prev, [field]: raw }));
@@ -939,8 +941,8 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-3">
-                  {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number')}
-                  {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number')}
+                  {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number', undefined, undefined, '0.3')}
+                  {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number', undefined, undefined, '8192')}
                 </div>
               </div>
             </div>
@@ -1424,12 +1426,12 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 </div>
               )}
               <div className="grid grid-cols-2 gap-4">
-                {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number')}
-                {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number')}
+                {renderFormField(t('agent.editor.field.temperature'), 'model.temperature', 'number', undefined, undefined, '0.3')}
+                {renderFormField(t('agent.editor.field.max_tokens'), 'model.maxTokens', 'number', undefined, undefined, '8192')}
               </div>
               {config.provider?.adapter === 'local-llama' && (
                 <div className="mt-3">
-                  {renderFormField(t('agent.editor.field.context_window'), 'model.contextSize', 'number')}
+                  {renderFormField(t('agent.editor.field.context_window'), 'model.contextSize', 'number', undefined, undefined, '200000')}
                 </div>
               )}
             </>

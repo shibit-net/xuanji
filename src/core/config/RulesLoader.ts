@@ -15,7 +15,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { join, dirname, resolve, parse as parsePath } from 'node:path';
+import { join, dirname, resolve, parse as parsePath, basename } from 'node:path';
 import type { RulesContent } from '@/context/types';
 import { logger } from '@/core/logger';
 
@@ -114,6 +114,9 @@ export class RulesLoader {
         const label = r.level === 'global'
           ? '(global rules)'
           : `(${r.path})`;
+        if (basename(r.path) === 'XUANJI.md') {
+          return `<!-- XUANJI Rules ${label} -->\n${this.buildXuanjiMdIndex(r.content, r.path)}`;
+        }
         return `<!-- XUANJI Rules ${label} -->\n${r.content}`;
       })
       .join('\n\n---\n\n');
@@ -127,13 +130,33 @@ export class RulesLoader {
     const parts: string[] = [];
 
     if (rules.xuanjiMd) {
-      parts.push(`### Project Instructions (XUANJI.md)\n${rules.xuanjiMd}`);
+      const xuanjiMdPath = join(rootPath, 'XUANJI.md');
+      parts.push(`### Project Knowledge Index (XUANJI.md)\n${this.buildXuanjiMdIndex(rules.xuanjiMd, xuanjiMdPath)}`);
     }
     if (rules.projectRules) {
       parts.push(`### Custom Rules (.xuanji/rules.md)\n${rules.projectRules}`);
     }
 
     return parts.join('\n\n');
+  }
+
+  private buildXuanjiMdIndex(content: string, filePath: string): string {
+    const headings = content
+      .split('\n')
+      .filter((line) => /^#{1,3}\s+/.test(line))
+      .slice(0, 40);
+    const headingList = headings.length > 0
+      ? headings.map((heading) => `- ${heading.replace(/^#+\s+/, '')}`).join('\n')
+      : '- No headings found';
+
+    return [
+      `Project knowledge file: ${filePath}`,
+      '',
+      'Do not treat this index as complete project context. When the task needs project facts, conventions, progress, architecture, or write-back checks, read the relevant section from `XUANJI.md` on demand.',
+      '',
+      `Indexed sections from ${basename(filePath)}:`,
+      headingList,
+    ].join('\n');
   }
 
   /**

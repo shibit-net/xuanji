@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve, basename, extname } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'DocxEditTool' });
@@ -67,7 +68,11 @@ export class DocxEditTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const operation = input.operation as string;
-    const filePath = resolve(input.file_path as string);
+    const rawPath = input.file_path as string | undefined;
+    if (!rawPath || typeof rawPath !== 'string') {
+      return this.error('缺少 file_path 参数。请提供 .docx 文件路径。');
+    }
+    const filePath = resolve(rawPath);
 
     switch (operation) {
       case 'extract_markdown':
@@ -105,7 +110,14 @@ export class DocxEditTool extends BaseTool {
         .filter((m: { type: string; message: string }) => m.type === 'warning')
         .map((m: { message: string }) => m.message);
 
-      let output = `[Extracted from ${basename(filePath)}]\n\n${content}`;
+      const truncated = middleTruncate(content, getMaxToolOutputLength());
+      const isTruncated = truncated !== content;
+
+      let output = `[Extracted from ${basename(filePath)}`;
+      if (isTruncated) {
+        output += ` — 文件过大已截断，共 ${content.length} 字符，仅显示前 ${getMaxToolOutputLength()} 字符。请用 read_file 分段读取完整内容`;
+      }
+      output += `]\n\n${truncated}`;
       if (warnings.length > 0) {
         output += `\n\n> ⚠️ 转换警告:\n${warnings.map((w: string) => `> - ${w}`).join('\n')}`;
       }
@@ -114,6 +126,7 @@ export class DocxEditTool extends BaseTool {
         operation: 'extract_markdown',
         filePath,
         size: content.length,
+        truncated: isTruncated,
         warnings: warnings.length,
       });
     } catch (err) {

@@ -442,6 +442,39 @@ export class SkillRegistry {
     return content;
   }
 
+  async executeWorkflow(skillId: string, params?: Record<string, any>): Promise<WorkflowResult> {
+    const skill = this.get(skillId);
+    if (!skill) {
+      return { success: false, error: `Workflow skill "${skillId}" not found` };
+    }
+    if (skill.category !== 'workflow') {
+      return { success: false, error: `Skill "${skillId}" is not a workflow` };
+    }
+    if (!skill.execute) {
+      return { success: false, error: `Workflow skill "${skillId}" has no execute method` };
+    }
+
+    try {
+      const result = await skill.execute(params);
+      if (result && typeof result === 'object' && 'success' in result) {
+        return result as WorkflowResult;
+      }
+      return { success: true, output: String(result ?? '') };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  getWorkflowCommands(): Array<{ skillId: string; command: string; description: string }> {
+    return this.list()
+      .filter((s) => s.category === 'workflow' && s.slashCommand)
+      .map((s) => ({
+        skillId: s.id,
+        command: s.slashCommand!,
+        description: s.description,
+      }));
+  }
+
   /**
    * 替换参数 (支持 {{key}} 格式)
    */
@@ -489,6 +522,7 @@ export class SkillRegistry {
       totalSkills: this.skills.size,
       byCategory: {
         prompt: 0,
+        workflow: 0,
       },
       byTag: {} as Record<string, number>,
       enabled: 0,

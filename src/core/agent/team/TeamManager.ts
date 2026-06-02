@@ -805,7 +805,7 @@ export class TeamManager implements ITeamManager {
       '',
       '**工作流程：**',
       '1. 先分析目标，确定第一步需要什么专长的 agent',
-      '2. 使用 match_agent 查找合适的 agent，再使用 list_scenes 选择合适的 scene',
+      '2. 当 agent 或 scene 不确定时，使用 match_agent、match_scene 或 list_scenes 辅助选择',
       '3. 使用 task 工具创建 worker 执行具体任务',
       '4. 审阅返回结果，根据发现**动态调整**后续计划',
       '5. 每个 worker 的 description 中要包含前序的**关键发现作为上下文**',
@@ -816,8 +816,8 @@ export class TeamManager implements ITeamManager {
       '委派格式：',
       '```',
       'task({',
-      '  subagent_type: "<agent_id>",    // 来自 match_agent 的推荐',
-      '  scene: "<scene_id>",           // 来自 list_scenes 的选择',
+      '  subagent_type: "<agent_id>",    // 来自意图分析、list_agents 或 match_agent',
+      '  scene: "<scene_id>",           // 可来自 match_scene/list_scenes，支持 1-3 个逗号分隔 scene',
       '  description: "<完整任务描述，包含目标、文件路径、前序关键发现、输出格式>",',
       '  tools: [<列出子 agent 需要的工具名称>]',
       '})',
@@ -833,7 +833,7 @@ export class TeamManager implements ITeamManager {
     // ── Leader 走 in-process（skipAcp=true），确保拥有完整工具权限 ──
     const leaderWithTools: TeamMember = {
       ...leader,
-      tools: ['task', 'list_scenes', 'match_agent'],
+      tools: ['task', 'list_agents', 'match_agent', 'list_scenes', 'match_scene'],
     };
 
     log.debug(`Hierarchical: Leader "${leader.name || leader.id}" in-process with ${placeholderSlots.length} placeholder slots`);

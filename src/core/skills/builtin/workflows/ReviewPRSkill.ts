@@ -18,7 +18,7 @@ export const reviewPRSkill: Skill = {
   name: 'PR Code Review',
   version: '1.0.0',
   description: '分析 GitHub PR 并生成代码审查报告。需要 gh CLI 已安装并认证。',
-  category: 'prompt',
+  category: 'workflow',
   tags: ['git', 'github', 'pr', 'review'],
   slashCommand: '/review-pr',
   priority: 10,

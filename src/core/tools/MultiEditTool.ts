@@ -58,6 +58,14 @@ export class MultiEditTool extends BaseTool {
               type: 'string',
               description: 'File path',
             },
+            file_path: {
+              type: 'string',
+              description: 'Alias for path',
+            },
+            filepath: {
+              type: 'string',
+              description: 'Alias for path',
+            },
             old_string: {
               type: 'string',
               description: 'The original string to be replaced',
@@ -93,7 +101,7 @@ export class MultiEditTool extends BaseTool {
       if (!edit || typeof edit !== 'object') {
         return this.error(`edits[${i}] 不是有效的对象`);
       }
-      if (typeof edit.path !== 'string' || !edit.path) {
+      if (typeof (edit.path ?? edit.file_path ?? edit.filepath) !== 'string' || !(edit.path ?? edit.file_path ?? edit.filepath)) {
         return this.error(`edits[${i}].path 缺失或不是字符串`);
       }
       if (typeof edit.old_string !== 'string') {
@@ -104,7 +112,11 @@ export class MultiEditTool extends BaseTool {
       }
     }
 
-    const validEdits = edits as EditOperation[];
+    // 归一化 file_path → path
+    const validEdits: EditOperation[] = (edits as any[]).map((e) => ({
+      ...e,
+      path: e.path ?? e.file_path ?? e.filepath,
+    }));
 
     // Step 1: 预检查所有文件
     for (const edit of validEdits) {

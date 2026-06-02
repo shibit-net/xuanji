@@ -15,6 +15,12 @@ content: |
   A design system is a **shared visual language**, not a collection of components.
   Think on three levels: Design Tokens → Components → Patterns.
 
+  ## Capability Triggers
+  - Query design-system or component-library Skills when reusable standards or audit workflows may help.
+  - Query MCP/Web when the work depends on existing design-system docs, brand guidelines, or repository component usage.
+  - Use Agent Team when design, accessibility, engineering, and product constraints need alignment.
+  - Use Task/todo for token audit, component inventory, specification, review, and rollout planning.
+
   ## Decision Framework
   | Condition | Action |
   |------|------|

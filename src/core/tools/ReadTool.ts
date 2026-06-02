@@ -62,6 +62,10 @@ export class ReadTool extends BaseTool {
         type: 'string',
         description: 'Absolute path or path relative to project root',
       },
+      filepath: {
+        type: 'string',
+        description: 'Alias for path',
+      },
       offset: {
         type: 'number',
         description: 'Starting line number (1-based), omit to read from beginning (text files only)',
@@ -82,7 +86,10 @@ export class ReadTool extends BaseTool {
   readonly readonly = true;
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const filePath = input.path as string;
+    const filePath = (input.path ?? input.filepath) as string;
+    if (!filePath || typeof filePath !== 'string') {
+      return this.error('缺少 path 参数。请提供要读取的文件路径，例如 read_file({ path: "/path/to/file" })');
+    }
     const offset = (input.offset as number | undefined) ?? 1;
     const limit = input.limit as number | undefined;
     const pages = input.pages as string | undefined;
@@ -131,10 +138,25 @@ export class ReadTool extends BaseTool {
         log.debug(`Reading ${ext} file via parser: ${filePath}`);
         const parser = await parserLoader();
         const result = await parser(filePath);
-        const output = middleTruncate(result.content, getMaxToolOutputLength());
+
+        // 支持 offset/limit 分页读取（与文本文件行为一致）
+        const lines = result.content.split('\n');
+        const startIdx = Math.max(0, offset - 1);
+        const endIdx = limit ? Math.min(startIdx + limit, lines.length) : lines.length;
+        const sliced = lines.slice(startIdx, endIdx).join('\n');
+
+        const output = middleTruncate(sliced, getMaxToolOutputLength());
+        const totalLines = lines.length;
+        const shownLines = endIdx - startIdx;
+
+        let header = `[${ext.toUpperCase()}] ${filePath}`;
+        if (totalLines > shownLines) {
+          header += ` (lines ${startIdx + 1}-${endIdx} of ${totalLines})`;
+        }
+
         return this.success(
-          `[${ext.toUpperCase()}] ${filePath}\n\n${output}`,
-          { type: ext.slice(1), ...result.metadata }
+          `${header}\n\n${output}`,
+          { type: ext.slice(1), totalLines, shownLines, ...result.metadata }
         );
       }
 

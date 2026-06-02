@@ -20,20 +20,20 @@ export const DEFAULT_SUBAGENT_TOOLS = [
 
 /** L2 行为层编排工具集 — 加载 L2 时自动注入 */
 const L2_ORCHESTRATION_TOOLS = [
-  'task', 'agent_team', 'list_agents', 'match_agent', 'list_scenes',
+  'task', 'agent_team', 'list_agents', 'match_agent', 'list_scenes', 'match_scene',
   'task_control', 'task_output',
 ];
 
 /** 任务管理工具 — 有创建能力就必须有管理能力 */
 const TASK_MANAGEMENT_TOOLS = ['task_control', 'task_output'];
 /** 编排发现工具 — 有 task/agent_team 就必须有动态发现能力 */
-const ORCHESTRATION_DISCOVERY_TOOLS = ['list_scenes', 'list_agents', 'match_agent'];
+const ORCHESTRATION_DISCOVERY_TOOLS = ['list_scenes', 'match_scene', 'list_agents', 'match_agent'];
 const TASK_CREATION_TOOLS = ['task', 'agent_team'];
 
 /**
  * 自动补齐工具列表：
  * - 有 task/agent_team → 补 task_control + task_output（能创建必须能管理）
- * - 有 task/agent_team → 补 list_scenes + list_agents + match_agent（任务委派需要动态发现）
+ * - 有 task/agent_team → 补 list_scenes + match_scene + list_agents + match_agent（任务委派需要动态发现）
  * - complexity === 'complex' (L2 行为层) → 补全部编排工具
  */
 export function augmentToolList(tools: string[], complexity?: string): string[] {
@@ -156,6 +156,9 @@ export class FilteredToolRegistry implements IToolRegistry {
     // 统一注入 _cwd，让所有工具使用 agent 独立的工作目录
     input = { ...input, _cwd: this.workingDir };
 
+    // 参数名规范化：LLM 容易混淆 path / file_path，根据 schema.required 自动纠正
+    input = this.normalizePathParam(name, input);
+
     // 路径类工具：相对路径基于 workingDir 解析
     if (PATH_TOOLS.has(name) && input.path) {
       const inputPath = input.path as string;
@@ -174,5 +177,27 @@ export class FilteredToolRegistry implements IToolRegistry {
     }
 
     return result;
+  }
+
+  /**
+   * 参数名规范化：LLM 经常混淆 path / file_path。
+   * 如果 tool 的 schema.required 包含 'path' 但 LLM 传了 'file_path'，自动纠正。
+   * 反过来如果 required 包含 'file_path' 但 LLM 传了 'path'，也自动纠正。
+   */
+  private normalizePathParam(name: string, input: Record<string, unknown>): Record<string, unknown> {
+    const tool = this.inner.get(name) as any;
+    const required: string[] | undefined = tool?.input_schema?.required;
+    if (!required || required.length === 0) return input;
+
+    // required 有 'path' 但 input 没有 → 尝试从 'file_path' 取
+    if (required.includes('path') && !input.path && input.file_path) {
+      return { ...input, path: input.file_path };
+    }
+    // required 有 'file_path' 但 input 没有 → 尝试从 'path' 取
+    if (required.includes('file_path') && !input.file_path && input.path) {
+      return { ...input, file_path: input.path };
+    }
+
+    return input;
   }
 }

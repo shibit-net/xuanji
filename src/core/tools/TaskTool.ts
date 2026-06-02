@@ -26,7 +26,7 @@ export class TaskTool extends BaseTool {
     'Create a sub-agent to execute a task. Every agent can call task to create subordinates (max 5 levels deep).',
     '',
     'WHEN TO USE:',
-    '• Sub-task needs specialist expertise (use match_agent first)',
+    '• Sub-task needs specialist expertise (use match_agent when intent analysis is uncertain)',
     '• Task is large enough to be delegated independently',
     '• You want to create a leader that further delegates via task',
     '',
@@ -35,9 +35,10 @@ export class TaskTool extends BaseTool {
     '• Need multi-agent debate/pipeline → use agent_team instead',
     '',
     'HOW TO USE:',
-    '1. First call match_agent to find the right agent',
-    '2. Then call list_scenes to pick the right scene',
-    '3. Call task with the agent_id, scene, complete description, AND tools',
+    '1. Use front-stage intent analysis only to understand the user request and decide whether to delegate',
+    '2. After splitting work, assign 1-3 scenes for this sub-task based on the sub-task goal, not by blindly reusing the front-stage scene',
+    '3. Use match_agent and match_scene/list_scenes when the sub-task agent or scenes are uncertain',
+    '4. Call task with the agent_id, optional comma-separated scene list, complete description, AND tools',
     '',
     'TASK ASSIGNMENT — You are the assigner:',
     '• The sub-agent has NO access to parent conversation history. You MUST include ALL context in description.',
@@ -98,9 +99,9 @@ export class TaskTool extends BaseTool {
       scene: {
         type: 'string',
         description: [
-          'Scene type defining sub-agent behavior and boundaries.',
-          '**Must query list_scenes first and pick a valid scene ID**.',
-          'Do not invent scene IDs.',
+          'Scene type defining sub-agent behavior and boundaries. Supports 1-3 comma-separated scene IDs.',
+          'The front-stage intent scene belongs to the main agent only; after task splitting, choose scenes again for this sub-task goal.',
+          'Use match_scene/list_scenes when unsure. Do not invent scene IDs.',
           'Omit if no suitable scene exists.',
         ].join('\n'),
       },
@@ -268,7 +269,7 @@ export class TaskTool extends BaseTool {
   }): ToolResult | null {
     if (!params.role) {
       return this.error(
-        'subagent_type is required. Please call match_agent first to find the best agent, ' +
+        'subagent_type is required. Use the intent analysis result, call match_agent when uncertain, ' +
         'or specify a custom agent ID if creating a temporary agent.',
       );
     }

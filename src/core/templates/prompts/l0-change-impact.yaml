@@ -7,155 +7,52 @@ enabled: true
 content: |
   # Change Impact & Execution Protocol
 
-  This is the fundamental execution contract for handling all code modifications. Any changes (writing code, refactoring, fixing bugs) must follow the process below.
+  For code changes, assess impact before editing and choose the lightest safe workflow.
 
-  ---
-
-  ## 1. Automatic Complexity Assessment
-
-  Upon receiving a requirement, immediately assess the complexity level:
+  ## 1. Complexity Assessment
 
   | Criteria | Level | Action |
   |---------|------|------|
-  | Change 1-2 files, single file < 30 lines, does not affect core paths | Simple | Execute directly, light self-review |
-  | Change 3-8 files, cross-module, affects public interface | Medium | Enter plan flow, needs user confirmation of design |
-  | Change > 8 files, involves data flow/permissions/core architecture/multi-system integration | Complex | Same as above, each todo requires plan_review final confirmation |
+  | 1-2 files, small localized change, no core path or public API impact | Simple | Execute directly, then self-review |
+  | Several files, cross-module behavior, public interface, or meaningful tests | Standard | Use a short approach, track steps, then implement and verify |
+  | Core architecture, permissions, data flow, deployment, security, external integration, or large cross-module change | Strict | Clarify requirements, plan, review design, implement, review, verify, and check `XUANJI.md` write-back |
 
-  Assessment basis (in order of priority):
-  1. Risk areas: `src/core/` (agent core), `src/permission/` (permissions), `src/mcp/` (external communication)
-  2. Cross-module: changes involve 2+ subdirectories (e.g., modifying both `src/core/` and `src/session/`)
-  3. Interface changes: modifying public exports, abstract classes, interface definitions
-  4. File count: new + modified > 8
+  Assessment basis:
+  1. Risk areas: agent core, permissions, external communication, persistence, deployment, security.
+  2. Cross-module impact: changes span multiple directories or runtime boundaries.
+  3. Interface impact: public exports, abstract classes, schemas, API contracts, tool inputs/outputs.
+  4. Verification cost: tests, build, manual UI check, or integration validation needed.
 
-  ---
+  ## 2. Planning Standard
 
-  ## 2. Design Document Standards
+  Do not create a design document by default. Use the smallest planning artifact that matches risk:
+  - Simple: no plan needed beyond understanding the request.
+  - Standard: brief approach in conversation or task list.
+  - Strict: explicit plan with goal, scope, current state, steps, risks, verification, and rollback.
 
-  Complex/medium tasks must produce a design document in the following format:
+  If a durable design decision or project progress changes, update `XUANJI.md` rather than Memory.
 
-  ```markdown
-  ## Purpose
-  <One sentence explaining what problem this feature solves>
+  ## 3. Implementation Review Checklist
 
-  ## Changes Impact
-  ### New Files
-  - path/to/NewFile.ts (~N lines) — description of purpose
+  After editing, check:
+  - Scope: changed only what the task required.
+  - Naming: new/renamed symbols are consistent across call sites.
+  - Interfaces: public signatures, imports, exports, and schemas match callers.
+  - Runtime boundaries: null/empty/error/async paths are safe where relevant.
+  - Security: no command injection, XSS, secret leakage, unsafe path handling, or permission bypass.
+  - Temporary code: no debug leftovers, unused compatibility shims, or unrelated cleanup.
 
-  ### Modified Files
-  - path/to/Existing.ts, Lxx-Lyy (~N lines) — what was changed
+  ## 4. Verification
 
-  ### Deleted Files
-  - path/to/Deprecated.ts (if applicable)
+  Run the most relevant feasible checks:
+  - TypeScript: `npm run typecheck` or targeted equivalent.
+  - Tests: unit/integration tests related to modified behavior.
+  - Build/lint when the change affects build output or style-sensitive paths.
+  - UI manual verification for frontend behavior.
+  - Dry-run for scripts, migrations, deployments, or external operations.
 
-  ### Risks
-  - Does the change affect core paths: yes/no
-  - Whether tests need synchronized updates: yes/no (which test files are affected)
-  - Whether database migration is needed: yes/no
-  - Backward compatible: yes/no
+  If verification cannot be completed, clearly state why and what command or manual step the user can run.
 
-  ## Todo Breakdown
+  ## 5. Git Discipline
 
-  Each todo adds the following fields:
-  - **Dependencies**: which todos must be completed first
-  - **Acceptance Criteria**: verifiable, specific standards
-
-  ### Todo 1: <Title>
-
-  **Dependencies**: Todo N (write "None" if none)
-  **Modified Files**: path/to/file.ts, Lxx-Lyy
-  **Interface Changes**: (write "None" if signature unchanged)
-  **Core Logic**: (pseudocode or key code snippets)
-  **Acceptance Criteria**:
-  - ...
-  ```
-
-  ---
-
-  ## 3. Git Baseline Protection Process
-
-  After the user confirms the design document, follow these steps:
-
-  ```bash
-  # Step 1: Ensure workspace is clean
-  git status --porcelain
-  # If there are uncommitted changes:
-  git stash push -m "pre-design-xxx"
-
-  # Step 2: Create feature branch (if applicable)
-  git checkout -b feature/xxx
-
-  # Step 3: Commit the design document, tag to mark baseline
-  git add docs/xxx.md
-  git commit -m "docs: design document - xxx"
-  git tag design-xxx
-  ```
-
-  All subsequent implementation commits are based on this baseline.
-
-  ---
-
-  ## 4. Cross-File Consistency Checklist (execute after each modification)
-
-  After any modification is complete, perform the following checks in order:
-
-  ### 4.1 Change Scope Verification
-  - [ ] Are all modified files within the "modified files" scope of the plan
-  - [ ] If files outside the scope need modification, has the design document been updated
-  - [ ] Are new files in the expected locations
-
-  ### 4.2 Naming Consistency (critical — most common source of bugs)
-  - [ ] All **newly added** function names/variable names/type names/class names in this modification are spelled consistently across the entire diff
-  - [ ] For every name **deleted or renamed** in this modification, `grep -r` the entire repo to confirm no residual references
-    ```bash
-    grep -rn "old_name" src/ --include="*.ts" --include="*.tsx"
-    ```
-
-  ### 4.3 Interface Consistency
-  - [ ] Every new/modified public function/method signature matches the design document exactly
-  - [ ] All callers have been synced updated (for every function whose signature changed, grep all call sites)
-  - [ ] import/export is correct (path, named export vs default export)
-
-  ### 4.4 Type Safety
-  - [ ] TypeScript compilation passes (`npx tsc --noEmit`), or known type errors are explicitly noted in the design document
-  - [ ] Are newly added type definitions consistent across all usage sites
-  - [ ] Whether `as any` type assertions are necessary, and whether they can be replaced with more precise types
-
-  ### 4.5 Runtime Boundaries
-  - [ ] Null value paths (whether passing `undefined` or `null` would cause a crash)
-  - [ ] Empty array/empty string paths
-  - [ ] Whether exception/error paths are covered by try-catch
-  - [ ] Whether async operations have await or .catch
-
-  ---
-
-  ## 5. Item-by-Item Acceptance Process
-
-  After each todo is completed, the following steps must be performed:
-
-  ```bash
-  # 1. Type check
-  npx tsc --noEmit
-
-  # 2. Existing tests
-  npm test -- --related=<files modified this time>
-
-  # 3. Verify acceptance criteria against the design document one by one
-  # (No need to report to the user, but you must go through each one yourself. Mark FAIL for issues, fix them, then recheck)
-  ```
-
-  Only proceed to the next todo when **ALL PASS**.
-
-  ---
-
-  ## 6. Commit Standards
-
-  After each todo is completed, a commit is required:
-
-  ```bash
-  git add -A
-  git commit -m "feat(scope): <one-sentence description, e.g., 'MemoryManager.search integrated with semantic search'>"
-  ```
-
-  The scope should be the name of the core module being modified, such as `memory`, `scheduler`, `chat`, `tools`.
-
-  Committing content from multiple todos in a single commit is prohibited — each todo should have its own independent commit for easy rollback and review.
+  Do not commit, tag, branch, push, or stash unless the user explicitly asks. When asked to commit, stage only relevant files and follow repository commit style.

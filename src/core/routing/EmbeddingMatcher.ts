@@ -91,9 +91,7 @@ export class EmbeddingMatcher {
     // Agent 向量：能力 + 名字
     const agentVecs = new Map<string, number[] | null>();
     if (this.embedder) {
-      const agentTexts = agents.map((a) =>
-        [a.name, ...(a.capabilities || [])].join(' '),
-      );
+      const agentTexts = agents.map((a) => this.buildAgentMatchText(a));
       const results = await Promise.all(agentTexts.map((t) => this.safeEmbed(t)));
       agents.forEach((a, i) => agentVecs.set(a.id, results[i]));
     }
@@ -123,6 +121,21 @@ export class EmbeddingMatcher {
       .filter((a) => a.metadata?.category !== 'system')
       .filter((a) => !a.metadata?.isMainAgent)
       .filter((a) => a.metadata?.internal !== true);
+  }
+
+  private buildAgentMatchText(agent: ConfigurableAgentConfig): string {
+    const examples = Array.isArray(agent.examples)
+      ? agent.examples.map((e) => [e.input, e.output].filter(Boolean).join(' '))
+      : [];
+    return [
+      agent.id,
+      agent.name,
+      agent.description,
+      ...(agent.tags || []),
+      ...(agent.triggers || []),
+      ...(agent.capabilities || []),
+      ...examples,
+    ].filter(Boolean).join(' ');
   }
 
   /** 语义匹配场景，返回按相似度排序的结果 */

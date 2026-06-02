@@ -70,7 +70,7 @@ export class TeamTool extends BaseTool {
     'IMPORTANT: Team members are execution units — they cannot call task or agent_team.',
     'If you need nested delegation, use task to create a leader agent that further delegates.',
     '',
-    'Always use list_scenes to pick the right scene for each member.',
+    'Front-stage intent analysis belongs to the main agent only. After splitting the team work, assign 1-3 scenes per member based on that member\'s task; use match_scene/list_scenes when uncertain.',
     '',
     'TASK ASSIGNMENT — You are the assigner:',
     '• You MUST assign a unique, specific task to EACH member via the `task` field.',
@@ -126,9 +126,9 @@ export class TeamTool extends BaseTool {
             agent_id: {
               type: 'string',
               description: [
-                'Must come from match_agent results. Do not invent agent IDs.',
-                '- Score >= 0.5: use the agent ID from match_agent directly',
-                '- Score < 0.5: use a custom ID and must provide system_prompt (creates temporary agent)',
+                'Use the intent analysis result, list_agents, or match_agent results. Do not invent preset agent IDs.',
+                '- Confident preset match: use the agent ID directly',
+                '- Low-confidence match: use a custom ID and must provide system_prompt (creates temporary agent)',
                 '- Multi-perspective on same domain: use same agent ID + different scene/system_prompt',
               ].join('\n'),
             },
@@ -139,9 +139,9 @@ export class TeamTool extends BaseTool {
             scene: {
               type: 'string',
               description: [
-                'Scene type, determines which L1 prompt the sub-agent loads.',
-                '**Must query list_scenes first and pick a valid scene ID**.',
-                'Do not invent scene IDs.',
+                'Scene type, determines which L1 prompt the sub-agent loads. Supports 1-3 comma-separated scene IDs.',
+                'Do not blindly reuse the front-stage intent scene; choose scenes again for this member task.',
+                'Use match_scene/list_scenes when unsure. Do not invent scene IDs.',
                 'Omit if no suitable scene exists.',
               ].join('\n'),
             },

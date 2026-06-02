@@ -29,6 +29,14 @@ export class WriteTool extends BaseTool {
         type: 'string',
         description: 'Absolute path or path relative to project root',
       },
+      file_path: {
+        type: 'string',
+        description: 'Alias for path',
+      },
+      filepath: {
+        type: 'string',
+        description: 'Alias for path',
+      },
       content: {
         type: 'string',
         description: 'Content to write to file',
@@ -38,7 +46,7 @@ export class WriteTool extends BaseTool {
   };
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const rawPath = input.path as string;
+    const rawPath = (input.path ?? input.file_path ?? input.filepath) as string;
     const content = input.content as string;
     const path = resolve(rawPath);
 

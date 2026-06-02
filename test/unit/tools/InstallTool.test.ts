@@ -16,6 +16,7 @@ import type { MCPServerConfig } from '@/mcp/types';
 
 function createMockMarketPackage(overrides: Partial<MarketPackage> = {}): MarketPackage {
   return {
+    id: 1,
     packageId: 'test-mcp-001',
     name: 'Test MCP Server',
     type: 'mcp',

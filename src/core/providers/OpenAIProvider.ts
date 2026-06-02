@@ -302,7 +302,7 @@ export class OpenAIProvider extends BaseLLMProvider {
         model: config.model,
         messages: openaiMessages,
         stream: true,
-        ...(config.maxTokens ? { max_tokens: config.maxTokens } : {}),
+        max_tokens: config.maxTokens ?? 8192,
         stream_options: { include_usage: true },
         ...(openaiTools ? {
           tools: openaiTools,
@@ -346,7 +346,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           return { role: msg.role, content, reasoning: reasoningPreview, toolCalls: toolCallInfo };
         }),
         toolCount: openaiTools?.length ?? 0,
-        thinking: requestParams.thinking ? true : false,
+        thinking: (requestParams as any).thinking ? true : false,
       }, null, 2)}`);
       // 诊断 + 自动修复：DeepSeek V4 reasoning_content 400 错误防护
       // 不依赖 config.thinking：DeepSeek V4 可能在未显式配置时也返回 reasoning_content

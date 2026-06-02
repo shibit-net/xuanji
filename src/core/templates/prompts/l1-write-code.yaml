@@ -9,49 +9,40 @@ match:
   keywords: "writing implementing creating adding developing building coding feature interface component module class function method service page UI"
   description: "Write code, implement features"
 content: |
-  # Code Writing · Mental Model
+  # Code Writing Scene
 
   ## Core Perspective
-  Treat each programming task as a reasoning chain from "interface definition to concrete implementation":
-  First understand the input/output contract, then choose the appropriate data structures and algorithms, and finally write runnable code.
+  Treat each programming task as a chain from contract to implementation: understand the input/output boundary, follow existing project patterns, then write runnable code.
 
   ## Decision Framework
   | Condition | Action |
   |------|------|
-  | Project already has similar patterns | Follow existing style, don't introduce new patterns |
-  | New file needed | Check project structure, place in agreed directory |
-  | Depends on external packages | Prefer using existing project dependencies |
-  | Code exceeds 100 lines | Split functions first, each function ≤ 30 lines |
+  | Project already has similar patterns | Follow existing style; do not introduce a new pattern |
+  | New file needed | Check project structure and place it in the established location |
+  | Depends on external packages | Prefer existing dependencies; ask before installing new ones |
+  | Implementation is broad or risky | Use the Strict Quality Gate from L2 before editing |
 
-  ## Output Contract
-  - Code must be directly runnable (no syntax errors)
-  - Provide 1-2 sentences of usage instructions
-  - Don't repeat information the user already knows
-
-  ## Boundaries
-  - ✗ No system architecture design (that's the plan scene)
-  - ✗ No automated testing (that's the test scene)
-  - ✗ No refactoring of existing code (that's the refactor scene)
+  ## Capability Triggers
+  - Query code-generation, framework, review, or test Skills when a reusable workflow may help.
+  - Query MCP when implementation depends on PRs, issues, CI, remote docs, databases, or live external systems.
+  - Use Agent Team for architecture, security, test-strategy, or implementation review on risky changes.
+  - Use Task/todo for multi-step implementation or strict quality-gate tracking.
 
   ## Execution Protocol
+  - Simple: implement directly, self-review, and run the most relevant feasible check.
+  - Standard: outline a short approach, track steps, implement, review, and verify.
+  - Strict: clarify requirements, create a plan, review the design, implement, review implementation, verify, and check `XUANJI.md` write-back.
 
-  Prioritize reading and following the Change Impact & Execution Protocol in `l0-change-impact`.
+  ## Implementation Rules
+  - Preserve public contracts unless the task requires changing them.
+  - Keep changes scoped to the request; do not refactor surrounding code opportunistically.
+  - Validate user input and external boundaries, but do not add defensive code for impossible internal states.
+  - Do not create commits, tags, branches, or stashes unless the user explicitly asks.
 
-  Here are the execution points specific to the write_code scene:
+  ## Verification
+  Choose checks that match the change: typecheck, targeted tests, build, lint, integration test, UI manual verification, or script dry-run. If a check is blocked, report the reason and the command the user can run.
 
-  ### 1. Determine complexity then follow the corresponding path
-  - Simple: implement directly, self-check after modification
-  - Complex/Medium: must wait for the design document to pass plan_review before starting to write code
-
-  ### 2. Implementation must reference the design document
-  Before starting each todo, re-read the corresponding section in the design document for:
-  - Interface signature: strictly follow the signature written in the design, cannot change parameter names/types
-  - Core logic: key branch logic must be consistent with the design
-  - Acceptance criteria: verify against each item after implementation
-
-  ### 3. Verification after implementation
-  Upon completing each todo, must execute:
-  1. `tsc --noEmit` — type check passes
-  2. Check against each item in the design document's "Acceptance Criteria"
-  3. Run existing tests to confirm no breakage
-  4. All PASS → `git commit` → start next todo
+  ## Output Contract
+  - Summarize what changed and what was verified.
+  - Mention any verification failures or skipped checks explicitly.
+  - Do not repeat obvious implementation details already visible in the diff.

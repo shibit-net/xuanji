@@ -229,7 +229,7 @@ export class GeminiProvider extends BaseLLMProvider {
     const requestBody: GeminiRequest = {
       contents: this.convertMessages(chatMessages),
       generationConfig: {
-        maxOutputTokens: config.maxTokens || 65536,
+        maxOutputTokens: config.maxTokens || 8192,
         ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       },
       safetySettings: [

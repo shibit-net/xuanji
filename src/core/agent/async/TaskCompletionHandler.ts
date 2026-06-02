@@ -35,10 +35,10 @@ export class TaskCompletionHandler {
   /** 注册 EventBus 监听 */
   register(): void {
     this.eventUnsubscribers.push(
-      eventBus.on<AgentTaskCompletionResult>(XuanjiEvent.ASYNC_TASK_COMPLETED, (result) => {
+      eventBus.on(XuanjiEvent.ASYNC_TASK_COMPLETED, (result) => {
         this.handleCompletion(result);
       }),
-      eventBus.on<AgentTaskCompletionResult>(XuanjiEvent.ASYNC_TASK_FAILED, (result) => {
+      eventBus.on(XuanjiEvent.ASYNC_TASK_FAILED, (result) => {
         this.handleCompletion(result);
       }),
     );

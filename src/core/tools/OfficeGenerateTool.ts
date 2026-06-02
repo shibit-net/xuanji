@@ -139,7 +139,7 @@ export class OfficeGenerateTool extends BaseTool {
       AlignmentType, BorderStyle,
     } = await import('docx');
 
-    const children: Paragraph[] = [];
+    const children: any[] = [];
 
     if (content) {
       const lines = content.split('\n');
@@ -332,7 +332,7 @@ export class OfficeGenerateTool extends BaseTool {
     headers: string[],
     rows: string[][],
     docx: { Table: any; TableRow: any; TableCell: any; Paragraph: any; TextRun: any },
-  ): Paragraph[] {
+  ): any[] {
     const { Table, TableRow: TblRow, TableCell: TblCell, Paragraph: P, TextRun: TR } = docx;
 
     const tblRows: any[] = [];
@@ -359,7 +359,7 @@ export class OfficeGenerateTool extends BaseTool {
     return [
       new P({ spacing: { before: 120 } }),
       table as any,
-      new Paragraph({ spacing: { after: 120 } }) as any,
+      new P({ spacing: { after: 120 } }) as any,
     ];
   }
 

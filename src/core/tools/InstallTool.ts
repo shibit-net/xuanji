@@ -25,12 +25,11 @@ const log = logger.child({ module: 'InstallTool' });
 export class InstallTool extends BaseTool {
   readonly name = 'install';
   readonly description =
-    'Search and install external plugins (MCP servers or Skills). Call this tool when a required tool is missing.\n\n' +
-    'PRIORITY: Always try marketplace first (default). If not found, retry with source: "npm".\n\n' +
+    'Search and install external plugins (MCP servers or Skills). Use this only after checking existing Skills/MCPs.\n\n' +
     'Search: install({ goal: "PostgreSQL database", type: "mcp" }) → search marketplace\n' +
-    'Install (marketplace): install({ packageId: "xxx", type: "mcp" }) → install from Tiangong\n' +
-    'Install (npm): install({ packageId: "xxx", type: "mcp", source: "npm" }) → install from npm\n\n' +
-    'Type: mcp=MCP server (tools), skill=Skill (workflow/prompt)';
+    'Preview install: install({ packageId: "xxx", type: "mcp" }) → show source, purpose, risk, and confirmation instruction\n' +
+    'Confirmed install: install({ packageId: "xxx", type: "mcp", confirmed: true }) → install after user confirmation\n' +
+    'Type: mcp=MCP server (tools), skill=Skill (workflow/prompt). npm source is higher risk and also requires confirmed: true.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -58,8 +57,13 @@ export class InstallTool extends BaseTool {
       source: {
         type: 'string',
         enum: ['marketplace', 'npm'],
-        description: 'Install source. marketplace = Tiangong marketplace (default, try first). npm = install directly from npm registry (try when marketplace fails).',
+        description: 'Install source. marketplace = Tiangong marketplace (default). npm = install directly from npm registry and is higher risk.',
         default: 'marketplace',
+      },
+      confirmed: {
+        type: 'boolean',
+        description: 'Set true only after the user confirms the package, source, purpose, risks, and credential requirements.',
+        default: false,
       },
     },
   };
@@ -93,11 +97,16 @@ export class InstallTool extends BaseTool {
     const packageId = input.packageId as string | undefined;
     const version = input.version as string | undefined;
     const source = (input.source as string) ?? 'marketplace';
+    const confirmed = input.confirmed === true;
+
+    if (packageId && packageId.trim().length > 0 && !confirmed) {
+      return this.previewInstall(packageId.trim(), type, source, version);
+    }
 
     // ── npm 直装路径 ──────────────────────────────
     if (source === 'npm') {
       if (!packageId || packageId.trim().length === 0) {
-        return this.error('npm 安装需要提供 packageId 参数');
+        return this.error('npm install requires packageId');
       }
       return this.installFromNpm(packageId.trim(), type, version);
     }
@@ -129,6 +138,23 @@ export class InstallTool extends BaseTool {
   // ============================================================
   // Private: Search Mode
   // ============================================================
+
+  private async previewInstall(packageId: string, type: string, source: string, version?: string): Promise<ToolResult> {
+    const lines = [
+      `## Install confirmation required: \`${packageId}\``,
+      '',
+      `- **type**: ${type}`,
+      `- **source**: ${source}`,
+      `- **version**: ${version || 'latest'}`,
+      `- **purpose**: install an external ${type === 'skill' ? 'Skill workflow/prompt' : type === 'mcp' ? 'MCP server/tools' : 'plugin'} that is not currently available locally`,
+      `- **risk**: downloads and enables third-party code/configuration; MCP servers may access external systems or local resources depending on their tools`,
+      `- **credentials**: may require API keys, tokens, or service-specific configuration after installation`,
+      '',
+      'Ask the user to confirm before installing. After confirmation, call:',
+      `\`install({ packageId: "${packageId}", type: "${type}", source: "${source}", confirmed: true${version ? `, version: "${version}"` : ''} })\``,
+    ];
+    return this.success(lines.join('\n'), { packageId, type, source, version, requiresConfirmation: true });
+  }
 
   private async searchAndPresent(goal: string, type: string): Promise<ToolResult> {
     const parts: string[] = [`## 🔍 Search: "${goal}"`];

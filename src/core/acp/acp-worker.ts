@@ -167,7 +167,7 @@ process.on('message', async (msg: any) => {
       break;
 
     default:
-      sendError(request.requestId, `Unknown request type: ${(request as any).type}`);
+      sendError((request as { requestId?: string }).requestId ?? 'unknown', `Unknown request type: ${(request as any).type}`);
   }
 });
 

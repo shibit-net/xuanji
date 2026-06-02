@@ -1,7 +1,7 @@
 /**
  * 定时任务类型定义
  *
- * Scheduler、MemoryManager、LearnTool 共享此类型。
+ * Scheduler、MemoryManager 共享此类型。
  */
 
 export interface CronJob {
@@ -17,7 +17,7 @@ export interface CronJob {
   month?: number;
   /** 精确执行时间戳（仅 once 类型，或作为首次执行时间） */
   scheduledAt?: number;
-  action: 'learn' | 'custom';
+  action: 'custom';
   params?: Record<string, any>;
   prompt?: string;
   /** 触发 agent 时注入的用户消息（填入则触发完整 agent 对话循环） */

@@ -304,7 +304,9 @@ export function getSpawnShellOption(): string | boolean {
  *
  * 优先级:
  *   1. Electron 打包环境: {resourcesPath}/node/lib/node_modules/npm/bin/npm-cli.js
- *   2. 系统 Node.js: {node安装目录}/node_modules/npm/bin/npm-cli.js
+ *   2. 内置 Node (process.execPath): {execPath}/../lib/node_modules/npm/bin/npm-cli.js
+ *      覆盖打包 Electron 子进程场景（子进程没有 resourcesPath 但有内置 Node）
+ *   3. 系统 Node.js: {node安装目录}/node_modules/npm/bin/npm-cli.js
  *
  * 返回 { nodePath, npmCliPath } — node 可执行文件和 npm-cli.js 路径。
  * 调用方用 nodePath + npmCliPath 替代 npx.cmd / npm.cmd 的 spawn。
@@ -321,7 +323,20 @@ export function findNpmCliPath(): { nodePath: string; npmCliPath: string } {
     }
   } catch { /* 兜底 */ }
 
-  // 2. 系统 Node.js: npm-cli.js 在 node 安装目录下
+  // 2. 内置 Node (process.execPath) — 覆盖打包 Electron 子进程场景
+  //    macOS: /Applications/xuanji.app/.../node/bin/node
+  //    → npm-cli.js 在 ../lib/node_modules/npm/bin/npm-cli.js
+  try {
+    const execDir = path.dirname(process.execPath);
+    if (path.basename(execDir) === 'bin') {
+      const npmCliPath = path.resolve(execDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      if (existsSync(npmCliPath)) {
+        return { nodePath: process.execPath, npmCliPath };
+      }
+    }
+  } catch { /* 兜底 */ }
+
+  // 3. 系统 Node.js: npm-cli.js 在 node 安装目录下
   return findSystemNpmCliPath();
 }
 

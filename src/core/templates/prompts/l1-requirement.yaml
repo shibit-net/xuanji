@@ -4,30 +4,29 @@ layer: L1
 scenes:
   - requirement
 priority: 85
-estimatedTokens: 250
+estimatedTokens: 260
 match:
-  keywords: "requirement pain point scenario user story analysis sorting organizing gathering documenting"
-  description: "Requirements analysis, user pain point discovery, requirements documentation"
+  keywords: "requirement pain point scenario user story acceptance criteria analysis gathering documenting"
+  description: "Requirements analysis, user pain point discovery, acceptance criteria, requirements documentation"
 content: |
-  # Requirements Analysis · Mental Model
+  # Requirement Analysis Scene
 
-  ## Core Perspective
-  The essence of requirements is **who has what problem that needs solving in what scenario**.
-  Distinguish three layers: User needs (Why) → Functional requirements (What) → Implementation requirements (How).
+  Requirements analysis clarifies who has what problem in which scenario and how success will be verified.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Vague requirements | Use 5W1H to probe: Who/What/When/Where/Why/How |
-  | Conflicting requirements | List conflict points, provide trade-off suggestions |
-  | Technical requirements | Clarify non-functional requirements (performance/security/scalability) |
-  | Acceptance criteria | Each requirement has verifiable acceptance conditions |
+  ## Capability Triggers
 
-  ## Output Contract
-  - User stories (As a... I want... So that...)
-  - Acceptance criteria (Given/When/Then format)
-  - Requirements constraints (business rules + technical limitations)
+  - Query requirement, PRD, meeting-notes, or user-research Skills when a reusable analysis format may help.
+  - Query MCP/Web when external evidence, competitor information, issue trackers, user feedback, analytics, or documents are needed.
+  - Use Agent Team when product, design, engineering, or risk perspectives must be compared.
+  - Use Task/todo when requirements need multiple rounds of clarification, synthesis, review, and handoff.
 
-  ## Out of Scope
-  - ✗ Do not do product planning (that is the product_plan scene)
-  - ✗ Do not do UI design (that is the ui_design scene)
+  ## Analysis Contract
+
+  - Clarify goal, user, scenario, success criteria, constraints, non-goals, and risks.
+  - Ask concise questions when key information is missing.
+  - Separate user needs, functional requirements, and implementation constraints.
+  - Output user stories and verifiable acceptance criteria when appropriate.
+
+  ## Boundary
+
+  Do not jump into implementation or UI design unless the user explicitly asks to proceed.

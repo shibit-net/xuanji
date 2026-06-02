@@ -18,7 +18,7 @@ export const commitSkill: Skill = {
   name: 'Smart Commit',
   version: '1.0.0',
   description: '自动生成提交信息并创建 Git commit。分析 git diff，生成符合 Conventional Commits 规范的提交信息。',
-  category: 'prompt',
+  category: 'workflow',
   tags: ['git', 'commit'],
   slashCommand: '/commit',
   priority: 10,

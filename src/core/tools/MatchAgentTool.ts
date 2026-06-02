@@ -28,7 +28,7 @@ export class MatchAgentTool extends BaseTool {
   readonly description = [
     'Find the best pre-built agent for a given task description using semantic vector matching.',
     '',
-    'Always call this before task or agent_team to discover the right agent.',
+    'Use this when intent analysis did not provide a confident agent or when delegation needs a specialist agent.',
     '',
     'Score guide:',
     '  ≥ 0.5 — Use the recommended agent ID directly in task()',
@@ -206,7 +206,7 @@ export class MatchAgentTool extends BaseTool {
    * 对单个 Agent 进行向量评分
    */
   private async scoreOne(agent: any, taskDescription: string): Promise<number> {
-    const agentText = agent.name + ' ' + agent.description + ' ' + (agent.capabilities as string[]).join(' ');
+    const agentText = this.buildAgentMatchText(agent);
     try {
       return await this.vectorSimilarity(taskDescription, agentText);
     } catch (err) {
@@ -234,6 +234,21 @@ export class MatchAgentTool extends BaseTool {
     }
 
     return results;
+  }
+
+  private buildAgentMatchText(agent: any): string {
+    const examples = Array.isArray(agent.examples)
+      ? agent.examples.map((e: any) => [e.input, e.output].filter(Boolean).join(' '))
+      : [];
+    return [
+      agent.id,
+      agent.name,
+      agent.description,
+      ...(Array.isArray(agent.tags) ? agent.tags : []),
+      ...(Array.isArray(agent.triggers) ? agent.triggers : []),
+      ...(Array.isArray(agent.capabilities) ? agent.capabilities : []),
+      ...examples,
+    ].filter(Boolean).join(' ');
   }
 
   /**

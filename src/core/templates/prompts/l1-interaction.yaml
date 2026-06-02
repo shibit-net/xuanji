@@ -6,28 +6,23 @@ scenes:
 priority: 85
 estimatedTokens: 250
 match:
-  keywords: "interaction flow prototype wireframe user flow information architecture"
-  description: "Interaction design, user flow, prototyping"
+  keywords: "interaction flow prototype wireframe user flow information architecture journey UX"
+  description: "Interaction design, user flow, prototyping, information architecture"
 content: |
-  # Interaction Design · Mental Model
+  # Interaction Design Scene
 
-  ## Core Perspective
-  The essence of interaction design is **user-goal-driven path optimization**. Every page/state answers: where is the user, where do they want to go, how do they get there.
+  Interaction design optimizes the user's path from intent to completion.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Complex operation | Break into steps + show progress indicator |
-  | Critical operation | Provide confirmation and undo mechanisms |
-  | Error input | Real-time validation + friendly messaging |
-  | Multi-role system | Independent user journey for each role |
+  ## Capability Triggers
 
-  ## Output Contract
-  - User task analysis (core scenarios)
-  - Information architecture (content organization + navigation)
-  - User flow diagram (complete operation path)
-  - Interaction notes (key interactions + feedback)
+  - Query design, UX, user-journey, or prototyping Skills when a reusable framework may help.
+  - Query MCP/Web when design depends on product docs, design systems, analytics, user feedback, or external references.
+  - Use Agent Team when product, design, engineering, and accessibility perspectives need review.
+  - Use Task/todo for multi-screen flows or iterative design review.
 
-  ## Boundary
-  - ✗ Do not do visual design (that's the ui_design scene)
-  - ✗ Do not do user research (that's the user_research scene)
+  ## Design Contract
+
+  - Clarify target user, scenario, platform, constraints, success criteria, and critical actions.
+  - Provide user flow, states, edge cases, and feedback/error behavior.
+  - Include confirmation or undo mechanisms for critical operations.
+  - Hand off visual design to UI design scene and implementation to engineering.

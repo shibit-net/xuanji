@@ -5,105 +5,93 @@ internal: true
 scenes:
   - memory-compression
 priority: 90
-estimatedTokens: 1200
+estimatedTokens: 950
 match:
-  keywords: "压缩 上下文压缩 摘要 叙事"
-  description: "压缩对话历史：生成紧凑摘要拼回上下文 + 存储完整叙事记忆到 episodes"
+  keywords: "compression context-summary summary narrative episode"
+  description: "Compress conversation history into a compact continuation summary and, when useful, a durable episode memory."
 content: |
-  # 上下文压缩 · 任务指令
+  # Context Compression Instructions
 
-  当前任务：将一段对话历史压缩，你需要同时完成两件事：
+  Your task is to compress conversation history into two different outputs:
 
-  **产出物 1**：紧凑的文本摘要（拼回主 Agent 上下文窗口）
-  **产出物 2**：完整的叙事记忆（存入 episodes 表，用于长期检索回顾）
+  1. A compact continuation summary that can be inserted back into the main agent context.
+  2. A durable episode memory only when the conversation contains reusable personal, collaboration, or long-term context.
 
-  ## 过程
+  Do not store detailed project progress in Memory. If the conversation contains concrete project facts, implementation progress, architecture decisions, caveats, or reusable code knowledge, note that the main agent should check or update `XUANJI.md` instead.
 
-  ### 第一步：理解对话
-  通读用户提供的待压缩消息，理解这段对话中发生了什么：
-  - 用户在做什么任务
-  - Agent 做了什么操作
-  - 达成了什么结果
-  - 有什么决策、反馈、问题和发现
+  ## Step 1 — Understand the Conversation
 
-  如果有"已有压缩摘要"，说明这是滚动压缩——需要将新消息合并进去，而非从零开始。
+  Read the provided conversation history and identify:
 
-  ### 第二步：提取并存储叙事记忆（必须调用工具）
+  - What the user was trying to accomplish.
+  - What the agent did.
+  - What decisions, constraints, preferences, or feedback appeared.
+  - What remains unresolved or should continue next.
+  - Whether any durable project knowledge belongs in `XUANJI.md`.
 
-  你需要将这段对话写成一段**完整连贯的叙事**（200-800 字），然后通过工具调用存入数据库：
+  If an existing compressed summary is provided, merge the new information into it instead of starting from scratch.
 
-  ```
-  memory_store({
-    type: "episode",
-    data: {
-      title: "叙事标题（≤25字，概括这段对话的核心事件）",
-      narrative: "叙事正文，完整连贯地描述这段对话中发生了什么。"
+  ## Step 2 — Store an Episode Only When Useful
+
+  Store an `episode` memory only when the conversation has durable value beyond the current project files, such as:
+
+  - A reusable collaboration pattern.
+  - A user preference or long-term goal expressed through a concrete event.
+  - A meaningful external commitment or life/work management context.
+  - A cross-project lesson that should be remembered independently of git history.
+
+  Do not store routine coding steps, command output, file diffs, or project progress details as an episode.
+
+  If storing an episode, call:
+
+  ```json
+  {
+    "type": "episode",
+    "data": {
+      "title": "Short narrative title",
+      "narrative": "A coherent narrative of the durable event, written for future recall."
     }
-  })
+  }
   ```
 
-  **叙事正文要求：**
-  - 使用流畅的中文日记/叙事语气，像在写日记一样
-  - 完整描述过程：背景 → 行动 → 发现 → 决策 → 结果 → 用户反馈
-  - 不追求信息密度，追求完整性和可读性
-  - 让未来的读者能通过阅读这段叙事还原当时发生了什么
-  - 200-800 字，可以适当详细
+  The narrative should be readable, complete, and focused on why the event matters later. Keep it concise unless the event is unusually important.
 
-  **叙事与摘要的本质区别：**
-  - 叙事（episode）→ 完整记录过程，用于几个月后回顾"那时发生了什么" → 调用 memory_store 存储
-  - 摘要（summary）→ 紧凑提取关键信息，用于几分钟后继续对话 → 文本输出
+  ## Step 3 — Produce the Continuation Summary
 
-  ### 第三步：生成压缩摘要（文本输出）
+  Output a compact natural-language summary starting with:
 
-  以 "## 压缩摘要" 开头，输出 1-3 段紧凑的自然语言摘要。
+  ```markdown
+  ## Compressed Summary
+  ```
 
-  **如果有已有摘要**：合并新信息进去，更新已有摘要。不要两段拼接——生成一个融合后的新版本。
+  Preserve only information needed to continue the conversation:
 
-  **必须保留的信息（对继续对话有用）：**
+  | Category | Keep |
+  |----------|------|
+  | Current task state | What is being done, current phase, next step |
+  | Key decisions | Decisions and reasons that affect continuation |
+  | User constraints | Preferences, corrections, requirements |
+  | Open items | Promises, blockers, unresolved questions |
+  | Project files | Only the file paths and facts needed to continue now |
+  | Project knowledge write-back | Whether `XUANJI.md` should be checked or updated |
 
-  | 类别 | 说明 | 示例 |
-  |------|------|------|
-  | 当前任务状态 | 正在做什么、进行到哪步、下一步 | "正在重构 auth 模块，已完成 JWT 签发逻辑" |
-  | 关键决策及原因 | 选了什么方案、为什么 | "选 Redis 替代 Memcached，因需持久化和集群" |
-  | 用户偏好/约束 | 用户表达的喜好、规则 | "用户偏好 tRPC 风格的 API 设计" |
-  | 未完成的待办 | 承诺要做但还没做的事 | "待实现 refresh token 轮换逻辑" |
-  | 关键文件变更 | 修改/创建了哪些文件 | "src/auth/jwt.ts（新增JWT签发+验证）" |
+  Drop raw tool outputs, repeated confirmations, transient search logs, and intermediate states that were superseded.
 
-  **应该丢弃的内容：**
-  - 原始工具调用的完整输出（除非包含关键决策信息）
-  - 重复确认、闲聊寒暄
-  - 纯过程日志（"正在搜索..."、"已找到 5 个文件"）
-  - 已被后续操作覆盖的中间状态
+  ## Output Requirements
 
-  ### 第四步（可选）：关联已有记忆
-  如果时间充裕，用 memory_search 查找与本次压缩内容相关的已有记忆，在叙事中建立引用。这能让未来的记忆检索更准确。
+  - Always produce the continuation summary.
+  - Only store an episode when the durable-memory criteria are met.
+  - Do not print the full episode narrative in the text response after storing it.
+  - If project knowledge should be durable, say that `XUANJI.md` needs a write-back check instead of storing the details in Memory.
 
-  ## 方案
+  Example summary:
 
-  - **合并优于拼接**：如果有已有摘要，新摘要必须是合并后的结果
-  - **叙事通过工具存，摘要在文本输出**：不要在文本中输出完整叙事——那应该通过 memory_store 存到数据库
-  - **摘要信息密度要高**：上下文窗口宝贵，每句话都要有价值
-  - **叙事要有可读性**：长期记忆的价值在于让人读懂，不是机器解析
+  ```markdown
+  ## Compressed Summary
 
-  ## 结果
+  The user is refining Xuanji's prompt and memory boundaries. The agreed direction is: Memory stores a lightweight project pointer and user/collaboration context; concrete project facts and progress belong in `XUANJI.md`.
 
-  任务完成时必须产生两个产出物：
+  Current implementation has updated the project-knowledge prompt to use a write-back check rather than mandatory updates after every task. Next step: finish scanning remaining prompt and agent templates for outdated rules or non-English prompt body text.
 
-  **产出物 1：## 压缩摘要**（文本输出，被主 Agent 拼回上下文窗口）
-
-  **产出物 2：叙事记忆**（已通过 memory_store({type:"episode"}) 存储到 episodes 表）
-
-  示例输出格式：
-
-  ## 压缩摘要
-
-  用户正在开发 xuanji 项目的记忆管理模块。讨论了将三种记忆操作统一到 memory-manager 的方案。
-
-  关键决策：删除 context-compressor agent，压缩功能合并到 memory-manager，在压缩时同时输出摘要（拼回上下文）和存储叙事记忆（长期检索）。三个场景通过注入不同的 L1 scene prompt 来切换行为。
-
-  已完成设计文档 v3 的编写，等待用户确认后开始实现。
-
-  文件变更：
-  - docs/memory-three-mode-design.md（更新至 v3）
-
-  （叙事记忆已通过 memory_store 存入 episodes 表）
+  `XUANJI.md` write-back check: needed if this prompt architecture decision is not already documented there.
+  ```

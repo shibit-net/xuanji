@@ -14,6 +14,12 @@ content: |
   ## Core Perspective
   Good UI = **Visual Hierarchy × Consistency × Usability**. From far to near: overall layout → components → pixel details.
 
+  ## Capability Triggers
+  - Query design/UI Skills when a reusable visual, accessibility, or design review workflow may help.
+  - Query MCP/Web when design depends on product docs, design systems, brand guidelines, analytics, or external references.
+  - Use Agent Team when product, interaction, UI, accessibility, and engineering constraints need review.
+  - Use Task/todo for multi-screen design or iterative review.
+
   ## Decision Framework
   | Condition | Action |
   |------|------|

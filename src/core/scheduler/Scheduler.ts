@@ -38,7 +38,6 @@ export class Scheduler {
     private db: Database.Database,
     private sessionManager?: any,
     private cheapLLM?: any,
-    private learnTool?: any,
     private eventBus?: EventBus,
     activeUsers?: Set<string>,
     baseDir?: string,
@@ -243,20 +242,7 @@ export class Scheduler {
     try {
       log.info(`Executing job: ${job.id} (${job.type}: ${job.action})`);
 
-      if (job.action === 'learn') {
-        if (this.learnTool) {
-          try {
-            await this.learnTool.execute({
-              goal: job.prompt || job.params?.goal || 'daily learning',
-              depth: job.params?.depth || 'shallow',
-            });
-          } catch (err) {
-            log.error(`Learn job ${job.id} failed:`, err);
-          }
-        } else {
-          log.warn(`Learn job ${job.id} skipped: learnTool not injected`);
-        }
-      } else if (job.action === 'custom') {
+      if (job.action === 'custom') {
         const handlerName = job.params?.handler as string;
         if (handlerName && this.customActions.has(handlerName)) {
           try {

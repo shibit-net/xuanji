@@ -89,9 +89,6 @@ function findBundledPython(): { python: string; script: string } | null {
     if (existsSync(python) && existsSync(script)) return { python, script };
   }
 
-  for (const c of candidates) {
-    if (existsSync(c.python) && existsSync(c.script)) return c;
-  }
   return null;
 }
 

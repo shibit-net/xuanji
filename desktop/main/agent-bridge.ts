@@ -784,6 +784,8 @@ async function resolveBinaryAttachments(
   }
 }
 
+const MAX_INLINE_CONTENT = 30_000;
+
 function formatAttachments(attachments: Array<{ name: string; path?: string; content: string; size: number }>): string {
   if (!attachments || attachments.length === 0) return '';
   let formatted = '<file_contents>\n';
@@ -791,8 +793,13 @@ function formatAttachments(attachments: Array<{ name: string; path?: string; con
     formatted += `<file name="${f.name}">\n`;
     if (f.path) formatted += `<path>${f.path}</path>\n`;
     formatted += '<content>\n';
-    formatted += f.content;
-    if (f.content && !f.content.endsWith('\n')) formatted += '\n';
+    if (f.content && f.content.length > MAX_INLINE_CONTENT) {
+      formatted += f.content.substring(0, MAX_INLINE_CONTENT);
+      formatted += `\n\n[... 文件过大已截断预览，共 ${f.content.length} 字符。请使用 read_file("${f.path || f.name}", offset=0, limit=500) 分段读取完整内容]\n`;
+    } else {
+      formatted += f.content;
+      if (!f.content.endsWith('\n')) formatted += '\n';
+    }
     formatted += '</content>\n';
     formatted += '</file>\n';
   }

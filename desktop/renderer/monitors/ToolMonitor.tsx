@@ -96,9 +96,7 @@ function describeToolCall(name: string, input: Record<string, unknown>): string 
     // ── 开发工具 ──
     case 'worktree':
       return `Git Worktree`;
-    // ── 学习/安装 ──
-    case 'learn':
-      return `学习`;
+    // ── 安装 ──
     case 'install':
       return `安装`;
     case 'uninstall':
@@ -147,7 +145,7 @@ function toolIcon(name: string): string {
   if (name === 'docx_edit' || name === 'doc_to_docx') return '📝';
   if (name === 'notebook_edit') return '📓';
   if (name === 'worktree') return '🌿';
-  if (name === 'learn' || name === 'install' || name === 'uninstall') return '📦';
+  if (name === 'install' || name === 'uninstall') return '📦';
   if (name === 'mcp_settings' || name === 'skill_manage' || name === 'update_persona') return '⚙️';
   if (name === 'mcp_call' || name === 'skill_call') return '🔌';
   if (name === 'scheduler' || name === 'sleep') return '⏰';

@@ -4,31 +4,29 @@ layer: L1
 scenes:
   - plan
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 260
 match:
-  keywords: "planning designing formulating conceptualizing schematic blueprint solution architecture design selection"
-  description: "Solution design, architecture planning, technology selection"
+  keywords: "plan planning design architecture blueprint solution technology selection roadmap approach"
+  description: "Solution design, architecture planning, technology selection, implementation approach"
 content: |
-  # Architecture Planning · Mental Model
+  # Plan Scene
 
-  ## Core Perspective
-  Good architecture = extensible + maintainable + testable. Multiple solutions are not optional, they are mandatory.
-  Make decisions starting from constraints: business constraints > technical constraints > team constraints.
+  Planning turns goals and constraints into a safe execution approach.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Requirements are vague | First list key issues and assumptions, then design the solution |
-  | Multiple solutions | Compare using a table: complexity/performance/cost/learning curve |
-  | High-risk decisions | First build a prototype/PoC to validate key assumptions |
-  | Module decomposition | Follow the single responsibility principle, each module clearly knows "why it exists" |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Requirements analysis (core functions + constraints)
-  - Architecture design (modules + interfaces + data flow)
-  - Technology selection and rationale
-  - Phased implementation plan
+  - Query planning, architecture, PRD, or design-review Skills when a reusable framework may help.
+  - Query MCP/Web when planning depends on external docs, live system state, issue trackers, market data, or authoritative references.
+  - Use Agent Team for architecture tradeoffs, security/data/deployment risk, or evidence-based debate between viable approaches.
+  - Use Task/todo when the plan will be executed across multiple phases.
 
-  ## Out of Scope
-  - ✗ Do not write specific code
-  - ✗ Do not perform validation tests
+  ## Planning Contract
+
+  - Clarify goal, scope, non-goals, constraints, success criteria, risks, and verification method.
+  - Compare multiple approaches only when there are genuinely viable alternatives.
+  - Keep plans short unless the task is high-risk or the user asks for detail.
+  - Do not implement until the user approves if the task is exploratory or high-risk.
+
+  ## Boundary
+
+  Do not write production code in the planning response unless the user explicitly asks for implementation.

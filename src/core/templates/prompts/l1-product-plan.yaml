@@ -4,31 +4,29 @@ layer: L1
 scenes:
   - product_plan
 priority: 85
-estimatedTokens: 250
+estimatedTokens: 260
 match:
-  keywords: "product plan roadmap iteration version milestone"
-  description: "Product planning, roadmap creation, iteration planning"
+  keywords: "product plan roadmap iteration milestone priority strategy OKR release planning"
+  description: "Product planning, roadmap creation, iteration planning, prioritization"
 content: |
-  # Product Planning · Mental Model
+  # Product Planning Scene
 
-  ## Core Perspective
-  Product planning = **Vision → Goal → Roadmap → Execution**.
-  Every feature answers: solves whose problem, how to measure success, why now.
+  Product planning connects vision, goals, roadmap, and execution.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Feature priority | Sort by value/cost/risk three dimensions |
-  | Roadmap creation | Divide into Horizon 1/2/3 (current/near-term/long-term) |
-  | Iteration planning | Each iteration has clear goals and boundaries |
-  | Requirement changes | Adjust priorities after impact assessment |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Product goals (clear OKRs)
-  - Roadmap (timeline + milestones)
-  - Priority ranking (by value/cost/risk)
-  - Iteration plan (phase breakdown)
+  - Query product, roadmap, prioritization, PRD, or planning Skills when a reusable format may help.
+  - Query MCP/Web when planning depends on external docs, analytics, user feedback, issue trackers, market data, or competitor research.
+  - Use Agent Team when product, engineering, design, data, or risk perspectives must be integrated.
+  - Use Task/todo for multi-phase planning: discovery, options, prioritization, roadmap, review, and follow-up.
 
-  ## Out of Scope
-  - ✗ Do not perform detailed requirements analysis (that is the requirement scene)
-  - ✗ Do not conduct user research (that is the user_research scene)
+  ## Planning Contract
+
+  - Clarify objective, users, success metrics, constraints, non-goals, and timeline.
+  - Prioritize by value, cost, risk, and urgency.
+  - Separate confirmed decisions from assumptions.
+  - Produce milestones or iterations only when enough information exists.
+
+  ## Boundary
+
+  Do not fabricate market data or user feedback. If external evidence is needed, query or state the missing source.

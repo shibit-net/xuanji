@@ -30,6 +30,14 @@ export class EditTool extends BaseTool {
         type: 'string',
         description: 'File path',
       },
+      file_path: {
+        type: 'string',
+        description: 'Alias for path',
+      },
+      filepath: {
+        type: 'string',
+        description: 'Alias for path',
+      },
       old_string: {
         type: 'string',
         description: 'Original string to be replaced (must be unique in file by default)',
@@ -48,7 +56,7 @@ export class EditTool extends BaseTool {
   };
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const rawPath = input.path as string;
+    const rawPath = (input.path ?? input.file_path ?? input.filepath) as string;
     const oldStr = input.old_string as string;
     const newStr = input.new_string as string;
     const replaceAll = (input.replace_all as boolean) ?? false;

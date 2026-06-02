@@ -4,54 +4,30 @@ layer: L1
 scenes:
   - refactor
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 280
 match:
-  keywords: "refactoring transforming optimizing rewriting improving enhancing code architecture structure implementation module performance quality"
+  keywords: "refactor restructure rewrite simplify cleanup architecture module coupling duplication performance quality"
   description: "Code refactoring, architecture improvement, structure optimization"
 content: |
-  # Refactoring · Mental Model
+  # Refactor Scene
 
-  ## Core Perspective
-  The refactoring creed: **external behavior remains unchanged, internal structure improves**.
-  First identify code smells (duplication, excessive length, coupling), then choose the appropriate refactoring technique.
+  Refactoring improves internal structure while preserving external behavior.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Duplicate code in 3+ places | Extract common function/class |
-  | Function > 40 lines | Split into smaller functions |
-  | Conditional nesting > 3 levels | Early return or strategy pattern |
-  | High coupling between modules | Introduce interface abstraction layer |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Improvement goal (what problem)
-  - Refactoring technique (what was done)
-  - Code after refactoring (complete and runnable)
+  - Query refactor/code-quality Skills when a reusable migration or cleanup workflow may help.
+  - Use Agent Team for cross-module, architecture, data-flow, or high-risk refactors that need independent review.
+  - Query MCP only when external evidence matters, such as CI status, issue context, or remote repository state.
+  - Use Task/todo for multi-phase refactors: impact analysis, plan, implementation, caller update, verification, write-back check.
 
-  ## Out of Scope
-  - ✗ Do not add new features (that is the write_code scene)
-  - ✗ Do not rewrite entire modules (refactor incrementally)
+  ## Refactor Contract
 
-  ## Execution Protocol
+  - For small local refactors, execute directly after reading the relevant code.
+  - For cross-module or public-interface refactors, prepare a short impact analysis before editing.
+  - Search and update all affected callers when names, APIs, or behavior contracts change.
+  - Verify behavior with existing tests, typecheck, build, or targeted manual checks.
+  - Do not add unrelated features while refactoring.
 
-  First read and follow the Change Impact & Execution Protocol and cross-file consistency checklist in `l0-change-impact`.
+  ## Acceptance
 
-  Additional requirements for the refactoring scene:
-
-  ### 1. Design document must be confirmed before refactoring
-  Refactoring must have a design document clearly describing:
-  - What changes from what to what (old structure → new structure)
-  - All affected callers (grep the old interface name, list all files)
-  - Migration strategy (change all at once or gradual migration)
-
-  ### 2. Refactoring-specific checklist
-  After each todo is completed, in addition to the general checklist, additionally check:
-  - [ ] No remaining code references to old function/type names across the entire repository (`grep -rn "old name" src/` returns 0)
-  - [ ] All callers have been updated to the new interface
-  - [ ] Refactoring did not introduce circular dependencies (if the project has circular-dependency detection)
-  - [ ] Unused imports have been cleaned up
-  - [ ] Test files within the refactoring scope have been updated accordingly
-
-  ### 3. Acceptance criteria for refactoring
-  - External behavior unchanged (all original tests pass)
-  - Internal structure improved (one of: cyclomatic complexity reduced, duplication eliminated, coupling reduced)
+  External behavior remains unchanged, affected callers are updated, and verification is performed or clearly blocked.

@@ -2,7 +2,7 @@
  * CheapLLMProvider — 轻量 LLM 封装
  *
  * 将 ILLMProvider 的流式 API 封装为简单的 complete(prompt): string 接口，
- * 供 MemoryManager、EpisodicMemory、LearnEngine 等后台模块使用。
+ * 供 MemoryManager、EpisodicMemory 等后台模块使用。
  *
  * 使用独立的低 temperature + 低 maxTokens 配置，适合提取、总结等结构化输出任务。
  */
@@ -59,7 +59,7 @@ export class CheapLLMProvider implements CheapLLM {
       return result.trim();
     } catch (err) {
       // 降级：如果流式调用失败，记录并返回空字符串
-      // MemoryManager / LearnEngine 都有 JSON.parse 失败后的 fallback 逻辑
+      // MemoryManager 都有 JSON.parse 失败后的 fallback 逻辑
       const msg = err instanceof Error ? err.message : String(err);
       log.warn(`CheapLLM complete() failed: ${msg}`);
       throw err;

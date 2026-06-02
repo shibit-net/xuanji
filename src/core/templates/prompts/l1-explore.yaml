@@ -4,30 +4,29 @@ layer: L1
 scenes:
   - explore
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 240
 match:
-  keywords: "exploring analyzing understanding inspecting studying browsing reading codebase project architecture structure code source calls"
-  description: "Explore codebase, understand architecture, analyze project"
+  keywords: "explore analyze understand inspect study browse read codebase project architecture structure source calls"
+  description: "Explore codebase, understand architecture, analyze project structure"
 content: |
-  # Code Exploration · Mental Model
+  # Explore Scene
 
-  ## Core Perspective
-  Explore in both directions: **Top-down** (entry → module → file) and **Bottom-up** (key function → caller → module).
-  The goal is to produce a "code map", not to read all the code.
+  Exploration should produce a useful map, not read everything.
 
-  ## Decision Framework
-  | Condition | Strategy |
-  |------|------|
-  | New project | Start from package.json/README entry |
-  | Locate functionality | Start with grep on keywords from user description |
-  | Understand architecture | Trace main/entry → router → handler chain |
-  | Find a bug | Trace back from the stack trace file in error messages |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Project structure: directory organization + core file descriptions
-  - Call chain: execution path of key flows
-  - Navigation recommendations: how to quickly locate target code
+  - Query Skills when a reusable codebase analysis, documentation, or summarization workflow may help.
+  - Query MCP only when the needed context lives outside local files, such as PRs, issues, docs, dashboards, or repositories.
+  - Use Agent Team for broad exploration that can be split into independent modules or review lenses.
+  - Use Task/todo when exploration has several distinct areas and the user needs progress tracking.
 
-  ## Boundary
-  - ✗ Do not modify any code
-  - ✗ Do not produce full documentation (that's a supplement to the review scene)
+  ## Exploration Contract
+
+  - Start from entry points, filenames, symbols, or user-provided clues.
+  - Report file paths and key responsibilities.
+  - Distinguish observed code facts from interpretation.
+  - Do not modify code.
+
+  ## Output
+
+  Provide a concise navigation map and the next best files or commands to inspect.

@@ -143,7 +143,7 @@ export class OpenAIResponsesProvider extends BaseLLMProvider {
       type: 'function' as const,
       name: t.name,
       description: t.description,
-      parameters: t.input_schema as Record<string, unknown>,
+      parameters: t.input_schema as unknown as Record<string, unknown>,
     }));
   }
 
@@ -187,7 +187,7 @@ export class OpenAIResponsesProvider extends BaseLLMProvider {
         input: inputItems,
         ...(systemText ? { instructions: systemText } : {}),
         ...(responseTools.length > 0 ? { tools: responseTools } : {}),
-        ...(config.maxTokens ? { max_output_tokens: config.maxTokens } : {}),
+        max_output_tokens: config.maxTokens ?? 8192,
         ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
       }) as OpenAI.Responses.Response;
 

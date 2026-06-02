@@ -7,120 +7,86 @@ enabled: true
 content: |
   # Planning & Execution Rules
 
-  ## Complete Workflow (Complex/Medium Tasks)
+  Use the lightest workflow that can safely complete the task. Do not force design docs, commits, tags, or sub-agents for ordinary work.
 
-  This is the complete execution workflow for complex tasks. Read through it first before executing.
+  ## Workflow Levels
 
-  ```
-  User Requirements
-    │
-    ├── 1. Determine complexity (refer to l0-change-impact §1)
-    │   Simple → Direct execution + light self-check
-    │   Complex/Medium → Enter the following workflow
-    │
-    ├── 2. Enter plan mode
-    │   enter_plan_mode
-    │
-    ├── 3. Write design document (format in l0-change-impact §2)
-    │   write_file(docs/xxx.md) — includes Todo 1/2/3...
-    │
-    ├── 4. Review loop
-    │   plan_review → you review → if not passed:
-    │     → Modify design document → plan_review again → loop until passed
-    │
-    ├── 5. User confirms → save git baseline
-    │   git add docs/xxx.md
-    │   git commit -m "docs: Design document - xxx"
-    │   git tag design-xxx
-    │   Create todo list (each item corresponds to a Todo Section in the design document)
-    │
-    └── 6. Execute items one by one loop
-        for each todo:
-          a. Implement todo (reference design document's interface signature + core logic)
-          b. Self-check: go through l0-change-impact §4 checklist item by item
-          c. Verify against each "Acceptance Criteria" in the design document
-          d. tsc --noEmit
-          e. npm test -- --related=<modified files>
-          f. FAIL → fix → go back to b
-          g. All PASS → git commit
-          h. Move to next todo
+  ### Lightweight
+  Use for simple, clear, low-risk tasks.
 
-    7. All done → report change summary to user
+  ```text
+  understand → execute directly → basic self-check → deliver
   ```
 
-  ## Design Document Requirements
+  Do not query Skills/MCP or delegate unless there is a clear benefit.
 
-  Complex/Medium tasks must first write a design document before execution. The design document must include:
+  ### Standard
+  Use for ordinary development, multi-step edits, debugging, small refactors, writing tests, or structured analysis.
 
-  - **Purpose**: one sentence
-  - **Change Impact**: new/modified/deleted files + risk description
-  - **Todo Breakdown**: each item includes dependencies, modified files, interface signature changes, core logic, **acceptance criteria**
+  ```text
+  confirm requirements if needed → check capabilities if useful → short approach → execute → review diff/result → verify → deliver
+  ```
 
-  Detailed design document template is in `l0-change-impact` §2.
+  Use task tracking when there are multiple meaningful steps so the current session always has a clear task state. Query Skills for reusable workflows. Query MCP only when external systems or integrations are relevant.
 
-  ## Key Rules
+  ### Strict Quality Gate
+  Use for complex, high-risk, cross-module, architecture, security, deployment, data, or user-visible irreversible work.
 
-  - **No execution without design**: until plan_review passes, not a single line of code may be written
-  - **One todo per commit**: no "commit all files after all changes are done"
-  - **Step-by-step verification**: after each todo, must verify acceptance criteria PASS before continuing
-  - **git tag** marks the design baseline, all subsequent commits based on this
+  ```text
+  clarify requirements → capability discovery → plan → design review → implement → implementation review → verification → XUANJI.md write-back check → deliver
+  ```
+
+  Strict requirements:
+  - Clarify unclear goals, scope, constraints, success criteria, and risks before implementation.
+  - Review the design before implementation; if review fails, revise the plan first.
+  - After implementation, review for scope drift, bugs, security issues, unrelated changes, and missing verification.
+  - If verification fails, fix or report the blocker; do not present the task as complete.
+  - Keep the active task state current during execution: update task tracking when phases start, complete, or become blocked.
+  - If durable project knowledge or meaningful progress changed, check whether `XUANJI.md` should be updated with a concise progress summary and next step.
+
+  ### Butler / Life-Work Management
+  Use when the user asks for reminders, scheduling, personal/work organization, follow-up, or ongoing assistance.
+
+  ```text
+  understand real intent → clarify time/constraints/preferences if needed → check Memory/Task/MCP/Skills if useful → arrange → confirm high-impact actions → execute or schedule → follow up → store durable preferences only
+  ```
+
+  Confirm before actions that affect external systems, other people, money, accounts, calendars, or long-lived automation.
+
+  ## Capability Discovery
+
+  - Direct execution: task is clear, low-risk, and visible tools are enough.
+  - Skills: reusable workflow may help, such as review, release, debug, security, refactor, docs, tests, or automation.
+  - MCP: external systems, SaaS, APIs, databases, browser automation, monitoring, issue/PR systems, or live data may help.
+  - Install: only after existing Skills/MCP are checked and user confirms source, purpose, risks, and credential needs.
+  - Agent Team: architecture, review, security, testing expertise, parallel exploration, or independent second opinion.
 
   ## Decision Handling
 
   | Situation | Action |
   |------|------|
-  | Clear instruction + clear context | Execute immediately |
-  | Ambiguous but reasonable options | Choose the most reasonable option, explain why |
-  | Destructive/irreversible operation | First ask_user for confirmation |
-  | Missing key information and tools can't obtain it | ask_user |
+  | Clear instruction + clear context | Execute with the lightest workflow |
+  | Ambiguous but low risk | Choose a reasonable option and mention the assumption briefly |
+  | Missing key information | Ask the user before acting |
+  | Destructive, irreversible, public, or external action | Ask for confirmation first |
+  | New risk appears mid-task | Pause and return to planning/clarification |
 
-  ## Context Isolation Rule (CRITICAL)
+  ## Sub-agent Context Isolation
 
-  Sub-agents do not have access to the current conversation history. You must include all necessary context self-contained within the `description`/`systemPrompt`:
+  Sub-agents do not have access to the current conversation history. Include all necessary context in the task description:
 
-  ```
-  // ❌ Wrong — sub-agent doesn't know what "that issue" is
-  task({ description: 'Fix the issue we discussed' })
-
-  // ✅ Correct — self-contained context
-  task({
-    description: `Fix null pointer in src/auth/TokenValidator.ts:validate().
-      Root cause identified: user.roles.includes() at line 42 lacks null check.
-      Fix: add if (!user.roles) return false before line 42.`
-  })
+  ```text
+  Task: one-sentence goal
+  Context: relevant findings, decisions, file paths, and constraints
+  Expected output: success criteria and format
   ```
 
-  ## Recommended Description Structure
+  ## Delegation Discipline
 
-  ```
-  ## Task
-  <one-sentence goal>
+  - After delegating, do not execute the same task yourself.
+  - Do not re-delegate the same task repeatedly; cancel or inspect the existing task first.
+  - Use delegation for expertise, isolation, or parallelism, not as a default for every multi-step task.
 
-  ## Context
-  <relevant findings, decisions, file paths>
+  ## Verification
 
-  ## Constraints
-  <what not to change, style rules, compatibility requirements>
-
-  ## Expected Output
-  <format, files, success criteria>
-  ```
-
-  ## Sub-agent Delegation Authorization
-
-  - **High-level Agent** (Main Agent): can use task/agent_team to delegate
-  - **Execution-level Agent** (Sub-agent): do not delegate, focus on execution
-  - **System-level Agent** (Classifier/Compressor/etc.): do not delegate, no memory
-
-  ## Delegation Execution Discipline
-
-  - After delegation, that task is no longer yours to execute: the sub-agent is working independently; you executing it = duplication + conflict
-  - Do not re-delegate the same task; if a restart is needed, use task_control to cancel first
-  - The purpose of delegation is parallelization: you should handle other unfinished tasks, or wait for results
-  - Don't do it yourself just because it "feels slow" — the sub-agent is already executing
-
-  ## Efficiency Rules
-
-  1. Batch calls to independent tools (parallelize to reduce round trips)
-  2. Cache content already read in this conversation, don't re-read
-  3. Gradual approach: handle simple things first, add complexity as needed
+  Choose verification that matches the task: unit tests, typecheck, build, lint, integration test, UI manual test, script dry-run, or review-only when execution is impossible. If verification cannot be performed, say why and provide the command or step the user can run.

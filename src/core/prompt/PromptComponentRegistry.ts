@@ -37,6 +37,7 @@ import { getUserPromptsDir, getProjectPromptsDir, getTemplatePromptsDir } from '
 
 const glob = promisify(globCb);
 const log = logger.child({ module: 'PromptComponentRegistry' });
+const BUILTIN_PROMPT_TEMPLATE_VERSION = '2026-06-02-capability-quality-gate';
 
 /**
  * 用户自定义 Prompt 组件配置（文件格式）
@@ -90,6 +91,7 @@ export class PromptComponentRegistry {
   private userPromptsDir: string;
   private projectPromptsDir?: string;
   private templatePromptsDir: string;
+  private builtinComponentPaths = new Map<string, string>();
 
   constructor(userId: string, projectRoot?: string) {
     this.userId = userId;
@@ -170,22 +172,7 @@ export class PromptComponentRegistry {
    */
   private async initializeUserPromptsDir(): Promise<void> {
     await fs.mkdir(this.userPromptsDir, { recursive: true });
-
-    // 检查是否有配置文件
-    const userFiles = await fs.readdir(this.userPromptsDir).catch(() => []);
-    const hasConfigFiles = userFiles.some(file =>
-      file.endsWith('.yaml') || file.endsWith('.yml')
-    );
-
-    // 如果用户目录为空，复制所有模板文件
-    if (!hasConfigFiles) {
-      log.debug('用户 prompts 目录为空，正在创建示例文件...');
-      await this.createExampleFiles();
-      return;
-    }
-
-    // 同步模板目录中新增的文件到用户目录（不覆盖已有文件）
-    await this.syncNewTemplates(userFiles);
+    await this.syncBuiltinTemplates();
   }
 
   private get syncStatePath(): string {
@@ -209,23 +196,21 @@ export class PromptComponentRegistry {
     return createHash('sha256').update(content).digest('hex').slice(0, 16);
   }
 
-  /**
-   * 智能同步模板目录中的内置 prompt 组件到用户目录
-   *
-   * 通过 .sync-state.json 存储每个模板的 hash 值：
-   * - 新文件：直接复制 + 记录 hash
-   * - 模板未变更：跳过（不覆盖用户可能的自定义）
-   * - 模板已变更 + 用户未自定义（用户文件 hash == 旧模板 hash）：覆盖更新
-   * - 模板已变更 + 用户已自定义（用户文件 hash != 旧模板 hash）：跳过，保护用户修改
-   */
-  private async syncNewTemplates(userFiles: string[]): Promise<void> {
+  private async backupExistingPrompt(fileName: string, content: string): Promise<void> {
+    const backupDir = path.join(this.userPromptsDir, '.template-backups', BUILTIN_PROMPT_TEMPLATE_VERSION);
+    await fs.mkdir(backupDir, { recursive: true });
+    await fs.writeFile(path.join(backupDir, fileName), content, 'utf-8');
+  }
+
+  private async syncBuiltinTemplates(): Promise<void> {
     try {
       const templateFiles = await glob(this.templatePromptsDir + '/**/*.{yaml,yml}');
       const syncState = await this.loadSyncState();
+      const previousVersion = syncState.__templateVersion;
 
       let synced = 0;
       let updated = 0;
-      let skipped = 0;
+      let backedUp = 0;
 
       for (const srcPath of templateFiles) {
         const fileName = path.basename(srcPath);
@@ -233,28 +218,37 @@ export class PromptComponentRegistry {
 
         try {
           const templateContent = await fs.readFile(srcPath, 'utf-8');
+          const parsedTemplate = parseYAML(templateContent) as { id?: string } | null;
+          if (parsedTemplate?.id) {
+            this.builtinComponentPaths.set(parsedTemplate.id, path.join(this.userPromptsDir, fileName));
+          }
           const templateHash = this.computeHash(templateContent);
           const destPath = path.join(this.userPromptsDir, fileName);
+          const existingContent = await fs.readFile(destPath, 'utf-8').catch(() => null);
 
-          if (!userFiles.includes(fileName)) {
-            // 新文件：复制并记录 hash
+          if (existingContent === null) {
             await fs.writeFile(destPath, templateContent, 'utf-8');
-            syncState[fileName] = templateHash;
             synced++;
-            continue;
+          } else if (existingContent !== templateContent) {
+            if (previousVersion !== BUILTIN_PROMPT_TEMPLATE_VERSION) {
+              await this.backupExistingPrompt(fileName, existingContent);
+              backedUp++;
+            }
+            await fs.writeFile(destPath, templateContent, 'utf-8');
+            updated++;
           }
 
-          // 文件已存在：跳过（用户可能已自定义，不覆盖模板更新）
-          skipped++;
+          syncState[fileName] = templateHash;
         } catch (error: any) {
           log.error(`同步文件失败: ${srcPath}`, error.message);
         }
       }
 
+      syncState.__templateVersion = BUILTIN_PROMPT_TEMPLATE_VERSION;
       await this.saveSyncState(syncState);
 
-      if (synced > 0 || updated > 0 || skipped > 0) {
-        log.debug(`Prompt 组件同步完成: ${synced} 新增, ${updated} 更新, ${skipped} 跳过（用户自定义）`);
+      if (synced > 0 || updated > 0 || backedUp > 0) {
+        log.debug(`Prompt 内置组件同步完成: ${synced} 新增, ${updated} 覆盖, ${backedUp} 备份, version=${BUILTIN_PROMPT_TEMPLATE_VERSION}`);
       }
     } catch (error: any) {
       log.warn('同步模板文件失败:', error.message);
@@ -320,6 +314,7 @@ export class PromptComponentRegistry {
       log.debug(`扫描用户 prompts 目录: ${this.userPromptsDir}`);
 
       for (const file of files) {
+        if (this.shouldIgnorePromptFile(file)) continue;
         await this.loadComponentConfig(file, 'user', false); // 初始加载不触发事件
       }
     } catch (error: any) {
@@ -344,11 +339,21 @@ export class PromptComponentRegistry {
       log.debug(`扫描项目 prompts 目录: ${this.projectPromptsDir}`);
 
       for (const file of files) {
+        if (this.shouldIgnorePromptFile(file)) continue;
         await this.loadComponentConfig(file, 'project', false); // 初始加载不触发事件
       }
     } catch (error: any) {
       log.error('加载项目组件失败:', error.message);
     }
+  }
+
+  private shouldIgnorePromptFile(filePath: string): boolean {
+    return filePath.includes(`${path.sep}.template-backups${path.sep}`) || filePath.endsWith(`${path.sep}.sync-state.json`);
+  }
+
+  private isBuiltinSyncedFile(componentId: string, filePath: string): boolean {
+    const builtinPath = this.builtinComponentPaths.get(componentId);
+    return builtinPath !== undefined && path.resolve(builtinPath) === path.resolve(filePath);
   }
 
   /**
@@ -362,6 +367,11 @@ export class PromptComponentRegistry {
       // 验证配置
       if (!this.validateConfig(config)) {
         log.warn(`配置验证失败: ${filePath}`);
+        return;
+      }
+
+      if (this.builtinComponentPaths.has(config.id) && !this.isBuiltinSyncedFile(config.id, filePath)) {
+        log.warn(`跳过覆盖内置 Prompt 组件 ${config.id}: ${filePath}`);
         return;
       }
 
@@ -457,6 +467,7 @@ export class PromptComponentRegistry {
         if (!['.yaml', '.yml'].includes(ext)) return;
 
         const filePath = path.join(dir, filename);
+        if (this.shouldIgnorePromptFile(filePath)) return;
         const source = dir === this.userPromptsDir ? 'user' : 'project';
 
         if (eventType === 'rename') {

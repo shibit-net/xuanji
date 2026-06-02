@@ -13,6 +13,26 @@ import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'MCPSettingsTool' });
 
+function maskSensitiveConfig(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(maskSensitiveConfig);
+  if (!value || typeof value !== 'object') return value;
+
+  const masked: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (/api[_-]?key|token|secret|password|credential|auth/i.test(key)) {
+      masked[key] = entry ? '[REDACTED]' : entry;
+    } else {
+      masked[key] = maskSensitiveConfig(entry);
+    }
+  }
+  return masked;
+}
+
+function configNeedsCredentials(config: unknown): boolean {
+  if (!config || typeof config !== 'object') return false;
+  return Object.keys(config as Record<string, unknown>).some((key) => /api[_-]?key|token|secret|password|credential|auth/i.test(key));
+}
+
 export class MCPSettingsTool extends BaseTool {
   readonly name = 'mcp_settings';
   readonly description = [
@@ -76,10 +96,23 @@ export class MCPSettingsTool extends BaseTool {
 
       const lines: string[] = [`## Installed MCP Servers (${servers.length})`, ''];
       for (const s of servers) {
-        const status = s.enabled !== false ? '✅ Enabled' : '⏸️ Disabled';
+        const status = s.enabled !== false ? 'enabled' : 'disabled';
         const transport = s.transport || 'stdio';
-        const toolCount = s.tools?.length || 0;
-        lines.push(`- **${s.name}** — ${status} | Transport: ${transport} | Tools: ${toolCount}`);
+        const tools = Array.isArray(s.tools) ? s.tools : [];
+        const needsCredentials = configNeedsCredentials(s.config) ? 'yes' : 'no/unknown';
+        lines.push(`### ${s.name}`);
+        lines.push(`- **server**: \`${s.name}\``);
+        lines.push(`- **transport/status**: ${transport} / ${status}`);
+        lines.push(`- **toolCount**: ${tools.length}`);
+        lines.push(`- **needsCredentials**: ${needsCredentials}`);
+        if (tools.length) {
+          lines.push('- **tools**:');
+          for (const t of tools.slice(0, 8)) {
+            lines.push(`  - \`${t.name}\`: ${t.description || '-'}`);
+          }
+          if (tools.length > 8) lines.push(`  - ... ${tools.length - 8} more`);
+        }
+        lines.push('');
       }
       return this.success(lines.join('\n'));
     } catch (err) {
@@ -96,10 +129,11 @@ export class MCPSettingsTool extends BaseTool {
 
       const lines = [
         `## ${server.name}`,
-        `- **Status**: ${server.enabled !== false ? '✅ Enabled' : '⏸️ Disabled'}`,
+        `- **Status**: ${server.enabled !== false ? 'Enabled' : 'Disabled'}`,
         `- **Transport**: ${server.transport || 'stdio'}`,
         `- **Command**: ${server.command || 'N/A'}`,
         `- **Tools**: ${server.tools?.length || 0}`,
+        `- **Needs credentials**: ${configNeedsCredentials(server.config) ? 'yes' : 'no/unknown'}`,
       ];
 
       if (server.tools?.length) {
@@ -140,7 +174,8 @@ export class MCPSettingsTool extends BaseTool {
       const server = this.findServer(serverName);
       if (!server) return this.error(`MCP server not found: ${serverName}`);
 
-      return this.success(`## ${server.name} Config\n\`\`\`json\n${JSON.stringify(server.config || {}, null, 2)}\n\`\`\``);
+      const maskedConfig = maskSensitiveConfig(server.config || {});
+      return this.success(`## ${server.name} Config\n\`\`\`json\n${JSON.stringify(maskedConfig, null, 2)}\n\`\`\``);
     } catch (err) {
       return this.error(`Failed to view config: ${err}`);
     }

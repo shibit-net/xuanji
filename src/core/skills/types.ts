@@ -21,8 +21,8 @@ export interface SkillMetadata {
   /** 功能描述 */
   description: string;
 
-  /** 分类（统一为 prompt） */
-  category: 'prompt';
+  /** 分类 */
+  category: 'prompt' | 'workflow';
 
   /** 标签 (e.g., ["system", "core"]) */
   tags: string[];

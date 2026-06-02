@@ -330,7 +330,7 @@ describe('MemoryManager', () => {
     });
 
     it('应支持 source 过滤', async () => {
-      const results = await manager.search({ query: 'VSCode', source: 'entities' });
+      const results = await manager.search({ query: 'VSCode', source: 'entity' });
       expect(results.length).toBeGreaterThanOrEqual(1);
       expect(results[0].source_table).toBe('entities');
     });

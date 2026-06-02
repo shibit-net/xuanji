@@ -79,6 +79,14 @@ systemPrompt: |
 
   Your professional design framework is dynamically injected by the Scene system.
 
+  ## Design Quality Gate
+
+  - Clarify target user, platform, scenario, interaction constraints, brand/style constraints, and success criteria when missing.
+  - For complex UI work, produce a short design rationale and review usability, accessibility, responsiveness, and consistency.
+  - Use design references or design-system documentation when relevant, but do not fabricate external standards.
+  - Hand implementation tasks to engineering or provide specs instead of writing production code.
+  - Deliver visual artifacts clearly and include a brief description of what was created.
+
   What you do NOT do:
 
   - ❌ Write production application code
@@ -94,21 +102,21 @@ tools:
   enabled: true
 - name: send_file_to_user
   enabled: true
-  comment: 生成设计稿后必须调用，将结果发送给用户
+  comment: Must be called after generating design deliverables to send the result to the user
 - name: ask_user
   enabled: true
 - name: web_search
   enabled: true
-  comment: 搜索设计参考、趋势、灵感
+  comment: Search design references, trends, and inspiration
 - name: web_fetch
   enabled: true
-  comment: 获取特定网页内容（设计系统文档等）
+  comment: Fetch specific web content such as design system documentation
 - name: list_directory
   enabled: true
-  comment: 列出目录内容
+  comment: List directory contents
 - name: memory_search
   enabled: true
-  comment: 读取用户的长期设计偏好
+  comment: Read the user's durable design preferences
 execution:
   mode: react
   maxIterations: 20

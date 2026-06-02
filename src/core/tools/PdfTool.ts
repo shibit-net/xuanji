@@ -12,6 +12,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
+import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'PdfTool' });
@@ -202,7 +203,11 @@ export class PdfTool extends BaseTool {
           text = textResult.text;
         }
 
-        const header = `[PDF] ${filePath} (${totalPages} 页${pages ? `, 范围: ${pages}` : ''})`;
+        const fullLen = text.length;
+        text = middleTruncate(text, getMaxToolOutputLength());
+        const truncated = fullLen !== text.length;
+
+        const header = `[PDF] ${filePath} (${totalPages} 页${pages ? `, 范围: ${pages}` : ''}${truncated ? `, 内容已截断` : ''})`;
         return this.success(`${header}\n\n${text}`, {
           type: 'pdf',
           operation: 'read',

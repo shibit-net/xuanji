@@ -39,7 +39,6 @@ export class SchedulerTool extends BaseTool {
     '',
     'Usage examples:',
     '- User says "remind me to stand-up at 9am every day" → action: create, type: daily, hour: 9, minute: 0',
-    '- User says "auto learn at 5pm every Friday" → action: create, type: weekly, dayOfWeek: 5, hour: 17, minute: 0',
     '- User says "generate monthly report at 10am on the 1st" → action: create, type: monthly, dayOfMonth: 1, hour: 10, minute: 0',
     '- User says "do annual review at 8pm on Dec 31st" → action: create, type: yearly, month: 12, dayOfMonth: 31, hour: 20, minute: 0',
     '- User says "help me organize code at 3pm next Wednesday" → action: create, type: once, scheduledDate: "2026-05-21", scheduledTime: "15:00"',
@@ -105,8 +104,8 @@ export class SchedulerTool extends BaseTool {
       // 动作配置
       taskAction: {
         type: 'string',
-        enum: ['learn', 'custom'],
-        description: 'Task action type. learn=auto learn, custom=custom callback. Default custom.',
+        enum: ['custom'],
+        description: 'Task action type. Use custom with message to trigger a full agent conversation. Default custom.',
         default: 'custom',
       },
       handler: {
@@ -115,11 +114,11 @@ export class SchedulerTool extends BaseTool {
       },
       prompt: {
         type: 'string',
-        description: 'Learning goal (used when taskAction=learn), describes what to learn.',
+        description: 'Deprecated. Use message to trigger an agent conversation instead.',
       },
       message: {
         type: 'string',
-        description: 'Message sent to the AI when triggering the agent. When filled, the scheduled task injects this message into the current session, starting a full agent conversation loop. For example: "Analyze today\'s GitHub issues for me", "Compile this week\'s work summary". If not filled, only the handler or learn action executes.',
+        description: 'Message sent to the AI when triggering the agent. When filled, the scheduled task injects this message into the current session, starting a full agent conversation loop. For example: "Analyze today\'s GitHub issues for me", "Compile this week\'s work summary". If not filled, only the custom handler executes.',
       },
       enabled: {
         type: 'boolean',
@@ -188,11 +187,9 @@ export class SchedulerTool extends BaseTool {
       const schedule = this.buildScheduleDesc(j);
       const actionDesc = j.system
         ? `系统: ${j.description || ''}`
-        : j.action === 'learn'
-          ? `学习: ${j.prompt || '无目标'}`
-          : j.message
-            ? `触发Agent: "${j.message.slice(0, 60)}"`
-            : `自定义: ${j.params?.handler || '无handler'}`;
+        : j.message
+          ? `触发Agent: "${j.message.slice(0, 60)}"`
+          : `自定义: ${j.params?.handler || '无handler'}`;
       return `**${j.id}**${tag}${status}${desc}\\n  调度: ${schedule}\\n  动作: ${actionDesc}`;
     });
 
@@ -205,13 +202,17 @@ export class SchedulerTool extends BaseTool {
       return this.error('缺少必需参数 type。可选值: once, daily, weekly, monthly, yearly。');
     }
 
+    if (input.taskAction === 'learn') {
+      return this.error('learn 定时任务已退役。请改用 taskAction:"custom" 并填写 message，例如“研究 X 的方法论并把可复用经验写入记忆”。');
+    }
+
     const userId = (scheduler.getJobs()[0] as CronJob)?.userId || 'default';
 
     const job: CronJob = {
       id: (input.id as string) || `cron-${Date.now().toString(36)}`,
       userId,
       type: type as CronJob['type'],
-      action: (input.taskAction as string || 'custom') as 'learn' | 'custom',
+      action: 'custom',
       description: (input.description as string) || undefined,
       enabled: input.enabled !== false,
     };
@@ -263,12 +264,8 @@ export class SchedulerTool extends BaseTool {
       job.chatId = this.platformContext.chatId;
     }
 
-    if (job.action === 'custom') {
-      const handler = input.handler as string;
-      job.params = handler ? { handler } : {};
-    } else {
-      job.prompt = (input.prompt as string) || 'daily learning';
-    }
+    const handler = input.handler as string;
+    job.params = handler ? { handler } : {};
 
     await scheduler.addCron(job);
 
@@ -300,7 +297,10 @@ export class SchedulerTool extends BaseTool {
     if (input.dayOfWeek !== undefined) updates.dayOfWeek = input.dayOfWeek;
     if (input.dayOfMonth !== undefined) updates.dayOfMonth = input.dayOfMonth;
     if (input.month !== undefined) updates.month = input.month;
-    if (input.taskAction !== undefined) updates.action = input.taskAction;
+    if (input.taskAction === 'learn') {
+      return this.error('learn 定时任务已退役。请改为 custom + message。');
+    }
+    if (input.taskAction !== undefined) updates.action = 'custom';
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     if (input.handler !== undefined) updates.params = { handler: input.handler };
     if (input.message !== undefined) updates.message = input.message;

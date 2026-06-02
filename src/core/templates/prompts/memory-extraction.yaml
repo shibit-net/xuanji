@@ -7,74 +7,78 @@ scenes:
 priority: 90
 estimatedTokens: 1200
 match:
-  keywords: "记忆提取 提取记忆 存储记忆 分析对话"
-  description: "从对话中提取关键信息，建立实体/事实/关系图，更新项目进度和决策记录"
+  keywords: "memory extraction extract memory store memory analyze conversation"
+  description: "Extract durable long-term information from a conversation and maintain entity/fact/relation memory without storing project progress details"
 content: |
-  # 记忆提取 · 任务指令
+  # Memory Extraction Task
 
-  当前任务：从对话中提取值得长期记忆的信息，使用工具存入记忆库。
+  Your task is to extract durable long-term memory from the provided conversation and store it with memory tools.
 
-  ## 过程
+  ## Process
 
-  ### 第一步：通读对话
-  完整阅读用户提供的对话内容，理解上下文和发生了什么。
+  ### Step 1: Read the conversation
+  Read the full conversation and understand what happened, what the user confirmed, and what should remain useful across sessions.
 
-  ### 第二步：识别可存储信息
-  按以下分类逐一扫描对话中出现的可存储内容：
+  ### Step 2: Identify storable information
+  Scan for the following categories:
 
-  | 类别 | 识别标准 | 存储方式 |
+  | Category | Detection | Storage |
   |------|---------|---------|
-  | 用户身份/偏好/技能 | 用户提及自己的角色、喜好、知识背景 | entity(type=user/preference) + user_profile |
-  | 项目信息/进展 | 正在做的项目、阶段变化、里程碑 | entity(type=project) + project_snapshot |
-  | 技术决策/选型 | 选择了什么方案、为什么 | fact(source=agent_discovered, importance≥4) |
-  | 用户纠正 | 用户纠正你的行为或信息 | fact(source=user_correction, importance=5) |
-  | 文件/工具/库 | 创建/修改的文件、使用的技术 | entity(type=module/tool) + relation |
-  | 待办/承诺/计划 | 承诺要做的事、后续计划 | topic(type=plan) + time_anchor |
-  | 人物/团队 | 关键人员及其属性关系 | entity(type=person) + group + group_member |
-  | 外部资源 | 文档、看板、监控等引用 | entity(type=reference) |
-  | 操作经验/流程 | 部署、发布、迁移等完整流程 | episode (完整过程叙事) |
+  | User identity / preference / skill | User mentions their role, preference, knowledge, limitations, or working style | entity(type=user/preference) + user_profile |
+  | Project knowledge pointer | Project knowledge location, progress document location, external project index | reference/entity only; detailed project progress belongs in `XUANJI.md` |
+  | Technical decision | A choice was made and the reason is durable beyond the current diff | fact(source=agent_discovered, importance>=4) |
+  | User correction | User corrects your behavior, style, or factual understanding | fact(source=user_correction, importance=5) |
+  | Tool / library / external resource | Durable external resource, platform, dashboard, board, document, or integration | entity(type=reference/tool) + relation |
+  | Commitment / plan | User commits to a future action or asks to track a durable plan | topic(type=plan) + time_anchor |
+  | Person / team | Key people, teams, roles, or relationships | entity(type=person) + group + group_member |
+  | Reusable procedure | Deployment, release, migration, or troubleshooting flow that is reusable outside the current one-off task | episode |
+  | Methodology research | User asked to learn/study/research how to perform a task and the conversation produced a reusable method | episode with trigger, method, why, pitfalls, and sources; optional fact for concise decision rules |
 
-  ### 第三步：查重去重
-  对每个候选记忆，先调用 memory_search 查询是否已存在：
-  - 同名同类型实体 → 比较 summary，有更新则 update，无变化则 skip
-  - 语义相似但不同名的实体 → 判断是否同一事物，是则合并
-  - 相同标题的 fact → 比较内容，更新或跳过
-  - 不要仅凭 name+type 完全相同才去重——语义相同即应去重
+  Do not store routine command output, temporary debugging state, git-deducible changes, or concrete project progress details.
 
-  ### 第四步：按序存储
-  严格按以下顺序存储（后续步骤依赖前面的结果）：
-  1. **先存实体（entity）** — 因为关系依赖实体
-  2. **再存关系（relation）** — 链接新旧实体
-  3. **再存事实/事件（fact/event）** — 记录具体信息
-  4. **再存其他** — topic / time_anchor / user_profile / project_snapshot
+  ### Step 3: Deduplicate
+  For each candidate, call memory_search first:
+  - Same entity and type → update only if the summary changed.
+  - Semantically identical entity with a different name → merge or transfer relations.
+  - Same fact/topic → update or skip instead of duplicating.
+  - Prefer semantic equivalence over exact title/name matching.
 
-  ### 第五步：建立关联
-  新记忆与已有记忆之间的关联必须建立：
-  - 新实体属于已有项目 → relation(entity -belongs_to→ project)
-  - 新决策影响已有模块 → relation(decision -affects→ module)
-  - 新话题关联已有目标 → relation(topic -related_to→ goal)
-  - 与已有知识孤立的实体 → 搜索相关实体后补全 relation
+  ### Step 4: Store in dependency order
+  1. Store entities first.
+  2. Store relations after related entities exist.
+  3. Store facts/events after their entities are known.
+  4. Store topic / time_anchor / user_profile / reference last.
 
-  ### 第六步：更新进度
-  如果对话中做了实质性开发工作（写代码、修 bug、重构、部署）：
-  - 调用 memory_store({type:"project_snapshot", ...}) 更新项目进度
-  - 即使不确定精确百分比，也要估算一个大致值
-  - 记录当前聚焦的工作、阻塞项、下一步计划
+  ### Step 5: Link new memory to existing memory
+  Create relations when there is a durable connection:
+  - new entity belongs_to existing project/reference
+  - new decision affects existing module/concept
+  - new topic related_to existing goal
+  - new reference used_for existing workflow
 
-  ## 方案
+  Do not invent weak relations just to make the graph denser.
 
-  - **宁可多存不可漏**：不确定是否值得记录 → 存。后续记忆整理会处理冗余。
-  - **信息分解粒度**：一条用户消息包含多个独立信息点时，拆成多个 entity + relation 存储，不要合并为一条模糊的 fact。
-  - **关联优先于孤立**：新实体必须通过 relation 连接到已有实体网络。孤立的实体是死节点。
-  - **去重以语义为准**：不要求 title/name 完全相同才去重，语义相同即应合并。
+  ### Step 6: Project progress boundary
+  If the conversation includes project work such as coding, bug fixing, refactoring, testing, or deployment:
+  - Do not store detailed project progress in Memory.
+  - If it should be durable, tell the main agent to check/update the project's `XUANJI.md`.
+  - Memory may store only the project progress document pointer, external system index, or user preference that applies across projects.
 
-  ## 结果
+  ## Principles
 
-  任务完成时，对话中的所有关键信息应已存入记忆库：
-  - 新的实体（entity）+ 关联关系（relation）
-  - 新的事实（fact）+ 事件（event）
-  - 更新后的项目快照（project_snapshot，如有进展）
-  - 更新后的用户画像（user_profile，如有新发现）
-  - 新话题（topic）+ 时间锚点（time_anchor）
+  - Durable value first: if unsure whether something is worth long-term memory, skip it unless the user explicitly asked to remember it.
+  - Decompose information: one user message may contain multiple independent entities, facts, relations, and topics.
+  - Link with intent: relations should represent meaningful durable connections, not incidental co-occurrence.
+  - Deduplicate semantically: update existing records instead of creating near-duplicates.
+  - Methodology learned from research belongs in Memory first. Do not create or request a Skill unless the user explicitly asks for one.
 
-  如果确实没有值得长期记忆的内容，输出 "无需提取"。
+  ## Result
+
+  When complete, the durable information from the conversation should be stored:
+  - entities and relations
+  - facts and events
+  - project knowledge/progress document pointers when necessary
+  - user_profile updates when the user reveals stable self-knowledge
+  - topics and time anchors when future tracking is useful
+
+  If there is no durable information to store, output "No durable memory to extract".

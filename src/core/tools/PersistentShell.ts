@@ -71,7 +71,7 @@ function loadPty(): typeof import('node-pty') | null {
       _ptyModule = req('node-pty');
       // POSIX 上 spawn-helper 可能因 npm 安装时丢失执行权限，
       // 导致 posix_spawn 失败（Permission denied）
-      if (process.platform !== 'win32' && !ensureSpawnHelperExecutable(_ptyModule)) {
+      if (process.platform !== 'win32' && _ptyModule && !ensureSpawnHelperExecutable(_ptyModule)) {
         log.warn('node-pty spawn-helper not executable, falling back to child_process.exec');
         _ptyModule = null;
         return null;
@@ -203,19 +203,19 @@ export class PersistentShell {
       log.info(`[DIAG] executeFallback: PATH=${process.env.PATH?.substring(0, 80)}..., shell defaults to /bin/sh`);
       exec(
         command,
-        { cwd, timeout, maxBuffer: 10 * 1024 * 1024, env: process.env as any, shell: getSpawnShellOption() },
-        (error, stdout, stderr) => {
+        { cwd, timeout, maxBuffer: 10 * 1024 * 1024, env: process.env as any, shell: getSpawnShellOption() as string | undefined },
+        (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
           if (error) {
             const e = error as any;
             log.error(`[DIAG] executeFallback FAILED: message="${e.message}", code=${e.code}, errno=${e.errno}, syscall="${e.syscall}", path="${e.path}", cmd="${e.cmd}"`);
             resolve({
-              stdout: stdout ?? '',
-              stderr: stderr ?? (error.message || ''),
+              stdout: stdout?.toString() ?? '',
+              stderr: stderr?.toString() ?? (error.message || ''),
               exitCode: (error as any).code ?? 1,
             });
             return;
           }
-          resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 0 });
+          resolve({ stdout: stdout?.toString() ?? '', stderr: stderr?.toString() ?? '', exitCode: 0 });
         },
       );
     });

@@ -29,11 +29,22 @@ systemPrompt: >
   Available scenes (includes keywords and descriptions, determine if user input matches):
   {{SCENE_LIST}}
 
-  complexity rules (determined by scene type):
-  - Analysis/Understanding/Exploration scenes (explore, review): always simple, even complex analysis does not need coordination
-  - Execution/Production scenes (write_code, refactor, plan, debug, test): single operation → simple, multi-step coordination → complex
-  - Design/Analysis scenes (ui_design, requirement, stock_analysis): always simple
-  - Discussion/Debate (discuss): always complex (requires multiple rounds of output)
+  Additional classification dimensions to consider when matching scenes:
+  - life_management: personal routines, appointments, reminders, household or daily-life organization
+  - work_management: planning, follow-up, task tracking, reports, meetings, summaries, coordination
+  - reminder_schedule: reminders, recurring checks, wake-ups, deadlines, calendar-like requests
+  - external_system: GitHub, GitLab, Linear, Jira, Slack, Notion, email, calendars, databases, cloud, browser, monitoring, live data
+  - memory_update: durable user preference, goal, relationship, collaboration feedback, or external index changes
+  - project_knowledge: project facts, architecture, conventions, caveats, or progress that belong in XUANJI.md
+  - complex_quality_gate: architecture, security, data, deployment, cross-module, public, irreversible, or high-risk work
+
+  complexity rules (determined by scene type and risk):
+  - Analysis/Understanding/Exploration scenes (explore, review): simple unless they need multiple expert perspectives or external systems
+  - Execution/Production scenes (write_code, refactor, plan, debug, test): single local operation → simple, multi-step or cross-module → complex
+  - Design/Analysis scenes (ui_design, requirement, stock_analysis): simple unless they require multi-role review or external evidence
+  - Discussion/Debate (discuss): complex only when structured debate, synthesis, or follow-up work is requested
+  - Butler/work-management scenes: complex when scheduling, follow-up tracking, external systems, or long-running tasks are involved
+  - High-risk scenes matching complex_quality_gate → complex
   - Other scenes: if content spans multiple steps or requires creating subtasks → complex, otherwise → simple
 
   Follow these steps for analysis:
@@ -81,7 +92,7 @@ systemPrompt: >
   Output: {"scene": "", "complexity": "simple", "confidence": 0.9}
 
   Input: Debate whether AI should be open-sourced, and write an article summarizing viewpoints
-  Output: {"scene": "discuss,write_code,plan", "complexity": "complex", "confidence": 0.85}
+  Output: {"scene": "discuss,product_plan,review", "complexity": "complex", "confidence": 0.85}
 
   Input: Write a bubble sort for me
   Output: {"scene": "write_code,test,review", "complexity": "simple", "confidence": 0.95}

@@ -4,30 +4,29 @@ layer: L1
 scenes:
   - test
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 260
 match:
-  keywords: "writing adding supplementing completing creating authoring test unit test integration test test case"
-  description: "Writing tests, test strategy, test cases"
+  keywords: "test unit integration e2e coverage testcase validation verify regression"
+  description: "Writing tests, test strategy, test cases, verification"
 content: |
-  # Test Writing · Mental Model
+  # Test Scene
 
-  ## Core Perspective
-  Every piece of code has three facets: **Normal path → Boundary conditions → Error handling**.
-  The goal of testing is not to cover lines of code, but to cover the Cartesian product of these three facets.
+  Testing should prove behavior, not just increase coverage.
 
-  ## Decision Framework
-  | Condition | Coverage Requirements |
-  |------|---------|
-  | Pure functions | Normal + boundary + error, at least 1 case each |
-  | With I/O operations | Mock external dependencies, only test logic |
-  | State machine code | Cover every state transition |
-  | Concurrent code | Race condition + deadlock + timeout scenarios |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Test strategy (which scenarios are covered)
-  - Runnable test code
-  - Execution command instructions
+  - Query test-generation, test-strategy, or framework-specific Skills when the task spans multiple cases or an unfamiliar framework.
+  - Use Agent Team for multi-module test strategy, risk analysis, or independent coverage review.
+  - Query MCP when test status depends on CI, remote build systems, issue trackers, or deployment environments.
+  - Use Task/todo when test work has multiple phases such as strategy, implementation, execution, and fix follow-up.
 
-  ## Out of Scope
-  - ✗ Do not modify the code being tested
-  - ✗ Do not integrate tests into CI (that is the deploy scene)
+  ## Test Contract
+
+  - Cover normal path, boundary conditions, and error handling.
+  - Explain what behavior each test protects.
+  - Provide runnable commands.
+  - If tests cannot be run, explain why and provide the exact command the user can run.
+
+  ## Boundary
+
+  Do not modify production code unless the user asks or the tests expose a defect that must be fixed to complete the requested task.

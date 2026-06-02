@@ -49,6 +49,7 @@ export interface AgentCreateOptions {
   parentProvider?: ILLMProvider;
   parentConfig?: AgentConfig;
   scene?: string;
+  scenes?: string[];
   complexity?: 'simple' | 'standard' | 'complex';
   taskDescription?: string;
   depth?: number;
@@ -469,7 +470,8 @@ export class AgentFactory {
       const result = await this.createSubAgent(agentIdOrRole, {
         parentProvider,
         parentConfig,
-        scene: options.scene,
+        scene: this.resolveScene(options.scene, options.scenes),
+        scenes: options.scenes,
         taskDescription: options.task,
         depth: options.depth ?? 0,
         toolWhitelist: options.tools,
@@ -562,7 +564,7 @@ export class AgentFactory {
       parentAgentId: options.parentAgentId || 'main',
       streamToUser: options.streamToUser || false,
       isAsync: options.isAsync || false,
-      scene: options.scene?.replace(/^l[12]-/, ''),
+      scene: this.resolveScene(options.scene, options.scenes),
       executionMode: (useAcp ? 'acp' : 'in-process') as 'acp' | 'in-process',
     };
 
@@ -758,7 +760,7 @@ export class AgentFactory {
       toolNames: ['memory_search', 'memory_store', 'memory_stats'],
       maxIterations: options.maxIterations ?? 60,
       temperature: undefined,
-      maxTokens: options.maxTokens,
+      maxTokens: options.maxTokens ?? 4096,
       idPrefix: 'memory',
       parentConfig: options.parentConfig,
     });
@@ -1171,6 +1173,15 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
     if (this._fallbackProviderConfig!.model) {
       agentCfg.model = { ...agentCfg.model, primary: this._fallbackProviderConfig!.model };
     }
+  }
+
+  private resolveScene(scene?: string, scenes?: string[]): string | undefined {
+    const sceneIds = scenes && scenes.length > 0 ? scenes : scene?.split(',');
+    return sceneIds
+      ?.map((s) => s.trim().replace(/^l[12]-/, ''))
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(',') || undefined;
   }
 
   private resolveProvider(agentCfg: ReturnType<ConfigManager['getAgentConfig']>): ILLMProvider {

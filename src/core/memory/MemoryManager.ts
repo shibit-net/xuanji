@@ -2261,23 +2261,6 @@ export class MemoryManager {
     const event = await this.recordEvent(input);
     const now = Date.now();
 
-    // ── 项目状态推演：检测 project 类型实体的事件，创建快照 ──
-    if (input.entityNames && input.entityNames.length > 0) {
-      for (const ename of input.entityNames) {
-        const entity = await this.resolveEntity(ename);
-        if (!entity || entity.type !== 'project') continue;
-
-        const phase = detectProjectPhase(input.content);
-        if (phase) {
-          const snapId = randomUUID();
-          this.db.prepare(`
-            INSERT INTO project_snapshots (id, project_id, phase, status, current_focus, snapshot_at)
-            VALUES (?, ?, ?, '进行中', ?, ?)
-          `).run(snapId, entity.id, phase, input.content.slice(0, 200), now);
-        }
-      }
-    }
-
     // ── 偏好变更推演：检测 "改用/换成/切换" 模式 ──
     if (input.operator) {
       const changeMatch = input.content.match(/(?:改用|换成|切换到)\s*(.+)/);

@@ -2,7 +2,7 @@ id: "l2-coding-coordination"
 name: "Coding Coordination"
 layer: "L2"
 priority: 73
-estimatedTokens: 600
+estimatedTokens: 360
 enabled: true
 scenes:
   - write_code
@@ -15,22 +15,39 @@ scenes:
   - deploy
   - monitor
 content: |
-  # Coding Scene Agent Coordination Strategy
+  # Coding Coordination
 
-  | Scene | Recommended Strategy | Member Role Chain |
-  |------|---------|-----------|
-  | write_code | sequential | Requirements Analysis → Architecture(plan) → Coding(write_code) → Testing(test) → Review(review) |
-  | debug | sequential | Problem Localization(debug) → Fix(write_code) → Verify(test) |
-  | refactor | sequential | Code Analysis(review) → Refactor(refactor) → Regression Test(test) |
-  | review | parallel | Quality Review + Security Review + Performance Review (same agent + different system_prompt) |
-  | plan | debate / hierarchical | debate: multi-party discussion consensus; hierarchical: Leader + Workers |
-  | explore | parallel | Structure Analysis + Dependency Analysis + Tech Stack Analysis |
-  | deploy | sequential | Environment Check → Build/Package → Deploy to Production |
+  Use the lightest coordination model that improves quality.
 
-  ## General Rules
+  ## Coordination Choices
 
-  1. All agent_ids come from match_agent, do not fabricate agent IDs for members
-  2. Multi-perspective within same domain uses the same agent with different system_prompts
-  3. Temporary agent is the last resort (only when match_agent score < 0.5)
-  4. Each member's task must be unique; don't let multiple members do the same thing
-  5. Adjust member count and roles based on actual task, don't blindly copy patterns
+  | Situation | Use |
+  |----------|-----|
+  | Single clear local code task | Direct execution |
+  | Multiple meaningful implementation steps | Task/todo tracking |
+  | Reusable workflow may help | Query Skills |
+  | CI, PR, issue, logs, monitoring, deployment, or live external state is needed | Query MCP |
+  | Architecture/security/testing/review perspectives are independently useful | Agent Team |
+
+  ## Agent Team Boundaries
+
+  Do not create an Agent Team just because a coding task has multiple steps. Use Agent Team only when separate perspectives reduce risk or can run in parallel.
+
+  Good uses:
+  - architecture review before a risky cross-module change
+  - security review of auth, permissions, secrets, or external input handling
+  - test strategy for broad behavior changes
+  - independent implementation review before delivery
+  - parallel exploration of distinct modules
+
+  Avoid:
+  - delegating simple implementation to several agents
+  - assigning overlapping work to multiple members
+  - using debate when one direct engineering decision is enough
+
+  ## Member Rules
+
+  - Get agent IDs from `match_agent`; do not fabricate registered agent IDs.
+  - Give each member non-overlapping scope and self-contained context.
+  - Keep member prompts concise and outcome-focused.
+  - Synthesize results once; do not repeat every internal step to the user.

@@ -107,10 +107,160 @@ function ImportanceStars({ value }: { value: number }) {
 
 // ─── Tab: 记忆浏览 ─────────────────────────────────────────
 
-function BrowseTab() {
-  const [activeCategory, setActiveCategory] = useState<string>('all');
+type MemoryKind = 'entity' | 'fact' | 'event' | 'episode' | 'search';
+type ObjectFilter = 'all' | 'entity' | 'fact' | 'event' | 'episode';
+type ImportanceFilter = 'all' | '4' | '3';
+
+interface NormalizedMemoryItem {
+  kind: MemoryKind;
+  id: string;
+  title: string;
+  content: string;
+  typeLabel: string;
+  sceneTag?: string;
+  importance?: number;
+  time?: number;
+  source?: string;
+  raw: any;
+}
+
+const ENTITY_TYPE_LABEL_KEYS: Record<string, string> = {
+  user: 'memory.entity_type.user',
+  person: 'memory.entity_type.person',
+  preference: 'memory.entity_type.preference',
+  feedback: 'memory.entity_type.feedback',
+  project: 'memory.entity_type.project',
+  tool: 'memory.entity_type.tool',
+  concept: 'memory.entity_type.concept',
+  reference: 'memory.entity_type.reference',
+};
+
+function latestTime(items: NormalizedMemoryItem[]): number {
+  return items.reduce((max, item) => Math.max(max, item.time || 0), 0);
+}
+
+function normalizeEntity(e: any): NormalizedMemoryItem {
+  return {
+    kind: 'entity',
+    id: e.id,
+    title: e.name || '—',
+    content: e.summary || e.belief || '',
+    typeLabel: e.type || 'entity',
+    sceneTag: e.scene_tag,
+    importance: e.importance,
+    time: e.updated_at || e.created_at,
+    raw: { ...e, _type: 'entity' },
+  };
+}
+
+function normalizeFact(f: any): NormalizedMemoryItem {
+  return {
+    kind: 'fact',
+    id: f.id,
+    title: f.title || 'Fact',
+    content: f.content || '',
+    typeLabel: 'fact',
+    sceneTag: f.scene_tag,
+    time: f.created_at,
+    source: f.source,
+    raw: { ...f, _type: 'fact' },
+  };
+}
+
+function normalizeEvent(ev: any): NormalizedMemoryItem {
+  return {
+    kind: 'event',
+    id: ev.id,
+    title: ev.content || 'Event',
+    content: ev.result || '',
+    typeLabel: 'event',
+    sceneTag: ev.scene_tag,
+    importance: ev.importance,
+    time: ev.time || ev.created_at,
+    source: ev.operator,
+    raw: { ...ev, _type: 'event' },
+  };
+}
+
+function normalizeEpisode(ep: any): NormalizedMemoryItem {
+  return {
+    kind: 'episode',
+    id: ep.id,
+    title: ep.title || 'Episode',
+    content: ep.narrative || '',
+    typeLabel: 'episode',
+    sceneTag: ep.scene_tag,
+    importance: ep.importance,
+    time: ep.timestamp,
+    raw: { ...ep, _type: 'episode' },
+  };
+}
+
+function normalizeSearchResult(r: any): NormalizedMemoryItem {
+  return {
+    kind: 'search',
+    id: `${r.source_table}-${r.source_id}`,
+    title: r.title || r.source_id || 'Result',
+    content: r.content || '',
+    typeLabel: r.source_table || 'search',
+    sceneTag: r.scene_tag,
+    source: r.score !== undefined ? `${(r.score * 100).toFixed(0)}%` : undefined,
+    raw: { ...r, _type: 'search' },
+  };
+}
+
+function MemoryCard({ item, onClick }: { item: NormalizedMemoryItem; onClick: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(item.typeLabel)}`}>
+          {item.typeLabel}
+        </span>
+        <span className="text-sm font-medium text-foreground line-clamp-1">{item.title}</span>
+        {item.source && <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground ml-auto">{item.source}</span>}
+        {!item.source && item.importance !== undefined && <span className="ml-auto"><ImportanceStars value={item.importance} /></span>}
+      </div>
+      <p className="text-xs text-muted-foreground line-clamp-2">{item.content || t('memory.detail.no_summary')}</p>
+      <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground/70">
+        {item.time && <span className="flex items-center gap-1"><Clock size={10} />{formatTime(item.time)}</span>}
+        <span className="flex items-center gap-1"><Tag size={10} />{item.sceneTag || '—'}</span>
+      </div>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="px-3 py-2 rounded-lg bg-background/60 border border-border/60">
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold text-foreground tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function BrowseTab({
+  onOpenGraph,
+  onClearAll,
+  clearBusy,
+  reloadToken,
+}: {
+  onOpenGraph: (entity: { id: string; name: string }) => void;
+  onClearAll: () => void;
+  clearBusy: boolean;
+  reloadToken: number;
+}) {
+  const [objectFilter, setObjectFilter] = useState<ObjectFilter>('all');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
+  const [importanceFilter, setImportanceFilter] = useState<ImportanceFilter>('all');
+  const [sceneFilter, setSceneFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchActive, setSearchActive] = useState(false);
   const [results, setResults] = useState<any[]>([]);
+  const [status, setStatus] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
   const [entities, setEntities] = useState<any[]>([]);
   const [facts, setFacts] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
@@ -118,19 +268,25 @@ function BrowseTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailItem, setDetailItem] = useState<any>(null);
+  const [flushing, setFlushing] = useState(false);
+  const [maintaining, setMaintaining] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [eRes, fRes, evRes, epRes] = await Promise.all([
-        window.electron.memoryEntities({ limit: 200 }),
-        window.electron.memoryFacts({ limit: 200 }),
-        window.electron.memoryTimeline({ limit: 200 }),
-        window.electron.memoryEpisodes({ limit: 50 }),
+      const [statusRes, statsRes, eRes, fRes, evRes, epRes] = await Promise.all([
+        window.electron.memoryStatus(),
+        window.electron.memoryStats(),
+        window.electron.memoryEntities({ limit: 300 }),
+        window.electron.memoryFacts({ limit: 300 }),
+        window.electron.memoryTimeline({ limit: 300 }),
+        window.electron.memoryEpisodes({ limit: 100 }),
       ]);
       const safeArray = (v: any) => Array.isArray(v) ? v : [];
       const errors: string[] = [];
+      if (statusRes.success) setStatus(statusRes); else if (statusRes.error) errors.push(statusRes.error);
+      if (statsRes.success) setStats(statsRes.stats); else if (statsRes.error) errors.push(statsRes.error);
       if (eRes.success) setEntities(safeArray(eRes.entities)); else if (eRes.error) errors.push(eRes.error);
       if (fRes.success) setFacts(safeArray(fRes.facts)); else if (fRes.error) errors.push(fRes.error);
       if (evRes.success) setEvents(safeArray(evRes.events)); else if (evRes.error) errors.push(evRes.error);
@@ -141,9 +297,8 @@ function BrowseTab() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData, reloadToken]);
 
-  // 安全超时：防止 API 调用挂起时 loading 永远不消失
   useEffect(() => {
     if (!loading) return;
     const timer = setTimeout(() => {
@@ -153,12 +308,52 @@ function BrowseTab() {
     return () => clearTimeout(timer);
   }, [loading]);
 
+  const normalizedItems = [
+    ...entities.map(normalizeEntity),
+    ...facts.map(normalizeFact),
+    ...events.map(normalizeEvent),
+    ...episodes.map(normalizeEpisode),
+  ];
+
+  const entityTypeCounts = entities.reduce<Record<string, number>>((acc, entity) => {
+    const type = entity.type || 'other';
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+
+  const sceneOptions = Array.from(new Set(normalizedItems.map(item => item.sceneTag).filter(Boolean) as string[])).sort();
+
+  const filteredItems = normalizedItems.filter(item => {
+    if (objectFilter !== 'all' && item.kind !== objectFilter) return false;
+    if (entityTypeFilter !== 'all' && (item.kind !== 'entity' || item.typeLabel !== entityTypeFilter)) return false;
+    if (importanceFilter !== 'all' && (item.importance || 0) < Number(importanceFilter)) return false;
+    if (sceneFilter !== 'all' && item.sceneTag !== sceneFilter) return false;
+    return true;
+  }).sort((a, b) => (b.time || 0) - (a.time || 0));
+
+  const searchItems = results.map(normalizeSearchResult);
+  const displayItems = searchActive ? searchItems : filteredItems;
+
+  const objectCategories = [
+    { id: 'all' as ObjectFilter, label: t('memory.browse.category_all'), count: normalizedItems.length },
+    { id: 'entity' as ObjectFilter, label: t('memory.browse.category_entity'), count: entities.length },
+    { id: 'fact' as ObjectFilter, label: t('memory.browse.category_fact'), count: facts.length },
+    { id: 'event' as ObjectFilter, label: t('memory.browse.category_event'), count: events.length },
+    { id: 'episode' as ObjectFilter, label: t('memory.browse.category_episode'), count: episodes.length },
+  ];
+
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim()) {
+      setSearchActive(false);
+      setResults([]);
+      return;
+    }
     setLoading(true);
+    setSearchActive(true);
     try {
-      const res = await window.electron.memorySearch({ query: searchQuery, limit: 50 });
+      const res = await window.electron.memorySearch({ query: searchQuery, limit: 80 });
       if (res.success) setResults(res.results || []);
+      else setError(res.error || t('memory.search_failed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('memory.search_failed'));
     } finally {
@@ -166,43 +361,104 @@ function BrowseTab() {
     }
   };
 
-  const categories = [
-    { id: 'all', label: t('memory.browse.category_all'), count: entities.length + facts.length + events.length + episodes.length },
-    { id: 'entity', label: t('memory.browse.category_entity'), count: entities.length },
-    { id: 'fact', label: t('memory.browse.category_fact'), count: facts.length },
-    { id: 'event', label: t('memory.browse.category_event'), count: events.length },
-    { id: 'episode', label: t('memory.browse.category_episode'), count: episodes.length },
-  ];
+  const handleFlush = async () => {
+    setFlushing(true);
+    try {
+      const res = await window.electron.manualMemoryFlush();
+      if (!res.success) setError(res.error || t('memory.browse.flush_failed'));
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('memory.browse.flush_failed'));
+    } finally {
+      setFlushing(false);
+    }
+  };
 
-  const renderStar = (val: number) => <ImportanceStars value={val} />;
+  const handleMaintenance = async () => {
+    setMaintaining(true);
+    try {
+      const res = await window.electron.memoryMaintenanceTrigger();
+      if (!res.success) setError(res.error || t('memory.browse.maintenance_failed'));
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('memory.browse.maintenance_failed'));
+    } finally {
+      setMaintaining(false);
+    }
+  };
 
-  if (loading) return <LoadingSpinner />;
+  const resetSearch = () => {
+    setSearchActive(false);
+    setSearchQuery('');
+    setResults([]);
+  };
+
+  if (loading && normalizedItems.length === 0) return <LoadingSpinner />;
 
   return (
     <div className="flex h-full">
-      {/* 左侧分类 */}
-      <aside className="w-40 border-r border-border bg-card p-3 space-y-1 shrink-0">
-        {categories.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => { setActiveCategory(cat.id); setDetailItem(null); }}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors ${
-              activeCategory === cat.id
-                ? 'bg-primary/15 text-primary border border-primary/30'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
-          >
-            <span>{cat.label}</span>
-            <span className="text-xs opacity-60">{cat.count}</span>
-          </button>
-        ))}
+      <aside className="w-52 border-r border-border bg-card p-3 space-y-4 shrink-0 overflow-y-auto">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">{t('memory.browse.section_objects')}</p>
+          <div className="space-y-1">
+            {objectCategories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => { setObjectFilter(cat.id); setDetailItem(null); resetSearch(); }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors ${
+                  objectFilter === cat.id
+                    ? 'bg-primary/15 text-primary border border-primary/30'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                <span>{cat.label}</span>
+                <span className="text-xs opacity-60">{cat.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">{t('memory.browse.section_entity_types')}</p>
+          <div className="space-y-1">
+            <button
+              onClick={() => { setEntityTypeFilter('all'); setObjectFilter('all'); resetSearch(); }}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded text-xs transition-colors ${
+                entityTypeFilter === 'all' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              }`}
+            >
+              <span>{t('memory.browse.all_entity_types')}</span>
+              <span>{entities.length}</span>
+            </button>
+            {Object.entries(entityTypeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+              <button
+                key={type}
+                onClick={() => { setObjectFilter('entity'); setEntityTypeFilter(type); resetSearch(); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded text-xs transition-colors ${
+                  entityTypeFilter === type ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                <span>{ENTITY_TYPE_LABEL_KEYS[type] ? t(ENTITY_TYPE_LABEL_KEYS[type]) : type}</span>
+                <span>{count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </aside>
 
-      {/* 右侧内容 */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {error && <ErrorBanner message={error} />}
-        {/* 搜索栏 */}
-        <div className="p-3 border-b border-border">
+        {error && <ErrorBanner message={error} onRetry={() => { setError(null); loadData(); }} />}
+
+        <div className="p-3 border-b border-border space-y-3">
+          <div className="grid grid-cols-6 gap-2">
+            <SummaryMetric label={t('memory.browse.metric_status')} value={status?.initialized ? t('memory.browse.status_ready') : t('memory.browse.status_unavailable')} />
+            <SummaryMetric label={t('memory.stats.card_entity')} value={stats?.entityCount ?? entities.length} />
+            <SummaryMetric label={t('memory.stats.card_fact')} value={stats?.factCount ?? facts.length} />
+            <SummaryMetric label={t('memory.stats.card_event')} value={stats?.eventCount ?? events.length} />
+            <SummaryMetric label={t('memory.stats.card_relation')} value={stats?.relationCount ?? '—'} />
+            <SummaryMetric label={t('memory.browse.metric_latest_update')} value={latestTime(normalizedItems) ? formatTime(latestTime(normalizedItems)) : '—'} />
+          </div>
+
           <div className="flex gap-2">
             <input
               type="text"
@@ -215,114 +471,66 @@ function BrowseTab() {
             <Button onClick={handleSearch} variant="default" size="sm" className="gap-1">
               <Search size={14} /> {t('memory.browse.btn_search')}
             </Button>
-            <Button onClick={loadData} variant="ghost" size="sm">
-              <RefreshCw size={14} />
+            {searchActive && <Button onClick={resetSearch} variant="ghost" size="sm"><X size={14} /></Button>}
+            <Button onClick={loadData} variant="ghost" size="sm" title={t('memory.browse.btn_refresh')}><RefreshCw size={14} /></Button>
+            <Button onClick={handleFlush} disabled={flushing} variant="ghost" size="sm" className="gap-1">
+              <Database size={14} /> {flushing ? t('memory.browse.flushing') : t('memory.browse.flush')}
             </Button>
+            <Button onClick={handleMaintenance} disabled={maintaining} variant="ghost" size="sm" className="gap-1">
+              <Sparkles size={14} className={maintaining ? 'animate-spin' : ''} /> {maintaining ? t('memory.graph.triggering_maintenance') : t('memory.graph.trigger_maintenance')}
+            </Button>
+            <Button onClick={onClearAll} disabled={clearBusy} variant="ghost" size="sm" className="gap-1 text-red-400 hover:text-red-300">
+              <Trash2 size={14} /> {clearBusy ? t('memory.btn_clearing') : t('memory.btn_clear_all')}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs">
+            {(['all', '4', '3'] as ImportanceFilter[]).map(v => (
+              <button
+                key={v}
+                onClick={() => setImportanceFilter(v)}
+                className={`px-2 py-1 rounded border ${importanceFilter === v ? 'bg-primary/15 text-primary border-primary/30' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              >
+                {v === 'all' ? t('memory.browse.all_importance') : t('memory.browse.min_stars', { count: v })}
+              </button>
+            ))}
+            <select
+              value={sceneFilter}
+              onChange={e => setSceneFilter(e.target.value)}
+              className="px-2 py-1 rounded border border-border bg-background text-muted-foreground focus:outline-none focus:border-primary"
+            >
+              <option value="all">{t('memory.browse.all_scenes')}</option>
+              {sceneOptions.map(scene => <option key={scene} value={scene}>{scene}</option>)}
+            </select>
           </div>
         </div>
 
-        {/* 搜索结果显示 */}
-        {searchQuery && results.length > 0 && (
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {results.map((r) => (
-              <div
-                key={`${r.source_table}-${r.source_id}`}
-                onClick={() => setDetailItem(r)}
-                className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(r.source_table)}`}>
-                    {r.source_table}
-                  </span>
-                  <span className="text-sm font-medium text-foreground">{r.title}</span>
-                  {r.score !== undefined && (
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {(r.score * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-2">{r.content}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {displayItems.map(item => (
+            <MemoryCard key={`${item.kind}-${item.id}`} item={item} onClick={() => setDetailItem(item.raw)} />
+          ))}
 
-        {/* 分类列表 */}
-        {(!searchQuery || results.length === 0) && (
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {(activeCategory === 'all' || activeCategory === 'entity') && entities.map(e => (
-              <div key={e.id} onClick={() => setDetailItem({ ...e, _type: 'entity' })}
-                className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(e.type)}`}>{e.type}</span>
-                  <span className="text-sm font-medium text-foreground">{e.name}</span>
-                  <span className="ml-auto">{renderStar(e.importance)}</span>
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-2">{e.summary}</p>
-                <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground/70">
-                  <span className="flex items-center gap-1"><Clock size={10} />{formatTime(e.updated_at)}</span>
-                  <span className="flex items-center gap-1"><Tag size={10} />{e.scene_tag || '—'}</span>
-                </div>
-              </div>
-            ))}
-
-            {(activeCategory === 'all' || activeCategory === 'fact') && facts.map(f => (
-              <div key={f.id} onClick={() => setDetailItem({ ...f, _type: 'fact' })}
-                className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded border bg-yellow-500/15 text-yellow-400 border-yellow-500/25">fact</span>
-                  <span className="text-sm font-medium text-foreground">{f.title}</span>
-                  <span className="text-xs text-muted-foreground">v{f.version}</span>
-                  <span className="text-xs px-1 py-0 rounded bg-muted text-muted-foreground ml-auto">{f.source}</span>
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-2">{f.content}</p>
-              </div>
-            ))}
-
-            {(activeCategory === 'all' || activeCategory === 'event') && events.map(ev => (
-              <div key={ev.id} onClick={() => setDetailItem({ ...ev, _type: 'event' })}
-                className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded border bg-green-500/15 text-green-400 border-green-500/25">event</span>
-                  <span className="text-sm text-foreground line-clamp-1">{ev.content}</span>
-                  <span className="ml-auto">{renderStar(ev.importance)}</span>
-                </div>
-                <div className="flex gap-3 text-xs text-muted-foreground/70">
-                  <span className="flex items-center gap-1"><Calendar size={10} />{formatTime(ev.time)}</span>
-                  {ev.operator && <span className="flex items-center gap-1"><User size={10} />{ev.operator}</span>}
-                </div>
-              </div>
-            ))}
-
-            {(activeCategory === 'all' || activeCategory === 'episode') && episodes.map(ep => (
-              <div key={ep.id} onClick={() => setDetailItem({ ...ep, _type: 'episode' })}
-                className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded border bg-indigo-500/15 text-indigo-400 border-indigo-500/25">episode</span>
-                  <span className="text-sm font-medium text-foreground">{ep.title}</span>
-                  <span className="ml-auto">{renderStar(ep.importance)}</span>
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-2">{ep.narrative}</p>
-                <div className="text-xs text-muted-foreground/70 mt-1">
-                  <Clock size={10} className="inline mr-1" />{formatTime(ep.timestamp)}
-                </div>
-              </div>
-            ))}
-
-            {entities.length === 0 && facts.length === 0 && events.length === 0 && episodes.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                <Database size={40} className="mb-3 opacity-30" />
-                <p className="text-sm">{t('memory.browse.empty_title')}</p>
-                <p className="text-xs mt-1 opacity-60">{t('memory.browse.empty_hint')}</p>
-              </div>
-            )}
-          </div>
-        )}
+          {displayItems.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <Database size={40} className="mb-3 opacity-30" />
+              <p className="text-sm">{searchActive ? t('memory.browse.no_search_results') : t('memory.browse.empty_title')}</p>
+              <p className="text-xs mt-1 opacity-60">{searchActive ? t('memory.browse.no_search_results_hint') : t('memory.browse.empty_hint')}</p>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 详情面板 */}
       {detailItem && (
-        <DetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
+        <DetailPanel
+          item={detailItem}
+          entities={entities}
+          onClose={() => setDetailItem(null)}
+          onOpenGraph={(name) => onOpenGraph(name)}
+          onDeleted={async () => {
+            setDetailItem(null);
+            await loadData();
+          }}
+        />
       )}
     </div>
   );
@@ -330,13 +538,78 @@ function BrowseTab() {
 
 // ─── 详情面板 ──────────────────────────────────────────────
 
-function DetailPanel({ item, onClose }: { item: any; onClose: () => void }) {
+function DetailPanel({
+  item,
+  entities,
+  onClose,
+  onOpenGraph,
+  onDeleted,
+}: {
+  item: any;
+  entities: any[];
+  onClose: () => void;
+  onOpenGraph: (entity: { id: string; name: string }) => void;
+  onDeleted: () => void | Promise<void>;
+}) {
   const itype = item._type || item.source_table || 'entity';
+  const [relations, setRelations] = useState<any[]>([]);
+  const [relationLoading, setRelationLoading] = useState(false);
+  const [relationError, setRelationError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (itype !== 'entity' || !item.id) return;
+    let cancelled = false;
+    (async () => {
+      setRelationLoading(true);
+      setRelationError(null);
+      try {
+        const res = await window.electron.memoryRelations({ entityId: item.id, activeOnly: true });
+        if (cancelled) return;
+        if (res.success) setRelations(res.relations || []);
+        else setRelationError(res.error || t('memory.detail.relations_failed'));
+      } catch (err) {
+        if (!cancelled) setRelationError(err instanceof Error ? err.message : t('memory.detail.relations_failed'));
+      } finally {
+        if (!cancelled) setRelationLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [itype, item.id]);
+
+  const relationName = (id: string) => entities.find(e => e.id === id)?.name || id.slice(0, 8);
+
+  const handleDelete = async () => {
+    if (!confirm(t('memory.detail.confirm_delete_entity'))) return;
+    setDeleting(true);
+    try {
+      const res = await window.electron.memoryDeleteEntity({ id: item.id });
+      if (res.success) await onDeleted();
+      else alert(t('memory.detail.delete_failed', { error: res.error }));
+    } catch (err) {
+      alert(t('memory.detail.delete_failed', { error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const title = item.name || item.title || item.content || item.source_id || t('memory.detail.title');
+  const scene = item.scene_tag || '—';
+  const time = item.updated_at || item.created_at || item.time || item.timestamp;
+  const importance = item.importance;
+
   return (
-    <aside className="w-80 border-l border-border bg-card p-4 shrink-0 overflow-y-auto">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-foreground">{t('memory.detail.title')}</h3>
-        <Button onClick={onClose} variant="ghost" size="icon" className="h-6 w-6"><X size={14} /></Button>
+    <aside className="w-96 border-l border-border bg-card p-4 shrink-0 overflow-y-auto">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(item.type || itype)}`}>{item.type || itype}</span>
+            {importance !== undefined && <ImportanceStars value={importance} />}
+          </div>
+          <h3 className="text-sm font-semibold text-foreground break-words">{title}</h3>
+          <p className="text-xs text-muted-foreground mt-1">{formatTime(time)} · {scene}</p>
+        </div>
+        <Button onClick={onClose} variant="ghost" size="icon" className="h-6 w-6 shrink-0"><X size={14} /></Button>
       </div>
 
       <div className="space-y-3 text-sm">
@@ -350,9 +623,38 @@ function DetailPanel({ item, onClose }: { item: any; onClose: () => void }) {
             {item.belief && <Field label={t('memory.detail.field_belief')} value={item.belief} />}
             <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
             <Field label={t('memory.detail.field_importance')}><ImportanceStars value={item.importance} /></Field>
-            <Field label={t('memory.detail.field_ref_count')} value={String(item.ref_count)} />
+            <Field label={t('memory.detail.field_ref_count')} value={String(item.ref_count ?? '—')} />
             <Field label={t('memory.detail.field_created_at')} value={formatTime(item.created_at)} />
             <Field label={t('memory.detail.field_updated_at')} value={formatTime(item.updated_at)} />
+
+            <div className="pt-3 border-t border-border">
+              <span className="text-xs text-muted-foreground block mb-2">{t('memory.detail.relations')}</span>
+              {relationLoading && <p className="text-xs text-muted-foreground">{t('memory.detail.loading_relations')}</p>}
+              {relationError && <p className="text-xs text-red-400">{relationError}</p>}
+              {!relationLoading && !relationError && relations.length === 0 && <p className="text-xs text-muted-foreground">{t('memory.detail.no_relations')}</p>}
+              <div className="space-y-1.5">
+                {relations.slice(0, 20).map(rel => {
+                  const isOut = rel.subject_id === item.id;
+                  const otherId = isOut ? rel.object_id : rel.subject_id;
+                  return (
+                    <div key={rel.id} className="text-xs rounded border border-border bg-background/60 px-2 py-1.5">
+                      <span className="text-primary">{isOut ? '→' : '←'} {rel.relation}</span>
+                      <span className="text-muted-foreground"> · {relationName(otherId)}</span>
+                      {rel.desc && <p className="text-muted-foreground/70 mt-0.5">{rel.desc}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-border flex gap-2">
+              <Button onClick={() => onOpenGraph({ id: item.id, name: item.name })} variant="secondary" size="sm" className="gap-1">
+                <GitGraph size={14} />{t('memory.detail.open_in_graph')}
+              </Button>
+              <Button onClick={handleDelete} disabled={deleting} variant="ghost" size="sm" className="gap-1 text-red-400 hover:text-red-300">
+                <Trash2 size={14} />{deleting ? t('memory.detail.deleting') : t('memory.detail.delete_entity')}
+              </Button>
+            </div>
           </>
         )}
 
@@ -362,6 +664,7 @@ function DetailPanel({ item, onClose }: { item: any; onClose: () => void }) {
             <Field label={t('memory.detail.field_content')} value={item.content} />
             <Field label={t('memory.detail.field_source')} value={item.source} />
             <Field label={t('memory.detail.field_version')} value={`v${item.version}`} />
+            <Field label={t('memory.detail.field_is_latest')} value={item.is_latest ? t('memory.common.yes') : t('memory.common.no')} />
             <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
             <Field label={t('memory.detail.field_created_at')} value={formatTime(item.created_at)} />
           </>
@@ -388,12 +691,14 @@ function DetailPanel({ item, onClose }: { item: any; onClose: () => void }) {
           </>
         )}
 
-        {(itype === 'all' || itype === 'entity') && item.source_table && (
+        {itype === 'search' && (
           <>
             <Field label={t('memory.detail.field_source_table')} value={item.source_table} />
             <Field label={t('memory.detail.field_title')} value={item.title} />
             <Field label={t('memory.detail.field_content')} value={item.content} />
             <Field label={t('memory.detail.field_relevance')} value={item.score ? `${(item.score * 100).toFixed(0)}%` : '—'} />
+            <Field label={t('memory.detail.field_source_id')} value={item.source_id} />
+            <Field label={t('memory.detail.field_scene_tag')} value={item.scene_tag || '—'} />
           </>
         )}
       </div>
@@ -405,7 +710,7 @@ function Field({ label, value, children }: { label: string; value?: string; chil
   return (
     <div>
       <span className="text-xs text-muted-foreground block mb-0.5">{label}</span>
-      {children || <span className="text-sm text-foreground break-words">{value || '—'}</span>}
+      {children || <span className="text-sm text-foreground break-words whitespace-pre-wrap">{value || '—'}</span>}
     </div>
   );
 }
@@ -461,7 +766,7 @@ function typeSymbol(t: string): string {
   return TYPE_SYMBOLS[t] || '●';
 }
 
-function GraphTab() {
+function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } | null }) {
   // 图数据状态
   const [graphNodes, setGraphNodes] = useState<Map<string, any>>(new Map());
   const [graphEdges, setGraphEdges] = useState<Map<string, any>>(new Map());
@@ -508,71 +813,6 @@ function GraphTab() {
     setSearching(false);
   }, []);
 
-  // 防抖搜索
-  useEffect(() => {
-    if (!searchQuery.trim()) return;
-    const timer = setTimeout(() => doSearch(searchQuery), 200);
-    return () => clearTimeout(timer);
-  }, [searchQuery, doSearch]);
-
-  // 点击外部关闭下拉
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  // 初始加载：优先通过 userEntityId 精确定位当前用户根节点
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        // 1. 先尝试获取规范的用户实体 ID
-        const statusRes = await window.electron.memoryStatus();
-        const canonicalUserId = statusRes.success ? statusRes.userEntityId : null;
-
-        if (canonicalUserId) {
-          // 精确加载用户根节点的 2 跳子图，从返回的子图中提取中心节点
-          const subgraph = await focusOnNode(canonicalUserId, 2);
-          const centerNode = subgraph?.nodes?.find((n: any) => n.id === canonicalUserId);
-          if (centerNode) {
-            setSelectedNode({
-              id: centerNode.id,
-              name: centerNode.name,
-              type: centerNode.type,
-              summary: centerNode.summary || '',
-              importance: centerNode.importance || 1,
-            });
-          }
-        } else {
-          // 2. 降级：按 type='user' 搜索
-          const res = await window.electron.memoryEntities({ type: 'user', limit: 1 });
-          if (res.success && res.entities && res.entities.length > 0) {
-            const userEntity = res.entities[0];
-            await focusOnNode(userEntity.id, 2);
-            setSelectedNode({
-              id: userEntity.id,
-              name: userEntity.name,
-              type: userEntity.type,
-              summary: userEntity.summary || '',
-              importance: userEntity.importance || 1,
-            });
-          } else if (res.error) {
-            setError(res.error);
-          }
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
   // ── 以某节点为中心加载子图 ────────────────────────────
   const focusOnNode = useCallback(async (entityId: string, maxHops: number = 2) => {
     setLoading(true);
@@ -616,6 +856,72 @@ function GraphTab() {
     }
   }, [t]);
 
+  // 防抖搜索
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const timer = setTimeout(() => doSearch(searchQuery), 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery, doSearch]);
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // 初始加载：优先通过 userEntityId 精确定位当前用户根节点
+  useEffect(() => {
+    if (focusEntity?.id) return;
+    (async () => {
+      try {
+        setLoading(true);
+        // 1. 先尝试获取规范的用户实体 ID
+        const statusRes = await window.electron.memoryStatus();
+        const canonicalUserId = statusRes.success ? statusRes.userEntityId : null;
+
+        if (canonicalUserId) {
+          // 精确加载用户根节点的 2 跳子图，从返回的子图中提取中心节点
+          const subgraph = await focusOnNode(canonicalUserId, 2);
+          const centerNode = subgraph?.nodes?.find((n: any) => n.id === canonicalUserId);
+          if (centerNode) {
+            setSelectedNode({
+              id: centerNode.id,
+              name: centerNode.name,
+              type: centerNode.type,
+              summary: centerNode.summary || '',
+              importance: centerNode.importance || 1,
+            });
+          }
+        } else {
+          // 2. 降级：按 type='user' 搜索
+          const res = await window.electron.memoryEntities({ type: 'user', limit: 1 });
+          if (res.success && res.entities && res.entities.length > 0) {
+            const userEntity = res.entities[0];
+            await focusOnNode(userEntity.id, 2);
+            setSelectedNode({
+              id: userEntity.id,
+              name: userEntity.name,
+              type: userEntity.type,
+              summary: userEntity.summary || '',
+              importance: userEntity.importance || 1,
+            });
+          } else if (res.error) {
+            setError(res.error);
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('memory.graph.load_failed'));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [focusEntity?.id, focusOnNode, t]);
+
   // ── 选择搜索结果（清空并聚焦到该节点） ─────────────────
   const selectSearchResult = useCallback(async (node: any) => {
     setShowDropdown(false);
@@ -632,6 +938,26 @@ function GraphTab() {
     // 自动选中
     setSelectedNode({ id: node.id, name: node.name, type: node.type, summary: (node as any).summary || '', importance: (node as any).importance || 1 });
   }, [focusOnNode]);
+
+  useEffect(() => {
+    if (!focusEntity?.id) return;
+    setSearchQuery(focusEntity.name);
+    setShowDropdown(false);
+    setGraphNodes(new Map());
+    setGraphEdges(new Map());
+    setCenterId(null);
+    setSelectedNode(null);
+    focusOnNode(focusEntity.id, 2).then((subgraph) => {
+      const centerNode = subgraph?.nodes?.find((n: any) => n.id === focusEntity.id);
+      setSelectedNode({
+        id: focusEntity.id,
+        name: centerNode?.name || focusEntity.name,
+        type: centerNode?.type || 'entity',
+        summary: centerNode?.summary || '',
+        importance: centerNode?.importance || 1,
+      });
+    });
+  }, [focusEntity?.id, focusEntity?.name, focusOnNode]);
 
   // ── 动态生成 cytoscape elements ──────────────────────
   const elements = (() => {
@@ -811,10 +1137,10 @@ function GraphTab() {
     try {
       const res = await window.electron.memoryMaintenanceTrigger();
       if (!res.success) {
-        setError(res.error || '记忆整理失败');
+        setError(res.error || t('memory.browse.maintenance_failed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '记忆整理失败');
+      setError(err instanceof Error ? err.message : t('memory.browse.maintenance_failed'));
     }
     setMaintaining(false);
   };
@@ -1177,6 +1503,9 @@ function GraphTab() {
 function StatsTab() {
   const [stats, setStats] = useState<any>(null);
   const [entities, setEntities] = useState<any[]>([]);
+  const [facts, setFacts] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1184,13 +1513,19 @@ function StatsTab() {
     (async () => {
       setLoading(true);
       try {
-        const [sRes, eRes] = await Promise.all([
+        const [sRes, eRes, fRes, evRes, epRes] = await Promise.all([
           window.electron.memoryStats(),
           window.electron.memoryEntities({ limit: 500 }),
+          window.electron.memoryFacts({ limit: 500 }),
+          window.electron.memoryTimeline({ limit: 500 }),
+          window.electron.memoryEpisodes({ limit: 200 }),
         ]);
         if (sRes.success) setStats(sRes.stats);
         else setError(sRes.error || t('memory.load_stats_failed'));
         if (eRes.success) setEntities(eRes.entities || []);
+        if (fRes.success) setFacts(fRes.facts || []);
+        if (evRes.success) setEvents(evRes.events || []);
+        if (epRes.success) setEpisodes(epRes.episodes || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('memory.load_failed'));
       } finally {
@@ -1209,9 +1544,29 @@ function StatsTab() {
   const totalEntities = entities.length;
   const maxTypeCount = sortedTypes[0]?.[1] || 1;
 
+  const allMemoryItems = [
+    ...entities.map(normalizeEntity),
+    ...facts.map(normalizeFact),
+    ...events.map(normalizeEvent),
+    ...episodes.map(normalizeEpisode),
+  ];
+
   // 按重要性分布
   const importanceDist: Record<number, number> = {};
-  entities.forEach(e => { importanceDist[e.importance] = (importanceDist[e.importance] || 0) + 1; });
+  allMemoryItems.forEach(item => {
+    if (item.importance) importanceDist[item.importance] = (importanceDist[item.importance] || 0) + 1;
+  });
+  const totalImportantItems = allMemoryItems.filter(item => item.importance).length;
+
+  const sceneDist: Record<string, number> = {};
+  allMemoryItems.forEach(item => {
+    const scene = item.sceneTag || t('memory.stats.unlabeled_scene');
+    sceneDist[scene] = (sceneDist[scene] || 0) + 1;
+  });
+  const sortedScenes = Object.entries(sceneDist).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const topEntities = [...entities]
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0) || (b.ref_count || 0) - (a.ref_count || 0))
+    .slice(0, 8);
 
   const statCards = stats ? [
     { label: t('memory.stats.card_entity'), value: stats.entityCount, icon: <User size={16} />, color: 'text-blue-400' },
@@ -1278,7 +1633,7 @@ function StatsTab() {
                   <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-yellow-500/60 rounded-full"
-                      style={{ width: totalEntities > 0 ? `${(count / totalEntities) * 100}%` : '0%' }}
+                      style={{ width: totalImportantItems > 0 ? `${(count / totalImportantItems) * 100}%` : '0%' }}
                     />
                   </div>
                   <span className="text-muted-foreground w-8 text-right">{count}</span>
@@ -1286,6 +1641,40 @@ function StatsTab() {
               );
             })}
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 rounded-lg border border-border bg-card">
+          <h4 className="text-sm font-semibold text-foreground mb-3">{t('memory.stats.title_scene_dist')}</h4>
+          {sortedScenes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('memory.stats.empty')}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {sortedScenes.map(([scene, count]) => (
+                <span key={scene} className="text-xs px-2 py-1 rounded border border-border bg-background text-muted-foreground">
+                  {scene} · {count}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 rounded-lg border border-border bg-card">
+          <h4 className="text-sm font-semibold text-foreground mb-3">{t('memory.stats.title_top_entities')}</h4>
+          {topEntities.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('memory.stats.empty')}</p>
+          ) : (
+            <div className="space-y-2">
+              {topEntities.map(entity => (
+                <div key={entity.id} className="flex items-center gap-2 text-xs">
+                  <span className={`px-1.5 py-0.5 rounded border ${getTypeColor(entity.type)}`}>{entity.type}</span>
+                  <span className="text-foreground line-clamp-1">{entity.name}</span>
+                  <span className="ml-auto"><ImportanceStars value={entity.importance || 1} /></span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1376,6 +1765,8 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('browse');
   const [clearing, setClearing] = useState(false);
   const [memStatus, setMemStatus] = useState<{ initialized?: boolean; error?: string | null } | null>(null);
+  const [browseReloadToken, setBrowseReloadToken] = useState(0);
+  const [graphFocusEntity, setGraphFocusEntity] = useState<{ id: string; name: string } | null>(null);
   const sessionStatus = useSessionInitStore((s) => s.status);
 
   const checkMemoryStatus = useCallback(async () => {
@@ -1403,7 +1794,8 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
       const res = await window.electron.memoryClearAll();
       if (res.success) {
         alert(t('memory.alert_clear_success'));
-        window.location.reload();
+        setBrowseReloadToken(v => v + 1);
+        checkMemoryStatus();
       } else {
         alert(t('memory.alert_clear_failed', { error: res.error }));
       }
@@ -1430,16 +1822,6 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
           <h1 className="text-base font-semibold">{t('memory.title')}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={handleClearAll}
-            disabled={clearing}
-            variant="ghost"
-            size="sm"
-            className="text-red-400 hover:text-red-300 gap-1"
-          >
-            <Trash2 size={14} />
-            {clearing ? t('memory.btn_clearing') : t('memory.btn_clear_all')}
-          </Button>
           <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title={t('memory.btn_close')}>
             <X size={16} />
           </Button>
@@ -1479,8 +1861,18 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
         </aside>
 
         <div className="flex-1 overflow-hidden">
-          {activeTab === 'browse' && <BrowseTab />}
-          {activeTab === 'graph' && <GraphTab />}
+          {activeTab === 'browse' && (
+            <BrowseTab
+              onOpenGraph={(entity) => {
+                setGraphFocusEntity(entity);
+                setActiveTab('graph');
+              }}
+              onClearAll={handleClearAll}
+              clearBusy={clearing}
+              reloadToken={browseReloadToken}
+            />
+          )}
+          {activeTab === 'graph' && <GraphTab focusEntity={graphFocusEntity} />}
           {activeTab === 'stats' && <StatsTab />}
           {activeTab === 'log' && <LogTab />}
         </div>

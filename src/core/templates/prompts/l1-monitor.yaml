@@ -4,31 +4,29 @@ layer: L1
 scenes:
   - monitor
 priority: 85
-estimatedTokens: 250
+estimatedTokens: 260
 match:
-  keywords: "monitor alert log metrics logging tracing observability"
-  description: "System monitoring, alert configuration, log analysis"
+  keywords: "monitor alert log metrics logging tracing observability dashboard incident uptime health"
+  description: "System monitoring, alert configuration, log analysis, observability"
 content: |
-  # Monitoring Operations · Mental Model
+  # Monitor Scene
 
-  ## Core Perspective
-  Three pillars of observability: **Logs + Metrics + Tracing**.
-  The value of monitoring lies not in the amount of data, but in fast alerts and accurate pinpointing.
+  Monitoring work relies on evidence from logs, metrics, traces, alerts, and dashboards.
 
-  ## Decision Framework
-  | Condition | Strategy |
-  |------|------|
-  | Application performance issue | First use tracing to see call chain latency |
-  | System-level issue | First check CPU/memory/disk/network metrics |
-  | Error rate increase | First check log aggregation, filter by error level |
-  | Setting up alerts | Alerts must have actionable information, not noise |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Monitoring plan (architecture + tools)
-  - Configuration files (monitoring + alert rules)
-  - Dashboard design (key metric visualization)
-  - Operations manual (common issue response procedures)
+  - Query MCP for monitoring platforms, logs, CI, cloud, databases, issue trackers, or live service health.
+  - Query observability/incident Skills when a reusable diagnostic or alert-design workflow may help.
+  - Use Agent Team for incidents or monitoring design that needs operations, backend, security, and product impact perspectives.
+  - Use Task/todo for incident-style flows: gather evidence, diagnose, mitigate, verify, document follow-up.
+
+  ## Monitoring Contract
+
+  - Do not guess live system state from memory.
+  - Distinguish observed facts from hypotheses.
+  - Alerts must be actionable and tied to user or system impact.
+  - Include verification and follow-up steps for non-trivial monitoring changes.
 
   ## Boundary
-  - ✗ Do not modify application code
-  - ✗ Do not make deployment changes (that's the deploy scene)
+
+  Do not modify deployment or production configuration without explicit user confirmation.

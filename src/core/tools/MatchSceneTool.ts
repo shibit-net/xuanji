@@ -23,7 +23,8 @@ export class MatchSceneTool extends BaseTool {
   readonly description = [
     'Find the best-matching scene(s) for a given task description using semantic vector matching.',
     '',
-    'Always call this before task or agent_team to discover the right scene for sub-agents.',
+    'Use this when choosing scenes for a split sub-task or team member, or when scene context is uncertain.',
+    'Front-stage intent analysis is for the main agent only; delegated sub-tasks should be matched again. Each task/member may use 1-3 scenes.',
     'Each scene defines a sub-agent behavior mode (e.g., write_code, debug, explore, plan).',
     '',
     'Score guide:',
@@ -41,7 +42,7 @@ export class MatchSceneTool extends BaseTool {
       },
       top_k: {
         type: 'number',
-        description: 'Number of scenes to return (default: 5, max: 10)',
+        description: 'Number of scenes to return (default: 3, max: 10). Pick 1-3 scenes for a delegated sub-task/member.',
       },
     },
     required: ['task_description'],

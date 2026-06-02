@@ -178,9 +178,9 @@ async loadSceneContent(scene: string): Promise<string | null> {
     await this.init();
   }
 
-  // 查找匹配该场景的 L1 组件
+  const sceneIds = this.normalizeSceneList(scene);
   const l1Components = Array.from(this.components.values()).filter(
-    (c) => c.layer === 'L1' && c.scenes?.includes(scene)
+    (c) => c.layer === 'L1' && c.scenes?.some((s) => sceneIds.includes(s))
   );
 
   if (l1Components.length === 0) {
@@ -188,15 +188,17 @@ async loadSceneContent(scene: string): Promise<string | null> {
     return null;
   }
 
-  // 取优先级最高的 L1 组件
-  const component = l1Components.sort((a, b) => b.priority - a.priority)[0];
-  try {
-    const rendered = await component.render({});
-    return rendered?.trim() || null;
-  } catch (err) {
-    log.error(`Failed to render L1 component for scene ${scene}:`, err);
-    return null;
+  const renderedParts: string[] = [];
+  for (const component of l1Components.sort((a, b) => b.priority - a.priority)) {
+    try {
+      const rendered = await component.render({});
+      if (rendered?.trim()) renderedParts.push(rendered.trim());
+    } catch (err) {
+      log.error(`Failed to render L1 component ${component.id} for scene ${scene}:`, err);
+    }
   }
+
+  return renderedParts.join('\n\n') || null;
 }
 
 /**
@@ -580,9 +582,10 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     }
 
     // 2. 加载 L1 scene 组件（子 agent 也需要场景心智模型）
-    if (scene && scene !== 'general') {
+    const sceneIds = this.normalizeSceneList(scene);
+    if (sceneIds.length > 0) {
       for (const component of this.components.values()) {
-        if (component.layer === 'L1' && component.scenes?.includes(scene)) {
+        if (component.layer === 'L1' && component.scenes?.some((s) => sceneIds.includes(s))) {
           selectedComponents.push(component);
           estimatedTokens += component.estimatedTokens;
           if (component.requiredTools) {
@@ -645,6 +648,15 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
       thinking,
       estimatedTokens,
     };
+  }
+
+  private normalizeSceneList(scene?: string): string[] {
+    if (!scene || scene === 'general') return [];
+    return scene
+      .split(',')
+      .map((s) => s.trim().replace(/^l[12]-/, ''))
+      .filter(Boolean)
+      .slice(0, 3);
   }
 
   /** 获取所有组件（用于 GUI 管理） */

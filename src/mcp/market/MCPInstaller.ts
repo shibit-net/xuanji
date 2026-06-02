@@ -270,7 +270,7 @@ export class MCPInstaller {
           parsedTemplate = JSON.parse(installConfig.configTemplate);
         } catch { /* ignore parse errors */ }
       }
-      const transport = parsedTemplate.transport;
+      const transport = parsedTemplate.transport as MCPServerConfig['transport'] | 'bundle' | undefined;
 
       const installPath = this.getInstallPath(packageId);
       await fs.mkdir(installPath, { recursive: true });

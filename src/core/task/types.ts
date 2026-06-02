@@ -90,6 +90,7 @@ export interface StartTaskOptions {
   isolation?: 'none' | 'worktree';
   /** 关联的子 agent ID，透传给 completion 事件供前端精确清理 */
   subAgentId?: string;
+  parentAgentId?: string;
   /** 执行函数：接收 abortSignal + onProgress + groupId，返回 ToolResult */
   executor: (signal: AbortSignal, onProgress: (progress: Partial<TaskProgress>) => void, groupId: string) => Promise<ToolResult>;
 }

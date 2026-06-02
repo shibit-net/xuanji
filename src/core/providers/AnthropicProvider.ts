@@ -144,14 +144,10 @@ export class AnthropicProvider extends BaseLLMProvider {
     // MessageManager 输出结构化 ContentBlock[]，区分稳定基础部分和动态后缀
     const systemBlocks = this.buildSystemBlocks(systemMessages);
 
-    // 🆕 动态计算 max_tokens：基于输入内容和模型限制
-    const estimatedInputTokens = this.estimateInputTokens(systemBlocks, chatMessages, tools);
-    const adjustedMaxTokens = this.calculateMaxTokens(config.maxTokens || 0, estimatedInputTokens);
-
     // 构造 Anthropic API 请求参数
-    const params: Anthropic.MessageCreateParamsStreaming = {
+    const params = {
       model: config.model,
-      max_tokens: adjustedMaxTokens,
+      max_tokens: config.maxTokens ?? 8192,
       stream: true,
       messages: chatMessages.map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -187,7 +183,7 @@ export class AnthropicProvider extends BaseLLMProvider {
         || config.baseURL.includes('api.anthropic.com');
 
       // 自动计算 budget_tokens：显式配置优先，否则取 max_tokens 的 30%
-      const autoBudget = Math.floor(adjustedMaxTokens * 0.3);
+      const autoBudget = config.maxTokens ? Math.floor(config.maxTokens * 0.3) : 1024;
       const budgetTokens = config.thinking.budgetTokens ?? autoBudget;
 
       (params as any).thinking = (config.thinking.type === 'adaptive' && isDirectAnthropic)
@@ -207,7 +203,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     if (params.tools) {
       cacheBreakpoints += (params.tools as any[]).filter((t: any) => t.cache_control).length;
     }
-    this.log.debug(`Request: model=${params.model}, max_tokens=${params.max_tokens}, messages=${chatMessages.length}, tools=${tools.length}, cache_breakpoints=${cacheBreakpoints}`);
+    this.log.debug(`Request: model=${params.model}, max_tokens=${(params as any).max_tokens ?? '未设置'}, messages=${chatMessages.length}, tools=${tools.length}, cache_breakpoints=${cacheBreakpoints}`);
 
     // 🆕 打印完整请求体用于调试
     // 设置环境变量 DEBUG_FULL_REQUEST=1 可以查看完整请求体（包括 prompt 内容）
@@ -215,7 +211,7 @@ export class AnthropicProvider extends BaseLLMProvider {
       this.log.debug('=== 完整请求体 ===');
       this.log.debug(JSON.stringify({
         model: params.model,
-        max_tokens: params.max_tokens,
+        max_tokens: (params as any).max_tokens,
         stream: params.stream,
         temperature: params.temperature,
         thinking: (params as any).thinking,
@@ -236,7 +232,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     // 打印请求结构摘要
     this.log.debug(`Request structure: {
   model: "${params.model}",
-  max_tokens: ${params.max_tokens},
+  max_tokens: ${(params as any).max_tokens ?? '未设置'},
   stream: ${params.stream},
   system: ${Array.isArray(params.system) ? `[${params.system.length} blocks]` : 'undefined'},
   messages: ${JSON.stringify(chatMessages.map(m => ({
@@ -250,7 +246,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
     try {
       // 🔧 支持 AbortSignal：传递给 Anthropic SDK
-      const stream = client.messages.stream(params, {
+      const stream = client.messages.stream(params as any, {
         signal: config.signal,
       });
 
@@ -524,67 +520,4 @@ export class AnthropicProvider extends BaseLLMProvider {
     return blocks;
   }
 
-  /**
-   * 估算输入 tokens 数量（粗略估算）
-   * 规则：英文 ~4 字符/token，中文 ~1.5 字符/token，JSON ~1.2 字符/token
-   */
-  private estimateInputTokens(
-    systemBlocks: Anthropic.TextBlockParam[],
-    chatMessages: Message[],
-    tools: ToolSchema[],
-  ): number {
-    let totalChars = 0;
-
-    // System prompt
-    for (const block of systemBlocks) {
-      totalChars += block.text?.length || 0;
-    }
-
-    // Chat messages
-    for (const msg of chatMessages) {
-      if (typeof msg.content === 'string') {
-        totalChars += msg.content.length;
-      } else if (Array.isArray(msg.content)) {
-        for (const block of msg.content) {
-          totalChars += (block as any).text?.length || (block as any).content?.length || 0;
-        }
-      }
-    }
-
-    // Tools (JSON schema)
-    totalChars += JSON.stringify(tools).length;
-
-    // 粗略估算：平均 3 字符/token
-    return Math.ceil(totalChars / 3);
-  }
-
-  /**
-   * 根据上下文窗口和输入 tokens 动态计算 max_tokens
-   *
-   * max_tokens = min(用户配置, 上下文窗口 - 输入tokens - 安全边距)
-   *
-   * 遵从用户配置，不硬编码模型输出上限。
-   * 上下文窗口 200k 是物理限制，非策略选择。
-   */
-  private calculateMaxTokens(requestedMaxTokens: number, estimatedInputTokens: number): number {
-    const contextWindow = 1_000_000;
-
-    // 安全边距（预留给响应元数据等）
-    const safetyMargin = 1000;
-
-    // 基于上下文窗口的最大输出
-    const contextBasedMax = Math.max(0, contextWindow - estimatedInputTokens - safetyMargin);
-
-    // 用户未配置时，让 API 自行决定；已配置则取用户值与上下文限制的最小值
-    const finalMaxTokens = requestedMaxTokens
-      ? Math.min(requestedMaxTokens, contextBasedMax)
-      : contextBasedMax;
-
-    // 日志记录
-    if (finalMaxTokens < requestedMaxTokens) {
-      this.log.debug(`max_tokens adjusted: ${requestedMaxTokens} → ${finalMaxTokens} (input: ~${estimatedInputTokens}, context: ${contextWindow})`);
-    }
-
-    return Math.max(1024, finalMaxTokens); // 至少保证 1024 tokens 输出空间
-  }
 }

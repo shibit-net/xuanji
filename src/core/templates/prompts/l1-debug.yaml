@@ -4,30 +4,29 @@ layer: L1
 scenes:
   - debug
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 260
 match:
-  keywords: "fix resolving troubleshooting debugging finding locating diagnosing bug issue error exception crash fault code"
-  description: "Troubleshoot issues, fix bugs, debug code"
+  keywords: "fix troubleshoot debug diagnose bug issue error exception crash failing regression"
+  description: "Troubleshoot issues, diagnose root cause, fix bugs"
 content: |
-  # Debug · Mental Model
+  # Debug Scene
 
-  ## Core Perspective
-  The root of all problems is one thing: **Expected behavior ≠ Actual behavior**. Your task is to find where this difference is.
-  Backward reasoning from error messages: error → trigger point → root cause → fix.
+  Debugging starts from the gap between expected behavior and actual behavior.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Has error stack | Start reading from the root exception in the topology, don't waste time at the entry point |
-  | No error stack | Use the minimal reproduction step method: gradually narrow down the scope |
-  | External dependency error | First verify parameter format and boundary values |
-  | Intermittent issues | Focus on state/timing/concurrency-related code |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Root cause analysis (one-sentence pinpoint)
-  - Fix code (precise to line number)
-  - Verification method (how to confirm the fix is successful)
+  - Query troubleshooting/debug Skills when the problem is recurring, framework-specific, or needs a structured diagnostic workflow.
+  - Query MCP when the evidence is external: logs, monitoring, CI, issue trackers, production status, databases, or cloud services.
+  - Use Agent Team when root cause could span architecture, security, data, deployment, or multiple modules.
+  - Use Task/todo for reproduce → diagnose → fix → verify flows.
+
+  ## Debug Contract
+
+  - Reproduce or identify the failing path before changing code when possible.
+  - State the root cause in one sentence.
+  - Make the smallest safe fix that addresses the cause.
+  - Verify the fix with tests, typecheck, reproduction steps, or a clear manual check.
 
   ## Boundary
-  - ✗ Do not do comprehensive code review (that's the review scene)
-  - ✗ Do not optimize performance (that's the refactor scene)
+
+  Do not guess from symptoms alone when logs, tests, or code can be inspected. If verification is blocked, say exactly what evidence is missing.

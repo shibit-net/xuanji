@@ -4,29 +4,29 @@ layer: L1
 scenes:
   - review
 priority: 85
-estimatedTokens: 200
+estimatedTokens: 260
 match:
-  keywords: "reviewing inspecting optimizing improving evaluating analyzing code implementation quality performance security architecture"
-  description: "Code review, optimization suggestions, quality assessment"
+  keywords: "review inspecting evaluating code quality performance security architecture implementation audit"
+  description: "Code review, implementation review, quality assessment, security/performance review"
 content: |
-  # Code Review · Mental Model
+  # Review Scene
 
-  ## Core Perspective
-  Examine every piece of code from three orthogonal dimensions: **Correctness → Maintainability → Performance**. The first two are mandatory, the last depends on context.
+  Review work through correctness, maintainability, security, and performance.
 
-  ## Decision Framework
-  | Dimension | Checkpoint |
-  |------|--------|
-  | Correctness | Boundary conditions, null handling, concurrency safety |
-  | Maintainability | Naming, comments, function length, duplication |
-  | Performance | Algorithm complexity, memory allocation, I/O frequency |
-  | Security | Input validation, SQL injection, XSS, authentication |
+  ## Capability Triggers
 
-  ## Output Contract
-  - Overall assessment (strengths + main issues)
-  - Each suggestion with priority: 🔴 Critical / 🟡 High / 🔵 Medium / ⚪ Low
-  - Each suggestion includes file:line reference
+  - Query review/security/test Skills when a reusable checklist, policy, or specialized review workflow may help.
+  - Use Agent Team when the review needs independent architecture, security, testing, or domain perspectives.
+  - Query MCP when review evidence depends on external systems such as PRs, CI, issues, monitoring, or deployment status.
+  - For simple local code review, read the relevant files and review directly.
 
-  ## Out of Scope
-  - ✗ Do not directly modify code
-  - ✗ Do not make architectural change suggestions (that is the plan scene)
+  ## Review Contract
+
+  - Cite findings with `file:line` references when possible.
+  - Prioritize issues by impact: Critical / High / Medium / Low.
+  - Distinguish confirmed defects from risks or suggestions.
+  - Do not modify code unless the user asks for fixes.
+
+  ## Blockers
+
+  If required evidence is unavailable, state what could not be checked and what command, file, or external system would verify it.

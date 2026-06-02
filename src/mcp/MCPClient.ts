@@ -151,6 +151,44 @@ export class MCPClient extends EventEmitter {
   }
 
   /**
+   * 将 Node.js bin 目录注入 env.PATH，确保 MCP 子进程能找到 npx/node/npm
+   *
+   * 解决 macOS GUI 应用启动时 PATH 不包含 nvm/brew 等 Node.js 安装路径的问题。
+   * 也兼容 Windows 下通过 nvm-windows 管理的 Node.js 场景。
+   *
+   * 策略（按优先级）:
+   *   1. findNpmCliPath() → 获取 nodePath → 提取 bin 目录
+   *   2. process.execPath → 提取 bin 目录
+   *   3. 兜底: 不修改 PATH（由调用方处理）
+   */
+  private injectNodeBinToPath(env: Record<string, string | undefined>): void {
+    try {
+      // 从 findNpmCliPath 获取 node 路径，提取其 bin 目录
+      const { nodePath } = findNpmCliPath();
+      if (nodePath && nodePath !== 'node') {
+        const nodeBinDir = path.dirname(nodePath);
+        const existingPath = env.PATH || process.env.PATH || '';
+        // 避免重复追加
+        if (!existingPath.split(path.delimiter).includes(nodeBinDir)) {
+          env.PATH = [nodeBinDir, existingPath].filter(Boolean).join(path.delimiter);
+        }
+        return;
+      }
+    } catch { /* 兜底 */ }
+
+    // 兜底: 从 process.execPath 提取 bin 目录
+    try {
+      const execDir = path.dirname(process.execPath);
+      if (path.basename(execDir) === 'bin') {
+        const existingPath = env.PATH || process.env.PATH || '';
+        if (!existingPath.split(path.delimiter).includes(execDir)) {
+          env.PATH = [execDir, existingPath].filter(Boolean).join(path.delimiter);
+        }
+      }
+    } catch { /* 最终兜底 */ }
+  }
+
+  /**
    * 内部启动逻辑
    */
   private async _startInternal(): Promise<void> {
@@ -162,6 +200,10 @@ export class MCPClient extends EventEmitter {
         ...((process as any).resourcesPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
         ...this.config.env,
       };
+
+      // 增强 PATH：将 Node.js bin 目录注入环境变量，确保 MCP 子进程能找到 npx/node/npm
+      // 解决 macOS GUI 应用启动时 PATH 不包含 nvm/brew 等路径的问题
+      this.injectNodeBinToPath(env);
 
       // 解析命令：npx → Electron 内置 Node + npm-cli.js
       let { command, args } = { command: this.config.command, args: this.config.args ?? [] };

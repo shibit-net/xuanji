@@ -29,7 +29,7 @@ interface CronJob {
   dayOfMonth?: number;
   month?: number;
   scheduledAt?: number;
-  action: 'learn' | 'custom';
+  action: 'custom';
   params?: Record<string, any>;
   prompt?: string;
   enabled?: boolean;
@@ -147,7 +147,7 @@ function JobEditDialog({
       id: form.id || `cron-${Date.now().toString(36)}`,
       userId: job.userId || '',
       type: form.type as 'daily' | 'weekly' | 'monthly' | 'yearly' | 'once',
-      action: form.action as 'learn' | 'custom',
+      action: 'custom',
       description: form.description || undefined,
       enabled: form.enabled,
       prompt: form.prompt || undefined,
@@ -347,19 +347,7 @@ function JobEditDialog({
             </>
           )}
 
-          {/* Action */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_action')}</label>
-            <select
-              value={form.action}
-              onChange={(e) => setForm({ ...form, action: e.target.value })}
-              className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-            >
-              <option value="learn">{t('scheduler.action_learn')}</option>
-              <option value="custom">{t('scheduler.action_custom')}</option>
-            </select>
-          </div>
-
+          {/* Action 固定为 custom */}
           {form.action === 'custom' && (
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_handler')}</label>
@@ -369,19 +357,6 @@ function JobEditDialog({
                 onChange={(e) => setForm({ ...form, handlerName: e.target.value })}
                 className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
                 placeholder={t('scheduler.handler_placeholder')}
-              />
-            </div>
-          )}
-
-          {form.action === 'learn' && (
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground">{t('scheduler.field_learn_prompt')}</label>
-              <input
-                type="text"
-                value={form.prompt}
-                onChange={(e) => setForm({ ...form, prompt: e.target.value })}
-                className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-                placeholder={t('scheduler.learn_placeholder')}
               />
             </div>
           )}
@@ -564,11 +539,7 @@ function JobsTab() {
                         {t('scheduler.status_completed')}
                       </span>
                     )}
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${
-                      job.action === 'learn'
-                        ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25'
-                        : 'bg-pink-500/15 text-pink-400 border-pink-500/25'
-                    }`}>
+                    <span className="text-xs px-1.5 py-0.5 rounded border bg-pink-500/15 text-pink-400 border-pink-500/25">
                       {job.action}
                     </span>
                   </div>

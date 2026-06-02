@@ -6,6 +6,7 @@
 // ============================================================
 
 import { XuanjiEvent } from '@/core/events/events';
+import type { TaskCompletionResult } from '@/core/task/types';
 
 export interface XuanjiEventMap {
   [XuanjiEvent.CONVERSATION_STATE_CHANGED]: { from: string; to: string };
@@ -15,8 +16,8 @@ export interface XuanjiEventMap {
   // === 任务管理中心 ===
   [XuanjiEvent.ASYNC_TASK_STARTED]: { groupId: string; type: string };
   [XuanjiEvent.ASYNC_TASK_PROGRESS]: { groupId: string; progress: number };
-  [XuanjiEvent.ASYNC_TASK_COMPLETED]: { groupId: string; result: any };
-  [XuanjiEvent.ASYNC_TASK_FAILED]: { groupId: string; error: string };
+  [XuanjiEvent.ASYNC_TASK_COMPLETED]: TaskCompletionResult;
+  [XuanjiEvent.ASYNC_TASK_FAILED]: TaskCompletionResult;
 
   [XuanjiEvent.AGENT_CREATED]: { agentId: string; name: string };
   [XuanjiEvent.AGENT_STARTED]: { userId?: string; model: string };
@@ -55,7 +56,6 @@ export interface XuanjiEventMap {
   [XuanjiEvent.MEMORY_SEARCHED]: { query: string; type: string; resultCount: number };
   [XuanjiEvent.MEMORY_EXTRACTED]: { sessionId: string; entityCount: number; factCount: number; eventCount: number };
   [XuanjiEvent.MEMORY_MAINTENANCE]: { action: string; detail?: string };
-  [XuanjiEvent.MEMORY_LEARNING_PROGRESS]: { goal: string; stage: 'started' | 'completed' | 'error'; depth?: string; result?: any; error?: string };
   [XuanjiEvent.MEMORY_DELIVER_MESSAGE]: { userId: string; message: string; source: string };
 
   // Hook 事件 — 每个 hook 类型独立，payload = HookEventContext 展开

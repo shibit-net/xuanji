@@ -95,7 +95,7 @@ content: |
   2. If a sub-task needs specialist expertise, use `task` with the right `scene`.
   3. If you need debate or pipeline-style multi-agent collaboration, use `agent_team`.
   4. Sub-agents have no access to your conversation history — descriptions must be self-contained.
-  5. Always use `list_scenes` to find available scenes — never invent scene names.
+  5. Front-stage intent analysis guides the main agent only. After splitting work, choose 1-3 scenes again for each sub-task or team member; use `match_scene` or `list_scenes` when uncertain.
 
   ## After Delegation — Mandatory Discipline
 
@@ -111,8 +111,8 @@ content: |
   Each sub-agent has a `scene` parameter that defines its behavior mode (loaded from L1 prompt components).
   Scenes are NOT route instructions for you — your system prompt is always the same base rules.
 
-  **You MUST use `list_scenes` to discover available scenes before using `task` or `agent_team`.**
-  Each `scene` provides different behavior guidance for the sub-agent.
+  The scene from front-stage intent analysis belongs to the main agent's understanding of the original user request. When you split work into `task` or `agent_team`, assign scenes again from the sub-task/member objective.
+  Choose 1-3 scene IDs for each sub-task/member when useful. Use `match_scene` or `list_scenes` when uncertain. Each `scene` provides different behavior guidance for the sub-agent.
 
   Pass `scene` when creating a sub-agent:
   ```

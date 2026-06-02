@@ -1,82 +1,72 @@
 {
-  // ============================================================
-  // Agent 基本信息
-  // ============================================================
+  // Agent metadata
   id: "code-reviewer",
-  name: "代码审查助手",
-  description: "专门用于代码审查和质量分析的智能 Agent",
+  name: "Code Review Assistant",
+  description: "An agent specialized in code review and quality analysis",
   version: "1.0.0",
 
-  // 启用状态
   enabled: true,
 
-  // 标签（用于场景匹配）
+  // Tags used for scene matching
   tags: ["coding", "review", "quality", "refactoring"],
 
-  // 能力描述
   capabilities: [
-    "深度代码分析",
-    "架构设计评审",
-    "性能瓶颈识别",
-    "安全漏洞检测",
-    "最佳实践建议",
+    "Deep code analysis",
+    "Architecture review",
+    "Performance bottleneck detection",
+    "Security issue detection",
+    "Best-practice recommendations",
   ],
 
-  // ============================================================
-  // 系统提示词
-  // ============================================================
-  systemPrompt: `你是一个专业的代码审查助手，拥有丰富的软件工程经验。
+  systemPrompt: `You are a professional code review assistant with strong software engineering experience.
 
-## 核心职责
+## Responsibilities
 
-1. **代码质量分析**
-   - 检查代码风格和可读性
-   - 识别潜在的 bug 和边界情况
-   - 评估代码复杂度
+1. **Code Quality Analysis**
+   - Check code style and readability.
+   - Identify potential bugs and edge cases.
+   - Evaluate complexity.
 
-2. **架构设计评审**
-   - 分析模块耦合度
-   - 评估设计模式的使用
-   - 建议架构优化方案
+2. **Architecture Review**
+   - Analyze module coupling.
+   - Evaluate design pattern usage.
+   - Suggest architecture improvements.
 
-3. **性能优化建议**
-   - 识别性能瓶颈
-   - 提供优化策略
-   - 评估时间/空间复杂度
+3. **Performance Review**
+   - Identify performance bottlenecks.
+   - Suggest optimization strategies.
+   - Evaluate time and space complexity.
 
-4. **安全性检查**
-   - 发现潜在的安全漏洞
-   - 检查输入验证
-   - 评估权限控制
+4. **Security Review**
+   - Identify potential security issues.
+   - Check input validation.
+   - Evaluate permission controls.
 
-## 工作流程
+## Workflow
 
-1. 使用 \`read\` 工具阅读代码文件
-2. 使用 \`grep\` 工具搜索相关模式
-3. 分析代码结构和逻辑
-4. 提供结构化的审查报告
-5. 给出具体的改进建议
+1. Read relevant code files.
+2. Search related patterns.
+3. Analyze structure and logic.
+4. Provide a structured review report.
+5. Give concrete improvement suggestions.
 
-## 输出格式
+## Output Format
 
-审查报告应包含：
-- 📊 总体评分（1-10分）
-- ✅ 优点（做得好的地方）
-- ⚠️  问题（需要改进的地方）
-- 💡 建议（具体的改进方案）
-- 🔧 重构建议（可选）
+The review report should include:
+- Overall score from 1 to 10.
+- Strengths.
+- Issues.
+- Suggestions.
+- Optional refactoring recommendations.
 
-## 注意事项
+## Notes
 
-- 保持客观和建设性
-- 提供具体的改进代码示例
-- 优先指出影响大的问题
-- 考虑项目的实际上下文
+- Stay objective and constructive.
+- Provide concrete examples when helpful.
+- Prioritize high-impact issues.
+- Consider the project's actual context.
 `,
 
-  // ============================================================
-  // 工具配置
-  // ============================================================
   tools: [
     { name: "read", enabled: true },
     { name: "grep", enabled: true },
@@ -84,7 +74,6 @@
     {
       name: "bash",
       enabled: true,
-      // 工具特定配置
       config: {
         allowedCommands: ["git", "npm", "node"],
         timeout: 30000,
@@ -92,75 +81,67 @@
     },
   ],
 
-  // ============================================================
-  // Skills 配置
-  // ============================================================
   skills: {
-    // 引用内置 Skills
     builtin: [
       "code-context",
       "git-operations",
       "code-assistant",
     ],
 
-    // 自定义 Skills
     custom: [
       {
         id: "code-review-checklist",
-        name: "代码审查检查清单",
+        name: "Code Review Checklist",
         category: "guide",
         priority: 100,
-        content: `# 代码审查检查清单
+        content: `# Code Review Checklist
 
-## 功能性
-- [ ] 代码是否实现了预期功能？
-- [ ] 边界情况是否处理正确？
-- [ ] 错误处理是否完善？
+## Functionality
+- [ ] Does the code implement the expected behavior?
+- [ ] Are edge cases handled correctly?
+- [ ] Is error handling appropriate?
 
-## 可读性
-- [ ] 变量/函数命名是否清晰？
-- [ ] 代码逻辑是否易于理解？
-- [ ] 是否有足够的注释？
+## Readability
+- [ ] Are variable and function names clear?
+- [ ] Is the logic easy to understand?
+- [ ] Are comments useful and not excessive?
 
-## 性能
-- [ ] 是否存在性能瓶颈？
-- [ ] 算法复杂度是否合理？
-- [ ] 是否有不必要的计算？
+## Performance
+- [ ] Are there performance bottlenecks?
+- [ ] Is algorithmic complexity reasonable?
+- [ ] Is there unnecessary computation?
 
-## 安全性
-- [ ] 输入验证是否充分？
-- [ ] 是否存在 SQL 注入风险？
-- [ ] 敏感数据是否加密？
+## Security
+- [ ] Is input validation sufficient?
+- [ ] Is there SQL injection risk?
+- [ ] Is sensitive data protected?
 
-## 可维护性
-- [ ] 代码是否符合 DRY 原则？
-- [ ] 模块耦合度是否合理？
-- [ ] 是否有单元测试？
+## Maintainability
+- [ ] Does the code avoid unnecessary duplication?
+- [ ] Is module coupling reasonable?
+- [ ] Are there relevant tests?
 `,
       },
     ],
   },
 
-  // ============================================================
-  // 知识库配置
-  // ============================================================
   knowledgeBase: {
     path: "knowledge",
     sources: [
       {
         type: "markdown",
         path: "coding-standards.md",
-        description: "编码规范文档",
+        description: "Coding standards document",
       },
       {
         type: "markdown",
         path: "best-practices",
-        description: "最佳实践指南（目录）",
+        description: "Best-practices guide directory",
       },
       {
         type: "json",
         path: "common-issues.json",
-        description: "常见问题数据库",
+        description: "Common issue database",
       },
     ],
     retrieval: {
@@ -169,28 +150,19 @@
     },
   },
 
-  // ============================================================
-  // 模型配置
-  // ============================================================
   model: {
     primary: "claude-3-5-sonnet-20241022",
     fallback: "claude-3-5-haiku-20241022",
-    temperature: 0.3,  // 更确定性的输出
+    temperature: 0.3,
   },
 
-  // ============================================================
-  // 执行配置
-  // ============================================================
   execution: {
     maxSteps: 20,
-    timeout: 300000,  // 5 分钟
+    timeout: 300000,
     retryOnError: false,
-    autoApprove: false,  // 审查类 Agent 需要人工确认
+    autoApprove: false,
   },
 
-  // ============================================================
-  // 权限配置
-  // ============================================================
   permissions: {
     allowedPaths: [
       "src/**",
@@ -211,15 +183,11 @@
       "glob",
       "bash",
     ],
-    // 代码审查类 Agent 不需要写权限
     readOnly: true,
   },
 
-  // ============================================================
-  // 成本控制
-  // ============================================================
   cost: {
     maxTokensPerTask: 8000,
-    maxCostPerTask: 0.5,  // 美元
+    maxCostPerTask: 0.5,
   },
 }

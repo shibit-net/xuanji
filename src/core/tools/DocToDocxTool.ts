@@ -128,7 +128,11 @@ export class DocToDocxTool extends BaseTool {
       });
     }
 
-    const filePath = resolve(input.file_path as string);
+    const rawPath = input.file_path as string | undefined;
+    if (!rawPath || typeof rawPath !== 'string') {
+      return this.error('缺少 file_path 参数。请提供 .doc 文件路径。');
+    }
+    const filePath = resolve(rawPath);
     const ext = extname(filePath).toLowerCase();
     if (ext !== '.doc') {
       return this.error(`仅支持 .doc 文件（旧版 Word 格式），当前文件扩展名: ${ext}。对于 .docx 文件无需转换。`);

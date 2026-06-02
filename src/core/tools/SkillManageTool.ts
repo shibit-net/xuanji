@@ -108,10 +108,26 @@ export class SkillManageTool extends BaseTool {
       }
       if (filter?.search) {
         const kw = filter.search.toLowerCase();
-        skills = skills.filter((s: any) =>
-          s.name?.toLowerCase().includes(kw) ||
-          s.description?.toLowerCase().includes(kw),
-        );
+        skills = skills.filter((s: any) => {
+          const searchable = [
+            s.id,
+            s.name,
+            s.description,
+            s.category,
+            s.source,
+            s.slashCommand,
+            ...(Array.isArray(s.tags) ? s.tags : []),
+            ...(Array.isArray(s.requiredTools) ? s.requiredTools : []),
+            ...(Array.isArray(s.allowedTools) ? s.allowedTools : []),
+            s.intentMeta?.description,
+            s.intentMeta?.category,
+            ...(Array.isArray(s.intentMeta?.keywords) ? s.intentMeta.keywords : []),
+            typeof s.content === 'string'
+              ? s.content.split('\n').filter((line: string) => /^#{1,3}\s+/.test(line)).slice(0, 5).join(' ')
+              : undefined,
+          ];
+          return searchable.some((value) => String(value || '').toLowerCase().includes(kw));
+        });
       }
 
       if (skills.length === 0) {
@@ -120,12 +136,21 @@ export class SkillManageTool extends BaseTool {
 
       const lines: string[] = [`## Skills (${skills.length})`, ''];
       for (const s of skills) {
-        const sourceIcons: Record<string, string> = {
-          builtin: '🏗️', custom: '✏️', learned: '🧠', marketplace: '📦',
-        };
-        const sourceIcon = sourceIcons[s.source] || '❓';
-        const status = s.enabled !== false ? '✅' : '⏸️';
-        lines.push(`${sourceIcon} **${s.name}** \`${s.id}\` ${status} | ${s.category || '?'} | ${s.version || '?'}`);
+        const status = s.enabled !== false ? 'enabled' : 'disabled';
+        const tags = Array.isArray(s.tags) && s.tags.length ? s.tags.join(', ') : '-';
+        const requiredTools = Array.isArray(s.requiredTools) && s.requiredTools.length ? s.requiredTools.join(', ') : '-';
+        const allowedTools = Array.isArray(s.allowedTools) && s.allowedTools.length ? s.allowedTools.join(', ') : '-';
+        const slashCommand = s.slashCommand || '-';
+        const description = s.description || '-';
+        lines.push(`### ${s.name || s.id}`);
+        lines.push(`- **id**: \`${s.id}\``);
+        lines.push(`- **description**: ${description}`);
+        lines.push(`- **source/category/status**: ${s.source || '?'} / ${s.category || '?'} / ${status}`);
+        lines.push(`- **tags**: ${tags}`);
+        lines.push(`- **slashCommand**: ${slashCommand}`);
+        lines.push(`- **requiredTools**: ${requiredTools}`);
+        lines.push(`- **allowedTools**: ${allowedTools}`);
+        lines.push('');
       }
 
       // Stats
@@ -159,13 +184,16 @@ export class SkillManageTool extends BaseTool {
         `- **Version**: ${skill.version || '?'}`,
         `- **Category**: ${skill.category || '?'}`,
         `- **Source**: ${skill.source || '?'}`,
-        `- **Status**: ${skill.enabled !== false ? '✅ Enabled' : '⏸️ Disabled'}`,
+        `- **Status**: ${skill.enabled !== false ? 'Enabled' : 'Disabled'}`,
         `- **Description**: ${skill.description || '-'}`,
         `- **Tags**: ${(skill.tags || []).join(', ') || '-'}`,
+        `- **Slash command**: ${skill.slashCommand || '-'}`,
+        `- **Required tools**: ${skill.requiredTools?.length ? skill.requiredTools.join(', ') : '-'}`,
+        `- **Allowed tools**: ${skill.allowedTools?.length ? skill.allowedTools.join(', ') : '-'}`,
       ];
 
-      if (skill.requiredTools?.length) {
-        lines.push(`- **Required tools**: ${skill.requiredTools.join(', ')}`);
+      if (skill.intentMeta) {
+        lines.push(`- **Intent**: ${skill.intentMeta.description || '-'}; keywords=${Array.isArray(skill.intentMeta.keywords) ? skill.intentMeta.keywords.join(', ') : '-'}`);
       }
       if (skill.content) {
         const preview = typeof skill.content === 'string'

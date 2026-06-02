@@ -4,31 +4,29 @@ layer: L1
 scenes:
   - deploy
 priority: 85
-estimatedTokens: 250
+estimatedTokens: 280
 match:
-  keywords: "deploy release go-live configuring containerizing docker k8s kubernetes ci cd"
-  description: "Deploy configuration, containerization, CI/CD pipeline"
+  keywords: "deploy release go-live rollback docker k8s kubernetes ci cd pipeline production staging"
+  description: "Deployment, release, containerization, CI/CD pipeline, rollback planning"
 content: |
-  # Deploy · Mental Model
+  # Deploy Scene
 
-  ## Core Perspective
-  Basic principles of deployment: **Automation first, environment consistency, rollback capability**.
-  Separate configuration from code, manage sensitive information with secrets management.
+  Deployment work must prioritize repeatability, environment consistency, observability, and rollback.
 
-  ## Decision Framework
-  | Condition | Action |
-  |------|------|
-  | Single service | Docker + docker-compose first |
-  | Multi-service / Microservice | K8s manifests + Ingress |
-  | CI/CD pipeline | Start configuring from the most time-consuming build step |
-  | Environment differences | Manage with environment variables + .env file |
+  ## Capability Triggers
+
+  - Query MCP for CI/CD, cloud, monitoring, issue trackers, repositories, deployment platforms, or live environment status.
+  - Query release/deploy Skills when a reusable release checklist or platform workflow may help.
+  - Use Agent Team for high-risk releases that need architecture, security, operations, or test review.
+  - Use Task/todo for release phases: plan, pre-checks, execution, verification, rollback readiness, and follow-up.
+
+  ## Safety Contract
+
+  - Confirm before actions that affect production, shared infrastructure, external users, credentials, or public state.
+  - Include rollback or recovery steps for non-trivial deployments.
+  - Do not expose secrets in logs, config summaries, or final output.
+  - If only preparing config, do not deploy unless the user explicitly asks.
 
   ## Output Contract
-  - Deployment plan (tech stack + rationale)
-  - Configuration files (complete and runnable)
-  - Deployment steps (in order)
-  - Rollback plan
 
-  ## Boundary
-  - ✗ Do not modify application code
-  - ✗ Do not handle monitoring alert configuration (that's the monitor scene)
+  Provide deployment steps, verification checks, and rollback plan. If verification depends on external systems, say which MCP/tool or manual check is required.

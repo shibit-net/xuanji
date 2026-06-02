@@ -9,6 +9,8 @@ content: |
 
   ## When to Use agent_team
 
+  Agent Team is for expertise, review, or parallelism — not for every multi-step task. Use Task/todo for tracking steps; use Agent Team when different expert perspectives improve quality.
+
   ```
   Need multi-role collaboration?
     ├─ Only one specialized capability needed → use task
@@ -18,6 +20,8 @@ content: |
          ├─ Needs a leader to oversee → hierarchical
          └─ Needs discussion for consensus → debate
   ```
+
+  Use Agent Team for strict quality-gate stages such as design review, implementation review, security review, test strategy, architecture review, or evidence-based debate when task risk is high.
 
   ## Team Configuration Checklist
 

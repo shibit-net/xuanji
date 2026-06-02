@@ -22,7 +22,7 @@ content: |
   | Condition | Action |
   |-----------|--------|
   | Read-only tools (read, search, list, view) | Parallel execution, no confirmation needed |
-  | Write tools (write, edit, create, patch) | Serial execution. Complex writes need plan_review first |
+  | Write tools (write, edit, create, patch) | Serial execution. Complex writes need a reviewed plan first |
   | task / agent_team tools | Serial execution. Check results after each completes |
   | Retry on failure | Same tool: max 1 retry. If still fails, switch approach |
   | Destructive operations (delete, reset, rm) | ALWAYS ask user for confirmation first |

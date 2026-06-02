@@ -13,28 +13,47 @@ import { XuanjiEvent } from '@/core/events/events';
 
 export class MemoryStoreTool extends BaseTool {
   readonly name = 'memory_store';
-  readonly description = 'Store memory into the persistent memory database. Call this tool when you confirm user preferences, complete important tasks, or discover user habit patterns. Supports storing entities (people/projects/tools), facts, events, and relationships.';
+  readonly description = [
+    'Store, update, or delete memory in the persistent memory database.',
+    'Use when you confirm user preferences, complete important tasks, discover user habits, or need to fix/remove incorrect memories.',
+    '',
+    '=== DELETE / UPDATE ===',
+    'To delete an entity:   memory_store({ type: "entity", data: { action: "delete", id: "entity-uuid" } })',
+    'To update an entity:   memory_store({ type: "entity", data: { action: "update", id: "entity-uuid", name: "...", summary: "..." } })',
+    'To delete a fact:      memory_store({ type: "fact", data: { action: "delete", id: "fact-uuid" } })',
+    'To delete a relation:  memory_store({ type: "relation", data: { action: "delete", subject_name: "A", object_name: "B", relation: "动词" } })',
+    'To transfer relations: memory_store({ type: "relation", data: { action: "transfer", from_entity: "旧实体名", to_entity: "新实体名" } })',
+    '',
+    '=== STORE ===',
+    'entity: { name, entity_type (project|tool|person|preference|concept|user), summary }',
+    'fact: { title (≤25 chars), content, source? }',
+    'event: { content, entities: ["related entity names"] }',
+    'relation: { subject_name, object_name, relation (verb) }',
+  ].join('\n');
 
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {
       type: {
         type: 'string',
-        enum: ['entity', 'fact', 'event', 'relation', 'time_anchor', 'topic', 'user_profile', 'project_snapshot', 'episode'],
-        description: 'Memory type. entity=entity, fact=fact, event=event, relation=relation, time_anchor=time anchor (deadline/schedule), topic=topic (goal/plan/interest), user_profile=user profile dimension, project_snapshot=project progress snapshot',
+        enum: ['entity', 'fact', 'event', 'relation', 'time_anchor', 'topic', 'user_profile', 'episode'],
+        description: 'Memory type. entity=entity, fact=fact, event=event, relation=relation, time_anchor=time anchor (deadline/schedule), topic=topic (goal/plan/interest), user_profile=user profile dimension, episode=reusable narrative memory. Do not store project progress here; use XUANJI.md.',
       },
       data: {
         type: 'object',
           description: 'Memory data. Fields vary by type:\n'
-          + '- entity: { name, entity_type, summary, category?, metadata? }\n'
-          + '- fact: { title, content }\n'
+          + '- ALL TYPES: action: "delete"|"update"|"transfer" (for deletion/modification), id: "entity/fact uuid" (for delete/update by ID)\n'
+          + '- entity: { name, entity_type, summary, category?, metadata? } or { action:"delete", id:"uuid" } or { action:"update", id:"uuid", name?, summary? }\n'
+          + '- fact: { title, content } or { action:"delete", id:"uuid" }\n'
           + '- event: { content, entities: ["entity name"] }\n'
-          + '- relation: { subject_name, object_name, relation }\n'
+          + '- relation: { subject_name, object_name, relation } or { action:"delete", subject_name, object_name, relation } or { action:"transfer", from_entity:"旧名", to_entity:"新名" }\n'
           + '- time_anchor: { anchor_type: "deadline|schedule|periodic|context_expiry", target_type: "entity|fact|event", target_id?: "target object ID", trigger_time?: timestamp ms, cron_expr?: "cron expression", reason: "reason" }\n'
           + '- topic: { topic: "topic name", topic_type: "goal|plan|interest|decision_pending", context_summary?: "context summary" }\n'
           + '- user_profile: { dimension: "dimension name", summary: "summary", confidence?: 0-1 }\n'
-          + '- project_snapshot: { project_name: "project entity name", phase: "当前阶段", status: "进行中|已完成|阻塞", progress_pct: 0-100, current_focus: "当前工作", blockers?: "阻塞项", next_milestone?: "下一步计划", tech_stack?: "技术栈" }',
+          + '- episode: { title: "reusable narrative title", narrative: "context, process, outcome, and lesson" }',
         properties: {
+          action: { type: 'string', enum: ['delete', 'update', 'transfer'], description: 'Maintenance action: delete/update entity or fact, delete/transfer relations. Omit for normal store.' },
+          id: { type: 'string', description: 'Entity/fact UUID (for action: delete/update by ID)' },
           name: { type: 'string', description: 'Entity name (for type=entity)' },
           entity_type: { type: 'string', description: 'Entity type: person|vehicle|activity|project|tool|preference|concept|user (for type=entity)' },
           summary: { type: 'string', description: 'Entity description (for type=entity)' },
@@ -43,6 +62,8 @@ export class MemoryStoreTool extends BaseTool {
             type: 'object',
             description: 'Structured attributes (JSON), e.g. {"brand":"Audi","model":"A8"} (optional for type=entity)',
           },
+          from_entity: { type: 'string', description: 'Source entity name for transferring all its relations to to_entity (for type=relation with action=transfer)' },
+          to_entity: { type: 'string', description: 'Target entity name that receives all relations from from_entity (for type=relation with action=transfer)' },
           title: { type: 'string', description: 'Fact title (for type=fact)' },
           content: { type: 'string', description: 'Fact/event content' },
           entities: {
@@ -116,7 +137,7 @@ export class MemoryStoreTool extends BaseTool {
         time_anchor: `memory_store({type:"time_anchor", data:{anchor_type:"deadline|schedule|periodic", target_type:"entity|fact|event", trigger_time:时间戳ms, reason:"原因"}})`,
         topic: `memory_store({type:"topic", data:{topic:"话题名", topic_type:"goal|plan|interest|decision_pending"}})`,
         user_profile: `memory_store({type:"user_profile", data:{dimension:"维度名", summary:"画像描述"}})`,
-        project_snapshot: `memory_store({type:"project_snapshot", data:{project_name:"项目实体名", phase:"开发", status:"进行中", progress_pct:50, current_focus:"正在实现XX功能", blockers:"依赖XX接口未完成", next_milestone:"下周完成XX模块联调", tech_stack:"TypeScript, Node.js"}})`,
+        episode: `memory_store({type:"episode", data:{title:"叙事标题", narrative:"叙事正文"}})`,
       };
       return map[type] || '';
     };
@@ -320,33 +341,6 @@ export class MemoryStoreTool extends BaseTool {
           );
         }
 
-        case 'project_snapshot': {
-          if (!data.project_name || !data.phase) {
-            const missing = [!data.project_name && 'project_name', !data.phase && 'phase'].filter(Boolean).join(', ');
-            return this.error(`project_snapshot 缺少必填字段: ${missing}。收到: ${JSON.stringify(data)}。正确格式: ${example('project_snapshot')}。请修正后重试。`);
-          }
-          // 先解析项目实体，获取 project_id
-          const projectEntity = await manager.findEntityByName(data.project_name);
-          const projectId = projectEntity?.id || data.project_name;
-          const snapshot = await manager.saveProjectSnapshot({
-            project_id: projectId,
-            phase: data.phase,
-            status: data.status || '进行中',
-            progress_pct: data.progress_pct ?? 0,
-            current_focus: data.current_focus || null,
-            blockers: data.blockers || null,
-            next_milestone: data.next_milestone || null,
-            tech_stack: data.tech_stack || null,
-          });
-          manager.recordToolCall('memory_store', undefined, dedupKey);
-          eventBus.emitSync(XuanjiEvent.MEMORY_STORED, { type: 'project_snapshot', id: snapshot.id, scene_tag: sceneTag || '' });
-          eventBus.emitSync(XuanjiEvent.HOOK_MEMORY_WRITE, { content: `[project_snapshot] ${data.project_name}: ${data.phase}阶段 ${data.status} (${data.progress_pct}%)` });
-          return this.success(
-            `已存储项目快照: **${data.project_name}** → ${data.phase}阶段 ${data.status} (${data.progress_pct}%)`,
-            { id: snapshot.id, type: 'project_snapshot' }
-          );
-        }
-
         case 'episode': {
           if (!data.title || !data.narrative) {
             const missing = [!data.title && 'title', !data.narrative && 'narrative'].filter(Boolean).join(', ');
@@ -366,7 +360,7 @@ export class MemoryStoreTool extends BaseTool {
         }
 
         default:
-          return this.error(`不支持的记忆类型 "${memoryType}"。支持: entity, fact, event, relation, time_anchor, topic, user_profile, project_snapshot, episode。请修正 type 后重试。`);
+          return this.error(`不支持的记忆类型 "${memoryType}"。支持: entity, fact, event, relation, time_anchor, topic, user_profile, episode。项目进度不要写入 Memory，应写入 XUANJI.md。请修正 type 后重试。`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

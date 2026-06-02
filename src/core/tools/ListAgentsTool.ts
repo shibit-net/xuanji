@@ -13,7 +13,7 @@ export class ListAgentsTool extends BaseTool {
   readonly description = [
     'List available agents in the system.',
     '',
-    'Use this to discover which agents exist and their capabilities before calling match_agent.',
+    'Use this to discover which agents exist and their capabilities when intent analysis or match_agent is insufficient.',
     '',
     'Supports filtering by search keyword, tags, and showing only enabled agents.',
   ].join('\n');

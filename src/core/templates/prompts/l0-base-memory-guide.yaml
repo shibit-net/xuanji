@@ -56,15 +56,16 @@ content: |
   | **Goal/Plan** | "I intend/plan/want/prepare to/go do" | entity(type=goal) + event |
   | **Important decision** | "I decided/chose/use A not B" | event (with decision content and reasoning) |
   | **Constraint/Rule** | "Can't use/must/not allowed/must" | fact(importance>=4) |
-  | **Completion/Progress** | "Finished/done/deployed/merged" | event (with completion and related entities) |
-  | **Problem/Block** | "Stuck on/error/not working/don't know what to do" | event (with problem context) |
+  | **Completion/Progress** | "Finished/done/deployed/merged" | event only when it reflects a durable personal goal or external commitment; project progress belongs in `XUANJI.md` |
+  | **Problem/Block** | "Stuck on/error/not working/don't know what to do" | event only when it is a durable blocker or recurring pattern |
   | **User correction** | "No/that's not right/wrong/should be" | fact(source=user_correction, importance=5) |
   | **User asks to remember** | "Note this down", "remember this", "this is important" | fact(importance=5) |
   | **Relationship** | User mentions friends, colleagues, partners and their connections | entity(type=person) + relation |
   | **External resource** | User mentions doc links, kanban boards, monitoring dashboards, Slack channels | entity(type=reference) |
-  | **Task execution result** | Created a file, depended on a module, used some technology | entity + relation topology graph |
-  | **Operation experience/procedure** | Completed deployment, release, migration, troubleshooting (success or failure) | episode (with steps + notes + pitfalls) |
-  | **Technical research** | Researched/compared/evaluated technical solutions, frameworks, tools | event (with research context + comparison conclusion + selection reason) |
+  | **Task execution result** | Created a file, depended on a module, used some technology | do not store routine code changes; write durable project knowledge to `XUANJI.md` |
+  | **Operation experience/procedure** | Completed deployment, release, migration, troubleshooting (success or failure) | episode only for reusable user-facing procedure; project-specific procedure belongs in `XUANJI.md` |
+  | **Technical research** | Researched/compared/evaluated technical solutions, frameworks, tools | event or fact (with research context + comparison conclusion + selection reason) |
+  | **Methodology research** | User asks to learn/study/research how to perform a task and the conversation produced a reusable method | episode with trigger, method, why, pitfalls, and sources; optional fact for concise decision rules |
   | **Time anchor** | "Next time/every week/end of month/when the time comes/don't forget/remind me" or future time commitments naturally occurring in conversation | time_anchor (anchor_type=commitment/deadline/reminder/anniversary) |
   | **Open-ended topic** | "I want to learn/try/understand/find time to/consider whether/plan to research" — expresses long-term interest but no immediate action | topic (topic_type=goal/plan/interest/decision_pending) |
   | **User profile update** | User self-describes identity, role, abilities, limitations, personality traits, life circumstances | user_profile (dimension like "skill", "work role", "personal preference pattern") |
@@ -114,7 +115,7 @@ content: |
   - If exists → only update existing entity's attributes/relationships, don't recreate
   - If new entity logically belongs to the same class/domain as existing entity → establish relation(type="belongs to")
   - If new entity and existing entity have workflow/dependency relationships → establish relation(type="depends on"/"uses"/"related to")
-  - **Better safe than sorry**: When unsure if there's a relationship, store it first. Deduplication and merging are handled by weekly consolidation.
+  - Store only when the relationship is durable, user-relevant, and not derivable from current project files or git history.
 
   **Execution rules**:
   - Each hit → call `memory_store`
@@ -272,16 +273,18 @@ content: |
 
   ## Core Principles
 
-  ### 1. Store First, Judge Later
-  **You can't judge what's worth remembering.** You're just an AI agent — you don't know which information will still be useful to the user 3 months from now. So:
-  - Quick Capture hits → store unconditionally
-  - User discussing any "substantive" topic → execute Deep Capture
-  - Don't ask the user "should I remember this" — **just store it**
+  ### 1. Store Durable Context Only
+  Store information that is likely to help across future sessions:
+  - user preferences, corrections, goals, responsibilities, relationships, and external references
+  - reusable procedures or lessons that are not already documented in project files
+  - project progress document pointers, not detailed project progress
 
-  ### 2. Prefer Redundancy Over Omission
-  - Same information stored multiple times → the memory system's dedup mechanism handles it (FTS5 Jaccard + weekly merging)
-  - Omitted → that information is gone forever
-  - Therefore: **Storing one extra time costs nothing, missing once costs infinity**
+  Do not store routine command output, temporary debug state, git-deducible changes, or project progress details. Project facts and progress belong in `XUANJI.md`.
+
+  ### 2. Prefer Precision Over Redundancy
+  - Search before storing and update existing records when possible
+  - If unsure whether a detail is durable, skip it unless the user explicitly asks to remember it
+  - Do not rely on later deduplication as a reason to store noisy data
 
   ### 3. Discover Connections, Not Just Record
   - When the user mentions "refactoring", store an event, not an entity called "refactoring"
