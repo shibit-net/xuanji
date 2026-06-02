@@ -319,7 +319,7 @@ function AudioBlock({ block }: { block: Extract<ContentBlock, { type: 'audio' }>
 function VideoBlock({ block }: { block: Extract<ContentBlock, { type: 'video' }> }) {
   const src = block.data
     ? `data:${block.mimeType || 'video/mp4'};base64,${block.data}`
-    : (block as any).imageUrl || '';
+    : block.url || (block as any).imageUrl || '';
   if (!src) return null;
   return (
     <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted">
@@ -754,6 +754,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           ))}
           {message.contentBlocks?.filter(b => b.type === 'file').map((block, i) => (
             <FileBlock key={`file-${i}`} block={block as Extract<ContentBlock, { type: 'file' }>} />
+          ))}
+          {/* 音频块 */}
+          {message.contentBlocks?.filter(b => b.type === 'audio').map((block, i) => (
+            <AudioBlock key={`audio-${i}`} block={block as Extract<ContentBlock, { type: 'audio' }>} />
+          ))}
+          {/* 视频块 */}
+          {message.contentBlocks?.filter(b => b.type === 'video').map((block, i) => (
+            <VideoBlock key={`video-${i}`} block={block as Extract<ContentBlock, { type: 'video' }>} />
           ))}
           {typeof displayContent === 'string' && displayContent.length > 0 ? (
             isStreaming ? (

@@ -63,82 +63,9 @@ export class SkillRegistry {
         const skillDir = path.join(installedDir, entry.name);
         const manifestPath = path.join(skillDir, 'manifest.json');
 
-        let skill: Skill | null = null;
-
-        // 1. 尝试从 manifest.json 加载
-        try {
-          const raw = await fs.readFile(manifestPath, 'utf-8');
-          const parsed = JSON.parse(raw) as Record<string, unknown>;
-
-          if (parsed.id && parsed.name) {
-            // 新格式：manifest.json = 完整 Skill 对象
-            skill = {
-              ...parsed,
-              source: (parsed.source as Skill['source']) || 'marketplace',
-              enabled: parsed.enabled !== false,
-            } as unknown as Skill;
-          } else if (parsed.skillId) {
-            // 旧格式：manifest.json 只有元数据，从 SKILL.md 重建
-            const skillMdPath = path.join(skillDir, 'SKILL.md');
-            try {
-              const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
-              const fm = parseSkillFrontmatter(skillMdContent);
-              if (fm) {
-                skill = {
-                  id: String(fm.id ?? parsed.skillId),
-                  name: String(fm.name ?? parsed.skillId),
-                  version: String(fm.version ?? parsed.version ?? '0.0.0'),
-                  description: String(fm.description ?? ''),
-                  category: 'prompt',
-                  tags: normalizeSkillTags(fm.tags),
-                  author: typeof fm.author === 'string' ? fm.author : undefined,
-                  content: fm.body ?? skillMdContent,
-                  source: 'marketplace' as const,
-                  packageId: parsed.packageId as string,
-                  installedVersion: parsed.version as string,
-                  installedAt: parsed.installedAt as string,
-                  enabled: true,
-                };
-              }
-            } catch {
-              // SKILL.md 不可读，跳过
-            }
-          }
-        } catch {
-          // manifest.json 不存在或损坏，尝试从 SKILL.md 直接恢复
-          const skillMdPath = path.join(skillDir, 'SKILL.md');
-          try {
-            const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
-            const fm = parseSkillFrontmatter(skillMdContent);
-            if (fm) {
-              skill = {
-                id: String(fm.id ?? path.basename(skillDir)),
-                name: String(fm.name ?? path.basename(skillDir)),
-                version: String(fm.version ?? '0.0.0'),
-                description: String(fm.description ?? ''),
-                category: 'prompt',
-                tags: normalizeSkillTags(fm.tags),
-                author: typeof fm.author === 'string' ? fm.author : undefined,
-                content: fm.body ?? skillMdContent,
-                source: 'marketplace' as const,
-                enabled: true,
-                installedAt: new Date().toISOString(),
-              };
-              // 补写 manifest.json
-              try {
-                await fs.writeFile(manifestPath, JSON.stringify(skill, null, 2), 'utf-8');
-              } catch { /* 写失败不阻塞 */ }
-            }
-          } catch {
-            // SKILL.md 也不可读，跳过
-          }
-        }
-
-        if (skill && skill.id && skill.name) {
-          this.register(skill);
-          count++;
-          log.debug(`Loaded installed skill: ${skill.id} from ${skillDir}`);
-        }
+        // 尝试从顶层 manifest.json 加载；若不存在则递归扫描子目录
+        const loadedCount = await this.loadSkillFromDir(skillDir, manifestPath);
+        count += loadedCount;
       }
     } catch {
       // installed/ 目录不存在，跳过
@@ -148,6 +75,97 @@ export class SkillRegistry {
       log.info(`Scanned ${count} installed skills from ${installedDir}`);
     }
     return count;
+  }
+
+  /**
+   * 从目录加载 Skill：优先顶层 manifest.json，若不存在则递归扫描子目录
+   */
+  private async loadSkillFromDir(skillDir: string, manifestPath: string): Promise<number> {
+    let skill: Skill | null = null;
+
+    // 1. 尝试从顶层 manifest.json 加载
+    try {
+      const raw = await fs.readFile(manifestPath, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+      if (parsed.id && parsed.name) {
+        skill = {
+          ...parsed,
+          source: (parsed.source as Skill['source']) || 'marketplace',
+          enabled: parsed.enabled !== false,
+        } as unknown as Skill;
+      } else if (parsed.skillId) {
+        const skillMdPath = path.join(skillDir, 'SKILL.md');
+        try {
+          const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
+          const fm = parseSkillFrontmatter(skillMdContent);
+          if (fm) {
+            skill = {
+              id: String(fm.id ?? parsed.skillId),
+              name: String(fm.name ?? parsed.skillId),
+              version: String(fm.version ?? parsed.version ?? '0.0.0'),
+              description: String(fm.description ?? ''),
+              category: 'prompt',
+              tags: normalizeSkillTags(fm.tags),
+              author: typeof fm.author === 'string' ? fm.author : undefined,
+              content: fm.body ?? skillMdContent,
+              source: 'marketplace' as const,
+              packageId: parsed.packageId as string,
+              installedVersion: parsed.version as string,
+              installedAt: parsed.installedAt as string,
+              enabled: true,
+            };
+          }
+        } catch { /* SKILL.md 不可读 */ }
+      }
+    } catch {
+      // 顶层 manifest.json 不存在，尝试从 SKILL.md 恢复
+      const skillMdPath = path.join(skillDir, 'SKILL.md');
+      try {
+        const skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
+        const fm = parseSkillFrontmatter(skillMdContent);
+        if (fm) {
+          skill = {
+            id: String(fm.id ?? path.basename(skillDir)),
+            name: String(fm.name ?? path.basename(skillDir)),
+            version: String(fm.version ?? '0.0.0'),
+            description: String(fm.description ?? ''),
+            category: 'prompt',
+            tags: normalizeSkillTags(fm.tags),
+            author: typeof fm.author === 'string' ? fm.author : undefined,
+            content: fm.body ?? skillMdContent,
+            source: 'marketplace' as const,
+            enabled: true,
+            installedAt: new Date().toISOString(),
+          };
+          try {
+            await fs.writeFile(manifestPath, JSON.stringify(skill, null, 2), 'utf-8');
+          } catch { /* 写失败不阻塞 */ }
+        }
+      } catch { /* SKILL.md 也不可读 */ }
+    }
+
+    if (skill && skill.id && skill.name) {
+      this.register(skill);
+      log.debug(`Loaded installed skill: ${skill.id} from ${skillDir}`);
+      return 1;
+    }
+
+    // 2. 顶层无有效 skill → 递归扫描子目录中的 manifest.json
+    let subCount = 0;
+    try {
+      const subEntries = await fs.readdir(skillDir, { withFileTypes: true });
+      for (const sub of subEntries) {
+        if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
+        const subDir = path.join(skillDir, sub.name);
+        const subManifest = path.join(subDir, 'manifest.json');
+        try {
+          subCount += await this.loadSkillFromDir(subDir, subManifest);
+        } catch { /* 子目录加载失败不阻塞 */ }
+      }
+    } catch { /* readdir 失败，跳过 */ }
+
+    return subCount;
   }
 
   /**

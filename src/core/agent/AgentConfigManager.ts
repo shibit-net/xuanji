@@ -112,7 +112,7 @@ export class AgentConfigManager {
 
   getEditableFields(category: AgentCategory): string[] {
     if (category === 'system') {
-      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled'];
+      return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled', 'tools'];
     }
     if (category === 'app') {
       return ['provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model', 'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize', 'enabled', 'systemPrompt', 'tools'];

@@ -35,7 +35,7 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; data: string; mimeType: string; name?: string }
   | { type: 'audio'; data: string; mimeType: string; name?: string; duration?: number }
-  | { type: 'video'; data: string; mimeType: string; name?: string; duration?: number }
+  | { type: 'video'; data: string; mimeType: string; name?: string; duration?: number; url?: string }
   | { type: 'file'; fileName: string; filePath: string; fileSize: number };
 
 export interface Message {

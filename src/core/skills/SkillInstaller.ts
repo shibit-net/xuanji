@@ -41,8 +41,10 @@ export interface SkillInstallOptions {
 
 export interface SkillInstallResult {
   success: boolean;
-  /** 安装成功后返回 skill.id */
+  /** 安装成功后返回主 skill.id */
   skillId?: string;
+  /** 子技能 ID 列表（从子目录 SKILL.md 发现） */
+  subSkillIds?: string[];
   /** 已安装版本 */
   version?: string;
   /** 写入的文件路径（安装目录） */
@@ -75,6 +77,10 @@ export class SkillInstaller {
 
   /**
    * 从天工坊安装 Skill（统一 skill:zip 管线）
+   *
+   * 支持两种 ZIP 结构：
+   *   A. 根目录有 SKILL.md → 作为主技能，子目录中的 SKILL.md 作为子技能
+   *   B. 根目录无 SKILL.md → 从一级子目录中发现所有 SKILL.md，每个注册为一个技能
    */
   async install(options: SkillInstallOptions): Promise<SkillInstallResult> {
     const { packageId, version } = options;
@@ -122,82 +128,60 @@ export class SkillInstaller {
         return { success: false, error: `ZIP 解压失败: ${msg}` };
       }
 
-      // 4. 读取 SKILL.md + 解析 YAML frontmatter
-      const skillMdPath = path.join(skillDir, 'SKILL.md');
-      let skillMdContent: string;
+      // 4. 尝试读取根目录 SKILL.md
+      const rootSkillMdPath = path.join(skillDir, 'SKILL.md');
+      let rootSkillMdContent: string;
+      let hasRootSkill = false;
       try {
-        skillMdContent = await fs.readFile(skillMdPath, 'utf-8');
+        rootSkillMdContent = await fs.readFile(rootSkillMdPath, 'utf-8');
+        hasRootSkill = true;
       } catch {
-        return { success: false, error: 'ZIP 包中缺少 SKILL.md 文件' };
+        rootSkillMdContent = '';
       }
 
-      const frontmatter = parseFrontmatter(skillMdContent);
-      if (!frontmatter) {
-        return { success: false, error: 'SKILL.md 中缺少有效的 YAML frontmatter' };
-      }
+      let primarySkillId: string | undefined;
 
-      const skillId = String(frontmatter.id ?? packageId);
+      if (hasRootSkill) {
+        // 结构 A：根目录 SKILL.md 作为主技能
+        const frontmatter = parseFrontmatter(rootSkillMdContent);
+        if (!frontmatter) {
+          return { success: false, error: 'SKILL.md 中缺少有效的 YAML frontmatter' };
+        }
 
-      // 5. 检查是否已安装
-      if (this.registry.has(skillId)) {
-        const existing = this.registry.get(skillId)!;
-        if (existing.source === 'marketplace' && existing.packageId === packageId) {
-          log.info(`Skill "${skillId}" already installed, overwriting to ${effectiveVersion}`);
-        } else {
+        const skillId = String(frontmatter.id ?? packageId);
+        if (!this.checkInstallConflict(skillId, packageId, effectiveVersion)) {
           return {
             success: false,
-            error: `Skill ID "${skillId}" 已被占用（来源: ${existing.source ?? 'unknown'}），无法安装`,
+            error: `Skill ID "${skillId}" 已被占用，无法安装`,
           };
+        }
+
+        this.registerSkillFromMd(frontmatter, rootSkillMdContent, skillId, packageId, effectiveVersion, skillDir);
+        primarySkillId = skillId;
+      }
+
+      // 5. 扫描一级子目录，发现子技能（两种结构都扫描）
+      const subSkillIds = await this.discoverSubSkills(skillDir, packageId, effectiveVersion);
+
+      if (!hasRootSkill) {
+        if (subSkillIds.length > 0) {
+          // 结构 B：无根 SKILL.md，子目录技能即为主技能
+          primarySkillId = subSkillIds[0];
+        } else {
+          return { success: false, error: 'ZIP 包中缺少 SKILL.md 文件' };
         }
       }
 
-      // 6. 构建 Skill 对象
-      const skill: Skill = {
-        id: skillId,
-        name: String(frontmatter.name ?? skillId),
-        version: String(frontmatter.version ?? effectiveVersion),
-        description: String(frontmatter.description ?? ''),
-        category: 'prompt',
-        tags: normalizeTags(frontmatter.tags),
-        author: typeof frontmatter.author === 'string' ? frontmatter.author : undefined,
-        content: frontmatter.body ?? skillMdContent,
-        parameters: frontmatter.parameters as Skill['parameters'],
-        dependencies: Array.isArray(frontmatter.dependencies)
-          ? frontmatter.dependencies.map(String)
-          : undefined,
-        conflicts: Array.isArray(frontmatter.conflicts)
-          ? frontmatter.conflicts.map(String)
-          : undefined,
-        requiredTools: Array.isArray(frontmatter.requiredTools)
-          ? frontmatter.requiredTools.map(String)
-          : undefined,
-        enabled: frontmatter.enabled as boolean | undefined,
-        priority: typeof frontmatter.priority === 'number' ? frontmatter.priority : undefined,
-        source: 'marketplace',
-        packageId,
-        installedVersion: effectiveVersion,
-        installedAt: new Date().toISOString(),
-      };
-
-      // 7. 写入 manifest.json（保存完整 Skill 对象，供 scanInstalled 还原）
-      await fs.writeFile(
-        path.join(skillDir, 'manifest.json'),
-        JSON.stringify(skill, null, 2),
-        'utf-8',
-      );
-
-      // 8. 注册到 SkillRegistry
-      this.registry.register(skill);
-
-      // 9. 清理临时文件
+      // 6. 清理临时文件
       if (tmpDir) {
         await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
       }
 
-      log.info(`Skill "${skillId}" installed successfully to ${skillDir}`);
+      log.info(`Package "${packageId}" installed: primary=${primarySkillId}, subSkills=${subSkillIds.length}`);
       return {
         success: true,
-        skillId,
+        skillId: primarySkillId,
+        subSkillIds: subSkillIds.length > 0 ? subSkillIds : undefined,
         version: effectiveVersion,
         filePath: skillDir,
       };
@@ -212,7 +196,7 @@ export class SkillInstaller {
   }
 
   /**
-   * 卸载 marketplace 安装的 Skill
+   * 卸载 marketplace 安装的 Skill 及其所有子技能
    */
   async uninstall(skillId: string): Promise<SkillUninstallResult> {
     const skill = this.registry.get(skillId);
@@ -224,13 +208,20 @@ export class SkillInstaller {
     }
 
     const packageId = skill.packageId ?? skillId;
-    this.registry.unregister(skillId);
+
+    // 卸载所有同 packageId 的子技能
+    const relatedSkills = this.registry.list().filter(
+      (s) => s.source === 'marketplace' && s.packageId === packageId,
+    );
+    for (const s of relatedSkills) {
+      this.registry.unregister(s.id);
+    }
 
     // 删除安装目录（zip 模式）
     const skillDir = path.join(this.installDir, packageId.replace(/\//g, '-'));
     try {
       await fs.rm(skillDir, { recursive: true, force: true });
-      log.info(`Skill "${skillId}" uninstalled, removed: ${skillDir}`);
+      log.info(`Skill "${skillId}" uninstalled (+${relatedSkills.length - 1} sub-skills), removed: ${skillDir}`);
     } catch {
       // 目录不存在也视为成功
     }
@@ -251,6 +242,118 @@ export class SkillInstaller {
    */
   listInstalled(): Skill[] {
     return this.registry.list().filter((s) => s.source === 'marketplace');
+  }
+
+  // ============================================================
+  // 私有辅助方法
+  // ============================================================
+
+  /**
+   * 检查安装冲突：同 ID 同 packageId 允许覆盖，否则拒绝
+   */
+  private checkInstallConflict(skillId: string, packageId: string, version: string): boolean {
+    if (!this.registry.has(skillId)) return true;
+    const existing = this.registry.get(skillId)!;
+    if (existing.source === 'marketplace' && existing.packageId === packageId) {
+      log.info(`Skill "${skillId}" already installed, overwriting to ${version}`);
+      return true;
+    }
+    log.warn(`Skill ID "${skillId}" occupied by ${existing.source ?? 'unknown'} source`);
+    return false;
+  }
+
+  /**
+   * 从 SKILL.md 解析结果构建 Skill 对象、写 manifest、注册
+   */
+  private async registerSkillFromMd(
+    frontmatter: ParsedFrontmatter,
+    rawContent: string,
+    skillId: string,
+    packageId: string,
+    version: string,
+    installDir: string,
+  ): Promise<Skill> {
+    const skill: Skill = {
+      id: skillId,
+      name: String(frontmatter.name ?? skillId),
+      version: String(frontmatter.version ?? version),
+      description: String(frontmatter.description ?? ''),
+      category: 'prompt',
+      tags: normalizeTags(frontmatter.tags),
+      author: typeof frontmatter.author === 'string' ? frontmatter.author : undefined,
+      content: frontmatter.body ?? rawContent,
+      parameters: frontmatter.parameters as Skill['parameters'],
+      dependencies: Array.isArray(frontmatter.dependencies)
+        ? frontmatter.dependencies.map(String)
+        : undefined,
+      conflicts: Array.isArray(frontmatter.conflicts)
+        ? frontmatter.conflicts.map(String)
+        : undefined,
+      requiredTools: Array.isArray(frontmatter.requiredTools)
+        ? frontmatter.requiredTools.map(String)
+        : undefined,
+      enabled: frontmatter.enabled as boolean | undefined,
+      priority: typeof frontmatter.priority === 'number' ? frontmatter.priority : undefined,
+      source: 'marketplace',
+      packageId,
+      installedVersion: version,
+      installedAt: new Date().toISOString(),
+    };
+
+    await fs.writeFile(
+      path.join(installDir, 'manifest.json'),
+      JSON.stringify(skill, null, 2),
+      'utf-8',
+    );
+
+    this.registry.register(skill);
+    return skill;
+  }
+
+  /**
+   * 扫描安装目录的一级子目录，发现并注册子技能
+   * @returns 成功注册的子技能 ID 列表
+   */
+  private async discoverSubSkills(
+    skillDir: string,
+    packageId: string,
+    version: string,
+  ): Promise<string[]> {
+    const subSkillIds: string[] = [];
+    let entries: any[];
+    try {
+      entries = await fs.readdir(skillDir, { withFileTypes: true });
+    } catch {
+      return subSkillIds;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const subDir = path.join(skillDir, entry.name);
+      const skillMdPath = path.join(subDir, 'SKILL.md');
+
+      let content: string;
+      try {
+        content = await fs.readFile(skillMdPath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const fm = parseFrontmatter(content);
+      if (!fm) continue;
+
+      const subSkillId = String(fm.id ?? `${packageId}-${entry.name}`);
+
+      if (!this.checkInstallConflict(subSkillId, packageId, version)) {
+        log.warn(`Sub-skill "${subSkillId}" skipped due to conflict`);
+        continue;
+      }
+
+      await this.registerSkillFromMd(fm, content, subSkillId, packageId, version, subDir);
+      subSkillIds.push(subSkillId);
+    }
+
+    return subSkillIds;
   }
 }
 

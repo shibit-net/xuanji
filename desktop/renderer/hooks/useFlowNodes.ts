@@ -37,7 +37,17 @@ export function useFlowNodes(): {
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
 } {
-  const agentMap = useAgentStateMachine((s) => s.agentMap);
+  // 用 primitive selector 控制重计算频率，避免每次 thinking delta 都重建整个 flow
+  const agentDigest = useAgentStateMachine((s) =>
+    Object.values(s.agentMap)
+      .filter((a) => a.status !== 'cleared')
+      .map((a) => {
+        const toolDigest = (a.currentTools || []).map((t) => `${t.id}:${t.status}`).join(',');
+        return `${a.id}\x00${a.status}\x00${a.name}\x00${a.agentType ?? ''}\x00${a.taskType ?? ''}\x00${a.parentId ?? ''}\x00${a.moment?.status ?? ''}\x00${toolDigest}`;
+      })
+      .sort()
+      .join('\x01'),
+  );
   const foregroundAgentId = useAgentStateMachine((s) => s.foregroundAgentId);
   const [userInput, setUserInput] = useState<UserInputState | null>(null);
 
@@ -66,8 +76,9 @@ export function useFlowNodes(): {
     return () => unsubs.forEach((fn) => fn());
   }, []);
 
-  // 构建 nodes + edges
+  // 构建 nodes + edges（仅在 agentDigest 变化时重计算）
   return useMemo(() => {
+    const agentMap = useAgentStateMachine.getState().agentMap;
     const allAgents = Object.values(agentMap);
     const clearedAgents = allAgents.filter((a) => a.status === 'cleared');
     const activeAgents = allAgents.filter((a) => a.status !== 'cleared');
@@ -314,7 +325,7 @@ export function useFlowNodes(): {
       'nodeTypes:', nodes.map(n => `${n.id}(${n.type})`).join(', '));
 
     return { nodes, edges };
-  }, [agentMap, foregroundAgentId, userInput]);
+  }, [agentDigest, foregroundAgentId, userInput]);
 }
 
 // ============================================================

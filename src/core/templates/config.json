@@ -144,5 +144,25 @@
   },
   "workspacePath": "",
   "onboardingDone": false,
+  "modelProviders": {
+    "embedding": {
+      "provider": "xenova",
+      "model": "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
+    },
+    "media": {
+      "generate_image": {
+        "provider": "ark",
+        "model": "",
+        "apiKey": "",
+        "baseURL": ""
+      },
+      "edit_image": {
+        "provider": "ark",
+        "model": "",
+        "apiKey": "",
+        "baseURL": ""
+      }
+    }
+  },
   "fallbackProvider": null
 }

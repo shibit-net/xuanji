@@ -47,6 +47,10 @@ export class EmbeddingMatcher {
     return this.embedder !== null;
   }
 
+  getEmbedderModelName(): string | null {
+    return this.embedder?.getModelName() ?? null;
+  }
+
   setSceneList(scenes: SceneInfo[]): void {
     this.sceneList = scenes;
   }

@@ -18,6 +18,7 @@ export function getEditableFieldList(category: AgentCategory | undefined): strin
       'provider.adapter', 'provider.apiKey', 'provider.baseURL', 'provider.model',
       'model.primary', 'model.maxTokens', 'model.temperature', 'model.contextSize',
       'enabled',
+      'tools',
     ];
   }
 

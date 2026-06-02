@@ -61,6 +61,13 @@ import { SSHWriteTool } from './SSHWriteTool';
 import { SSHListTool } from './SSHListTool';
 import { MCPCallTool } from '@/mcp/MCPCallTool';
 import { SkillCallTool } from './SkillCallTool';
+import { GenerateImageTool } from './GenerateImageTool';
+import { EditImageTool } from './EditImageTool';
+import { GenerateVideoTool } from './GenerateVideoTool';
+import { GenerateAudioTool } from './GenerateAudioTool';
+import { QueryVideoTaskTool } from './QueryVideoTaskTool';
+import { CancelVideoTaskTool } from './CancelVideoTaskTool';
+import { ListMediaTasksTool } from './ListMediaTasksTool';
 import { getToolTimeouts } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 
@@ -468,6 +475,14 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new SSHListTool());
   registry.register(new MCPCallTool());
   registry.register(new SkillCallTool());
+  // 媒体生成工具
+  registry.register(new GenerateImageTool());
+  registry.register(new EditImageTool());
+  registry.register(new GenerateVideoTool());
+  registry.register(new GenerateAudioTool());
+  registry.register(new QueryVideoTaskTool());
+  registry.register(new CancelVideoTaskTool());
+  registry.register(new ListMediaTasksTool());
   // TeamTool, MatchAgentTool, ListAgentsTool 在 SessionFactory.registerAdvancedTools() 中动态注册（需要注入依赖）
   return registry;
 }

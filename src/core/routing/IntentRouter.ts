@@ -76,7 +76,8 @@ export class IntentRouter {
 
     // L2: 语义向量匹配 scene（EmbeddingMatcher 内部会延迟初始化 embedder）
     const l2Start = Date.now();
-    onProgress?.({ level: 'L2', status: 'start', method: 'embedding', durationMs: 0, success: false });
+    const l2ModelName = this.embeddingMatcher.getEmbedderModelName();
+    onProgress?.({ level: 'L2', status: 'start', method: 'embedding', durationMs: 0, success: false, modelName: l2ModelName ?? undefined });
     try {
       const matches = await this.embeddingMatcher.match(message);
       const l2Duration = Date.now() - l2Start;
@@ -86,6 +87,7 @@ export class IntentRouter {
           level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: true,
           scene: topMatch.scene, complexity: topMatch.complexity, confidence: topMatch.score,
           matchCount: matches.length, reason: topMatch.reason,
+          modelName: l2ModelName ?? undefined,
         });
         return {
           scene: topMatch.scene || '',
@@ -93,17 +95,20 @@ export class IntentRouter {
           confidence: topMatch.score,
           method: 'embedding',
           reason: topMatch.reason,
+          modelName: l2ModelName ?? undefined,
         };
       }
       onProgress?.({
         level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
         matchCount: matches.length, reason: matches.length > 0 ? '最高分低于阈值' : '无匹配结果',
+        modelName: l2ModelName ?? undefined,
       });
     } catch (err) {
       const l2Duration = Date.now() - l2Start;
       onProgress?.({
         level: 'L2', status: 'done', method: 'embedding', durationMs: l2Duration, success: false,
         reason: err instanceof Error ? err.message : '语义匹配异常',
+        modelName: l2ModelName ?? undefined,
       });
       log.warn('L2 embedding match failed, falling back to default:', err);
     }

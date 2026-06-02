@@ -13,6 +13,7 @@ import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { getConfigManager } from '@/core/config/ConfigManager';
 import { setRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { ProviderManager } from '@/core/providers/ProviderManager';
+import { ToolConfigManager } from '@/core/tools/ToolConfigManager';
 import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
 import { PermissionController } from '@/permission/PermissionController';
 import { SessionManager } from '@/session/SessionManager';
@@ -278,6 +279,15 @@ export class SessionFactory {
     const agentTools = agentCfg?.tools
       ? (agentCfg.tools as Array<{ name: string }>).map(t => t.name)
       : [];
+
+    // 加载媒体生成工具的配置
+    // 优先级：RuntimeConfig.modelProviders.media > Agent YAML tools[].config
+    ToolConfigManager.getInstance().loadFromModelProviders();
+    if (agentCfg?.tools) {
+      ToolConfigManager.getInstance().loadFromAgentConfig(
+        agentCfg.tools as Array<{ name: string; config?: Record<string, unknown> }>,
+      );
+    }
 
     // 先构建 prompt 以获取 L0 组件声明的 requiredTools（如 memory_search、memory_store）
     let promptRequiredTools: string[] = [];

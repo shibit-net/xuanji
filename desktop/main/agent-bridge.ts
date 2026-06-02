@@ -204,7 +204,13 @@ function triggerEmbeddingModelDownload(globalConfig: any): void {
     const fs = require('node:fs');
     const path = require('node:path');
     const os = require('node:os');
-    const embeddingConfig = globalConfig?.embedding;
+    // 优先从 modelProviders.embedding 读取，兼容旧的 config.embedding 路径
+    const embeddingConfig = globalConfig?.modelProviders?.embedding || globalConfig?.embedding;
+    // 只有 provider 为 'xenova'（或旧值 'local'）时才触发本地下载
+    if (embeddingConfig?.provider && embeddingConfig.provider !== 'xenova' && embeddingConfig.provider !== 'local') {
+      log.info('triggerEmbeddingModelDownload: provider is not local, skipping download');
+      return;
+    }
     const modelId = embeddingConfig?.model || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
     const modelDir = path.join(os.homedir(), '.xuanji', 'embedding-models', modelId);
     const baseUrl = buildEmbeddingDownloadBaseUrl(globalConfig, modelId);
@@ -613,10 +619,11 @@ const VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.f
 let pendingPlatformImagePaths: string[] = [];
 
 // send_file_to_user 工具触发：收集显式发送的文件路径
-eventBus.on('platform:send-file', (payload: { filePath: string; isImage: boolean; message?: string }) => {
+eventBus.on('platform:send-file', (payload: { filePath: string; isImage: boolean; isAudio?: boolean; isVideo?: boolean; message?: string }) => {
   if (payload?.filePath) {
     pendingPlatformImagePaths.push(payload.filePath);
-    log.info(`[DIAG] send_file_to_user tool queued: ${payload.filePath} (isImage=${payload.isImage})`);
+    const fileType = payload.isVideo ? '视频' : payload.isAudio ? '音频' : payload.isImage ? '图片' : '文件';
+    log.info(`[DIAG] send_file_to_user tool queued: ${payload.filePath} (type=${fileType})`);
   }
 });
 
@@ -1082,6 +1089,9 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         case 'fallbackProvider':
           partial.fallbackProvider = data.sectionData;
           break;
+        case 'modelProviders':
+          partial.modelProviders = data.sectionData;
+          break;
       }
 
       if (Object.keys(partial).length > 0) {
@@ -1091,6 +1101,12 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         if (updated) {
           session.getContainer().unregister('config');
           session.getContainer().registerSingleton('config', updated);
+        }
+        // 如果更新了 modelProviders，重载 ToolConfigManager 使媒体工具配置立即生效
+        if (partial.modelProviders) {
+          const { ToolConfigManager } = await import('../../src/core/tools/ToolConfigManager.js');
+          ToolConfigManager.getInstance().loadFromModelProviders();
+          log.info('ToolConfigManager reloaded from modelProviders');
         }
         log.info(`Config updated: section=${data.section}`);
       }

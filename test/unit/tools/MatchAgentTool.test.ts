@@ -6,7 +6,9 @@ interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
   cosineSimilarity(a: number[] | Float32Array, b: number[] | Float32Array): number;
   dotProduct(vectors: Float32Array, offset: number, query: Float32Array, dimensions: number): number;
+  getModelName(): string;
 }
+import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 
 // ============================================================
@@ -36,14 +38,15 @@ function createMockAgentRegistry(agents: ConfigurableAgentConfig[] = []) {
   };
 }
 
-function createMockEmbeddingProvider(score = 0.85): EmbeddingProvider {
+function createMockEmbeddingProvider(score = 0.85): EmbeddingProviderInterface {
   return {
     embed: vi.fn(async (text: string) => {
       return new Array(10).fill(0).map((_, i) => (text.length + i) / 100);
     }),
     cosineSimilarity: vi.fn(() => score),
     dotProduct: vi.fn(() => score),
-  } as unknown as EmbeddingProvider;
+    getModelName: vi.fn(() => 'mock/embedding-model'),
+  };
 }
 
 // ============================================================

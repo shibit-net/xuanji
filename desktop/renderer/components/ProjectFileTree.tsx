@@ -3,7 +3,7 @@
 // 从 ProjectFilesPanel 提取核心渲染逻辑，去掉面板 chrome
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronRight, ChevronDown, RefreshCw, ExternalLink, Copy, FolderOpen, Folder, File, FileCode, FileText, FileJson, FileCog, Terminal, Globe } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
@@ -78,7 +78,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-muted/30 transition-colors text-xs group"
         style={{ paddingLeft: 6 + depth * 12 }}
         onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
-        onContextMenu={(e) => onContextMenu(e, node)}
+        onContextMenu={(e) => { e.stopPropagation(); onContextMenu(e, node); }}
         title={entry.path}
       >
         {isDir ? (
@@ -123,15 +123,18 @@ function updateNode(nodes: TreeNode[], targetPath: string, updates: Partial<Pick
 // 主组件
 // ============================================================
 
-export default function ProjectFileTree() {
+export default function ProjectFileTree({ onGitBranchChange }: { onGitBranchChange?: (branch: string | null) => void }) {
   const language = useConfigStore((s) => s.settings.language);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [rootPath, setRootPath] = useState('');
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const notifyGitBranch = (b: string | null) => { setGitBranch(b); onGitBranchChange?.(b); };
   const [gitStatus, setGitStatus] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+  const [blankCtxMenu, setBlankCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const rootRelPath = useCallback((p: string) => rootPath ? p.replace(rootPath, '').replace(/^\//, '') : p, [rootPath]);
 
@@ -146,8 +149,12 @@ export default function ProjectFileTree() {
       const r = await window.electron.workspaceReadDirectory();
       if (r.success && r.items) {
         setRootPath(r.currentPath || '');
+        notifyGitBranch((r as any).gitBranch || null);
         setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
-        if (r.currentPath) loadGitStatus(r.currentPath);
+        if (r.currentPath) {
+          loadGitStatus(r.currentPath);
+          window.electron.workspaceStartWatch?.(r.currentPath);
+        }
       } else {
         setError(r.error || '无法读取目录');
       }
@@ -157,13 +164,17 @@ export default function ProjectFileTree() {
     setLoading(false);
   }, [loadGitStatus]);
 
-  useEffect(() => { loadRoot(); }, [loadRoot]);
+  useEffect(() => {
+    loadRoot();
+    return () => { window.electron.workspaceStopWatch?.(); };
+  }, [loadRoot]);
 
   useEffect(() => {
     const refresh = (data: { path: string }) => {
       window.electron.workspaceReadDirectory(data.path).then(r => {
         if (!r.success || !r.items) return;
         setRootPath(r.currentPath || '');
+        notifyGitBranch((r as any).gitBranch || null);
         setTreeData((r.items ?? []).map(i => ({ entry: i, depth: 0, expanded: false })));
         setError('');
         if (r.currentPath) loadGitStatus(r.currentPath);
@@ -177,11 +188,24 @@ export default function ProjectFileTree() {
       }
     });
 
+    // 窗口获得焦点时自动刷新
+    const onFocus = () => { if (rootPath) refresh({ path: rootPath }); };
+    window.addEventListener('focus', onFocus);
+
+    // 定期轮询（每 5 秒检测文件变更）
+    const pollInterval = setInterval(() => {
+      if (rootPath && document.hasFocus()) {
+        refresh({ path: rootPath });
+      }
+    }, 5000);
+
     return () => {
       window.electron.offWorkspaceDirectoryChanged(refresh);
       window.electron.off?.('agent:tool-end', refresh);
+      window.removeEventListener('focus', onFocus);
+      clearInterval(pollInterval);
     };
-  }, [loadGitStatus]);
+  }, [loadGitStatus, rootPath]);
 
   const handleToggle = useCallback(async (node: TreeNode) => {
     if (node.expanded) {
@@ -213,7 +237,7 @@ export default function ProjectFileTree() {
   }, []);
 
   useEffect(() => {
-    const close = () => setCtxMenu(null);
+    const close = () => { setCtxMenu(null); setBlankCtxMenu(null); };
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
@@ -236,8 +260,18 @@ export default function ProjectFileTree() {
     setCtxMenu(null);
   }, [ctxMenu]);
 
+  const handleBlankContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setBlankCtxMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setBlankCtxMenu(null);
+    loadRoot();
+  }, [loadRoot]);
+
   return (
-    <div className="min-h-0 overflow-y-auto overflow-x-hidden px-1 py-1">
+    <div className="min-h-0 overflow-y-auto overflow-x-hidden px-1 py-1" onContextMenu={handleBlankContextMenu}>
       {loading && (
         <div className="flex items-center justify-center py-4">
           <RefreshCw size={12} className="animate-spin text-muted-foreground/30" />
@@ -254,10 +288,10 @@ export default function ProjectFileTree() {
         <TreeItem key={n.entry.path} node={n} onToggle={handleToggle} onOpenFile={handleOpenFile} onContextMenu={handleContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />
       ))}
 
-      {/* 右键菜单 */}
+      {/* 文件/文件夹右键菜单 */}
       {ctxMenu && (
         <div
-          className="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[140px]"
+          className="fixed z-50 bg-[hsl(240,5%,12%)] rounded-xl shadow-glass-lg py-1 min-w-[140px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           {!ctxMenu.node.entry.isDirectory && (
@@ -293,6 +327,31 @@ export default function ProjectFileTree() {
             <Copy size={11} className="text-muted-foreground" />
             {getDesktopLabel('filetree.copy_path', language)}
           </button>
+        </div>
+      )}
+
+      {/* 空白区域右键菜单 */}
+      {blankCtxMenu && (
+        <div
+          className="fixed z-50 bg-[hsl(240,5%,12%)] rounded-xl shadow-glass-lg py-1 min-w-[120px]"
+          style={{ left: blankCtxMenu.x, top: blankCtxMenu.y }}
+        >
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+            onClick={handleRefresh}
+          >
+            <RefreshCw size={11} className="text-muted-foreground" />
+            {getDesktopLabel('filetree.refresh', language)}
+          </button>
+          {rootPath && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors"
+              onClick={async () => { await window.electron.workspaceShowInFolder(rootPath); setBlankCtxMenu(null); }}
+            >
+              <FolderOpen size={11} className="text-muted-foreground" />
+              {getDesktopLabel('filetree.show_in_folder', language)}
+            </button>
+          )}
         </div>
       )}
     </div>

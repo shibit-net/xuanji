@@ -5,8 +5,10 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { DownloadManager } from '../../../src/core/download/DownloadManager.js';
 import { LocalModelLoader } from '../../../src/core/agent/dispatch/LocalModelLoader.js';
+import { scanInstalledEmbeddingModels } from '../../../src/core/embedding/EmbeddingProvider.js';
 import { messageBus } from './MessageBus.js';
 import { enhancedMessageBus } from './GlobalMessageBus.js';
+import { getMainWindow } from '../window/index.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -86,6 +88,16 @@ const MODEL_IDS: Record<string, string> = {
   'chatglm3-6b-q3': 'hf:mradermacher/chatglm3-6b-GGUF:chatglm3-6b.Q3_K_M.gguf',
   'glm4-9b-q4': 'hf:mradermacher/glm-4-9b-chat-GGUF:glm-4-9b-chat.Q4_K_M.gguf',
 };
+
+/** 扫描 embedding-models 目录下的模型列表（复用 EmbeddingProvider 核心逻辑） */
+function scanEmbeddingModels(): Array<{
+  id: string;
+  name: string;
+  description: string;
+  installed: boolean;
+}> {
+  return scanInstalledEmbeddingModels(EMBEDDING_MODEL_DIR);
+}
 
 export function registerDownloadHandlers() {
 
@@ -170,6 +182,16 @@ export function registerDownloadHandlers() {
     }
   });
 
+  // 列出所有 embedding 模型（预设 + 已安装）
+  ipcMain.handle('download:list-embedding-models', async () => {
+    try {
+      const models = scanEmbeddingModels();
+      return { success: true, models };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // 卸载 embedding 模型
   ipcMain.handle('download:uninstall-embedding-model', async (_event, modelId: string) => {
     try {
@@ -182,6 +204,20 @@ export function registerDownloadHandlers() {
       // 递归删除模型目录
       fs.rmSync(modelDir, { recursive: true, force: true });
 
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打开 embedding 模型目录
+  ipcMain.handle('download:open-embedding-model-dir', async () => {
+    try {
+      const { shell } = require('electron');
+      if (!fs.existsSync(EMBEDDING_MODEL_DIR)) {
+        fs.mkdirSync(EMBEDDING_MODEL_DIR, { recursive: true });
+      }
+      await shell.openPath(EMBEDDING_MODEL_DIR);
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -451,6 +487,60 @@ export function registerDownloadHandlers() {
     } catch {
       return { success: true, status: {} };
     }
+  });
+
+  // ============ 文件监听（自动刷新文件树）============
+  let fsWatcher: any = null;
+  let watchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  ipcMain.handle('workspace:start-watch', async (_event, dirPath: string) => {
+    try {
+      // 停止旧监听
+      if (fsWatcher) {
+        try { fsWatcher.close(); } catch {}
+        fsWatcher = null;
+      }
+
+      const Chokidar = require('chokidar');
+      fsWatcher = Chokidar.watch(dirPath, {
+        ignored: /(^|[/\\])\.(?!gitignore)/, // 忽略点文件但保留 .gitignore
+        ignoreInitial: true,
+        depth: 10,
+        awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+      });
+
+      const emitChange = () => {
+        if (watchDebounceTimer) clearTimeout(watchDebounceTimer);
+        watchDebounceTimer = setTimeout(() => {
+          const mw = getMainWindow();
+          if (mw && !mw.isDestroyed()) {
+            mw.webContents.send('workspace:directory-changed', { path: dirPath });
+          }
+        }, 300);
+      };
+
+      fsWatcher.on('add', emitChange);
+      fsWatcher.on('change', emitChange);
+      fsWatcher.on('unlink', emitChange);
+      fsWatcher.on('addDir', emitChange);
+      fsWatcher.on('unlinkDir', emitChange);
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('workspace:stop-watch', async () => {
+    if (fsWatcher) {
+      try { fsWatcher.close(); } catch {}
+      fsWatcher = null;
+    }
+    if (watchDebounceTimer) {
+      clearTimeout(watchDebounceTimer);
+      watchDebounceTimer = null;
+    }
+    return { success: true };
   });
 
   // ============ 拖拽文件路径解析 ============

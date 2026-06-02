@@ -69,6 +69,8 @@ export class SendFileTool extends BaseTool {
     eventBus.emitSync('platform:send-file', {
       filePath,
       isImage,
+      isAudio,
+      isVideo,
       message,
       timestamp: Date.now(),
     });

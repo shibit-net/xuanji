@@ -1,6 +1,6 @@
 {
   "name": "xuanji-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Xuanji Desktop - AI Agent Desktop Application",
   "main": "dist-electron/index.js",
   "author": "Shibit Team",

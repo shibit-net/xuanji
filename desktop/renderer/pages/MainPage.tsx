@@ -30,16 +30,20 @@ export default function MainPage() {
   const currentIteration = useConversationStore((s) => s.iteration);
   const sessionStatus = useSessionInitStore((s) => s.status);
 
-  const newAgentMap = useAgentStateMachine((s) => s.agentMap);
-  const totalTokens = React.useMemo(() => {
-    const sum = { input: 0, output: 0, cached: 0 };
-    for (const a of Object.values(newAgentMap)) {
-      sum.input += a.stats.tokenUsage.input || 0;
-      sum.output += a.stats.tokenUsage.output || 0;
-      sum.cached += a.stats.tokenUsage.cached || 0;
+  // 用 primitive selector 避免整个 agentMap 变化时重渲染
+  const tokenKey = useAgentStateMachine((s) => {
+    let input = 0, output = 0, cached = 0;
+    for (const a of Object.values(s.agentMap)) {
+      input += a.stats.tokenUsage.input || 0;
+      output += a.stats.tokenUsage.output || 0;
+      cached += a.stats.tokenUsage.cached || 0;
     }
-    return sum;
-  }, [newAgentMap]);
+    return `${input}|${output}|${cached}`;
+  });
+  const totalTokens = React.useMemo(() => {
+    const [input, output, cached] = tokenKey.split('|').map(Number);
+    return { input, output, cached };
+  }, [tokenKey]);
 
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
   const remoteSessions = usePlatformStore((s) => s.sessions);

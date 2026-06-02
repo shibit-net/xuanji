@@ -30,12 +30,12 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
   };
 
   return (
-    <div className="flex-shrink-0 h-10 bg-card flex items-center justify-between px-4 select-none drag">
+    <div className="flex-shrink-0 h-10 bg-primary/5 backdrop-blur-xl flex items-center justify-between px-4 select-none drag">
       <div className="w-20"></div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <img src={appLogo} alt="Xuanji" className="w-5 h-5 rounded" />
-        <div className="text-primary font-bold text-lg">{getDesktopLabel('titlebar.app_name', language)}</div>
+        <div className="font-bold text-lg text-foreground">{getDesktopLabel('titlebar.app_name', language)}</div>
       </div>
 
       <div className="flex items-center gap-1 no-drag">

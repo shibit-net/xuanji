@@ -67,6 +67,9 @@ export type {
   IConfigLoader,
   WebSearchConfig,
   FeaturesConfig,
+  ModelProvidersConfig,
+  EmbeddingConfig,
+  ToolMediaGenConfig,
 } from './config';
 
 export type {

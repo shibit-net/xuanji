@@ -146,7 +146,7 @@ export default function LoginPage() {
                 />
 
                 {showDropdown && savedAccounts.length > 0 && (
-                  <div className="absolute z-20 w-full mt-1.5 bg-popover backdrop-blur-2xl border border-border rounded-xl shadow-glass-lg overflow-hidden animate-in fade-in-0 zoom-in-95">
+                  <div className="absolute z-20 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-glass-lg overflow-hidden animate-in fade-in-0">
                     {savedAccounts.map((account, index) => (
                       <div
                         key={index}

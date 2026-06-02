@@ -3,11 +3,11 @@
 // ============================================================
 
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Settings, HelpCircle, Bot, Wrench, FileText, Brain,
   LogOut, ShieldCheck, Clock, Package, Plus, Radio, X,
-  FolderTree, ChevronDown, ChevronRight,
+  FolderTree, ChevronDown, ChevronRight, GitBranch,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
@@ -187,8 +187,46 @@ export default function Sidebar() {
   const language = useConfigStore((s) => s.settings.language);
   const { setSetupDialogOpen } = usePlatformStore();
   const [fileTreeExpanded, setFileTreeExpanded] = useState(true);
+  const [fileTreeHeight, setFileTreeHeight] = useState(192);
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const draggingRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const isActive = (route: string) => location.pathname === route;
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = { startY: e.clientY, startHeight: fileTreeHeight };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [fileTreeHeight]);
+
+  useEffect(() => {
+    let didDrag = false;
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const delta = draggingRef.current.startY - e.clientY;
+      if (Math.abs(delta) > 3) didDrag = true;
+      const next = Math.max(80, Math.min(500, draggingRef.current.startHeight + delta));
+      setFileTreeHeight(next);
+    };
+    const onUp = () => {
+      if (!draggingRef.current) return;
+      if (!didDrag) {
+        // 纯点击 → 切换折叠
+        setFileTreeExpanded(prev => !prev);
+      }
+      draggingRef.current = null;
+      didDrag = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -283,16 +321,22 @@ export default function Sidebar() {
       {/* 底部：项目文件树 */}
       <div className="border-t border-border">
         <button
-          onClick={() => setFileTreeExpanded(!fileTreeExpanded)}
-          className="w-full flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase text-muted-foreground/50 tracking-wider font-medium hover:text-foreground transition-colors"
+          onMouseDown={handleResizeStart}
+          className="w-full flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase text-muted-foreground/50 tracking-wider font-medium hover:text-foreground transition-colors cursor-row-resize"
         >
           {fileTreeExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <FolderTree size={12} />
-          {getDesktopLabel('sidebar.project_files', language)}
+          <span className="flex-1 text-left">{getDesktopLabel('sidebar.project_files', language)}</span>
+          {gitBranch && (
+            <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground/50 normal-case tracking-normal font-normal">
+              <GitBranch size={9} className="flex-shrink-0" />
+              <span className="truncate max-w-[80px]">{gitBranch}</span>
+            </span>
+          )}
         </button>
         {fileTreeExpanded && (
-          <div className="max-h-48 overflow-y-auto border-t border-border/50">
-            <ProjectFileTree />
+          <div className="overflow-y-auto" style={{ height: fileTreeHeight }}>
+            <ProjectFileTree onGitBranchChange={setGitBranch} />
           </div>
         )}
       </div>

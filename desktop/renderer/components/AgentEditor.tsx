@@ -11,6 +11,28 @@ import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
 import { t } from '@/core/i18n';
 import { useConfigStore } from '../stores/configStore';
 
+// 媒体生成工具名称和默认配置
+const MEDIA_TOOL_NAMES = new Set(['generate_image', 'edit_image', 'generate_video', 'generate_audio']);
+
+const MEDIA_TOOL_DEFAULT_CONFIG: Record<string, Record<string, unknown>> = {
+  generate_image: {
+    defaultSize: '2K',
+    watermark: false,
+  },
+  edit_image: {
+    watermark: false,
+  },
+  generate_video: {
+    defaultSize: '2K',
+    defaultDuration: 5,
+    pollInterval: 5000,
+    pollTimeout: 600000,
+  },
+  generate_audio: {
+    defaultDuration: 30,
+  },
+};
+
 interface AgentEditorProps {
   agent: any | null;
   builtinAgents: any[];
@@ -491,15 +513,35 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         newTools.splice(existingIndex, 1); // 移除
       } else {
         newTools[existingIndex].enabled = true; // 启用
+        // 媒体工具：初始化默认配置
+        if (MEDIA_TOOL_NAMES.has(toolName) && !newTools[existingIndex].config) {
+          newTools[existingIndex].config = { ...MEDIA_TOOL_DEFAULT_CONFIG[toolName] };
+        }
       }
       setConfig({ ...config, tools: newTools });
     } else {
-      // 添加新工具
+      // 添加新工具，媒体工具附带默认配置
+      const tool: any = { name: toolName, enabled: true };
+      if (MEDIA_TOOL_NAMES.has(toolName)) {
+        tool.config = { ...MEDIA_TOOL_DEFAULT_CONFIG[toolName] };
+      }
       setConfig({
         ...config,
-        tools: [...tools, { name: toolName, enabled: true }],
+        tools: [...tools, tool],
       });
     }
+  };
+
+  /** 更新某个工具的配置字段 */
+  const updateToolConfig = (toolName: string, key: string, value: unknown) => {
+    const tools = [...(config.tools || [])];
+    const idx = tools.findIndex((t: any) => t.name === toolName);
+    if (idx < 0) return;
+    tools[idx] = {
+      ...tools[idx],
+      config: { ...(tools[idx].config || {}), [key]: value },
+    };
+    setConfig({ ...config, tools });
   };
 
   const selectAllTools = () => {
@@ -1438,7 +1480,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           )}
 
           {/* 工具配置 */}
-          {category !== 'system' && renderSection(
+          {renderSection(
             'tools',
             t('agent.editor.tools_section'),
             <Database size={18} className="text-blue-500" />,
@@ -1525,6 +1567,41 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                     {isEnabled && toolConfig?.description && (
                                       <div className="text-xs text-primary mt-1">
                                         {t('agent.editor.tools_custom_desc', { desc: toolConfig.description })}
+                                      </div>
+                                    )}
+                                    {/* 媒体工具：提示使用全局配置（生图/生视频无需配置） */}
+                                    {isEnabled && MEDIA_TOOL_NAMES.has(tool.name) && tool.name !== 'generate_image' && tool.name !== 'generate_video' && (
+                                      <div className="mt-2 p-2 bg-muted/50 rounded border border-border/50 space-y-2">
+                                        <p className="text-xs text-muted-foreground">
+                                          API 凭证使用全局配置，在设置 → 模型配置中统一管理
+                                        </p>
+                                        {tool.name === 'generate_image' && (
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <label className="text-xs text-muted-foreground">默认分辨率</label>
+                                              <select
+                                                value={(toolConfig?.config as any)?.defaultSize || '2K'}
+                                                onChange={(e) => updateToolConfig(tool.name, 'defaultSize', e.target.value)}
+                                                className="w-full bg-background border border-border rounded px-2 py-1 text-xs"
+                                              >
+                                                <option value="1K">1K (1024²)</option>
+                                                <option value="2K">2K (2048²)</option>
+                                                <option value="4K">4K (4096²)</option>
+                                              </select>
+                                            </div>
+                                            <div className="flex items-end pb-0.5">
+                                              <label className="flex items-center gap-1 cursor-pointer">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={(toolConfig?.config as any)?.watermark === true}
+                                                  onChange={(e) => updateToolConfig(tool.name, 'watermark', e.target.checked)}
+                                                  className="rounded"
+                                                />
+                                                <span className="text-xs text-muted-foreground">水印</span>
+                                              </label>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>

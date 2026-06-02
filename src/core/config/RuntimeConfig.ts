@@ -7,7 +7,7 @@
 // 配置更新时调用 updateRuntimeConfig() 实现动态生效。
 //
 
-import type { AppConfig } from '@/core/types';
+import type { AppConfig, ModelProvidersConfig } from '@/core/types';
 
 let _config: AppConfig | null = null;
 
@@ -111,4 +111,11 @@ export function getAsyncAgentConfig() {
  */
 export function getSSHConfig() {
   return _config?.tools?.ssh;
+}
+
+/**
+ * 获取模型供应商配置
+ */
+export function getModelProvidersConfig(): ModelProvidersConfig | undefined {
+  return _config?.modelProviders;
 }

@@ -1,10 +1,31 @@
-import { app, dialog } from 'electron';
+import { app, dialog, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { createWindow, getMainWindow } from './window/index.js';
 import { cleanupAgentProcess, getIsCleaningUp, setIsCleaningUp } from './agent/index.js';
 import { registerAllIpcHandlers } from './ipc/index.js';
 import { loadAuthState, setAuthState, setSessionExpiredHandler } from './config/auth.js';
+import { buildAppMenu } from './menu/index.js';
+
+// 设置应用名称（影响菜单栏 About/Hide/Quit 等项的显示名称）
+app.setName('璇玑');
+
+// ─── 提前加载应用图标（避免 Dock 闪默认图标） ──────────
+
+function loadAppIcon(): Electron.NativeImage | null {
+  try {
+    const appPath = app.getAppPath();
+    const iconPath = path.join(appPath, 'build/icon.png');
+    if (fs.existsSync(iconPath)) {
+      const iconBuffer = fs.readFileSync(iconPath);
+      const icon = nativeImage.createFromBuffer(iconBuffer);
+      if (!icon.isEmpty()) return icon;
+    }
+  } catch (e) {
+    console.error('[Main] load app icon error:', e);
+  }
+  return null;
+}
 
 // ─── DMG 自动复制到 /Applications ─────────────────────
 
@@ -66,6 +87,15 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.whenReady().then(async () => {
+  // 尽早加载并设置 Dock 图标，避免闪现 Electron 默认图标
+  const appIcon = loadAppIcon();
+  if (appIcon && app.dock) {
+    app.dock.setIcon(appIcon);
+  }
+
+  // 构建自定义应用菜单（传入图标用于 About 对话框）
+  buildAppMenu(appIcon);
+
   // 从 DMG 运行 → 静默复制到 /Applications 并重新启动
   if (process.platform === 'darwin' && isRunningFromDMG()) {
     await moveToApplications();

@@ -25,6 +25,9 @@ export abstract class BaseTool implements Tool {
   /** 默认为写工具（串行执行） */
   readonly readonly: boolean = false;
 
+  /** 工具自身配置（从 agent YAML tools[].config 注入） */
+  toolConfig?: Record<string, unknown>;
+
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
 
   /**

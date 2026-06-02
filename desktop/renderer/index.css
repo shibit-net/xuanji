@@ -67,11 +67,11 @@
     --foreground: 0 0% 92%;
 
     /* 卡片 — 半透明白色玻璃 */
-    --card: 0 0% 100% / 0.08;
+    --card: 0 0% 100% / 0.18;
     --card-foreground: 0 0% 92%;
 
     /* 弹出菜单 — 更实的玻璃 */
-    --popover: 0 0% 100% / 0.15;
+    --popover: 0 0% 100% / 0.30;
     --popover-foreground: 0 0% 92%;
 
     /* 主色 — visionOS 蓝色调 */

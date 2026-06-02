@@ -3,7 +3,7 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Activity, FileText, Radio, Check, X, MoreHorizontal, ChevronUp, ChevronDown, Wrench, Search, Globe, Terminal, FolderOpen, FileQuestion, FilePenLine, ClipboardList, ListTodo, RotateCcw, Brain, Database, BarChart3, GitGraph } from 'lucide-react';
+import { Activity, FileText, Radio, Check, X, MoreHorizontal, ChevronUp, ChevronDown, Wrench, Search, Globe, Terminal, FolderOpen, FileQuestion, FilePenLine, ClipboardList, ListTodo, RotateCcw, Brain, Database, BarChart3, GitGraph, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
@@ -17,16 +17,16 @@ import PlatformSessionPanel from './PlatformSessionPanel';
 type TabId = 'monitor' | 'logs' | 'remote';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
-  { id: 'monitor', label: '运行监控', icon: <Activity size={14} /> },
-  { id: 'logs', label: '日志', icon: <FileText size={14} /> },
-  { id: 'remote', label: '远端会话', icon: <Radio size={14} /> },
+  { id: 'monitor', label: t('rightpanel.tab.monitor'), icon: <Activity size={14} /> },
+  { id: 'logs', label: t('rightpanel.tab.logs'), icon: <FileText size={14} /> },
+  { id: 'remote', label: t('rightpanel.tab.remote'), icon: <Radio size={14} /> },
 ];
 
 export default function MonitorPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('monitor');
 
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col">
       <div className="flex-shrink-0 flex items-center border-b border-border px-3">
         {TABS.map((tab) => (
           <button
@@ -55,10 +55,10 @@ export default function MonitorPanel() {
 
 // ─── 路由方法配置 ──────────────────────────
 
-const METHOD_CONFIG: Record<string, { label: string; color: string }> = {
-  llm: { label: 'LLM', color: 'text-blue-400' },
-  embedding: { label: '向量匹配', color: 'text-yellow-400' },
-  default: { label: '默认', color: 'text-muted-foreground' },
+const METHOD_CONFIG: Record<string, { labelKey: string; color: string }> = {
+  llm: { labelKey: 'rightpanel.llm_label', color: 'text-blue-400' },
+  embedding: { labelKey: 'rightpanel.vector_label', color: 'text-yellow-400' },
+  default: { labelKey: 'rightpanel.method_default', color: 'text-muted-foreground' },
 };
 
 // ─── 运行监控标签 ──────────────────────────
@@ -66,6 +66,7 @@ const METHOD_CONFIG: Record<string, { label: string; color: string }> = {
 function MonitorTab() {
   const routeStatus = useIntentRoutingStore((s) => s.status);
   const routeResult = useIntentRoutingStore((s) => s.result);
+  const routeStages = useIntentRoutingStore((s) => s.stages);
   const promptLayers = useIntentRoutingStore((s) => s.promptLayers);
   const totalComponents = useIntentRoutingStore((s) => s.totalComponents);
   const estimatedTokens = useIntentRoutingStore((s) => s.estimatedTokens);
@@ -76,58 +77,83 @@ function MonitorTab() {
 
   const methodInfo = routeResult ? METHOD_CONFIG[routeResult.method] ?? METHOD_CONFIG.default : null;
 
+  const isAnalyzing = routeStatus === 'analyzing';
+  const isDone = routeStatus === 'done';
+
+  const currentStage = routeStages.find((s) => s.status === 'running');
+  const analyzingMethod = currentStage?.method ?? null;
+  const analyzingLabel = analyzingMethod === 'llm'
+    ? t('rightpanel.method_llm')
+    : analyzingMethod === 'embedding'
+      ? t('rightpanel.method_embedding')
+      : analyzingMethod === 'default'
+        ? t('rightpanel.method_default')
+        : t('rightpanel.analyzing');
+  const methodColor = analyzingMethod === 'llm'
+    ? 'text-blue-400'
+    : analyzingMethod === 'embedding'
+      ? 'text-yellow-400'
+      : 'text-muted-foreground';
+
   return (
     <div className="h-full flex flex-col">
       {routeStatus !== 'idle' && (
-        <div className="flex-shrink-0 mx-3 mt-3 p-3 rounded-lg bg-muted/30 border border-border/50">
+        <div className="flex-shrink-0 mx-3 mt-3 p-3 rounded-lg bg-muted">
+          {/* 标题行 */}
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-[11px] font-semibold">意图分析</span>
-            {routeStatus !== 'analyzing' && (
-              <span className="text-[10px] text-green-400">已完成</span>
+            {isAnalyzing && <Loader2 size={12} className={`animate-spin shrink-0 ${analyzingMethod ? methodColor : 'text-blue-400'}`} />}
+            <span className="text-[11px] font-semibold text-foreground">{t('rightpanel.intent_analysis')}</span>
+            {isAnalyzing && (
+              <span className={`text-[10px] ${analyzingMethod ? methodColor : 'text-blue-400'}`}>{analyzingLabel}</span>
+            )}
+            {isDone && (
+              <span className="text-[10px] text-emerald-400">{t('rightpanel.analysis_complete')}</span>
             )}
           </div>
-          {routeResult && (
+
+          {/* 完成后的结果展示 */}
+          {isDone && routeResult && (
             <div className="space-y-1 text-[11px]">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-blue-400 font-medium">{routeResult.agentId}</span>
                 {methodInfo && (
                   <span className={methodInfo.color}>
-                    {t('rightpanel.method_label')}: {methodInfo.label}
+                    {t('rightpanel.method_label')}: {t(methodInfo.labelKey)}
                   </span>
                 )}
                 {routeResult.confidence > 0 && (
-                  <span className="text-muted-foreground/50 ml-auto">
+                  <span className="text-muted-foreground ml-auto">
                     {(routeResult.confidence * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {scenes.length > 0 && (
-                  <span className="text-purple-400/80">{scenes.join(', ')}</span>
+                  <span className="text-purple-400">{scenes.join(', ')}</span>
                 )}
-                {scenes.length > 0 && <span className="text-muted-foreground/40">·</span>}
-                <span className={routeResult.complexity === 'complex' ? 'text-amber-400/80' : 'text-emerald-400/80'}>
-                  {routeResult.complexity === 'complex' ? '高复杂度' : '低复杂度'}
+                {scenes.length > 0 && <span className="text-muted-foreground/60">·</span>}
+                <span className={routeResult.complexity === 'complex' ? 'text-amber-400' : 'text-emerald-400'}>
+                  {routeResult.complexity === 'complex' ? t('rightpanel.complexity_complex') : t('rightpanel.complexity_simple')}
                 </span>
                 {routeResult.modelName && (
                   <>
-                    <span className="text-muted-foreground/40">·</span>
-                    <span className="text-muted-foreground/70">{routeResult.modelName}</span>
+                    <span className="text-muted-foreground/60">·</span>
+                    <span className="text-foreground/70">{routeResult.modelName}</span>
                   </>
                 )}
               </div>
               {promptLayers.length > 0 && (
                 <details className="mt-1">
-                  <summary className="text-[10px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground select-none">
-                    Prompt 组件 ({totalComponents} 层, ~{estimatedTokens}t)
+                  <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground/70 select-none">
+                    {t('rightpanel.prompt_components', { count: totalComponents, tokens: estimatedTokens })}
                   </summary>
                   <div className="mt-1 max-h-40 overflow-y-auto space-y-1">
                     {promptLayers.map((layer) => (
-                      <div key={layer.layer} className="pl-2 border-l border-border">
+                      <div key={layer.layer} className="pl-2">
                         <span className="text-[10px] text-muted-foreground">L{layer.layer}</span>
                         <div className="ml-2 mt-0.5 space-y-0.5">
                           {layer.components.map((c) => (
-                            <div key={c.id} className="text-[10px] text-muted-foreground/70 truncate">{c.name}</div>
+                            <div key={c.id} className="text-[10px] text-foreground/60 truncate">{c.name}</div>
                           ))}
                         </div>
                       </div>
@@ -137,6 +163,7 @@ function MonitorTab() {
               )}
             </div>
           )}
+
         </div>
       )}
 
@@ -181,12 +208,23 @@ type TimelineEntry =
 function LogsTab() {
   const logs = useSessionStore((state) => state.logs);
   const clearLogs = useSessionStore((state) => state.clearLogs);
-  const agentMap = useAgentStateMachine((state) => state.agentMap);
+  // 用 primitive selector 避免每次 agent 事件重渲染整个日志列表
+  const toolsKey = useAgentStateMachine((s) => {
+    const parts: string[] = [];
+    for (const a of Object.values(s.agentMap)) {
+      for (const t of a.currentTools || []) {
+        parts.push(`${t.id}\x00${t.name}\x00${t.status}\x00${t.startTime || 0}\x00${t.output ? 1 : 0}\x00${t.status === 'error' ? (t.output || '').slice(0, 20) : ''}`);
+      }
+    }
+    return parts.sort().join('\x01');
+  });
   const language = useConfigStore((s) => s.settings.language);
   const [filter, setFilter] = useState<string | null>(null);
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
 
+  // toolCalls 需要完整数据，回退到 getState() 快照读取，仅在 toolsKey 变化时重组
   const toolCalls = useMemo(() => {
+    const agentMap = useAgentStateMachine.getState().agentMap;
     return Object.values(agentMap)
       .flatMap(a => a.currentTools || [])
       .map(t => ({
@@ -199,7 +237,7 @@ function LogsTab() {
         output: t.output,
         error: t.status === 'error' ? t.output?.slice(0, 500) : undefined,
       }));
-  }, [agentMap]);
+  }, [toolsKey]);
 
   const timeline = useMemo(() => {
     const logEntries: TimelineEntry[] = logs.map((log, i) => ({
@@ -234,15 +272,15 @@ function LogsTab() {
 
   return (
     <div className="h-full flex flex-col p-3 gap-3">
-      <div className="text-xs font-semibold">日志流</div>
+      <div className="text-xs font-semibold">{t('rightpanel.log_stream')}</div>
 
       <div className="inline-flex rounded-md bg-muted p-0.5 gap-0.5 self-start">
         {[
-          { value: null, label: '全部' },
-          { value: 'error', label: '错误' },
-          { value: 'warn', label: '警告' },
-          { value: 'info', label: '信息' },
-          { value: 'tool', label: '工具' },
+          { value: null, label: t('rightpanel.filter_all') },
+          { value: 'error', label: t('rightpanel.filter_error') },
+          { value: 'warn', label: t('rightpanel.filter_warn') },
+          { value: 'info', label: t('rightpanel.filter_info') },
+          { value: 'tool', label: t('rightpanel.filter_tool') },
         ].map((item) => (
           <button
             key={item.label}
@@ -260,7 +298,7 @@ function LogsTab() {
 
       {filtered.length === 0 ? (
         <div className="text-center text-xs text-muted-foreground py-8">
-          暂无记录
+          {t('rightpanel.no_records')}
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-1 text-xs">
@@ -305,10 +343,10 @@ function LogsTab() {
                 </button>
 
                 {isExpanded && (
-                  <div className="px-3 pb-2 space-y-2 text-xs border-t border-border/30 pt-2">
+                  <div className="px-3 pb-2 space-y-2 text-xs pt-2">
                     {call.input && (
                       <div>
-                        <div className="text-muted-foreground mb-1">输入参数</div>
+                        <div className="text-muted-foreground mb-1">{t('rightpanel.input_params')}</div>
                         <pre className="bg-card p-2 rounded overflow-x-auto text-xs max-h-32 overflow-y-auto">
                           {JSON.stringify(call.input, null, 2)}
                         </pre>
@@ -316,7 +354,7 @@ function LogsTab() {
                     )}
                     {call.status === 'success' && call.output && (
                       <div>
-                        <div className="text-muted-foreground mb-1">输出结果</div>
+                        <div className="text-muted-foreground mb-1">{t('rightpanel.output_result')}</div>
                         <pre className="bg-card p-2 rounded overflow-x-auto text-xs max-h-48 overflow-y-auto">
                           {typeof call.output === 'string' ? call.output : JSON.stringify(call.output, null, 2)}
                         </pre>
@@ -324,7 +362,7 @@ function LogsTab() {
                     )}
                     {call.status === 'error' && call.error && (
                       <div>
-                        <div className="text-red-500 mb-1">错误信息</div>
+                        <div className="text-red-500 mb-1">{t('rightpanel.error_info')}</div>
                         <pre className="bg-red-500/10 text-red-500 p-2 rounded overflow-x-auto text-xs">
                           {call.error}
                         </pre>
@@ -341,7 +379,7 @@ function LogsTab() {
       {timeline.length > 0 && (
         <div className="flex gap-2 flex-shrink-0">
           <Button onClick={clearLogs} variant="ghost" size="sm">
-            清除日志
+            {t('rightpanel.clear_logs')}
           </Button>
         </div>
       )}

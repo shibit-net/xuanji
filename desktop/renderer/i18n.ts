@@ -51,6 +51,7 @@ const zh: Record<string, string> = {
   'settings.features': '功能特性',
   'settings.ui': '界面配置',
   'settings.embedding': '向量配置',
+  'settings.model_providers': '模型配置',
   'settings.save': '保存配置',
   'settings.saving': '保存中...',
   'settings.save_success': '配置已保存',
@@ -132,7 +133,30 @@ const zh: Record<string, string> = {
   'settings.embedding.download_task_created': '已创建下载任务，请在下载中心查看进度',
   'settings.embedding.download_failed': '创建下载任务失败',
   'settings.embedding.dir_failed': '无法获取 embedding 模型目录',
+  'settings.embedding.presets_title': '预置模型',
+  'settings.embedding.installed_title': '本地已下载模型',
+  'settings.embedding.open_dir': '打开模型目录 (~/.xuanji/embedding-models/)',
+  'settings.embedding.download': '下载',
+  'settings.embedding.open_dir_failed': '打开模型目录失败',
+  'settings.embedding.toast.download_start': '开始下载 {name}',
+  'settings.embedding.toast.download_failed': '{name} 下载失败',
+  'settings.embedding.toast.delete_success': '已删除 {name}',
+  'settings.embedding.toast.delete_failed': '{name} 删除失败',
+  'settings.embedding.model_installed': '已安装',
+  'settings.embedding.model_not_installed': '未安装，点击选择后自动下载',
   'settings.embedding.saved': 'Embedding 配置已保存',
+
+  // SettingsPage — ModelProviders Tab
+  'settings.model_providers.media': '媒体生成',
+  'settings.model_providers.media_desc': '配置 generate_image / edit_image 工具的 API 凭证，修改后即时生效',
+  'settings.model_providers.generate_image': '图片生成 (generate_image)',
+  'settings.model_providers.edit_image': '图片编辑 (edit_image)',
+  'settings.model_providers.provider': '平台',
+  'settings.model_providers.model': '模型名称',
+  'settings.model_providers.api_key': 'API Key',
+  'settings.model_providers.base_url': '接口地址',
+  'settings.model_providers.base_url_hint': '留空使用平台默认地址',
+  'settings.model_providers.saved': '模型配置已保存并即时生效',
 
   // SettingsPage — Download Tab
   'settings.download': '下载配置',
@@ -211,7 +235,7 @@ const zh: Record<string, string> = {
   'filetree.open_folder': '打开文件夹',
   'filetree.show_in_folder': '在文件夹中显示',
   'filetree.copy_path': '复制路径',
-
+  'filetree.refresh': '刷新文件树',
 };
 
 const en: Record<string, string> = {
@@ -323,7 +347,31 @@ const en: Record<string, string> = {
   'settings.embedding.download_task_created': 'Download task created, check progress in Download Center',
   'settings.embedding.download_failed': 'Failed to create download task',
   'settings.embedding.dir_failed': 'Failed to get embedding model directory',
+  'settings.embedding.presets_title': 'Preset Models',
+  'settings.embedding.installed_title': 'Local Downloaded Models',
+  'settings.embedding.open_dir': 'Open Model Directory (~/.xuanji/embedding-models/)',
+  'settings.embedding.download': 'Download',
+  'settings.embedding.open_dir_failed': 'Failed to open model directory',
+  'settings.embedding.toast.download_start': 'Start downloading {name}',
+  'settings.embedding.toast.download_failed': '{name} download failed',
+  'settings.embedding.toast.delete_success': 'Deleted {name}',
+  'settings.embedding.toast.delete_failed': '{name} delete failed',
+  'settings.embedding.model_installed': 'Installed',
+  'settings.embedding.model_not_installed': 'Not installed, select to auto-download',
   'settings.embedding.saved': 'Embedding settings saved',
+
+  // SettingsPage — ModelProviders Tab
+  'settings.model_providers': 'Model Providers',
+  'settings.model_providers.media': 'Media Generation',
+  'settings.model_providers.media_desc': 'Configure API credentials for generate_image / edit_image tools, takes effect immediately',
+  'settings.model_providers.generate_image': 'Image Generation (generate_image)',
+  'settings.model_providers.edit_image': 'Image Editing (edit_image)',
+  'settings.model_providers.provider': 'Provider',
+  'settings.model_providers.model': 'Model Name',
+  'settings.model_providers.api_key': 'API Key',
+  'settings.model_providers.base_url': 'Base URL',
+  'settings.model_providers.base_url_hint': 'Leave empty to use platform default',
+  'settings.model_providers.saved': 'Model provider settings saved and active',
 
   // SettingsPage — Download Tab
   'settings.download': 'Download',
@@ -483,7 +531,7 @@ const en: Record<string, string> = {
   'filetree.open_folder': 'Open Folder',
   'filetree.show_in_folder': 'Show in Folder',
   'filetree.copy_path': 'Copy Path',
-
+  'filetree.refresh': 'Refresh File Tree',
 };
 
 export function getDesktopLabel(key: string, language: 'zh' | 'en'): string {

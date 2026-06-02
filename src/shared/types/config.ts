@@ -216,10 +216,34 @@ export interface LoggingConfig {
  * Embedding 配置
  */
 export interface EmbeddingConfig {
+  /** 平台标识: "local" (Xenova 本地) | "ark" (豆包/火山引擎) | "bailian" (百炼/千问) | "openai" 等 */
+  provider: string;
   /** 模型 ID */
   model: string;
-  /** HuggingFace 镜像地址 */
+  /** API Key（非 local 模式时需要） */
+  apiKey?: string;
+  /** API 接口地址（非 local 模式时需填） */
+  baseURL?: string;
+  /** HuggingFace 镜像地址（local 模式下载时使用，已废弃，保留兼容） */
   hfMirror?: string;
+}
+
+// ============================================================
+// 统一模型供应商配置
+// ============================================================
+
+/**
+ * 模型供应商配置
+ *
+ * 将 Embedding 和媒体生成工具的凭证统一管理，
+ * 存储在 config.json 中，与 Agent YAML 脱钩。
+ * 支持配置页面修改 + 热重载。
+ */
+export interface ModelProvidersConfig {
+  /** 向量模型（Embedding） */
+  embedding?: EmbeddingConfig;
+  /** 媒体生成工具（按工具名索引，如 generate_image / edit_image） */
+  media?: Record<string, ToolMediaGenConfig>;
 }
 
 /**
@@ -247,6 +271,8 @@ export interface AppConfig {
   provider: ProviderConfig;
   /** Embedding 配置 */
   embedding?: EmbeddingConfig;
+  /** 统一模型供应商配置（embedding + 媒体工具凭证，替代旧的独立 embedding 字段） */
+  modelProviders?: ModelProvidersConfig;
   /** 下载配置 */
   download?: DownloadConfig;
   /** UI 配置 */
@@ -509,6 +535,34 @@ export interface BashToolConfig {
     /** 是否拒绝系统路径写入 */
     denySystemPaths: boolean;
   };
+}
+
+// ============================================================
+// 媒体生成工具配置
+// ============================================================
+
+/**
+ * 媒体生成工具配置（从 agent YAML tools[].config 加载）
+ */
+export interface ToolMediaGenConfig {
+  /** 平台标识: "ark" (豆包/火山引擎) | "bailian" (百炼/千问) */
+  provider: string;
+  /** 模型名称 */
+  model: string;
+  /** API Key */
+  apiKey: string;
+  /** API Base URL（不填则使用 Adapter 默认值） */
+  baseURL?: string;
+  /** 默认分辨率 (1K/2K/4K) */
+  defaultSize?: string;
+  /** 是否添加水印 */
+  watermark?: boolean;
+  /** 视频默认时长（秒） */
+  defaultDuration?: number;
+  /** 异步任务轮询间隔（毫秒） */
+  pollInterval?: number;
+  /** 异步任务超时（毫秒） */
+  pollTimeout?: number;
 }
 
 // ============================================================

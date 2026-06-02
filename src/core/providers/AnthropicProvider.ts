@@ -419,8 +419,12 @@ export class AnthropicProvider extends BaseLLMProvider {
         };
       }
     } catch (err) {
-      // 调试日志：捕获到异常
-      this.log.error(`Stream error: ${err instanceof Error ? err.message : String(err)}`);
+      // 调试日志：捕获到异常，提取 cause 以精确定位根因
+      const errCause = (err instanceof Error) ? ((err as any).cause as Error | undefined) : undefined;
+      const causeDetail = errCause?.message
+        ?? ((err as any)?.code ? `code=${(err as any).code}` : undefined)
+        ?? (typeof (err as any)?.cause === 'string' ? (err as any).cause : undefined);
+      this.log.error(`Stream error: ${err instanceof Error ? err.message : String(err)}${causeDetail ? ` (cause: ${causeDetail})` : ''}`);
       if (err instanceof Error && err.stack) {
         this.log.debug(`Stack: ${err.stack.split('\n').slice(0, 5).join('\n')}`);
       }
@@ -433,6 +437,11 @@ export class AnthropicProvider extends BaseLLMProvider {
                        errorMessage.includes('aborted') ||
                        errorMessage.includes('ETIMEDOUT');
 
+      // SDK APIConnectionError：连接层面的错误（DNS 解析失败、TCP 拒绝、连接重置、SSL 错误等）
+      const isConnectionError = errorMessage === 'Connection error.' ||
+                                errorMessage.includes('Connection error') ||
+                                (err instanceof Error && err.name === 'APIConnectionError');
+
       if (isTimeout) {
         errorMessage = `⏱️  请求超时 (${Math.round((config.timeout ?? 600_000) / 1000)}s)\n\n` +
           `可能原因:\n` +
@@ -444,6 +453,22 @@ export class AnthropicProvider extends BaseLLMProvider {
           `- 检查网络连接和代理设置\n` +
           `- 减少 Extended Thinking 的 budget_tokens\n\n` +
           `原始错误: ${errorMessage}`;
+      } else if (isConnectionError) {
+        const causeMsg = causeDetail ? ` (${causeDetail})` : '';
+        errorMessage = `🔌 API 连接失败${causeMsg}\n\n` +
+          `目标地址: ${config.baseURL || 'https://api.anthropic.com'}\n` +
+          `模型: ${config.model}\n\n` +
+          `可能原因:\n` +
+          `1. DNS 解析失败 — 域名无法解析，检查网络/DNS 配置\n` +
+          `2. 连接被拒绝 — API 服务端口未开放或服务未启动\n` +
+          `3. 连接被重置 — 服务端主动断开（可能因负载过高或防火墙规则）\n` +
+          `4. SSL/TLS 错误 — 证书过期或中间人代理干扰\n` +
+          `5. 代理/VPN 故障 — 如果使用了代理，请检查代理连通性\n\n` +
+          `建议:\n` +
+          `- 在终端执行 curl -I ${config.baseURL || 'https://api.anthropic.com'} 测试连通性\n` +
+          `- 检查是否需要配置 HTTP 代理 (HTTP_PROXY / HTTPS_PROXY 环境变量)\n` +
+          `- 如果使用中转 API，确认 baseURL 路径拼写正确\n` +
+          `- 如果频繁出现，可能是 API 供应商服务不稳定，考虑换用其他供应商`;
       } else if (errorMessage.includes('status code') || errorMessage.includes('authentication') || errorMessage.includes('APIError')) {
         errorMessage += `\n\n调试信息:\n` +
           `- Provider: anthropic\n` +
@@ -458,12 +483,13 @@ export class AnthropicProvider extends BaseLLMProvider {
           `4. API 服务暂时不可用（请稍后重试）`;
       }
 
-      // 保留原始错误的 name/status/code 属性，确保 RetryPolicy 能正确判断是否重试
+      // 保留原始错误的 name/status/code/cause 属性，确保 RetryPolicy 能正确判断是否重试
       const wrappedError = new Error(errorMessage);
       if (err instanceof Error) {
         wrappedError.name = err.name;
         if ('status' in err) (wrappedError as any).status = (err as any).status;
         if ('code' in err) (wrappedError as any).code = (err as any).code;
+        if ((err as any).cause) (wrappedError as any).cause = (err as any).cause;
       }
       throw wrappedError;
     }

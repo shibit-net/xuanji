@@ -99,7 +99,7 @@ export default function TodoPanel() {
     <div className="flex-shrink-0 border-t border-border bg-card">
       {/* 头部 */}
       <div
-        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-muted transition-colors"
+        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-primary/10 transition-colors"
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-3">
@@ -156,7 +156,7 @@ export default function TodoPanel() {
       {/* 收起时显示当前正在执行的任务 */}
       {collapsed && currentTask && (
         <div className="px-4 pb-2">
-          <div className="flex items-start gap-2 p-2 rounded bg-muted">
+          <div className="flex items-start gap-2 p-2 rounded bg-primary/10">
             <Loader2 size={16} className="text-primary animate-spin flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-primary font-medium truncate">
@@ -199,7 +199,7 @@ export default function TodoPanel() {
             return (
               <div
                 key={todo.id}
-                className="flex items-start gap-2 p-2 rounded hover:bg-muted transition-colors"
+                className="flex items-start gap-2 p-2 rounded hover:bg-primary/10 transition-colors"
               >
                 {statusIcon}
                 <div className="flex-1 min-w-0">

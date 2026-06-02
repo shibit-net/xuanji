@@ -78,6 +78,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
         onContextMenu={(e) => onContextMenu(e, node)}
         title={entry.path}
+        data-tree-item
       >
         {isDir ? (
           <span className="w-3.5 flex items-center justify-center flex-shrink-0 text-muted-foreground/40">
@@ -124,7 +125,7 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
   const [error, setError] = useState('');
 
   // 右键菜单
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; node?: TreeNode } | null>(null);
 
   const rootRelPath = useCallback((p: string) => rootPath ? p.replace(rootPath, '').replace(/^\//, '') : p, [rootPath]);
 
@@ -216,9 +217,10 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
 
   const handleShowInFolder = useCallback(async () => {
     if (!ctxMenu) return;
-    await window.electron.workspaceShowInFolder(ctxMenu.node.entry.path);
+    const targetPath = ctxMenu.node?.entry.path ?? rootPath;
+    await window.electron.workspaceShowInFolder(targetPath);
     setCtxMenu(null);
-  }, [ctxMenu]);
+  }, [ctxMenu, rootPath]);
 
   const handleCopyPath = useCallback(async () => {
     if (!ctxMenu) return;
@@ -252,7 +254,16 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        onContextMenu={(e) => {
+          // 只在空白区域触发（不是 tree item 上的右键，tree item 有自己的 handler）
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-tree-item]')) return;
+          e.preventDefault();
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
+      >
         {loading && (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-3">
@@ -282,42 +293,54 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
       {/* 右键菜单 */}
       {ctxMenu && (
         <div
-          className="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+          className="fixed z-50 bg-zinc-800 border border-border rounded-md shadow-lg py-1 min-w-[160px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
-          {!ctxMenu.node.entry.isDirectory && (
+          {ctxMenu.node ? (
+            <>
+              {!ctxMenu.node.entry.isDirectory && (
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                  onClick={handleOpenInSystem}
+                >
+                  <ExternalLink size={12} className="text-muted-foreground" />
+                  打开文件
+                </button>
+              )}
+              {ctxMenu.node.entry.isDirectory && (
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                  onClick={handleOpenInSystem}
+                >
+                  <ExternalLink size={12} className="text-muted-foreground" />
+                  打开文件夹
+                </button>
+              )}
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                onClick={handleShowInFolder}
+              >
+                <FolderOpen size={12} className="text-muted-foreground" />
+                在文件夹中显示
+              </button>
+              <div className="border-t border-border my-1" />
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                onClick={handleCopyPath}
+              >
+                <Copy size={12} className="text-muted-foreground" />
+                复制路径
+              </button>
+            </>
+          ) : (
             <button
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
-              onClick={handleOpenInSystem}
+              onClick={handleShowInFolder}
             >
-              <ExternalLink size={12} className="text-muted-foreground" />
-              打开文件
+              <FolderOpen size={12} className="text-muted-foreground" />
+              在文件夹中显示
             </button>
           )}
-          {ctxMenu.node.entry.isDirectory && (
-            <button
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
-              onClick={handleOpenInSystem}
-            >
-              <ExternalLink size={12} className="text-muted-foreground" />
-              打开文件夹
-            </button>
-          )}
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
-            onClick={handleShowInFolder}
-          >
-            <FolderOpen size={12} className="text-muted-foreground" />
-            在文件夹中显示
-          </button>
-          <div className="border-t border-border my-1" />
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
-            onClick={handleCopyPath}
-          >
-            <Copy size={12} className="text-muted-foreground" />
-            复制路径
-          </button>
         </div>
       )}
     </div>

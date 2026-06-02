@@ -447,6 +447,16 @@ export interface ElectronAPI {
     dir?: string;
     error?: string;
   }>;
+  downloadListEmbeddingModels: () => Promise<{
+    success: boolean;
+    models?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      installed: boolean;
+    }>;
+    error?: string;
+  }>;
   downloadCheckEmbeddingModel: (modelId: string) => Promise<{
     success: boolean;
     installed?: boolean;
@@ -455,6 +465,10 @@ export interface ElectronAPI {
   downloadUninstallEmbeddingModel: (modelId: string) => Promise<{
     success: boolean;
     message?: string;
+    error?: string;
+  }>;
+  downloadOpenEmbeddingModelDir: () => Promise<{
+    success: boolean;
     error?: string;
   }>;
   downloadCreate: (options: {
@@ -533,6 +547,8 @@ export interface ElectronAPI {
     status?: Record<string, string>;
     error?: string;
   }>;
+  workspaceStartWatch: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
+  workspaceStopWatch: () => Promise<{ success: boolean; error?: string }>;
 
   // 工作目录变更通知
   onWorkspaceDirectoryChanged: (callback: (data: { path: string }) => void) => void;

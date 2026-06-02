@@ -234,7 +234,7 @@ function MemoryCard({ item, onClick }: { item: NormalizedMemoryItem; onClick: ()
 
 function SummaryMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="px-3 py-2 rounded-lg bg-background/60 border border-border/60">
+    <div className="px-3 py-2 rounded-lg bg-muted/30">
       <p className="text-[10px] text-muted-foreground">{label}</p>
       <p className="text-sm font-semibold text-foreground tabular-nums">{value}</p>
     </div>

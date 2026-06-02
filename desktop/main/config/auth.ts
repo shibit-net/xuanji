@@ -82,7 +82,9 @@ async function loadAccountsList(): Promise<AccountsData> {
       return JSON.parse(serialized);
     }
   } catch (err) {
-    console.error('加载账号列表失败:', err);
+    console.error('加载账号列表失败，已清除损坏的加密文件:', err);
+    // 自动清理因密钥变化导致无法解密的文件
+    try { if (fs.existsSync(ACCOUNTS_FILE)) fs.unlinkSync(ACCOUNTS_FILE); } catch {}
   }
 
   return { accounts: [] };
@@ -119,7 +121,9 @@ async function loadCurrentAuth(): Promise<CurrentAuthData | null> {
       return JSON.parse(serialized);
     }
   } catch (err) {
-    console.error('加载当前登录状态失败:', err);
+    console.error('加载当前登录状态失败，已清除损坏的加密文件:', err);
+    // 自动清理因密钥变化导致无法解密的文件
+    try { if (fs.existsSync(CURRENT_AUTH_FILE)) fs.unlinkSync(CURRENT_AUTH_FILE); } catch {}
   }
 
   return null;

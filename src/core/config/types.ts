@@ -24,7 +24,7 @@ export interface AgentConfig {
   enabled: boolean;
   model: { primary: string; temperature?: number; maxTokens?: number; thinking?: any };
   systemPrompt: string;
-  tools: Array<{ name: string; required?: boolean }>;
+  tools: Array<{ name: string; required?: boolean; enabled?: boolean; config?: Record<string, unknown> }>;
   provider?: { apiKey?: string; baseURL?: string; adapter?: string };
   execution: { timeout: number; maxIterations: number };
   metadata?: Record<string, any>;

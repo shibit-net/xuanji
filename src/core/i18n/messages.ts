@@ -895,6 +895,7 @@ const zh: Messages = {
   'rightpanel.error_info': '错误信息:',
   'rightpanel.llm_label': 'LLM',
   'rightpanel.vector_label': '向量',
+  'rightpanel.method_label': '路由方式',
 
   // ── System Prompt Manager ──
   'sysprompt.title': 'System Prompt 管理',
@@ -2266,6 +2267,7 @@ const en: Messages = {
   'rightpanel.error_info': 'Error Info:',
   'rightpanel.llm_label': 'LLM',
   'rightpanel.vector_label': 'Vector',
+  'rightpanel.method_label': 'Method',
 
   // ── System Prompt Manager ──
   'sysprompt.title': 'System Prompt Manager',

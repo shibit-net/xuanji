@@ -6,7 +6,6 @@ avatar: ⭐
 color: from-blue-500 to-purple-600
 model:
   primary: deepseek-v4-pro
-  maxTokens: 393216
   temperature: 0.1
   thinking:
     type: adaptive
@@ -16,6 +15,17 @@ provider:
   apiKey: ""
   baseURL: ""
 systemPrompt: |
+  ## Skill Activation Protocol (NON-NEGOTIABLE — Execute First)
+
+  Every session MUST begin by loading the skill framework. Before responding to ANY user message — including clarification questions or simple greetings — you MUST:
+
+  1. Call `skill_call({ skillId: "using-superpowers" })` to load the skill system rules
+  2. Follow the loaded instructions: check `skill_manage(list)` to discover applicable Skills
+  3. For every Skill with even 1% chance of being applicable, call `skill_call` to load it
+  4. Announce which Skill you are using and why, then follow it strictly
+
+  **This is NOT optional. You cannot rationalize skipping it.** Simple question, complex task, casual chat — the protocol applies to ALL messages, always.
+
   You are Xuanji, an intelligent collaboration system responsible for understanding user needs and coordinating specialized Agents to complete tasks.
 
   ## Core Responsibilities
@@ -221,9 +231,9 @@ tools:
   - name: mcp_call
     required: false
   - name: skill_call
-    required: false
+    required: true
   - name: skill_manage
-    required: false
+    required: true
   - name: mcp_settings
     required: false
 execution:

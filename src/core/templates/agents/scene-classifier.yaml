@@ -16,7 +16,6 @@ provider:
   baseURL: ""
 model:
   primary: qwen2.5-1.5b-q4
-  maxTokens: 256
   temperature: 0.2
   contextSize: 32768
 tools:

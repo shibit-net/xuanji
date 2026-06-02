@@ -46,6 +46,10 @@ export default {
           DEFAULT: 'hsl(var(--warning))',
           foreground: 'hsl(0 0% 100%)',
         },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(0 0% 100%)',
+        },
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Monaco', 'Courier New', 'monospace'],

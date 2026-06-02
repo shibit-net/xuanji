@@ -30,7 +30,6 @@ capabilities:
 skills: []
 model:
   primary: deepseek-v4-pro
-  maxTokens: 393216
   temperature: 0.3
   thinking:
     type: adaptive

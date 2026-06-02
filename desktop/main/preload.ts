@@ -220,8 +220,10 @@
   downloadGetTasks: () => ipcRenderer.invoke('download:get-tasks'),
   downloadGetProjectRoot: () => ipcRenderer.invoke('download:get-project-root'),
   downloadGetEmbeddingModelDir: () => ipcRenderer.invoke('download:get-embedding-model-dir'),
+  downloadListEmbeddingModels: () => ipcRenderer.invoke('download:list-embedding-models'),
   downloadCheckEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:check-embedding-model', modelId),
   downloadUninstallEmbeddingModel: (modelId: string) => ipcRenderer.invoke('download:uninstall-embedding-model', modelId),
+  downloadOpenEmbeddingModelDir: () => ipcRenderer.invoke('download:open-embedding-model-dir'),
   downloadCreate: (options: { url: string; dest: string; name: string; category?: string }) =>
     ipcRenderer.invoke('download:create', options),
   downloadCancel: (taskId: string) => ipcRenderer.invoke('download:cancel', taskId),
@@ -239,6 +241,8 @@
   workspaceOpenFile: (filePath: string) => ipcRenderer.invoke('workspace:open-file', filePath),
   workspaceShowInFolder: (filePath: string) => ipcRenderer.invoke('workspace:show-in-folder', filePath),
   workspaceGetGitStatus: (dirPath: string) => ipcRenderer.invoke('workspace:get-git-status', dirPath),
+          workspaceStartWatch: (dirPath: string) => ipcRenderer.invoke('workspace:start-watch', dirPath),
+          workspaceStopWatch: () => ipcRenderer.invoke('workspace:stop-watch'),
 
   // ============ 拖拽文件路径解析 ============
   resolveDropPaths: (data: { fileNames: string[] }) => ipcRenderer.invoke('workspace:resolve-drop-paths', data),
