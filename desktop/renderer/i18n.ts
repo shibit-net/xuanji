@@ -29,6 +29,8 @@ const zh: Record<string, string> = {
   'sidebar.platform_dingtalk': '钉钉',
   'sidebar.session_platform': '{platform} · {name}',
   'sidebar.session_platform_status': '{platform} · {name} · {status}',
+  'sidebar.add_remote': 'Remote',
+  'sidebar.rename_hint': '双击修改备注名',
   'platform.status.online': '在线',
   'platform.status.offline': '离线',
   'platform.status.connecting': '连接中',
@@ -197,6 +199,11 @@ const zh: Record<string, string> = {
   'permdialog.btn_deny': '拒绝',
   'permdialog.btn_allow': '允许',
   'permdialog.btn_always': '始终允许',
+
+  // MainLayout
+  'mainlayout.compact_done': '压缩完成: {original} → {compressed} tokens ({ratio}%)',
+  'mainlayout.compact_failed': '压缩失败: {error}',
+  'mainlayout.compact_skip': '上下文使用率较低，无需压缩',
 
 };
 
@@ -457,6 +464,7 @@ const en: Record<string, string> = {
   'sidebar.platform_feishu': 'Feishu',
   'sidebar.platform_dingtalk': 'DingTalk',
   'sidebar.add_remote': 'Remote',
+  'sidebar.rename_hint': 'Double-click to rename',
   'platform.status.online': 'Online',
   'platform.status.offline': 'Offline',
   'platform.status.connecting': 'Connecting',

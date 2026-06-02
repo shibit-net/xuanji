@@ -18,6 +18,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatformStore } from '../stores/platformStore';
+import { getDesktopLabel } from '../i18n';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -74,12 +75,18 @@ export default function MainLayout({ children }: MainLayoutProps) {
       const language = useConfigStore.getState().settings.language as 'zh' | 'en';
       const result = await window.electron.compact({});
       if (result.success && result.result) {
-        alert(`压缩完成: ${result.result.originalTokens} → ${result.result.compressedTokens} tokens (${(result.result.compressionRatio * 100).toFixed(1)}%)`);
+        alert(getDesktopLabel('mainlayout.compact_done', language)
+          .replace('{original}', String(result.result.originalTokens))
+          .replace('{compressed}', String(result.result.compressedTokens))
+          .replace('{ratio}', (result.result.compressionRatio * 100).toFixed(1)));
       } else if (result.error) {
-        alert(`压缩失败: ${result.error}`);
+        alert(getDesktopLabel('mainlayout.compact_failed', language).replace('{error}', result.error));
+      } else {
+        alert(getDesktopLabel('mainlayout.compact_skip', language));
       }
     } catch (err) {
-      alert(`压缩失败: ${err instanceof Error ? err.message : String(err)}`);
+      const language = useConfigStore.getState().settings.language as 'zh' | 'en';
+      alert(getDesktopLabel('mainlayout.compact_failed', language).replace('{error}', err instanceof Error ? err.message : String(err)));
     }
   };
 

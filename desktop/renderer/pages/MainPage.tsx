@@ -74,7 +74,7 @@ export default function MainPage() {
           )}
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            <span>{currentIteration} 轮</span>
+            <span>{t('mainpage.iterations', { n: currentIteration })}</span>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
             <span className="flex items-center gap-1 text-amber-400/80" title="输入 token（含缓存写入）">

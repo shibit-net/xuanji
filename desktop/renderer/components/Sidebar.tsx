@@ -74,7 +74,7 @@ function GroupLabel({ children }: { children: string }) {
 function SessionList() {
   const navigate = useNavigate();
   const language = useConfigStore((s) => s.settings.language);
-  const { sessions, activeSessionId, setActiveSession, setSetupDialogOpen, removeSession, updateSessionName } = usePlatformStore();
+  const { sessions, activeSessionId, setActiveSession, removeSession, updateSessionName } = usePlatformStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -152,7 +152,7 @@ function SessionList() {
             ) : (
               <span
                 className="text-xs truncate flex-1 text-left cursor-pointer hover:text-primary min-w-0"
-                title="双击修改备注名"
+                title={getDesktopLabel('sidebar.rename_hint', language)}
                 onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(session.id, session.name || ''); }}
               >
                 {session.name || getDesktopLabel(`sidebar.platform_${session.platform}`, language)}
@@ -235,7 +235,7 @@ export default function Sidebar() {
           onClick={() => setSetupDialogOpen(true)}
         >
           <Plus size={12} />
-          Remote
+          {getDesktopLabel('sidebar.add_remote', language)}
         </Button>
 
         {/* 导航分组 */}
