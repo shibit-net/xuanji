@@ -33,8 +33,10 @@ coverage/
 models/
 
 # design docs (process documents, not part of the project)
-docs/
 doc/
+# superpowers specs and plans are tracked
+docs/*
+!docs/superpowers/
 
 # open-source packages (managed in separate repos)
 packages/
