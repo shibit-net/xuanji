@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo, memo } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Zap, Brain, Wrench } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
 import { Button } from '@/components/ui/button';
@@ -345,16 +345,20 @@ export default function ChatArea() {
             <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed">
               {t('chatarea.subtitle')}
             </p>
-            <div className="mt-10 flex items-center gap-2 text-xs text-muted-foreground/50">
-              <div className="w-1 h-1 rounded-full bg-primary/50" />
-              {t('chatarea.start_hint')}
-              <div className="w-1 h-1 rounded-full bg-primary/50" />
-            </div>
-            {/* 底部装饰 */}
-            <div className="absolute bottom-12 flex gap-3">
-              {['⚡', '🧠', '🔧', '🤖'].map((icon) => (
-                <div key={icon} className="w-8 h-8 rounded-xl bg-card backdrop-blur-sm flex items-center justify-center text-sm animate-pulse" style={{ animationDelay: `${['⚡', '🧠', '🔧', '🤖'].indexOf(icon) * 0.5}s`, opacity: 0.3 }}>{icon}</div>
-              ))}
+            {/* 快捷操作提示 */}
+            <div className="mt-8 flex items-center gap-4 text-xs text-muted-foreground/50">
+              <span className="flex items-center gap-1.5">
+                <Zap size={12} className="text-primary/50" />
+                /help
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Brain size={12} className="text-primary/50" />
+                /memory
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Wrench size={12} className="text-primary/50" />
+                /agents
+              </span>
             </div>
           </div>
         ) : (
@@ -384,7 +388,7 @@ export default function ChatArea() {
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-full shadow-lg text-xs hover:bg-primary/90 transition-all"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-            查看最新
+            回到底部
           </button>
         </div>
       )}
