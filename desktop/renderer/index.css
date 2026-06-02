@@ -159,9 +159,9 @@
   }
   .token.coord { color: #94a3b8; }
 
-  /* 代码块 */
+  /* 代码块 — hover 边框过渡 */
   pre {
-    @apply bg-secondary rounded-xl p-4 overflow-x-auto border border-border;
+    @apply bg-secondary rounded-xl p-4 overflow-x-auto border border-border transition-colors duration-200 hover:border-primary/30;
   }
   code {
     @apply font-mono text-sm text-foreground/80;
@@ -367,6 +367,7 @@
 .message-bubble {
   contain: layout style paint;
   scrollbar-gutter: stable;
+  animation: fadeIn 0.3s ease-out;
 }
 
 .message-bubble-streaming {

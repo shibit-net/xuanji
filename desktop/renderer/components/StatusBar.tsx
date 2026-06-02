@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
+import { ClipboardList } from 'lucide-react';
 import { useSessionStore } from '../stores/sessionStore';
 import { useConversationStore } from '../stores/ConversationStore';
 import { DownloadQueue } from './DownloadQueue';
@@ -52,7 +53,8 @@ export default function StatusBar() {
       <div className="flex items-center gap-4">
         {isPlanMode && (
           <Badge variant="warning" className="tracking-wide text-[10px] px-1.5 py-0.5">
-            📋 PLAN MODE
+            <ClipboardList size={10} className="mr-1 inline" />
+            PLAN MODE
           </Badge>
         )}
         {currentSkill && (

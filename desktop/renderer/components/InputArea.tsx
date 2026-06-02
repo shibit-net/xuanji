@@ -16,7 +16,7 @@
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search } from 'lucide-react';
+import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search, AlertTriangle, Clock } from 'lucide-react';
 import type { FileAttachment } from '../global';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
@@ -769,9 +769,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
           {runningTaskCount > 0 ? (
             <Loader2 size={12} className="animate-spin text-blue-500 flex-shrink-0" />
           ) : cancelledTaskCount > 0 ? (
-            <span className="text-xs text-red-400 flex-shrink-0">🛑</span>
+            <span className="text-xs text-red-400 flex-shrink-0"><AlertTriangle size={12} /></span>
           ) : (
-            <span className="text-xs text-green-400 flex-shrink-0">⏳</span>
+            <span className="text-xs text-green-400 flex-shrink-0"><Clock size={12} /></span>
           )}
           <span className={`text-xs truncate ${
             runningTaskCount > 0 ? 'text-blue-400' : cancelledTaskCount > 0 ? 'text-red-400' : 'text-green-400'
@@ -858,19 +858,19 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
       <div className="flex items-end gap-2 p-4 relative">
         {isDragOver && (
           <div className="absolute inset-2 flex items-center justify-center bg-blue-500/10 rounded-xl border-2 border-dashed border-blue-400 z-10 pointer-events-none">
-            <span className="text-blue-400 text-sm">释放以添加文件</span>
+            <span className="text-blue-400 text-sm">{t('input.drop_hint')}</span>
           </div>
         )}
 
         <div className="flex-1 relative">
           {/* 选中的 Agent chip — 仅本地对话 */}
           {!isRemote && selectedAgent && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 mb-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 mb-1.5 rounded-md bg-primary/10 border border-primary/20 text-xs text-primary">
               <span className="font-medium">@{effectiveAgentName}</span>
               <button
                 type="button"
                 onClick={clearSelectedAgent}
-                className="ml-0.5 p-0.5 rounded hover:bg-purple-500/20 transition-colors"
+                className="ml-0.5 p-0.5 rounded hover:bg-primary/20 transition-colors"
                 title={t('input.agent_chip_title')}
               >
                 <X size={12} />
@@ -997,7 +997,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
             <span>{t('input.hint_local')}</span>
           )}
           {!isRemote && effectiveAgentId !== 'xuanji' && (
-            <span className="text-purple-400">{t('input.agent_hint', { name: effectiveAgentName })}</span>
+            <span className="text-primary">{t('input.agent_hint', { name: effectiveAgentName })}</span>
           )}
         </div>
         {foregroundStatus === 'writing' || foregroundStatus === 'reporting' ? (
