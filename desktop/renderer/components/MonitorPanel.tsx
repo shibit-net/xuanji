@@ -3,12 +3,13 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
-import { Activity, FileText, Radio } from 'lucide-react';
+import { Activity, FileText, Radio, Check, X, MoreHorizontal, ChevronUp, ChevronDown, Wrench, Search, Globe, Terminal, FolderOpen, FileQuestion, FilePenLine, ClipboardList, ListTodo, RotateCcw, Brain, Database, BarChart3, GitGraph } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
 import { usePlatformStore } from '../stores/platformStore';
+import { useConfigStore } from '../stores/configStore';
 import { t } from '@/core/i18n';
 import ExecutionFlowV2 from './ExecutionFlowV2';
 import PlatformSessionPanel from './PlatformSessionPanel';
@@ -148,13 +149,30 @@ function MonitorTab() {
 
 // ─── 日志标签 ──────────────────────────────
 
-const TOOL_ICONS: Record<string, string> = {
-  read_file: '📖', write_file: '📝', edit_file: '✏️', multi_edit: '📋',
-  bash: '💻', glob: '🔎', grep: '🔍', ls: '📂',
-  web_fetch: '🌐', plan_review: '📋', ask_user: '❓',
-  todo_create: '✅', todo_list: '📋', todo_update: '🔄',
-  memory_search: '🧠', memory_store: '💾', memory_stats: '📊', memory_graph: '🕸️',
-};
+function ToolIcon({ name }: { name: string }) {
+  const cls = 'w-3 h-3';
+  switch (name) {
+    case 'read_file': return <FileText size={12} />;
+    case 'write_file': return <FilePenLine size={12} />;
+    case 'edit_file': return <FilePenLine size={12} />;
+    case 'multi_edit': return <ClipboardList size={12} />;
+    case 'bash': return <Terminal size={12} />;
+    case 'glob': return <Search size={12} />;
+    case 'grep': return <Search size={12} />;
+    case 'ls': return <FolderOpen size={12} />;
+    case 'web_fetch': return <Globe size={12} />;
+    case 'plan_review': return <ClipboardList size={12} />;
+    case 'ask_user': return <FileQuestion size={12} />;
+    case 'todo_create': return <ListTodo size={12} />;
+    case 'todo_list': return <ListTodo size={12} />;
+    case 'todo_update': return <RotateCcw size={12} />;
+    case 'memory_search': return <Brain size={12} />;
+    case 'memory_store': return <Database size={12} />;
+    case 'memory_stats': return <BarChart3 size={12} />;
+    case 'memory_graph': return <GitGraph size={12} />;
+    default: return <Wrench size={12} />;
+  }
+}
 
 type TimelineEntry =
   | { kind: 'log'; timestamp: number; level: string; message: string; id: string }
@@ -164,6 +182,7 @@ function LogsTab() {
   const logs = useSessionStore((state) => state.logs);
   const clearLogs = useSessionStore((state) => state.clearLogs);
   const agentMap = useAgentStateMachine((state) => state.agentMap);
+  const language = useConfigStore((s) => s.settings.language);
   const [filter, setFilter] = useState<string | null>(null);
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
 
@@ -208,7 +227,7 @@ function LogsTab() {
   };
 
   const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleTimeString('zh-CN', {
+    return new Date(ts).toLocaleTimeString(language === 'en' ? 'en-US' : 'zh-CN', {
       hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   };
@@ -260,7 +279,7 @@ function LogsTab() {
 
             const call = entry;
             const isExpanded = expandedCall === call.id;
-            const statusIcon = call.status === 'success' ? '✓' : call.status === 'error' ? '✗' : '…';
+            const StatusIcon = call.status === 'success' ? Check : call.status === 'error' ? X : MoreHorizontal;
             const statusColor = call.status === 'success' ? 'text-green-500' : call.status === 'error' ? 'text-red-500' : 'text-yellow-500';
 
             return (
@@ -270,8 +289,8 @@ function LogsTab() {
                   className="w-full p-2 text-left flex items-center justify-between hover:bg-muted/30 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className={statusColor}>{statusIcon}</span>
-                    <span>{TOOL_ICONS[call.name] || '🔧'}</span>
+                    <StatusIcon size={12} className={statusColor} />
+                    <ToolIcon name={call.name} />
                     <span className="font-medium">{call.name}</span>
                     {!isExpanded && call.status === 'success' && call.output && (
                       <span className="text-muted-foreground truncate max-w-[120px]">
@@ -281,7 +300,7 @@ function LogsTab() {
                   </div>
                   <div className="flex items-center gap-1 text-muted-foreground shrink-0">
                     <span>{formatTime(call.timestamp)}</span>
-                    <span className="text-[10px]">{isExpanded ? '▴' : '▾'}</span>
+                    {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                   </div>
                 </button>
 

@@ -4,7 +4,9 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, RefreshCw, ExternalLink, Copy, FolderOpen } from 'lucide-react';
+import { ChevronRight, ChevronDown, RefreshCw, ExternalLink, Copy, FolderOpen, Folder, File, FileCode, FileText, FileJson, FileCog, Terminal, Globe } from 'lucide-react';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 
 interface FileEntry {
   name: string; path: string; isDirectory: boolean; size: number; modifiedAt: number;
@@ -31,14 +33,19 @@ function gitColor(code: string): string | null {
 // 图标 & 格式化
 // ============================================================
 
-const FILE_ICONS: Record<string, string> = {
-  ts: '📘', tsx: '⚛️', js: '📒', jsx: '⚛️', json: '📋', md: '📝',
-  css: '🎨', html: '🌐', yml: '⚙️', yaml: '⚙️', py: '🐍', go: '🔷',
-  rs: '🦀', java: '☕', sh: '💻', vue: '💚',
-};
-
-function fileIcon(name: string): string {
-  return FILE_ICONS[name.split('.').pop()?.toLowerCase() || ''] || '📄';
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const cls = 'w-3 h-3';
+  switch (ext) {
+    case 'ts': case 'tsx': case 'js': case 'jsx': case 'py': case 'go': case 'rs': case 'java': return <FileCode size={10} className={cls} />;
+    case 'json': return <FileJson size={10} className={cls} />;
+    case 'md': return <FileText size={10} className={cls} />;
+    case 'html': case 'vue': return <Globe size={10} className={cls} />;
+    case 'yml': case 'yaml': return <FileCog size={10} className={cls} />;
+    case 'sh': return <Terminal size={10} className={cls} />;
+    case 'css': return <FileCode size={10} className={`${cls} text-purple-400`} />;
+    default: return <File size={10} className={cls} />;
+  }
 }
 
 function fmtSize(b: number): string {
@@ -68,7 +75,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
   return (
     <div>
       <div
-        className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-white/5 transition-colors text-xs group"
+        className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-muted/30 transition-colors text-xs group"
         style={{ paddingLeft: 6 + depth * 12 }}
         onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
         onContextMenu={(e) => onContextMenu(e, node)}
@@ -85,7 +92,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         ) : <span className="w-1.5" />}
 
         <span className="flex-shrink-0 text-[10px] w-3 text-center">
-          {isDir ? (expanded ? '📂' : '📁') : fileIcon(entry.name)}
+          {isDir ? (expanded ? <FolderOpen size={10} className="w-3 h-3 text-muted-foreground/50" /> : <Folder size={10} className="w-3 h-3 text-muted-foreground/50" />) : <FileIcon name={entry.name} />}
         </span>
 
         <span className="truncate min-w-0 ml-0.5 text-foreground/60 group-hover:text-foreground transition-colors text-[11px]">
@@ -97,7 +104,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         <div>
           {children.length > 0
             ? children.map(c => <TreeItem key={c.entry.path} node={c} onToggle={onToggle} onOpenFile={onOpenFile} onContextMenu={onContextMenu} gitStatus={gitStatus} rootRelPath={rootRelPath} />)
-            : <div className="text-[9px] text-muted-foreground/30 italic pl-8 py-0.5">空目录</div>}
+            : <div className="text-[9px] text-muted-foreground/30 italic pl-8 py-0.5">{getDesktopLabel('filetree.empty_dir', language)}</div>}
         </div>
       )}
     </div>
@@ -117,6 +124,7 @@ function updateNode(nodes: TreeNode[], targetPath: string, updates: Partial<Pick
 // ============================================================
 
 export default function ProjectFileTree() {
+  const language = useConfigStore((s) => s.settings.language);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [rootPath, setRootPath] = useState('');
   const [gitStatus, setGitStatus] = useState<Record<string, string>>({});
@@ -239,7 +247,7 @@ export default function ProjectFileTree() {
       {!loading && !error && treeData.length === 0 && (
         <div className="flex flex-col items-center justify-center py-4">
           <FolderOpen size={14} className="text-muted-foreground/30 mb-1" />
-          <p className="text-[10px] text-muted-foreground/40">空目录</p>
+          <p className="text-[10px] text-muted-foreground/40">{getDesktopLabel('filetree.empty_dir', language)}</p>
         </div>
       )}
       {!loading && !error && treeData.map(n => (
@@ -258,7 +266,7 @@ export default function ProjectFileTree() {
               onClick={handleOpenInSystem}
             >
               <ExternalLink size={11} className="text-muted-foreground" />
-              打开文件
+              {getDesktopLabel('filetree.open_file', language)}
             </button>
           )}
           {ctxMenu.node.entry.isDirectory && (
@@ -267,7 +275,7 @@ export default function ProjectFileTree() {
               onClick={handleOpenInSystem}
             >
               <ExternalLink size={11} className="text-muted-foreground" />
-              打开文件夹
+              {getDesktopLabel('filetree.open_folder', language)}
             </button>
           )}
           <button
@@ -275,7 +283,7 @@ export default function ProjectFileTree() {
             onClick={handleShowInFolder}
           >
             <FolderOpen size={11} className="text-muted-foreground" />
-            在文件夹中显示
+            {getDesktopLabel('filetree.show_in_folder', language)}
           </button>
           <div className="border-t border-border my-1" />
           <button
@@ -283,7 +291,7 @@ export default function ProjectFileTree() {
             onClick={handleCopyPath}
           >
             <Copy size={11} className="text-muted-foreground" />
-            复制路径
+            {getDesktopLabel('filetree.copy_path', language)}
           </button>
         </div>
       )}

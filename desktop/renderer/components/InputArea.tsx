@@ -905,7 +905,7 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
                 <Search size={14} className="text-muted-foreground flex-shrink-0" />
                 <span className="text-sm text-muted-foreground">
-                  {agentSearchQuery ? `搜索: "${agentSearchQuery}"` : '选择 Agent'}
+                  {agentSearchQuery ? t('input.agent_search_label', { query: agentSearchQuery }) : t('input.agent_select_label')}
                 </span>
               </div>
 
@@ -947,9 +947,9 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
               {/* 底部提示 */}
               {filteredAgents.length > 0 && (
                 <div className="px-3 py-1.5 border-t border-border bg-muted/30 text-xs text-muted-foreground flex items-center gap-3">
-                  <span>↑↓ 导航</span>
-                  <span>↵ 选择</span>
-                  <span>Esc 关闭</span>
+                  <span>{t('input.agent_nav_hint')}</span>
+                  <span>{t('input.agent_select_hint')}</span>
+                  <span>{t('input.agent_close_hint')}</span>
                 </div>
               )}
             </div>

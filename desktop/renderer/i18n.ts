@@ -205,6 +205,13 @@ const zh: Record<string, string> = {
   'mainlayout.compact_failed': '压缩失败: {error}',
   'mainlayout.compact_skip': '上下文使用率较低，无需压缩',
 
+  // ProjectFileTree
+  'filetree.empty_dir': '空目录',
+  'filetree.open_file': '打开文件',
+  'filetree.open_folder': '打开文件夹',
+  'filetree.show_in_folder': '在文件夹中显示',
+  'filetree.copy_path': '复制路径',
+
 };
 
 const en: Record<string, string> = {
@@ -469,6 +476,13 @@ const en: Record<string, string> = {
   'platform.status.offline': 'Offline',
   'platform.status.connecting': 'Connecting',
   'platform.status.thinking': 'Thinking',
+
+  // ProjectFileTree
+  'filetree.empty_dir': 'Empty Directory',
+  'filetree.open_file': 'Open File',
+  'filetree.open_folder': 'Open Folder',
+  'filetree.show_in_folder': 'Show in Folder',
+  'filetree.copy_path': 'Copy Path',
 
 };
 
