@@ -18,7 +18,6 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatformStore } from '../stores/platformStore';
-import { getDesktopLabel } from '../i18n';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -75,62 +74,25 @@ export default function MainLayout({ children }: MainLayoutProps) {
       const language = useConfigStore.getState().settings.language as 'zh' | 'en';
       const result = await window.electron.compact({});
       if (result.success && result.result) {
-        alert(getDesktopLabel('mainlayout.compact_done', language)
-          .replace('{original}', String(result.result.originalTokens))
-          .replace('{compressed}', String(result.result.compressedTokens))
-          .replace('{ratio}', (result.result.compressionRatio * 100).toFixed(1)));
+        alert(`压缩完成: ${result.result.originalTokens} → ${result.result.compressedTokens} tokens (${(result.result.compressionRatio * 100).toFixed(1)}%)`);
       } else if (result.error) {
-        alert(getDesktopLabel('mainlayout.compact_failed', language).replace('{error}', result.error));
-      } else {
-        alert(getDesktopLabel('mainlayout.compact_skip', language));
+        alert(`压缩失败: ${result.error}`);
       }
     } catch (err) {
-      const language = useConfigStore.getState().settings.language as 'zh' | 'en';
-      alert(getDesktopLabel('mainlayout.compact_failed', language).replace('{error}', err instanceof Error ? err.message : String(err)));
-    }
-  };
-
-  const handleToggleRightPanel = () => {
-    if (location.pathname === '/chat' || location.pathname === '/') {
-      window.dispatchEvent(new CustomEvent('toggle-right-panel'));
-    }
-  };
-
-  const handleToggleProjectFiles = () => {
-    if (location.pathname === '/chat' || location.pathname === '/') {
-      window.dispatchEvent(new CustomEvent('toggle-project-files'));
+      alert(`压缩失败: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground">
-      {/* 标题栏 */}
       <TitleBar
         onCompact={handleCompact}
         onShowStats={() => setActiveDialog('stats')}
         onShowDiagnostics={() => setActiveDialog('diagnostics')}
-        onToggleRightPanel={handleToggleRightPanel}
-        onToggleProjectFiles={handleToggleProjectFiles}
       />
 
-      {/* 主内容区域 */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 左侧边栏 */}
-        {sidebarVisible && (
-          <Sidebar
-            onToggle={() => setSidebarVisible(!sidebarVisible)}
-            onOpenAgents={() => navigate(location.pathname === '/agents' ? '/chat' : '/agents')}
-            onOpenMemory={() => navigate(location.pathname === '/memory' ? '/chat' : '/memory')}
-            onOpenScheduler={() => navigate(location.pathname === '/scheduler' ? '/chat' : '/scheduler')}
-            onOpenSystemPrompt={() => navigate(location.pathname === '/system-prompt' ? '/chat' : '/system-prompt')}
-            onOpenPermissions={() => navigate(location.pathname === '/permissions' ? '/chat' : '/permissions')}
-            onOpenSkillsMCP={() => navigate(location.pathname === '/skills-mcp' ? '/chat' : '/skills-mcp')}
-            onOpenSettings={() => navigate(location.pathname === '/settings' ? '/chat' : '/settings')}
-            onOpenTools={() => navigate(location.pathname === '/tools' ? '/chat' : '/tools')}
-          />
-        )}
-
-        {/* 页面内容 — 始终渲染 MainPage，监控面板保持可见 */}
+        {sidebarVisible && <Sidebar />}
         <div className="flex-1 flex flex-col overflow-hidden">
           {children}
         </div>

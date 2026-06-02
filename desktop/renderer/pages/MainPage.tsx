@@ -1,22 +1,22 @@
 // ============================================================
-// MainPage - 主聊天页面（三栏布局）
+// MainPage - 主聊天页面（两列等分布局）
 // ============================================================
-// 聊天区 | 监控面板 (可折叠/可调) | 文件树面板 (可折叠/可调)
+// 聊天区 (50%) | 监控面板 (50%)
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import ChatArea from '../components/ChatArea';
 import RemoteChatArea from '../components/RemoteChatArea';
-import RightPanel from '../components/RightPanel';
+import MonitorPanel from '../components/MonitorPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
-import ProjectFilesPanel from '../components/ProjectFilesPanel';
 import { Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { usePlatformStore } from '../stores/platformStore';
 import { registerEventAdapter } from '../services/EventAdapter';
+import { t } from '@/core/i18n';
 
 function formatToken(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -25,37 +25,11 @@ function formatToken(n: number): string {
 }
 
 export default function MainPage() {
-  // 初始化事件桥接（只执行一次）
-  React.useEffect(() => {
-    registerEventAdapter();
-  }, []);
+  React.useEffect(() => { registerEventAdapter(); }, []);
 
-  // 监控面板（RightPanel）
-  const [rightPanelVisible, setRightPanelVisible] = useState(true);
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    const saved = localStorage.getItem('rightPanelWidth');
-    return saved ? parseInt(saved, 10) : 520;
-  });
-
-  // 文件树面板（ProjectFilesPanel）
-  const [projectFilesVisible, setProjectFilesVisible] = useState(true);
-  const [projectFilesWidth, setProjectFilesWidth] = useState(() => {
-    const saved = localStorage.getItem('projectFilesWidth');
-    return saved ? parseInt(saved, 10) : 220;
-  });
-  const [projectFilesResizing, setProjectFilesResizing] = useState(false);
-  const [projectFilesStartX, setProjectFilesStartX] = useState(0);
-  const [projectFilesStartWidth, setProjectFilesStartWidth] = useState(0);
-
-  // 全局状态统计
-
-  // iteration
   const currentIteration = useConversationStore((s) => s.iteration);
-
-  // session 初始化状态
   const sessionStatus = useSessionInitStore((s) => s.status);
 
-  // token 统计
   const newAgentMap = useAgentStateMachine((s) => s.agentMap);
   const totalTokens = React.useMemo(() => {
     const sum = { input: 0, output: 0, cached: 0 };
@@ -67,61 +41,6 @@ export default function MainPage() {
     return sum;
   }, [newAgentMap]);
 
-  // 监听右侧面板切换事件
-  useEffect(() => {
-    const handleToggle = () => {
-      setRightPanelVisible((prev) => !prev);
-    };
-    window.addEventListener('toggle-right-panel', handleToggle);
-    return () => {
-      window.removeEventListener('toggle-right-panel', handleToggle);
-    };
-  }, []);
-
-  // 监听文件树面板切换事件
-  useEffect(() => {
-    const handleToggle = () => {
-      setProjectFilesVisible((prev) => !prev);
-    };
-    window.addEventListener('toggle-project-files', handleToggle);
-    return () => {
-      window.removeEventListener('toggle-project-files', handleToggle);
-    };
-  }, []);
-
-  // 文件树面板拖拽调宽
-  useEffect(() => {
-    if (!projectFilesResizing) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      const delta = e.clientX - projectFilesStartX;
-      const newWidth = Math.max(200, Math.min(500, projectFilesStartWidth - delta));
-      setProjectFilesWidth(newWidth);
-    };
-    const handleMouseUp = () => {
-      setProjectFilesResizing(false);
-      localStorage.setItem('projectFilesWidth', projectFilesWidth.toString());
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [projectFilesResizing, projectFilesStartX, projectFilesStartWidth, projectFilesWidth]);
-
-  const handleRightPanelResize = (width: number) => {
-    setRightPanelWidth(width);
-    localStorage.setItem('rightPanelWidth', width.toString());
-  };
-
-  const handleFilePanelResizeStart = (e: React.MouseEvent) => {
-    setProjectFilesResizing(true);
-    setProjectFilesStartX(e.clientX);
-    setProjectFilesStartWidth(projectFilesWidth);
-    e.preventDefault();
-  };
-
-  // 远端会话：替换对话框，监控面板保持可见
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
   const remoteSessions = usePlatformStore((s) => s.sessions);
   const remoteSessionKey = activeSessionId
@@ -130,26 +49,24 @@ export default function MainPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* 中间内容区 — 对话框 */}
-      <div className="flex-[2] min-w-0 min-h-0 flex flex-col overflow-hidden">
-        {/* 全局状态栏 — 本地和远端会话均显示 */}
-        <div className="flex-shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-border bg-muted/30">
-          {/* Session 状态指示器 */}
+      {/* 左侧：聊天区 */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden border-r border-border">
+        <div className="flex-shrink-0 flex items-center gap-3 px-4 py-1.5 border-b border-border bg-muted/30">
           {sessionStatus !== 'ready' && (
             <div className="flex items-center gap-1.5 text-[11px]">
               {sessionStatus === 'initializing' ? (
                 <>
                   <Loader2 size={12} className="animate-spin text-blue-400" />
-                  <span className="text-blue-400">正在初始化会话...</span>
+                  <span className="text-blue-400">{t('mainpage.initializing')}</span>
                 </>
               ) : sessionStatus === 'failed' ? (
                 <>
-                  <span className="text-red-400">会话不可用</span>
+                  <span className="text-red-400">{t('mainpage.session_unavailable')}</span>
                   <button
                     onClick={() => useSessionInitStore.getState().retry()}
                     className="text-blue-400 hover:underline"
                   >
-                    重试
+                    {t('mainpage.retry')}
                   </button>
                 </>
               ) : null}
@@ -160,17 +77,17 @@ export default function MainPage() {
             <span>{currentIteration} 轮</span>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1 text-amber-400/80" title="总输入 token（含缓存写入）">
+            <span className="flex items-center gap-1 text-amber-400/80" title="输入 token（含缓存写入）">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-              入 {formatToken(totalTokens.input)}
+              {t('mainpage.token_input', { n: formatToken(totalTokens.input) })}
             </span>
-            <span className="flex items-center gap-1 text-green-400/80" title="总输出 token">
+            <span className="flex items-center gap-1 text-green-400/80" title="输出 token">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-              出 {formatToken(totalTokens.output)}
+              {t('mainpage.token_output', { n: formatToken(totalTokens.output) })}
             </span>
             {totalTokens.input + totalTokens.output > 0 && (
-              <span className="flex items-center gap-1 text-muted-foreground font-medium" title="累计总 token">
-                Σ {formatToken(totalTokens.input + totalTokens.output)}
+              <span className="flex items-center gap-1 text-muted-foreground font-medium" title="累计 token">
+                {t('mainpage.token_total', { n: formatToken(totalTokens.input + totalTokens.output) })}
               </span>
             )}
           </div>
@@ -183,32 +100,10 @@ export default function MainPage() {
         />
       </div>
 
-      {/* 监控面板 — 与对话框 1:1 占比 */}
-      {rightPanelVisible && (
-        <RightPanel
-          onToggle={() => setRightPanelVisible(!rightPanelVisible)}
-          width={rightPanelWidth}
-          onResize={handleRightPanelResize}
-          className="flex-[2] min-w-0"
-        />
-      )}
-
-      {/* 文件树面板 */}
-      {projectFilesVisible && (
-        <div className="relative flex-shrink-0">
-          {/* 拖拽手柄 — 4px 方便鼠标捕捉 */}
-          <div
-            className="absolute -left-1 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/60 active:bg-primary transition-colors z-10 rounded-r-sm"
-            onMouseDown={handleFilePanelResizeStart}
-            style={{ userSelect: 'none' }}
-          />
-          <div style={{ width: `${projectFilesWidth}px` }} className="h-full">
-            <ProjectFilesPanel
-              onToggle={() => setProjectFilesVisible(!projectFilesVisible)}
-            />
-          </div>
-        </div>
-      )}
+      {/* 右侧：监控面板 */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <MonitorPanel />
+      </div>
     </div>
   );
 }
