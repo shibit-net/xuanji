@@ -2,6 +2,7 @@
 // CodeEditor - 代码编辑器组件（基于 CodeMirror 6）
 // ============================================================
 
+import { memo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { yaml } from '@codemirror/lang-yaml';
 import { json } from '@codemirror/lang-json';
@@ -22,7 +23,7 @@ const languageExtensions = {
   text: [],
 };
 
-export default function CodeEditor({
+function CodeEditor({
   value,
   onChange,
   language = 'text',
@@ -67,3 +68,5 @@ export default function CodeEditor({
     </div>
   );
 }
+
+export default memo(CodeEditor);

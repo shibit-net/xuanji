@@ -74,7 +74,11 @@ function GroupLabel({ children }: { children: string }) {
 function SessionList() {
   const navigate = useNavigate();
   const language = useConfigStore((s) => s.settings.language);
-  const { sessions, activeSessionId, setActiveSession, removeSession, updateSessionName } = usePlatformStore();
+  const sessions = usePlatformStore((s) => s.sessions);
+  const activeSessionId = usePlatformStore((s) => s.activeSessionId);
+  const setActiveSession = usePlatformStore((s) => s.setActiveSession);
+  const removeSession = usePlatformStore((s) => s.removeSession);
+  const updateSessionName = usePlatformStore((s) => s.updateSessionName);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -183,9 +187,11 @@ function SessionList() {
 function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const logout = useAuthStore((s) => s.logout);
   const language = useConfigStore((s) => s.settings.language);
-  const { setSetupDialogOpen } = usePlatformStore();
+  const setSetupDialogOpen = usePlatformStore((s) => s.setSetupDialogOpen);
   const [fileTreeExpanded, setFileTreeExpanded] = useState(true);
   const [fileTreeHeight, setFileTreeHeight] = useState(192);
   const [gitBranch, setGitBranch] = useState<string | null>(null);

@@ -11,7 +11,7 @@
 // - 保持格式化和高可读性展示
 // ============================================================
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, memo } from 'react';
 import { FileText, AlertCircle, Info, AlertTriangle, Bug, Trash2, Filter, Search, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getDesktopLabel } from '../i18n';
@@ -27,7 +27,7 @@ interface LogRecord {
   raw: string;
 }
 
-export default function LogsView() {
+export default memo(function LogsView() {
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [filterLevel, setFilterLevel] = useState<LogLevel>('all');
   const [keyword, setKeyword] = useState('');
@@ -49,7 +49,7 @@ export default function LogsView() {
         setLogs(result.logs || []);
       }
     } catch (error) {
-      console.error('加载日志失败:', error);
+      console.error('Failed to load logs:', error);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +72,7 @@ export default function LogsView() {
 
   // 清空日志
   const handleClearLogs = async () => {
-    if (!confirm('确定要清空所有日志文件吗？')) return;
+    if (!confirm(getDesktopLabel('logs.clear_confirm', language))) return;
 
     const result = await window.electron.logsClear();
     if (result.success) {
@@ -254,7 +254,7 @@ export default function LogsView() {
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索日志..."
+            placeholder={getDesktopLabel('logs.search_placeholder', language)}
             className="flex-1 bg-transparent text-xs focus:outline-none"
           />
         </div>
@@ -273,7 +273,7 @@ export default function LogsView() {
       >
         {filteredLogs.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
-            {isLoading ? '加载中...' : '暂无日志'}
+            {isLoading ? getDesktopLabel('logs.loading', language) : getDesktopLabel('logs.empty', language)}
           </div>
         ) : (
           filteredLogs.map((log, index) => (
@@ -316,10 +316,10 @@ export default function LogsView() {
             size="sm"
             className="text-primary"
           >
-            ↓ 跳转到最新日志
+            {getDesktopLabel('logs.scroll_to_latest', language)}
           </Button>
         </div>
       )}
     </div>
   );
-}
+});

@@ -1,7 +1,5 @@
 /**
- * ConversationStore — 合并 messageStore.status + _conversationState + runtimeStore.processing。
- *
- * 单一数据源，从后端 SessionStateMachine 状态派生。Phase 4 时与 sessionStore 合并。
+ * ConversationStore — 对话运行时状态（status、processing、迭代计数、上下文信息）
  */
 
 import { create } from 'zustand';

@@ -23,6 +23,61 @@ type FilterSource = 'all' | 'system' | 'app' | 'custom';
 type FilterStatus = 'all' | 'enabled' | 'disabled';
 type SortBy = 'name' | 'created' | 'source';
 
+function getGroupLabel(group: string) {
+  switch (group) {
+    case 'system': return t('agent.group_system');
+    case 'app': return t('agent.group_app');
+    case 'custom': return t('agent.group_custom');
+    default: return t('agent.group_unknown');
+  }
+}
+
+function getAgentTypeInfo(agent: any) {
+  const category = agent.metadata?.category;
+
+  if (agent.metadata?.isMainAgent) {
+    return {
+      type: t('agent.type_main'),
+      typeEn: 'Main',
+      icon: '⭐',
+      color: 'text-yellow-400',
+      bgColor: 'bg-yellow-500/20',
+      description: t('agent.desc_main'),
+    };
+  }
+
+  if (category === 'system') {
+    return {
+      type: t('agent.type_system'),
+      typeEn: 'System',
+      icon: '⚙️',
+      color: 'text-purple-400',
+      bgColor: 'bg-purple-500/20',
+      description: t('agent.desc_system'),
+    };
+  }
+
+  if (category === 'app') {
+    return {
+      type: t('agent.type_app'),
+      typeEn: 'App',
+      icon: '🤖',
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-500/20',
+      description: t('agent.desc_app'),
+    };
+  }
+
+  return {
+    type: t('agent.type_custom'),
+    typeEn: 'Custom',
+    icon: '📝',
+    color: 'text-purple-500',
+    bgColor: 'bg-purple-500/20',
+    description: t('agent.desc_custom'),
+  };
+}
+
 function AgentManager({ onClose }: AgentManagerProps) {
   const toast = useToast();
   const { agents, loading, error, createAgent, updateAgent, deleteAgent, reload } = useAgentManager();
@@ -197,62 +252,6 @@ function AgentManager({ onClose }: AgentManagerProps) {
     } catch (err) {
       toast.error(t('agent.toast_refresh_failed'));
     }
-  };
-
-  const getGroupLabel = (group: string) => {
-    switch (group) {
-      case 'system': return t('agent.group_system');
-      case 'app': return t('agent.group_app');
-      case 'custom': return t('agent.group_custom');
-      default: return t('agent.group_unknown');
-    }
-  };
-
-  // Agent 类型标识
-  const getAgentTypeInfo = (agent: any) => {
-    const category = agent.metadata?.category;
-
-    if (agent.metadata?.isMainAgent) {
-      return {
-        type: t('agent.type_main'),
-        typeEn: 'Main',
-        icon: '⭐',
-        color: 'text-yellow-400',
-        bgColor: 'bg-yellow-500/20',
-        description: t('agent.desc_main'),
-      };
-    }
-
-    if (category === 'system') {
-      return {
-        type: t('agent.type_system'),
-        typeEn: 'System',
-        icon: '⚙️',
-        color: 'text-purple-400',
-        bgColor: 'bg-purple-500/20',
-        description: t('agent.desc_system'),
-      };
-    }
-
-    if (category === 'app') {
-      return {
-        type: t('agent.type_app'),
-        typeEn: 'App',
-        icon: '🤖',
-        color: 'text-blue-500',
-        bgColor: 'bg-blue-500/20',
-        description: t('agent.desc_app'),
-      };
-    }
-
-    return {
-      type: t('agent.type_custom'),
-      typeEn: 'Custom',
-      icon: '📝',
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-500/20',
-      description: t('agent.desc_custom'),
-    };
   };
 
   return (

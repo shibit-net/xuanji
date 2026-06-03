@@ -7,7 +7,7 @@
 //   preview  — 只读预览（对话框使用）
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
@@ -294,7 +294,7 @@ function showMermaidPreview(code: string, svgHtml: string) {
   if (svgNode) {
     body.appendChild(svgNode.cloneNode(true));
   } else {
-    body.textContent = '[图表加载失败]';
+    body.textContent = t('milkdown.chart_load_failed');
   }
   content.appendChild(body);
 
@@ -486,7 +486,7 @@ function MilkdownEditorInner({ value, onChange, mode, onReady }: Omit<MilkdownEd
   );
 }
 
-export default function MilkdownEditor({ height, ...props }: MilkdownEditorProps) {
+function MilkdownEditor({ height, ...props }: MilkdownEditorProps) {
   return (
     <div
       className="milkdown-editor-wrapper"
@@ -498,3 +498,5 @@ export default function MilkdownEditor({ height, ...props }: MilkdownEditorProps
     </div>
   );
 }
+
+export default memo(MilkdownEditor);

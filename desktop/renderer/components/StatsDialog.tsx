@@ -2,7 +2,7 @@
 // StatsDialog - 使用统计对话框（shadcn Dialog）
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import {
   Dialog,
@@ -18,7 +18,7 @@ interface StatsDialogProps {
   onClose: () => void;
 }
 
-export default function StatsDialog({ onClose }: StatsDialogProps) {
+function StatsDialog({ onClose }: StatsDialogProps) {
   const stats = useMessageStore((state) => state.stats);
   const messages = useMessageStore((state) => state.messages);
   const showTokenUsage = useConfigStore((s) => s.settings.showTokenUsage);
@@ -161,3 +161,5 @@ export default function StatsDialog({ onClose }: StatsDialogProps) {
     </Dialog>
   );
 }
+
+export default memo(StatsDialog);

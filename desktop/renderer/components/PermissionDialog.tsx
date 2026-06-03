@@ -2,7 +2,7 @@
 // PermissionDialog - 权限确认对话框（shadcn Dialog）
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { AlertTriangle, Shield } from 'lucide-react';
 import {
   Dialog,
@@ -30,7 +30,7 @@ type RichRequest = PermissionRequestData & {
   input?: Record<string, unknown>;
 };
 
-export default function PermissionDialog({ request, onClose }: PermissionDialogProps) {
+function PermissionDialog({ request, onClose }: PermissionDialogProps) {
   const [loading, setLoading] = useState(false);
   // 兼容运行时可能有更多字段
   const r = request as unknown as RichRequest;
@@ -151,3 +151,5 @@ export default function PermissionDialog({ request, onClose }: PermissionDialogP
     </Dialog>
   );
 }
+
+export default memo(PermissionDialog);

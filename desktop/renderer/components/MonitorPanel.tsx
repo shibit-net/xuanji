@@ -2,7 +2,7 @@
 // MonitorPanel - 等分列监控面板（替换 RightPanel）
 // ============================================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { Activity, FileText, Radio, Check, X, MoreHorizontal, ChevronUp, ChevronDown, Wrench, Search, Globe, Terminal, FolderOpen, FileQuestion, FilePenLine, ClipboardList, ListTodo, RotateCcw, Brain, Database, BarChart3, GitGraph, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '../stores/sessionStore';
@@ -14,6 +14,12 @@ import { t } from '@/core/i18n';
 import ExecutionFlowV2 from './ExecutionFlowV2';
 import PlatformSessionPanel from './PlatformSessionPanel';
 
+function formatTimestamp(ts: number, language: string) {
+  return new Date(ts).toLocaleTimeString(language === 'en' ? 'en-US' : 'zh-CN', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 type TabId = 'monitor' | 'logs' | 'remote';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
@@ -22,7 +28,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'remote', label: t('rightpanel.tab.remote'), icon: <Radio size={14} /> },
 ];
 
-export default function MonitorPanel() {
+function MonitorPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('monitor');
 
   return (
@@ -264,11 +270,7 @@ function LogsTab() {
     tool: 'text-blue-400',
   };
 
-  const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleTimeString(language === 'en' ? 'en-US' : 'zh-CN', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
-  };
+  const formatTime = (ts: number) => formatTimestamp(ts, language);
 
   return (
     <div className="h-full flex flex-col p-3 gap-3">
@@ -390,7 +392,10 @@ function LogsTab() {
 // ─── 远端会话标签 ──────────────────────────
 
 function RemoteTab() {
-  const { sessions, activeSessionId } = usePlatformStore();
+  const sessions = usePlatformStore((s) => s.sessions);
+  const activeSessionId = usePlatformStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   return <PlatformSessionPanel session={activeSession} />;
 }
+
+export default memo(MonitorPanel);

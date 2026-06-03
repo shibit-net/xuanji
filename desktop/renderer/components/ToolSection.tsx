@@ -4,16 +4,65 @@
 // 展示工具执行列表
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../stores/messageStore';
+import { formatDuration } from './flow/hooks';
+import { t } from '@/core/i18n';
 
 interface ToolSectionProps {
   tools: ToolCall[];
 }
 
-export function ToolSection({ tools }: ToolSectionProps) {
+// ============================================================
+// 模块级纯函数（避免每次渲染重复创建）
+// ============================================================
+
+function getStatusIcon(status: ToolCall['status']) {
+  switch (status) {
+    case 'pending':
+      return <Clock className="w-4 h-4 text-muted-foreground/50" />;
+    case 'running':
+      return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
+    case 'success':
+      return <CheckCircle className="w-4 h-4 text-green-500" />;
+    case 'error':
+      return <XCircle className="w-4 h-4 text-red-500" />;
+  }
+}
+
+function getInputPreview(input?: Record<string, unknown>): string {
+  if (!input) return t('toolsection.no_params');
+  const keys = Object.keys(input);
+  if (keys.length === 0) return t('toolsection.no_params');
+
+  const preview: string[] = [];
+  const importantKeys = ['file_path', 'path', 'pattern', 'command', 'content', 'name'];
+
+  for (const key of importantKeys) {
+    if (key in input) {
+      const value = input[key];
+      if (typeof value === 'string') {
+        preview.push(`${key}: ${value}`);
+        break;
+      }
+    }
+  }
+
+  if (preview.length === 0) {
+    for (const key of keys.slice(0, 2)) {
+      const value = input[key];
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        preview.push(`${key}: ${String(value).substring(0, 30)}`);
+      }
+    }
+  }
+
+  return preview.join(', ') || `${keys.length} 个参数`;
+}
+
+export const ToolSection = memo(function ToolSection({ tools }: ToolSectionProps) {
   return (
     <div className="space-y-2">
       {tools.map((tool) => (
@@ -26,55 +75,6 @@ export function ToolSection({ tools }: ToolSectionProps) {
 function ToolCard({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false);
 
-  const getStatusIcon = () => {
-    switch (tool.status) {
-      case 'pending':
-        return <Clock className="w-4 h-4 text-muted-foreground/50" />;
-      case 'running':
-        return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error':
-        return <XCircle className="w-4 h-4 text-red-500" />;
-    }
-  };
-
-  const formatDuration = (ms?: number) => {
-    if (!ms) return '';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
-
-  const getInputPreview = (input?: Record<string, unknown>): string => {
-    if (!input) return '无参数';
-    const keys = Object.keys(input);
-    if (keys.length === 0) return '无参数';
-
-    const preview: string[] = [];
-    const importantKeys = ['file_path', 'path', 'pattern', 'command', 'content', 'name'];
-
-    for (const key of importantKeys) {
-      if (key in input) {
-        const value = input[key];
-        if (typeof value === 'string') {
-          preview.push(`${key}: ${value}`);
-          break;
-        }
-      }
-    }
-
-    if (preview.length === 0) {
-      for (const key of keys.slice(0, 2)) {
-        const value = input[key];
-        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-          preview.push(`${key}: ${String(value).substring(0, 30)}`);
-        }
-      }
-    }
-
-    return preview.join(', ') || `${keys.length} 个参数`;
-  };
-
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
       {/* 工具头部 */}
@@ -83,7 +83,7 @@ function ToolCard({ tool }: { tool: ToolCall }) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          <div className="flex-shrink-0">{getStatusIcon()}</div>
+          <div className="flex-shrink-0">{getStatusIcon(tool.status)}</div>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -139,7 +139,7 @@ function ToolCard({ tool }: { tool: ToolCall }) {
                   <div className="text-xs text-muted-foreground mb-1">截图</div>
                   <img
                     src={`data:${block.mimeType};base64,${block.data}`}
-                    alt="工具截图"
+                    alt={t('toolsection.screenshot_alt')}
                     className="w-full max-h-[400px] object-contain rounded-lg border border-white/[0.08]"
                   />
                 </div>
@@ -160,4 +160,4 @@ function ToolCard({ tool }: { tool: ToolCall }) {
       </AnimatePresence>
     </div>
   );
-}
+});

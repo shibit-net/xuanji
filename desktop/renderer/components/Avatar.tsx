@@ -43,8 +43,7 @@ export function Avatar({ seed, size = 32, className = '', url }: AvatarProps) {
       alt={seed}
       width={size}
       height={size}
-      className={`rounded-full flex-shrink-0 ${className}`}
-      style={{ background: 'transparent' }}
+      className={`rounded-full flex-shrink-0 bg-transparent ${className}`}
     />
   );
 }

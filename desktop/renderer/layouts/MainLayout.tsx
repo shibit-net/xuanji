@@ -2,7 +2,7 @@
 // MainLayout - 主应用布局
 // ============================================================
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, memo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TitleBar from '../components/TitleBar';
 import Sidebar from '../components/Sidebar';
@@ -18,6 +18,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatformStore } from '../stores/platformStore';
+import { useMessageStore } from '../stores/messageStore';
 import { getDesktopLabel } from '../i18n';
 
 interface MainLayoutProps {
@@ -26,15 +27,15 @@ interface MainLayoutProps {
 
 type DialogType = 'stats' | 'diagnostics' | null;
 
-export default function MainLayout({ children }: MainLayoutProps) {
+export default memo(function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [activeDialog, setActiveDialog] = useState<DialogType>(null);
 
-  const { user } = useAuthStore();
-  const { loadAgents } = useConfigStore();
-  const { setupDialogOpen } = usePlatformStore();
+  const user = useAuthStore((s) => s.user);
+  const loadAgents = useConfigStore((s) => s.loadAgents);
+  const setupDialogOpen = usePlatformStore((s) => s.setupDialogOpen);
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
 
   // 监听远端平台 IPC 事件
@@ -67,6 +68,25 @@ export default function MainLayout({ children }: MainLayoutProps) {
     window.electron.onPersonaUpdated((_data) => {
       // persona 已保存，无需前端额外处理
     });
+  }, []);
+
+  // 键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'n') {
+        e.preventDefault();
+        const messages = useMessageStore.getState().messages;
+        if (messages.length === 0) return;
+        const language = useConfigStore.getState().settings.language as 'zh' | 'en';
+        const confirmed = confirm(language === 'en' ? 'Start a new session? Current messages will be cleared.' : '开始新会话？当前消息将被清除。');
+        if (confirmed) {
+          useMessageStore.getState().reset();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // 压缩上下文
@@ -143,4 +163,4 @@ export default function MainLayout({ children }: MainLayoutProps) {
       {setupDialogOpen && <PlatformSetupDialog />}
     </div>
   );
-}
+});

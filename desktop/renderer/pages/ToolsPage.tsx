@@ -2,7 +2,7 @@
 // ToolsPage - 工具列表页面
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,7 @@ function ToolCard({ tool }: { tool: Tool }) {
   );
 }
 
-export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
+function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,8 +119,8 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
       // 处理响应格式 { success: true, tools: [...] } 或 { success: false, error: '...' }
       if (response && typeof response === 'object') {
         if ('success' in response && !response.success) {
-          console.error('[ToolsPage] 加载失败:', response.error);
-          setError(response.error || '加载工具列表失败');
+          console.error('[ToolsPage] load failed:', response.error);
+          setError(response.error || t('tools.page.load_failed'));
           setTools([]);
         } else if ('tools' in response) {
           const raw = (response.tools || []) as Tool[];
@@ -136,7 +136,7 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
       }
     } catch (err) {
       console.error('[ToolsPage] 异常:', err);
-      setError(err instanceof Error ? err.message : '加载工具列表失败');
+      setError(err instanceof Error ? err.message : t('tools.page.load_failed'));
       setTools([]);
     } finally {
       setLoading(false);
@@ -288,3 +288,5 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
     </div>
   );
 }
+
+export default memo(ToolsPage);

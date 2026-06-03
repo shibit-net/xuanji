@@ -24,7 +24,27 @@ interface AgentStatus {
   parentId?: string;
 }
 
-const AgentStatusList: React.FC = () => {
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'thinking': return 'bg-indigo-500';
+    case 'executing': return 'bg-emerald-500';
+    case 'completed': return 'bg-teal-500';
+    case 'error': return 'bg-red-500';
+    default: return 'bg-slate-500';
+  }
+}
+
+function getStatusText(status: string) {
+  switch (status) {
+    case 'thinking': return t('agent.status_list.status.thinking');
+    case 'executing': return t('agent.status_list.status.executing');
+    case 'completed': return t('agent.status_list.status.completed');
+    case 'error': return t('agent.status_list.status.error');
+    default: return t('agent.status_list.status.idle');
+  }
+}
+
+const AgentStatusList: React.FC = React.memo(() => {
   const newAgentMap = useAgentStateMachine((s) => s.agentMap);
 
   // 从扁平 agentMap 生成 agent 列表
@@ -70,38 +90,6 @@ const AgentStatusList: React.FC = () => {
     return agentList;
   }, [newAgentMap]);
 
-  // 获取状态颜色
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'thinking':
-        return 'bg-indigo-500';
-      case 'executing':
-        return 'bg-emerald-500';
-      case 'completed':
-        return 'bg-teal-500';
-      case 'error':
-        return 'bg-red-500';
-      default:
-        return 'bg-slate-500';
-    }
-  };
-
-  // 获取状态文本
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'thinking':
-        return t('agent.status_list.status.thinking');
-      case 'executing':
-        return t('agent.status_list.status.executing');
-      case 'completed':
-        return t('agent.status_list.status.completed');
-      case 'error':
-        return t('agent.status_list.status.error');
-      default:
-        return t('agent.status_list.status.idle');
-    }
-  };
-
   return (
     <div className="w-full h-full overflow-x-auto overflow-y-auto">
       <table className="w-full text-sm">
@@ -146,6 +134,6 @@ const AgentStatusList: React.FC = () => {
       </table>
     </div>
   );
-};
+});
 
 export default AgentStatusList;

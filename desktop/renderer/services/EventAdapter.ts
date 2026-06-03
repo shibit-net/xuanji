@@ -4,7 +4,7 @@
  * 与 EventBridge 并行运行，写入不同的 stores：
  * - AgentStateMachine 替代 activeAgentStore + runtimeStore.agentActivity
  * - AsyncTaskStore 替代 backgroundTaskStore
- * - ConversationStore 合并 messageStore.status + _conversationState + runtimeStore.processing
+ * - ConversationStore 管理对话运行时状态（status、processing、迭代）
  * - CitationStore 从 messageStore.citations 拆出
  * - messageStore 消息流桥接（流式文本、气泡生命周期）
  *
@@ -20,7 +20,6 @@ import { useCitationStore } from '../stores/CitationStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
 import type { ContentBlock } from '../stores/messageStore';
 import { useExecutionStore, type TodoItem } from '../stores/executionStore';
-import { useSessionInitStore } from '../stores/SessionInitStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useIntentRoutingStore, makeStage } from '../stores/IntentRoutingStore';
 import { useConversationHub } from '../stores/conversationHub';
@@ -1010,30 +1009,30 @@ export function registerEventAdapter(): void {
   });
 
   // ============================================================
-  // SessionInitStore — session 生命周期
+  // SessionStore — session 生命周期
   // ============================================================
 
   messageBus.on('session:init-start', () => {
-    useSessionInitStore.getState().transition({ type: 'INIT_START' });
+    useSessionStore.getState().transition({ type: 'INIT_START' });
     useSessionStore.getState().addLog('info', '🔄 Session 初始化中...');
   });
 
   messageBus.on('session:init-complete', () => {
-    useSessionInitStore.getState().transition({ type: 'INIT_COMPLETE' });
+    useSessionStore.getState().transition({ type: 'INIT_COMPLETE' });
     useSessionStore.getState().addLog('info', '✅ Session 初始化完成');
   });
 
   messageBus.on('session:init-failed', (data: { error: string }) => {
-    useSessionInitStore.getState().transition({ type: 'INIT_FAILED', error: data.error });
+    useSessionStore.getState().transition({ type: 'INIT_FAILED', error: data.error });
     useSessionStore.getState().addLog('error', `❌ Session 初始化失败: ${data.error}`);
   });
 
   messageBus.on('session:init-restarting', () => {
-    useSessionInitStore.getState().transition({ type: 'INIT_RESTARTING' });
+    useSessionStore.getState().transition({ type: 'INIT_RESTARTING' });
   });
 
   messageBus.on('agent:crash', (data: { message: string }) => {
-    useSessionInitStore.getState().transition({ type: 'CHILD_CRASH', message: data.message });
+    useSessionStore.getState().transition({ type: 'CHILD_CRASH', message: data.message });
     useSessionStore.getState().addLog('error', `💥 Agent 崩溃: ${data.message}`);
   });
 
@@ -1070,5 +1069,5 @@ export function registerEventAdapter(): void {
   });
 
   // 所有监听器就绪后，触发 session 初始化
-  useSessionInitStore.getState().triggerInit();
+  useSessionStore.getState().triggerInit();
 }

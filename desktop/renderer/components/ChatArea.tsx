@@ -7,7 +7,7 @@ import { ChevronDown, Zap, Brain, Wrench } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
 
-import { useMessageStore, type Message } from '../stores/messageStore';
+import { useMessageStore, generateMessageId, type Message } from '../stores/messageStore';
 
 // 主 agent 头像
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
@@ -17,14 +17,6 @@ import { t } from '@/core/i18n';
 
 // 模块级变量：页面切换时保存/恢复滚动位置
 let savedScrollTop: number | null = null;
-
-// ============================================================
-// 唯一 ID 生成器（与 chatStore 保持一致）
-// ============================================================
-let messageIdCounter = 0;
-function generateMessageId(prefix = 'msg'): string {
-  return `${prefix}-${Date.now()}-${++messageIdCounter}`;
-}
 
 /** 三点波浪等待动画（LLM 响应前的即时反馈） */
 function TypingIndicator() {
@@ -150,7 +142,7 @@ const VirtualMessageList = memo(function VirtualMessageList({
   );
 });
 
-export default function ChatArea() {
+function ChatArea() {
   const messages = useMessageStore((state) => state.messages);
   const status = useMessageStore((state) => state.status);
   const currentStreamingId = useMessageStore((state) => state.currentStreamingId);
@@ -197,7 +189,7 @@ export default function ChatArea() {
       const archiveMessage: Message = {
         id: generateMessageId('system-archive'),
         role: 'system',
-        content: `📦 已归档 ${data.archivedCount} 条消息，提取 ${data.memoriesExtracted} 条记忆`,
+        content: t('chat.archive_notification', { archived: String(data.archivedCount), memories: String(data.memoriesExtracted) }),
         timestamp: Date.now(),
       };
       useMessageStore.getState().addMessage(archiveMessage);
@@ -394,3 +386,5 @@ export default function ChatArea() {
     </div>
   );
 }
+
+export default memo(ChatArea);

@@ -58,28 +58,30 @@ function setupCwdListener() {
 setTimeout(() => { setupCwdListener(); }, 5000);
 setupCwdListener();
 
-// 向上查找 xuanji 项目根目录（包含 package.json 且 name 为 xuanji）
-function findProjectRoot(startDir: string): string {
-  let current = startDir;
+const MODEL_DIR = path.join(os.homedir(), '.xuanji', 'models');
+const EMBEDDING_MODEL_DIR = path.join(os.homedir(), '.xuanji', 'embedding-models');
+
+// 惰性查找项目根目录，避免模块导入时同步阻塞
+let _projectRoot: string | null = null;
+function getProjectRoot(): string {
+  if (_projectRoot) return _projectRoot;
+  let current = __dirname;
   while (current !== path.dirname(current)) {
     const pkgPath = path.join(current, 'package.json');
     if (fs.existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         if (pkg.name === 'xuanji') {
-          return current;
+          _projectRoot = current;
+          return _projectRoot;
         }
       } catch {}
     }
     current = path.dirname(current);
   }
-  // 回退方案：假设在 desktop/main/ipc/ 下，向上 3 级
-  return path.join(startDir, '../../..');
+  _projectRoot = path.join(__dirname, '../../..');
+  return _projectRoot;
 }
-
-const PROJECT_ROOT = findProjectRoot(__dirname);
-const MODEL_DIR = path.join(os.homedir(), '.xuanji', 'models');
-const EMBEDDING_MODEL_DIR = path.join(os.homedir(), '.xuanji', 'embedding-models');
 
 const MODEL_IDS: Record<string, string> = {
   'qwen2.5-0.5b-q4': 'hf:Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf',
@@ -136,7 +138,7 @@ export function registerDownloadHandlers() {
   // 获取项目根目录
   ipcMain.handle('download:get-project-root', async () => {
     try {
-      return { success: true, projectRoot: PROJECT_ROOT };
+      return { success: true, projectRoot: getProjectRoot() };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -284,24 +286,31 @@ export function registerDownloadHandlers() {
   // 列出本地已下载模型
   ipcMain.handle('local-model:list', async () => {
     try {
-      if (!fs.existsSync(MODEL_DIR)) {
+      let dirents: fs.Dirent[];
+      try {
+        dirents = await fs.promises.readdir(MODEL_DIR, { withFileTypes: true });
+      } catch {
         return { success: true, models: [] };
       }
 
-      const files = fs.readdirSync(MODEL_DIR)
-        .filter((file) => file.endsWith('.gguf'))
-        .map((file) => {
-          const filePath = path.join(MODEL_DIR, file);
-          const stats = fs.statSync(filePath);
+      const ggufFiles = dirents.filter(
+        (d) => d.isFile() && d.name.endsWith('.gguf'),
+      );
+
+      const models = await Promise.all(
+        ggufFiles.map(async (d) => {
+          const filePath = path.join(MODEL_DIR, d.name);
+          const stats = await fs.promises.stat(filePath);
           return {
-            filename: file,
+            filename: d.name,
             path: filePath,
             size: stats.size,
             modifiedAt: stats.mtime.toISOString(),
           };
-        });
+        }),
+      );
 
-      return { success: true, models: files };
+      return { success: true, models };
     } catch (error: any) {
       console.error('[IPC] local-model:list error:', error);
       return { success: false, error: error.message };
@@ -403,22 +412,27 @@ export function registerDownloadHandlers() {
       // 检测 git 分支
       let gitBranch: string | null = null;
       const gitHead = path.join(targetPath, '.git', 'HEAD');
-      if (fs.existsSync(gitHead)) {
-        try {
-          const m = fs.readFileSync(gitHead, 'utf-8').trim().match(/^ref:\s*refs\/heads\/(.+)$/);
-          if (m) gitBranch = m[1];
-        } catch {}
-      }
+      try {
+        const content = await fs.promises.readFile(gitHead, 'utf-8');
+        const m = content.trim().match(/^ref:\s*refs\/heads\/(.+)$/);
+        if (m) gitBranch = m[1];
+      } catch {}
 
-      const items = fs.readdirSync(targetPath, { withFileTypes: true })
-        .filter(d => !d.name.startsWith('.'))
-        .map(d => {
+      const dirents = await fs.promises.readdir(targetPath, { withFileTypes: true });
+      const filtered = dirents.filter(d => !d.name.startsWith('.'));
+
+      const items = (await Promise.all(
+        filtered.map(async (d) => {
           const fp = path.join(targetPath, d.name);
-          let st: fs.Stats;
-          try { st = fs.statSync(fp); } catch { st = { size: 0, mtimeMs: 0 } as fs.Stats; }
-          return { name: d.name, path: fp, isDirectory: d.isDirectory(), size: d.isDirectory() ? 0 : st.size, modifiedAt: st.mtimeMs };
+          if (d.isDirectory()) {
+            return { name: d.name, path: fp, isDirectory: true, size: 0, modifiedAt: 0 };
+          }
+          let size = 0;
+          let mtimeMs = 0;
+          try { const st = await fs.promises.stat(fp); size = st.size; mtimeMs = st.mtimeMs; } catch {}
+          return { name: d.name, path: fp, isDirectory: false, size, modifiedAt: mtimeMs };
         })
-        .sort((a, b) => a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1);
+      )).sort((a, b) => a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1);
 
       return { success: true, items, currentPath: targetPath, gitBranch };
     } catch (e: any) {
@@ -550,41 +564,39 @@ export function registerDownloadHandlers() {
   ipcMain.handle('workspace:resolve-drop-paths', async (_event, data: { fileNames: string[] }) => {
     try {
       const { app } = require('electron');
-      const paths: string[] = [];
 
-      // 跨平台常用目录（app.getPath 自动处理 Windows/macOS 本地化）
       const desktopDir = app.getPath('desktop');
       const downloadsDir = app.getPath('downloads');
       const documentsDir = app.getPath('documents');
       const homeDir = app.getPath('home');
 
-      for (const name of data.fileNames) {
-        // 如果是绝对路径且存在，直接使用
-        if (path.isAbsolute(name) && fs.existsSync(name) && fs.statSync(name).isFile()) {
-          paths.push(name);
-          continue;
-        }
+      const paths = await Promise.all(
+        data.fileNames.map(async (name) => {
+          if (path.isAbsolute(name)) {
+            try {
+              const st = await fs.promises.stat(name);
+              if (st.isFile()) return name;
+            } catch {}
+          }
 
-        const candidates = [
-          path.join(desktopDir, name),
-          path.join(downloadsDir, name),
-          path.join(documentsDir, name),
-          path.join(homeDir, name),
-          path.resolve(name),
-        ];
+          const candidates = [
+            path.join(desktopDir, name),
+            path.join(downloadsDir, name),
+            path.join(documentsDir, name),
+            path.join(homeDir, name),
+            path.resolve(name),
+          ];
 
-        let found: string | undefined;
-        for (const c of candidates) {
-          try {
-            if (fs.existsSync(c) && fs.statSync(c).isFile()) {
-              found = c;
-              break;
-            }
-          } catch { /* continue */ }
-        }
+          for (const c of candidates) {
+            try {
+              const st = await fs.promises.stat(c);
+              if (st.isFile()) return c;
+            } catch {}
+          }
 
-        paths.push(found ?? name);
-      }
+          return name;
+        }),
+      );
 
       return paths;
     } catch {

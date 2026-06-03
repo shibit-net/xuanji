@@ -2,16 +2,19 @@
 // StatusBar - 状态栏组件
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useSessionStore } from '../stores/sessionStore';
 import { useConversationStore } from '../stores/ConversationStore';
+import { useConfigStore } from '../stores/configStore';
+import { getDesktopLabel } from '../i18n';
 import { DownloadQueue } from './DownloadQueue';
 import { Badge } from '@/components/ui/badge';
 
-export default function StatusBar() {
+function StatusBar() {
   const currentSkill = useConversationStore((state) => state.activeSkill);
   const isPlanMode = useSessionStore((state) => state.isPlanMode);
+  const language = useConfigStore((s) => s.settings.language);
 
   // 系统资源监控
   const [resourceUsage, setResourceUsage] = useState<{
@@ -69,13 +72,13 @@ export default function StatusBar() {
       <div className="flex items-center gap-3">
         {resourceUsage && (
           <>
-            <span className="flex items-center gap-1" title="CPU 使用率">
+            <span className="flex items-center gap-1" title={getDesktopLabel('statusbar.cpu_title', language)}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
               CPU {resourceUsage.cpuPercent}%
             </span>
-            <span className="flex items-center gap-1" title={`内存 ${resourceUsage.memoryMB}MB / ${resourceUsage.totalMemoryMB}MB`}>
+            <span className="flex items-center gap-1" title={getDesktopLabel('statusbar.memory_title', language).replace('{used}', String(resourceUsage.memoryMB)).replace('{total}', String(resourceUsage.totalMemoryMB))}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
-              内存 {resourceUsage.percent}%
+              {getDesktopLabel('statusbar.memory_text', language).replace('{percent}', String(resourceUsage.percent))}
             </span>
           </>
         )}
@@ -84,3 +87,5 @@ export default function StatusBar() {
     </div>
   );
 }
+
+export default memo(StatusBar);

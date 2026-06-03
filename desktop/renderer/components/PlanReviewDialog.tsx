@@ -2,7 +2,7 @@
 // PlanReviewDialog - 计划审查对话框（shadcn Dialog）
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { FileText, MessageSquare } from 'lucide-react';
 import {
   Dialog,
@@ -23,7 +23,7 @@ interface PlanReviewDialogProps {
   onClose: () => void;
 }
 
-export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogProps) {
+function PlanReviewDialog({ request, onClose }: PlanReviewDialogProps) {
   const [loading, setLoading] = useState(false);
   const [supplement, setSupplement] = useState('');
   const [showSupplementInput, setShowSupplementInput] = useState(false);
@@ -130,3 +130,5 @@ export default function PlanReviewDialog({ request, onClose }: PlanReviewDialogP
     </Dialog>
   );
 }
+
+export default memo(PlanReviewDialog);

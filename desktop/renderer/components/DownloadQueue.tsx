@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { Button } from '@/components/ui/button';
-import { clsx } from 'clsx';
+import clsx from 'clsx';
+import { t } from '@/core/i18n';
 
 interface DownloadTask {
   id: string;
@@ -17,7 +18,19 @@ interface DownloadTask {
   error?: string;
 }
 
-export const DownloadQueue: React.FC = () => {
+function formatSize(bytes: number) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+function formatSpeed(bytesPerSec: number) {
+  return `${formatSize(bytesPerSec)}/s`;
+}
+
+export const DownloadQueue: React.FC = memo(() => {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [expanded, setExpanded] = useState(false);
 
@@ -29,8 +42,9 @@ export const DownloadQueue: React.FC = () => {
           const newTasks = [...prevTasks];
           newTasks[existingIndex] = event.task;
           return newTasks;
+        } else {
+          return [...prevTasks, event.task];
         }
-        return [...prevTasks, event.task];
       });
     };
 
@@ -53,55 +67,54 @@ export const DownloadQueue: React.FC = () => {
     };
   }, []);
 
-  const activeTasks = tasks.filter((t) => t.status === 'downloading' || t.status === 'pending');
-  const finishedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled');
+  const activeTasks = tasks.filter(
+    (t) => t.status === 'downloading' || t.status === 'pending'
+  );
+  const finishedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled'
+  );
 
   if (tasks.length === 0) return null;
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-  };
-
-  const formatSpeed = (bytesPerSec: number) => `${formatSize(bytesPerSec)}/s`;
-
   const handleCancel = async (taskId: string) => {
-    try { await window.electron.downloadCancel(taskId); }
-    catch (err) { console.error('Failed to cancel download:', err); }
+    try {
+      await window.electron.downloadCancel(taskId);
+    } catch (err) {
+      console.error('Failed to cancel download:', err);
+    }
   };
 
   const handleClearFinished = async () => {
-    try { await window.electron.downloadClearFinished(); }
-    catch (err) { console.error('Failed to clear finished downloads:', err); }
+    try {
+      await window.electron.downloadClearFinished();
+    } catch (err) {
+      console.error('Failed to clear finished downloads:', err);
+    }
   };
 
   return (
     <div
       className={clsx(
-        'overflow-hidden transition-all duration-300 border-[#3c3c3c]',
+        'overflow-hidden transition-all duration-300',
         expanded
-          ? 'fixed bottom-0 right-0 w-[400px] max-h-[400px] bg-[#1e1e1e] border-t border-l rounded-tl'
-          : 'relative max-h-7 bg-transparent border-none',
+          ? 'fixed bottom-0 right-0 w-[400px] max-h-[400px] bg-card border-t border-l border-border rounded-tl z-[1000]'
+          : 'relative h-7'
       )}
-      style={{ zIndex: expanded ? 1000 : 'auto' }}
     >
       {/* 标题栏 */}
       <div
         className={clsx(
           'flex items-center justify-between px-3 h-7 cursor-pointer select-none',
-          expanded ? 'bg-[#2d2d2d]' : 'bg-transparent',
+          expanded && 'bg-muted/30'
         )}
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#cccccc]">
-            {expanded ? '▼' : '▶'} 下载队列
+          <span className="text-xs text-foreground/70">
+            {expanded ? '▼' : '▶'} {t('download_queue.title')}
           </span>
           {activeTasks.length > 0 && (
-            <span className="text-xs text-[#4ec9b0] bg-[#264f44] px-1.5 py-0.5 rounded-[10px]">
+            <span className="text-xs text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded-full">
               {activeTasks.length}
             </span>
           )}
@@ -110,10 +123,13 @@ export const DownloadQueue: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            className="text-xs text-[#cccccc] bg-transparent border-none cursor-pointer px-1.5 py-0.5"
-            onClick={(e) => { e.stopPropagation(); handleClearFinished(); }}
+            className="text-xs text-foreground/70 bg-transparent border-none cursor-pointer px-1.5 py-0.5 h-auto"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClearFinished();
+            }}
           >
-            清除已完成
+            {t('download_queue.clear_completed')}
           </Button>
         )}
       </div>
@@ -124,11 +140,12 @@ export const DownloadQueue: React.FC = () => {
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="mb-2 p-2 bg-[#252526] rounded border border-[#3c3c3c]"
+              className="mb-2 p-2 bg-muted/50 rounded border border-border"
             >
+              {/* 任务名称 */}
               <div className="flex justify-between items-center mb-1">
                 <span
-                  className="text-[13px] text-[#cccccc] overflow-hidden text-ellipsis whitespace-nowrap flex-1"
+                  className="text-[13px] text-foreground/70 overflow-hidden text-ellipsis whitespace-nowrap flex-1"
                   title={task.name}
                 >
                   {task.name}
@@ -137,7 +154,7 @@ export const DownloadQueue: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-[11px] text-[#f48771] bg-transparent border-none cursor-pointer px-1 py-0.5"
+                    className="text-[11px] text-red-400 bg-transparent border-none cursor-pointer px-1 py-0.5 h-auto"
                     onClick={() => handleCancel(task.id)}
                   >
                     取消
@@ -145,29 +162,35 @@ export const DownloadQueue: React.FC = () => {
                 )}
               </div>
 
+              {/* 进度条 */}
               {(task.status === 'downloading' || task.status === 'pending') && (
                 <>
-                  <div className="w-full h-1 bg-[#3c3c3c] rounded-sm overflow-hidden mb-1">
+                  <div className="w-full h-1 bg-border rounded-sm overflow-hidden mb-1">
                     <div
-                      className="h-full bg-[#4ec9b0] transition-[width] duration-300"
+                      className="h-full bg-emerald-400 transition-[width] duration-300"
                       style={{ width: `${task.progress.percent}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[11px] text-[#858585]">
-                    <span>{formatSize(task.progress.downloaded)} / {formatSize(task.progress.total)}</span>
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                    <span>
+                      {formatSize(task.progress.downloaded)} / {formatSize(task.progress.total)}
+                    </span>
                     <span>{formatSpeed(task.progress.speed)}</span>
                   </div>
                 </>
               )}
 
+              {/* 状态 */}
               {task.status === 'completed' && (
-                <div className="text-[11px] text-[#4ec9b0]">✓ 下载完成</div>
+                <div className="text-[11px] text-emerald-400">✓ 下载完成</div>
               )}
               {task.status === 'failed' && (
-                <div className="text-[11px] text-[#f48771]">✗ 失败: {task.error}</div>
+                <div className="text-[11px] text-red-400">
+                  ✗ 失败: {task.error}
+                </div>
               )}
               {task.status === 'cancelled' && (
-                <div className="text-[11px] text-[#858585]">已取消</div>
+                <div className="text-[11px] text-muted-foreground">已取消</div>
               )}
             </div>
           ))}
@@ -175,4 +198,4 @@ export const DownloadQueue: React.FC = () => {
       )}
     </div>
   );
-};
+});

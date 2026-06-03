@@ -9,7 +9,7 @@
  * - 终态节点保留灰显，cleared 节点自动移除
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import ReactFlow, {
   Background, Controls, MiniMap,
   useNodesState, useEdgesState, ConnectionLineType,
@@ -220,10 +220,12 @@ function Flow() {
 // 导出
 // ============================================================
 
-export default function ExecutionFlowV2Wrapper() {
+function ExecutionFlowV2Wrapper() {
   return (
     <ReactFlowProvider>
       <Flow />
     </ReactFlowProvider>
   );
 }
+
+export default memo(ExecutionFlowV2Wrapper);

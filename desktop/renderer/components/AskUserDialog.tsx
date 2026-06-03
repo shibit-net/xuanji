@@ -3,7 +3,7 @@
 // 支持单选/多选 + 自定义输入
 // ============================================================
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, memo } from 'react';
 import { t } from '@/core/i18n';
 import { HelpCircle, Send, Check } from 'lucide-react';
 import {
@@ -23,7 +23,7 @@ interface AskUserDialogProps {
   onClose: () => void;
 }
 
-export default function AskUserDialog({ request, onClose }: AskUserDialogProps) {
+function AskUserDialog({ request, onClose }: AskUserDialogProps) {
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
@@ -187,3 +187,5 @@ export default function AskUserDialog({ request, onClose }: AskUserDialogProps) 
     </Dialog>
   );
 }
+
+export default memo(AskUserDialog);

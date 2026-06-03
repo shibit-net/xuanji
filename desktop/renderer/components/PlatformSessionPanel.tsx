@@ -4,7 +4,7 @@
  * 设计文档：docs/platform-integration-design.md §9.4
  */
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Wifi, WifiOff, Send, Maximize2, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type RemoteSession } from '../stores/platformStore';
@@ -14,8 +14,10 @@ interface PlatformSessionPanelProps {
   session: RemoteSession | null;
 }
 
-export default function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
-  const { getMessages, removeSession, sessions } = usePlatformStore();
+function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
+  const getMessages = usePlatformStore((s) => s.getMessages);
+  const removeSession = usePlatformStore((s) => s.removeSession);
+  const sessions = usePlatformStore((s) => s.sessions);
   const [replyText, setReplyText] = useState('');
 
   if (!session) {
@@ -113,7 +115,7 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
                 <span className="text-muted-foreground">
                   {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                 </span>{' '}
-                <span className="font-medium">{msg.role === 'user' ? '用户' : 'Agent'}:</span>{' '}
+                <span className="font-medium">{msg.role === 'user' ? t('platform.panel.label_user') : t('platform.panel.label_agent')}:</span>{' '}
                 <span className="truncate block">{msg.text.slice(0, 50)}{msg.text.length > 50 ? '...' : ''}</span>
               </div>
             ))}
@@ -123,3 +125,5 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
     </div>
   );
 }
+
+export default memo(PlatformSessionPanel);

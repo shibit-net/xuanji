@@ -3,7 +3,8 @@
 // ============================================================
 
 import { lazy, Suspense, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ToastProvider } from './components/Toast';
 import { Toaster } from './components/ui/toaster';
 import { useAuthStore } from './stores/authStore';
@@ -39,7 +40,9 @@ function LoadingScreen() {
 
 // 认证检查组件
 function AuthCheck({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isCheckingAuth, checkAuth } = useAuthStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isCheckingAuth = useAuthStore((s) => s.isCheckingAuth);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
 
   useEffect(() => {
     checkAuth();
@@ -86,6 +89,43 @@ function SetupRouteGuard({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+// 页面过渡动画包裹器
+function PageFade({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className="h-full"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// 带动画的路由组
+function AnimatedRoutes() {
+  const location = useLocation();
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<PageFade><MainPage /></PageFade>} />
+        <Route path="/chat" element={<PageFade><MainPage /></PageFade>} />
+        <Route path="/agents" element={<PageFade><AgentsPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/tools" element={<PageFade><ToolsPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/system-prompt" element={<PageFade><SystemPromptPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/permissions" element={<PageFade><PermissionsPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/settings" element={<PageFade><SettingsPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/memory" element={<PageFade><MemoryPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/scheduler" element={<PageFade><SchedulerPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="/skills-mcp" element={<PageFade><SkillsMCPPage onClose={() => window.history.back()} /></PageFade>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AnimatePresence>
+  );
 }
 
 export default function App() {
@@ -156,19 +196,7 @@ export default function App() {
                 <AuthCheck>
                   <SetupGuard>
                     <MainLayout>
-                      <Routes>
-                        <Route path="/" element={<MainPage />} />
-                        <Route path="/chat" element={<MainPage />} />
-                        <Route path="/agents" element={<AgentsPage onClose={() => window.history.back()} />} />
-                        <Route path="/tools" element={<ToolsPage onClose={() => window.history.back()} />} />
-                        <Route path="/system-prompt" element={<SystemPromptPage onClose={() => window.history.back()} />} />
-                        <Route path="/permissions" element={<PermissionsPage onClose={() => window.history.back()} />} />
-                        <Route path="/settings" element={<SettingsPage onClose={() => window.history.back()} />} />
-                        <Route path="/memory" element={<MemoryPage onClose={() => window.history.back()} />} />
-                        <Route path="/scheduler" element={<SchedulerPage onClose={() => window.history.back()} />} />
-                        <Route path="/skills-mcp" element={<SkillsMCPPage onClose={() => window.history.back()} />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                      </Routes>
+                      <AnimatedRoutes />
                     </MainLayout>
                   </SetupGuard>
                 </AuthCheck>

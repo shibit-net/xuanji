@@ -2,12 +2,14 @@
 // ToolMonitor - 工具调用监控组件（按调用顺序展示队列）
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
+import { t } from '@/core/i18n';
 import { getDesktopLabel } from '../i18n';
 import { useConfigStore } from '../stores/configStore';
+import { formatDuration } from '../components/flow/hooks';
 
 /** 将 ANSI 颜色代码转换为 HTML */
 function ansiToHtml(text: string): string {
@@ -27,100 +29,51 @@ function isDiffOutput(text: string): boolean {
 
 /** 根据工具名生成可读的操作描述 */
 function describeToolCall(name: string, input: Record<string, unknown>): string {
+  const path = String(input.filePath || input.path || '');
   switch (name) {
-    // ── 文件操作 ──
-    case 'read_file':
-      return `读取 ${input.filePath || input.path || ''}`;
-    case 'write_file':
-      return `写入 ${input.filePath || input.path || ''}`;
+    case 'read_file':       return t('toolmonitor.read_file', { path });
+    case 'write_file':      return t('toolmonitor.write_file', { path });
     case 'edit_file':
-    case 'multi_edit':
-      return `编辑 ${input.filePath || input.path || ''}`;
-    case 'send_file_to_user':
-      return `发送文件 ${input.filePath || ''}`;
-    // ── 文件搜索 ──
-    case 'glob':
-      return `搜索文件 ${input.pattern || ''}`;
-    case 'grep':
-      return `搜索内容 ${input.pattern || ''}`;
-    case 'list_directory':
-      return `列出目录 ${input.path || ''}`;
-    case 'change_directory':
-      return `切换目录 ${input.path || ''}`;
-    // ── 执行 ──
-    case 'bash':
-      return `执行 ${String(input.command || '').slice(0, 60)}`;
-    // ── 网络 ──
-    case 'web_search':
-      return `搜索 ${input.query || ''}`;
-    case 'web_fetch':
-      return `获取 ${input.url || ''}`;
-    // ── Agent 调度 ──
-    case 'task':
-      return `委派 ${input.subagent_type || 'agent'}`;
-    case 'agent_team':
-      return `协作 ${(input as any).team_name || ''}`;
-    case 'task_control':
-      return `任务控制 ${input.action || ''}`;
-    case 'task_output':
-      return `获取任务输出`;
-    case 'match_agent':
-      return `匹配 Agent`;
-    case 'list_agents':
-      return `列出 Agent`;
-    case 'list_scenes':
-      return `列出场景`;
-    // ── 交互 ──
-    case 'ask_user':
-      return `询问用户 ${String(input.question || '').slice(0, 50)}`;
-    case 'plan_review':
-      return `计划审查`;
-    case 'enter_plan_mode':
-      return `进入计划模式`;
-    case 'exit_plan_mode':
-      return `退出计划模式`;
-    // ── 文档 ──
-    case 'pdf':
-      return `读取 PDF ${input.filePath || input.path || ''}`;
-    case 'generate_document':
-      return `生成文档`;
-    case 'xlsx_edit':
-      return `编辑 Excel`;
-    case 'docx_edit':
-      return `编辑 Word`;
-    case 'doc_to_docx':
-      return `转换 .doc → .docx`;
-    // ── 笔记 ──
-    case 'notebook_edit':
-      return `编辑 Notebook`;
-    // ── 开发工具 ──
-    case 'worktree':
-      return `Git Worktree`;
-    // ── 安装 ──
-    case 'install':
-      return `安装`;
-    case 'uninstall':
-      return `卸载`;
-    // ── 配置 ──
-    case 'mcp_settings':
-      return `MCP 设置`;
-    case 'skill_manage':
-      return `技能管理`;
-    case 'update_persona':
-      return `更新 Persona`;
-    case 'mcp_call':
-      return `MCP 调用 ${input.serverName}:${input.toolName}`;
-    case 'skill_call':
-      return `技能调用 ${input.skill || ''}`;
-    // ── 计划任务 ──
-    case 'scheduler':
-      return `定时任务`;
-    case 'sleep':
-      return `等待`;
+    case 'multi_edit':      return t('toolmonitor.edit_file', { path });
+    case 'send_file_to_user': return t('toolmonitor.send_file', { path: String(input.filePath || '') });
+    case 'glob':            return t('toolmonitor.glob', { pattern: String(input.pattern || '') });
+    case 'grep':            return t('toolmonitor.grep', { pattern: String(input.pattern || '') });
+    case 'list_directory':  return t('toolmonitor.list_directory', { path: String(input.path || '') });
+    case 'change_directory': return t('toolmonitor.change_directory', { path: String(input.path || '') });
+    case 'bash':            return t('toolmonitor.bash', { command: String(input.command || '').slice(0, 60) });
+    case 'web_search':      return t('toolmonitor.web_search', { query: String(input.query || '') });
+    case 'web_fetch':       return t('toolmonitor.web_fetch', { url: String(input.url || '') });
+    case 'task':            return t('toolmonitor.task', { type: String(input.subagent_type || 'agent') });
+    case 'agent_team':      return t('toolmonitor.agent_team', { team: String((input as any).team_name || '') });
+    case 'task_control':    return t('toolmonitor.task_control', { action: String(input.action || '') });
+    case 'task_output':     return t('toolmonitor.task_output');
+    case 'match_agent':     return t('toolmonitor.match_agent');
+    case 'list_agents':     return t('toolmonitor.list_agents');
+    case 'list_scenes':     return t('toolmonitor.list_scenes');
+    case 'ask_user':        return t('toolmonitor.ask_user', { question: String(input.question || '').slice(0, 50) });
+    case 'plan_review':     return t('toolmonitor.plan_review');
+    case 'enter_plan_mode': return t('toolmonitor.enter_plan_mode');
+    case 'exit_plan_mode':  return t('toolmonitor.exit_plan_mode');
+    case 'pdf':             return t('toolmonitor.pdf', { path });
+    case 'generate_document': return t('toolmonitor.generate_document');
+    case 'xlsx_edit':       return t('toolmonitor.xlsx_edit');
+    case 'docx_edit':       return t('toolmonitor.docx_edit');
+    case 'doc_to_docx':     return t('toolmonitor.doc_to_docx');
+    case 'notebook_edit':   return t('toolmonitor.notebook_edit');
+    case 'worktree':        return t('toolmonitor.worktree');
+    case 'install':         return t('toolmonitor.install');
+    case 'uninstall':       return t('toolmonitor.uninstall');
+    case 'mcp_settings':    return t('toolmonitor.mcp_settings');
+    case 'skill_manage':    return t('toolmonitor.skill_manage');
+    case 'update_persona':  return t('toolmonitor.update_persona');
+    case 'mcp_call':        return t('toolmonitor.mcp_call', { server: String(input.serverName || ''), tool: String(input.toolName || '') });
+    case 'skill_call':      return t('toolmonitor.skill_call', { skill: String(input.skill || '') });
+    case 'scheduler':       return t('toolmonitor.scheduler');
+    case 'sleep':           return t('toolmonitor.sleep');
     default:
-      if (name.startsWith('todo_')) return `任务管理`;
-      if (name.startsWith('memory_')) return `记忆管理`;
-      if (name.startsWith('ssh_')) return `远程操作`;
+      if (name.startsWith('todo_')) return t('toolmonitor.todo_prefix');
+      if (name.startsWith('memory_')) return t('toolmonitor.memory_prefix');
+      if (name.startsWith('ssh_')) return t('toolmonitor.ssh_prefix');
       return name;
   }
 }
@@ -155,13 +108,7 @@ function toolIcon(name: string): string {
   return '🛠️';
 }
 
-function formatDuration(ms?: number): string {
-  if (!ms) return '';
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-export default function ToolMonitor() {
+export default memo(function ToolMonitor() {
   // 按调用顺序排列（不倒序）
   const agentMap = useAgentStateMachine((s) => s.agentMap);
   const language = useConfigStore((s) => s.settings.language);
@@ -282,5 +229,5 @@ export default function ToolMonitor() {
       </div>
     </div>
   );
-}
+});
 

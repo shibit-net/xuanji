@@ -12,6 +12,7 @@ import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';
 import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
+import { formatDuration } from './flow/hooks';
 import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useConfigStore } from '../stores/configStore';
@@ -65,14 +66,6 @@ function getAgentDisplay(agentId: string | undefined): { name: string; agentId: 
   const a = useAgentStateMachine.getState().agentMap[agentId];
   if (a) return { name: a.name, agentId: a.id };
   return { name: agentId, agentId };
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
 }
 
 function formatTokens(tokens: { input: number; output: number }, showBreakdown = false): string {
@@ -200,10 +193,9 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
   return (
     <>
       <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer
-                      hover:border-primary/50 transition-all duration-200 group relative"
-           onClick={() => setExpanded(true)}
-           style={{ maxHeight: '400px' }}>
-        <div style={{ paddingBottom, position: 'relative', minHeight: '100px' }}>
+                      hover:border-primary/50 transition-all duration-200 group relative max-h-[400px]"
+           onClick={() => setExpanded(true)}>
+        <div style={{ paddingBottom }} className="relative min-h-[100px]">
           {isSvg ? (
             <div
               className="absolute inset-0 w-full h-full flex items-center justify-center p-2"
