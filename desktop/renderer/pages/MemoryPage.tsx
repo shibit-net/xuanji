@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, memo } from 'react';
-import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
 import {
@@ -298,7 +298,7 @@ function MemoryPage({ onClose }: MemoryPageProps) {
   const [memStatus, setMemStatus] = useState<{ initialized?: boolean; error?: string | null } | null>(null);
   const [browseReloadToken, setBrowseReloadToken] = useState(0);
   const [graphFocusEntity, setGraphFocusEntity] = useState<{ id: string; name: string } | null>(null);
-  const sessionStatus = useSessionInitStore((s) => s.status);
+  const sessionStatus = useSessionStore((s) => s.initStatus);
 
   const checkMemoryStatus = useCallback(async () => {
     try {

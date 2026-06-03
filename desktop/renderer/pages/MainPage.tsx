@@ -13,7 +13,7 @@ import TodoPanel from '../components/TodoPanel';
 import { Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
-import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { usePlatformStore } from '../stores/platformStore';
 import { registerEventAdapter } from '../services/EventAdapter';
 import { t } from '@/core/i18n';
@@ -28,7 +28,7 @@ export default function MainPage() {
   React.useEffect(() => { registerEventAdapter(); }, []);
 
   const currentIteration = useConversationStore((s) => s.iteration);
-  const sessionStatus = useSessionInitStore((s) => s.status);
+  const sessionStatus = useSessionStore((s) => s.initStatus);
 
   // 用 primitive selector 避免整个 agentMap 变化时重渲染
   const tokenKey = useAgentStateMachine((s) => {
@@ -67,7 +67,7 @@ export default function MainPage() {
                 <>
                   <span className="text-red-400">{t('mainpage.session_unavailable')}</span>
                   <button
-                    onClick={() => useSessionInitStore.getState().retry()}
+                    onClick={() => useSessionStore.getState().retry()}
                     className="text-blue-400 hover:underline"
                   >
                     {t('mainpage.retry')}

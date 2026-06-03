@@ -20,7 +20,7 @@ import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search, AlertTr
 import type { FileAttachment } from '../global';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
-import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { t } from '@/core/i18n';
 
@@ -162,9 +162,9 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   }, [isRunning, isSending]);
 
   // ─── Session 状态 ──────────────────────────────────────
-  const sessionStatus = useSessionInitStore((s) => s.status);
-  const sessionError = useSessionInitStore((s) => s.error);
-  const isSessionReady = useSessionInitStore((s) => s.isReady());
+  const sessionStatus = useSessionStore((s) => s.initStatus);
+  const sessionError = useSessionStore((s) => s.initError);
+  const isSessionReady = useSessionStore((s) => s.isReady());
 
   // ─── 加载 Agent 列表 ──────────────────────────────────
   useEffect(() => {
@@ -389,11 +389,11 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
 
     // Session 未就绪时的 UX 反馈
     if (!isSessionReady) {
-      const store = useSessionInitStore.getState();
-      if (store.status === 'uninitialized' || store.status === 'failed') {
+      const store = useSessionStore.getState();
+      if (store.initStatus === 'uninitialized' || store.initStatus === 'failed') {
         store.triggerInit();
         toast.info(t('input.connect_service'));
-      } else if (store.status === 'initializing') {
+      } else if (store.initStatus === 'initializing') {
         toast.info(t('input.initializing_service'));
       }
       return;

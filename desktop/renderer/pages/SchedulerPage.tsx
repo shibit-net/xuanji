@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, memo } from 'react';
-import { useSessionInitStore } from '../stores/SessionInitStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { Button } from '@/components/ui/button';
 import { t } from '@/core/i18n';
 import {
@@ -113,7 +113,7 @@ function JobsTab() {
   const [error, setError] = useState<string | null>(null);
   const [editJob, setEditJob] = useState<CronJob | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const sessionStatus = useSessionInitStore((s) => s.status);
+  const sessionStatus = useSessionStore((s) => s.initStatus);
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -325,7 +325,7 @@ function LogsTab() {
   const [logs, setLogs] = useState<SchedulerLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const sessionStatus = useSessionInitStore((s) => s.status);
+  const sessionStatus = useSessionStore((s) => s.initStatus);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
