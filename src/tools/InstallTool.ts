@@ -14,7 +14,7 @@ import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
 import type { TiangongMarket, MarketPackage } from '@/mcp/market/TiangongMarket';
 import type { MCPInstaller } from '@/mcp/market/MCPInstaller';
-import type { SkillInstaller } from '@/core/skills/SkillInstaller';
+import type { SkillInstaller } from '@/skills/SkillInstaller';
 
 const log = logger.child({ module: 'InstallTool' });
 

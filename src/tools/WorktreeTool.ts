@@ -4,7 +4,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { WorktreeManager, type WorktreeInfo } from '@/core/agent/WorktreeManager';
+import { WorktreeManager, type WorktreeInfo } from '@/agent/WorktreeManager';
 
 /**
  * Git Worktree 工具

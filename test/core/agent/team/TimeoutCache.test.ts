@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TimeoutCache } from '@/core/agent/team/TimeoutCache';
+import { TimeoutCache } from '@/agent/team/TimeoutCache';
 
 // ---------------------------------------------------------------------------
 // Helpers

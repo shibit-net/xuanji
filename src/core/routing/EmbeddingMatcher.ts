@@ -6,8 +6,8 @@
  * - 无向量时返回 score=0，由 IntentRouter 在 L2 入口跳过直接降级 L3
  */
 
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { ConfigurableAgentConfig } from '@/core/agent/types';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
+import type { ConfigurableAgentConfig } from '@/agent/types';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import type { MatchResult } from './types';
 import { logger } from '@/core/logger';

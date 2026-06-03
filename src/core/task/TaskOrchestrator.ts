@@ -13,7 +13,7 @@ import { getRuntimeConfig } from '@/core/config/RuntimeConfig';
 import { logger } from '@/core/logger';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
-import { TaskCompletionHandler } from '@/core/agent/async/TaskCompletionHandler';
+import { TaskCompletionHandler } from '@/agent/async/TaskCompletionHandler';
 import { AsyncTaskStateMachine } from '@/core/task/AsyncTaskStateMachine';
 import type {
   TaskGroup,

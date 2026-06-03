@@ -8,8 +8,8 @@
  */
 
 import type { ILLMProvider, ProviderConfig } from '@/shared/types/provider';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { ConfigurableAgentConfig } from '@/core/agent/types';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
+import type { ConfigurableAgentConfig } from '@/agent/types';
 import type { ClassifyResult } from './types';
 import { logger } from '@/core/logger';
 

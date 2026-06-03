@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SkillRegistry } from '@/core/skills/registry';
-import { initializeBuiltinSkills } from '@/core/skills/builtin/init';
+import { SkillRegistry } from '@/skills/registry';
+import { initializeBuiltinSkills } from '@/skills/builtin/init';
 
 describe('Built-in Skills', () => {
   describe('initializeBuiltinSkills', () => {

@@ -3,12 +3,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SubAgentContext, MAX_NESTING_DEPTH, ALWAYS_RESTRICTED_TOOLS } from '@/core/agent/SubAgentContext';
+import { SubAgentContext, MAX_NESTING_DEPTH, ALWAYS_RESTRICTED_TOOLS } from '@/agent/SubAgentContext';
 import { TaskTool } from '@/tools/TaskTool';
 import { ToolRegistry } from '@/tools/ToolRegistry';
 import type { AgentConfig, Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
 import type { ProviderManager } from '@/provider/ProviderManager';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
 
 describe('SubAgentContext', () => {
   it('应该使用默认配置创建上下文', () => {

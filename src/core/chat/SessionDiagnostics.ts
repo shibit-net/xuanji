@@ -4,7 +4,7 @@
 
 import type { AppConfig } from '@/core/types';
 import type { MCPManager } from '@/mcp/MCPManager';
-import type { SkillRegistry } from '@/core/skills';
+import type { SkillRegistry } from '@/skills';
 import type { IPermissionController } from '@/permission/types';
 import { maskApiKey } from '@/shared/utils/ui/formatters';
 

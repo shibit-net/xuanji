@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SkillRegistry, resetSkillRegistry } from '@/core/skills/registry';
-import type { Skill, WorkflowResult } from '@/core/skills/types';
+import { SkillRegistry, resetSkillRegistry } from '@/skills/registry';
+import type { Skill, WorkflowResult } from '@/skills/types';
 
 describe('Workflow Skill 框架', () => {
   let registry: SkillRegistry;

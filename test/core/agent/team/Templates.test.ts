@@ -8,7 +8,7 @@ import {
   getAvailableTemplates,
   recommendTemplate,
   TEAM_TEMPLATES,
-} from '@/core/agent/team/templates';
+} from '@/agent/team/templates';
 
 describe('Team Templates', () => {
   describe('getTeamTemplate', () => {

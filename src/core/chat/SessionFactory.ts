@@ -35,13 +35,13 @@ import { MatchSceneTool } from '@/tools/MatchSceneTool';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import { augmentToolList } from '@/tools/FilteredToolRegistry';
 import { getTodoManager } from '@/tools/TodoManager';
-import { AgentFactory } from '@/core/agent/factory/AgentFactory';
-import { MemoryManager } from '@/core/memory/MemoryManager';
-import { registerMemoryManager, setMemoryInitError } from '@/core/memory/globals';
+import { AgentFactory } from '@/agent/factory/AgentFactory';
+import { MemoryManager } from '@/memory/MemoryManager';
+import { registerMemoryManager, setMemoryInitError } from '@/memory/globals';
 import { UpdatePersonaTool } from '@/tools/UpdatePersonaTool';
-import { SubAgentResultStore } from '@/core/memory/SubAgentResultStore';
+import { SubAgentResultStore } from '@/memory/SubAgentResultStore';
 import { MCPManager, TiangongMarket, MCPInstaller, UpdateChecker } from '@/mcp';
-import { SkillInstaller, SkillRegistry, SkillSandbox } from '@/core/skills';
+import { SkillInstaller, SkillRegistry, SkillSandbox } from '@/skills';
 import { InstallTool } from '@/tools/InstallTool';
 import { UninstallTool } from '@/tools/UninstallTool';
 

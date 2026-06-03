@@ -25,7 +25,7 @@ import type {
 } from './types';
 import { PromptComponentRegistry } from './PromptComponentRegistry';
 import { logger } from '@/core/logger';
-import type { MemoryManager } from '@/core/memory/MemoryManager';
+import type { MemoryManager } from '@/memory/MemoryManager';
 import type { PersonaConfig, PersonalityTrait } from '@/shared/types/config';
 
 const log = logger.child({ module: 'LayeredPromptBuilder' });

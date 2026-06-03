@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AgentLoop } from '@/core/agent/AgentLoop';
+import { AgentLoop } from '@/agent/AgentLoop';
 import type { ILLMProvider, StreamEvent, IToolRegistry, ToolResult, ToolSchema, AgentConfig } from '@/core/types';
 
 /**

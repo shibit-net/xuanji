@@ -7,7 +7,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { getMemoryManager } from '@/core/memory/globals';
+import { getMemoryManager } from '@/memory/globals';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 

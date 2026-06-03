@@ -2,7 +2,7 @@
 // ChatSession - 会话管理器
 // ============================================================
 
-import type { AgentLoop, AgentCallbacks } from '@/core/agent/AgentLoop';
+import type { AgentLoop, AgentCallbacks } from '@/agent/AgentLoop';
 import type { DependencyContainer } from '@/core/di';
 import type { IPermissionController, ConfirmationHandler, PlanReviewHandler } from '@/permission/types';
 import type { IToolRegistry, AppConfig, AgentState } from '@/core/types';
@@ -10,8 +10,8 @@ import type { AskUserHandler } from '@/tools/AskUserTool';
 import type { PlanModeEnterHandler } from '@/tools/EnterPlanModeTool';
 import type { PlanModeExitHandler } from '@/tools/ExitPlanModeTool';
 import type { SessionManager } from '@/session/SessionManager';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { SkillRegistry } from '@/core/skills';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
+import type { SkillRegistry } from '@/skills';
 import type { MCPManager } from '@/mcp/MCPManager';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';

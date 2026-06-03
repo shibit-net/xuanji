@@ -10,9 +10,9 @@ import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry }
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { HookListener } from '@/hooks/EventEmitter.js';
 import { BaseTool } from './BaseTool';
-import { TeamManager } from '@/core/agent/team/TeamManager';
-import type { TeamConfig, TeamMember, TeamStrategy } from '@/core/agent/team/types';
-import type { AgentRoleType } from '@/core/agent/SubAgentContext';
+import { TeamManager } from '@/agent/team/TeamManager';
+import type { TeamConfig, TeamMember, TeamStrategy } from '@/agent/team/types';
+import type { AgentRoleType } from '@/agent/SubAgentContext';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 

@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { InstallTool } from '@/tools/InstallTool';
 import type { TiangongMarket, MarketPackage } from '@/mcp/market/TiangongMarket';
 import type { MCPInstaller, InstallResult } from '@/mcp/market/MCPInstaller';
-import type { SkillInstaller, SkillInstallResult } from '@/core/skills/SkillInstaller';
+import type { SkillInstaller, SkillInstallResult } from '@/skills/SkillInstaller';
 import type { MCPServerConfig } from '@/mcp/types';
 
 // ============================================================

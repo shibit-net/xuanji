@@ -6,7 +6,7 @@
  */
 
 import type { JSONSchema, ToolResult } from '@/core/types';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';

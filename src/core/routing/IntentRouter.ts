@@ -11,7 +11,7 @@
 import { SceneClassifier } from './SceneClassifier';
 import { EmbeddingMatcher } from './EmbeddingMatcher';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { SceneAnalysis, RouteProgress } from './types';
 import { logger } from '@/core/logger';
 

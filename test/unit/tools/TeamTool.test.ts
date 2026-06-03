@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TeamTool } from '@/tools/TeamTool';
 import type { ILLMProvider, AgentConfig, IToolRegistry } from '@/core/types';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { ProviderManager } from '@/provider/ProviderManager';
 
 // Mock dependencies

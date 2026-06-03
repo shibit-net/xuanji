@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { commitSkill } from '@/core/skills/builtin/workflows/CommitSkill';
-import { reviewPRSkill } from '@/core/skills/builtin/workflows/ReviewPRSkill';
+import { commitSkill } from '@/skills/builtin/workflows/CommitSkill';
+import { reviewPRSkill } from '@/skills/builtin/workflows/ReviewPRSkill';
 
 describe('CommitSkill', () => {
   it('应有正确的 Skill 元数据', () => {

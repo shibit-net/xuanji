@@ -7,7 +7,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { getMemoryManager } from '@/core/memory/globals';
+import { getMemoryManager } from '@/memory/globals';
 import type { CronJob } from '@/core/scheduler/types';
 
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];

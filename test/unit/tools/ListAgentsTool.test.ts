@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ListAgentsTool } from '@/tools/ListAgentsTool';
-import type { ConfigurableAgentConfig } from '@/core/agent/types';
+import type { ConfigurableAgentConfig } from '@/agent/types';
 
 // ============================================================
 // Mock Agent 工厂函数

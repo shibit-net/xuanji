@@ -10,9 +10,9 @@ import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry }
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/core/logger';
-import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/core/agent/SubAgentContext';
-import type { SubAgentResult } from '@/core/agent/factory/AgentFactory';
-import { AgentFactory } from '@/core/agent/factory/AgentFactory';
+import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/agent/SubAgentContext';
+import type { SubAgentResult } from '@/agent/factory/AgentFactory';
+import { AgentFactory } from '@/agent/factory/AgentFactory';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 import { eventBus } from '@/core/events/EventBus';

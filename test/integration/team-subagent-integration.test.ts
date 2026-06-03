@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { TeamManager } from '@/core/agent/team/TeamManager';
-import type { TeamConfig } from '@/core/agent/team/types';
+import { TeamManager } from '@/agent/team/TeamManager';
+import type { TeamConfig } from '@/agent/team/types';
 import {
   createIntelligentMockProvider,
   createMockToolRegistry,

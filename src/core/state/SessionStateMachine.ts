@@ -11,7 +11,7 @@
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';
-import type { InterruptChecker } from '@/core/agent/InterruptChecker';
+import type { InterruptChecker } from '@/agent/InterruptChecker';
 
 const log = logger.child({ module: 'SessionStateMachine' });
 

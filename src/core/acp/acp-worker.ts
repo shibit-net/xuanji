@@ -8,8 +8,8 @@
  */
 
 import type { AcpRequest, AcpRunRequest, AcpMessage, AcpRunResult, AcpEvent } from './types';
-import { AgentLoop } from '@/core/agent/AgentLoop';
-import { AgentFactory } from '@/core/agent/factory/AgentFactory';
+import { AgentLoop } from '@/agent/AgentLoop';
+import { AgentFactory } from '@/agent/factory/AgentFactory';
 import { getConfigManager } from '@/core/config/ConfigManager';
 import { createDefaultRegistry } from '@/tools/ToolRegistry';
 import { logger } from '@/core/logger';

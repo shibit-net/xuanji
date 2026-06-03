@@ -4,7 +4,7 @@
 // ============================================================
 
 import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/core/types';
-import { LocalModelLoader } from '@/core/agent/dispatch/LocalModelLoader';
+import { LocalModelLoader } from '@/agent/dispatch/LocalModelLoader';
 import { logger } from '@/core/logger';
 import { homedir } from 'node:os';
 import * as path from 'node:path';

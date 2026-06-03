@@ -8,10 +8,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { MemoryManager } from '@/core/memory/MemoryManager';
+import { MemoryManager } from '@/memory/MemoryManager';
 import { MemoryStoreTool } from '@/tools/MemoryStoreTool';
 import { MemorySearchTool } from '@/tools/MemorySearchTool';
-import { registerMemoryManager, unregisterMemoryManager } from '@/core/memory/globals';
+import { registerMemoryManager, unregisterMemoryManager } from '@/memory/globals';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 

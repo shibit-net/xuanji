@@ -8,7 +8,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { getMemoryManager } from '@/core/memory/globals';
+import { getMemoryManager } from '@/memory/globals';
 
 export class MemoryStatsTool extends BaseTool {
   readonly name = 'memory_stats';

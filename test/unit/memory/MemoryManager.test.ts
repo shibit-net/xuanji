@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { MemoryManager } from '@/core/memory/MemoryManager';
-import type { Entity, Fact, Event, Relation } from '@/core/memory/types';
+import { MemoryManager } from '@/memory/MemoryManager';
+import type { Entity, Fact, Event, Relation } from '@/memory/types';
 
 // ============================================================
 // Helpers

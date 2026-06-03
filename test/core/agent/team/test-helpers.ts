@@ -4,7 +4,7 @@
 
 import { vi } from 'vitest';
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
-import type { AgentRegistry } from '@/core/agent/AgentRegistry';
+import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { ProviderManager } from '@/provider/ProviderManager';
 
 /**

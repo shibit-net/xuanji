@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SkillRegistry } from '@/core/skills/registry';
-import type { Skill } from '@/core/skills/types';
+import { SkillRegistry } from '@/skills/registry';
+import type { Skill } from '@/skills/types';
 
 describe('SkillRegistry Async', () => {
   it('should render a sync skill', async () => {

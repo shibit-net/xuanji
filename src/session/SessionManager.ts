@@ -26,7 +26,7 @@ import type {
 } from './types.js';
 import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/core/types';
 import { logger } from '@/core/logger';
-import { getMemoryManager } from '@/core/memory/globals';
+import { getMemoryManager } from '@/memory/globals';
 
 const log = logger.child({ module: 'session-manager' });
 

@@ -9,7 +9,7 @@ interface EmbeddingProvider {
   getModelName(): string;
 }
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
-import type { ConfigurableAgentConfig } from '@/core/agent/types';
+import type { ConfigurableAgentConfig } from '@/agent/types';
 
 // ============================================================
 // Mock Agent 工厂

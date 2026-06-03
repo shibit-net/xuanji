@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_TEAM_CONFIG } from '@/core/agent/team/types';
+import { DEFAULT_TEAM_CONFIG } from '@/agent/team/types';
 
 describe('Team Timeout Refactor', () => {
   it('should have correct default values', () => {

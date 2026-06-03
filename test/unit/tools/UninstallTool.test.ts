@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UninstallTool } from '@/tools/UninstallTool';
 import type { MCPInstaller } from '@/mcp/market/MCPInstaller';
-import type { SkillInstaller, SkillUninstallResult } from '@/core/skills/SkillInstaller';
+import type { SkillInstaller, SkillUninstallResult } from '@/skills/SkillInstaller';
 
 // ============================================================
 // Mock Factories
