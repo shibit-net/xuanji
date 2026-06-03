@@ -2,7 +2,7 @@
 // MemoryPage - 记忆管理页面
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
@@ -292,7 +292,7 @@ function LogTab() {
 
 // ─── 主页面 ────────────────────────────────────────────────
 
-export default function MemoryPage({ onClose }: MemoryPageProps) {
+function MemoryPage({ onClose }: MemoryPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('browse');
   const [clearing, setClearing] = useState(false);
   const [memStatus, setMemStatus] = useState<{ initialized?: boolean; error?: string | null } | null>(null);
@@ -411,3 +411,5 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
     </div>
   );
 }
+
+export default memo(MemoryPage);

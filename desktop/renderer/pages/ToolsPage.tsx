@@ -2,7 +2,7 @@
 // ToolsPage - 工具列表页面
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,7 @@ function ToolCard({ tool }: { tool: Tool }) {
   );
 }
 
-export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
+function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -288,3 +288,5 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
     </div>
   );
 }
+
+export default memo(ToolsPage);

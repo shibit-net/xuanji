@@ -2,7 +2,7 @@
 // SettingsPage - 设置页面（所有配置动态生效）
 // ============================================================
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Settings, X, Wrench,
@@ -928,7 +928,7 @@ function DownloadTab({ config, loading, onSave }: TabProps) {
 // ============================================================
 // 设置页面主组件
 // ============================================================
-export default function SettingsPage({ onClose }: SettingsPageProps) {
+function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('tools');
   const language = useConfigStore((s) => s.settings.language);
   const config = useConfigStore((s) => s.fullConfig);
@@ -1025,3 +1025,5 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
     </div>
   );
 }
+
+export default memo(SettingsPage);

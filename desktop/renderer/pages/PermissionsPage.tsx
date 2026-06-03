@@ -2,7 +2,7 @@
 // PermissionsPage - 权限管理页面
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { RefreshCw, Trash2, Search, X, Save, Shield, FileText, Terminal, AlertTriangle, List, Sliders, BarChart3 } from 'lucide-react';
 import { t } from '@/core/i18n';
 
@@ -644,7 +644,7 @@ const AuditTab: React.FC = () => {
 // ============================================================
 // 主组件
 // ============================================================
-export default function PermissionsPage({ onClose }: PermissionsPageProps) {
+function PermissionsPage({ onClose }: PermissionsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('decisions');
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -715,3 +715,5 @@ export default function PermissionsPage({ onClose }: PermissionsPageProps) {
     </div>
   );
 }
+
+export default memo(PermissionsPage);

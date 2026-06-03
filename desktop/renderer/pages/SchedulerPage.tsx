@@ -2,7 +2,7 @@
 // SchedulerPage - 定时任务管理页面
 // ============================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { Button } from '@/components/ui/button';
 import { t } from '@/core/i18n';
@@ -404,7 +404,7 @@ function LogsTab() {
 
 // ─── 主页面 ────────────────────────────────────────────────
 
-export default function SchedulerPage({ onClose }: SchedulerPageProps) {
+function SchedulerPage({ onClose }: SchedulerPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('jobs');
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
@@ -452,3 +452,5 @@ export default function SchedulerPage({ onClose }: SchedulerPageProps) {
     </div>
   );
 }
+
+export default memo(SchedulerPage);

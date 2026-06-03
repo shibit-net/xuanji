@@ -2,7 +2,7 @@
 // SkillsMCPPage - Skills & MCP 管理页面（天工坊市场）
 // ============================================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Search, Download, Trash2, Upload, Star, RefreshCw, Package, X, Check, Loader2, Wrench, Puzzle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -77,7 +77,7 @@ interface LocalSkill {
 type FilterType = 'all' | 'mcp' | 'skill';
 type ViewMode = 'marketplace' | 'installed';
 
-export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
+function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
   // ─── 状态 ────────────────────────────────────────────
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('marketplace');
@@ -1057,3 +1057,5 @@ function MarketplaceList({
     </div>
   );
 }
+
+export default memo(SkillsMCPPage);
