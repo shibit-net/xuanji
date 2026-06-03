@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import clsx from 'clsx';
 
 interface DownloadTask {
   id: string;
@@ -21,18 +22,14 @@ export const DownloadQueue: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    // 监听下载事件（实时更新）
     const handleDownloadEvent = (event: { type: string; task: DownloadTask }) => {
       setTasks((prevTasks) => {
         const existingIndex = prevTasks.findIndex((t) => t.id === event.task.id);
-
         if (existingIndex >= 0) {
-          // 更新现有任务
           const newTasks = [...prevTasks];
           newTasks[existingIndex] = event.task;
           return newTasks;
         } else {
-          // 添加新任务
           return [...prevTasks, event.task];
         }
       });
@@ -40,7 +37,6 @@ export const DownloadQueue: React.FC = () => {
 
     window.electron.on('download:event', handleDownloadEvent);
 
-    // 初始加载任务列表（在注册监听器后立即执行，确保不会错过任何任务）
     const loadTasks = async () => {
       try {
         const result = await window.electron.downloadGetTasks();
@@ -53,7 +49,6 @@ export const DownloadQueue: React.FC = () => {
     };
     loadTasks();
 
-    // 清理监听器
     return () => {
       window.electron.off('download:event', handleDownloadEvent);
     };
@@ -98,51 +93,27 @@ export const DownloadQueue: React.FC = () => {
 
   return (
     <div
-      style={{
-        position: expanded ? 'fixed' : 'relative',
-        bottom: expanded ? 0 : 'auto',
-        right: expanded ? 0 : 'auto',
-        width: expanded ? '400px' : 'auto',
-        maxHeight: expanded ? '400px' : '28px',
-        backgroundColor: expanded ? '#1e1e1e' : 'transparent',
-        borderTop: expanded ? '1px solid #3c3c3c' : 'none',
-        borderLeft: expanded ? '1px solid #3c3c3c' : 'none',
-        borderBottom: 'none',
-        borderRight: 'none',
-        borderRadius: expanded ? '4px 0 0 0' : '0',
-        overflow: 'hidden',
-        transition: 'all 0.3s ease',
-        zIndex: expanded ? 1000 : 'auto',
-      }}
+      className={clsx(
+        'overflow-hidden transition-all duration-300',
+        expanded
+          ? 'fixed bottom-0 right-0 w-[400px] max-h-[400px] bg-card border-t border-l border-border rounded-tl z-[1000]'
+          : 'relative h-7'
+      )}
     >
       {/* 标题栏 */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 12px',
-          backgroundColor: expanded ? '#2d2d2d' : 'transparent',
-          cursor: 'pointer',
-          userSelect: 'none',
-          height: '28px',
-        }}
+        className={clsx(
+          'flex items-center justify-between px-3 h-7 cursor-pointer select-none',
+          expanded && 'bg-muted/30'
+        )}
         onClick={() => setExpanded(!expanded)}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '12px', color: '#cccccc' }}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-foreground/70">
             {expanded ? '▼' : '▶'} 下载队列
           </span>
           {activeTasks.length > 0 && (
-            <span
-              style={{
-                fontSize: '12px',
-                color: '#4ec9b0',
-                backgroundColor: '#264f44',
-                padding: '2px 6px',
-                borderRadius: '10px',
-              }}
-            >
+            <span className="text-xs text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded-full">
               {activeTasks.length}
             </span>
           )}
@@ -151,14 +122,7 @@ export const DownloadQueue: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            style={{
-              fontSize: '12px',
-              color: '#cccccc',
-              backgroundColor: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '2px 6px',
-            }}
+            className="text-xs text-foreground/70 bg-transparent border-none cursor-pointer px-1.5 py-0.5 h-auto"
             onClick={(e) => {
               e.stopPropagation();
               handleClearFinished();
@@ -171,42 +135,16 @@ export const DownloadQueue: React.FC = () => {
 
       {/* 任务列表 */}
       {expanded && (
-        <div
-          style={{
-            maxHeight: '360px',
-            overflowY: 'auto',
-            padding: '8px',
-          }}
-        >
+        <div className="max-h-[360px] overflow-y-auto p-2">
           {tasks.map((task) => (
             <div
               key={task.id}
-              style={{
-                marginBottom: '8px',
-                padding: '8px',
-                backgroundColor: '#252526',
-                borderRadius: '4px',
-                border: '1px solid #3c3c3c',
-              }}
+              className="mb-2 p-2 bg-muted/50 rounded border border-border"
             >
               {/* 任务名称 */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '4px',
-                }}
-              >
+              <div className="flex justify-between items-center mb-1">
                 <span
-                  style={{
-                    fontSize: '13px',
-                    color: '#cccccc',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    flex: 1,
-                  }}
+                  className="text-[13px] text-foreground/70 overflow-hidden text-ellipsis whitespace-nowrap flex-1"
                   title={task.name}
                 >
                   {task.name}
@@ -215,14 +153,7 @@ export const DownloadQueue: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{
-                      fontSize: '11px',
-                      color: '#f48771',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: '2px 4px',
-                    }}
+                    className="text-[11px] text-red-400 bg-transparent border-none cursor-pointer px-1 py-0.5 h-auto"
                     onClick={() => handleCancel(task.id)}
                   >
                     取消
@@ -233,33 +164,13 @@ export const DownloadQueue: React.FC = () => {
               {/* 进度条 */}
               {(task.status === 'downloading' || task.status === 'pending') && (
                 <>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '4px',
-                      backgroundColor: '#3c3c3c',
-                      borderRadius: '2px',
-                      overflow: 'hidden',
-                      marginBottom: '4px',
-                    }}
-                  >
+                  <div className="w-full h-1 bg-border rounded-sm overflow-hidden mb-1">
                     <div
-                      style={{
-                        width: `${task.progress.percent}%`,
-                        height: '100%',
-                        backgroundColor: '#4ec9b0',
-                        transition: 'width 0.3s ease',
-                      }}
+                      className="h-full bg-emerald-400 transition-[width] duration-300"
+                      style={{ width: `${task.progress.percent}%` }}
                     />
                   </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '11px',
-                      color: '#858585',
-                    }}
-                  >
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
                     <span>
                       {formatSize(task.progress.downloaded)} / {formatSize(task.progress.total)}
                     </span>
@@ -270,15 +181,15 @@ export const DownloadQueue: React.FC = () => {
 
               {/* 状态 */}
               {task.status === 'completed' && (
-                <div style={{ fontSize: '11px', color: '#4ec9b0' }}>✓ 下载完成</div>
+                <div className="text-[11px] text-emerald-400">✓ 下载完成</div>
               )}
               {task.status === 'failed' && (
-                <div style={{ fontSize: '11px', color: '#f48771' }}>
+                <div className="text-[11px] text-red-400">
                   ✗ 失败: {task.error}
                 </div>
               )}
               {task.status === 'cancelled' && (
-                <div style={{ fontSize: '11px', color: '#858585' }}>已取消</div>
+                <div className="text-[11px] text-muted-foreground">已取消</div>
               )}
             </div>
           ))}
