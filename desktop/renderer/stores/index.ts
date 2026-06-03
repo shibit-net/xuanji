@@ -28,7 +28,7 @@ export type {
   LogStats,
   LokiClientConfig,
   LogSource,
-} from '@root/src/core/logging/UnifiedLogManager';
+} from '@root/src/infrastructure/logging/UnifiedLogManager';
 
 export {
   LOG_SOURCE_COLORS,

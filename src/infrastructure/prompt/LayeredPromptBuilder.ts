@@ -32,7 +32,7 @@ const log = logger.child({ module: 'LayeredPromptBuilder' });
 
 export class LayeredPromptBuilder {
   private components: Map<string, PromptComponent> = new Map();
-  private listener: import('@/core/events/EventBus').Unsubscribe | null = null;
+  private listener: import('@/infrastructure/events/EventBus').Unsubscribe | null = null;
   private userRegistry: PromptComponentRegistry | null = null;
   private currentScene: SceneType | null = null;
   private currentComplexity: IntentComplexity = 'standard';
@@ -229,7 +229,7 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     ? this.selectComponents(scene, complexity)
     : this.getDefaultComponents();
   const requiredTools = new Set<string>();
-  let thinkingResult: import('@/core/types').ThinkingConfig | undefined;
+  let thinkingResult: import('@/infrastructure/core-types').ThinkingConfig | undefined;
   let estimatedTokens = 0;
 
   selectedComponents.sort((a, b) => b.priority - a.priority);

@@ -154,7 +154,7 @@ export class SessionFactory {
     // 3. 领域服务
     this.container.register('provider', async () => {
       if (options.provider) return options.provider;
-      const { ProviderManager } = await import('@/core/providers/ProviderManager');
+      const { ProviderManager } = await import('@/provider/ProviderManager');
       return ProviderManager.getProvider(
         config.provider as any,
         config.fallbackProvider as any,
@@ -169,22 +169,22 @@ export class SessionFactory {
     this.container.register('permissionController', () => new PermissionController(config.permission, userId));
 
     this.container.register('agentRegistry', async () => {
-      const { AgentRegistry } = await import('@/core/agent/AgentRegistry');
+      const { AgentRegistry } = await import('@/agent/AgentRegistry');
       const agentRegistry = new AgentRegistry(userId);
       await agentRegistry.init();
       return agentRegistry;
     });
 
     this.container.register('promptRegistry', async () => {
-      const { PromptComponentRegistry } = await import('@/core/prompt/PromptComponentRegistry');
+      const { PromptComponentRegistry } = await import('@/infrastructure/prompt/PromptComponentRegistry');
       const registry = new PromptComponentRegistry(userId, options.projectRoot);
       await registry.init();
       return registry;
     });
 
     this.container.register('layeredPromptBuilder', async () => {
-      const { LayeredPromptBuilder } = await import('@/core/prompt/LayeredPromptBuilder');
-      const agentRegistry = await this.container.resolve<import('@/core/agent/AgentRegistry').AgentRegistry>('agentRegistry');
+      const { LayeredPromptBuilder } = await import('@/infrastructure/prompt/LayeredPromptBuilder');
+      const agentRegistry = await this.container.resolve<import('@/agent/AgentRegistry').AgentRegistry>('agentRegistry');
 
       const builder = new LayeredPromptBuilder(
         userId,
@@ -255,12 +255,12 @@ export class SessionFactory {
     this.container.registerSingleton('agentFactory', new AgentFactory(registry));
 
     // 5. 预先 resolve layeredPromptBuilder，确保它进入 singleton 缓存
-    const layeredPromptBuilder = await this.container.resolve('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+    const layeredPromptBuilder = await this.container.resolve('layeredPromptBuilder') as import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
 
     // 6. 注册高级工具（传入 layeredPromptBuilder，确保 sub-agent 也能用分层 prompt）
     await this.registerAdvancedTools(config, options, agentId, layeredPromptBuilder);
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
-    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
+    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/agent/AgentRegistry').AgentRegistry;
 
     // 7. 创建 StateTracker（旧路径）/ SessionStateMachine（新路径）
     const stateTracker = new StateTracker();
@@ -477,11 +477,11 @@ export class SessionFactory {
     return session;
   }
 
-  private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string, layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder): Promise<void> {
+  private async registerAdvancedTools(config: AppConfig, options: SessionOptions, agentId: string, layeredPromptBuilder?: import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder): Promise<void> {
     const registry = await this.container.resolve<IToolRegistry>('toolRegistry');
     const provider = await this.container.resolve<ILLMProvider>('provider');
-    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/core/agent/AgentRegistry').AgentRegistry;
-    const promptRegistry = await this.container.resolve('promptRegistry') as import('@/core/prompt/PromptComponentRegistry').PromptComponentRegistry;
+    const agentRegistry = await this.container.resolve('agentRegistry') as import('@/agent/AgentRegistry').AgentRegistry;
+    const promptRegistry = await this.container.resolve('promptRegistry') as import('@/infrastructure/prompt/PromptComponentRegistry').PromptComponentRegistry;
     const hookRegistry = await this.container.resolve<HookRegistry>('hookRegistry');
     const providerManager = ProviderManager;
 
@@ -599,13 +599,13 @@ export class SessionFactory {
   private async initMemoryManager(
     config: AppConfig,
     contextManager: any,
-    layeredPromptBuilder: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder,
+    layeredPromptBuilder: import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder,
     userId: string,
     userName: string | undefined,
     hookRegistry: HookRegistry,
     provider: ILLMProvider,
     embeddingProvider: EmbeddingProviderInterface | null,
-    agentConfig: import('@/core/types').AgentConfig,
+    agentConfig: import('@/infrastructure/core-types').AgentConfig,
   ): Promise<void> {
     try {
       // 确保记忆目录存在（better-sqlite3 不会自动创建父目录）
@@ -615,13 +615,13 @@ export class SessionFactory {
       }
 
       // 通过 AgentFactory 统一创建 CheapLLMProvider
-      const agentFactory = await this.container.resolve('agentFactory') as import('@/core/agent/factory/AgentFactory').AgentFactory;
+      const agentFactory = await this.container.resolve('agentFactory') as import('@/agent/factory/AgentFactory').AgentFactory;
       const cheapLLM = await agentFactory.createCheapLLMProvider('memory-manager', { temperature: 0.3, maxTokens: 1024 });
 
       // 创建 SemanticIndex（如果 embeddingProvider 可用）
       let semanticIndex: any = undefined;
       if (embeddingProvider) {
-        const { SemanticIndex } = await import('@/core/memory/SemanticIndex');
+        const { SemanticIndex } = await import('@/memory/SemanticIndex');
         semanticIndex = new SemanticIndex(embeddingProvider, memDir);
         await semanticIndex.init();
       }
@@ -660,7 +660,7 @@ export class SessionFactory {
       log.debug('[initMemoryManager] step=semanticIndex done');
 
       // 创建 CareManager 并注入到 MemoryManager
-      const { CareManager } = await import('@/core/memory/CareManager');
+      const { CareManager } = await import('@/memory/CareManager');
       const careManager = new CareManager(memoryManager.dbInstance, memoryManager.episodicMemory);
       (memoryManager as any).careManager = careManager;
       log.debug('[initMemoryManager] step=careManager done');
@@ -730,7 +730,7 @@ export class SessionFactory {
 
       // ─── 启动 Scheduler ────────────────────────────────────
       try {
-        const { Scheduler } = await import('@/core/scheduler/Scheduler');
+        const { Scheduler } = await import('@/infrastructure/scheduler/Scheduler');
         const scheduler = new Scheduler(
           memoryManager.dbInstance,
           undefined, // sessionManager

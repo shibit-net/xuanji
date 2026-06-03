@@ -17,7 +17,7 @@ const log = logger.child({ module: 'EmbeddingMatcher' });
 /** 延迟初始化 embedder（首次 embed() 会自动触发模型下载） */
 async function tryCreateEmbedder(): Promise<EmbeddingProviderInterface | null> {
   try {
-    const { EmbeddingProvider } = await import('@/core/embedding/EmbeddingProvider');
+    const { EmbeddingProvider } = await import('@/infrastructure/embedding/EmbeddingProvider');
     const candidate = new EmbeddingProvider();
     log.info('EmbeddingMatcher: lazy-init embedder created');
     return candidate;

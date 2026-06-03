@@ -7,8 +7,8 @@ import {
   getUnifiedLogManager,
   type UnifiedLogFilter,
   type LokiClientConfig
-} from '@root/src/core/logging/UnifiedLogManager';
-import { LogReader } from '@root/src/core/logger/LogReader';
+} from '@root/src/infrastructure/logging/UnifiedLogManager';
+import { LogReader } from '@root/src/infrastructure/logger/LogReader';
 import { getMainWindow } from '../window/index.js';
 
 // 全局统一日志管理器实例

@@ -142,7 +142,7 @@
         ]
       },
       {
-        "from": "../src/core/templates",
+        "from": "../src/infrastructure/templates",
         "to": "templates"
       },
       {

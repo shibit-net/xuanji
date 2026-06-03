@@ -110,7 +110,7 @@ export interface AgentDefinition {
     /** 最大输出 token */
     maxTokens?: number;
     /** Extended Thinking 配置 */
-    thinking?: import('@/core/types').ThinkingConfig;
+    thinking?: import('@/infrastructure/core-types').ThinkingConfig;
   };
 }
 

@@ -3,9 +3,9 @@
 // ============================================================
 
 import { ipcMain, BrowserWindow } from 'electron';
-import { DownloadManager } from '../../../src/core/download/DownloadManager.js';
-import { LocalModelLoader } from '../../../src/core/agent/dispatch/LocalModelLoader.js';
-import { scanInstalledEmbeddingModels } from '../../../src/core/embedding/EmbeddingProvider.js';
+import { DownloadManager } from '../../../src/infrastructure/download/DownloadManager.js';
+import { LocalModelLoader } from '../../../src/agent/dispatch/LocalModelLoader.js';
+import { scanInstalledEmbeddingModels } from '../../../src/infrastructure/embedding/EmbeddingProvider.js';
 import { messageBus } from './MessageBus.js';
 import { enhancedMessageBus } from './GlobalMessageBus.js';
 import { getMainWindow } from '../window/index.js';

@@ -97,7 +97,7 @@ export interface PromptComponent {
   requiredTools?: string[];
 
   /** Extended Thinking 配置 */
-  thinking?: import('@/core/types').ThinkingConfig;
+  thinking?: import('@/infrastructure/core-types').ThinkingConfig;
 
   /** 场景匹配配置（仅 L1 组件需要） */
   match?: SceneMatchConfig;
@@ -146,7 +146,7 @@ export interface PromptBuildResult {
   /** 需要的工具列表（合并所有组件的 requiredTools） */
   requiredTools: string[];
   /** Extended Thinking 配置（取最高优先级组件的） */
-  thinking?: import('@/core/types').ThinkingConfig;
+  thinking?: import('@/infrastructure/core-types').ThinkingConfig;
   /** 预估总 token 数 */
   estimatedTokens: number;
 }
@@ -182,7 +182,7 @@ export interface LayeredPromptBuildOptions {
   /** 工具列表 */
   toolList?: any[];
   /** 应用配置（传给 PromptComponent.render 的 context） */
-  config?: import('@/core/types').AppConfig;
+  config?: import('@/infrastructure/core-types').AppConfig;
   /** Persona 配置（机器人性格/称呼等） */
   persona?: import('@/shared/types/config').PersonaConfig;
 }

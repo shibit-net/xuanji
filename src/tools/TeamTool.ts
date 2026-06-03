@@ -180,9 +180,9 @@ export class TeamTool extends BaseTool {
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
   private currentDepth = 0;
-  private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
-  private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
-  private layeredPromptBuilder: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null = null;
+  private agentRegistry: import('@/agent/AgentRegistry').AgentRegistry | null = null;
+  private providerManager: import('@/provider/ProviderManager').ProviderManager | null = null;
+  private layeredPromptBuilder: import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null = null;
 
   setDependencies(deps: {
     provider: ILLMProvider;
@@ -190,9 +190,9 @@ export class TeamTool extends BaseTool {
     agentConfig: AgentConfig;
     hookRegistry?: HookRegistry | null;
     depth?: number;
-    agentRegistry?: import('@/core/agent/AgentRegistry').AgentRegistry | null;
-    providerManager?: import('@/core/providers/ProviderManager').ProviderManager | null;
-    layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+    agentRegistry?: import('@/agent/AgentRegistry').AgentRegistry | null;
+    providerManager?: import('@/provider/ProviderManager').ProviderManager | null;
+    layeredPromptBuilder?: import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
   }): void {
     this.mainProvider = deps.provider;
     this.registry = deps.registry;
@@ -563,7 +563,7 @@ export class TeamTool extends BaseTool {
   }
 
   private formatResult(
-    result: import('@/core/agent/team/types').TeamExecutionResult,
+    result: import('@/agent/team/types').TeamExecutionResult,
     teamName: string,
     strategy: TeamStrategy,
   ): ToolResult {
@@ -639,7 +639,7 @@ export class TeamTool extends BaseTool {
     return this.error(content, resultMeta);
   }
 
-  private buildRetryAdvice(result: import('@/core/agent/team/types').TeamExecutionResult): string {
+  private buildRetryAdvice(result: import('@/agent/team/types').TeamExecutionResult): string {
     if (result.timedOut) {
       const successCount = result.memberResults.filter(r => r.success).length;
       const lines = [

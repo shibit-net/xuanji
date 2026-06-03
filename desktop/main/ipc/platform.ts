@@ -5,7 +5,7 @@
  */
 
 import { ipcMain, BrowserWindow } from 'electron';
-import { logger } from '../../../src/core/logger/index.js';
+import { logger } from '../../../src/infrastructure/logger/index.js';
 import { enhancedMessageBus } from './GlobalMessageBus.js';
 
 const log = logger.child({ module: 'PlatformIPC' });
@@ -154,7 +154,7 @@ async function initPlatformRouter(): Promise<any> {
   // 尝试获取数据库（可选，失败不影响 session 持久化）
   let db: any = undefined;
   try {
-    const { getMemoryManager } = await import('../../../src/core/memory/globals.js');
+    const { getMemoryManager } = await import('../../../src/memory/globals.js');
     const mm = getMemoryManager();
     db = mm ? (mm as any).db : undefined;
   } catch {
@@ -162,7 +162,7 @@ async function initPlatformRouter(): Promise<any> {
   }
 
   const { getAuthState } = await import('../config/auth.js');
-  const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+  const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
   const uid = getAuthState().user?.userId || 'default';
   const dataDir = getUserPlatformDir(uid);
 
@@ -408,7 +408,7 @@ export function registerPlatformIpcHandlers(): void {
 
       // 持久化平台配置，确保重启后自动恢复连接
       const { getAuthState } = await import('../config/auth.js');
-      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const uid = getAuthState().user?.userId || 'default';
       const dataDir = getUserPlatformDir(uid);
       await savePlatformConfig(dataDir, data.platform, data.config);
@@ -438,7 +438,7 @@ export function registerPlatformIpcHandlers(): void {
 
       // 清理已保存的平台配置，防止重启后意外恢复
       const { getAuthState } = await import('../config/auth.js');
-      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const uid = getAuthState().user?.userId || 'default';
       const dataDir = getUserPlatformDir(uid);
       await savePlatformConfig(dataDir, platform, { _disabled: true });
@@ -470,7 +470,7 @@ export function registerPlatformIpcHandlers(): void {
   }) => {
     try {
       const { getAuthState } = await import('../config/auth.js');
-      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const uid = getAuthState().user?.userId || 'default';
       const dataDir = getUserPlatformDir(uid);
       await saveSessionNames(dataDir, { [data.sessionId]: data.name });
@@ -483,7 +483,7 @@ export function registerPlatformIpcHandlers(): void {
   ipcMain.handle('platform:load-session-names', async () => {
     try {
       const { getAuthState } = await import('../config/auth.js');
-      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const uid = getAuthState().user?.userId || 'default';
       const dataDir = getUserPlatformDir(uid);
       const names = await loadSessionNames(dataDir);
@@ -597,7 +597,7 @@ export function registerPlatformIpcHandlers(): void {
 
       // 持久化微信配置，清除 _disabled 标记（防止重启后误跳过恢复）
       const { getAuthState } = await import('../config/auth.js');
-      const { getUserPlatformDir } = await import('../../../src/core/config/PathManager.js');
+      const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const scanUid = getAuthState().user?.userId || 'default';
       const scanDataDir = getUserPlatformDir(scanUid);
       await savePlatformConfig(scanDataDir, 'wechat', { token_path: `${scanDataDir}/wechat-token.json` });

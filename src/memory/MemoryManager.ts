@@ -163,7 +163,7 @@ export class MemoryManager {
   public memoryExtractionPrompt?: string;
 
   /** AgentFactory 引用 — 用于创建 memory-manager AgentLoop */
-  public agentFactory?: import('@/core/agent/factory/AgentFactory').AgentFactory;
+  public agentFactory?: import('@/agent/factory/AgentFactory').AgentFactory;
 
   /** 父 agent 的 ILLMProvider（供 memory-manager/compressor 共享 API 凭证） */
   public parentProvider?: ILLMProvider;
@@ -251,7 +251,7 @@ export class MemoryManager {
 
     // 加载 memory-manager 的 systemPrompt
     try {
-      const { getConfigManager } = await import('@/core/config/ConfigManager');
+      const { getConfigManager } = await import('@/infrastructure/config/ConfigManager');
       const cfgMgr = getConfigManager();
       const memCfg = cfgMgr.getAgentConfig('memory-manager');
       if (memCfg?.systemPrompt) {

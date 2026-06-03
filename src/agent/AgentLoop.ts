@@ -32,7 +32,7 @@ export interface AgentCallbacks {
   onToolDelta?: (id: string, name: string, receivedBytes: number) => void;
   onToolEnd?: (id: string, name: string, result: string, isError: boolean, metadata?: Record<string, unknown>, contentBlocks?: import('@/shared/types/tools').ToolResult['contentBlocks']) => void;
   onToolGrouped?: (groups: { parallelIds: string[]; serialIds: string[] }) => void;
-  onFileChanges?: (changes: import('@/core/types').FileChange[]) => void;
+  onFileChanges?: (changes: import('@/infrastructure/core-types').FileChange[]) => void;
   onUsage?: (usage: TokenUsage) => void;
   onInfo?: (message: string) => void;
   onError?: (error: Error) => void;
@@ -56,7 +56,7 @@ export class AgentLoop {
   private running = false;
   private currentIteration = 0;
   private hookRegistry: HookRegistry | null = null;
-  private thinkingConfig: import('@/core/types').ThinkingConfig | undefined = undefined;
+  private thinkingConfig: import('@/infrastructure/core-types').ThinkingConfig | undefined = undefined;
   private _userId?: string;
 
   /** 当前执行归属的会话键 — "local" 或平台 sessionKey，null 表示未设置 */
@@ -172,7 +172,7 @@ export class AgentLoop {
   }
 
   /** 层级策略上下文提炼：检测 [SUMMARY]...[/SUMMARY] 标记，提取摘要并压缩 tool_result */
-  private extractAndCompressSummary(blocks: import('@/core/types').ContentBlock[]): void {
+  private extractAndCompressSummary(blocks: import('@/infrastructure/core-types').ContentBlock[]): void {
     for (const block of blocks) {
       if (block.type === 'text' && block.text) {
         const match = block.text.match(/\[SUMMARY\]\s*\n([\s\S]*?)\[\/SUMMARY\]/);
@@ -346,11 +346,11 @@ export class AgentLoop {
 
         if (signal?.aborted) break;
 
-        this.contextManager.addAssistantMessage(result.contentBlocks as import('@/core/types').ContentBlock[]);
+        this.contextManager.addAssistantMessage(result.contentBlocks as import('@/infrastructure/core-types').ContentBlock[]);
         this.contextManager.recordUsage(result.usage);
 
         // 层级策略上下文提炼：检测 [SUMMARY]...[/SUMMARY] 标记，用摘要替换 worker 原文
-        this.extractAndCompressSummary(result.contentBlocks as import('@/core/types').ContentBlock[]);
+        this.extractAndCompressSummary(result.contentBlocks as import('@/infrastructure/core-types').ContentBlock[]);
 
         // ▶ 检查点 A：流式输出结束 — 终止或补充输入则跳出
         if (this.checkShouldStop()) break;
@@ -401,7 +401,7 @@ export class AgentLoop {
 
         const toolExecDurationMs = Date.now() - toolExecStartTime;
 
-        const fileChanges: import('@/core/types').FileChange[] = [];
+        const fileChanges: import('@/infrastructure/core-types').FileChange[] = [];
         for (const tc of result.toolCalls) {
           const toolResult = resultsMap.get(tc.id);
           if (toolResult) {
@@ -640,7 +640,7 @@ export class AgentLoop {
     this.hookRegistry = hookRegistry;
   }
 
-  setThinking(thinkingConfig: import('@/core/types').ThinkingConfig | undefined): void {
+  setThinking(thinkingConfig: import('@/infrastructure/core-types').ThinkingConfig | undefined): void {
     this.thinkingConfig = thinkingConfig;
   }
 

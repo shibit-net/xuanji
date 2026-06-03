@@ -103,7 +103,7 @@ export class SceneClassifier {
         baseURL: classifierConfig.provider.baseURL,
       });
     } else {
-      const { ProviderManager } = await import('@/core/providers/ProviderManager');
+      const { ProviderManager } = await import('@/provider/ProviderManager');
       this.provider = ProviderManager.getProvider(classifierConfig.provider);
     }
 

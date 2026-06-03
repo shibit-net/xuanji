@@ -257,7 +257,7 @@ export class ChatSession {
     if (!subAgentTools.includes(toolName) && !devTools.includes(toolName)) return;
 
     const contextManager = this.agentLoop.getContextManager();
-    const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+    const memoryManager = (contextManager as any).archiveDelegate as import('@/memory/MemoryManager').MemoryManager | undefined;
     if (!memoryManager) {
       log.debug('[PostToolUse] MemoryManager not available, skipping fallback');
       return;
@@ -296,7 +296,7 @@ export class ChatSession {
   private async autoLoadMemoryContext(input: string): Promise<void> {
     try {
       const contextManager = this.agentLoop.getContextManager();
-      const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+      const memoryManager = (contextManager as any).archiveDelegate as import('@/memory/MemoryManager').MemoryManager | undefined;
       if (!memoryManager) return;
 
       // 记录用户活动 + 缓存最近消息供 buildContext Stage A 使用
@@ -372,7 +372,7 @@ export class ChatSession {
   /** 异步提取会话记忆，延迟 5 秒执行。先持久化到文件防止进程退出丢失。 */
   private scheduleMemoryExtraction(): void {
     const contextManager = this.agentLoop.getContextManager();
-    const memoryManager = (contextManager as any).archiveDelegate as import('@/core/memory/MemoryManager').MemoryManager | undefined;
+    const memoryManager = (contextManager as any).archiveDelegate as import('@/memory/MemoryManager').MemoryManager | undefined;
     if (!memoryManager) return;
 
     const messages = contextManager.getMessages();
@@ -402,7 +402,7 @@ export class ChatSession {
       const builder = this.getLayeredPromptBuilder();
       let systemPrompt: string | undefined;
       if (builder) {
-        const buildListener = (event: import('@/core/prompt/types').PromptBuildEvent) => {
+        const buildListener = (event: import('@/infrastructure/prompt/types').PromptBuildEvent) => {
           if (event.type === 'build:complete' && event.data?.layers) {
             eventBus.emit(XuanjiEvent.AGENT_PROMPT_COMPONENTS, {
               agentId,
@@ -439,11 +439,11 @@ export class ChatSession {
       }
 
       // 2. 通过 AgentFactory 统一解析 provider + 工具列表
-      const agentFactory = await this.container.resolve('agentFactory') as import('@/core/agent/factory/AgentFactory').AgentFactory;
+      const agentFactory = await this.container.resolve('agentFactory') as import('@/agent/factory/AgentFactory').AgentFactory;
       const { provider: newProvider, toolNames } = agentFactory.resolveAgentComponents(agentId, complexity);
 
       const baseRegistry = this.getBaseRegistry();
-      const { FilteredToolRegistry } = await import('@/core/tools/FilteredToolRegistry');
+      const { FilteredToolRegistry } = await import('@/tools/FilteredToolRegistry');
       const toolRegistry: IToolRegistry = new FilteredToolRegistry(baseRegistry, toolNames);
 
       // 3. 应用 agent 自身配置到 AgentLoop
@@ -574,7 +574,7 @@ export class ChatSession {
     const sm = this._stateMachine!;
 
     // 将 IPC UserAction 映射为 SessionEvent
-    const event: import('@/core/state/SessionStateMachine').SessionEvent =
+    const event: import('@/agent/state/SessionStateMachine').SessionEvent =
       action.type === 'INTERRUPT'
         ? { type: 'USER_INTERRUPT', message: action.message }
         : { type: 'USER_MESSAGE', message: action.message || '' };
@@ -812,9 +812,9 @@ export class ChatSession {
     return this.workingDir;
   }
 
-  getLayeredPromptBuilder(): import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null {
+  getLayeredPromptBuilder(): import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder | null {
     try {
-      return this.container.resolveSync('layeredPromptBuilder') as import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+      return this.container.resolveSync('layeredPromptBuilder') as import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
     } catch {
       return null;
     }

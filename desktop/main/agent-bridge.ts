@@ -8,27 +8,27 @@
 // 不受 Electron ABI 限制。
 //
 
-import { SessionFactory } from '../../src/core/chat/SessionFactory.js';
-import type { ChatSession } from '../../src/core/chat/ChatSession.js';
+import { SessionFactory } from '../../src/session/SessionFactory.js';
+import type { ChatSession } from '../../src/session/ChatSession.js';
 import type { UserConfirmation } from '../../src/permission/types.js';
 import { AgentGatewayImpl } from '../../src/platform/AgentGateway.js';
 import { SessionRouter } from '../../src/platform/SessionRouter.js';
-import { getTodoManager } from '../../src/core/tools/TodoManager.js';
+import { getTodoManager } from '../../src/tools/TodoManager.js';
 import { ChildMessageChannel } from './ipc/MessageBus.js';
-import { DownloadManager } from '../../src/core/download/DownloadManager.js';
-import { eventBus } from '../../src/core/events/EventBus.js';
-import { XuanjiEvent } from '../../src/core/events/events.js';
-import { EventForwarder } from '../../src/core/event/EventForwarder.js';
-import { IntentRouter } from '../../src/core/routing/IntentRouter.js';
-import { SceneClassifier } from '../../src/core/routing/SceneClassifier.js';
-import { EmbeddingMatcher } from '../../src/core/routing/EmbeddingMatcher.js';
-import { EmbeddingProvider } from '../../src/core/embedding/EmbeddingProvider.js';
-import { logger } from '../../src/core/logger/index.js';
+import { DownloadManager } from '../../src/infrastructure/download/DownloadManager.js';
+import { eventBus } from '../../src/infrastructure/events/EventBus.js';
+import { XuanjiEvent } from '../../src/infrastructure/events/events.js';
+import { EventForwarder } from '../../src/infrastructure/eventfw/EventForwarder.js';
+import { IntentRouter } from '../../src/infrastructure/routing/IntentRouter.js';
+import { SceneClassifier } from '../../src/infrastructure/routing/SceneClassifier.js';
+import { EmbeddingMatcher } from '../../src/infrastructure/routing/EmbeddingMatcher.js';
+import { EmbeddingProvider } from '../../src/infrastructure/embedding/EmbeddingProvider.js';
+import { logger } from '../../src/infrastructure/logger/index.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { FORMAT_PARSERS } from '../../src/core/tools/parsers/index.js';
-import { getMemoryManager, getMemoryInitError } from '../../src/core/memory/globals.js';
+import { FORMAT_PARSERS } from '../../src/tools/parsers/index.js';
+import { getMemoryManager, getMemoryInitError } from '../../src/memory/globals.js';
 
 
 let session: ChatSession | null = null;
@@ -160,8 +160,8 @@ async function updateMatchAgentEmbedding(sess: ChatSession): Promise<void> {
       const contextManager = agentLoop?.getContextManager();
       const memoryManager = (contextManager as any)?.archiveDelegate;
       if (memoryManager && !memoryManager.semanticIndex) {
-        const { SemanticIndex } = await import('../../src/core/memory/SemanticIndex.js');
-        const { getUserMemoryDir } = await import('../../src/core/config/PathManager.js');
+        const { SemanticIndex } = await import('../../src/memory/SemanticIndex.js');
+        const { getUserMemoryDir } = await import('../../src/infrastructure/config/PathManager.js');
         const memDir = getUserMemoryDir(currentUserId);
         if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
         const semanticIndex = new SemanticIndex(candidate, memDir);
@@ -249,7 +249,7 @@ async function rebuildIntentRouter(): Promise<void> {
 
   try {
     const agentRegistry = session.getAgentRegistry();
-    const { ProviderManager: pm } = await import('../../src/core/providers/ProviderManager');
+    const { ProviderManager: pm } = await import('../../src/provider/ProviderManager');
     const sceneClassifier = new SceneClassifier({
       agentRegistry,
       providerFactory: (config) => pm.getProvider(config),
@@ -338,7 +338,7 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     // 在创建 session 之前，先切换到配置的 workspace 目录
     // 确保 FilteredToolRegistry.workingDir 指向 workspace 而非项目根目录
     try {
-      const configLoader = new (await import('@/core/config/ConfigLoader')).ConfigLoader(uid, 'xuanji');
+      const configLoader = new (await import('@/infrastructure/config/ConfigLoader')).ConfigLoader(uid, 'xuanji');
       const config = await configLoader.load();
       const os = await import('node:os');
       const path = await import('node:path');
@@ -375,7 +375,7 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
 
     // 从配置初始化核心 i18n 语言
     try {
-      const { setLanguage } = await import('../../src/core/i18n/index.js');
+      const { setLanguage } = await import('../../src/i18n/index.js');
       const config = newSession.getConfig();
       const lang = config?.ui?.language;
       if (lang === 'zh' || lang === 'en') {
@@ -1052,7 +1052,7 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
     return { success: false, error: '会话未初始化' };
   }
   try {
-    const { updateRuntimeConfig, getRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+    const { updateRuntimeConfig, getRuntimeConfig } = await import('../../src/infrastructure/config/RuntimeConfig.js');
 
     if (data?.section && data?.sectionData) {
       const partial: Record<string, unknown> = {};
@@ -1104,7 +1104,7 @@ async function handleUpdateConfig(data: any): Promise<{ success: boolean; error?
         }
         // 如果更新了 modelProviders，重载 ToolConfigManager 使媒体工具配置立即生效
         if (partial.modelProviders) {
-          const { ToolConfigManager } = await import('../../src/core/tools/ToolConfigManager.js');
+          const { ToolConfigManager } = await import('../../src/tools/ToolConfigManager.js');
           ToolConfigManager.getInstance().loadFromModelProviders();
           log.info('ToolConfigManager reloaded from modelProviders');
         }
@@ -1373,8 +1373,8 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
     // 系统 agent（如 scene-classifier）只需重建 IntentRouter，不应替换主 agent 的 provider
     if (currentUserId && agentId === session.currentAgentId) {
       try {
-        const { ConfigLoader } = await import('../../src/core/config/ConfigLoader.js');
-        const { setRuntimeConfig } = await import('../../src/core/config/RuntimeConfig.js');
+        const { ConfigLoader } = await import('../../src/infrastructure/config/ConfigLoader.js');
+        const { setRuntimeConfig } = await import('../../src/infrastructure/config/RuntimeConfig.js');
 
         const configLoader = new ConfigLoader(currentUserId, agentId);
         const newConfig = await configLoader.load();
@@ -1387,7 +1387,7 @@ async function handleAgentUpdate(data: { agentId: string; config: any }): Promis
         setRuntimeConfig(newConfig);
 
         // 统一走 ProviderManager 创建 provider
-        const { ProviderManager } = await import('../../src/core/providers/ProviderManager');
+        const { ProviderManager } = await import('../../src/provider/ProviderManager');
         const agentConfigWithOverride = agentRegistry.get(agentId);
         const newProvider = ProviderManager.getProvider((agentConfigWithOverride?.provider as any));
         const agentModel = (agentConfigWithOverride?.model as any)?.primary;
@@ -2488,7 +2488,7 @@ channel.handle('skill-detail', (data: { id: string }) => {
       if (!registry) return { success: false, error: 'SkillRegistry 未初始化' };
       let installer = mm.skillInstaller;
       if (!installer) {
-        const { SkillInstaller } = await import('../../src/core/skills/SkillInstaller.js');
+        const { SkillInstaller } = await import('../../src/skills/SkillInstaller.js');
         installer = new SkillInstaller(market, registry);
         mm.skillInstaller = installer;
       }
@@ -2950,7 +2950,7 @@ async function handleProjectsList() {
       return { success: false, error: '用户未登录' };
     }
 
-    const { ProjectRegistry } = await import('../../src/core/project/ProjectRegistry.js');
+    const { ProjectRegistry } = await import('../../src/infrastructure/project/ProjectRegistry.js');
     const registry = new ProjectRegistry(userId);
     const projects = await registry.list();
 
@@ -3402,7 +3402,7 @@ async function detectProjectFromCwd() {
 async function registerProjectToRegistry(rootPath: string) {
   if (!currentUserId) return;
   try {
-    const { ProjectRegistry } = await import('../../src/core/project/ProjectRegistry.js');
+    const { ProjectRegistry } = await import('../../src/infrastructure/project/ProjectRegistry.js');
     const registry = new ProjectRegistry(currentUserId);
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -3502,7 +3502,7 @@ async function autoGenerateProjectDocs(rootPath: string) {
 
     // 更新 ProjectRegistry 中的 hasRules 标志
     if (currentUserId) {
-      const { ProjectRegistry } = await import('../../src/core/project/ProjectRegistry.js');
+      const { ProjectRegistry } = await import('../../src/infrastructure/project/ProjectRegistry.js');
       const registry = new ProjectRegistry(currentUserId);
       await registry.register(rootPath, true);
     }

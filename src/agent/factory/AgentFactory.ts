@@ -148,7 +148,7 @@ export class AgentFactory {
     this.baseRegistry = baseRegistry;
     this.providerPool = new ProviderPool(
       (config) => {
-        const { createProviderByAdapter } = require('@/core/providers/ProviderRegistry');
+        const { createProviderByAdapter } = require('@/provider/ProviderRegistry');
         return createProviderByAdapter(config.adapter);
       },
     );
@@ -714,8 +714,8 @@ export class AgentFactory {
     defaults: { temperature: number; maxTokens: number },
   ): Promise<any> {
     const c = this.loadAgentConfigOrThrow(agentId);
-    const { CheapLLMProvider } = await import('@/core/providers/CheapLLMProvider');
-    const { ProviderManager } = await import('@/core/providers/ProviderManager');
+    const { CheapLLMProvider } = await import('@/provider/CheapLLMProvider');
+    const { ProviderManager } = await import('@/provider/ProviderManager');
 
     const agentProvider = ProviderManager.getProvider(
       { adapter: c.provider!.adapter!, apiKey: c.provider!.apiKey, baseURL: c.provider!.baseURL },
@@ -1248,7 +1248,7 @@ ${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
   }
 
   private createFilteredRegistry(allowedTools: string[], context: { agentId: string; workingDir?: string }): IToolRegistry {
-    const { FilteredToolRegistry } = require('@/core/tools/FilteredToolRegistry');
+    const { FilteredToolRegistry } = require('@/tools/FilteredToolRegistry');
     return new FilteredToolRegistry(
       this.baseRegistry,
       allowedTools,

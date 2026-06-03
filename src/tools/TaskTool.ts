@@ -139,8 +139,8 @@ export class TaskTool extends BaseTool {
 
   // ── 依赖注入 ────────────────────────────────────────
 
-  private providerManager: import('@/core/providers/ProviderManager').ProviderManager | null = null;
-  private agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry | null = null;
+  private providerManager: import('@/provider/ProviderManager').ProviderManager | null = null;
+  private agentRegistry: import('@/agent/AgentRegistry').AgentRegistry | null = null;
   private registry: IToolRegistry | null = null;
   private agentConfig: AgentConfig | null = null;
   private hookRegistry: HookRegistry | null = null;
@@ -152,15 +152,15 @@ export class TaskTool extends BaseTool {
   private activeCount = 0;
 
   setDependencies(deps: {
-    providerManager: import('@/core/providers/ProviderManager').ProviderManager;
-    agentRegistry: import('@/core/agent/AgentRegistry').AgentRegistry;
+    providerManager: import('@/provider/ProviderManager').ProviderManager;
+    agentRegistry: import('@/agent/AgentRegistry').AgentRegistry;
     registry: IToolRegistry;
     agentConfig: AgentConfig;
     parentProvider?: ILLMProvider;
     hookRegistry?: HookRegistry;
     depth?: number;
     agentId?: string;
-    layeredPromptBuilder?: import('@/core/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
+    layeredPromptBuilder?: import('@/infrastructure/prompt/LayeredPromptBuilder').LayeredPromptBuilder;
   }): void {
     this.providerManager = deps.providerManager;
     this.agentRegistry = deps.agentRegistry;

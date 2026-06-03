@@ -19,7 +19,7 @@ import type {
   LogStats,
   LokiClientConfig,
   LogSource
-} from '@root/src/core/logging/UnifiedLogManager';
+} from '@root/src/infrastructure/logging/UnifiedLogManager';
 
 // 日志源颜色配置（前端版本）
 export const LOG_SOURCE_COLORS: Record<LogSource, { color: string; emoji: string }> = {

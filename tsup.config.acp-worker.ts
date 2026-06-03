@@ -3,7 +3,7 @@ import path from 'path';
 import { buildAliases } from './tsup-aliases';
 
 export default defineConfig({
-  entry: ['src/core/acp/acp-worker.ts'],
+  entry: ['src/infrastructure/acp/acp-worker.ts'],
   format: ['esm'],
   target: 'esnext',
   outDir: 'desktop/build-resources',
