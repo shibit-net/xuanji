@@ -3,9 +3,11 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { Clock } from 'lucide-react';
 import { useSessionInitStore } from '../stores/SessionInitStore';
 import { Button } from '@/components/ui/button';
 import { t } from '@/core/i18n';
+import EmptyState from '../components/shared/EmptyState';
 import {
   Clock, X, Plus, Trash2, RefreshCw, AlertCircle,
   Power, Play, Calendar, Tag, CheckCircle, XCircle,
@@ -502,11 +504,7 @@ function JobsTab() {
 
       {/* 任务列表 */}
       {jobs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-          <Clock size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">{t('scheduler.empty_jobs')}</p>
-          <p className="text-xs mt-1 opacity-60">{t('scheduler.empty_jobs_hint')}</p>
-        </div>
+        <EmptyState icon={Clock} title={t('scheduler.empty_jobs')} description={t('scheduler.empty_jobs_hint')} />
       ) : (
         <div className="flex-1 overflow-y-auto space-y-2">
           {jobs.map(job => {
@@ -665,10 +663,7 @@ function LogsTab() {
       </div>
 
       {logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-          <Clock size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">暂无执行日志</p>
-        </div>
+        <EmptyState icon={Clock} title="暂无执行日志" />
       ) : (
         <div className="flex-1 overflow-y-auto">
           <table className="w-full text-sm">

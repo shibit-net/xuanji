@@ -3,10 +3,11 @@
 // ============================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Download, Trash2, Upload, Star, RefreshCw, Package, X, Check, Loader2, Wrench, Puzzle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Download, Trash2, Upload, Star, RefreshCw, Package, X, Check, Loader2, Wrench, Puzzle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { t } from '@/core/i18n';
+import EmptyState from '../components/shared/EmptyState';
 
 interface SkillsMCPPageProps {
   onClose: () => void;
@@ -613,7 +614,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
             /* 已安装列表 */
             <div className="flex-1 overflow-y-auto">
               {installedItems.length === 0 ? (
-                <div className="p-4 text-muted-foreground text-sm text-center py-12">{t('skills.no_installed')}</div>
+                <EmptyState icon={Inbox} title={t('skills.no_installed')} />
               ) : (
                 installedItems.map((item) => (
                   <div key={`${item.type}-${item.id}`} className="px-3 py-3 border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
@@ -886,9 +887,7 @@ function PackageListSection({
       {/* 列表 */}
       <div className="flex-1 overflow-y-auto">
         {items.length === 0 ? (
-          <div className="py-8 text-center text-[11px] text-muted-foreground/50">
-            {type === 'mcp' ? '暂无 MCP 工具' : '暂无 Skill'}
-          </div>
+          <EmptyState icon={type === 'mcp' ? Wrench : Puzzle} title={type === 'mcp' ? '暂无 MCP 工具' : '暂无 Skill'} />
         ) : (
           items.map((item) => {
             const installed = isInstalled(item);
