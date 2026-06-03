@@ -87,6 +87,7 @@ const zh: Messages = {
   'chat.memory_empty': '记忆库为空',
   'chat.memory_disabled': '记忆系统未启用',
   'chat.memory_error': '查询记忆失败: {error}',
+  'chat.archive_notification': '📦 已归档 {archived} 条消息，提取 {memories} 条记忆',
 
   // ── 会话持久化 ──
   'session.save_unavailable': '⚠️ 会话保存功能不可用',
@@ -1409,6 +1410,7 @@ const en: Messages = {
   'chat.memory_empty': 'Memory store is empty',
   'chat.memory_disabled': 'Memory system is not enabled',
   'chat.memory_error': 'Memory query failed: {error}',
+  'chat.archive_notification': '📦 Archived {archived} messages, extracted {memories} memories',
 
   // ── Session Persistence ──
   'session.save_unavailable': '⚠️ Session save is not available',

@@ -197,7 +197,7 @@ function ChatArea() {
       const archiveMessage: Message = {
         id: generateMessageId('system-archive'),
         role: 'system',
-        content: `📦 已归档 ${data.archivedCount} 条消息，提取 ${data.memoriesExtracted} 条记忆`,
+        content: t('chat.archive_notification', { archived: String(data.archivedCount), memories: String(data.memoriesExtracted) }),
         timestamp: Date.now(),
       };
       useMessageStore.getState().addMessage(archiveMessage);
