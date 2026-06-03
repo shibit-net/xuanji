@@ -15,7 +15,7 @@
 // 意图分析开关仅影响意图分析执行，不影响 agent 选择。
 // ============================================================
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Send, StopCircle, Archive, Brain, Loader2, X, FileText, Search, AlertTriangle, Clock } from 'lucide-react';
 import type { FileAttachment } from '../global';
 import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
@@ -57,7 +57,7 @@ interface InputAreaProps {
   sessionKey?: string;
 }
 
-export default function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
+function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   const isRemote = conversationType === 'remote';
   const [input, setInput] = useState(savedInput);
   const [isComposing, setIsComposing] = useState(false);
@@ -1047,3 +1047,5 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
     </div>
   );
 }
+
+export default memo(InputArea);

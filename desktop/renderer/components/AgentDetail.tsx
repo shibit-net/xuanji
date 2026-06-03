@@ -2,7 +2,7 @@
 // AgentDetail - Agent 详情展示组件
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Edit, Trash2, Play, Info, ChevronDown, ChevronRight, Power, PowerOff } from 'lucide-react';
 import { Avatar } from './Avatar';
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
@@ -52,7 +52,7 @@ interface AgentDetailProps {
 
 const NEVER_DISABLE_AGENTS = ['xuanji', 'memory-manager', 'context-compressor'];
 
-export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleEnabled }: AgentDetailProps) {
+function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleEnabled }: AgentDetailProps) {
   const category = agent.metadata?.category || 'custom';
   const canEdit = true;
   const canDelete = category === 'custom';
@@ -561,3 +561,5 @@ export default function AgentDetail({ agent, onEdit, onDelete, onTest, onToggleE
     </div>
   );
 }
+
+export default memo(AgentDetail);

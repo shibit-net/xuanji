@@ -2,7 +2,7 @@
 // RightPanel - 右侧面板组件
 // ============================================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { FileText, Activity, Loader2, Brain, Hash, ArrowRight, Zap, AlertTriangle, CheckCircle2, XCircle, Search, Radio, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '../stores/sessionStore';
@@ -32,7 +32,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'remote', label: t('rightpanel.tab.remote'), icon: <Radio size={16} /> },
 ];
 
-export default function RightPanel({ onToggle: _onToggle, width, onResize, className }: RightPanelProps) {
+function RightPanel({ onToggle: _onToggle, width, onResize, className }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('workspace');
   const [isResizing, setIsResizing] = useState(false);
   const [startX, setStartX] = useState(0);
@@ -491,3 +491,5 @@ function LogsTab() {
     </div>
   );
 }
+
+export default memo(RightPanel);

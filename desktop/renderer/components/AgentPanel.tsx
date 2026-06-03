@@ -3,7 +3,7 @@
 // 展示当前执行任务的 Agent 及其行为
 // ============================================================
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, memo } from 'react';
 import { X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useMessageStore } from '../stores/messageStore';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -29,7 +29,7 @@ interface AgentInfo {
   };
 }
 
-export default function AgentPanel({ onToggle }: AgentPanelProps) {
+function AgentPanel({ onToggle }: AgentPanelProps) {
   const messages = useMessageStore((state) => state.messages);
   const [activeAgents, setActiveAgents] = useState<AgentInfo[]>([]);
 
@@ -400,3 +400,5 @@ function AgentStats() {
     </div>
   );
 }
+
+export default memo(AgentPanel);

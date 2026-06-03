@@ -2,7 +2,7 @@
 // MonitorPanel - 等分列监控面板（替换 RightPanel）
 // ============================================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { Activity, FileText, Radio, Check, X, MoreHorizontal, ChevronUp, ChevronDown, Wrench, Search, Globe, Terminal, FolderOpen, FileQuestion, FilePenLine, ClipboardList, ListTodo, RotateCcw, Brain, Database, BarChart3, GitGraph, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '../stores/sessionStore';
@@ -22,7 +22,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'remote', label: t('rightpanel.tab.remote'), icon: <Radio size={14} /> },
 ];
 
-export default function MonitorPanel() {
+function MonitorPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('monitor');
 
   return (
@@ -394,3 +394,5 @@ function RemoteTab() {
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   return <PlatformSessionPanel session={activeSession} />;
 }
+
+export default memo(MonitorPanel);
