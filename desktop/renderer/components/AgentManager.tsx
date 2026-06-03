@@ -2,7 +2,7 @@
 // AgentManager - Agent 管理器主组件（优化版）
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Search, Plus, X, Bot, RefreshCw, Filter, ChevronDown } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { useAgentManager } from '../hooks/useAgentManager';
@@ -23,7 +23,7 @@ type FilterSource = 'all' | 'system' | 'app' | 'custom';
 type FilterStatus = 'all' | 'enabled' | 'disabled';
 type SortBy = 'name' | 'created' | 'source';
 
-export default function AgentManager({ onClose }: AgentManagerProps) {
+function AgentManager({ onClose }: AgentManagerProps) {
   const toast = useToast();
   const { agents, loading, error, createAgent, updateAgent, deleteAgent, reload } = useAgentManager();
 
@@ -521,3 +521,5 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
     </div>
   );
 }
+
+export default memo(AgentManager);
