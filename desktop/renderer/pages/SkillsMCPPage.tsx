@@ -887,7 +887,7 @@ function PackageListSection({
       <div className="flex-1 overflow-y-auto">
         {items.length === 0 ? (
           <div className="py-8 text-center text-[11px] text-muted-foreground/50">
-            {type === 'mcp' ? '暂无 MCP 工具' : '暂无 Skill'}
+            {type === 'mcp' ? t('skills.no_mcp_tools') : t('skills.no_skills')}
           </div>
         ) : (
           items.map((item) => {

@@ -49,7 +49,7 @@ export default function LogsView() {
         setLogs(result.logs || []);
       }
     } catch (error) {
-      console.error('加载日志失败:', error);
+      console.error('Failed to load logs:', error);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +72,7 @@ export default function LogsView() {
 
   // 清空日志
   const handleClearLogs = async () => {
-    if (!confirm('确定要清空所有日志文件吗？')) return;
+    if (!confirm(getDesktopLabel('logs.clear_confirm', language))) return;
 
     const result = await window.electron.logsClear();
     if (result.success) {
@@ -273,7 +273,7 @@ export default function LogsView() {
       >
         {filteredLogs.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">
-            {isLoading ? '加载中...' : '暂无日志'}
+            {isLoading ? getDesktopLabel('logs.loading', language) : getDesktopLabel('logs.empty', language)}
           </div>
         ) : (
           filteredLogs.map((log, index) => (

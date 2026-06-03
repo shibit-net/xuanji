@@ -250,6 +250,21 @@ const zh: Record<string, string> = {
   'filetree.show_in_folder': '在文件夹中显示',
   'filetree.copy_path': '复制路径',
   'filetree.refresh': '刷新文件树',
+
+  // LogsView
+  'logs.title': '📋 日志流',
+  'logs.live': '实时',
+  'logs.refresh_title': '刷新日志',
+  'logs.refresh': '刷新',
+  'logs.clear_title': '清空日志',
+  'logs.clear': '清空',
+  'logs.clear_confirm': '确定要清空所有日志文件吗？',
+  'logs.filter_all': '全部级别',
+  'logs.search_placeholder': '搜索日志...',
+  'logs.count': '{filtered} / {total} 条',
+  'logs.loading': '加载中...',
+  'logs.empty': '暂无日志',
+  'logs.scroll_to_latest': '↓ 滚动到最新',
 };
 
 const en: Record<string, string> = {
@@ -421,6 +436,7 @@ const en: Record<string, string> = {
   'logs.refresh': 'Refresh',
   'logs.clear_title': 'Clear logs',
   'logs.clear': 'Clear',
+  'logs.clear_confirm': 'Are you sure you want to clear all log files?',
   'logs.filter_all': 'All Levels',
   'logs.search_placeholder': 'Search logs...',
   'logs.count': '{filtered} / {total} entries',

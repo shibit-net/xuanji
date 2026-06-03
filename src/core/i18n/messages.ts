@@ -1010,6 +1010,8 @@ const zh: Messages = {
   'skills.downloads_label': '{count} 下载',
   'skills.recommend_label': '{count} 推荐',
   'skills.comment_label': '{count} 评论',
+  'skills.no_mcp_tools': '暂无 MCP 工具',
+  'skills.no_skills': '暂无 Skill',
   'skills.all_categories': '全部分类',
 
   // ── Download Queue ──
@@ -2288,6 +2290,8 @@ const en: Messages = {
   'skills.downloads_label': '{count} downloads',
   'skills.recommend_label': '{count} recommends',
   'skills.comment_label': '{count} comments',
+  'skills.no_mcp_tools': 'No MCP tools',
+  'skills.no_skills': 'No Skills',
   'skills.all_categories': 'All Categories',
 
   // ── Download Queue ──
