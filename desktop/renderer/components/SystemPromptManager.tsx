@@ -8,29 +8,14 @@ import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
 import MilkdownEditor from './MilkdownEditor';
 import { t } from '@/core/i18n';
+import PreviewDialog from './system-prompt/PreviewDialog';
+import CreateComponentDialog from './system-prompt/CreateComponentDialog';
+import type { PromptComponent, LayerType, CreateForm } from './system-prompt/types';
 
 interface SystemPromptManagerProps {
   onClose: () => void;
 }
 
-interface PromptComponent {
-  id: string;
-  name: string;
-  layer: string;
-  priority: number;
-  estimatedTokens: number;
-  enabled: boolean;
-  scenes?: string[];
-  complexity?: string[];
-  content: string;
-  dynamic?: boolean;
-  match?: {
-    keywords: string;
-    description: string;
-  };
-}
-
-type LayerType = 'L0' | 'L1' | 'L2' | 'L3' | 'all';
 type TabType = 'prompts' | 'projects';
 
 function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
@@ -53,7 +38,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
 
   // 创建 Scene 对话框
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createForm, setCreateForm] = useState({
+  const [createForm, setCreateForm] = useState<CreateForm>({
     id: '', name: '', priority: 75,
     keywords: '', description: '', content: '',
   });
@@ -966,14 +951,14 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-3 opacity-50" />
-                <p className="text-sm">请从左侧选择一个文档</p>
+                <p className="text-sm">{t('sysprompt.doc_select_hint')}</p>
               </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-3 opacity-50" />
-                <p className="text-sm">请从左侧选择一个项目</p>
+                <p className="text-sm">{t('sysprompt.project_select_hint')}</p>
               </div>
             </div>
           )}
@@ -989,9 +974,9 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
         <div className="flex items-center gap-3">
           <FileText size={24} className="text-primary" />
           <div>
-            <h2 className="text-lg font-bold">System Prompt 管理</h2>
+            <h2 className="text-lg font-bold">{t('sysprompt.title')}</h2>
             <p className="text-xs text-muted-foreground">
-              总计 {components.length} 个组件 · 已启用 {components.filter(c => c.enabled).length} 个 · ~{totalTokens} tokens
+              {t('sysprompt.stats_line', { total: String(components.length), enabled: String(components.filter(c => c.enabled).length), tokens: String(totalTokens) })}
               <span className="mx-2">|</span>
               <span className="text-red-400">L0: {components.filter(c => c.layer === 'L0').length}</span>
               {' '}
@@ -1010,7 +995,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
               className="bg-primary/20 text-primary hover:bg-primary/30 flex items-center gap-2"
             >
               <Eye size={16} />
-              预览完整 Prompt
+              {t('sysprompt.preview_btn')}
             </Button>
           )}
           <Button
@@ -1047,7 +1032,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          System Prompt
+          {t('sysprompt.tab_prompts')}
         </Button>
         <Button
           onClick={() => setActiveTab('projects')}
@@ -1067,137 +1052,28 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
       {activeTab === 'prompts' && renderPromptsTab()}
       {activeTab === 'projects' && renderProjectsTab()}
 
-      {/* 预览对话框 */}
       {showPreview && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg shadow-xl w-[90%] h-[90%] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-border gap-4">
-              <h3 className="font-medium flex-shrink-0">完整 System Prompt 预览</h3>
-              <div className="flex items-center gap-3">
-                <select value={previewScene}
-                  onChange={(e) => setPreviewScene(e.target.value)}
-                  className="bg-background border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary">
-                  {l1Scenes.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select value={previewComplexity}
-                  onChange={(e) => setPreviewComplexity(e.target.value as any)}
-                  className="bg-background border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary">
-                  <option value="simple">Simple</option>
-                  <option value="standard">Standard</option>
-                  <option value="complex">Complex</option>
-                </select>
-                <Button onClick={handlePreview} variant="ghost" size="sm" className="flex items-center gap-1 px-3 py-1.5">
-                  <RefreshCw size={14} />
-                  重新生成
-                </Button>
-                <Button onClick={() => setShowPreview(false)} variant="ghost" size="icon" className="h-7 w-7">
-                  <X size={20} />
-                </Button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              {previewPrompt ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap bg-black/20 p-4 rounded h-full overflow-auto">
-                  {previewPrompt}
-                </pre>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <RefreshCw size={24} className="animate-spin text-primary" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <PreviewDialog
+          previewPrompt={previewPrompt}
+          l1Scenes={l1Scenes}
+          previewScene={previewScene}
+          previewComplexity={previewComplexity}
+          onSceneChange={setPreviewScene}
+          onComplexityChange={setPreviewComplexity}
+          onRegenerate={handlePreview}
+          onClose={() => setShowPreview(false)}
+        />
       )}
 
-      {/* 创建组件对话框 */}
       {showCreateDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg shadow-xl border border-border w-[680px] max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="font-medium">{selectedLayer === 'L1' ? t('sysprompt.create_dialog_title') : t('sysprompt.create_l2')}</h3>
-              <Button onClick={() => setShowCreateDialog(false)} variant="ghost" size="icon" className="h-7 w-7">
-                <X size={20} />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-auto p-4 space-y-4">
-              {/* 基本信息 */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Scene ID *</label>
-                  <input type="text" value={createForm.id}
-                    onChange={(e) => setCreateForm({ ...createForm, id: e.target.value })}
-                    placeholder={t('sysprompt.create_placeholder_id')}
-                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">名称 *</label>
-                  <input type="text" value={createForm.name}
-                    onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                    placeholder={t('sysprompt.create_placeholder_name')}
-                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">优先级</label>
-                  <input type="number" value={createForm.priority}
-                    onChange={(e) => setCreateForm({ ...createForm, priority: parseInt(e.target.value) || 75 })}
-                    className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">预估 Tokens</label>
-                  <div className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-muted-foreground">
-                    {Math.max(50, Math.round(createForm.content.length * 0.4))}
-                  </div>
-                  <p className="text-xs text-muted-foreground/60 mt-1">根据内容长度自动计算，约 {Math.round(createForm.content.length * 0.4)} tokens</p>
-                </div>
-              </div>
-
-              {/* L1 场景匹配配置 */}
-              {selectedLayer === 'L1' && (
-              <div className="border-t border-border pt-4">
-                <h4 className="text-sm font-medium mb-3 text-primary">场景匹配配置</h4>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">匹配关键词（自然语言，空格分隔）</label>
-                    <input type="text" value={createForm.keywords}
-                      onChange={(e) => setCreateForm({ ...createForm, keywords: e.target.value })}
-                      placeholder={t('sysprompt.create_placeholder_keywords')}
-                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">场景描述</label>
-                    <input type="text" value={createForm.description}
-                      onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                      placeholder={t('sysprompt.create_placeholder_match_desc')}
-                      className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary" />
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {/* Prompt 内容 */}
-              <div className="border-t border-border pt-4">
-                <h4 className="text-sm font-medium mb-3 text-primary">Prompt 内容</h4>
-                <textarea value={createForm.content}
-                  onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })}
-                  placeholder={t('sysprompt.create_placeholder_content')}
-                  rows={12}
-                  className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y min-h-[200px]" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 p-4 border-t border-border">
-              <Button onClick={() => setShowCreateDialog(false)} variant="ghost" className="px-4 py-2">取消</Button>
-              <Button onClick={createComponent} disabled={creating}
-                variant="ghost"
-                className="bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50 px-4 py-2 flex items-center gap-2">
-                <Plus size={16} />
-                {creating ? t('sysprompt.creating') : t('sysprompt.create_btn')}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <CreateComponentDialog
+          selectedLayer={selectedLayer}
+          createForm={createForm}
+          creating={creating}
+          onFormChange={setCreateForm}
+          onSubmit={createComponent}
+          onClose={() => setShowCreateDialog(false)}
+        />
       )}
     </div>
   );
