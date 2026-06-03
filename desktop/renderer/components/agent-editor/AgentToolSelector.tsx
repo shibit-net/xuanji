@@ -4,7 +4,7 @@
 
 import { memo } from 'react';
 import { Search } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { MEDIA_TOOL_NAMES, TOOL_CATEGORY_STYLE } from './shared/constants';
 
 interface AgentToolSelectorProps {

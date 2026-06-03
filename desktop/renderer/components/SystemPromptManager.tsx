@@ -6,7 +6,7 @@ import { useState, useEffect, memo } from 'react';
 import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import PreviewDialog from './system-prompt/PreviewDialog';
 import CreateComponentDialog from './system-prompt/CreateComponentDialog';
 import ProjectRulesTab from './system-prompt/ProjectRulesTab';

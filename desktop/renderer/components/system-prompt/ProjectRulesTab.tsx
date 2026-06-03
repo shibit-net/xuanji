@@ -7,7 +7,7 @@ import { FileText, RefreshCw, Save, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '../Toast';
 import MilkdownEditor from '../MilkdownEditor';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 export default function ProjectRulesTab() {
   const toast = useToast();

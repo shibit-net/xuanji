@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx } from '@milkdown/kit/core';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { commonmark } from '@milkdown/kit/preset/commonmark';

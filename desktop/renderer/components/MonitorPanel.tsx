@@ -10,7 +10,7 @@ import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useIntentRoutingStore } from '../stores/IntentRoutingStore';
 import { usePlatformStore } from '../stores/platformStore';
 import { useConfigStore } from '../stores/configStore';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import ExecutionFlowV2 from './ExecutionFlowV2';
 import PlatformSessionPanel from './PlatformSessionPanel';
 

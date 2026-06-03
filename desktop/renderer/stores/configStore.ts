@@ -9,7 +9,7 @@
 // ============================================================
 
 import { create } from 'zustand';
-import { setLanguage } from '@/core/i18n';
+import { setLanguage } from '@/i18n';
 import { useAuthStore } from '../stores/authStore';
 import type {
   UserSettings,

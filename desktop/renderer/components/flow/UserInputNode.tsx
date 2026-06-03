@@ -4,7 +4,7 @@
 
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { UserInputNodeData } from '../../utils/flow/FlowNodeTypes';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 export function UserInputNode({ data }: NodeProps<UserInputNodeData>) {
   return (

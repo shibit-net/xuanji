@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface DiagnosticsDialogProps {
   onClose: () => void;

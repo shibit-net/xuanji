@@ -3,7 +3,7 @@ import {
   X, Clock, Tag, Star, GitGraph, Trash2, AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { getTypeColor, formatTime, TYPE_BORDER_COLORS } from './shared';
 
 // ─── Loading / Error ─────────────────────────────────────

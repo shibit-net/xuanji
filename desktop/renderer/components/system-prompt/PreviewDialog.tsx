@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface PreviewDialogProps {
   previewPrompt: string;

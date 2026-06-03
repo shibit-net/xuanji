@@ -1,7 +1,7 @@
 import React, { useState, useEffect, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import clsx from 'clsx';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface DownloadTask {
   id: string;

@@ -4,7 +4,7 @@
 
 import { useState, useMemo, memo } from 'react';
 import { Search, Plus, X, Bot, RefreshCw, Filter, ChevronDown } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { useAgentManager } from '../hooks/useAgentManager';
 import { useToast } from './Toast';
 import AgentDetail from './AgentDetail';

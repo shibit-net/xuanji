@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { Search, Download, Upload, Star, RefreshCw, Package, X, Check, Loader2, Trash2, Wrench, Puzzle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import MarketplaceList, { type MarketPackage, type FilterType } from './skills-mcp/MarketplaceList';
 
 interface SkillsMCPPageProps {

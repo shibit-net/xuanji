@@ -8,7 +8,7 @@ import { useState, memo } from 'react';
 import { Wifi, WifiOff, Send, Maximize2, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type RemoteSession } from '../stores/platformStore';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface PlatformSessionPanelProps {
   session: RemoteSession | null;

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 export const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 

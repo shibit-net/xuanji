@@ -13,7 +13,7 @@ import { usePlatformStore, type PlatformMessage } from '../stores/platformStore'
 import { useConversationHub } from '../stores/conversationHub';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 function RemoteChatArea() {
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);

@@ -8,7 +8,7 @@
 // ============================================================
 
 import React, { useMemo } from 'react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { useAgentStateMachine, type AgentState as NewAgentState } from '../stores/AgentStateMachine';
 
 // 定义 Agent 状态类型

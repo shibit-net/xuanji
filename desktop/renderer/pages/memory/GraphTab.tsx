@@ -4,7 +4,7 @@
 // 使用 Cytoscape.js 渲染实体-关系网络，visionOS 风格
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import {
   Search, X, RefreshCw, ZoomIn, ZoomOut,

@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import MilkdownEditor from './MilkdownEditor.lazy';
 import type { PlanReviewRequestData } from '../global';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface PlanReviewDialogProps {
   request: PlanReviewRequestData;

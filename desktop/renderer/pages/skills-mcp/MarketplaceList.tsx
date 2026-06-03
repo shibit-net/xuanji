@@ -5,7 +5,7 @@
 import { Wrench, Puzzle, Trash2, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 export interface MarketPackage {
   id: number;

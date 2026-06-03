@@ -13,7 +13,7 @@
 
 import { PolicyEngine } from '../policies/PolicyEngine';
 import type { GuardCheckResult } from '../types';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 /**
  * 极度危险命令模式 — 标记为 danger（可通过确认执行，但需极强警告）

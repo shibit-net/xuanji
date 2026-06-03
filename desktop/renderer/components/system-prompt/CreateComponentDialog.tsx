@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import type { LayerType, CreateForm } from './types';
 
 interface CreateComponentDialogProps {

@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Search, X, RefreshCw, Database, Trash2, Sparkles } from 'lucide-react';
 import { LoadingSpinner, ErrorBanner, SummaryMetric, MemoryCard, DetailPanel } from './components';

@@ -12,7 +12,7 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import type { IPermissionController } from '@/permission/types';
 import { BaseTool } from './BaseTool';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 /**
  * AskUser 请求参数

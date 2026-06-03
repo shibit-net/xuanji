@@ -5,7 +5,7 @@
 import { memo } from 'react';
 import ConfigSection from './shared/ConfigSection';
 import { Zap } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface AgentSkillListProps {
   isExpanded: boolean;

@@ -5,7 +5,7 @@
 import { memo } from 'react';
 import { Settings } from 'lucide-react';
 import ConfigSection from './shared/ConfigSection';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface AgentScheduleConfigProps {
   config: any;

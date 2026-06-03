@@ -12,7 +12,7 @@ import {
 import { useAgentStateMachine } from '../../stores/AgentStateMachine';
 import { Avatar } from '../Avatar';
 import { useRealtimeClock, formatDuration } from './hooks';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 const NODE_W = 100;
 const AVATAR_SIZE = 44;

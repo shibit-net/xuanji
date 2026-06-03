@@ -4,7 +4,7 @@
 // ============================================================
 
 import React, { useState, useRef, memo } from 'react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { HelpCircle, Send, Check } from 'lucide-react';
 import {
   Dialog,

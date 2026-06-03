@@ -4,7 +4,7 @@
 
 import { memo } from 'react';
 import ConfigToggle from './shared/ConfigToggle';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { useToast } from '../Toast';
 import { canEnableAgent } from './shared/constants';
 

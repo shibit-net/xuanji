@@ -3,7 +3,7 @@
 // ============================================================
 
 import { memo } from 'react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface AgentSystemPromptProps {
   config: any;

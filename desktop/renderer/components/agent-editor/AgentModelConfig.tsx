@@ -4,7 +4,7 @@
 
 import { memo } from 'react';
 import { Download, Trash2 } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { useToast } from '../Toast';
 import type { ModelOption } from './shared/constants';
 

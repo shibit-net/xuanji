@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, memo } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { Button } from '@/components/ui/button';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import {
   Clock, X, Plus, Trash2, RefreshCw, AlertCircle,
   Power, Play, Calendar, Tag, CheckCircle, XCircle,

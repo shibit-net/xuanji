@@ -6,7 +6,7 @@ import { useState, useMemo, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { getDesktopLabel } from '../i18n';
 import { useConfigStore } from '../stores/configStore';
 import { formatDuration } from '../components/flow/hooks';

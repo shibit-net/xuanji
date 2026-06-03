@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react';
 import type { FileAttachment } from '../global';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024;
 const MAX_BINARY_FILE_SIZE = 10 * 1024 * 1024;

@@ -22,7 +22,7 @@ import { useAsyncTaskStore } from '../stores/AsyncTaskStore';
 import { useMessageStore, generateMessageId } from '../stores/messageStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 import { useToast } from './Toast';
 import { Button } from '@/components/ui/button';

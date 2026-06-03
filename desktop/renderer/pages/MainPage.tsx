@@ -16,7 +16,7 @@ import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useSessionStore } from '../stores/sessionStore';
 import { usePlatformStore } from '../stores/platformStore';
 import { registerEventAdapter } from '../services/EventAdapter';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 function formatToken(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;

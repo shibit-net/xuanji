@@ -41,7 +41,7 @@ import { DecisionStore, AuditLogEntry, AuditQueryOptions, AuditStats } from './D
 import { PermissionAudit } from './audit/PermissionAudit';
 import { EventBus } from '@/infrastructure/messaging';
 import { logger } from '@/core/logger';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { resolve } from 'node:path';

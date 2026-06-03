@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X, Maximize2, Minimize2, Music, Video } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';

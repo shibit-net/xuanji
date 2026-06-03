@@ -8,7 +8,7 @@ import { useState, memo } from 'react';
 import { X, QrCode, MessageCircle, MessageSquare, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore } from '../stores/platformStore';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 type PlatformType = 'wechat' | 'wecom' | 'feishu' | 'dingtalk';
 

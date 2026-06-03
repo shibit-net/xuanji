@@ -5,7 +5,7 @@
 import { memo } from 'react';
 import ConfigSection from './shared/ConfigSection';
 import { Database } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface AgentMcpConfigProps {
   isExpanded: boolean;

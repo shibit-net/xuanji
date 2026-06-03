@@ -8,7 +8,7 @@ import { useToast } from '../Toast';
 import CodeEditor from '../CodeEditor';
 import MilkdownEditor from '../MilkdownEditor';
 import { isFieldEditable, type AgentCategory } from '../../utils/agentPermissions';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { useConfigStore } from '../../stores/configStore';
 import {
   inferToolCategory,

@@ -5,7 +5,7 @@
 
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { type TeamNodeData, STRATEGY_VISUAL } from '../../utils/flow/FlowNodeTypes';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 const STRATEGY_LABELS: Record<string, string> = {
   sequential: t('flow.strategy.sequential'),

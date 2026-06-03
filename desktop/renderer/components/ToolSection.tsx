@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../stores/messageStore';
 import { formatDuration } from './flow/hooks';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface ToolSectionProps {
   tools: ToolCall[];

@@ -6,7 +6,7 @@ import { useState, memo } from 'react';
 import { Edit, Trash2, Play, Info, ChevronDown, ChevronRight, Power, PowerOff } from 'lucide-react';
 import { Avatar } from './Avatar';
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 const PROVIDER_NAMES: Record<string, string> = {
   anthropic: 'Anthropic Claude',

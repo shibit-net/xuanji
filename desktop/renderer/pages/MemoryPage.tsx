@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, memo } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import {
   Brain, X, Database, GitGraph,

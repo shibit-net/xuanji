@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
-import { setLanguage } from '@/core/i18n';
+import { setLanguage } from '@/i18n';
 import {
   SectionHeader, TextField, NumberField, SelectField,
   ToggleField, SaveButton, MessageBanner,

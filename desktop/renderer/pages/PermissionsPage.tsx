@@ -4,7 +4,7 @@
 
 import { useState, useEffect, memo } from 'react';
 import { RefreshCw, Trash2, Search, X, Save, Shield, FileText, Terminal, AlertTriangle, List, Sliders, BarChart3 } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 interface PermissionsPageProps {
   onClose: () => void;

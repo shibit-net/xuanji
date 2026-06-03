@@ -26,7 +26,7 @@ import {
 } from './flow';
 import { isActiveStatus } from '../utils/flow/FlowNodeTypes';
 import { flowLogger } from '../utils/flow/flowLogger';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 // ============================================================
 // 节点类型注册

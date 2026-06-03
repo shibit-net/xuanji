@@ -4,7 +4,7 @@
 
 import { useState, useEffect, memo } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import { Button } from '@/components/ui/button';
 
 

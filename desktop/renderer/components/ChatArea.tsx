@@ -13,7 +13,7 @@ import { useMessageStore, generateMessageId, type Message } from '../stores/mess
 import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 // 灰色版 logo（水印背景）
 import watermarkLogo from '../assets/logos/15b2c2b5954c2f350d3018385db4a81c.png';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 
 // 模块级变量：页面切换时保存/恢复滚动位置
 let savedScrollTop: number | null = null;

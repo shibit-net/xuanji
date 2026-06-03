@@ -13,7 +13,7 @@
 import { PathMatcher } from '../policies/PathMatcher';
 import { PolicyEngine } from '../policies/PolicyEngine';
 import type { GuardCheckResult } from '../types';
-import { t } from '@/core/i18n';
+import { t } from '@/i18n';
 import * as path from 'path';
 import * as os from 'os';
 
