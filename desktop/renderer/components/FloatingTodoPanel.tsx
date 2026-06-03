@@ -10,6 +10,19 @@ import { ChevronUp, ChevronDown, CheckCircle, Circle, Loader2 } from 'lucide-rea
 import { useExecutionStore } from '../stores/executionStore';
 import type { TodoItem } from '../stores/executionStore';
 
+function getTodoStatusIcon(status: string) {
+  switch (status) {
+    case 'in_progress':
+      return <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />;
+    case 'pending':
+      return <Circle className="w-3 h-3 text-gray-400" />;
+    case 'completed':
+      return <CheckCircle className="w-3 h-3 text-green-400" />;
+    default:
+      return <Circle className="w-3 h-3 text-gray-400" />;
+  }
+}
+
 export function FloatingTodoPanel() {
   const todos = useExecutionStore((state) => state.todos);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -123,22 +136,9 @@ export function FloatingTodoPanel() {
 }
 
 function TaskRow({ todo }: { todo: TodoItem }) {
-  const getIcon = () => {
-    switch (todo.status) {
-      case 'in_progress':
-        return <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />;
-      case 'pending':
-        return <Circle className="w-3 h-3 text-gray-400" />;
-      case 'completed':
-        return <CheckCircle className="w-3 h-3 text-green-400" />;
-      default:
-        return <Circle className="w-3 h-3 text-gray-400" />;
-    }
-  };
-
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 transition-colors">
-      <div className="flex-shrink-0">{getIcon()}</div>
+      <div className="flex-shrink-0">{getTodoStatusIcon(todo.status)}</div>
       <span className={`text-xs flex-1 truncate ${todo.status === 'completed' ? 'line-through text-muted-foreground/50' : 'text-muted-foreground'}`}>
         {todo.subject}
       </span>

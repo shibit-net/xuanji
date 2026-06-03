@@ -17,6 +17,18 @@ interface DownloadTask {
   error?: string;
 }
 
+function formatSize(bytes: number) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+function formatSpeed(bytesPerSec: number) {
+  return `${formatSize(bytesPerSec)}/s`;
+}
+
 export const DownloadQueue: React.FC = () => {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -62,18 +74,6 @@ export const DownloadQueue: React.FC = () => {
   );
 
   if (tasks.length === 0) return null;
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-  };
-
-  const formatSpeed = (bytesPerSec: number) => {
-    return `${formatSize(bytesPerSec)}/s`;
-  };
 
   const handleCancel = async (taskId: string) => {
     try {
