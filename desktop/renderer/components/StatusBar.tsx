@@ -2,14 +2,14 @@
 // StatusBar - 状态栏组件
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useSessionStore } from '../stores/sessionStore';
 import { useConversationStore } from '../stores/ConversationStore';
 import { DownloadQueue } from './DownloadQueue';
 import { Badge } from '@/components/ui/badge';
 
-export default function StatusBar() {
+function StatusBar() {
   const currentSkill = useConversationStore((state) => state.activeSkill);
   const isPlanMode = useSessionStore((state) => state.isPlanMode);
 
@@ -84,3 +84,5 @@ export default function StatusBar() {
     </div>
   );
 }
+
+export default memo(StatusBar);

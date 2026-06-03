@@ -2,7 +2,7 @@
 // DiagnosticsDialog - 系统诊断对话框（shadcn Dialog）
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Loader2, RefreshCw, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +17,7 @@ interface DiagnosticsDialogProps {
   onClose: () => void;
 }
 
-export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
+function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
   const [report, setReport] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,3 +113,5 @@ export default function DiagnosticsDialog({ onClose }: DiagnosticsDialogProps) {
     </Dialog>
   );
 }
+
+export default memo(DiagnosticsDialog);
