@@ -156,10 +156,10 @@ function ProjectFileTree({ onGitBranchChange }: { onGitBranchChange?: (branch: s
           window.electron.workspaceStartWatch?.(r.currentPath);
         }
       } else {
-        setError(r.error || '无法读取目录');
+        setError(r.error || getDesktopLabel('project_files.read_dir_failed', language));
       }
     } catch (e: any) {
-      setError(e.message || '读取目录失败');
+      setError(e.message || getDesktopLabel('project_files.read_dir_error', language));
     }
     setLoading(false);
   }, [loadGitStatus]);
