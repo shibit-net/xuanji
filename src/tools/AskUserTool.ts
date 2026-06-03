@@ -9,7 +9,7 @@
 // 权限确认、计划审查、AskUser 共享同一队列，避免 UI 混乱。
 //
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import type { IPermissionController } from '@/permission/types';
 import { BaseTool } from './BaseTool';
 import { t } from '@/i18n';

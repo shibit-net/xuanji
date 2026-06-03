@@ -8,7 +8,7 @@
  */
 
 import * as path from 'node:path';
-import type { IToolRegistry } from '@/core/types';
+import type { IToolRegistry } from '@/infrastructure/core-types';
 
 /** 临时子 agent 的默认工具集（当 LLM 未指定 tools 时使用） */
 export const DEFAULT_SUBAGENT_TOOLS = [

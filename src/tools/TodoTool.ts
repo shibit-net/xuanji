@@ -2,7 +2,7 @@
 // M6 工具系统 — Todo 工具集（合并自 TodoStorageTool/TodoListTool/TodoUpdateTool）
 // ============================================================
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { TodoManager, getTodoManager as getTodoManagerCore } from './TodoManager';
 

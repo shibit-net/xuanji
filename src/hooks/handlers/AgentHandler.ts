@@ -8,7 +8,7 @@
  * - 流式消费 LLM 响应，提取纯文本结果
  */
 
-import type { ILLMProvider, ProviderConfig, Message } from '@/core/types';
+import type { ILLMProvider, ProviderConfig, Message } from '@/infrastructure/core-types';
 import type {
   AgentHookHandler,
   HookEventContext,

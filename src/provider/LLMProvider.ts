@@ -2,7 +2,7 @@
 // M7 LLM Provider — Provider 抽象基类
 // ============================================================
 
-import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/core/types';
+import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/infrastructure/core-types';
 
 /**
  * LLM Provider 抽象基类

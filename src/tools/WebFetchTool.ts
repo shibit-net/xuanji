@@ -2,7 +2,7 @@
 // M6 工具系统 — WebFetchTool 网页抓取
 // ============================================================
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { getToolTimeouts } from '@/infrastructure/config/RuntimeConfig';

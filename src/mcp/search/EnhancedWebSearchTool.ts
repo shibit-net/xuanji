@@ -12,7 +12,7 @@
  */
 
 import { BaseTool } from '@/tools/BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { MemoryCache } from '../cache';
 import type { SearchEngineAdapter, SearchOptions, SearchResult, SearchProvider } from './types';
 import { BingAdapter, BaiduAdapter, GoogleAdapter } from './adapters';

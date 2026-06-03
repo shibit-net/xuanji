@@ -24,7 +24,7 @@ import type {
   HistoryMessage,
   ResumedSessionContext,
 } from './types.js';
-import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/core/types';
+import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 import { getMemoryManager } from '@/memory/globals';
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isTextEvent, isThinkingEvent, isToolEvent, isEndEvent } from '@/provider/StreamEvent';
-import type { StreamEvent } from '@/core/types';
+import type { StreamEvent } from '@/infrastructure/core-types';
 
 describe('StreamEvent utils', () => {
   describe('isTextEvent()', () => {

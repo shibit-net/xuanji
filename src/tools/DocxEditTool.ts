@@ -10,7 +10,7 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve, basename, extname } from 'node:path';
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import { logger } from '@/infrastructure/logger';

@@ -5,7 +5,7 @@
 // StreamEvent 相关类型已在 types/provider.ts 中定义
 // 此文件提供额外的流处理工具函数
 
-import type { StreamEvent, StreamEventType } from '@/core/types';
+import type { StreamEvent, StreamEventType } from '@/infrastructure/core-types';
 
 /**
  * 判断事件是否为文本类型

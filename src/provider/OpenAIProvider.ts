@@ -3,7 +3,7 @@
 // ============================================================
 
 import OpenAI from 'openai';
-import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, StopReason } from '@/core/types';
+import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, StopReason } from '@/infrastructure/core-types';
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/infrastructure/logger';
 

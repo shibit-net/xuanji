@@ -2,7 +2,7 @@
 // M7 LLM Provider — Google Gemini 适配器
 // ============================================================
 
-import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage } from '@/core/types';
+import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage } from '@/infrastructure/core-types';
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/infrastructure/logger';
 

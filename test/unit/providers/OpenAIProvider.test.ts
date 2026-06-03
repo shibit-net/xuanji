@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAIProvider } from '@/provider/OpenAIProvider';
-import type { ProviderConfig, StreamEvent, Message, ToolSchema } from '@/core/types';
+import type { ProviderConfig, StreamEvent, Message, ToolSchema } from '@/infrastructure/core-types';
 
 describe('OpenAIProvider', () => {
   let provider: OpenAIProvider;

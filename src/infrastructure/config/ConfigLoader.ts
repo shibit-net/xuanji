@@ -2,7 +2,7 @@
 // M9 配置管理 — 配置加载器
 // ============================================================
 
-import type { AppConfig, IConfigLoader } from '@/core/types';
+import type { AppConfig, IConfigLoader } from '@/infrastructure/core-types';
 import type { MCPConfig } from '@/mcp/types';
 import { getConfigManager } from './ConfigManager';
 import { getUserConfigPath } from './PathManager';

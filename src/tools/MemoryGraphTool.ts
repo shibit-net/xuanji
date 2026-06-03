@@ -8,7 +8,7 @@
  * - search_nodes: 按名称模糊搜索图中的节点
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { getMemoryManager } from '@/memory/globals';
 import { eventBus } from '@/infrastructure/events/EventBus';

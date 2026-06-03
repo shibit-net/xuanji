@@ -6,7 +6,7 @@
 // ============================================================
 
 import { XuanjiEvent } from '@/infrastructure/events/events';
-import type { TaskCompletionResult } from '@/core/task/types';
+import type { TaskCompletionResult } from '@/agent/task/types';
 
 export interface XuanjiEventMap {
   [XuanjiEvent.CONVERSATION_STATE_CHANGED]: { from: string; to: string };

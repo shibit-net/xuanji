@@ -5,7 +5,7 @@ import {
   shouldRetry,
   withRetry,
 } from '@/provider/RetryPolicy';
-import type { RetryConfig } from '@/core/types';
+import type { RetryConfig } from '@/infrastructure/core-types';
 
 describe('RetryPolicy', () => {
   describe('DEFAULT_RETRY_CONFIG', () => {

@@ -7,7 +7,7 @@
 // 通过 image_delta 事件返回生成的图片。
 // ============================================================
 
-import type { Message, ContentBlock, ProviderConfig, StreamEvent, ILLMProvider } from '@/core/types';
+import type { Message, ContentBlock, ProviderConfig, StreamEvent, ILLMProvider } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ImageGenProvider' });

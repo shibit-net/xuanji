@@ -4,7 +4,7 @@
  * 职责：工具注册、发现、权限控制、执行的统一入口。
  */
 
-import type { IToolRegistry, Tool, ToolSchema, ToolCall, ToolResult } from '@/core/types';
+import type { IToolRegistry, Tool, ToolSchema, ToolCall, ToolResult } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ToolGateway' });

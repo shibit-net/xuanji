@@ -10,7 +10,7 @@
  * 父代理的 LLM 负责在 task description 中内嵌必要的上下文。
  */
 
-import type { AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
+import type { AgentConfig, ILLMProvider, IToolRegistry } from '@/infrastructure/core-types';
 import { getSubAgentConfig } from '@/infrastructure/config/RuntimeConfig';
 
 /**

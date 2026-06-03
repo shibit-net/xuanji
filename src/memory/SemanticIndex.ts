@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { logger } from '@/infrastructure/logger';
-import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
+import type { EmbeddingProviderInterface } from '@/infrastructure/embedding/EmbeddingProvider';
 
 const log = logger.child({ module: 'SemanticIndex' });
 

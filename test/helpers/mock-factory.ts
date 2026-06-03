@@ -5,7 +5,7 @@
  */
 
 import { vi } from 'vitest';
-import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
+import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/infrastructure/core-types';
 import type { TeamExecutionResult } from '@/agent/team/types';
 import * as fs from 'fs';
 import * as path from 'path';

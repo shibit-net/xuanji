@@ -4,7 +4,7 @@
  * 职责：消息构建、token 预算、快照回滚、上下文压缩。
  */
 
-import type { Message, ContentBlock, ToolResult, CompressionResult, TokenUsage } from '@/core/types';
+import type { Message, ContentBlock, ToolResult, CompressionResult, TokenUsage } from '@/infrastructure/core-types';
 import { TokenCounter } from './TokenCounter';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';

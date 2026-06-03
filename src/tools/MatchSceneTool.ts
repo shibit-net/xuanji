@@ -5,8 +5,8 @@
  * 用于 task 或 agent_team 调用中指定子 Agent 的行为模式。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
-import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
+import type { EmbeddingProviderInterface } from '@/infrastructure/embedding/EmbeddingProvider';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 

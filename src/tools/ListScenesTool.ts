@@ -5,8 +5,8 @@
  * 帮助动态分配场景给子 Agent。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
-import type { PromptComponentRegistry } from '@/core/prompt/PromptComponentRegistry';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
+import type { PromptComponentRegistry } from '@/infrastructure/prompt/PromptComponentRegistry';
 import { BaseTool } from './BaseTool';
 
 export class ListScenesTool extends BaseTool {

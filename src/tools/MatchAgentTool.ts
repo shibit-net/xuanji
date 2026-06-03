@@ -5,9 +5,9 @@
  * 向量模型不可用时触发后台下载，返回异常让 LLM 回退到 list_agents。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import type { AgentRegistry } from '@/agent/AgentRegistry';
-import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
+import type { EmbeddingProviderInterface } from '@/infrastructure/embedding/EmbeddingProvider';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 

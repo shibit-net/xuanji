@@ -2,7 +2,7 @@
 // M5 权限控制 — 策略引擎
 // ============================================================
 
-import type { PermissionLevel, PermissionConfig } from '@/core/types';
+import type { PermissionLevel, PermissionConfig } from '@/infrastructure/core-types';
 
 /**
  * PolicyEngine — 策略管理

@@ -1,4 +1,4 @@
-import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
+import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/infrastructure/core-types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { AgentLoop } from './AgentLoop';
 

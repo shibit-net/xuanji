@@ -3,7 +3,7 @@
 // ============================================================
 
 import { BaseTool } from './BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { readFile, stat } from 'node:fs/promises';
 import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';

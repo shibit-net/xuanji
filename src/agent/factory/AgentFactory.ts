@@ -5,19 +5,19 @@
  * 替代旧的 SubAgentFactory / TemporaryAgentFactory，统一主 Agent 和子 Agent 的创建流程。
  */
 
-import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
+import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/infrastructure/core-types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { ConfigurableAgentConfig } from '@/agent/types';
 import { AgentLoop } from '../AgentLoop';
 import { SilentAgentLoop } from '../SilentAgentLoop';
 import { logger } from '@/infrastructure/logger';
-import { setLogContext } from '@/core/logger/implementations/PinoLogger';
+import { setLogContext } from '@/infrastructure/logger/implementations/PinoLogger';
 import { getConfigManager, type ConfigManager } from '@/infrastructure/config/ConfigManager';
 import { ProviderPool } from '@/provider/ProviderPool';
-import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
+import type { LayeredPromptBuilder } from '@/infrastructure/prompt/LayeredPromptBuilder';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
-import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
+import { AcpProcessManager } from '@/infrastructure/acp/AcpProcessManager';
 import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/tools/FilteredToolRegistry';
 
 const log = logger.child({ module: 'AgentFactory' });

@@ -5,7 +5,7 @@
 import type { ProviderConfig, RetryConfig } from './provider';
 import type { MCPConfig } from '@/mcp/types';
 import type { PricingConfig } from './pricing';
-import type { SSHConfig } from '@/core/ssh/types';
+import type { SSHConfig } from '@/infrastructure/ssh/types';
 
 /**
  * 路由模式配置

@@ -2,7 +2,7 @@
 // TodoArchiveTool — Archive completed tasks
 // ============================================================
 
-import type { Tool, ToolResult, JSONSchema } from '@/core/types';
+import type { Tool, ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { getTodoManager } from './TodoManager';
 
 export interface TodoArchiveInput {

@@ -2,7 +2,7 @@
 // M6 工具系统 — TaskOutputTool 查询后台任务结果
 // ============================================================
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { middleTruncate, MAX_TOOL_OUTPUT_LENGTH } from '@/shared/utils/truncation';

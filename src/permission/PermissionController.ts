@@ -21,7 +21,7 @@
 // 并发处理: 内置确认队列，保证同一时刻只有一个确认框。
 //
 
-import type { PermissionConfig } from '@/core/types';
+import type { PermissionConfig } from '@/infrastructure/core-types';
 import type {
   IPermissionController,
   PermissionRequest,

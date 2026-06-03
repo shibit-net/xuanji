@@ -5,7 +5,7 @@
  * 同时将 onboardingDone 标记为 true。
  */
 
-import type { Tool, ToolResult } from '@/core/types';
+import type { Tool, ToolResult } from '@/infrastructure/core-types';
 import type { PersonaConfig } from '@/shared/types/config';
 
 export interface UpdatePersonaInput {

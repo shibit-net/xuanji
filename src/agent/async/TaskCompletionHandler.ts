@@ -5,10 +5,10 @@
  * 将结果注入到 AgentLoop 的 system prompt 后缀中。
  */
 
-import type { ContextManager } from '@/core/context/ContextManager';
+import type { ContextManager } from '@/infrastructure/context/ContextManager';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
-import type { TaskCompletionResult as AgentTaskCompletionResult } from '@/core/task/types';
+import type { TaskCompletionResult as AgentTaskCompletionResult } from '@/agent/task/types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'TaskCompletionHandler' });

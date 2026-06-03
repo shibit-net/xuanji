@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PermissionController } from '@/permission/PermissionController';
 import type { PermissionRequest, ConfirmationHandler, GuardCheckResult, PlanReviewHandler, PlanReviewResult } from '@/permission/types';
-import type { PermissionConfig } from '@/core/types';
+import type { PermissionConfig } from '@/infrastructure/core-types';
 
 function createConfig(overrides?: Partial<PermissionConfig>): PermissionConfig {
   return {

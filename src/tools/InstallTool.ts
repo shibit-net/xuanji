@@ -9,7 +9,7 @@
  *   安装：install({ packageId: "postgres-123", type: "mcp" })
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 import type { TiangongMarket, MarketPackage } from '@/mcp/market/TiangongMarket';

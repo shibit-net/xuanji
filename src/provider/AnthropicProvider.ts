@@ -3,7 +3,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { Message, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, ContentBlock } from '@/core/types';
+import type { Message, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, ContentBlock } from '@/infrastructure/core-types';
 import { BaseLLMProvider } from './LLMProvider';
 import { logger } from '@/infrastructure/logger';
 

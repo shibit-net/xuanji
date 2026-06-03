@@ -6,14 +6,14 @@
  * agent_team 成员是执行单元，不能再次创建子 agent 或子 team。
  */
 
-import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
+import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/infrastructure/core-types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { HookListener } from '@/hooks/EventEmitter.js';
 import { BaseTool } from './BaseTool';
 import { TeamManager } from '@/agent/team/TeamManager';
 import type { TeamConfig, TeamMember, TeamStrategy } from '@/agent/team/types';
 import type { AgentRoleType } from '@/agent/SubAgentContext';
-import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
+import { TaskOrchestrator } from '@/agent/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 
 // ─── 成员输入类型 ────────────────────────────────────

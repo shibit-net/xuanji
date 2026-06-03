@@ -9,7 +9,7 @@ import type {
   Message,
   ToolSchema,
   AgentState,
-} from '@/core/types';
+} from '@/infrastructure/core-types';
 
 /**
  * 创建 mock LLM Provider

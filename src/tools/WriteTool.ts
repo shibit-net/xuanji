@@ -4,7 +4,7 @@
 
 import { dirname, resolve } from 'node:path';
 import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { DiffRenderer } from '@/shared/utils/DiffRenderer';
 import { logger } from '@/infrastructure/logger';

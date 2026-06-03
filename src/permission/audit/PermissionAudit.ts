@@ -4,7 +4,7 @@
 
 import type { IPermissionAudit, PermissionEvent, AuditFilter } from '../interfaces';
 import type { DecisionStore, AuditLogEntry } from '../DecisionStore';
-import { AuditLogger } from '@/core/telemetry';
+import { AuditLogger } from '@/infrastructure/telemetry';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'PermissionAudit' });

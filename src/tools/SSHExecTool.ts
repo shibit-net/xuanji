@@ -3,11 +3,11 @@
 // ============================================================
 
 import { BaseTool } from './BaseTool';
-import { SSHConnectionManager } from '@/core/ssh/SSHConnectionManager';
-import { SSHConfigStore } from '@/core/ssh/SSHConfigStore';
+import { SSHConnectionManager } from '@/infrastructure/ssh/SSHConnectionManager';
+import { SSHConfigStore } from '@/infrastructure/ssh/SSHConfigStore';
 import { getSSHConfig } from '@/infrastructure/config/RuntimeConfig';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SSHExecTool' });

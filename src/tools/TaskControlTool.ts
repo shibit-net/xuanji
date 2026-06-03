@@ -6,10 +6,10 @@
  * 避免 LLM 将"运行中 + 部分进度"误读为"部分失败"。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
-import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
-import type { TaskMember } from '@/core/task/types';
+import { TaskOrchestrator } from '@/agent/task/TaskOrchestrator';
+import type { TaskMember } from '@/agent/task/types';
 
 // ─── 格式化工具 ────────────────────────────────────
 

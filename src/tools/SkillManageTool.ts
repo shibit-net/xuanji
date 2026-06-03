@@ -8,7 +8,7 @@
  *  - 发布学习得到的 Skill 到天工坊
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 

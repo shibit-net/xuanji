@@ -10,7 +10,7 @@
  */
 
 import type { Message } from './types';
-import type { ILLMProvider, ProviderConfig } from '@/core/types';
+import type { ILLMProvider, ProviderConfig } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'session-summarizer' });

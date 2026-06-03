@@ -4,8 +4,8 @@
 // 使用 node-llama-cpp 运行 GGUF 格式模型，原生支持 x64/arm64
 // 首次运行自动从 HuggingFace 下载模型（通过全局 DownloadManager）
 
-import { logger } from '@/core/logger/index.js';
-import { DownloadManager } from '@/core/download/DownloadManager.js';
+import { logger } from '@/infrastructure/logger/index.js';
+import { DownloadManager } from '@/infrastructure/download/DownloadManager.js';
 import { getRuntimeConfig } from '@/infrastructure/config/RuntimeConfig.js';
 import type { DownloadSource } from '@/shared/types/config';
 import { homedir, platform } from 'node:os';

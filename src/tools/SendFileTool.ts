@@ -7,7 +7,7 @@
 import { existsSync, statSync, readFileSync } from 'fs';
 import { extname } from 'path';
 import { BaseTool } from './BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
 

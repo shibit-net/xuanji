@@ -2,9 +2,9 @@
 // Multi-Agent 系统 - 核心类型定义
 // ============================================================
 
-import type { AgentConfig, Message, TokenUsage } from '@/core/types';
-import type { IToolRegistry } from '@/core/types';
-import type { ILLMProvider } from '@/core/types';
+import type { AgentConfig, Message, TokenUsage } from '@/infrastructure/core-types';
+import type { IToolRegistry } from '@/infrastructure/core-types';
+import type { ILLMProvider } from '@/infrastructure/core-types';
 
 /**
  * Agent 角色类型

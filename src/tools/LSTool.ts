@@ -3,7 +3,7 @@
 // ============================================================
 
 import { BaseTool } from './BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, basename, relative } from 'node:path';
 import glob from 'fast-glob';

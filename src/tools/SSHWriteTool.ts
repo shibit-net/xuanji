@@ -3,10 +3,10 @@
 // ============================================================
 
 import { BaseTool } from './BaseTool';
-import { SSHConnectionManager } from '@/core/ssh/SSHConnectionManager';
-import { SSHConfigStore } from '@/core/ssh/SSHConfigStore';
+import { SSHConnectionManager } from '@/infrastructure/ssh/SSHConnectionManager';
+import { SSHConfigStore } from '@/infrastructure/ssh/SSHConfigStore';
 import { getSSHConfig } from '@/infrastructure/config/RuntimeConfig';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 
 const SENSITIVE_PATHS = [
   '/etc/shadow', '/etc/passwd', '/etc/ssh/', '/etc/sudoers',

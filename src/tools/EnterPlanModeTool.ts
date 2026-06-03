@@ -6,7 +6,7 @@
 // Plan Mode 下所有写操作被 ToolRegistry 拦截。
 //
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 
 /** Plan Mode 进入回调（由 UI 层注入） */

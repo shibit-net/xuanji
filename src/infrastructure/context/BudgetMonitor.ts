@@ -2,7 +2,7 @@ import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
 import { TokenCounter } from './TokenCounter';
 import type { BudgetStatus } from './types';
-import type { Message } from '@/core/types';
+import type { Message } from '@/infrastructure/core-types';
 
 const YELLOW_THRESHOLD = 0.7;
 const RED_THRESHOLD = 0.9;

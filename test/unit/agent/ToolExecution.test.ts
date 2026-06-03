@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentLoop } from '@/agent/AgentLoop';
-import type { ILLMProvider, StreamEvent, IToolRegistry, ToolResult, ToolSchema, AgentConfig } from '@/core/types';
+import type { ILLMProvider, StreamEvent, IToolRegistry, ToolResult, ToolSchema, AgentConfig } from '@/infrastructure/core-types';
 
 /**
  * 创建 mock Provider - 模拟返回 read_file 工具调用，然后是最终答案

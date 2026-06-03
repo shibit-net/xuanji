@@ -4,7 +4,7 @@
  * CJK 约 1.5 tokens/字，ASCII 约 0.25 tokens/字。
  */
 
-import type { Message, TokenUsage } from '@/core/types';
+import type { Message, TokenUsage } from '@/infrastructure/core-types';
 
 export class TokenCounter {
   private maxContextTokens: number;

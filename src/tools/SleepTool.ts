@@ -2,7 +2,7 @@
 // M6 工具系统 — SleepTool 等待指定时间
 // ============================================================
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { sleep } from '@/shared/utils/sleep';
 

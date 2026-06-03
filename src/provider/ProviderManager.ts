@@ -10,7 +10,7 @@
  * const provider = ProviderManager.getProvider(agentConfig.provider);
  */
 
-import type { ILLMProvider } from '@/core/types';
+import type { ILLMProvider } from '@/infrastructure/core-types';
 import { createProviderByAdapter } from './ProviderRegistry';
 import { logger } from '@/infrastructure/logger';
 

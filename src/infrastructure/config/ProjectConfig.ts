@@ -12,7 +12,7 @@
 
 import { join, dirname } from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import type { AppConfig } from '@/core/types';
+import type { AppConfig } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ProjectConfig' });

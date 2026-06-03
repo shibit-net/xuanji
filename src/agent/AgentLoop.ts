@@ -9,9 +9,9 @@
 //   interrupt/append 状态机, TaskCompletionHandler
 // ============================================================
 
-import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
+import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/infrastructure/core-types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
-import { ContextManager } from '@/core/context/ContextManager';
+import { ContextManager } from '@/infrastructure/context/ContextManager';
 import { StreamPipeline } from '@/provider/stream/StreamPipeline';
 import { ToolGateway } from '@/tools/ToolGateway';
 import { eventBus } from '@/infrastructure/events/EventBus';

@@ -7,7 +7,7 @@
 // - alias: 用户友好的名称映射
 // ============================================================
 
-import type { AppConfig, ILLMProvider } from '@/core/types';
+import type { AppConfig, ILLMProvider } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 import { AnthropicProvider } from './AnthropicProvider';
 import { OpenAIProvider } from './OpenAIProvider';

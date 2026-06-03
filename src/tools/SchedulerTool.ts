@@ -5,10 +5,10 @@
  * 支持一次性任务（精确到年月日+时分）和周期性任务（每天/每周/每月/每年）。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { getMemoryManager } from '@/memory/globals';
-import type { CronJob } from '@/core/scheduler/types';
+import type { CronJob } from '@/infrastructure/scheduler/types';
 
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 

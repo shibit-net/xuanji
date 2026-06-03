@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentLoop } from '@/agent/AgentLoop';
-import type { ILLMProvider, StreamEvent, IToolRegistry, ToolSchema, AgentConfig } from '@/core/types';
+import type { ILLMProvider, StreamEvent, IToolRegistry, ToolSchema, AgentConfig } from '@/infrastructure/core-types';
 
 /**
  * 创建 mock Provider - 模拟两个并行的 read_file 工具调用

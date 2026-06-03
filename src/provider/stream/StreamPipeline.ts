@@ -4,7 +4,7 @@
  * 职责：流读取 → 解析(text/thinking/tool_call/usage) → 分发 → 重试
  */
 
-import type { ILLMProvider, Message, ToolSchema, ToolCall, TokenUsage } from '@/core/types';
+import type { ILLMProvider, Message, ToolSchema, ToolCall, TokenUsage } from '@/infrastructure/core-types';
 import type { StreamEvent } from '@/shared/types/provider';
 import type { ProviderConfig } from '@/shared/types/provider';
 import { isContentTooLargeError } from '@/provider/RetryPolicy';

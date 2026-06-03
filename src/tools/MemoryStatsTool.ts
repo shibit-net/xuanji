@@ -6,7 +6,7 @@
  * 设计文档：docs/memory-system-part-3-integration.md §4
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { getMemoryManager } from '@/memory/globals';
 

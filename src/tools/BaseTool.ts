@@ -2,7 +2,7 @@
 // M6 工具系统 — 工具基类
 // ============================================================
 
-import type { Tool, ToolResult, JSONSchema } from '@/core/types';
+import type { Tool, ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 

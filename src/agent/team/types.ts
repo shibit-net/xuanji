@@ -5,7 +5,7 @@
  */
 
 import type { AgentRoleType } from '../SubAgentContext';
-import type { AgentState, ToolResult } from '@/core/types';
+import type { AgentState, ToolResult } from '@/infrastructure/core-types';
 
 /**
  * 团队成员定义

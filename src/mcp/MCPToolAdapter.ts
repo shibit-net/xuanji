@@ -6,7 +6,7 @@
  */
 
 import { BaseTool } from '@/tools/BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { getMCPManager } from './MCPManager';
 import type { MCPTool } from './types';
 

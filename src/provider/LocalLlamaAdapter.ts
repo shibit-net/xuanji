@@ -3,7 +3,7 @@
 // 封装 LocalModelLoader，实现 ILLMProvider 接口
 // ============================================================
 
-import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/core/types';
+import type { Message, ToolSchema, ProviderConfig, StreamEvent, ILLMProvider } from '@/infrastructure/core-types';
 import { LocalModelLoader } from '@/agent/dispatch/LocalModelLoader';
 import { logger } from '@/infrastructure/logger';
 import { homedir } from 'node:os';

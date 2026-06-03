@@ -7,7 +7,7 @@
 // 配置更新时调用 updateRuntimeConfig() 实现动态生效。
 //
 
-import type { AppConfig, ModelProvidersConfig } from '@/core/types';
+import type { AppConfig, ModelProvidersConfig } from '@/infrastructure/core-types';
 
 let _config: AppConfig | null = null;
 

@@ -5,7 +5,7 @@
  */
 import { logger } from '@/infrastructure/logger';
 import type { StreamEvent } from '@/shared/types/provider';
-import type { ToolCall, TokenUsage } from '@/core/types';
+import type { ToolCall, TokenUsage } from '@/infrastructure/core-types';
 import type { StreamParserConfig } from './types';
 import type { StreamCallbacks } from './StreamPipeline';
 

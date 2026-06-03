@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FileGuard } from '@/permission/guards/FileGuard';
 import { PolicyEngine } from '@/permission/policies/PolicyEngine';
-import type { PermissionConfig } from '@/core/types';
+import type { PermissionConfig } from '@/infrastructure/core-types';
 
 function createDefaultPolicy(overrides?: Partial<PermissionConfig>): PolicyEngine {
   return new PolicyEngine({

@@ -6,14 +6,14 @@
  * agent_team 成员不能调 task（成员是执行单元）。
  */
 
-import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
+import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/infrastructure/core-types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/agent/SubAgentContext';
 import type { SubAgentResult } from '@/agent/factory/AgentFactory';
 import { AgentFactory } from '@/agent/factory/AgentFactory';
-import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
+import { TaskOrchestrator } from '@/agent/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';

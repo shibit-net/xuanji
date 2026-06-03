@@ -3,7 +3,7 @@
 // ============================================================
 // 使用 MiddlewarePipeline 替代重复的横切逻辑
 
-import type { Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
+import type { Tool, ToolResult, ToolSchema, IToolRegistry } from '@/infrastructure/core-types';
 import type { IPermissionController } from '@/permission/types';
 import {
   MiddlewarePipeline,

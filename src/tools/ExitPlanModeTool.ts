@@ -5,7 +5,7 @@
 // LLM 调用此工具退出 Plan Mode，恢复写操作能力。
 //
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 
 /** Plan Mode 退出回调（由 UI 层注入） */

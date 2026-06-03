@@ -3,7 +3,7 @@
 // ============================================================
 
 import { BaseTool } from './BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import glob from 'fast-glob';
 import path from 'node:path';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';

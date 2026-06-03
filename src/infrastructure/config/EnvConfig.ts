@@ -2,7 +2,7 @@
 // M9 配置管理 — 环境变量配置
 // ============================================================
 
-import type { ProviderConfig } from '@/core/types';
+import type { ProviderConfig } from '@/infrastructure/core-types';
 
 /**
  * 环境变量键名映射

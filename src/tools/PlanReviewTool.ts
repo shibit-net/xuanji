@@ -10,7 +10,7 @@
 //
 
 import { BaseTool } from './BaseTool';
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import type { IPermissionController } from '@/permission/types';
 
 export class PlanReviewTool extends BaseTool {

@@ -3,7 +3,7 @@ import { ProjectConfig, deepMergeConfig, getByPath, setByPath } from '@/infrastr
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AppConfig } from '@/core/types';
+import type { AppConfig } from '@/infrastructure/core-types';
 
 // ============================================================
 // 工具函数测试

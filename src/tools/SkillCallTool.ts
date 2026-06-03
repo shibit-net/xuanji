@@ -8,7 +8,7 @@
  * 所有 Skill 统一为 prompt 类型，调用 skillRegistry.render() 返回渲染内容。
  */
 
-import type { ToolResult, JSONSchema } from '@/core/types';
+import type { ToolResult, JSONSchema } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { logger } from '@/infrastructure/logger';
 

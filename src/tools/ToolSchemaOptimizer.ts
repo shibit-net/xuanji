@@ -5,7 +5,7 @@
 // 动态简化工具 schema，在不损失功能理解的前提下减少 token 消耗
 // 支持三种模式：compact（极简）、detailed（详细）、auto（自动）
 
-import type { ToolSchema, JSONSchema } from '@/core/types';
+import type { ToolSchema, JSONSchema } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ToolSchemaOptimizer' });

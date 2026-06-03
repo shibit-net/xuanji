@@ -4,7 +4,7 @@
  * 让 LLM 查询系统中所有可用的 Agent，帮助做出更好的决策。
  */
 
-import type { JSONSchema, ToolResult } from '@/core/types';
+import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import type { AgentRegistry } from '@/agent/AgentRegistry';
 import { BaseTool } from './BaseTool';
 

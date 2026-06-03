@@ -4,7 +4,7 @@
  * 职责：provider 实例复用（引用计数 + LRU）、故障转移、速率限制、健康检查。
  */
 
-import type { ILLMProvider, ProviderConfig } from '@/core/types';
+import type { ILLMProvider, ProviderConfig } from '@/infrastructure/core-types';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ProviderPool' });

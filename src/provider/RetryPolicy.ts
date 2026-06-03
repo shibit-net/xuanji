@@ -2,7 +2,7 @@
 // M7 LLM Provider — 重试策略
 // ============================================================
 
-import type { RetryConfig } from '@/core/types';
+import type { RetryConfig } from '@/infrastructure/core-types';
 import { sleep } from '@/shared/utils/sleep';
 
 // 重新导出类型供外部使用
