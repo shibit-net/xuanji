@@ -4,7 +4,7 @@
  * 设计文档：docs/platform-integration-design.md §9.3
  */
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { X, QrCode, MessageCircle, MessageSquare, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore } from '../stores/platformStore';
@@ -48,7 +48,7 @@ const PLATFORM_INFO: Array<{
   },
 ];
 
-export default function PlatformSetupDialog() {
+function PlatformSetupDialog() {
   const [selected, setSelected] = useState<PlatformType | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [connecting, setConnecting] = useState(false);
@@ -250,3 +250,5 @@ export default function PlatformSetupDialog() {
     </div>
   );
 }
+
+export default memo(PlatformSetupDialog);

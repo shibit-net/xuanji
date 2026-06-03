@@ -5,7 +5,7 @@
  * 数据源：平台消息（platformStore）+ agent 消息（ConversationHub）。
  */
 
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
 import { t } from '@/core/i18n';
 
-export default function RemoteChatArea() {
+function RemoteChatArea() {
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
   const sessions = usePlatformStore((s) => s.sessions);
   const messages = usePlatformStore((s) => s.messages);
@@ -201,3 +201,5 @@ export default function RemoteChatArea() {
     </div>
   );
 }
+
+export default memo(RemoteChatArea);

@@ -2,7 +2,7 @@
 // TodoPanel - 任务列表面板
 // ============================================================
 
-import React from 'react';
+import React, { memo } from 'react';
 import { CheckCircle2, Circle, Loader2, ChevronDown, ChevronUp, AlertCircle, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useExecutionStore } from '../stores/executionStore';
@@ -15,7 +15,7 @@ const STATUS_ORDER: Record<string, number> = {
   completed: 3,
 };
 
-export default function TodoPanel() {
+function TodoPanel() {
   const todos = useExecutionStore((state) => state.todos);
   const [collapsed, setCollapsed] = React.useState(true); // 默认收起
   const [archivedCount, setArchivedCount] = React.useState(0);
@@ -229,3 +229,5 @@ export default function TodoPanel() {
     </div>
   );
 }
+
+export default memo(TodoPanel);

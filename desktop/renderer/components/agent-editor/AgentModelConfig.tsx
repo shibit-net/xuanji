@@ -2,6 +2,7 @@
 // AgentModelConfig - Agent 模型与 Provider 配置区块
 // ============================================================
 
+import { memo } from 'react';
 import { Download, Trash2 } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { useToast } from '../Toast';
@@ -35,7 +36,7 @@ interface AgentModelConfigProps {
   deleteLocalModel: (filename: string) => void;
 }
 
-export default function AgentModelConfig({
+function AgentModelConfig({
   config,
   setConfig,
   errors,
@@ -279,3 +280,5 @@ export default function AgentModelConfig({
     </>
   );
 }
+
+export default memo(AgentModelConfig);
