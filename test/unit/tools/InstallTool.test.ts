@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { InstallTool } from '@/core/tools/InstallTool';
+import { InstallTool } from '@/tools/InstallTool';
 import type { TiangongMarket, MarketPackage } from '@/mcp/market/TiangongMarket';
 import type { MCPInstaller, InstallResult } from '@/mcp/market/MCPInstaller';
 import type { SkillInstaller, SkillInstallResult } from '@/core/skills/SkillInstaller';

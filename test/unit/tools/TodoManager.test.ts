@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TodoManager } from '@/core/tools/TodoManager';
-import { TodoCreateTool, TodoListTool, TodoUpdateTool, setTodoManager } from '@/core/tools/TodoTool';
+import { TodoManager } from '@/tools/TodoManager';
+import { TodoCreateTool, TodoListTool, TodoUpdateTool, setTodoManager } from '@/tools/TodoTool';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { unlinkSync, existsSync } from 'node:fs';

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { NotebookEditTool } from '@/core/tools/NotebookEditTool';
+import { NotebookEditTool } from '@/tools/NotebookEditTool';
 import { writeFile, unlink, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

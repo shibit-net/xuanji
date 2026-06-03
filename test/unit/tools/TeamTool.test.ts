@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TeamTool } from '@/core/tools/TeamTool';
+import { TeamTool } from '@/tools/TeamTool';
 import type { ILLMProvider, AgentConfig, IToolRegistry } from '@/core/types';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 import type { ProviderManager } from '@/core/providers/ProviderManager';

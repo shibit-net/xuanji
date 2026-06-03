@@ -5,7 +5,7 @@
  * 将 MCP 工具适配为璇玑的 BaseTool 接口
  */
 
-import { BaseTool } from '@/core/tools/BaseTool';
+import { BaseTool } from '@/tools/BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { getMCPManager } from './MCPManager';
 import type { MCPTool } from './types';

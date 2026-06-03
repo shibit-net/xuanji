@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TeamTool } from '@/core/tools/TeamTool';
+import { TeamTool } from '@/tools/TeamTool';
 import {
   createIntelligentMockProvider,
   createMockToolRegistry,

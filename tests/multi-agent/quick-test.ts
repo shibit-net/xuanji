@@ -4,13 +4,13 @@
  * 运行最关键的测试用例来快速验证功能
  */
 
-import { OrchestrateTool } from '@/core/tools/OrchestrateTool';
-import { PipelineTool } from '@/core/tools/PipelineTool';
-import { QuickTeamTool } from '@/core/tools/QuickTeamTool';
+import { OrchestrateTool } from '@/tools/OrchestrateTool';
+import { PipelineTool } from '@/tools/PipelineTool';
+import { QuickTeamTool } from '@/tools/QuickTeamTool';
 import { ProviderManager } from '@/core/providers/ProviderManager';
 import { AgentRegistry } from '@/core/agent/AgentRegistry';
 import { loadConfig } from '@/core/config';
-import { getToolRegistry } from '@/core/tools';
+import { getToolRegistry } from '@/tools';
 
 async function quickTest() {
   console.log('🚀 Quick Multi-Agent Test\n');

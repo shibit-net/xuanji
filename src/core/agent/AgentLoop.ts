@@ -13,7 +13,7 @@ import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, 
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { ContextManager } from '@/core/context/ContextManager';
 import { StreamPipeline } from '@/core/stream/StreamPipeline';
-import { ToolGateway } from '@/core/tools/ToolGateway';
+import { ToolGateway } from '@/tools/ToolGateway';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { logger } from '@/core/logger';

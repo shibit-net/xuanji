@@ -9,13 +9,13 @@
  * 输出：详细的性能数据、执行结果、问题报告
  */
 
-import { OrchestrateTool } from '@/core/tools/OrchestrateTool';
-import { PipelineTool } from '@/core/tools/PipelineTool';
-import { QuickTeamTool } from '@/core/tools/QuickTeamTool';
+import { OrchestrateTool } from '@/tools/OrchestrateTool';
+import { PipelineTool } from '@/tools/PipelineTool';
+import { QuickTeamTool } from '@/tools/QuickTeamTool';
 import { ProviderManager } from '@/core/providers/ProviderManager';
 import { AgentRegistry } from '@/core/agent/AgentRegistry';
 import { loadConfig } from '@/core/config';
-import { getToolRegistry } from '@/core/tools';
+import { getToolRegistry } from '@/tools';
 
 // ============================================================================
 // 测试结果数据结构

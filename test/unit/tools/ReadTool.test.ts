@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ReadTool } from '@/core/tools/ReadTool';
+import { ReadTool } from '@/tools/ReadTool';
 import { writeFile, readFile, mkdir, rm, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

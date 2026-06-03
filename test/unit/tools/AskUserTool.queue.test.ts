@@ -7,8 +7,8 @@
  */
 
 import { describe, test, beforeEach, expect, vi } from 'vitest';
-import { AskUserTool } from '@/core/tools/AskUserTool';
-import type { AskUserRequest, AskUserHandler } from '@/core/tools/AskUserTool';
+import { AskUserTool } from '@/tools/AskUserTool';
+import type { AskUserRequest, AskUserHandler } from '@/tools/AskUserTool';
 import type { IPermissionController } from '@/permission/types';
 
 /** 创建一个带真实 Promise 链串行化的 mock PermissionController */

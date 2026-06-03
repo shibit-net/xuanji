@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ListAgentsTool } from '@/core/tools/ListAgentsTool';
+import { ListAgentsTool } from '@/tools/ListAgentsTool';
 import type { ConfigurableAgentConfig } from '@/core/agent/types';
 
 // ============================================================

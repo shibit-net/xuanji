@@ -34,7 +34,7 @@ import type { SubAgentResult } from '../factory/AgentFactory';
 import { AgentFactory } from '../factory/AgentFactory';
 import { WorktreeManager, type WorktreeInfo } from '../WorktreeManager';
 import { logger } from '@/core/logger';
-import { TeamContext as TeamContextStore } from '@/core/tools/TeamContext';
+import { TeamContext as TeamContextStore } from '@/tools/TeamContext';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 const log = logger.child({ module: 'TeamManager' });

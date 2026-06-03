@@ -5,7 +5,7 @@
  * 提供互联网搜索能力，支持 Tavily 和 Brave Search API
  */
 
-import { BaseTool } from '@/core/tools/BaseTool';
+import { BaseTool } from '@/tools/BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { MemoryCache } from '../cache';
 

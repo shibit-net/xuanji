@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { PersistentShell } from '@/core/tools/PersistentShell';
+import { PersistentShell } from '@/tools/PersistentShell';
 
 describe('PersistentShell', () => {
   let shell: PersistentShell;

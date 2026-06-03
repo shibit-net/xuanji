@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PlanReviewTool } from '@/core/tools/PlanReviewTool';
+import { PlanReviewTool } from '@/tools/PlanReviewTool';
 import type { IPermissionController, PlanReviewResult } from '@/permission/types';
 
 function createMockController(reviewResult: PlanReviewResult): IPermissionController {

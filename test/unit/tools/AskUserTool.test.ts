@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AskUserTool, type AskUserHandler, type AskUserRequest } from '@/core/tools/AskUserTool';
+import { AskUserTool, type AskUserHandler, type AskUserRequest } from '@/tools/AskUserTool';
 
 describe('AskUserTool', () => {
   let tool: AskUserTool;

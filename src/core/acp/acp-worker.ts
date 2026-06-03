@@ -11,7 +11,7 @@ import type { AcpRequest, AcpRunRequest, AcpMessage, AcpRunResult, AcpEvent } fr
 import { AgentLoop } from '@/core/agent/AgentLoop';
 import { AgentFactory } from '@/core/agent/factory/AgentFactory';
 import { getConfigManager } from '@/core/config/ConfigManager';
-import { createDefaultRegistry } from '@/core/tools/ToolRegistry';
+import { createDefaultRegistry } from '@/tools/ToolRegistry';
 import { logger } from '@/core/logger';
 
 const log = logger.child({ module: 'ACPWorker' });

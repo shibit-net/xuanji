@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ToolRegistry, createDefaultRegistry } from '@/core/tools/ToolRegistry';
+import { ToolRegistry, createDefaultRegistry } from '@/tools/ToolRegistry';
 import type { Tool, ToolResult, JSONSchema } from '@/core/types';
 
 /** 创建一个 mock 工具 */

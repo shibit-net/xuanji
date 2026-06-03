@@ -18,7 +18,7 @@ import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';
 import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
-import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/core/tools/FilteredToolRegistry';
+import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/tools/FilteredToolRegistry';
 
 const log = logger.child({ module: 'AgentFactory' });
 

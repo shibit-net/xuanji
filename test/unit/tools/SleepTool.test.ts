@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SleepTool } from '@/core/tools/SleepTool';
+import { SleepTool } from '@/tools/SleepTool';
 
 describe('SleepTool', () => {
   const tool = new SleepTool();

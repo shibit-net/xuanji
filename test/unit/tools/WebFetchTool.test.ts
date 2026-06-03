@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WebFetchTool } from '@/core/tools/WebFetchTool';
+import { WebFetchTool } from '@/tools/WebFetchTool';
 
 describe('WebFetchTool', () => {
   let tool: WebFetchTool;

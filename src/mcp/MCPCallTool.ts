@@ -7,7 +7,7 @@
  * 可用 MCP 工具的 schema 通过 system prompt 注入。
  */
 
-import { BaseTool } from '@/core/tools/BaseTool';
+import { BaseTool } from '@/tools/BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { getMCPManager } from './MCPManager';
 

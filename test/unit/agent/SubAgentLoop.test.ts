@@ -4,8 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SubAgentContext, MAX_NESTING_DEPTH, ALWAYS_RESTRICTED_TOOLS } from '@/core/agent/SubAgentContext';
-import { TaskTool } from '@/core/tools/TaskTool';
-import { ToolRegistry } from '@/core/tools/ToolRegistry';
+import { TaskTool } from '@/tools/TaskTool';
+import { ToolRegistry } from '@/tools/ToolRegistry';
 import type { AgentConfig, Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
 import type { ProviderManager } from '@/core/providers/ProviderManager';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';

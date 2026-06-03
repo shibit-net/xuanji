@@ -11,7 +11,7 @@
  * - 全套 SSRF 防护
  */
 
-import { BaseTool } from '@/core/tools/BaseTool';
+import { BaseTool } from '@/tools/BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
 import { MemoryCache } from '../cache';
 import type { SearchEngineAdapter, SearchOptions, SearchResult, SearchProvider } from './types';

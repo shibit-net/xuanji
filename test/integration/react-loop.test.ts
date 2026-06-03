@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentLoop } from '@/core/agent/AgentLoop';
-import { ToolRegistry } from '@/core/tools/ToolRegistry';
+import { ToolRegistry } from '@/tools/ToolRegistry';
 import type {
   ILLMProvider,
   StreamEvent,

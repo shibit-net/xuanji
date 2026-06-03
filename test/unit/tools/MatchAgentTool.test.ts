@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MatchAgentTool } from '@/core/tools/MatchAgentTool';
+import { MatchAgentTool } from '@/tools/MatchAgentTool';
 
 // EmbeddingProvider 接口（与 src 保持一致）
 interface EmbeddingProvider {

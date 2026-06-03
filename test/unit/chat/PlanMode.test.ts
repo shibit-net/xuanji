@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ToolRegistry, createDefaultRegistry } from '@/core/tools/ToolRegistry';
-import { BaseTool } from '@/core/tools/BaseTool';
+import { ToolRegistry, createDefaultRegistry } from '@/tools/ToolRegistry';
+import { BaseTool } from '@/tools/BaseTool';
 import type { JSONSchema, ToolResult } from '@/core/types';
 
 /** Mock 只读工具 */
