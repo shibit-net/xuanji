@@ -909,7 +909,7 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
               onPaste={handlePaste}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
-              placeholder={isRemote ? '远端会话仅支持查看' : placeholder}
+              placeholder={isRemote ? t('platform.panel.readonly_hint') : placeholder}
               disabled={isRemote || isSending}
               className="flex-1 resize-none max-h-[150px]"
               rows={1}

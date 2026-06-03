@@ -989,6 +989,10 @@ const zh: Messages = {
   'skills.recommend_label': '{count} 推荐',
   'skills.comment_label': '{count} 评论',
   'skills.all_categories': '全部分类',
+
+  // ── Download Queue ──
+  'download_queue.title': '下载队列',
+  'download_queue.clear_completed': '清除已完成',
   'skills.install_permission_denied': '无安装权限',
   'skills.uninstalling': '正在卸载...',
   'skills.installing': '正在安装...',
@@ -1170,6 +1174,7 @@ const zh: Messages = {
 
   // ── Platform Session Panel ──
   'platform.panel.select_hint': '选择一个远端会话查看详情',
+  'platform.panel.readonly_hint': '远端会话仅支持查看',
   'platform.panel.select_hint_more': '侧边栏点击 📡 图标进入',
   'platform.panel.status_online': '🟢 已连接',
   'platform.panel.status_connecting': '🟡 连接中',
@@ -2240,6 +2245,10 @@ const en: Messages = {
   'skills.recommend_label': '{count} recommends',
   'skills.comment_label': '{count} comments',
   'skills.all_categories': 'All Categories',
+
+  // ── Download Queue ──
+  'download_queue.title': 'Download Queue',
+  'download_queue.clear_completed': 'Clear Completed',
   'skills.install_permission_denied': 'Permission Denied',
   'skills.uninstalling': 'Uninstalling...',
   'skills.installing': 'Installing...',
@@ -2492,6 +2501,7 @@ const en: Messages = {
   // ── Platform Session Panel ──
   'platform.panel.select_hint': 'Select a remote session to view details',
   'platform.panel.select_hint_more': 'Click 📡 icon in the sidebar',
+  'platform.panel.readonly_hint': 'Remote session view-only',
   'platform.panel.status_online': '🟢 Online',
   'platform.panel.status_connecting': '🟡 Connecting',
   'platform.panel.status_offline': '⚫ Offline',

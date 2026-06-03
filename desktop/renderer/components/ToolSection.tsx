@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../stores/messageStore';
 import { formatDuration } from './flow/hooks';
+import { t } from '@/core/i18n';
 
 interface ToolSectionProps {
   tools: ToolCall[];
@@ -32,9 +33,9 @@ function getStatusIcon(status: ToolCall['status']) {
 }
 
 function getInputPreview(input?: Record<string, unknown>): string {
-  if (!input) return '无参数';
+  if (!input) return t('toolsection.no_params');
   const keys = Object.keys(input);
-  if (keys.length === 0) return '无参数';
+  if (keys.length === 0) return t('toolsection.no_params');
 
   const preview: string[] = [];
   const importantKeys = ['file_path', 'path', 'pattern', 'command', 'content', 'name'];

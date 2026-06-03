@@ -55,6 +55,7 @@ function PlatformSetupDialog() {
   const [qrCodeImg, setQrCodeImg] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [scanStatus, setScanStatus] = useState<string>('');
+  const [scanFailed, setScanFailed] = useState(false);
   const { setSetupDialogOpen, addSession } = usePlatformStore();
 
   const handleSelect = (type: PlatformType) => {
@@ -70,6 +71,7 @@ function PlatformSetupDialog() {
   const loadWechatQR = async () => {
     setQrCodeImg(null);
     setQrCodeUrl(null);
+    setScanFailed(false);
     setScanStatus(t('platform.fetching_qr'));
     try {
       const result = await window.electron.platformWechatQR();
@@ -80,10 +82,12 @@ function PlatformSetupDialog() {
         // 自动开始轮询
         startWechatScan(result.qrcodeUrl);
       } else {
-        setScanStatus(`获取二维码失败: ${result.error || '未知错误'}`);
+        setScanFailed(true);
+        setScanStatus(t('platform.qr_failed', { error: result.error || t('platform.unknown_error') }));
       }
     } catch (err) {
-      setScanStatus(`获取二维码失败: ${err instanceof Error ? err.message : String(err)}`);
+      setScanFailed(true);
+      setScanStatus(t('platform.qr_failed', { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -100,12 +104,14 @@ function PlatformSetupDialog() {
         }
         setSetupDialogOpen(false);
       } else {
-        setScanStatus(`扫码失败: ${result.error || '未知错误'}`);
+        setScanFailed(true);
+        setScanStatus(t('platform.scan_failed', { error: result.error || t('platform.unknown_error') }));
         // 允许重新获取二维码
         setConnecting(false);
       }
     } catch (err) {
-      setScanStatus(`扫码失败: ${err instanceof Error ? err.message : String(err)}`);
+      setScanFailed(true);
+      setScanStatus(t('platform.scan_failed', { error: err instanceof Error ? err.message : String(err) }));
       setConnecting(false);
     }
   };
@@ -134,10 +140,10 @@ function PlatformSetupDialog() {
         }
         setSetupDialogOpen(false);
       } else {
-        alert(`连接失败: ${result.error || '未知错误'}`);
+        alert(t('platform.connect_failed', { error: result.error || t('platform.unknown_error') }));
       }
     } catch (err) {
-      alert(`连接失败: ${err instanceof Error ? err.message : String(err)}`);
+      alert(t('platform.connect_failed', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setConnecting(false);
     }
@@ -207,10 +213,10 @@ function PlatformSetupDialog() {
                   <p className="text-sm text-muted-foreground mb-2">
                     {t('platform.scan_prompt')}
                   </p>
-                  <p className={`text-xs mb-4 ${connecting ? 'text-blue-500 animate-pulse' : scanStatus.includes('失败') ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  <p className={`text-xs mb-4 ${connecting ? 'text-blue-500 animate-pulse' : scanFailed ? 'text-red-500' : 'text-muted-foreground'}`}>
                     {scanStatus || t('platform.scan_ready')}
                   </p>
-                  {!connecting && scanStatus.includes('失败') && (
+                  {!connecting && scanFailed && (
                     <Button onClick={loadWechatQR} size="sm" variant="outline">
                       {t('platform.regenerate_qr')}
                     </Button>

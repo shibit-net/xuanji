@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import clsx from 'clsx';
+import { t } from '@/core/i18n';
 
 interface DownloadTask {
   id: string;
@@ -110,7 +111,7 @@ export const DownloadQueue: React.FC = () => {
       >
         <div className="flex items-center gap-2">
           <span className="text-xs text-foreground/70">
-            {expanded ? '▼' : '▶'} 下载队列
+            {expanded ? '▼' : '▶'} {t('download_queue.title')}
           </span>
           {activeTasks.length > 0 && (
             <span className="text-xs text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded-full">
@@ -128,7 +129,7 @@ export const DownloadQueue: React.FC = () => {
               handleClearFinished();
             }}
           >
-            清除已完成
+            {t('download_queue.clear_completed')}
           </Button>
         )}
       </div>

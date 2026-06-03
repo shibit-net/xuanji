@@ -113,7 +113,7 @@ function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
                 <span className="text-muted-foreground">
                   {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                 </span>{' '}
-                <span className="font-medium">{msg.role === 'user' ? '用户' : 'Agent'}:</span>{' '}
+                <span className="font-medium">{msg.role === 'user' ? t('platform.panel.label_user') : t('platform.panel.label_agent')}:</span>{' '}
                 <span className="truncate block">{msg.text.slice(0, 50)}{msg.text.length > 50 ? '...' : ''}</span>
               </div>
             ))}
