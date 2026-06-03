@@ -1,5 +1,11 @@
 // ============================================================
 // 媒体生成适配器 — 火山引擎豆包 (Ark)
+//
+// 模型: Seedream 4.0-5.0 (图片) + Seedance 1.0-2.0 (视频)
+//
+// 图片 API: POST {baseURL}/images/generations (OpenAI 兼容)
+// 视频 API: POST {baseURL}/contents/generations/tasks (异步任务 + 轮询)
+// 音频 API: POST {baseURL}/audio/speech (OpenAI TTS 兼容)
 // ============================================================
 
 import type { ToolMediaGenConfig } from '@/shared/types/config';
@@ -20,32 +26,76 @@ export class ArkAdapter implements PlatformAdapter {
   readonly name = 'ark';
   readonly defaultBaseURL = 'https://ark.cn-beijing.volces.com/api/v3';
 
+  // ============================================================
+  // 图片生成
+  // ============================================================
+
   async generateImage(
     input: MediaGenInput,
     cfg: ToolMediaGenConfig,
   ): Promise<ContentBlockResult[]> {
     const baseURL = cfg.baseURL || this.defaultBaseURL;
-    const n = Math.max(1, Math.min(input.n || 1, 4));
-    const body = {
+    const n = Math.max(1, Math.min(input.n || 1, 14));
+    const size = input.size || cfg.defaultSize || '2K';
+    const fmt = input.output_format || 'png';
+
+    // 构建 extra_body — 所有 Seedream 特定参数
+    const extraBody: Record<string, unknown> = {
+      watermark: input.watermark ?? cfg.watermark ?? false,
+    };
+
+    // output_format: 仅 5.0 支持 png，其余 jpeg
+    if (fmt) {
+      extraBody.output_format = fmt;
+    }
+
+    // sequential_image_generation — 组图模式
+    if (input.sequential_image_generation === 'auto') {
+      extraBody.sequential_image_generation = 'auto';
+      const maxImgs = input.max_images || n;
+      extraBody.sequential_image_generation_options = { max_images: maxImgs };
+    } else if (n > 1) {
+      // n > 1 时自动启用组图模式
+      extraBody.sequential_image_generation = 'auto';
+      extraBody.sequential_image_generation_options = { max_images: n };
+    }
+
+    // 参考图: image (新) 优先，reference_images (旧) 作为回退
+    const refImages = input.image
+      ? (Array.isArray(input.image) ? input.image : [input.image])
+      : input.reference_images;
+
+    if (refImages && refImages.length > 0) {
+      // Seedream 最多 14 张参考图
+      extraBody.image = refImages.slice(0, 14);
+    }
+
+    // prompt 优化模式（仅 4.0 支持 fast）
+    if (input.optimize_prompt) {
+      extraBody.optimize_prompt_options = { mode: input.optimize_prompt };
+    }
+
+    // 联网搜索（仅 5.0 lite）
+    if (input.web_search) {
+      extraBody.tools = [{ type: 'web_search' }];
+    }
+
+    // response_format
+    if (input.response_format) {
+      extraBody.response_format = input.response_format;
+    } else {
+      // 默认 b64_json，方便后续保存到磁盘
+      extraBody.response_format = 'b64_json';
+    }
+
+    const body: Record<string, unknown> = {
       model: input.model || cfg.model,
       prompt: input.prompt,
-      size: resolveSize(input.size || cfg.defaultSize),
+      size: resolveSize(size),
       n,
-      response_format: 'b64_json',
-      extra_body: {
-        watermark: cfg.watermark ?? false,
-        output_format: input.output_format || 'png',
-        ...(n > 1
-          ? {
-              sequential_image_generation: 'auto',
-              sequential_image_generation_options: { max_images: n },
-            }
-          : {}),
-        ...(input.reference_images?.length
-          ? { image: input.reference_images.slice(0, 2) }
-          : {}),
-      },
+      ...extraBody,
     };
+
     const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
     return parseB64Images(data);
   }
@@ -67,6 +117,7 @@ export class ArkAdapter implements PlatformAdapter {
       response_format: 'b64_json',
       extra_body: {
         image: [input.source_image],
+        watermark: input.watermark ?? cfg.watermark ?? false,
         ...(input.mask ? { mask: input.mask } : {}),
       },
     };
@@ -80,27 +131,64 @@ export class ArkAdapter implements PlatformAdapter {
 
   /**
    * 构建视频生成请求 body
+   *
+   * 直接使用 API 顶层参数（新方式，推荐），而非 content_config
+   * 参考: https://www.volcengine.com/docs/82379/2298881
    */
   private buildVideoBody(input: MediaGenInput, cfg: ToolMediaGenConfig): Record<string, unknown> {
     const model = input.model || cfg.model || 'doubao-seedance-2.0';
-    const duration = input.duration || cfg.defaultDuration || 5;
+    const content: any[] = [{ type: 'text', text: input.prompt }];
 
-    const createBody: Record<string, unknown> = {
+    // reference_images → 拼入 content 数组
+    if (input.reference_images?.length) {
+      for (const img of input.reference_images) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: img },
+        });
+      }
+    }
+
+    const body: Record<string, unknown> = {
       model,
-      content: [{ type: 'text', text: input.prompt }],
-      content_config: { duration, generate_audio: true },
+      content,
     };
 
-    if (input.reference_images?.length) {
-      createBody.content = [
-        ...(createBody.content as any[]),
-        ...input.reference_images.slice(0, 1).map((url) => ({
-          type: 'image_url',
-          image_url: { url },
-        })),
-      ];
+    // 视频输出规格（新方式：顶层参数）
+    if (input.resolution) body.resolution = input.resolution;
+    if (input.ratio) body.ratio = input.ratio;
+    if (input.duration !== undefined) body.duration = input.duration;
+    else if (cfg.defaultDuration !== undefined) body.duration = cfg.defaultDuration;
+    else body.duration = 15; // 默认 15s，充分利用模型能力
+
+    // 质量控制
+    if (input.seed !== undefined) body.seed = input.seed;
+    if (input.watermark !== undefined) body.watermark = input.watermark;
+    else if (cfg.watermark !== undefined) body.watermark = cfg.watermark;
+    else body.watermark = false;
+
+    // 音频
+    if (input.generate_audio !== undefined) body.generate_audio = input.generate_audio;
+
+    // 尾帧返回 — 连续生成的核心
+    if (input.return_last_frame !== undefined) body.return_last_frame = input.return_last_frame;
+
+    // 相机控制
+    if (input.camera_fixed !== undefined) body.camera_fixed = input.camera_fixed;
+
+    // 样片模式
+    if (input.draft) body.draft = true;
+
+    // 离线推理
+    if (input.service_tier) body.service_tier = input.service_tier;
+    if (input.execution_expires_after !== undefined) {
+      body.execution_expires_after = input.execution_expires_after;
     }
-    return createBody;
+
+    // Webhook 回调
+    if (input.callback_url) body.callback_url = input.callback_url;
+
+    return body;
   }
 
   /**
@@ -121,6 +209,9 @@ export class ArkAdapter implements PlatformAdapter {
       throw new Error('视频生成完成但未返回有效 URL');
     }
 
+    // 提取尾帧 URL（如果请求了 return_last_frame）
+    const lastFrameUrl: string | undefined = result?.content?.last_frame_url;
+
     return {
       contentBlocks: [{
         type: 'video',
@@ -129,6 +220,7 @@ export class ArkAdapter implements PlatformAdapter {
         url: videoUrl,
       }],
       videoUrl,
+      ...(lastFrameUrl ? { lastFrameUrl } : {}),
     };
   }
 
@@ -216,6 +308,10 @@ export class ArkAdapter implements PlatformAdapter {
     }
     throw new Error(`视频生成超时 (${timeout / 1000}s)`);
   }
+
+  // ============================================================
+  // 文生音频 / TTS 语音合成
+  // ============================================================
 
   /**
    * 文生音频 / TTS 语音合成

@@ -1,5 +1,14 @@
 // ============================================================
 // 媒体生成工具 — 文生图 (generate_image)
+//
+// 底层模型: Doubao Seedream 4.0 / 4.5 / 5.0 lite
+// API: POST /api/v3/images/generations (OpenAI 兼容)
+//
+// 核心能力:
+//   文生图 — prompt → 图片
+//   图生图 — prompt + image → 编辑/融合图片
+//   组图生成 — sequential_image_generation:"auto" → 一组连贯图片
+//   多图融合 — image[] → 融合多张参考图生成新图
 // ============================================================
 
 import { mkdirSync, writeFileSync } from 'fs';
@@ -21,7 +30,9 @@ export class GenerateImageTool extends AbstractMediaGenTool {
   readonly mediaType = 'image' as const;
   readonly displayUnit = '张';
   readonly description =
-    'Generate images from text descriptions. Required: prompt. Optional: size, n, reference_images.';
+    'Generate images from text descriptions. Supports text-to-image, image-to-image (edit/fusion), ' +
+    'and sequential multi-image (storyboard/group) generation. ' +
+    'Required: prompt. Optional: size, image, n, sequential_image_generation, max_images, output_format, response_format, model, seed, watermark, web_search, optimize_prompt.';
 
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -29,30 +40,67 @@ export class GenerateImageTool extends AbstractMediaGenTool {
     properties: {
       prompt: {
         type: 'string',
-        description: 'Text description of the desired image',
+        description: 'Text description of the desired image. Supports natural language or structured descriptions. Max ~300 Chinese characters or ~600 English words.',
+      },
+      model: {
+        type: 'string',
+        description: 'Model name override (e.g. doubao-seedream-5-0-260128). Default from config.',
       },
       size: {
         type: 'string',
-        enum: ['1K', '2K', '4K'],
-        description: 'Image resolution (default: config defaultSize or 2K)',
+        description: 'Image resolution: "1K" (only 4.0), "2K", "3K" (only 5.0), "4K", or "WIDTHxHEIGHT" (e.g. "2048x2048"). Default from config or 2K.',
       },
       n: {
         type: 'integer',
-        description: 'Number of images to generate (1-4, default: 1)',
+        description: 'Number of images to generate. When sequential_image_generation is "auto", this is handled by max_images instead. Default: 1.',
+      },
+      image: {
+        description: 'Reference image(s) for image-to-image or multi-image fusion. Can be a single URL/base64 string, or an array of up to 14 strings. Total images (reference + generated) must not exceed 15.',
+        anyOf: [
+          { type: 'string' },
+          { type: 'array', items: { type: 'string' } },
+        ],
       },
       reference_images: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Reference images as base64 strings (max 2)',
+        description: '(Legacy) Reference images as base64 strings. Prefer using the "image" parameter for broader support.',
+      },
+      sequential_image_generation: {
+        type: 'string',
+        enum: ['disabled', 'auto'],
+        description: 'Sequential/storyboard mode. "auto" generates a coherent set of images from a single prompt. Use with max_images to control count. Default: "disabled".',
+      },
+      max_images: {
+        type: 'integer',
+        description: 'Number of images in sequential mode. Only effective when sequential_image_generation is "auto".',
       },
       output_format: {
         type: 'string',
-        enum: ['png', 'jpg', 'webp'],
-        description: 'Output image format (default: png)',
+        enum: ['png', 'jpeg'],
+        description: 'Output image format. Only 5.0 supports png; 4.0/4.5 always output jpeg. Default: png.',
       },
-      model: {
+      response_format: {
         type: 'string',
-        description: 'Model name override',
+        enum: ['url', 'b64_json'],
+        description: 'Response format: "url" returns download links, "b64_json" returns base64 encoded data. Default: "url".',
+      },
+      seed: {
+        type: 'integer',
+        description: 'Random seed for reproducible results. Same prompt + seed = same output.',
+      },
+      watermark: {
+        type: 'boolean',
+        description: 'Whether to add "AI生成" watermark. Default: false.',
+      },
+      web_search: {
+        type: 'boolean',
+        description: 'Enable web search for real-time information (weather, products, etc.). Only supported by Seedream 5.0 lite. Default: false.',
+      },
+      optimize_prompt: {
+        type: 'string',
+        enum: ['standard', 'fast'],
+        description: 'Prompt optimization mode. "standard" for quality (default), "fast" for speed. Only Seedream 4.0 supports "fast".',
       },
     },
   };
@@ -72,7 +120,16 @@ export class GenerateImageTool extends AbstractMediaGenTool {
     for (let i = 0; i < blocks.length; i++) {
       const filename = `generated_${Date.now()}_${i}.${fmt}`;
       const filepath = join(imgDir, filename);
-      writeFileSync(filepath, Buffer.from(blocks[i].data, 'base64'));
+      if (blocks[i].data) {
+        writeFileSync(filepath, Buffer.from(blocks[i].data, 'base64'));
+      } else if (blocks[i].url) {
+        // URL 模式 — 下载保存
+        const resp = await fetch(blocks[i].url!);
+        if (resp.ok) {
+          const buffer = Buffer.from(await resp.arrayBuffer());
+          writeFileSync(filepath, buffer);
+        }
+      }
       paths.push(filepath);
     }
 

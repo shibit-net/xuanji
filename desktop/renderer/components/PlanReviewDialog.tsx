@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import MilkdownEditor from './MilkdownEditor';
+import MilkdownEditor from './MilkdownEditor.lazy';
 import type { PlanReviewRequestData } from '../global';
 import { t } from '@/core/i18n';
 

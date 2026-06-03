@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
-import MilkdownEditor from './MilkdownEditor';
+import MilkdownEditor from './MilkdownEditor.lazy';
 import { t } from '@/core/i18n';
 
 interface SystemPromptManagerProps {

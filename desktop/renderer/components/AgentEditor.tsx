@@ -6,7 +6,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Save, X, FileCode, Settings, Zap, Database, ChevronDown, ChevronRight, Trash2, AlertCircle, Loader2, Search, Download, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { useToast } from './Toast';
 import CodeEditor from './CodeEditor';
-import MilkdownEditor from './MilkdownEditor';
+import MilkdownEditor from './MilkdownEditor.lazy';
 import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
 import { t } from '@/core/i18n';
 import { useConfigStore } from '../stores/configStore';
