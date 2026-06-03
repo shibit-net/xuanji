@@ -18,6 +18,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { usePlatformStore } from '../stores/platformStore';
+import { useMessageStore } from '../stores/messageStore';
 import { getDesktopLabel } from '../i18n';
 
 interface MainLayoutProps {
@@ -67,6 +68,25 @@ export default function MainLayout({ children }: MainLayoutProps) {
     window.electron.onPersonaUpdated((_data) => {
       // persona 已保存，无需前端额外处理
     });
+  }, []);
+
+  // 键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'n') {
+        e.preventDefault();
+        const messages = useMessageStore.getState().messages;
+        if (messages.length === 0) return;
+        const language = useConfigStore.getState().settings.language as 'zh' | 'en';
+        const confirmed = confirm(language === 'en' ? 'Start a new session? Current messages will be cleared.' : '开始新会话？当前消息将被清除。');
+        if (confirmed) {
+          useMessageStore.getState().reset();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // 压缩上下文
