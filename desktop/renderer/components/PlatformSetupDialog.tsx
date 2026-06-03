@@ -56,7 +56,8 @@ function PlatformSetupDialog() {
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [scanFailed, setScanFailed] = useState(false);
-  const { setSetupDialogOpen, addSession } = usePlatformStore();
+  const setSetupDialogOpen = usePlatformStore((s) => s.setSetupDialogOpen);
+  const addSession = usePlatformStore((s) => s.addSession);
 
   const handleSelect = (type: PlatformType) => {
     setSelected(type);

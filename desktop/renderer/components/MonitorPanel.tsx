@@ -392,7 +392,8 @@ function LogsTab() {
 // ─── 远端会话标签 ──────────────────────────
 
 function RemoteTab() {
-  const { sessions, activeSessionId } = usePlatformStore();
+  const sessions = usePlatformStore((s) => s.sessions);
+  const activeSessionId = usePlatformStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   return <PlatformSessionPanel session={activeSession} />;
 }

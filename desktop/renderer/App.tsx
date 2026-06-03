@@ -36,7 +36,9 @@ function LoadingScreen() {
 
 // 认证检查组件
 function AuthCheck({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isCheckingAuth, checkAuth } = useAuthStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isCheckingAuth = useAuthStore((s) => s.isCheckingAuth);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
 
   useEffect(() => {
     checkAuth();

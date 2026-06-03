@@ -14,15 +14,13 @@ export default function LoginPage() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const {
-    login,
-    isLoading,
-    error,
-    clearError,
-    savedAccounts,
-    loadSavedAccounts,
-    removeAccount
-  } = useAuthStore();
+  const login = useAuthStore((s) => s.login);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const error = useAuthStore((s) => s.error);
+  const clearError = useAuthStore((s) => s.clearError);
+  const savedAccounts = useAuthStore((s) => s.savedAccounts);
+  const loadSavedAccounts = useAuthStore((s) => s.loadSavedAccounts);
+  const removeAccount = useAuthStore((s) => s.removeAccount);
 
   useEffect(() => {
     loadSavedAccounts();

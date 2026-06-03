@@ -33,9 +33,9 @@ export default memo(function MainLayout({ children }: MainLayoutProps) {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [activeDialog, setActiveDialog] = useState<DialogType>(null);
 
-  const { user } = useAuthStore();
-  const { loadAgents } = useConfigStore();
-  const { setupDialogOpen } = usePlatformStore();
+  const user = useAuthStore((s) => s.user);
+  const loadAgents = useConfigStore((s) => s.loadAgents);
+  const setupDialogOpen = usePlatformStore((s) => s.setupDialogOpen);
   const activeSessionId = usePlatformStore((s) => s.activeSessionId);
 
   // 监听远端平台 IPC 事件

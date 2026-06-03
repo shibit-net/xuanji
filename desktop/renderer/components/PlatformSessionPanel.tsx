@@ -15,7 +15,9 @@ interface PlatformSessionPanelProps {
 }
 
 function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
-  const { getMessages, removeSession, sessions } = usePlatformStore();
+  const getMessages = usePlatformStore((s) => s.getMessages);
+  const removeSession = usePlatformStore((s) => s.removeSession);
+  const sessions = usePlatformStore((s) => s.sessions);
   const [replyText, setReplyText] = useState('');
 
   if (!session) {

@@ -20,13 +20,6 @@ export function formatModelName(rawModel: string): string {
   return cleaned || rawModel;
 }
 
-// ── 唯一 ID 生成器 ────────────────────────────────
-
-let messageIdCounter = 0;
-export function generateMessageId(prefix = 'msg'): string {
-  return `${prefix}-${Date.now()}-${++messageIdCounter}`;
-}
-
 // ── 类型重导出 ────────────────────────────────────
 
 export type {
