@@ -911,9 +911,8 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
               onCompositionEnd={() => setIsComposing(false)}
               placeholder={isRemote ? '远端会话仅支持查看' : placeholder}
               disabled={isRemote || isSending}
-              className="flex-1 resize-none"
+              className="flex-1 resize-none max-h-[150px]"
               rows={1}
-              style={{ maxHeight: '150px' }}
             />
           </div>
 

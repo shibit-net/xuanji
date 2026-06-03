@@ -776,9 +776,8 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
                                   <textarea
                                     value={editContent}
                                     onChange={(e) => setEditContent(e.target.value)}
-                                    className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y"
+                                    className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y min-h-[300px]"
                                     rows={16}
-                                    style={{ minHeight: '300px' }}
                                   />
                                 ) : (
                                   <pre className="text-xs font-mono whitespace-pre-wrap bg-black/20 p-3 rounded max-h-64 overflow-auto">
@@ -1042,12 +1041,11 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
           onClick={() => setActiveTab('prompts')}
           variant="ghost"
           size="sm"
-          className={`px-6 py-3 rounded-none h-auto ${
+          className={`px-6 py-3 rounded-none h-auto border-b-2 ${
             activeTab === 'prompts'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
-          style={{ borderBottomWidth: 2 }}
         >
           System Prompt
         </Button>
@@ -1055,12 +1053,11 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
           onClick={() => setActiveTab('projects')}
           variant="ghost"
           size="sm"
-          className={`px-6 py-3 rounded-none h-auto ${
+          className={`px-6 py-3 rounded-none h-auto border-b-2 ${
             activeTab === 'projects'
               ? 'border-primary text-primary'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
-          style={{ borderBottomWidth: 2 }}
         >
           {t('sysprompt.tab_projects')}
         </Button>
@@ -1187,8 +1184,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
                   onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })}
                   placeholder={t('sysprompt.create_placeholder_content')}
                   rows={12}
-                  className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y"
-                  style={{ minHeight: '200px' }} />
+                  className="w-full bg-background border border-border rounded p-3 text-sm font-mono text-foreground focus:outline-none focus:border-primary resize-y min-h-[200px]" />
               </div>
             </div>
             <div className="flex justify-end gap-3 p-4 border-t border-border">

@@ -200,10 +200,9 @@ function ImageBlock({ block }: { block: Extract<ContentBlock, { type: 'image' }>
   return (
     <>
       <div className="my-2 rounded-xl overflow-hidden border border-border bg-muted cursor-pointer
-                      hover:border-primary/50 transition-all duration-200 group relative"
-           onClick={() => setExpanded(true)}
-           style={{ maxHeight: '400px' }}>
-        <div style={{ paddingBottom, position: 'relative', minHeight: '100px' }}>
+                      hover:border-primary/50 transition-all duration-200 group relative max-h-[400px]"
+           onClick={() => setExpanded(true)}>
+        <div style={{ paddingBottom }} className="relative min-h-[100px]">
           {isSvg ? (
             <div
               className="absolute inset-0 w-full h-full flex items-center justify-center p-2"
