@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import {
   Settings, HelpCircle, Bot, Wrench, FileText, Brain,
   LogOut, ShieldCheck, Clock, Package, Plus, Radio, X,
@@ -180,7 +180,7 @@ function SessionList() {
 
 // ─── Sidebar 主体 ─────────────────────────
 
-export default function Sidebar() {
+function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAuthenticated, logout } = useAuthStore();
@@ -343,3 +343,5 @@ export default function Sidebar() {
     </div>
   );
 }
+
+export default memo(Sidebar);

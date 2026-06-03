@@ -2,6 +2,7 @@
 // TitleBar - 标题栏组件
 // ============================================================
 
+import { memo } from 'react';
 import { Minus, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useConfigStore } from '../stores/configStore';
@@ -14,7 +15,7 @@ interface TitleBarProps {
   onShowDiagnostics?: () => void;
 }
 
-export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowStats, onShowDiagnostics: _onShowDiagnostics }: TitleBarProps) {
+function TitleBar({ onCompact: _onCompact, onShowStats: _onShowStats, onShowDiagnostics: _onShowDiagnostics }: TitleBarProps) {
   const language = useConfigStore((s) => s.settings.language);
 
   const handleMinimize = () => {
@@ -54,3 +55,5 @@ export default function TitleBar({ onCompact: _onCompact, onShowStats: _onShowSt
     </div>
   );
 }
+
+export default memo(TitleBar);
