@@ -23,12 +23,16 @@ const SchedulerPage = lazy(() => import('./pages/SchedulerPage'));
 const SkillsMCPPage = lazy(() => import('./pages/SkillsMCPPage'));
 const FallbackProviderSetupPage = lazy(() => import('./pages/FallbackProviderSetupPage'));
 
-// 加载中组件
+import { SkeletonCard, SkeletonList } from './components/shared/Skeleton';
+
+// 加载中骨架屏
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen w-screen bg-background text-foreground">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-      <p className="text-gray-400">加载中...</p>
+    <div className="flex items-center justify-center h-screen w-screen bg-background">
+      <div className="w-80 space-y-4">
+        <div className="animate-pulse bg-secondary rounded h-6 w-2/3" />
+        <SkeletonList count={3} />
+      </div>
     </div>
   );
 }
