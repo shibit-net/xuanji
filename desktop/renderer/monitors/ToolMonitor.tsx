@@ -2,7 +2,7 @@
 // ToolMonitor - 工具调用监控组件（按调用顺序展示队列）
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
@@ -108,7 +108,7 @@ function toolIcon(name: string): string {
   return '🛠️';
 }
 
-export default function ToolMonitor() {
+export default memo(function ToolMonitor() {
   // 按调用顺序排列（不倒序）
   const agentMap = useAgentStateMachine((s) => s.agentMap);
   const language = useConfigStore((s) => s.settings.language);
@@ -229,5 +229,5 @@ export default function ToolMonitor() {
       </div>
     </div>
   );
-}
+});
 

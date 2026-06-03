@@ -265,6 +265,22 @@ const zh: Record<string, string> = {
   'logs.loading': '加载中...',
   'logs.empty': '暂无日志',
   'logs.scroll_to_latest': '↓ 滚动到最新',
+
+  // ContextView
+  'context.title': '📂 上下文视图',
+  'context.empty': '暂无上下文信息',
+  'context.working_directory': '工作目录',
+  'context.project_info': '项目信息',
+  'context.name': '名称',
+  'context.type': '类型',
+  'context.main_deps': '主要依赖',
+  'context.focused_files': '关注的文件',
+  'context.recent_files': '最近访问',
+
+  // StatusBar
+  'statusbar.cpu_title': 'CPU 使用率',
+  'statusbar.memory_title': '内存 {used}MB / {total}MB',
+  'statusbar.memory_text': '内存 {percent}%',
 };
 
 const en: Record<string, string> = {
@@ -443,6 +459,22 @@ const en: Record<string, string> = {
   'logs.loading': 'Loading...',
   'logs.empty': 'No logs',
   'logs.scroll_to_latest': '↓ Scroll to latest',
+
+  // ContextView
+  'context.title': '📂 Context View',
+  'context.empty': 'No context information',
+  'context.working_directory': 'Working Directory',
+  'context.project_info': 'Project Info',
+  'context.name': 'Name',
+  'context.type': 'Type',
+  'context.main_deps': 'Main Dependencies',
+  'context.focused_files': 'Focused Files',
+  'context.recent_files': 'Recent Files',
+
+  // StatusBar
+  'statusbar.cpu_title': 'CPU Usage',
+  'statusbar.memory_title': 'Memory {used}MB / {total}MB',
+  'statusbar.memory_text': 'Memory {percent}%',
 
   // ToolMonitor
   'toolmonitor.title': '🛠️ Tool Calls',

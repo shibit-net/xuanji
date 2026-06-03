@@ -2,7 +2,7 @@
 // MainLayout - 主应用布局
 // ============================================================
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, memo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TitleBar from '../components/TitleBar';
 import Sidebar from '../components/Sidebar';
@@ -27,7 +27,7 @@ interface MainLayoutProps {
 
 type DialogType = 'stats' | 'diagnostics' | null;
 
-export default function MainLayout({ children }: MainLayoutProps) {
+export default memo(function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -163,4 +163,4 @@ export default function MainLayout({ children }: MainLayoutProps) {
       {setupDialogOpen && <PlatformSetupDialog />}
     </div>
   );
-}
+});
