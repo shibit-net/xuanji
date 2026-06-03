@@ -6,7 +6,7 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo, mem
 import { ChevronDown, Zap, Brain, Wrench } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import MessageBubble from './MessageBubble';
-import { Button } from '@/components/ui/button';
+
 import { useMessageStore, type Message } from '../stores/messageStore';
 
 // 主 agent 头像
@@ -14,6 +14,9 @@ import agentAvatar from '../assets/logos/01bff9e8a394133b79cf6911056f3bff.png';
 // 灰色版 logo（水印背景）
 import watermarkLogo from '../assets/logos/15b2c2b5954c2f350d3018385db4a81c.png';
 import { t } from '@/core/i18n';
+
+// 模块级变量：页面切换时保存/恢复滚动位置
+let savedScrollTop: number | null = null;
 
 // ============================================================
 // 唯一 ID 生成器（与 chatStore 保持一致）
@@ -154,7 +157,8 @@ export default function ChatArea() {
   const currentStreamingText = useMessageStore((state) => state.currentStreamingText);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showNewMessageButton, setShowNewMessageButton] = useState(false);
+  // 统一滚动按钮（新消息 / 流式输出）
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // 是否显示三点等待动画（未开始输出 或 已创建气泡但尚无文字内容）
   const showTypingIndicator = (status === 'thinking' && !currentStreamingId) || (currentStreamingId !== null && !currentStreamingText);
@@ -167,9 +171,6 @@ export default function ChatArea() {
   // 流式降频滚动：每 50 字符滚动一次
   const prevStreamingLenRef = useRef(0);
   const isAtBottomRef = useRef(true);
-
-  // 流式过程中用户滚离时的「查看最新」指示器
-  const [hasNewDuringStream, setHasNewDuringStream] = useState(false);
 
   // ============================================================
   // 核心优化：将流式消息从虚拟滚动器中分离
@@ -215,8 +216,13 @@ export default function ChatArea() {
     return scrollHeight - scrollTop - clientHeight < 100;
   }, []);
 
-  // 消息数变化时的自动滚动（非流式新消息）
+  // 消息变化时的自动滚动（新消息 + 已有消息内容更新如工具结果）
   const prevMessagesLenRef = useRef(messages.length);
+  const contentBlocksTotal = useMemo(
+    () => messages.reduce((sum, m) => sum + (m.contentBlocks?.length || 0), 0),
+    [messages],
+  );
+  const prevContentBlocksRef = useRef(contentBlocksTotal);
   useEffect(() => {
     if (messages.length === 0) return;
 
@@ -224,35 +230,43 @@ export default function ChatArea() {
     const prevLen = prevMessagesLenRef.current;
     prevMessagesLenRef.current = currentLen;
 
-    const isNewBubble = currentLen > prevLen;
+    const prevBlocks = prevContentBlocksRef.current;
+    prevContentBlocksRef.current = contentBlocksTotal;
 
-    if (isAtBottom) {
-      if (!isStreamingRef.current && isNewBubble) {
-        // 非流式新消息：直接滚动到底部
+    const isNewBubble = currentLen > prevLen;
+    const hasNewContent = contentBlocksTotal > prevBlocks;
+
+    if (isNewBubble || hasNewContent) {
+      if (isAtBottomRef.current) {
         requestAnimationFrame(() => {
           if (containerRef.current) {
             containerRef.current.scrollTop = containerRef.current.scrollHeight;
           }
         });
+      } else if (isNewBubble) {
+        setShowScrollButton(true);
       }
-    } else if (isNewBubble) {
-      setShowNewMessageButton(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, isAtBottom]);
+  }, [messages, contentBlocksTotal]);
 
-  // isAtBottom 同步 + 回底边界检测
+  // isAtBottom 同步 + 回底检测
   useEffect(() => {
     const wasAtBottom = isAtBottomRef.current;
     isAtBottomRef.current = isAtBottom;
 
     if (isAtBottom && !wasAtBottom) {
-      // 用户刚滚回底部 → 立即贴底 + 重置降频计数器
+      // 用户刚滚回底部 → 立即贴底
       prevStreamingLenRef.current = 0;
       if (containerRef.current) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }
-      setHasNewDuringStream(false);
+      setShowScrollButton(false);
+    }
+
+    if (!isAtBottom && isStreamingRef.current) {
+      // 流式过程中用户滚离 → 显示按钮
+      setShowScrollButton(true);
     }
   }, [isAtBottom]);
 
@@ -271,51 +285,36 @@ export default function ChatArea() {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }
     });
-  }, [currentStreamingText, isStreaming, isAtBottom]);
+  }, [currentStreamingText, isStreaming]);
 
-  // 流式过程中用户滚离时显示「查看最新」指示器
+  // 流式停止时，如果用户在底部则贴底
   useEffect(() => {
-    if (!isStreaming) {
-      setHasNewDuringStream(false);
-      return;
-    }
-    if (!isAtBottom && currentStreamingText && currentStreamingText.length > 0) {
-      setHasNewDuringStream(true);
-    }
-  }, [currentStreamingText, isStreaming, isAtBottom]);
-
-  // typing indicator 出现时滚动到底部
-  useEffect(() => {
-    if (showTypingIndicator) {
-      const timer = setTimeout(() => {
+    if (!isStreaming && isAtBottomRef.current && containerRef.current) {
+      requestAnimationFrame(() => {
         if (containerRef.current) {
           containerRef.current.scrollTop = containerRef.current.scrollHeight;
         }
-      }, 50);
-      return () => clearTimeout(timer);
+      });
     }
-  }, [showTypingIndicator]);
-
-  // 初始化滚动
-  useEffect(() => {
-    if (messages.length > 0 && containerRef.current) {
-      const timer = setTimeout(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [messages.length]);
+  }, [isStreaming]);
 
   // 监听滚动事件
   const handleScroll = useCallback(() => {
     const atBottom = checkIfAtBottom();
     setIsAtBottom(atBottom);
-    if (atBottom) {
-      setShowNewMessageButton(false);
-    }
   }, [checkIfAtBottom]);
+
+  // 页面切换时保存/恢复滚动位置
+  useEffect(() => {
+    if (savedScrollTop !== null && containerRef.current) {
+      containerRef.current.scrollTop = savedScrollTop;
+    }
+    return () => {
+      if (containerRef.current) {
+        savedScrollTop = containerRef.current.scrollTop;
+      }
+    };
+  }, []);
 
   return (
     <div className="flex-1 min-h-0 relative">
@@ -375,39 +374,22 @@ export default function ChatArea() {
         {showTypingIndicator && <TypingIndicator />}
       </div>
 
-      {/* 流式过程中的「查看最新」指示器 — 用户滚离底部时出现 */}
-      {isStreaming && hasNewDuringStream && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 animate-bounce">
+      {/* 滚动到底部按钮 — 流式或新消息时用户滚离底部出现 */}
+      {showScrollButton && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
           <button
             onClick={() => {
               if (containerRef.current) {
                 containerRef.current.scrollTop = containerRef.current.scrollHeight;
               }
-              setHasNewDuringStream(false);
+              setShowScrollButton(false);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-full shadow-lg text-xs hover:bg-primary/90 transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-full shadow-lg text-sm hover:bg-primary/90 transition-all animate-bounce"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            <ChevronDown size={16} />
             {t('chat.scroll_to_bottom')}
           </button>
         </div>
-      )}
-
-      {/* 新消息提示按钮 */}
-      {showNewMessageButton && (
-        <Button
-          onClick={() => {
-            if (containerRef.current) {
-              containerRef.current.scrollTop = containerRef.current.scrollHeight;
-              setShowNewMessageButton(false);
-            }
-          }}
-          variant="default"
-          className="absolute bottom-4 right-6 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all animate-bounce"
-        >
-          <span className="text-sm">{t('chat.new_message')}</span>
-          <ChevronDown size={16} />
-        </Button>
       )}
     </div>
   );

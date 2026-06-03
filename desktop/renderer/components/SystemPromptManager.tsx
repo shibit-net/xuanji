@@ -512,9 +512,16 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
             {sortedLayers.filter(layer => layer !== 'L3').map(layer => {
               if (!groupedComponents[layer]) return null;
               const info = layerInfo[layer];
+              const layerBorderColor: Record<string, string> = {
+                L0: 'border-l-red-500/60',
+                L1: 'border-l-blue-500/60',
+                L2: 'border-l-purple-500/60',
+                L3: 'border-l-green-500/60',
+              };
+
               return (
                 <div key={layer}>
-                  <div className="mb-3 bg-card rounded-lg p-3 border border-border">
+                  <div className={`mb-3 rounded-lg p-3 border border-border border-l-2 ${layerBorderColor[layer] || 'border-l-primary/60'}`}>
                     <div className="flex items-center gap-2 mb-1">
                       <Layers size={16} className={info?.color || 'text-muted-foreground'} />
                       <h3 className={`text-sm font-medium ${info?.color || 'text-muted-foreground'}`}>
@@ -541,7 +548,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                       return (
                         <div
                           key={component.id}
-                          className="bg-card rounded-lg border border-border overflow-hidden"
+                          className={`rounded-lg border border-border border-l-2 ${layerBorderColor[layer] || 'border-l-primary/60'} overflow-hidden hover:border-primary/30 transition-colors`}
                         >
                           {/* 组件头部 */}
                           <div className="p-3">
@@ -587,7 +594,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                     className={`h-7 w-7 ${
                                       component.enabled
                                         ? 'text-green-500 hover:bg-green-500/10'
-                                        : 'text-gray-500 hover:bg-gray-500/10'
+                                        : 'text-muted-foreground hover:bg-muted'
                                     }`}
                                     title={component.enabled ? t('sysprompt.btn_disable') : t('sysprompt.btn_enable')}
                                   >
@@ -652,7 +659,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                         type="text"
                                         value={editKeywordsValue}
                                         onChange={(e) => setEditKeywordsValue(e.target.value)}
-                                        className="w-full bg-card border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
+                                        className="w-full bg-background border border-border rounded px-3 py-2 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
                                         placeholder={t('sysprompt.keywords_placeholder')}
                                       />
                                       <div className="flex gap-2">
@@ -675,7 +682,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="bg-card rounded p-2">
+                                    <div className="border border-border rounded p-2">
                                       <code className="text-xs font-mono text-green-400">
                                         {typeof component.match.keywords === 'string'
                                           ? component.match.keywords
@@ -717,7 +724,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
                                   </p>
                                   {editingScenes === component.id ? (
                                     <div className="space-y-2">
-                                      <div className="max-h-40 overflow-y-auto bg-card rounded p-2 space-y-1">
+                                      <div className="max-h-40 overflow-y-auto border border-border rounded p-2 space-y-1">
                                         {l1Scenes.length === 0 ? (
                                           <p className="text-xs text-muted-foreground">{t('sysprompt.no_l1_scenes')}</p>
                                         ) : (
@@ -1030,7 +1037,7 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
       </div>
 
       {/* Tab 切换 */}
-      <div className="flex border-b border-border bg-card">
+      <div className="flex border-b border-border">
         <Button
           onClick={() => setActiveTab('prompts')}
           variant="ghost"

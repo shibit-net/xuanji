@@ -45,6 +45,11 @@ interface SelectedAgent {
 
 const DEFAULT_AGENT: SelectedAgent = { id: 'xuanji', name: 'xuanji' };
 
+// 模块级变量：页面切换时保存/恢复输入状态
+let savedInput = '';
+let savedAttachments: FileAttachment[] = [];
+let savedAgent: SelectedAgent | null = null;
+
 interface InputAreaProps {
   /** 对话类型：本地直接对话 或 远端平台转发 */
   conversationType?: 'local' | 'remote';
@@ -54,19 +59,19 @@ interface InputAreaProps {
 
 export default function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   const isRemote = conversationType === 'remote';
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(savedInput);
   const [isComposing, setIsComposing] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [attachments, setAttachments] = useState<FileAttachment[]>(savedAttachments);
   const [contextUsage, setContextUsage] = useState<{ estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number } | null>(null);
   const [memoryStatus, setMemoryStatus] = useState<{ isExtracting: boolean; isCompressing: boolean }>({ isExtracting: false, isCompressing: false });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ─── @ Agent 选择器状态 ─────────────────────────────
-  const [selectedAgent, setSelectedAgent] = useState<SelectedAgent | null>(null); // null = 默认 xuanji
+  const [selectedAgent, setSelectedAgent] = useState<SelectedAgent | null>(savedAgent); // null = 默认 xuanji
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -79,6 +84,23 @@ export default function InputArea({ conversationType = 'local', sessionKey }: In
 
   // 防重入 ref：替代依赖 state 的 isSending 检查，避免 React 批处理下的双重发送
   const sendingRef = useRef(false);
+
+  // 页面切换时保存/恢复输入状态
+  const inputRef = useRef(input);
+  inputRef.current = input;
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const selectedAgentRef = useRef(selectedAgent);
+  selectedAgentRef.current = selectedAgent;
+  useEffect(() => {
+    // 挂载时已通过 useState 初始值恢复
+    // 卸载时保存当前状态到模块级变量
+    return () => {
+      savedInput = inputRef.current;
+      savedAttachments = attachmentsRef.current;
+      savedAgent = selectedAgentRef.current;
+    };
+  }, []);
 
   // ─── 状态判定：仅跟随前台 Agent 状态（单向数据流） ──
   //

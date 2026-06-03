@@ -228,8 +228,8 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
         type: t('agent.type_system'),
         typeEn: 'System',
         icon: '⚙️',
-        color: 'text-gray-400',
-        bgColor: 'bg-gray-500/20',
+        color: 'text-purple-400',
+        bgColor: 'bg-purple-500/20',
         description: t('agent.desc_system'),
       };
     }
@@ -263,7 +263,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           <Bot size={24} className="text-primary" />
           <h2 className="text-lg font-bold">{t('agent.title')}</h2>
           {agents.length > 0 && (
-            <span className="text-xs bg-muted px-2 py-1 rounded">
+            <span className="text-xs bg-primary/10 px-2 py-1 rounded">
               {filteredAndSortedAgents.length} / {agents.length}
             </span>
           )}
@@ -272,14 +272,14 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="p-1.5 hover:bg-muted rounded transition-colors disabled:opacity-50"
+            className="p-1.5 hover:bg-primary/10 rounded transition-colors disabled:opacity-50"
             title={t('agent.refresh')}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-muted rounded transition-colors"
+            className="p-1.5 hover:bg-primary/10 rounded transition-colors"
             title={t('agent.close')}
           >
             <X size={20} />
@@ -307,7 +307,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             {/* 筛选按钮 */}
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted rounded transition-colors"
+              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-muted-foreground hover:bg-primary/10 rounded transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Filter size={14} />
@@ -389,7 +389,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
             ) : loading ? (
               <div className="space-y-2">
                 {[...Array(5)].map((_, i) => (
-                  <div key={i} className="bg-muted animate-pulse rounded p-3 h-20" />
+                  <div key={i} className="bg-primary/5 animate-pulse rounded p-3 h-20" />
                 ))}
               </div>
             ) : filteredAndSortedAgents.length === 0 ? (
@@ -421,7 +421,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                               w-full text-left px-3 py-2 rounded mb-1 transition-colors
                               ${selectedAgent?.id === agent.id
                                 ? 'bg-primary/20 border-l-2 border-primary'
-                                : 'hover:bg-muted'
+                                : 'hover:bg-primary/5'
                               }
                             `}
                           >
@@ -460,7 +460,7 @@ export default function AgentManager({ onClose }: AgentManagerProps) {
                               {agent.capabilities && agent.capabilities.slice(0, 2).map((cap: string) => (
                                 <span
                                   key={cap}
-                                  className="text-xs bg-muted px-1.5 py-0.5 rounded"
+                                  className="text-xs bg-accent/10 px-1.5 py-0.5 rounded"
                                   title={cap}
                                 >
                                   {cap.length > 8 ? cap.slice(0, 8) + '...' : cap}

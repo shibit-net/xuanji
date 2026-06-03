@@ -2083,6 +2083,7 @@ channel.handle('skill-list', async () => {
       description: s.description || '',
       category: s.category || 'prompt',
       source: s.source || 'builtin',
+      packageId: s.packageId || '',
       tags: s.tags || [],
       enabled: s.enabled !== false,
       requiredTools: s.requiredTools || [],

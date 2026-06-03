@@ -209,11 +209,23 @@ function normalizeSearchResult(r: any): NormalizedMemoryItem {
   };
 }
 
+const TYPE_BORDER_COLORS: Record<string, string> = {
+  user: 'border-l-blue-500/60',
+  feedback: 'border-l-purple-500/60',
+  project: 'border-l-green-500/60',
+  reference: 'border-l-orange-500/60',
+  tool: 'border-l-cyan-500/60',
+  concept: 'border-l-pink-500/60',
+  preference: 'border-l-yellow-500/60',
+  person: 'border-l-indigo-500/60',
+};
+
 function MemoryCard({ item, onClick }: { item: NormalizedMemoryItem; onClick: () => void }) {
+  const borderColor = TYPE_BORDER_COLORS[item.typeLabel] || 'border-l-primary/60';
   return (
     <div
       onClick={onClick}
-      className="p-3 rounded border border-border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
+      className={`p-3 rounded border border-border border-l-2 ${borderColor} hover:border-primary/40 cursor-pointer transition-colors`}
     >
       <div className="flex items-center gap-2 mb-1">
         <span className={`text-xs px-1.5 py-0.5 rounded border ${getTypeColor(item.typeLabel)}`}>
@@ -397,7 +409,7 @@ function BrowseTab({
 
   return (
     <div className="flex h-full">
-      <aside className="w-52 border-r border-border bg-card p-3 space-y-4 shrink-0 overflow-y-auto">
+      <aside className="w-52 border-r border-border p-3 space-y-4 shrink-0 overflow-y-auto">
         <div>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">{t('memory.browse.section_objects')}</p>
           <div className="space-y-1">
@@ -599,7 +611,7 @@ function DetailPanel({
   const importance = item.importance;
 
   return (
-    <aside className="w-96 border-l border-border bg-card p-4 shrink-0 overflow-y-auto">
+    <aside className="w-96 border-l border-border p-4 shrink-0 overflow-y-auto">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -781,6 +793,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
   const [error, setError] = useState<string | null>(null);
   const [maintaining, setMaintaining] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const graphContainerRef = useRef<HTMLDivElement>(null);
 
   const cyRef = useRef<cytoscape.Core | null>(null);
 
@@ -1098,13 +1111,13 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
     animationEasing: 'ease-out' as const,
     animationDuration: 1000,
     randomize: true,
-    idealEdgeLength: 350,
-    nodeRepulsion: 50000,
-    gravity: 0.04,
-    numIter: 4000,
+    idealEdgeLength: 650,
+    nodeRepulsion: 200000,
+    gravity: 0.012,
+    numIter: 6000,
     tile: true,
     fit: true,
-    padding: 80,
+    padding: 120,
   };
 
   // 类型统计（从当前 visible 节点算）
@@ -1152,8 +1165,17 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
   return (
     <div className="flex h-full">
       {/* ── 主画布区 ─────────────────────────────────────── */}
-      <div className="flex-1 relative overflow-hidden"
+      <div ref={graphContainerRef}
+        className="flex-1 relative overflow-hidden"
         style={{ background: 'radial-gradient(ellipse at center, rgba(56,189,248,0.04) 0%, rgba(13,13,18,0) 60%)' }}
+        onClick={(e) => {
+          // 仅在点击画布空白区域时恢复高亮（排除工具栏/搜索等 UI 元素）
+          const target = e.target as HTMLElement;
+          const isUIElement = target.closest('[data-graph-ui]');
+          if (!isUIElement && cyRef.current) {
+            cyRef.current.elements().removeStyle('opacity');
+          }
+        }}
       >
         {/* 背景网格 */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
@@ -1166,8 +1188,8 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         </svg>
 
         {/* ── 顶部搜索栏 (玻璃) ──────────────────────────── */}
-        <div ref={searchRef} className="absolute top-3 left-1/2 -translate-x-1/2 z-20 w-[380px] max-w-[90%]">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card/85 backdrop-blur-xl border border-border/60 shadow-glass-sm">
+        <div ref={searchRef} data-graph-ui className="absolute top-3 left-1/2 -translate-x-1/2 z-20 w-[380px] max-w-[90%]">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card/85 backdrop-blur-xl border border-border/25 shadow-glass-sm">
             <Search size={14} className="text-muted-foreground shrink-0" />
             <input
               type="text"
@@ -1188,7 +1210,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
 
           {/* 搜索下拉 */}
           {showDropdown && (
-            <div className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-card/95 backdrop-blur-xl border border-border/60 shadow-glass-lg overflow-hidden animate-zoom-in max-h-[300px] overflow-y-auto">
+            <div className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-card/95 backdrop-blur-xl border border-border/25 shadow-glass-lg overflow-hidden animate-zoom-in max-h-[300px] overflow-y-auto">
               {searchResults.map(n => (
                 <button
                   key={n.id}
@@ -1198,7 +1220,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
                   <span className="text-base">{typeSymbol(n.type)}</span>
                   <div className="flex-1 min-w-0">
                     <span className="text-sm text-foreground">{n.name}</span>
-                    <span className="ml-2 text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full border border-border/40">{n.type}</span>
+                    <span className="ml-2 text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full border border-border/20">{n.type}</span>
                   </div>
                 </button>
               ))}
@@ -1207,8 +1229,8 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         </div>
 
         {/* 工具栏 — 玻璃悬浮 */}
-        <div className="absolute top-3 left-3 z-10 flex gap-1.5">
-          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+        <div data-graph-ui className="absolute top-3 left-3 z-10 flex gap-1.5">
+          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/25 shadow-glass-sm">
             <button onClick={handleZoomIn}
               className="p-2 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
               title={t('memory.graph.tooltip_zoom_in')}
@@ -1230,8 +1252,8 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         </div>
 
         {/* 手动触发记忆整理 */}
-        <div className="absolute top-3 right-3 z-10 flex gap-1.5">
-          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+        <div data-graph-ui className="absolute top-3 right-3 z-10 flex gap-1.5">
+          <div className="flex gap-1 p-1 rounded-xl bg-card/80 backdrop-blur-md border border-border/25 shadow-glass-sm">
             <button onClick={handleTriggerMaintenance}
               disabled={maintaining}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
@@ -1247,7 +1269,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
 
         {/* 节点数徽标 */}
         {graphNodes.size > 0 && (
-          <div className="absolute top-12 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/40 text-xs text-muted-foreground">
+          <div data-graph-ui className="absolute top-12 right-3 z-10 px-2.5 py-1 rounded-lg bg-card/70 backdrop-blur-md border border-border/20 text-xs text-muted-foreground">
             {t('memory.graph.node_count', { count: graphNodes.size, edges: activeEdgeCount })}
           </div>
         )}
@@ -1269,7 +1291,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
               if (cy.nodes().length <= (centerId ? 1 : 0)) return;
               if (layoutTimer) clearTimeout(layoutTimer);
               layoutTimer = setTimeout(() => {
-                const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 350, nodeRepulsion: 50000, gravity: 0.04, numIter: 4000, tile: true, fit: true, padding: 80 });
+                const l = cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 800, idealEdgeLength: 650, nodeRepulsion: 200000, gravity: 0.012, numIter: 6000, tile: true, fit: true, padding: 120 });
                 l.run();
               }, 150);
             });
@@ -1285,9 +1307,12 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
               });
             });
 
+            // 通用 tap：检测点击背景（非节点非边）→ 恢复高亮
             cy.on('tap', (evt: cytoscape.EventObject) => {
-              if (evt.target === cy) {
+              const target = evt.target;
+              if (!target.isNode || (!target.isNode() && !target.isEdge?.())) {
                 setSelectedNode(null);
+                cy.elements().removeStyle('opacity');
               }
             });
 
@@ -1297,21 +1322,23 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
               focusOnNode(n.data('id'), 2);
             });
 
-            // Hover 交互 — 邻域高亮
+            // Hover 交互 — 仅高亮选中节点及其直接子节点
             cy.on('mouseover', 'node', (evt: cytoscape.EventObject) => {
-              const neighborhood = evt.target.closedNeighborhood();
-              cy.elements().difference(neighborhood).style({ opacity: 0.12 });
-              neighborhood.style({ opacity: 1 });
+              const node = evt.target;
+              const neighbors = node.neighborhood();
+              const highlight = node.union(neighbors);
+              cy.elements().difference(highlight).style({ opacity: 0.50 });
+              highlight.style({ opacity: 1 });
             });
             cy.on('mouseout', 'node', () => {
-              cy.elements().style({ opacity: undefined });
+              cy.elements().removeStyle('opacity');
             });
           }}
         />
 
         {/* ── 底部节点详情面板 (玻璃) ───────────────────── */}
         {selectedNode && (
-          <div className="absolute bottom-4 left-4 right-4 p-4 rounded-2xl border border-border/60 bg-card/90 backdrop-blur-xl shadow-glass-lg animate-zoom-in">
+          <div data-graph-ui className="absolute bottom-4 left-4 right-4 p-4 rounded-2xl border border-border/25 bg-card/90 backdrop-blur-xl shadow-glass-lg animate-zoom-in">
             <div className="flex items-start gap-3">
               {/* 节点图标 */}
               <div
@@ -1356,7 +1383,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
                     return null;
                   }
                   return (
-                    <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5">
+                    <div className="mt-3 pt-3 border-t border-border/20 flex flex-wrap gap-1.5">
                       {related.slice(0, 8).map((e: any) => {
                         const isOut = e.subjectId === selectedNode.id;
                         const otherId = isOut ? e.objectId : e.subjectId;
@@ -1422,7 +1449,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         {/* 加载中 */}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/60 shadow-glass-sm">
+            <div data-graph-ui className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card/80 backdrop-blur-md border border-border/25 shadow-glass-sm">
               <RefreshCw size={14} className="animate-spin text-primary" />
               <span className="text-xs text-muted-foreground">{t('memory.graph.loading')}</span>
             </div>
@@ -1431,7 +1458,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
       </div>
 
       {/* ── 右侧图例 (玻璃面板) ──────────────────────────── */}
-      <aside className="w-48 border-l border-border/60 bg-card/50 backdrop-blur-sm p-4 shrink-0 overflow-y-auto space-y-5">
+      <aside className="w-48 border-l border-border/25 bg-card/50 backdrop-blur-sm p-4 shrink-0 overflow-y-auto space-y-5">
         {/* 图例标题 */}
         <div>
           <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
@@ -1455,7 +1482,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         </div>
 
         {/* 关系图例 */}
-        <div className="pt-4 border-t border-border/40">
+        <div className="pt-4 border-t border-border/20">
           <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             {t('memory.graph.legend_edges')}
           </h4>
@@ -1478,13 +1505,13 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
         </div>
 
         {/* 统计摘要 */}
-        <div className="pt-4 border-t border-border/40">
+        <div className="pt-4 border-t border-border/20">
           <div className="grid grid-cols-2 gap-2">
-            <div className="p-2 rounded-lg bg-background/60 border border-border/30">
+            <div className="p-2 rounded-lg bg-background/60 border border-border/15">
               <p className="text-[10px] text-muted-foreground">{t('memory.graph.stat_nodes')}</p>
               <p className="text-lg font-semibold text-foreground/80 tabular-nums">{graphNodes.size}</p>
             </div>
-            <div className="p-2 rounded-lg bg-background/60 border border-border/30">
+            <div className="p-2 rounded-lg bg-background/60 border border-border/15">
               <p className="text-[10px] text-muted-foreground">{t('memory.graph.stat_edges')}</p>
               <p className="text-lg font-semibold text-foreground/80 tabular-nums">{activeEdgeCount}</p>
             </div>
@@ -1843,7 +1870,7 @@ export default function MemoryPage({ onClose }: MemoryPageProps) {
       )}
       {/* 主体 */}
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-40 border-r border-border bg-card p-3 space-y-1 shrink-0">
+        <aside className="w-40 border-r border-border p-3 space-y-1 shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.id}

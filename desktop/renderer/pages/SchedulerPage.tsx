@@ -183,7 +183,7 @@ function JobEditDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#1e1e2e] border border-border rounded-lg shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
+      <div className="bg-card border border-border rounded-lg shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-semibold text-foreground">
             {isEdit ? t('scheduler.job_edit_title') : t('scheduler.job_create_title')}
@@ -509,10 +509,17 @@ function JobsTab() {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto space-y-2">
-          {jobs.map(job => (
+          {jobs.map(job => {
+            const typeBorderColor =
+              job.type === 'once' ? 'border-l-orange-500/60' :
+              job.type === 'monthly' ? 'border-l-cyan-500/60' :
+              job.type === 'yearly' ? 'border-l-pink-500/60' :
+              job.type === 'weekly' ? 'border-l-purple-500/60' :
+              'border-l-blue-500/60';
+            return (
             <div
               key={job.id}
-              className="p-3 rounded border border-border bg-card hover:bg-muted/30 transition-colors"
+              className={`p-3 rounded border border-border border-l-2 ${typeBorderColor} hover:border-primary/40 transition-colors`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
@@ -600,7 +607,8 @@ function JobsTab() {
                 </div>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
@@ -664,7 +672,7 @@ function LogsTab() {
       ) : (
         <div className="flex-1 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-card border-b border-border">
+            <thead className="sticky top-0 bg-background border-b border-border">
               <tr>
                 <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Job ID</th>
                 <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">计划时间</th>
@@ -724,7 +732,7 @@ export default function SchedulerPage({ onClose }: SchedulerPageProps) {
 
       {/* 主体 */}
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-40 border-r border-border bg-card p-3 space-y-1 shrink-0">
+        <aside className="w-40 border-r border-border p-3 space-y-1 shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.id}

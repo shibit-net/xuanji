@@ -11,6 +11,24 @@ import { isFieldEditable, type AgentCategory } from '../utils/agentPermissions';
 import { t } from '@/core/i18n';
 import { useConfigStore } from '../stores/configStore';
 
+// 根据工具名推断分类
+function inferToolCategory(name: string): string {
+  if (/^(read_file|write_file|edit_file|multi_edit|glob|grep|list_directory|change_directory|docx_edit|xlsx_edit|pdf|doc_to_docx|notebook_edit|send_file_to_user)$/.test(name)) return 'file';
+  if (/^(bash|ssh_exec|ssh_list|ssh_read|ssh_write|enter_worktree|exit_plan_mode|enter_plan_mode|task$|task_control|task_output|plan_review)$/.test(name)) return 'code';
+  if (/^(sleep|scheduler|install|uninstall|mcp_settings|todo_)/.test(name)) return 'system';
+  if (/^(web_fetch|web_search)$/.test(name)) return 'network';
+  return 'meta';
+}
+
+// 工具分类 → Tailwind 色系
+const TOOL_CATEGORY_STYLE: Record<string, { bg: string; border: string; dot: string; text: string; label: string }> = {
+  file: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', dot: 'bg-blue-400/60', text: 'text-blue-300/80', label: '文件' },
+  code: { bg: 'bg-green-500/10', border: 'border-green-500/20', dot: 'bg-green-400/60', text: 'text-green-300/80', label: '代码' },
+  system: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', dot: 'bg-purple-400/60', text: 'text-purple-300/80', label: '系统' },
+  network: { bg: 'bg-orange-500/10', border: 'border-orange-500/20', dot: 'bg-orange-400/60', text: 'text-orange-300/80', label: '网络' },
+  meta: { bg: 'bg-pink-500/10', border: 'border-pink-500/20', dot: 'bg-pink-400/60', text: 'text-pink-300/80', label: '元认知' },
+};
+
 // 媒体生成工具名称和默认配置
 const MEDIA_TOOL_NAMES = new Set(['generate_image', 'edit_image', 'generate_video', 'generate_audio']);
 
@@ -357,7 +375,11 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     try {
       const result = await window.electron.toolsList();
       if (result.success && result.tools) {
-        setAvailableTools(result.tools);
+        const withCategory = result.tools.map((t: any) => ({
+          ...t,
+          category: t.category || inferToolCategory(t.name),
+        }));
+        setAvailableTools(withCategory);
       }
     } catch (err) {
       console.error('加载 Tools 列表失败:', err);
@@ -635,7 +657,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               onChange={(e) => handleChange(e.target.value)}
               disabled={isDisabled}
               rows={3}
-              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary font-mono ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             />
           )
         ) : type === 'select' ? (
@@ -666,7 +688,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   }}
                   disabled={isDisabled}
                   placeholder={t('agent.editor.model_search_placeholder')}
-                  className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+                  className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
                 />
                 {modelsLoading && (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -690,7 +712,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                         setModelSearchQuery(model.name);
                         setShowModelDropdown(false);
                       }}
-                      className="w-full text-left px-3 py-2 hover:bg-muted transition-colors text-sm"
+                      className="w-full text-left px-3 py-2 hover:bg-primary/10transition-colors text-sm"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
@@ -722,7 +744,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               value={value || ''}
               onChange={(e) => handleChange(e.target.value)}
               disabled={isDisabled}
-              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             >
               {currentOptions?.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
@@ -758,7 +780,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 handleChange(0);
               }
             }}
-            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
           />
         ) : (
           <input
@@ -766,7 +788,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             disabled={isDisabled}
             value={value != null ? String(value) : ''}
             onChange={(e) => handleChange(e.target.value)}
-            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+            className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
           />
         )}
       </div>
@@ -787,7 +809,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
         <button
           type="button"
           onClick={() => toggleSection(id)}
-          className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
+          className="w-full flex items-center gap-3 p-4 hover:bg-primary/5 transition-colors"
         >
           {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
           {icon}
@@ -818,14 +840,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           <button
             type="button"
             onClick={() => setMode(mode === 'form' ? 'json5' : 'form')}
-            className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2"
+            className="px-4 py-2 border border-border rounded hover:bg-primary/10transition-colors text-sm flex items-center gap-2"
           >
             <FileCode size={16} />
             {mode === 'form' ? t('agent.editor.json5_mode') : t('agent.editor.form_mode')}
           </button>
           <button
             onClick={onCancel}
-            className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2"
+            className="px-4 py-2 border border-border rounded hover:bg-primary/10transition-colors text-sm flex items-center gap-2"
           >
             <X size={16} />
             {t('agent.editor.cancel')}
@@ -890,14 +912,14 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
                   step < creationStep ? 'bg-primary text-white' :
                   step === creationStep ? 'bg-primary text-white ring-2 ring-primary/30' :
-                  'bg-muted text-muted-foreground/50'
+                  'bg-primary/10 text-muted-foreground/50'
                 }`}>
                   {step < creationStep ? <Check size={14} /> : step}
                 </div>
                 <span className={`text-xs ${step <= creationStep ? 'text-foreground' : 'text-muted-foreground/50'}`}>
                   {step === 1 ? t('agent.editor.wizard.step.identity') : step === 2 ? t('agent.editor.wizard.step.brain') : step === 3 ? t('agent.editor.wizard.step.tools') : t('agent.editor.wizard.step.review')}
                 </span>
-                {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-muted'}`} />}
+                {step < 4 && <div className={`w-8 h-0.5 ${step < creationStep ? 'bg-primary' : 'bg-primary/15'}`} />}
               </div>
             ))}
           </div>
@@ -1029,7 +1051,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={selectAllTools} className="px-3 py-1.5 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded">{t('agent.editor.tools_select_all')}</button>
-                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-muted text-muted-foreground hover:bg-muted/80 rounded">{t('agent.editor.tools_deselect_all')}</button>
+                    <button type="button" onClick={deselectAllTools} className="px-3 py-1.5 text-xs bg-accent/10 text-accent-foreground/60 hover:bg-primary/20 rounded">{t('agent.editor.tools_deselect_all')}</button>
                     <span className="ml-auto text-xs text-muted-foreground/50 self-center">
                       {t('agent.editor.tools_enabled_count', { enabled: (config.tools || []).filter((t: any) => t.enabled !== false).length, total: (config.tools || []).length })}
                     </span>
@@ -1038,13 +1060,24 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {Object.entries(groupedTools).map(([cat, tools]) => (
                     <div key={cat}>
-                      <h4 className="text-sm font-medium text-foreground mb-2 sticky top-0 bg-card py-1">{cat}</h4>
+                      {(() => {
+                        const s = TOOL_CATEGORY_STYLE[cat] || { dot: 'bg-muted-foreground/40', text: 'text-muted-foreground', label: cat };
+                        return (
+                          <div className="flex items-center gap-2 mb-2 sticky top-0 bg-card py-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                            <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
+                            <span className="text-[10px] text-muted-foreground/40">{tools.length}</span>
+                          </div>
+                        );
+                      })()}
                       <div className="space-y-1 pl-2">
                         {tools.map((tool: any) => {
                           const toolConfig = (config.tools || []).find((t: any) => t.name === tool.name);
                           const isEnabled = toolConfig ? toolConfig.enabled !== false : false;
+                          const cat = tool.category || 'other';
+                          const style = TOOL_CATEGORY_STYLE[cat] || { bg: 'bg-card', border: 'border-border' };
                           return (
-                            <div key={tool.name} className="p-2 hover:bg-muted/50 rounded">
+                            <div key={tool.name} className={`p-2.5 rounded-lg border ${style.bg} ${style.border} mb-1.5`}>
                               <label className="flex items-start gap-3 cursor-pointer">
                                 <input type="checkbox" checked={isEnabled} onChange={() => toggleTool(tool.name)} className="mt-0.5 rounded" />
                                 <div className="flex-1 min-w-0">
@@ -1123,7 +1156,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {/* 导航按钮 */}
           <div className="flex justify-between pt-4 border-t border-border">
             {creationStep > 1 ? (
-              <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-border rounded hover:bg-muted transition-colors text-sm flex items-center gap-2">
+              <button type="button" onClick={() => setCreationStep(creationStep - 1)} className="px-4 py-2 border border-border rounded hover:bg-primary/10transition-colors text-sm flex items-center gap-2">
                 <ArrowLeft size={16} />{t('agent.editor.prev_step')}
               </button>
             ) : <div />}
@@ -1179,7 +1212,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   }}
                   disabled={!canEdit('enabled')}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    config.enabled !== false ? 'bg-primary' : 'bg-muted'
+                    config.enabled !== false ? 'bg-primary' : 'bg-border'
                   } ${!canEdit('enabled') ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
@@ -1523,7 +1556,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       <button
                         type="button"
                         onClick={deselectAllTools}
-                        className="px-3 py-1.5 text-xs bg-muted text-muted-foreground hover:bg-muted/80 rounded"
+                        className="px-3 py-1.5 text-xs bg-accent/10 text-accent-foreground/60 hover:bg-primary/20 rounded"
                       >
                         {t('agent.editor.tools_deselect_all')}
                       </button>
@@ -1537,18 +1570,27 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                   <div className="space-y-4 max-h-96 overflow-y-auto">
                     {Object.entries(groupedTools).map(([category, tools]) => (
                       <div key={category}>
-                        <h4 className="text-sm font-medium text-foreground mb-2 sticky top-0 bg-card py-1">
-                          {category}
-                        </h4>
+                        {(() => {
+                          const s = TOOL_CATEGORY_STYLE[category] || { dot: 'bg-muted-foreground/40', text: 'text-muted-foreground', label: category };
+                          return (
+                            <div className="flex items-center gap-2 mb-2 sticky top-0 bg-card py-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                              <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
+                              <span className="text-[10px] text-muted-foreground/40">{tools.length}</span>
+                            </div>
+                          );
+                        })()}
                         <div className="space-y-2 pl-2">
                           {tools.map((tool: any) => {
                             const toolConfig = (config.tools || []).find((t: any) => t.name === tool.name);
                             const isEnabled = toolConfig ? toolConfig.enabled !== false : false;
 
+                            const cat = tool.category || 'other';
+                            const style = TOOL_CATEGORY_STYLE[cat] || { bg: 'bg-card', border: 'border-border' };
                             return (
                               <div
                                 key={tool.name}
-                                className="p-2 hover:bg-muted/50 rounded"
+                                className={`p-2.5 rounded-lg border ${style.bg} ${style.border} mb-1.5`}
                               >
                                 <label className={`flex items-start gap-3 ${canEdit('tools') ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                                   <input
@@ -1571,7 +1613,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                                     )}
                                     {/* 媒体工具：提示使用全局配置（生图/生视频无需配置） */}
                                     {isEnabled && MEDIA_TOOL_NAMES.has(tool.name) && tool.name !== 'generate_image' && tool.name !== 'generate_video' && (
-                                      <div className="mt-2 p-2 bg-muted/50 rounded border border-border/50 space-y-2">
+                                      <div className="mt-2 p-2 bg-accent/5 rounded border border-border/50 space-y-2">
                                         <p className="text-xs text-muted-foreground">
                                           API 凭证使用全局配置，在设置 → 模型配置中统一管理
                                         </p>
@@ -1632,7 +1674,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
           {renderSection(
             'execution',
             t('agent.editor.advanced_settings'),
-            <Settings size={18} className="text-gray-500" />,
+            <Settings size={18} className="text-purple-400" />,
             <>
               <div className="grid grid-cols-2 gap-4">
                 {/* 执行模式 */}

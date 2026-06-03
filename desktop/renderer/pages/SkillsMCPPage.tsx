@@ -24,6 +24,8 @@ interface MarketPackage {
   totalDownloads: number;
   ratingAvg: number;
   ratingCount: number;
+  recommendCount: number;
+  commentCount: number;
   qualityScore: number;
   securityScore: number;
   tags: string[];
@@ -65,6 +67,7 @@ interface LocalSkill {
   description: string;
   category: string;
   source: string;
+  packageId?: string;
   tags: string[];
   enabled: boolean;
   requiredTools: string[];
@@ -146,7 +149,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         categoryId: selectedCategoryId,
         page: pg,
         pageSize: 20,
-        sort: 'downloads',
+        sort: 'recommend_score',
       });
 
     try {
@@ -218,6 +221,21 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
   }, [loadInstalled]);
 
   // ─── 排序+过滤：已安装排前面，订阅制需已订阅才显示 ───
+  const isMarketInstalled = useCallback((item: MarketPackage): boolean => {
+    if (item.type === 'mcp') {
+      if (installedMcpIds.has(item.packageId)) return true;
+      return localMcps.some(m => m.packageId === item.packageId || m.name === item.packageId || m.name === item.name);
+    }
+    if (installedSkillIds.has(item.packageId)) return true;
+    return localSkills.some(s =>
+      s.packageId === item.packageId ||
+      s.id === item.packageId ||
+      s.name === item.packageId ||
+      s.packageId === item.name ||
+      s.id === item.name
+    );
+  }, [installedMcpIds, installedSkillIds, localMcps, localSkills]);
+
   const sortAndFilter = (items: MarketPackage[]): MarketPackage[] => {
     const visible = items.filter((item) => {
       if (item.pricingModel === 2 && item.type === 'mcp') {
@@ -227,23 +245,30 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
     });
     const withVersion = visible.filter((item) => item.currentVersion);
     const withoutVersion = visible.filter((item) => !item.currentVersion);
-    const installed = withVersion.filter((item) => {
-      if (item.type === 'mcp') return installedMcpIds.has(item.packageId);
-      return installedSkillIds.has(item.packageId);
-    });
-    const notInstalled = withVersion.filter((item) => {
-      if (item.type === 'mcp') return !installedMcpIds.has(item.packageId);
-      return !installedSkillIds.has(item.packageId);
-    });
+    const installed = withVersion.filter((item) => isMarketInstalled(item));
+    const notInstalled = withVersion.filter((item) => !isMarketInstalled(item));
     return [...installed, ...notInstalled, ...withoutVersion];
   };
 
-  const sortedMcpItems = useMemo(() => sortAndFilter(mcpItems), [mcpItems, installedMcpIds, installedSkillIds, subscribedPackageIds]);
-  const sortedSkillItems = useMemo(() => sortAndFilter(skillItems), [skillItems, installedMcpIds, installedSkillIds, subscribedPackageIds]);
+  const sortedMcpItems = useMemo(() => sortAndFilter(mcpItems), [mcpItems, subscribedPackageIds, isMarketInstalled]);
+  const sortedSkillItems = useMemo(() => sortAndFilter(skillItems), [skillItems, subscribedPackageIds, isMarketInstalled]);
+
+  // packageId → 市场显示名（用于 bundle 命名）
+  const marketNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of [...mcpItems, ...skillItems]) {
+      if (item.packageId && item.name) map.set(item.packageId, item.name);
+    }
+    return map;
+  }, [mcpItems, skillItems]);
+
+  const formatPkgId = (pkgId: string): string =>
+    pkgId.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   // 已安装的本地列表（用于 installed 视图）
+  // 同一 packageId 的 marketplace skills 聚合为单条 bundle
   const installedItems = useMemo(() => {
-    const items: Array<{ type: 'mcp' | 'skill'; id: string; name: string; description: string; version: string; source: string; enabled: boolean; tags: string[]; extra: string }> = [];
+    const items: Array<{ type: 'mcp' | 'skill'; id: string; name: string; description: string; version: string; source: string; enabled: boolean; tags: string[]; extra: string; bundleSkills?: LocalSkill[] }> = [];
     for (const m of localMcps) {
       items.push({
         type: 'mcp',
@@ -257,7 +282,38 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         extra: t('skills.tools_count', { count: m.toolCount }),
       });
     }
+    // 按 packageId 分组 marketplace skills，跳过非 marketplace 的
+    const bundled: Map<string, LocalSkill[]> = new Map();
+    const standalone: LocalSkill[] = [];
     for (const s of localSkills) {
+      if (s.source !== 'marketplace') continue;
+      if (s.packageId) {
+        const existing = bundled.get(s.packageId);
+        if (existing) existing.push(s);
+        else bundled.set(s.packageId, [s]);
+      } else {
+        standalone.push(s);
+      }
+    }
+    // 输出 bundle 条目
+    for (const [pkgId, skills] of bundled) {
+      const first = skills[0];
+      const displayName = marketNameMap.get(pkgId) || formatPkgId(pkgId);
+      items.push({
+        type: 'skill',
+        id: pkgId,
+        name: displayName,
+        description: `${skills.length} 个技能 · ${skills.map(s => s.name).join(', ')}`,
+        version: first.version,
+        source: 'marketplace',
+        enabled: skills.some(s => s.enabled),
+        tags: [first.category || 'bundle'],
+        extra: `${skills.length} 个技能 · v${first.version}`,
+        bundleSkills: skills,
+      });
+    }
+    // 独立 skills
+    for (const s of standalone) {
       items.push({
         type: 'skill',
         id: s.id,
@@ -271,7 +327,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       });
     }
     return items;
-  }, [localMcps, localSkills]);
+  }, [localMcps, localSkills, marketNameMap]);
 
   // ─── 操作 ────────────────────────────────────────────
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -279,10 +335,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
     setTimeout(() => setMessage(null), 4000);
   };
 
-  const isInstalled = (item: MarketPackage): boolean => {
-    if (item.type === 'mcp') return installedMcpIds.has(item.packageId);
-    return installedSkillIds.has(item.packageId);
-  };
+  const isInstalled = isMarketInstalled;
 
   const handleInstall = async (item: MarketPackage) => {
     // ── 付费包预检 ──────────────────────────────────────
@@ -312,9 +365,8 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       if (item.type === 'mcp') {
         const res = await window.electron.mcpInstall({ packageId: item.packageId });
         if (res.success) {
-          setInstalledMcpIds((prev) => new Set(prev).add(item.packageId));
+          setInstalledMcpIds(prev => new Set(prev).add(item.packageId));
           showMessage('success', t('skills.install_success_mcp', { name: item.name }));
-          // 记录下载（fire-and-forget）
           window.electron.tiangongRecordDownload({ packageId: item.id, versionId }).catch(() => {});
         } else {
           showMessage('error', res.error || t('skills.install_failed'));
@@ -322,7 +374,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       } else {
         const res = await window.electron.skillInstall({ packageId: item.packageId });
         if (res.success) {
-          setInstalledSkillIds((prev) => new Set(prev).add(item.packageId));
+          setInstalledSkillIds(prev => new Set(prev).add(item.packageId));
           showMessage('success', t('skills.install_success_skill', { name: item.name }));
           window.electron.tiangongRecordDownload({ packageId: item.id, versionId }).catch(() => {});
         } else {
@@ -343,7 +395,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       if (item.type === 'mcp') {
         const res = await window.electron.mcpUninstall({ packageId: item.packageId });
         if (res.success) {
-          setInstalledMcpIds((prev) => { const next = new Set(prev); next.delete(item.packageId); return next; });
+          setInstalledMcpIds(prev => { const next = new Set(prev); next.delete(item.packageId); return next; });
           showMessage('success', t('skills.uninstall_success_mcp', { name: item.name }));
         } else {
           showMessage('error', res.error || t('skills.uninstall_failed'));
@@ -351,7 +403,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
       } else {
         const res = await window.electron.skillUninstall({ skillId: item.packageId });
         if (res.success) {
-          setInstalledSkillIds((prev) => { const next = new Set(prev); next.delete(item.packageId); return next; });
+          setInstalledSkillIds(prev => { const next = new Set(prev); next.delete(item.packageId); return next; });
           showMessage('success', t('skills.uninstall_success_skill', { name: item.name }));
         } else {
           showMessage('error', res.error || t('skills.uninstall_failed'));
@@ -373,7 +425,10 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         if (res.success) showMessage('success', t('skills.uninstall_success_mcp', { name: id }));
         else showMessage('error', res.error || t('skills.uninstall_failed'));
       } else {
-        const res = await window.electron.skillUninstall({ skillId: id });
+        // 对于 bundle，用包内第一个 skill 的真实 ID 卸载
+        const targetItems = installedItems.find(it => it.type === 'skill' && it.id === id);
+        const uninstallId = targetItems?.bundleSkills?.[0]?.id || id;
+        const res = await window.electron.skillUninstall({ skillId: uninstallId });
         if (res.success) showMessage('success', t('skills.uninstall_success_skill', { name: id }));
         else showMessage('error', res.error || t('skills.uninstall_failed'));
       }
@@ -393,7 +448,9 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
         if (res.success) showMessage('success', t('skills.publish_success_mcp', { id }));
         else showMessage('error', res.error || t('skills.publish_failed'));
       } else {
-        const res = await window.electron.skillPublish({ skillId: id });
+        const targetItems = installedItems.find(it => it.type === 'skill' && it.id === id);
+        const publishId = targetItems?.bundleSkills?.[0]?.id || id;
+        const res = await window.electron.skillPublish({ skillId: publishId });
         if (res.success) showMessage('success', t('skills.publish_success_skill', { id }));
         else showMessage('error', res.error || t('skills.publish_failed'));
       }
@@ -517,7 +574,7 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Download size={12} /> {t('skills.view_installed', { count: localMcps.length + localSkills.length })}
+            <Download size={12} /> {t('skills.view_installed', { count: installedItems.length })}
           </button>
         </div>
       </div>
@@ -567,13 +624,13 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                           : <Puzzle size={14} className="text-purple-400" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
                           <span className="text-sm font-medium truncate">{item.name}</span>
-                          <Badge variant="secondary" className="text-[10px] px-1.5">{item.type}</Badge>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0">{item.type}</Badge>
                           {item.enabled ? (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 bg-green-500/15 text-green-400 border-green-500/20">{t('skills.badge_enabled')}</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0 bg-green-500/15 text-green-400 border-green-500/20">{t('skills.badge_enabled')}</Badge>
                           ) : (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">{t('skills.badge_disabled')}</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 shrink-0 bg-yellow-500/15 text-yellow-400 border-yellow-500/20">{t('skills.badge_disabled')}</Badge>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>
@@ -647,6 +704,14 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                         {selectedPkg.categoryName && <span> · {selectedPkg.categoryName}</span>}
                       </p>
                       <div className="flex items-center gap-4 mt-2">
+                        {selectedPkg.recommendCount > 0 && (
+                          <span className="text-xs flex items-center gap-1 text-orange-400">
+                            <Star size={12} /> {t('skills.recommend_label', { count: selectedPkg.recommendCount })}
+                          </span>
+                        )}
+                        {selectedPkg.commentCount > 0 && (
+                          <span className="text-xs text-muted-foreground">{t('skills.comment_label', { count: selectedPkg.commentCount })}</span>
+                        )}
                         {selectedPkg.ratingAvg > 0 && (
                           <span className="text-xs flex items-center gap-1 text-yellow-400">
                             <Star size={12} /> {selectedPkg.ratingAvg.toFixed(1)} ({selectedPkg.ratingCount})
@@ -769,20 +834,6 @@ export default function SkillsMCPPage({ onClose }: SkillsMCPPageProps) {
                               <a href={detailData.repositoryUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{detailData.repositoryUrl}</a>
                             </div>
                           )}
-                          <div className="flex gap-2">
-                            <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">{t('skills.security_score')}</span>
-                              <span className={selectedPkg.securityScore >= 80 ? 'text-green-400' : selectedPkg.securityScore >= 50 ? 'text-yellow-400' : 'text-red-400'}>
-                                {selectedPkg.securityScore}
-                              </span>
-                            </div>
-                            <div className="flex-1 flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl">
-                              <span className="text-muted-foreground">{t('skills.quality_score')}</span>
-                              <span className={selectedPkg.qualityScore >= 80 ? 'text-green-400' : selectedPkg.qualityScore >= 50 ? 'text-yellow-400' : 'text-red-400'}>
-                                {selectedPkg.qualityScore}
-                              </span>
-                            </div>
-                          </div>
                         </div>
                       </section>
                     </>
@@ -865,6 +916,17 @@ function PackageListSection({
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>
                     <div className="flex items-center gap-1.5 mt-1 text-[9px] text-muted-foreground/60">
+                      {(item.recommendCount > 0 || item.commentCount > 0) && (
+                        <>
+                          {item.recommendCount > 0 && (
+                            <span className="text-orange-400/80">{t('skills.recommend_label', { count: item.recommendCount })}</span>
+                          )}
+                          {item.commentCount > 0 && (
+                            <span>{t('skills.comment_label', { count: item.commentCount })}</span>
+                          )}
+                          <span className="opacity-30">·</span>
+                        </>
+                      )}
                       <span>{item.authorName}</span>
                       {item.transport && (
                         <span className={`px-1 py-0.5 rounded text-[8px] font-medium ${

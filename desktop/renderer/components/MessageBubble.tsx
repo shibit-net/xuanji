@@ -49,7 +49,7 @@ function useStreamingMarkdown(text: string, active: boolean): string {
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       try {
-        setHtml(marked.parse(text, { async: false }) as string);
+        setHtml(marked.parse(text, { breaks: true, async: false }) as string);
       } catch {
         setHtml(text);
       }
@@ -84,6 +84,17 @@ function formatTokens(tokens: { input: number; output: number }, showBreakdown =
     return `${totalStr} tokens (↑${inputStr} ↓${outputStr})`;
   }
   return `${totalStr} tokens`;
+}
+
+/** 将普通文本中的换行转为 Markdown 硬换行（两个空格 + 换行），代码块内保留 */
+function normalizeLineBreaks(text: string): string {
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      return part.replace(/\n/g, '  \n');
+    })
+    .join('');
 }
 
 function normalizeMarkdownHeadings(text: string): string {
@@ -413,7 +424,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const streamingHtml = useStreamingMarkdown(typeof displayContent === 'string' ? displayContent : '', isStreaming);
   const processedContent = useMemo(() => {
     if (typeof displayContent !== 'string') return '';
-    let text = normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent)));
+    let text = normalizeLineBreaks(normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent))));
 
     // 解析 LLM 输出的本地图片路径 → base64 data URI
     // 从工具调用中获取 ReadTool 返回的 contentBlocks（含 base64 图片数据）
@@ -710,32 +721,40 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           </div>
         )}
 
-        {/* Moment 状态条：有内容时展示，无内容时不渲染 */}
-        {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary &&
+        {/* Moment 状态条 — 流式输出时始终展示 */}
+        {showThinking && isStreaming && !isUser && !isSystem && !isToolSummary && (
           respondingAgent?.moment &&
           (respondingAgent.status === 'thinking' || respondingAgent.status === 'executing' ||
-           respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') && (
-          <div className="flex items-center gap-2 mb-2 px-1 min-h-[24px]">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
-                ? 'bg-primary animate-pulse'
-                : 'bg-blue-400'
-            }`} />
-            <span className="text-[11px] text-muted-foreground/70">
-              {respondingAgent.status === 'writing'
-                ? `${respondingAgent.name} 在编辑中`
-                : respondingAgent.moment.label}
-            </span>
-            {respondingAgent.moment.startTime ? (
-              <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
-                {formatDuration(now - respondingAgent.moment.startTime)}
+           respondingAgent.status === 'writing' || respondingAgent.status === 'reporting') ? (
+            <div className="flex items-center gap-2 mb-2 px-1 min-h-[24px]">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                respondingAgent.status === 'thinking' || respondingAgent.status === 'executing'
+                  ? 'bg-primary animate-pulse'
+                  : 'bg-blue-400'
+              }`} />
+              <span className="text-[11px] text-muted-foreground/70">
+                {respondingAgent.status === 'writing'
+                  ? `${respondingAgent.name} 在编辑中`
+                  : respondingAgent.moment.label}
               </span>
-            ) : respondingAgent.moment.duration != null ? (
-              <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
-                {formatDuration(respondingAgent.moment.duration)}
+              {respondingAgent.moment.startTime ? (
+                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                  {formatDuration(now - respondingAgent.moment.startTime)}
+                </span>
+              ) : respondingAgent.moment.duration != null ? (
+                <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">
+                  {formatDuration(respondingAgent.moment.duration)}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mb-2 px-1 min-h-[24px]">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-primary animate-pulse" />
+              <span className="text-[11px] text-muted-foreground/70">
+                {agentInfo?.name || 'Xuanji'} 回复中
               </span>
-            ) : null}
-          </div>
+            </div>
+          )
         )}
 
         {!isUser && message.statusHint && (

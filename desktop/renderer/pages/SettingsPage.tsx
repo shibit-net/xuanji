@@ -1123,7 +1123,7 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
 
       {/* 主体 */}
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-48 border-r border-border bg-card p-3 space-y-1 shrink-0">
+        <aside className="w-48 border-r border-border p-3 space-y-1 shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.id}

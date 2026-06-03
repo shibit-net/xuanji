@@ -198,40 +198,62 @@ export class SkillInstaller {
   /**
    * 卸载 marketplace 安装的 Skill 及其所有子技能
    */
-  async uninstall(skillId: string): Promise<SkillUninstallResult> {
-    const skill = this.registry.get(skillId);
+  async uninstall(skillOrPackageId: string): Promise<SkillUninstallResult> {
+    const allMarketplace = this.registry.list().filter((s) => s.source === 'marketplace');
+
+    // 多种方式查找目标 skill
+    let skill = this.registry.get(skillOrPackageId);
+    let packageId = skillOrPackageId;
+
     if (!skill) {
-      return { success: false, error: `Skill "${skillId}" 未注册` };
+      // 1) 按 packageId 查找
+      skill = allMarketplace.find((s) => s.packageId === skillOrPackageId);
     }
-    if (skill.source !== 'marketplace') {
-      return { success: false, error: `Skill "${skillId}" 不是 marketplace 安装的` };
+    if (!skill) {
+      // 2) 按 id 查找
+      skill = allMarketplace.find((s) => s.id === skillOrPackageId);
+    }
+    if (!skill && allMarketplace.length > 0) {
+      // 3) skillOrPackageId 可能就是 packageId，registry 里没有该字段也接受
+      packageId = skillOrPackageId;
+    } else if (skill) {
+      packageId = skill.packageId ?? skillOrPackageId;
     }
 
-    const packageId = skill.packageId ?? skillId;
-
-    // 卸载所有同 packageId 的子技能
-    const relatedSkills = this.registry.list().filter(
-      (s) => s.source === 'marketplace' && s.packageId === packageId,
-    );
+    // 卸载所有同 packageId 的 marketplace 技能
+    const relatedSkills = allMarketplace.filter((s) => s.packageId === packageId);
     for (const s of relatedSkills) {
       this.registry.unregister(s.id);
     }
 
-    // 删除安装目录（zip 模式）
+    // 删除安装目录
     const skillDir = path.join(this.installDir, packageId.replace(/\//g, '-'));
     try {
       await fs.rm(skillDir, { recursive: true, force: true });
-      log.info(`Skill "${skillId}" uninstalled (+${relatedSkills.length - 1} sub-skills), removed: ${skillDir}`);
+      log.info(`Uninstalled "${packageId}": ${relatedSkills.length} skills, removed: ${skillDir}`);
     } catch {
       // 目录不存在也视为成功
     }
 
-    // 兼容旧 JSON 安装模式：删除 {packageId}.json
+    // 兼容旧 JSON 安装模式
     const oldJsonFile = path.join(this.installDir, `${packageId}.json`);
     try {
       await fs.unlink(oldJsonFile);
     } catch {
       // 文件不存在则跳过
+    }
+
+    // 如果 registry 里根本没找到任何相关 skill，但目录存在并删除成功，也算成功
+    // 只有既找不到 skill 又删不掉目录时才报错
+    if (relatedSkills.length === 0) {
+      try {
+        await fs.access(skillDir);
+        // 目录存在，尝试删除
+        await fs.rm(skillDir, { recursive: true, force: true });
+        return { success: true };
+      } catch {
+        return { success: false, error: `Skill "${skillOrPackageId}" 未注册且目录不存在` };
+      }
     }
 
     return { success: true };

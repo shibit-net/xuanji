@@ -48,6 +48,8 @@ export interface MarketPackage {
   totalDownloads: number;
   ratingAvg: number;
   ratingCount: number;
+  recommendCount: number;
+  commentCount: number;
   qualityScore: number;
   securityScore: number;
   tags: string[];
@@ -151,7 +153,7 @@ export interface SearchOptions {
   query?: string;
   categoryId?: number;
   tags?: string;
-  sort?: 'downloads' | 'rating' | 'updated_at' | 'created_at';
+  sort?: 'downloads' | 'rating' | 'updated_at' | 'created_at' | 'recommend_score';
   status?: number;            // 1=testing, 2=live, 3=offline; 不传则后端默认
   page?: number;
   pageSize?: number;
@@ -206,6 +208,8 @@ interface PackageListRaw {
   totalDownloads: number;
   ratingAvg: number;
   ratingCount: number;
+  recommendCount: number;
+  commentCount: number;
   qualityScore: number;
   securityScore: number;
   tags: string[];
@@ -857,6 +861,8 @@ export class TiangongMarket {
       totalDownloads: raw.totalDownloads ?? 0,
       ratingAvg: raw.ratingAvg ?? 0,
       ratingCount: raw.ratingCount ?? 0,
+      recommendCount: raw.recommendCount ?? 0,
+      commentCount: raw.commentCount ?? 0,
       qualityScore: raw.qualityScore ?? 0,
       securityScore: raw.securityScore ?? 0,
       tags: raw.tags ?? [],

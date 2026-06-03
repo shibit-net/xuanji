@@ -6,14 +6,28 @@ import { useState, useEffect } from 'react';
 import { Wrench, RefreshCw, Info } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+
 
 interface Tool {
   name: string;
   description: string;
-  category: string;
+  category?: string;
   enabled?: boolean;
   config?: Record<string, any>;
+}
+
+// 后端工具 Schema 没有 category 字段，根据工具名前缀推断分类
+function inferCategory(name: string): string {
+  // 文件操作
+  if (/^(read_file|write_file|edit_file|multi_edit|glob|grep|list_directory|change_directory|docx_edit|xlsx_edit|pdf|doc_to_docx|notebook_edit|send_file_to_user)$/.test(name)) return 'file';
+  // 代码 / 终端
+  if (/^(bash|ssh_exec|ssh_list|ssh_read|ssh_write|enter_worktree|exit_plan_mode|enter_plan_mode|task$|task_control|task_output|plan_review)$/.test(name)) return 'code';
+  // 系统工具
+  if (/^(sleep|scheduler|install|uninstall|mcp_settings|todo_)/.test(name)) return 'system';
+  // 网络请求
+  if (/^(web_fetch|web_search)$/.test(name)) return 'network';
+  // 元认知 / Agent 管理 / 媒体生成
+  return 'meta';
 }
 
 interface ToolsPageProps {
@@ -21,26 +35,41 @@ interface ToolsPageProps {
 }
 
 function ToolCard({ tool }: { tool: Tool }) {
-  const categoryColors: Record<string, string> = {
-    file: 'bg-blue-500/10 text-blue-400',
-    code: 'bg-green-500/10 text-green-400',
-    system: 'bg-purple-500/10 text-purple-400',
-    network: 'bg-orange-500/10 text-orange-400',
-    meta: 'bg-pink-500/10 text-pink-400',
-    other: 'bg-gray-500/10 text-gray-400',
-  };
+  const cat = tool.category || 'other';
 
-  const categoryColor = categoryColors[tool.category] || categoryColors.other;
+  // Tailwind JIT 需要静态类名，不能动态拼接
+  const cardClass = (() => {
+    const base = 'rounded-2xl border backdrop-blur-xl shadow-glass-sm hover:border-primary/30 transition-colors';
+    switch (cat) {
+      case 'file': return `${base} border-blue-500/20 bg-blue-500/10`;
+      case 'code': return `${base} border-green-500/20 bg-green-500/10`;
+      case 'system': return `${base} border-purple-500/20 bg-purple-500/10`;
+      case 'network': return `${base} border-orange-500/20 bg-orange-500/10`;
+      case 'meta': return `${base} border-pink-500/20 bg-pink-500/10`;
+      default: return `${base} border-border bg-card`;
+    }
+  })();
+
+  const badgeClass = (() => {
+    switch (cat) {
+      case 'file': return 'bg-blue-500/10 text-blue-400';
+      case 'code': return 'bg-green-500/10 text-green-400';
+      case 'system': return 'bg-purple-500/10 text-purple-400';
+      case 'network': return 'bg-orange-500/10 text-orange-400';
+      case 'meta': return 'bg-pink-500/10 text-pink-400';
+      default: return 'bg-gray-500/10 text-gray-400';
+    }
+  })();
 
   return (
-    <Card className="hover:border-primary/30 transition-colors">
-      <CardContent className="flex items-start gap-3 p-4">
+    <div className={cardClass}>
+      <div className="flex items-start gap-3 p-4">
         <Wrench size={16} className="text-accent mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="font-mono text-sm font-semibold text-foreground">{tool.name}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColor}`}>
-              {tool.category}
+            <span className={`text-xs px-1.5 py-0.5 rounded ${badgeClass}`}>
+              {cat}
             </span>
             {tool.enabled !== undefined && (
               <span className={`text-xs px-1.5 py-0.5 rounded ${
@@ -64,8 +93,8 @@ function ToolCard({ tool }: { tool: Tool }) {
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -94,10 +123,12 @@ export default function ToolsPage({ onClose: _onClose }: ToolsPageProps) {
           setError(response.error || '加载工具列表失败');
           setTools([]);
         } else if ('tools' in response) {
-          setTools(response.tools || []);
+          const raw = (response.tools || []) as Tool[];
+          setTools(raw.map(t => ({ ...t, category: t.category || inferCategory(t.name) })));
         } else {
           // 兼容直接返回数组的情况
-          setTools(Array.isArray(response) ? response : []);
+          const raw = Array.isArray(response) ? response : [];
+          setTools(raw.map(t => ({ ...t, category: t.category || inferCategory(t.name) })));
         }
       } else {
         console.warn('[ToolsPage] 响应格式异常:', typeof response);

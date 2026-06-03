@@ -30,12 +30,12 @@
     --primary-foreground: 0 0% 100%;
 
     /* 次级背景 — 侧栏/代码块 */
-    --secondary: 0 0% 93%;
-    --secondary-foreground: 0 0% 9%;
+    --secondary: 215 15% 94%;
+    --secondary-foreground: 215 8% 9%;
 
     /* 静默态 — 输入框背景/hover */
-    --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 38%;
+    --muted: 215 20% 94%;
+    --muted-foreground: 215 8% 40%;
 
     /* 强调 */
     --accent: 211 65% 50% / 0.08;
@@ -46,8 +46,8 @@
     --destructive-foreground: 0 0% 100%;
 
     /* 边框 */
-    --border: 0 0% 80%;
-    --input: 0 0% 80%;
+    --border: 215 8% 84%;
+    --input: 215 8% 84%;
 
     /* 焦点环 */
     --ring: 211 65% 50%;
