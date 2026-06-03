@@ -4,7 +4,7 @@
  * 测试 MainAgent + 8种编程场景
  */
 
-import { SessionFactory } from '../src/core/chat/SessionFactory';
+import { SessionFactory } from '../src/session/SessionFactory';
 
 async function testJarvisArchitecture() {
   console.log('🚀 Testing Jarvis Architecture...\n');

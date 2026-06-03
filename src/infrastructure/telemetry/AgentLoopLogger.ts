@@ -22,7 +22,7 @@ import { join, basename, extname } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { getUserLogsDir } from '@/infrastructure/config/PathManager';
 import { getUTC8Timestamp, getUTC8DateString, getUTC8Components } from '@/shared/utils/time/formatters';
-import type { TokenUsage } from '../types';
+import type { TokenUsage } from '../../infrastructure/core-types';
 
 // ── 事件类型定义 ──
 
