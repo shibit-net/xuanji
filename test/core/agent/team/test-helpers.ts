@@ -12,6 +12,13 @@ import type { ProviderManager } from '@/provider/ProviderManager';
  */
 export function createMockAgentRegistry(): AgentRegistry {
   return {
+    get: vi.fn().mockReturnValue({
+      id: 'general-purpose',
+      name: 'General Purpose',
+      systemPrompt: 'Test prompt',
+      tools: ['read_file', 'write_file'],
+      model: 'claude-3-5-sonnet-20241022',
+    }),
     getAgent: vi.fn().mockReturnValue({
       id: 'general-purpose',
       name: 'General Purpose',

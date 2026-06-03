@@ -35,6 +35,8 @@ function createMockAgentRegistry(agents: ConfigurableAgentConfig[] = []) {
   return {
     getAllIds: vi.fn(() => Array.from(agentMap.keys())),
     get: vi.fn((id: string) => agentMap.get(id)),
+    getEnabled: vi.fn(() => agents.filter(a => a.enabled !== false)),
+    getAll: vi.fn(() => agents),
   };
 }
 

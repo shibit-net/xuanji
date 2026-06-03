@@ -12,9 +12,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
     exclude: [
-      // Electron 集成测试依赖未实现的 @/adapters/electron/main 和 preload
+      // 集成测试耗时过长（含 sleep 10 等真实命令执行），单独运行
+      'test/integration/**',
+      // Electron 集成测试依赖未实现的 @/platform 模块
       'test/integration/electron-integration.test.ts',
       // learning 模块已删除（src/learning/ 在生产代码中无引用）
       'test/integration/lesson-system-e2e.test.ts',
@@ -33,22 +36,22 @@ export default defineConfig({
         // 向后兼容转发文件 (shim)
         'src/agent/*.ts',
         'src/tools/*.ts',
-        'src/providers/*.ts',
+        'src/provider/*.ts',
         'src/config/*.ts',
         'src/types/*.ts',
         'src/cli/*.ts',
         'src/cli/*.tsx',
         // Provider SDK 实现，需要 SDK mock (集成测试范畴)
-        'src/core/providers/AnthropicProvider.ts',
-        'src/core/providers/OpenAIProvider.ts',
-        // Electron 适配器（需要 Electron 运行时，属于集成测试范畴）
-        'src/adapters/electron/**',
+        'src/provider/AnthropicProvider.ts',
+        'src/provider/OpenAIProvider.ts',
+        // 平台适配器（需要 Electron 运行时，属于集成测试范畴）
+        'src/platform/**',
         // 占位模块
         'src/context/**',
         'src/memory/**',
         'src/permission/**',
         'src/mcp/**',
-        'src/telemetry/**',
+        'src/infrastructure/telemetry/**',
       ],
       lines: 80,
       functions: 80,

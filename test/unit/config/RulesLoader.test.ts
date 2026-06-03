@@ -47,10 +47,10 @@ describe('RulesLoader', () => {
   });
 
   it('loadAsText 应合并所有规则为文本', async () => {
-    await writeFile(join(testDir, 'XUANJI.md'), '规则内容', 'utf-8');
+    await writeFile(join(testDir, 'XUANJI.md'), '# 规则内容\n\nSome rule text', 'utf-8');
     const text = await loader.loadAsText(testDir);
-    expect(text).toContain('规则内容');
     expect(text).toContain('XUANJI Rules');
+    expect(text).toContain('规则内容');
   });
 
   it('空文件应被忽略', async () => {

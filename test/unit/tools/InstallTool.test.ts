@@ -119,13 +119,14 @@ describe('InstallTool', () => {
     it('should return error when market not configured', async () => {
       const result = await tool.execute({ goal: 'test' });
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('Marketplace 未配置');
+      expect(result.content).toContain('Marketplace 服务不可用');
     });
 
-    it('should return error when market not configured (packageId)', async () => {
+    it('should show preview when packageId provided without confirmed (no deps needed)', async () => {
       const result = await tool.execute({ packageId: 'test-001', type: 'mcp' });
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain('Marketplace 未配置');
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Install confirmation required');
+      expect(result.content).toContain('test-001');
     });
   });
 
@@ -139,13 +140,13 @@ describe('InstallTool', () => {
     it('should return error when neither goal nor packageId provided', async () => {
       const result = await tool.execute({});
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('缺少 goal 或 packageId');
+      expect(result.content).toContain('Missing goal or packageId');
     });
 
     it('should return error for empty goal', async () => {
       const result = await tool.execute({ goal: '   ' });
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('缺少 goal 或 packageId');
+      expect(result.content).toContain('Missing goal or packageId');
     });
   });
 
@@ -159,11 +160,7 @@ describe('InstallTool', () => {
     it('should search MCP and return results', async () => {
       const pkg = createMockMarketPackage({ name: 'Postgres MCP', description: 'PostgreSQL integration' });
       (mockMarket.search as any).mockResolvedValue({
-        items: [pkg],
-        total: 1,
-        pageNum: 1,
-        pageSize: 10,
-        pages: 1,
+        mcp: { items: [pkg] },
       });
 
       const result = await tool.execute({ goal: 'PostgreSQL', type: 'mcp' });
@@ -186,11 +183,7 @@ describe('InstallTool', () => {
         packageId: 'skill-001',
       });
       (mockMarket.search as any).mockResolvedValue({
-        items: [skill],
-        total: 1,
-        pageNum: 1,
-        pageSize: 10,
-        pages: 1,
+        skill: { items: [skill] },
       });
 
       const result = await tool.execute({ goal: 'review', type: 'skill' });
@@ -209,8 +202,8 @@ describe('InstallTool', () => {
         packageId: 'skill-002',
       });
       (mockMarket.search as any)
-        .mockResolvedValueOnce({ items: [mcpPkg], total: 1, pageNum: 1, pageSize: 10, pages: 1 })
-        .mockResolvedValueOnce({ items: [skillPkg], total: 1, pageNum: 1, pageSize: 10, pages: 1 });
+        .mockResolvedValueOnce({ mcp: { items: [mcpPkg] } })
+        .mockResolvedValueOnce({ skill: { items: [skillPkg] } });
 
       const result = await tool.execute({ goal: 'database', type: 'auto' });
 
@@ -222,17 +215,13 @@ describe('InstallTool', () => {
 
     it('should handle empty search results', async () => {
       (mockMarket.search as any).mockResolvedValue({
-        items: [],
-        total: 0,
-        pageNum: 1,
-        pageSize: 10,
-        pages: 0,
+        mcp: { items: [] },
       });
 
       const result = await tool.execute({ goal: 'nonexistent', type: 'mcp' });
 
       expect(result.isError).toBe(false);
-      expect(result.content).toContain('未找到');
+      expect(result.content).toContain('No plugins found');
     });
 
     it('should handle search failures gracefully', async () => {
@@ -256,10 +245,10 @@ describe('InstallTool', () => {
       const installResult = createSuccessInstallResult();
       (mockMCP.install as any).mockResolvedValue(installResult);
 
-      const result = await tool.execute({ packageId: 'mcp-001', type: 'mcp' });
+      const result = await tool.execute({ packageId: 'mcp-001', type: 'mcp', confirmed: true });
 
       expect(result.isError).toBe(false);
-      expect(result.content).toContain('安装成功');
+      expect(result.content).toContain('installed successfully');
       expect(result.content).toContain('test-mcp');
       expect(mockMCP.install).toHaveBeenCalledWith('mcp-001', expect.objectContaining({ autoStart: true }));
     });
@@ -268,10 +257,10 @@ describe('InstallTool', () => {
       const skillResult = createSuccessSkillResult();
       (mockSkill.install as any).mockResolvedValue(skillResult);
 
-      const result = await tool.execute({ packageId: 'skill-001', type: 'skill' });
+      const result = await tool.execute({ packageId: 'skill-001', type: 'skill', confirmed: true });
 
       expect(result.isError).toBe(false);
-      expect(result.content).toContain('安装成功');
+      expect(result.content).toContain('installed successfully');
       expect(result.content).toContain('test-skill-001');
       expect(mockSkill.install).toHaveBeenCalledWith(
         expect.objectContaining({ packageId: 'skill-001' }),
@@ -282,7 +271,7 @@ describe('InstallTool', () => {
       const installResult = createSuccessInstallResult({ version: '2.0.0' });
       (mockMCP.install as any).mockResolvedValue(installResult);
 
-      await tool.execute({ packageId: 'mcp-001', type: 'mcp', version: '2.0.0' });
+      await tool.execute({ packageId: 'mcp-001', type: 'mcp', version: '2.0.0', confirmed: true });
 
       expect(mockMCP.install).toHaveBeenCalledWith(
         'mcp-001',
@@ -297,7 +286,7 @@ describe('InstallTool', () => {
         packageId: 'mcp-001',
       } as InstallResult);
 
-      const result = await tool.execute({ packageId: 'mcp-001', type: 'mcp' });
+      const result = await tool.execute({ packageId: 'mcp-001', type: 'mcp', confirmed: true });
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Download failed');
@@ -310,7 +299,7 @@ describe('InstallTool', () => {
         skillId: 'skill-001',
       } as SkillInstallResult);
 
-      const result = await tool.execute({ packageId: 'skill-001', type: 'skill' });
+      const result = await tool.execute({ packageId: 'skill-001', type: 'skill', confirmed: true });
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Invalid package');
@@ -325,10 +314,10 @@ describe('InstallTool', () => {
       const skillResult = createSuccessSkillResult({ skillId: 'test-001' });
       (mockSkill.install as any).mockResolvedValue(skillResult);
 
-      const result = await tool.execute({ packageId: 'test-001', type: 'auto' });
+      const result = await tool.execute({ packageId: 'test-001', type: 'auto', confirmed: true });
 
       expect(result.isError).toBe(false);
-      expect(result.content).toContain('Skill 安装成功');
+      expect(result.content).toContain('Skill installed successfully');
       expect(mockMCP.install).toHaveBeenCalled();
       expect(mockSkill.install).toHaveBeenCalled();
     });
@@ -344,10 +333,10 @@ describe('InstallTool', () => {
         error: 'Skill failed',
       } as SkillInstallResult);
 
-      const result = await tool.execute({ packageId: 'test-001', type: 'auto' });
+      const result = await tool.execute({ packageId: 'test-001', type: 'auto', confirmed: true });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('未成功');
+      expect(result.content).toContain('Skill install failed');
     });
   });
 

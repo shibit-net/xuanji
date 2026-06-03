@@ -7,9 +7,9 @@ import { DEFAULT_TEAM_CONFIG } from '@/agent/team/types';
 
 describe('Team Timeout Refactor', () => {
   it('should have correct default values', () => {
-    expect(DEFAULT_TEAM_CONFIG.teamTotalTimeout).toBe(1_800_000); // 30 min
-    expect(DEFAULT_TEAM_CONFIG.defaultMemberTimeout).toBe(300_000); // 5 min
-    expect(DEFAULT_TEAM_CONFIG.minMemberTimeout).toBe(30_000); // 30s
+    expect(DEFAULT_TEAM_CONFIG.teamTotalTimeout).toBe(3_600_000); // 60 min
+    expect(DEFAULT_TEAM_CONFIG.defaultMemberTimeout).toBe(600_000); // 10 min
+    expect(DEFAULT_TEAM_CONFIG.minMemberTimeout).toBe(60_000); // 60s
   });
 
   it('should have correct strategy ratios', () => {

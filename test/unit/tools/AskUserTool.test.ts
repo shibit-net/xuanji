@@ -86,7 +86,7 @@ describe('AskUserTool', () => {
     const noHandlerTool = new AskUserTool();
     const result = await noHandlerTool.execute({ question: '测试' });
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('非交互模式');
+    expect(result.content).toContain('non-interactive mode');
   });
 
   it('handler 抛出异常应返回错误', async () => {
@@ -100,6 +100,6 @@ describe('AskUserTool', () => {
     tool.setHandler(async () => '');
     const result = await tool.execute({ question: '测试' });
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('用户未回复');
+    expect(result.content).toContain('User did not respond');
   });
 });

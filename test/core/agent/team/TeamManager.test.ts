@@ -94,7 +94,7 @@ describe('TeamManager', () => {
       await expect(teamManager.createTeam(config)).rejects.toThrow('Duplicate member ID');
     });
 
-    it('should require leader for hierarchical strategy', async () => {
+    it('should auto-assign leader when no member has priority > 0 for hierarchical strategy', async () => {
       const config: TeamConfig = {
         name: 'Test',
         members: [
@@ -105,9 +105,11 @@ describe('TeamManager', () => {
         goal: 'Test',
       };
 
-      await expect(teamManager.createTeam(config)).rejects.toThrow(
-        'Hierarchical strategy requires at least one member with priority > 0'
-      );
+      // No longer throws — auto-assigns members[0] as leader with a warning
+      await teamManager.createTeam(config);
+      const context = teamManager.getContext();
+      expect(context.config.name).toBe('Test');
+      expect(context.config.strategy).toBe('hierarchical');
     });
   });
 

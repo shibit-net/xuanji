@@ -9,10 +9,10 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { AuditLogger, type AuditRecord } from '@/infrastructure/telemetry/AuditLogger';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '@/permission/types';
+import { getUTC8DateString } from '@/shared/utils/time/formatters';
 
 function todayFile(base: string, name: string, ext: string): string {
-  const today = new Date().toISOString().split('T')[0];
-  return join(base, `${name}-${today}.${ext}`);
+  return join(base, `${name}-${getUTC8DateString()}.${ext}`);
 }
 
 describe('AuditLogger', () => {

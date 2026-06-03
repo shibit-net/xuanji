@@ -8,10 +8,10 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { UsageStatsRecorder, type UsageRecord } from '@/infrastructure/telemetry/UsageStatsRecorder';
+import { getUTC8DateString } from '@/shared/utils/time/formatters';
 
 function todayFile(base: string, name: string): string {
-  const today = new Date().toISOString().split('T')[0];
-  return join(base, `${name}-${today}.jsonl`);
+  return join(base, `${name}-${getUTC8DateString()}.jsonl`);
 }
 
 describe('UsageStatsRecorder', () => {

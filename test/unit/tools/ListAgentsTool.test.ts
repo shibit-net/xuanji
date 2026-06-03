@@ -30,6 +30,8 @@ function createMockAgentRegistry(agents: ConfigurableAgentConfig[] = []) {
   return {
     getAllIds: vi.fn(() => Array.from(agentMap.keys())),
     get: vi.fn((id: string) => agentMap.get(id)),
+    getEnabled: vi.fn(() => agents.filter(a => a.enabled !== false)),
+    getAll: vi.fn(() => agents),
   };
 }
 
@@ -50,8 +52,7 @@ describe('ListAgentsTool', () => {
 
     it('应有详细的工具描述', () => {
       expect(tool.description).toBeTruthy();
-      expect(tool.description).toContain('List all available agents');
-      expect(tool.description).toContain('Agent ID');
+      expect(tool.description).toContain('available agents');
       expect(tool.description).toContain('capabilities');
     });
 
@@ -133,15 +134,14 @@ describe('ListAgentsTool', () => {
       expect(result.content).toContain('agent-2');
     });
 
-    it('应正确调用 AgentRegistry 的 getAllIds 和 get 方法', async () => {
+    it('应正确通过 getEnabled 获取 agent 列表', async () => {
       const agent = createMockAgent({ id: 'my-agent' });
       const mockRegistry = createMockAgentRegistry([agent]);
       tool.setAgentRegistry(mockRegistry as any);
 
       await tool.execute({});
 
-      expect(mockRegistry.getAllIds).toHaveBeenCalledTimes(1);
-      expect(mockRegistry.get).toHaveBeenCalledWith('my-agent');
+      expect(mockRegistry.getEnabled).toHaveBeenCalledTimes(1);
     });
 
     it('应处理 3 个以上 agent 的场景', async () => {

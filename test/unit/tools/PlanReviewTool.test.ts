@@ -43,7 +43,7 @@ describe('PlanReviewTool', () => {
     const tool = new PlanReviewTool();
     const result = await tool.execute({ plan: '# My Plan\n- Step 1\n- Step 2' });
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No review handler');
+    expect(result.content).toContain('无审批处理器');
   });
 
   it('should return approved message when user approves', async () => {
@@ -54,7 +54,7 @@ describe('PlanReviewTool', () => {
     const result = await tool.execute({ plan: '# Deploy Plan\n- Build\n- Deploy' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Plan Approved');
-    expect(result.content).toContain('Proceed');
+    expect(result.content).toContain('todo_create');
     expect(controller.reviewPlan).toHaveBeenCalledWith('# Deploy Plan\n- Build\n- Deploy');
   });
 
@@ -66,7 +66,7 @@ describe('PlanReviewTool', () => {
     const result = await tool.execute({ plan: '# Risky Plan' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Plan Rejected');
-    expect(result.content).toContain('Do NOT proceed');
+    expect(result.content).toContain('不要继续');
   });
 
   it('should return supplement message with user text when user supplements', async () => {
