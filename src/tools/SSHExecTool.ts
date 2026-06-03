@@ -5,10 +5,10 @@
 import { BaseTool } from './BaseTool';
 import { SSHConnectionManager } from '@/core/ssh/SSHConnectionManager';
 import { SSHConfigStore } from '@/core/ssh/SSHConfigStore';
-import { getSSHConfig } from '@/core/config/RuntimeConfig';
+import { getSSHConfig } from '@/infrastructure/config/RuntimeConfig';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
 import type { ToolResult, JSONSchema } from '@/core/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SSHExecTool' });
 

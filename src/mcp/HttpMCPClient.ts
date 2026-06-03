@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { HttpTransport, type HttpTransportOptions } from './transports/HttpTransport';
 import type {
   MCPTool,

@@ -8,8 +8,8 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { getMemoryManager } from '@/memory/globals';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 export class MemorySearchTool extends BaseTool {
   readonly name = 'memory_search';

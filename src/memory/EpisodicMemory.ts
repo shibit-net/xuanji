@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { SemanticIndex, SearchResult } from '@/memory/SemanticIndex';
 import type { Episode } from '@/memory/types';
 

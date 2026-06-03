@@ -14,7 +14,7 @@ import type { PlatformAdapter, PlatformMessage, WecomConfig } from '../types.js'
 import type { WebhookHandler, WebhookRequest, WebhookResponse } from '../http/WebhookServer.js';
 import { webhookOk, webhookError } from '../http/WebhookServer.js';
 import { buildSessionKey } from '../SessionRouter.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { CredentialManager } from '../auth/CredentialManager.js';
 
 const log = logger.child({ module: 'WecomAdapter' });

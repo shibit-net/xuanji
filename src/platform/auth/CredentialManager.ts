@@ -7,7 +7,7 @@
 import { EventEmitter } from 'events';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'CredentialManager' });
 

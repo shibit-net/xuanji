@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { TimeAnchor, TimeAnchorInput } from '@/memory/types';
 
 const log = logger.child({ module: 'TimelineInference' });

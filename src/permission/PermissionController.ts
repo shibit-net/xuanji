@@ -40,7 +40,7 @@ import { PolicyEngine } from './policies/PolicyEngine';
 import { DecisionStore, AuditLogEntry, AuditQueryOptions, AuditStats } from './DecisionStore';
 import { PermissionAudit } from './audit/PermissionAudit';
 import { EventBus } from '@/infrastructure/messaging';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { t } from '@/i18n';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

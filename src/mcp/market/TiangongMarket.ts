@@ -16,7 +16,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'TiangongMarket' });
 

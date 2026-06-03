@@ -32,8 +32,8 @@ import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import { promisify } from 'node:util';
 import globCb from 'glob';
 import type { PromptComponent, PromptBuildContext, SceneMatchConfig } from './types';
-import { logger } from '@/core/logger';
-import { getUserPromptsDir, getProjectPromptsDir, getTemplatePromptsDir } from '@/core/config/PathManager';
+import { logger } from '@/infrastructure/logger';
+import { getUserPromptsDir, getProjectPromptsDir, getTemplatePromptsDir } from '@/infrastructure/config/PathManager';
 
 const glob = promisify(globCb);
 const log = logger.child({ module: 'PromptComponentRegistry' });

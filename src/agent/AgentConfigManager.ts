@@ -3,8 +3,8 @@ import * as path from 'node:path';
 import JSON5 from 'json5';
 import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import type { AgentCategory, ConfigurableAgentConfig } from './types';
-import { logger } from '@/core/logger';
-import { getUserRoot, getUserAgentsDir } from '@/core/config/PathManager';
+import { logger } from '@/infrastructure/logger';
+import { getUserRoot, getUserAgentsDir } from '@/infrastructure/config/PathManager';
 
 const log = logger.child({ module: 'AgentConfigManager' });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getEnvProviderConfig, getApiKey, ENV_KEYS } from '@/core/config/EnvConfig';
+import { getEnvProviderConfig, getApiKey, ENV_KEYS } from '@/infrastructure/config/EnvConfig';
 
 describe('EnvConfig', () => {
   const originalEnv = { ...process.env };

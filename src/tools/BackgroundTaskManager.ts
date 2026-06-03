@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { getToolTimeouts, getConcurrencyConfig } from '@/core/config/RuntimeConfig';
+import { getToolTimeouts, getConcurrencyConfig } from '@/infrastructure/config/RuntimeConfig';
 import { crossPlatformKill, getPlatformShell, getShellExecArgs } from '@/shared/utils/crossPlatform';
 
 /** 后台任务最大生存时间 (ms) — 1 小时 */

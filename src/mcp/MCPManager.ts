@@ -18,7 +18,7 @@ import type {
   MCPServerRuntime,
   IMCPClient,
 } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { mcpSettingsPersistence } from './config/settings-persistence';
 import { watchFile } from 'node:fs';
 

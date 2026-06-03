@@ -8,8 +8,8 @@
  *   waiting_async — 有后台任务在跑，主 agent 空闲
  */
 
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 export type ConversationState = 'idle' | 'executing' | 'outputting' | 'waiting_async';
 

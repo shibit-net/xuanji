@@ -13,7 +13,7 @@ import { dirname, resolve, basename, extname } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'DocxEditTool' });
 

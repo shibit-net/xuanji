@@ -5,7 +5,7 @@
  */
 
 import type { IToolRegistry, Tool, ToolSchema, ToolCall, ToolResult } from '@/core/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ToolGateway' });
 

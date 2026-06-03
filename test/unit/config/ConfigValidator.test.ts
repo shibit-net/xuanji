@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ConfigValidator } from '@/core/config/ConfigValidator';
+import { ConfigValidator } from '@/infrastructure/config/ConfigValidator';
 import type { AppConfig } from '@/core/types';
 
 describe('ConfigValidator', () => {

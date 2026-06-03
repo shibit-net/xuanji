@@ -11,8 +11,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type Database from 'better-sqlite3';
-import { logger } from '@/core/logger';
-import type { EventBus } from '@/core/events/EventBus';
+import { logger } from '@/infrastructure/logger';
+import type { EventBus } from '@/infrastructure/events/EventBus';
 import type { CronJob, SchedulerLog } from '@/core/scheduler/types';
 
 const log = logger.child({ module: 'Scheduler' });

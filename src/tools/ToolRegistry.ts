@@ -68,8 +68,8 @@ import { GenerateAudioTool } from './GenerateAudioTool';
 import { QueryVideoTaskTool } from './QueryVideoTaskTool';
 import { CancelVideoTaskTool } from './CancelVideoTaskTool';
 import { ListMediaTasksTool } from './ListMediaTasksTool';
-import { getToolTimeouts } from '@/core/config/RuntimeConfig';
-import { logger } from '@/core/logger';
+import { getToolTimeouts } from '@/infrastructure/config/RuntimeConfig';
+import { logger } from '@/infrastructure/logger';
 
 /** 工具执行默认超时（5 分钟） */
 const DEFAULT_TOOL_TIMEOUT = 300_000;

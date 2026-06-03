@@ -9,14 +9,14 @@
 import type { JSONSchema, ToolResult, AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { BaseTool } from './BaseTool';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { SubAgentContext, MAX_CONCURRENT_SUBAGENTS, type AgentRoleType, type IsolationMode } from '@/agent/SubAgentContext';
 import type { SubAgentResult } from '@/agent/factory/AgentFactory';
 import { AgentFactory } from '@/agent/factory/AgentFactory';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import { TeamContext } from './TeamContext';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 // ─── TaskTool ────────────────────────────────────────
 

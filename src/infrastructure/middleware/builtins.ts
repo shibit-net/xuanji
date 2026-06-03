@@ -5,7 +5,7 @@
 import type { IMiddleware } from './MiddlewarePipeline';
 import type { IPermissionController, PermissionRequest } from '@/permission/types';
 import type { ToolResult } from '@/shared/types/tools';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { isPermissionExempt } from '@/tools/ToolCategories';
 
 const log = logger.child({ module: 'Middlewares' });

@@ -7,7 +7,7 @@
  * 使用独立的低 temperature + 低 maxTokens 配置，适合提取、总结等结构化输出任务。
  */
 import type { ILLMProvider, ProviderConfig } from '@/shared/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'CheapLLMProvider' });
 

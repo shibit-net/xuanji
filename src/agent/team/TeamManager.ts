@@ -33,10 +33,10 @@ import { DEFAULT_TEAM_CONFIG } from './types';
 import type { SubAgentResult } from '../factory/AgentFactory';
 import { AgentFactory } from '../factory/AgentFactory';
 import { WorktreeManager, type WorktreeInfo } from '../WorktreeManager';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { TeamContext as TeamContextStore } from '@/tools/TeamContext';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 const log = logger.child({ module: 'TeamManager' });
 
 /**

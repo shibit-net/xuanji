@@ -8,7 +8,7 @@ interface EmbeddingProvider {
   dotProduct(vectors: Float32Array, offset: number, query: Float32Array, dimensions: number): number;
   getModelName(): string;
 }
-import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
+import type { EmbeddingProviderInterface } from '@/infrastructure/embedding/EmbeddingProvider';
 import type { ConfigurableAgentConfig } from '@/agent/types';
 
 // ============================================================

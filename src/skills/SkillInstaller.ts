@@ -24,7 +24,7 @@ import { parse as parseYAML } from 'yaml';
 import type { Skill } from './types';
 import type { SkillRegistry } from './registry';
 import type { TiangongMarket } from '@/mcp/market/TiangongMarket';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SkillInstaller' });
 

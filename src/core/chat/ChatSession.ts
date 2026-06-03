@@ -16,9 +16,9 @@ import type { MCPManager } from '@/mcp/MCPManager';
 import { StateTracker } from '@/core/state/StateTracker';
 import { TaskOrchestrator } from '@/core/task/TaskOrchestrator';
 import type { SessionStateMachine, SessionAction } from '@/core/state/SessionStateMachine';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
-import { logger } from '@/core/logger';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
+import { logger } from '@/infrastructure/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 
 const log = logger.child({ module: 'ChatSession' });

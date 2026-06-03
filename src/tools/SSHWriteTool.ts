@@ -5,7 +5,7 @@
 import { BaseTool } from './BaseTool';
 import { SSHConnectionManager } from '@/core/ssh/SSHConnectionManager';
 import { SSHConfigStore } from '@/core/ssh/SSHConfigStore';
-import { getSSHConfig } from '@/core/config/RuntimeConfig';
+import { getSSHConfig } from '@/infrastructure/config/RuntimeConfig';
 import type { ToolResult, JSONSchema } from '@/core/types';
 
 const SENSITIVE_PATHS = [

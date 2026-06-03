@@ -3,7 +3,7 @@
  *
  * 将原始 StreamEvent 解析为结构化输出（text/thinking/tool_call/usage）。
  */
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { StreamEvent } from '@/shared/types/provider';
 import type { ToolCall, TokenUsage } from '@/core/types';
 import type { StreamParserConfig } from './types';

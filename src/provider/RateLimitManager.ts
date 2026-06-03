@@ -3,7 +3,7 @@
  *
  * 基于令牌桶和并发控制，防止 API 超限。
  */
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { RateLimitConfig } from './types';
 
 const log = logger.child({ module: 'RateLimitManager' });

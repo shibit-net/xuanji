@@ -11,7 +11,7 @@
 // - ReadTool: 大文件读取截断
 // - MessageManager: 发给 LLM 的 tool_result 截断
 
-import { getOutputLimits } from '@/core/config/RuntimeConfig';
+import { getOutputLimits } from '@/infrastructure/config/RuntimeConfig';
 
 /** 工具输出最大长度 (字符)，BashTool / ReadTool 共用 */
 export const MAX_TOOL_OUTPUT_LENGTH = 30_000;

@@ -20,13 +20,13 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { exec as execCb, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { findNpmCliPath } from '@/shared/utils/crossPlatform';
 import type { MCPServerConfig } from '../types';
 import type { TiangongMarket, InstallConfig, MarketPackage } from './TiangongMarket';
 import { MCPManager } from '../MCPManager';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 const exec = promisify(execCb);
 const log = logger.child({ module: 'MCPInstaller' });

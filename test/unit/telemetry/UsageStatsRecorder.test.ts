@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { UsageStatsRecorder, type UsageRecord } from '@/core/telemetry/UsageStatsRecorder';
+import { UsageStatsRecorder, type UsageRecord } from '@/infrastructure/telemetry/UsageStatsRecorder';
 
 function todayFile(base: string, name: string): string {
   const today = new Date().toISOString().split('T')[0];

@@ -13,7 +13,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import type { HookConfig, HookEvent, HookHandler } from './types.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'HookConfigLoader' });
 

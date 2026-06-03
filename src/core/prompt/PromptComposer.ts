@@ -7,7 +7,7 @@
  * 组件优先级：项目级 > 用户级 > 应用级
  */
 
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { PromptComponent, IntentAnalysis, PromptBuildContext, SceneType } from '@/core/prompt/types';
 
 const log = logger.child({ module: 'PromptComposer' });

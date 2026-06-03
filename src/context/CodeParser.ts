@@ -12,7 +12,7 @@ import Parser from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
 import Python from 'tree-sitter-python';
 import Java from 'tree-sitter-java';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { ParsedTree, SupportedLanguage } from './types';
 
 const log = logger.child({ module: 'CodeParser' });

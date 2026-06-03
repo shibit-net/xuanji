@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import * as path from 'node:path';
 import { existsSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { crossPlatformKill, findNpmCliPath } from '@/shared/utils/crossPlatform';
 import { sleep } from '@/shared/utils/sleep';
 import type {

@@ -11,7 +11,7 @@
  */
 
 import type { AgentConfig, ILLMProvider, IToolRegistry } from '@/core/types';
-import { getSubAgentConfig } from '@/core/config/RuntimeConfig';
+import { getSubAgentConfig } from '@/infrastructure/config/RuntimeConfig';
 
 /**
  * 子代理隔离模式

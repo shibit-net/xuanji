@@ -9,9 +9,9 @@ import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import glob from 'fast-glob';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { getGrepConfig } from '@/core/config/RuntimeConfig';
+import { getGrepConfig } from '@/infrastructure/config/RuntimeConfig';
 import { crossPlatformKill } from '@/shared/utils/crossPlatform';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const MAX_MATCHES = 500;
 const MAX_CONTEXT_LINES = 5;

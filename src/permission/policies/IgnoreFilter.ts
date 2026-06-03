@@ -9,7 +9,7 @@
 import ignore, { type Ignore } from 'ignore';
 import { readFile } from 'node:fs/promises';
 import { relative } from 'node:path';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'IgnoreFilter' });
 

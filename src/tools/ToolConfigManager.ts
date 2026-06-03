@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { ToolMediaGenConfig } from '@/shared/types/config';
-import { getModelProvidersConfig } from '@/core/config/RuntimeConfig';
+import { getModelProvidersConfig } from '@/infrastructure/config/RuntimeConfig';
 
 /**
  * 工具配置管理器

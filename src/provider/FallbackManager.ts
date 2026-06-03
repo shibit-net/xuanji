@@ -3,7 +3,7 @@
  *
  * 当 provider 连续失败时，自动切换到备用 provider。
  */
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { FallbackConfig } from './types';
 
 const log = logger.child({ module: 'FallbackManager' });

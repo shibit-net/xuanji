@@ -3,7 +3,7 @@
  *
  * 校验组合后的 prompt 是否符合长度限制、格式要求。
  */
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { ComposedPrompt } from './PromptComposer';
 
 const log = logger.child({ module: 'PromptValidator' });

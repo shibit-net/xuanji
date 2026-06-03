@@ -8,12 +8,12 @@ import { parse as parseYAML, stringify as stringifyYAML } from 'yaml';
 import { promisify } from 'node:util';
 import globCb from 'glob';
 import type { AgentCategory, ConfigurableAgentConfig } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { AgentConfigManager } from './AgentConfigManager';
 import {
   getUserAgentsDir,
   getTemplateAgentsDir
-} from '@/core/config/PathManager';
+} from '@/infrastructure/config/PathManager';
 
 const glob = promisify(globCb);
 const log = logger.child({ module: 'AgentRegistry' });

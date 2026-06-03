@@ -14,9 +14,9 @@ import type { HookRegistry } from '@/hooks/HookRegistry';
 import { ContextManager } from '@/core/context/ContextManager';
 import { StreamPipeline } from '@/provider/stream/StreamPipeline';
 import { ToolGateway } from '@/tools/ToolGateway';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
-import { logger } from '@/core/logger';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
+import { logger } from '@/infrastructure/logger';
 import type { InterruptChecker } from '@/agent/InterruptChecker';
 
 /** 硬性最大迭代次数，超过此值强制终止，防止无限循环 */

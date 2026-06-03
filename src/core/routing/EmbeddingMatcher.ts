@@ -10,7 +10,7 @@ import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { ConfigurableAgentConfig } from '@/agent/types';
 import type { EmbeddingProviderInterface } from '@/core/embedding/EmbeddingProvider';
 import type { MatchResult } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'EmbeddingMatcher' });
 

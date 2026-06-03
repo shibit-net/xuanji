@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { DiffRenderer } from '@/shared/utils/DiffRenderer';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'EditTool' });
 

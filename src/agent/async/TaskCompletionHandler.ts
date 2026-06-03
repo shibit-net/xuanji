@@ -6,10 +6,10 @@
  */
 
 import type { ContextManager } from '@/core/context/ContextManager';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 import type { TaskCompletionResult as AgentTaskCompletionResult } from '@/core/task/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'TaskCompletionHandler' });
 

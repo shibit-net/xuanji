@@ -11,7 +11,7 @@ import type { ILLMProvider, ProviderConfig } from '@/shared/types/provider';
 import type { AgentRegistry } from '@/agent/AgentRegistry';
 import type { ConfigurableAgentConfig } from '@/agent/types';
 import type { ClassifyResult } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SceneClassifier' });
 

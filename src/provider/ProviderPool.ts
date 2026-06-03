@@ -5,7 +5,7 @@
  */
 
 import type { ILLMProvider, ProviderConfig } from '@/core/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ProviderPool' });
 

@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { FORMAT_PARSERS } from './parsers';
 import type { ParserLoader } from './parsers';
 

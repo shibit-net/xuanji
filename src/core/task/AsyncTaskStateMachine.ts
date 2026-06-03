@@ -5,7 +5,7 @@
  * 事件驱动，通过 onTaskStateChanged 回调通知 EventForwarder 发出 IPC 事件。
  */
 
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'AsyncTaskStateMachine' });
 

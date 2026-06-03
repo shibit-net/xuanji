@@ -8,7 +8,7 @@
 // ============================================================
 
 import type { AppConfig, ILLMProvider } from '@/core/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { AnthropicProvider } from './AnthropicProvider';
 import { OpenAIProvider } from './OpenAIProvider';
 import { OpenAIResponsesProvider } from './OpenAIResponsesProvider';

@@ -5,7 +5,7 @@
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { getToolTimeouts } from '@/core/config/RuntimeConfig';
+import { getToolTimeouts } from '@/infrastructure/config/RuntimeConfig';
 
 /** 默认超时 (ms) */
 const DEFAULT_FETCH_TIMEOUT = 30_000;

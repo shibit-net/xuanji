@@ -8,9 +8,9 @@
  * 同时实现 InterruptChecker 接口供 AgentLoop 查询中断状态。
  */
 
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
-import { logger } from '@/core/logger';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
+import { logger } from '@/infrastructure/logger';
 import type { InterruptChecker } from '@/agent/InterruptChecker';
 
 const log = logger.child({ module: 'SessionStateMachine' });

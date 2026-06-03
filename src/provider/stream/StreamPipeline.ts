@@ -8,7 +8,7 @@ import type { ILLMProvider, Message, ToolSchema, ToolCall, TokenUsage } from '@/
 import type { StreamEvent } from '@/shared/types/provider';
 import type { ProviderConfig } from '@/shared/types/provider';
 import { isContentTooLargeError } from '@/provider/RetryPolicy';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'StreamPipeline' });
 

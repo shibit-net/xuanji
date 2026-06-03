@@ -14,7 +14,7 @@ import { PipelineTool } from '@/tools/PipelineTool';
 import { QuickTeamTool } from '@/tools/QuickTeamTool';
 import { ProviderManager } from '@/provider/ProviderManager';
 import { AgentRegistry } from '@/agent/AgentRegistry';
-import { loadConfig } from '@/core/config';
+import { loadConfig } from '@/infrastructure/config';
 import { getToolRegistry } from '@/tools';
 
 // ============================================================================

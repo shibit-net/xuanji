@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 import { appendFile, readFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { SubAgentResult } from '@/memory/types';
 
 const log = logger.child({ module: 'SubAgentResultStore' });

@@ -3,7 +3,7 @@
  *
  * 从指定目录加载 Prompt 组件（L0/L1/L2/L3），支持项目级和用户级覆盖。
  */
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { PromptComponent } from './types';
 
 const log = logger.child({ module: 'LayerLoader' });

@@ -11,9 +11,9 @@ import type { AgentLoop, AgentCallbacks } from '@/agent/AgentLoop.js';
 import type { AgentGateway, AgentReply, PlatformMessage, Attachment } from './types.js';
 import type { SessionRouter } from './SessionRouter.js';
 import type { MemoryManager } from '@/memory/MemoryManager.js';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
-import { logger } from '@/core/logger';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'AgentGateway' });
 

@@ -18,7 +18,7 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { promises as fs, existsSync } from 'node:fs';
 import { parse as parseYAML } from 'yaml';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SkillRegistry' });
 

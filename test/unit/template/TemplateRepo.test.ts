@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TemplateRepo } from '@/core/template/TemplateRepo';
+import { TemplateRepo } from '@/infrastructure/template/TemplateRepo';
 import type { MCPManager } from '@/mcp/MCPManager';
 import type { IMCPClient } from '@/mcp/types';
 

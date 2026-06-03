@@ -10,7 +10,7 @@
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
 import fg from 'fast-glob';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { CodeParser } from './CodeParser';
 import { SymbolExtractor } from './SymbolExtractor';
 import type { IndexedFile, FileIndex, IndexOptions } from './types';

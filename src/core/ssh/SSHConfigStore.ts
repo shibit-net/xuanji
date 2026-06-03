@@ -7,10 +7,10 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { getXuanjiRoot } from '@/core/config/PathManager';
+import { getXuanjiRoot } from '@/infrastructure/config/PathManager';
 import { SSHCrypto } from './SSHCrypto';
 import type { SSHHost } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SSHConfigStore' });
 

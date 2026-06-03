@@ -11,7 +11,7 @@ import path from 'path';
 import type { PlatformAdapter, PlatformMessage, WechatConfig } from '../types.js';
 import type { CredentialManager } from '../auth/CredentialManager.js';
 import { buildSessionKey } from '../SessionRouter.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'WechatAdapter' });
 

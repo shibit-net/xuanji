@@ -5,7 +5,7 @@
 import OpenAI from 'openai';
 import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage, StopReason } from '@/core/types';
 import { BaseLLMProvider } from './LLMProvider';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 /** OpenAI Chat Completions API 支持的图片 MIME 类型 */
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);

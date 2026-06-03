@@ -8,8 +8,8 @@ import { existsSync, statSync, readFileSync } from 'fs';
 import { extname } from 'path';
 import { BaseTool } from './BaseTool';
 import type { ToolResult, JSONSchema } from '@/core/types';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']);

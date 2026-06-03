@@ -10,8 +10,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { logger } from '@/core/logger';
-import { ensureDirExists } from '@/core/config/PathManager';
+import { logger } from '@/infrastructure/logger';
+import { ensureDirExists } from '@/infrastructure/config/PathManager';
 
 const log = logger.child({ module: 'ProjectRegistry' });
 

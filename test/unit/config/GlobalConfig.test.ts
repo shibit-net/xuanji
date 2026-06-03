@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ProjectConfig, deepMergeConfig, getByPath, setByPath } from '@/core/config/ProjectConfig';
+import { ProjectConfig, deepMergeConfig, getByPath, setByPath } from '@/infrastructure/config/ProjectConfig';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

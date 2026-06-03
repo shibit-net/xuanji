@@ -6,7 +6,7 @@
 
 import { logger } from '@/core/logger/index.js';
 import { DownloadManager } from '@/core/download/DownloadManager.js';
-import { getRuntimeConfig } from '@/core/config/RuntimeConfig.js';
+import { getRuntimeConfig } from '@/infrastructure/config/RuntimeConfig.js';
 import type { DownloadSource } from '@/shared/types/config';
 import { homedir, platform } from 'node:os';
 import * as path from 'node:path';

@@ -10,7 +10,7 @@
 
 import { exec } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import {
   getPlatformShell,
   getShellExecArgs,

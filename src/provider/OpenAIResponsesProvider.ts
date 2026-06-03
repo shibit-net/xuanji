@@ -9,7 +9,7 @@
 import OpenAI from 'openai';
 import type { Message, ContentBlock, ToolSchema, ProviderConfig, StreamEvent, TokenUsage } from '@/core/types';
 import { BaseLLMProvider } from './LLMProvider';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 /**
  * OpenAI Responses Provider

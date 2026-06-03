@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { readFile, writeFile, appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
-import { getUserRoot } from '@/core/config/PathManager';
+import { getUserRoot } from '@/infrastructure/config/PathManager';
 
 /**
  * Todo 任务

@@ -5,8 +5,8 @@
  * 提供统一的注册/注销机制，支持 agentId 自动映射。
  */
 
-import { eventBus, XuanjiEvent } from '@/core/events';
-import { logger } from '@/core/logger';
+import { eventBus, XuanjiEvent } from '@/infrastructure/events';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'EventForwarder' });
 

@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 /** ESM 兼容的 __dirname 替代 */
 const _dirname = path.dirname(fileURLToPath(import.meta.url));

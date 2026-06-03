@@ -12,8 +12,8 @@ import { MemoryManager } from '@/memory/MemoryManager';
 import { MemoryStoreTool } from '@/tools/MemoryStoreTool';
 import { MemorySearchTool } from '@/tools/MemorySearchTool';
 import { registerMemoryManager, unregisterMemoryManager } from '@/memory/globals';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 
 function tempDbPath(): string {
   return join(tmpdir(), `xuanji-tooltest-${randomUUID().slice(0, 8)}.db`);

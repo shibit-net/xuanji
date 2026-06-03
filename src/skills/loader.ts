@@ -11,7 +11,7 @@ import { watch } from 'node:fs';
 import path from 'path';
 import type { Skill, SkillLoadOptions } from './types';
 import { SkillRegistry } from './registry';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SkillLoader' });
 

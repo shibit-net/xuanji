@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { mkdtemp, rm, readFile, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { AuditLogger, type AuditRecord } from '@/core/telemetry/AuditLogger';
+import { AuditLogger, type AuditRecord } from '@/infrastructure/telemetry/AuditLogger';
 import type { PermissionRequest, PermissionResult, GuardCheckResult, PlanReviewResult } from '@/permission/types';
 
 function todayFile(base: string, name: string, ext: string): string {

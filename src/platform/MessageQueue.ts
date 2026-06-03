@@ -6,7 +6,7 @@
 
 import type { Database } from 'better-sqlite3';
 import { sleep } from '@/shared/utils/sleep.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { PlatformMessage, AgentGateway } from './types.js';
 
 const log = logger.child({ module: 'MessageQueue' });

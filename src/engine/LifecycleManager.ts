@@ -2,10 +2,10 @@
 import type { IPlugin, PluginContext } from '@/shared/plugin';
 import { PluginRegistry } from './PluginRegistry';
 import { MessageRouter } from './MessageRouter';
-import { eventBus } from '@/core/events/EventBus';
-import { getConfigManager } from '@/core/config/ConfigManager';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { getConfigManager } from '@/infrastructure/config/ConfigManager';
 import { DEFAULT_MANIFEST, type PluginManifestEntry } from './PluginManifest';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'LifecycleManager' });
 

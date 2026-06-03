@@ -15,7 +15,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { ProjectType, DependencyInfo } from './types';
 
 const log = logger.child({ module: 'DependencyAnalyzer' });

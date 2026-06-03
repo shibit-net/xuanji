@@ -9,7 +9,7 @@
 
 import type { Skill, WorkflowResult } from '@/skills/types';
 import { execSync } from 'node:child_process';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ReviewPRSkill' });
 

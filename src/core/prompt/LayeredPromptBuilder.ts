@@ -24,7 +24,7 @@ import type {
   PromptBuildEvent,
 } from './types';
 import { PromptComponentRegistry } from './PromptComponentRegistry';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { MemoryManager } from '@/memory/MemoryManager';
 import type { PersonaConfig, PersonalityTrait } from '@/shared/types/config';
 

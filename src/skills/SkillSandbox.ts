@@ -18,7 +18,7 @@
 import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 import type { WorkflowResult } from './types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'SkillSandbox' });
 

@@ -25,7 +25,7 @@ import type {
   ResumedSessionContext,
 } from './types.js';
 import type { ILLMProvider, ProviderConfig, SessionConfig } from '@/core/types';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { getMemoryManager } from '@/memory/globals';
 
 const log = logger.child({ module: 'session-manager' });

@@ -10,13 +10,13 @@ import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { ConfigurableAgentConfig } from '@/agent/types';
 import { AgentLoop } from '../AgentLoop';
 import { SilentAgentLoop } from '../SilentAgentLoop';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
-import { getConfigManager, type ConfigManager } from '@/core/config/ConfigManager';
+import { getConfigManager, type ConfigManager } from '@/infrastructure/config/ConfigManager';
 import { ProviderPool } from '@/provider/ProviderPool';
 import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 import { AcpProcessManager } from '@/core/acp/AcpProcessManager';
 import { DEFAULT_SUBAGENT_TOOLS, augmentToolList } from '@/tools/FilteredToolRegistry';
 

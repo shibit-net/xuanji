@@ -7,8 +7,8 @@ import { BaseTool } from './BaseTool';
 import { BackgroundTaskManager } from './BackgroundTaskManager';
 import { getSharedShell } from './PersistentShell';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { getToolTimeouts, getRuntimeConfig } from '@/core/config/RuntimeConfig';
-import { logger } from '@/core/logger';
+import { getToolTimeouts, getRuntimeConfig } from '@/infrastructure/config/RuntimeConfig';
+import { logger } from '@/infrastructure/logger';
 import type { SandboxExecutor, SandboxConfig } from './sandbox/SandboxExecutor';
 
 const log = logger.child({ module: 'BashTool' });

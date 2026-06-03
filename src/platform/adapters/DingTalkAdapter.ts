@@ -15,7 +15,7 @@ import type { CredentialManager } from '../auth/CredentialManager.js';
 import type { WebhookHandler, WebhookRequest, WebhookResponse } from '../http/WebhookServer.js';
 import { webhookOk } from '../http/WebhookServer.js';
 import { buildSessionKey } from '../SessionRouter.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'DingTalkAdapter' });
 

@@ -13,7 +13,7 @@ import { HookEventEmitter, type HookListener } from './EventEmitter.js';
 import { executeCommandHandler } from './handlers/CommandHandler.js';
 import { executePromptHandler } from './handlers/PromptHandler.js';
 import { executeAgentHandler, setAgentHandlerDeps, type AgentHandlerDeps } from './handlers/AgentHandler.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type {
   HookEvent,
   HookHandler,

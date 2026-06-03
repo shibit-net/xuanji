@@ -6,7 +6,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { EpisodicMemory } from '@/memory/EpisodicMemory';
 
 const log = logger.child({ module: 'CareManager' });

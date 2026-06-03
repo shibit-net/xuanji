@@ -13,7 +13,7 @@ import { Client, type ConnectConfig } from 'ssh2';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import { ConnectionState, type SSHHost, type SSHExecResult, type PooledConnection } from './types';
 import { SSHConfigStore } from './SSHConfigStore';
 

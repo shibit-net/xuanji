@@ -11,7 +11,7 @@
 
 import type { JSONSchema, ToolResult } from '@/core/types';
 import { BaseTool } from './BaseTool';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 import type { MCPInstaller } from '@/mcp/market/MCPInstaller';
 import type { SkillInstaller } from '@/skills/SkillInstaller';
 

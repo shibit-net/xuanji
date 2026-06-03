@@ -7,7 +7,7 @@
 
 import { join } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'DecisionStore' });
 

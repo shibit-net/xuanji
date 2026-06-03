@@ -10,9 +10,9 @@
 import type { AcpRequest, AcpRunRequest, AcpMessage, AcpRunResult, AcpEvent } from './types';
 import { AgentLoop } from '@/agent/AgentLoop';
 import { AgentFactory } from '@/agent/factory/AgentFactory';
-import { getConfigManager } from '@/core/config/ConfigManager';
+import { getConfigManager } from '@/infrastructure/config/ConfigManager';
 import { createDefaultRegistry } from '@/tools/ToolRegistry';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ACPWorker' });
 

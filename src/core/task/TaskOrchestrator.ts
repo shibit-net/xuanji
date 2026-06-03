@@ -9,10 +9,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { getRuntimeConfig } from '@/core/config/RuntimeConfig';
-import { logger } from '@/core/logger';
-import { eventBus } from '@/core/events/EventBus';
-import { XuanjiEvent } from '@/core/events/events';
+import { getRuntimeConfig } from '@/infrastructure/config/RuntimeConfig';
+import { logger } from '@/infrastructure/logger';
+import { eventBus } from '@/infrastructure/events/EventBus';
+import { XuanjiEvent } from '@/infrastructure/events/events';
 import { TaskCompletionHandler } from '@/agent/async/TaskCompletionHandler';
 import { AsyncTaskStateMachine } from '@/core/task/AsyncTaskStateMachine';
 import type {

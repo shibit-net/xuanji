@@ -8,7 +8,7 @@
 import type { MCPManager } from './MCPManager';
 import type { MCPResource, ResourceContent } from './types';
 import { MemoryCache } from './cache';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ResourceDiscovery' });
 

@@ -18,7 +18,7 @@ import type { AgentGateway } from './types.js';
 import { SessionRouter, buildSessionKey } from './SessionRouter.js';
 import { CredentialManager } from './auth/CredentialManager.js';
 import { PlatformCircuitBreaker } from './PlatformCircuitBreaker.js';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'PlatformRouter' });
 

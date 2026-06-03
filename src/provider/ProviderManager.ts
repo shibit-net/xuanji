@@ -12,7 +12,7 @@
 
 import type { ILLMProvider } from '@/core/types';
 import { createProviderByAdapter } from './ProviderRegistry';
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'ProviderManager' });
 

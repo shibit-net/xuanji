@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { ProjectConfigWriter } from '@/core/config/ProjectConfigWriter';
+import { ProjectConfigWriter } from '@/infrastructure/config/ProjectConfigWriter';
 
 describe('ProjectConfigWriter', () => {
   let tempDir: string;

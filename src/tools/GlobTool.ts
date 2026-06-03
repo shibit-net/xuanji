@@ -7,7 +7,7 @@ import type { ToolResult, JSONSchema } from '@/core/types';
 import glob from 'fast-glob';
 import path from 'node:path';
 import { middleTruncate, getMaxToolOutputLength } from '@/shared/utils/truncation';
-import { getGlobConfig } from '@/core/config/RuntimeConfig';
+import { getGlobConfig } from '@/infrastructure/config/RuntimeConfig';
 
 const MAX_FILES = 1000; // 最多返回文件数
 

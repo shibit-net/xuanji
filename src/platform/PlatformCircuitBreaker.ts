@@ -5,7 +5,7 @@
  * 设计文档：docs/platform-integration-design.md §12.3
  */
 
-import { logger } from '@/core/logger';
+import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'CircuitBreaker' });
 
