@@ -14,6 +14,12 @@ import { t } from '@/core/i18n';
 import ExecutionFlowV2 from './ExecutionFlowV2';
 import PlatformSessionPanel from './PlatformSessionPanel';
 
+function formatTimestamp(ts: number, language: string) {
+  return new Date(ts).toLocaleTimeString(language === 'en' ? 'en-US' : 'zh-CN', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 type TabId = 'monitor' | 'logs' | 'remote';
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
@@ -264,11 +270,7 @@ function LogsTab() {
     tool: 'text-blue-400',
   };
 
-  const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleTimeString(language === 'en' ? 'en-US' : 'zh-CN', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
-  };
+  const formatTime = (ts: number) => formatTimestamp(ts, language);
 
   return (
     <div className="h-full flex flex-col p-3 gap-3">
