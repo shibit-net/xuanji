@@ -342,7 +342,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       const { metadata, ...configToSave } = config;
       return JSON.stringify(configToSave, null, 2);
     } catch (err) {
-      return '// 配置格式错误';
+      return `// ${t('agent.editor.error.config_format')}`;
     }
   }, [config]);
 
@@ -998,7 +998,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t('agent.editor.field.max_iterations_full')}</label>
-                      <input type="number" value={Number.isFinite(config.execution?.maxIterations) ? config.execution.maxIterations : ''} placeholder="∞ 无限" onChange={(e) => { const v = e.target.value; setConfig({ ...config, execution: { ...config.execution, maxIterations: v === '' ? Infinity : parseInt(v) } }); }} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
+                      <input type="number" value={Number.isFinite(config.execution?.maxIterations) ? config.execution.maxIterations : ''} placeholder={`∞ ${t('agent.editor.unlimited_placeholder')}`} onChange={(e) => { const v = e.target.value; setConfig({ ...config, execution: { ...config.execution, maxIterations: v === '' ? Infinity : parseInt(v) } }); }} className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary" />
                     </div>
                   </div>
                   <div className="space-y-2">

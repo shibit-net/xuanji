@@ -1019,7 +1019,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
             variant="ghost"
             size="icon"
             className="h-7 w-7 disabled:opacity-50"
-            title="刷新"
+            title={t('agent.refresh')}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </Button>
@@ -1028,7 +1028,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="关闭"
+            title={t('agent.close')}
           >
             <X size={20} />
           </Button>
@@ -1115,7 +1115,7 @@ function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-background rounded-lg shadow-xl border border-border w-[680px] max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="font-medium">{selectedLayer === 'L1' ? '创建 Scene 组件' : '创建 L2 组件'}</h3>
+              <h3 className="font-medium">{selectedLayer === 'L1' ? t('sysprompt.create_dialog_title') : t('sysprompt.create_l2')}</h3>
               <Button onClick={() => setShowCreateDialog(false)} variant="ghost" size="icon" className="h-7 w-7">
                 <X size={20} />
               </Button>

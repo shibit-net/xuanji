@@ -55,7 +55,7 @@ function AgentScheduleConfig({
           <input
             type="number"
             value={Number.isFinite(config.execution?.maxIterations) ? config.execution.maxIterations : ''}
-            placeholder="∞ 无限"
+            placeholder={`∞ ${t('agent.editor.unlimited_placeholder')}`}
             onChange={(e) => { const v = e.target.value; setConfig({ ...config, execution: { ...config.execution, maxIterations: v === '' ? Infinity : parseInt(v) } }); }}
             disabled={!canEdit('execution.maxIterations')}
             className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
