@@ -12,6 +12,7 @@ import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';
 import type { SubAgentReference } from '../stores/CitationStore';
 import { useCitationStore } from '../stores/CitationStore';
+import { formatDuration } from './flow/hooks';
 import { useAuthStore } from '../stores/authStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { useConfigStore } from '../stores/configStore';
@@ -65,14 +66,6 @@ function getAgentDisplay(agentId: string | undefined): { name: string; agentId: 
   const a = useAgentStateMachine.getState().agentMap[agentId];
   if (a) return { name: a.name, agentId: a.id };
   return { name: agentId, agentId };
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
 }
 
 function formatTokens(tokens: { input: number; output: number }, showBreakdown = false): string {
