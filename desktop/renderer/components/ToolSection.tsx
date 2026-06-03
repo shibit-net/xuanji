@@ -139,7 +139,7 @@ function ToolCard({ tool }: { tool: ToolCall }) {
                   <div className="text-xs text-muted-foreground mb-1">截图</div>
                   <img
                     src={`data:${block.mimeType};base64,${block.data}`}
-                    alt="工具截图"
+                    alt={t('toolsection.screenshot_alt')}
                     className="w-full max-h-[400px] object-contain rounded-lg border border-white/[0.08]"
                   />
                 </div>

@@ -294,7 +294,7 @@ function showMermaidPreview(code: string, svgHtml: string) {
   if (svgNode) {
     body.appendChild(svgNode.cloneNode(true));
   } else {
-    body.textContent = '[图表加载失败]';
+    body.textContent = t('milkdown.chart_load_failed');
   }
   content.appendChild(body);
 

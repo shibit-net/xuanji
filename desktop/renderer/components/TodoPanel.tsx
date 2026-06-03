@@ -45,7 +45,7 @@ function TodoPanel() {
         setArchivedCount((prev) => prev + res.count);
       }
     } catch (err) {
-      console.error('归档失败:', err);
+      console.error('Archive failed:', err);
     } finally {
       setArchiving(false);
     }
