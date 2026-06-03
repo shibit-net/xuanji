@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { clsx } from 'clsx';
 
 interface DownloadTask {
   id: string;
@@ -21,26 +22,20 @@ export const DownloadQueue: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    // 监听下载事件（实时更新）
     const handleDownloadEvent = (event: { type: string; task: DownloadTask }) => {
       setTasks((prevTasks) => {
         const existingIndex = prevTasks.findIndex((t) => t.id === event.task.id);
-
         if (existingIndex >= 0) {
-          // 更新现有任务
           const newTasks = [...prevTasks];
           newTasks[existingIndex] = event.task;
           return newTasks;
-        } else {
-          // 添加新任务
-          return [...prevTasks, event.task];
         }
+        return [...prevTasks, event.task];
       });
     };
 
     window.electron.on('download:event', handleDownloadEvent);
 
-    // 初始加载任务列表（在注册监听器后立即执行，确保不会错过任何任务）
     const loadTasks = async () => {
       try {
         const result = await window.electron.downloadGetTasks();
@@ -53,18 +48,13 @@ export const DownloadQueue: React.FC = () => {
     };
     loadTasks();
 
-    // 清理监听器
     return () => {
       window.electron.off('download:event', handleDownloadEvent);
     };
   }, []);
 
-  const activeTasks = tasks.filter(
-    (t) => t.status === 'downloading' || t.status === 'pending'
-  );
-  const finishedTasks = tasks.filter(
-    (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled'
-  );
+  const activeTasks = tasks.filter((t) => t.status === 'downloading' || t.status === 'pending');
+  const finishedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled');
 
   if (tasks.length === 0) return null;
 
@@ -76,73 +66,42 @@ export const DownloadQueue: React.FC = () => {
     return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
   };
 
-  const formatSpeed = (bytesPerSec: number) => {
-    return `${formatSize(bytesPerSec)}/s`;
-  };
+  const formatSpeed = (bytesPerSec: number) => `${formatSize(bytesPerSec)}/s`;
 
   const handleCancel = async (taskId: string) => {
-    try {
-      await window.electron.downloadCancel(taskId);
-    } catch (err) {
-      console.error('Failed to cancel download:', err);
-    }
+    try { await window.electron.downloadCancel(taskId); }
+    catch (err) { console.error('Failed to cancel download:', err); }
   };
 
   const handleClearFinished = async () => {
-    try {
-      await window.electron.downloadClearFinished();
-    } catch (err) {
-      console.error('Failed to clear finished downloads:', err);
-    }
+    try { await window.electron.downloadClearFinished(); }
+    catch (err) { console.error('Failed to clear finished downloads:', err); }
   };
 
   return (
     <div
-      style={{
-        position: expanded ? 'fixed' : 'relative',
-        bottom: expanded ? 0 : 'auto',
-        right: expanded ? 0 : 'auto',
-        width: expanded ? '400px' : 'auto',
-        maxHeight: expanded ? '400px' : '28px',
-        backgroundColor: expanded ? '#1e1e1e' : 'transparent',
-        borderTop: expanded ? '1px solid #3c3c3c' : 'none',
-        borderLeft: expanded ? '1px solid #3c3c3c' : 'none',
-        borderBottom: 'none',
-        borderRight: 'none',
-        borderRadius: expanded ? '4px 0 0 0' : '0',
-        overflow: 'hidden',
-        transition: 'all 0.3s ease',
-        zIndex: expanded ? 1000 : 'auto',
-      }}
+      className={clsx(
+        'overflow-hidden transition-all duration-300 border-[#3c3c3c]',
+        expanded
+          ? 'fixed bottom-0 right-0 w-[400px] max-h-[400px] bg-[#1e1e1e] border-t border-l rounded-tl'
+          : 'relative max-h-7 bg-transparent border-none',
+      )}
+      style={{ zIndex: expanded ? 1000 : 'auto' }}
     >
       {/* 标题栏 */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 12px',
-          backgroundColor: expanded ? '#2d2d2d' : 'transparent',
-          cursor: 'pointer',
-          userSelect: 'none',
-          height: '28px',
-        }}
+        className={clsx(
+          'flex items-center justify-between px-3 h-7 cursor-pointer select-none',
+          expanded ? 'bg-[#2d2d2d]' : 'bg-transparent',
+        )}
         onClick={() => setExpanded(!expanded)}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '12px', color: '#cccccc' }}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#cccccc]">
             {expanded ? '▼' : '▶'} 下载队列
           </span>
           {activeTasks.length > 0 && (
-            <span
-              style={{
-                fontSize: '12px',
-                color: '#4ec9b0',
-                backgroundColor: '#264f44',
-                padding: '2px 6px',
-                borderRadius: '10px',
-              }}
-            >
+            <span className="text-xs text-[#4ec9b0] bg-[#264f44] px-1.5 py-0.5 rounded-[10px]">
               {activeTasks.length}
             </span>
           )}
@@ -151,18 +110,8 @@ export const DownloadQueue: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            style={{
-              fontSize: '12px',
-              color: '#cccccc',
-              backgroundColor: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '2px 6px',
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleClearFinished();
-            }}
+            className="text-xs text-[#cccccc] bg-transparent border-none cursor-pointer px-1.5 py-0.5"
+            onClick={(e) => { e.stopPropagation(); handleClearFinished(); }}
           >
             清除已完成
           </Button>
@@ -171,42 +120,15 @@ export const DownloadQueue: React.FC = () => {
 
       {/* 任务列表 */}
       {expanded && (
-        <div
-          style={{
-            maxHeight: '360px',
-            overflowY: 'auto',
-            padding: '8px',
-          }}
-        >
+        <div className="max-h-[360px] overflow-y-auto p-2">
           {tasks.map((task) => (
             <div
               key={task.id}
-              style={{
-                marginBottom: '8px',
-                padding: '8px',
-                backgroundColor: '#252526',
-                borderRadius: '4px',
-                border: '1px solid #3c3c3c',
-              }}
+              className="mb-2 p-2 bg-[#252526] rounded border border-[#3c3c3c]"
             >
-              {/* 任务名称 */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '4px',
-                }}
-              >
+              <div className="flex justify-between items-center mb-1">
                 <span
-                  style={{
-                    fontSize: '13px',
-                    color: '#cccccc',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    flex: 1,
-                  }}
+                  className="text-[13px] text-[#cccccc] overflow-hidden text-ellipsis whitespace-nowrap flex-1"
                   title={task.name}
                 >
                   {task.name}
@@ -215,14 +137,7 @@ export const DownloadQueue: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{
-                      fontSize: '11px',
-                      color: '#f48771',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: '2px 4px',
-                    }}
+                    className="text-[11px] text-[#f48771] bg-transparent border-none cursor-pointer px-1 py-0.5"
                     onClick={() => handleCancel(task.id)}
                   >
                     取消
@@ -230,55 +145,29 @@ export const DownloadQueue: React.FC = () => {
                 )}
               </div>
 
-              {/* 进度条 */}
               {(task.status === 'downloading' || task.status === 'pending') && (
                 <>
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '4px',
-                      backgroundColor: '#3c3c3c',
-                      borderRadius: '2px',
-                      overflow: 'hidden',
-                      marginBottom: '4px',
-                    }}
-                  >
+                  <div className="w-full h-1 bg-[#3c3c3c] rounded-sm overflow-hidden mb-1">
                     <div
-                      style={{
-                        width: `${task.progress.percent}%`,
-                        height: '100%',
-                        backgroundColor: '#4ec9b0',
-                        transition: 'width 0.3s ease',
-                      }}
+                      className="h-full bg-[#4ec9b0] transition-[width] duration-300"
+                      style={{ width: `${task.progress.percent}%` }}
                     />
                   </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '11px',
-                      color: '#858585',
-                    }}
-                  >
-                    <span>
-                      {formatSize(task.progress.downloaded)} / {formatSize(task.progress.total)}
-                    </span>
+                  <div className="flex justify-between text-[11px] text-[#858585]">
+                    <span>{formatSize(task.progress.downloaded)} / {formatSize(task.progress.total)}</span>
                     <span>{formatSpeed(task.progress.speed)}</span>
                   </div>
                 </>
               )}
 
-              {/* 状态 */}
               {task.status === 'completed' && (
-                <div style={{ fontSize: '11px', color: '#4ec9b0' }}>✓ 下载完成</div>
+                <div className="text-[11px] text-[#4ec9b0]">✓ 下载完成</div>
               )}
               {task.status === 'failed' && (
-                <div style={{ fontSize: '11px', color: '#f48771' }}>
-                  ✗ 失败: {task.error}
-                </div>
+                <div className="text-[11px] text-[#f48771]">✗ 失败: {task.error}</div>
               )}
               {task.status === 'cancelled' && (
-                <div style={{ fontSize: '11px', color: '#858585' }}>已取消</div>
+                <div className="text-[11px] text-[#858585]">已取消</div>
               )}
             </div>
           ))}
