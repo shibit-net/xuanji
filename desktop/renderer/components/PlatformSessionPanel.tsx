@@ -4,7 +4,7 @@
  * 设计文档：docs/platform-integration-design.md §9.4
  */
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Wifi, WifiOff, Send, Maximize2, Unplug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore, type RemoteSession } from '../stores/platformStore';
@@ -14,7 +14,7 @@ interface PlatformSessionPanelProps {
   session: RemoteSession | null;
 }
 
-export default function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
+function PlatformSessionPanel({ session }: PlatformSessionPanelProps) {
   const { getMessages, removeSession, sessions } = usePlatformStore();
   const [replyText, setReplyText] = useState('');
 
@@ -123,3 +123,5 @@ export default function PlatformSessionPanel({ session }: PlatformSessionPanelPr
     </div>
   );
 }
+
+export default memo(PlatformSessionPanel);
