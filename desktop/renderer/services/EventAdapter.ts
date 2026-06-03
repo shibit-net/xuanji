@@ -4,7 +4,7 @@
  * 与 EventBridge 并行运行，写入不同的 stores：
  * - AgentStateMachine 替代 activeAgentStore + runtimeStore.agentActivity
  * - AsyncTaskStore 替代 backgroundTaskStore
- * - ConversationStore 合并 messageStore.status + _conversationState + runtimeStore.processing
+ * - ConversationStore 管理对话运行时状态（status、processing、迭代）
  * - CitationStore 从 messageStore.citations 拆出
  * - messageStore 消息流桥接（流式文本、气泡生命周期）
  *

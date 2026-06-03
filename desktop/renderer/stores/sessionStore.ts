@@ -12,8 +12,7 @@ interface SessionStore {
   initStatus: InitStatus;
   initError: string | null;
   initProgress: string;
-  transition: (event: { type: 'INIT_START' | 'INIT_COMPLETE' | 'INIT_FAILED'; error?: string }) => void;
-  isReady: () => boolean;
+  transition: (event: { type: 'INIT_START' | 'INIT_COMPLETE' | 'INIT_FAILED' | 'INIT_RESTARTING' | 'CHILD_CRASH'; error?: string; message?: string }) => void;
   triggerInit: () => Promise<void>;
   retry: () => void;
   reset: () => void;
@@ -57,6 +56,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
       case 'INIT_FAILED':
         set({ initStatus: 'failed', initError: event.error || '初始化失败', initProgress: '初始化失败' });
+        break;
+      case 'INIT_RESTARTING':
+        set({ initStatus: 'initializing', initProgress: '正在重启...' });
+        break;
+      case 'CHILD_CRASH':
+        set({ initError: event.message || 'Agent 异常' });
         break;
       default:
         console.warn('[sessionStore] Unknown event:', event);
@@ -107,10 +112,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   reset: () => {
     set(initInitialState);
-  },
-
-  isReady: () => {
-    return get().initStatus === 'ready';
   },
 
   // ── 运行时状态 ────────────────────────────

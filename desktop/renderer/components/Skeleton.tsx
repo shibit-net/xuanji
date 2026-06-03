@@ -2,6 +2,8 @@
 // Skeleton — 骨架屏加载态组件
 // ============================================================
 
+import { cn } from '../lib/utils';
+
 interface SkeletonLineProps {
   className?: string;
 }
@@ -9,7 +11,7 @@ interface SkeletonLineProps {
 export function SkeletonLine({ className }: SkeletonLineProps) {
   return (
     <div
-      className={className || 'h-4 w-full'}
+      className={cn('h-4 w-full', className)}
       style={{
         background: 'linear-gradient(90deg, hsl(var(--secondary)) 25%, hsl(var(--secondary)/0.5) 50%, hsl(var(--secondary)) 75%)',
         backgroundSize: '200% 100%',

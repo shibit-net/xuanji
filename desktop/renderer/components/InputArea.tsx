@@ -164,7 +164,7 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   // ─── Session 状态 ──────────────────────────────────────
   const sessionStatus = useSessionStore((s) => s.initStatus);
   const sessionError = useSessionStore((s) => s.initError);
-  const isSessionReady = useSessionStore((s) => s.isReady());
+  const isSessionReady = sessionStatus === 'ready';
 
   // ─── 加载 Agent 列表 ──────────────────────────────────
   useEffect(() => {
