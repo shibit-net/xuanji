@@ -881,7 +881,7 @@ function GraphTab({ focusEntity }: { focusEntity?: { id: string; name: string } 
           elements={elements}
           stylesheet={stylesheet}
           layout={layout}
-          style={{ width: '100%', height: '100%' }}
+          className="w-full h-full"
           wheelSensitivity={0.25}
           minZoom={0.12}
           maxZoom={3.5}
