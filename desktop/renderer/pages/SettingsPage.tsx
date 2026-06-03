@@ -5,13 +5,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
-  Settings, X, Save, Wrench,
-  Palette, CheckCircle, AlertCircle, Zap,
+  Settings, X, Wrench,
+  Palette, Zap,
   Download, Sparkles, Trash2, Loader2, FolderOpen,
 } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
 import { setLanguage } from '@/core/i18n';
+import {
+  SectionHeader, TextField, NumberField, SelectField,
+  ToggleField, SaveButton, MessageBanner,
+} from './settings/components';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -19,140 +23,10 @@ interface SettingsPageProps {
 
 type TabType = 'tools' | 'ui' | 'features' | 'download' | 'modelProviders';
 
-// ============================================================
-// 通用工具
-// ============================================================
-
 interface TabProps {
   config: any;
   loading: boolean;
   onSave: (section: string, data: any) => Promise<void>;
-}
-
-function SectionHeader({ title, desc }: { title: string; desc?: string }) {
-  return (
-    <div className="mb-4">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {desc && <p className="text-xs text-muted-foreground mt-1">{desc}</p>}
-    </div>
-  );
-}
-
-function TextField({ label, value, onChange, placeholder, type = 'text', disabled = false, hint }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; disabled?: boolean; hint?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
-        placeholder={placeholder}
-      />
-      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
-    </div>
-  );
-}
-
-function NumberField({ label, value, onChange, min, placeholder, hint }: {
-  label: string; value: number; onChange: (v: number) => void;
-  min?: number; placeholder?: string; hint?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => {
-          const v = parseInt(e.target.value, 10);
-          onChange(isNaN(v) ? 0 : v);
-        }}
-        min={min}
-        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-        placeholder={placeholder}
-      />
-      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
-    </div>
-  );
-}
-
-function SelectField({ label, value, onChange, options, hint }: {
-  label: string; value: string; onChange: (v: string) => void;
-  options: { value: string; label: string }[]; hint?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 bg-muted border border-border rounded text-sm text-foreground focus:outline-none focus:border-primary"
-      >
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
-    </div>
-  );
-}
-
-function ToggleField({ label, value, onChange, hint }: {
-  label: string; value: boolean; onChange: (v: boolean) => void; hint?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between py-2">
-      <div>
-        <span className="text-sm text-foreground">{label}</span>
-        {hint && <p className="text-xs text-muted-foreground/80">{hint}</p>}
-      </div>
-      <Button
-        onClick={() => onChange(!value)}
-        variant="ghost"
-        size="icon"
-        className={`relative w-10 h-5 rounded-full ${value ? 'bg-primary' : 'bg-muted border border-border'}`}
-      >
-        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${value ? 'left-5' : 'left-0.5'}`} />
-      </Button>
-    </div>
-  );
-}
-
-function SaveButton({ saving }: { saving: boolean }) {
-  const language = useConfigStore((s) => s.settings.language);
-  return (
-    <div className="pt-4 border-t border-border">
-      <Button
-        type="submit"
-        disabled={saving}
-        variant="default"
-        size="sm"
-        className="flex items-center gap-2"
-      >
-        <Save size={16} />
-        <span>{saving ? getDesktopLabel('settings.saving', language) : getDesktopLabel('settings.save', language)}</span>
-      </Button>
-    </div>
-  );
-}
-
-function MessageBanner({ message }: { message: { type: 'success' | 'error'; text: string } | null }) {
-  if (!message) return null;
-  const Icon = message.type === 'success' ? CheckCircle : AlertCircle;
-  const colorClass = message.type === 'success'
-    ? 'bg-green-500/10 text-green-400 border-green-500/20'
-    : 'bg-red-500/10 text-red-400 border-red-500/20';
-  return (
-    <div className={`p-3 rounded border flex items-center gap-2 text-sm ${colorClass}`}>
-      <Icon size={16} />
-      {message.text}
-    </div>
-  );
 }
 
 // ============================================================
@@ -441,7 +315,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
       const result = await window.electron.downloadCheckEmbeddingModel(form.model);
       if (result.success) setModelInstalled(result.installed || false);
     } catch (err) {
-      console.error('检查模型安装状态失败:', err);
+      console.error('Failed to check model install status:', err);
     } finally {
       setCheckingModel(false);
     }
@@ -467,7 +341,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
     setMessage(null);
     try {
       const dirResult = await window.electron.downloadGetEmbeddingModelDir();
-      if (!dirResult.success || !dirResult.dir) throw new Error('无法获取 embedding 模型目录');
+      if (!dirResult.success || !dirResult.dir) throw new Error(getDesktopLabel('settings.embedding.dir_failed', currentLang));
       const embeddingDir = dirResult.dir;
       const modelId = form.model;
       const source = config?.download?.source || 'modelscope';
@@ -489,7 +363,7 @@ function EmbeddingTab({ config, loading, onSave }: TabProps) {
         const url = `${baseUrl}/${file}`;
         const dest = `${embeddingDir}/${modelId}/${file}`;
         const result = await window.electron.downloadCreate({ url, dest, name: `Embedding: ${modelId}/${file}`, category: 'model' });
-        if (!result.success) throw new Error(`创建下载任务失败: ${file}`);
+        if (!result.success) throw new Error(`${getDesktopLabel('settings.embedding.download_failed', currentLang)}: ${file}`);
       }
       setMessage({ type: 'success', text: getDesktopLabel('settings.embedding.download_task_created', currentLang) });
       setTimeout(() => { setMessage(null); checkModelInstallation(); }, 3000);
@@ -829,10 +703,10 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
     <div className="space-y-4">
       <h4 className="text-sm font-medium text-foreground border-b border-border pb-2">{label}</h4>
       <div className="grid grid-cols-2 gap-4">
-        <SelectField label="平台" value={(form as any)[`${prefix}_provider`]} onChange={(v) => setForm({ ...form, [`${prefix}_provider`]: v })} options={mediaProviderOptions} />
-        <TextField label="模型名称" value={(form as any)[`${prefix}_model`]} onChange={(v) => setForm({ ...form, [`${prefix}_model`]: v })} placeholder="doubao-seedream-4.0" />
-        <TextField label="API Key" value={(form as any)[`${prefix}_apiKey`]} onChange={(v) => setForm({ ...form, [`${prefix}_apiKey`]: v })} type="password" placeholder="sk-..." />
-        <TextField label="接口地址" value={(form as any)[`${prefix}_baseURL`]} onChange={(v) => setForm({ ...form, [`${prefix}_baseURL`]: v })} placeholder="https://ark.cn-beijing.volces.com/api/v3" hint="留空使用平台默认地址" />
+        <SelectField label={getDesktopLabel('settings.model_providers.provider', currentLang)} value={(form as any)[`${prefix}_provider`]} onChange={(v) => setForm({ ...form, [`${prefix}_provider`]: v })} options={mediaProviderOptions} />
+        <TextField label={getDesktopLabel('settings.model_providers.model', currentLang)} value={(form as any)[`${prefix}_model`]} onChange={(v) => setForm({ ...form, [`${prefix}_model`]: v })} placeholder="doubao-seedream-4.0" />
+        <TextField label={getDesktopLabel('settings.model_providers.api_key', currentLang)} value={(form as any)[`${prefix}_apiKey`]} onChange={(v) => setForm({ ...form, [`${prefix}_apiKey`]: v })} type="password" placeholder="sk-..." />
+        <TextField label={getDesktopLabel('settings.model_providers.base_url', currentLang)} value={(form as any)[`${prefix}_baseURL`]} onChange={(v) => setForm({ ...form, [`${prefix}_baseURL`]: v })} placeholder="https://ark.cn-beijing.volces.com/api/v3" hint={getDesktopLabel('settings.model_providers.base_url_hint', currentLang)} />
       </div>
     </div>
   );
@@ -842,10 +716,10 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
       <MessageBanner message={message} />
 
       {/* ===== Section 1: 向量模型 ===== */}
-      <SectionHeader title="向量模型 (Embedding)" desc="用于记忆语义搜索的向量嵌入模型" />
+      <SectionHeader title={getDesktopLabel('settings.model_providers.embedding_title', currentLang)} desc={getDesktopLabel('settings.model_providers.embedding_desc', currentLang)} />
       <div className="grid grid-cols-2 gap-4">
         <SelectField
-          label="平台"
+          label={getDesktopLabel('settings.model_providers.provider', currentLang)}
           value={form.emb_provider}
           onChange={(v) => setForm({ ...form, emb_provider: v })}
           options={embeddingProviderOptions}
@@ -853,14 +727,14 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
         {form.emb_provider !== 'xenova' && (
           <>
             <TextField
-              label="模型名称"
+              label={getDesktopLabel('settings.model_providers.model', currentLang)}
               value={form.embModel}
               onChange={(v) => setForm({ ...form, embModel: v })}
               placeholder="doubao-embedding-vision"
-              hint="平台上的模型标识"
+              hint={getDesktopLabel('settings.model_providers.model_hint', currentLang)}
             />
-            <TextField label="API Key" value={form.emb_apiKey} onChange={(v) => setForm({ ...form, emb_apiKey: v })} type="password" placeholder="sk-..." />
-            <TextField label="接口地址" value={form.emb_baseURL} onChange={(v) => setForm({ ...form, emb_baseURL: v })} placeholder="https://api.example.com/v1" hint="留空使用平台默认地址" />
+            <TextField label={getDesktopLabel('settings.model_providers.api_key', currentLang)} value={form.emb_apiKey} onChange={(v) => setForm({ ...form, emb_apiKey: v })} type="password" placeholder="sk-..." />
+            <TextField label={getDesktopLabel('settings.model_providers.base_url', currentLang)} value={form.emb_baseURL} onChange={(v) => setForm({ ...form, emb_baseURL: v })} placeholder="https://api.example.com/v1" hint={getDesktopLabel('settings.model_providers.base_url_hint', currentLang)} />
           </>
         )}
       </div>
@@ -880,11 +754,11 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
               >
                 {embeddingModels.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.name} · {model.description}{model.installed ? ' [已安装]' : ''}
+                    {model.name} · {model.description}{model.installed ? ` [${getDesktopLabel('settings.embedding.model_installed', currentLang)}]` : ''}
                   </option>
                 ))}
                 {embeddingModels.length === 0 && (
-                  <option value="" disabled>无可用模型</option>
+                  <option value="" disabled>{getDesktopLabel('settings.model_providers.no_models', currentLang)}</option>
                 )}
               </select>
               {/* 选中模型的操作按钮 */}
@@ -949,10 +823,10 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
       )}
 
       {/* ===== Section 2: 兜底模型 ===== */}
-      <SectionHeader title="兜底模型 (Fallback)" desc="Agent 未配置独立模型时使用的默认 LLM" />
+      <SectionHeader title={getDesktopLabel('settings.model_providers.fallback_title', currentLang)} desc={getDesktopLabel('settings.model_providers.fallback_desc', currentLang)} />
       <div className="grid grid-cols-2 gap-4">
         <SelectField
-          label="适配器"
+          label={getDesktopLabel('settings.model_providers.provider', currentLang)}
           value={form.fbAdapter}
           onChange={(v) => {
             const opt = FALLBACK_PROVIDER_OPTIONS.find(o => o.value === v);
@@ -960,17 +834,17 @@ function ModelProvidersTab({ config, loading, onSave }: TabProps) {
           }}
           options={FALLBACK_PROVIDER_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
         />
-        <TextField label="模型名称" value={form.fbModel} onChange={(v) => setForm({ ...form, fbModel: v })} placeholder="deepseek-v4-pro" />
-        <TextField label="API Key" value={form.fbApiKey} onChange={(v) => setForm({ ...form, fbApiKey: v })} type="password" placeholder="sk-..." />
-        <TextField label="接口地址" value={form.fbBaseURL} onChange={(v) => setForm({ ...form, fbBaseURL: v })} placeholder="自动填充" hint="修改适配器时自动填充默认地址" />
+        <TextField label={getDesktopLabel('settings.model_providers.model', currentLang)} value={form.fbModel} onChange={(v) => setForm({ ...form, fbModel: v })} placeholder="deepseek-v4-pro" />
+        <TextField label={getDesktopLabel('settings.model_providers.api_key', currentLang)} value={form.fbApiKey} onChange={(v) => setForm({ ...form, fbApiKey: v })} type="password" placeholder="sk-..." />
+        <TextField label={getDesktopLabel('settings.model_providers.base_url', currentLang)} value={form.fbBaseURL} onChange={(v) => setForm({ ...form, fbBaseURL: v })} placeholder={getDesktopLabel('settings.model_providers.fallback_placeholder', currentLang)} hint={getDesktopLabel('settings.model_providers.fallback_base_url_hint', currentLang)} />
       </div>
 
       {/* ===== Section 3: 媒体生成 ===== */}
-      <SectionHeader title="媒体生成 (Media)" desc="配置图片/视频/音频生成工具的 API 凭证" />
-      {renderMediaToolSection('图片生成 (generate_image)', 'genImg')}
-      {renderMediaToolSection('图片编辑 (edit_image)', 'editImg')}
-      {renderMediaToolSection('视频生成 (generate_video)', 'genVideo')}
-      {renderMediaToolSection('音频生成 (generate_audio)', 'genAudio')}
+      <SectionHeader title={getDesktopLabel('settings.model_providers.media_title', currentLang)} desc={getDesktopLabel('settings.model_providers.media_desc', currentLang)} />
+      {renderMediaToolSection(getDesktopLabel('settings.model_providers.generate_image', currentLang), 'genImg')}
+      {renderMediaToolSection(getDesktopLabel('settings.model_providers.edit_image', currentLang), 'editImg')}
+      {renderMediaToolSection(getDesktopLabel('settings.model_providers.video_gen', currentLang), 'genVideo')}
+      {renderMediaToolSection(getDesktopLabel('settings.model_providers.audio_gen', currentLang), 'genAudio')}
 
       <SaveButton saving={saving} />
     </form>
@@ -1043,7 +917,7 @@ function DownloadTab({ config, loading, onSave }: TabProps) {
       </div>
 
       {form.source === 'custom' && (
-        <TextField label={getDesktopLabel('settings.download.hf_mirror', currentLang)} value={form.hfMirror} onChange={(v) => setForm({ ...form, hfMirror: v })} placeholder="https://your-mirror.com" hint="输入镜像地址，格式同 HuggingFace" />
+        <TextField label={getDesktopLabel('settings.download.hf_mirror', currentLang)} value={form.hfMirror} onChange={(v) => setForm({ ...form, hfMirror: v })} placeholder="https://your-mirror.com" hint={getDesktopLabel('settings.download.hf_mirror_hint', currentLang)} />
       )}
 
       <SaveButton saving={saving} />
