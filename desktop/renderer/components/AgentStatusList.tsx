@@ -44,7 +44,7 @@ function getStatusText(status: string) {
   }
 }
 
-const AgentStatusList: React.FC = () => {
+const AgentStatusList: React.FC = React.memo(() => {
   const newAgentMap = useAgentStateMachine((s) => s.agentMap);
 
   // 从扁平 agentMap 生成 agent 列表
@@ -134,6 +134,6 @@ const AgentStatusList: React.FC = () => {
       </table>
     </div>
   );
-};
+});
 
 export default AgentStatusList;

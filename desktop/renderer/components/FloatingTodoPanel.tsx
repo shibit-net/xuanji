@@ -4,7 +4,7 @@
 // 悬浮在输入框上方的可展开/收起任务列表
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronUp, ChevronDown, CheckCircle, Circle, Loader2 } from 'lucide-react';
 import { useExecutionStore } from '../stores/executionStore';
@@ -23,7 +23,7 @@ function getTodoStatusIcon(status: string) {
   }
 }
 
-export function FloatingTodoPanel() {
+export const FloatingTodoPanel = memo(function FloatingTodoPanel() {
   const todos = useExecutionStore((state) => state.todos);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -149,4 +149,4 @@ function TaskRow({ todo }: { todo: TodoItem }) {
       )}
     </div>
   );
-}
+});

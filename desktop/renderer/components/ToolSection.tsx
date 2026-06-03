@@ -4,7 +4,7 @@
 // 展示工具执行列表
 // ============================================================
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../stores/messageStore';
@@ -62,7 +62,7 @@ function getInputPreview(input?: Record<string, unknown>): string {
   return preview.join(', ') || `${keys.length} 个参数`;
 }
 
-export function ToolSection({ tools }: ToolSectionProps) {
+export const ToolSection = memo(function ToolSection({ tools }: ToolSectionProps) {
   return (
     <div className="space-y-2">
       {tools.map((tool) => (
@@ -160,4 +160,4 @@ function ToolCard({ tool }: { tool: ToolCall }) {
       </AnimatePresence>
     </div>
   );
-}
+});

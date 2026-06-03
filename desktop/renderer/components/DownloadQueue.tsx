@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import clsx from 'clsx';
 import { t } from '@/core/i18n';
@@ -30,7 +30,7 @@ function formatSpeed(bytesPerSec: number) {
   return `${formatSize(bytesPerSec)}/s`;
 }
 
-export const DownloadQueue: React.FC = () => {
+export const DownloadQueue: React.FC = memo(() => {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [expanded, setExpanded] = useState(false);
 
@@ -198,4 +198,4 @@ export const DownloadQueue: React.FC = () => {
       )}
     </div>
   );
-};
+});
