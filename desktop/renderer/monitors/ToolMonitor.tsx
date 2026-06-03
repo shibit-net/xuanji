@@ -8,6 +8,7 @@ import { CheckCircle, Loader, XCircle, ChevronDown, ChevronRight } from 'lucide-
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
 import { getDesktopLabel } from '../i18n';
 import { useConfigStore } from '../stores/configStore';
+import { formatDuration } from '../components/flow/hooks';
 
 /** 将 ANSI 颜色代码转换为 HTML */
 function ansiToHtml(text: string): string {
@@ -153,12 +154,6 @@ function toolIcon(name: string): string {
   if (name.startsWith('memory_')) return '🧠';
   if (name.startsWith('ssh_')) return '🖥️';
   return '🛠️';
-}
-
-function formatDuration(ms?: number): string {
-  if (!ms) return '';
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 export default function ToolMonitor() {

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCall } from '../stores/messageStore';
+import { formatDuration } from './flow/hooks';
 
 interface ToolSectionProps {
   tools: ToolCall[];
@@ -28,12 +29,6 @@ function getStatusIcon(status: ToolCall['status']) {
     case 'error':
       return <XCircle className="w-4 h-4 text-red-500" />;
   }
-}
-
-function formatDuration(ms?: number) {
-  if (!ms) return '';
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function getInputPreview(input?: Record<string, unknown>): string {
