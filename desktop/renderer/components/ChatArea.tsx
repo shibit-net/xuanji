@@ -150,7 +150,7 @@ const VirtualMessageList = memo(function VirtualMessageList({
   );
 });
 
-export default function ChatArea() {
+function ChatArea() {
   const messages = useMessageStore((state) => state.messages);
   const status = useMessageStore((state) => state.status);
   const currentStreamingId = useMessageStore((state) => state.currentStreamingId);
@@ -394,3 +394,5 @@ export default function ChatArea() {
     </div>
   );
 }
+
+export default memo(ChatArea);

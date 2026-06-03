@@ -2,7 +2,7 @@
 // SystemPromptManager - System Prompt 管理器组件
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { FileText, X, RefreshCw, Eye, EyeOff, Edit, Save, ChevronDown, ChevronRight, Layers, Info, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from './Toast';
@@ -33,7 +33,7 @@ interface PromptComponent {
 type LayerType = 'L0' | 'L1' | 'L2' | 'L3' | 'all';
 type TabType = 'prompts' | 'projects';
 
-export default function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
+function SystemPromptManager({ onClose }: SystemPromptManagerProps) {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('prompts');
   const [components, setComponents] = useState<PromptComponent[]>([]);
@@ -1206,3 +1206,5 @@ export default function SystemPromptManager({ onClose }: SystemPromptManagerProp
     </div>
   );
 }
+
+export default memo(SystemPromptManager);

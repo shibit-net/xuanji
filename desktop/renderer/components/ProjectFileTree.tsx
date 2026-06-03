@@ -3,7 +3,7 @@
 // 从 ProjectFilesPanel 提取核心渲染逻辑，去掉面板 chrome
 // ============================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { ChevronRight, ChevronDown, RefreshCw, ExternalLink, Copy, FolderOpen, Folder, File, FileCode, FileText, FileJson, FileCog, Terminal, Globe } from 'lucide-react';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
@@ -123,7 +123,7 @@ function updateNode(nodes: TreeNode[], targetPath: string, updates: Partial<Pick
 // 主组件
 // ============================================================
 
-export default function ProjectFileTree({ onGitBranchChange }: { onGitBranchChange?: (branch: string | null) => void }) {
+function ProjectFileTree({ onGitBranchChange }: { onGitBranchChange?: (branch: string | null) => void }) {
   const language = useConfigStore((s) => s.settings.language);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [rootPath, setRootPath] = useState('');
@@ -357,3 +357,5 @@ export default function ProjectFileTree({ onGitBranchChange }: { onGitBranchChan
     </div>
   );
 }
+
+export default memo(ProjectFileTree);

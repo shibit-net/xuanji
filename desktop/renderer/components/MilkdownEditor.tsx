@@ -7,7 +7,7 @@
 //   preview  — 只读预览（对话框使用）
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
@@ -486,7 +486,7 @@ function MilkdownEditorInner({ value, onChange, mode, onReady }: Omit<MilkdownEd
   );
 }
 
-export default function MilkdownEditor({ height, ...props }: MilkdownEditorProps) {
+function MilkdownEditor({ height, ...props }: MilkdownEditorProps) {
   return (
     <div
       className="milkdown-editor-wrapper"
@@ -498,3 +498,5 @@ export default function MilkdownEditor({ height, ...props }: MilkdownEditorProps
     </div>
   );
 }
+
+export default memo(MilkdownEditor);
