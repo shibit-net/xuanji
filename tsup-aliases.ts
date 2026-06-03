@@ -4,22 +4,22 @@ import path from 'path';
 export function buildAliases(rootDir: string) {
   const rootSrc = path.resolve(rootDir, 'src');
   return {
-    '@/adapters': path.join(rootSrc, 'adapters'),
-    '@/auth': path.join(rootSrc, 'auth'),
-    '@/butler': path.join(rootSrc, 'butler'),
+    '@/agent': path.join(rootSrc, 'agent'),
     '@/context': path.join(rootSrc, 'context'),
-    '@/core': path.join(rootSrc, 'core'),
-    '@/embedding': path.join(rootSrc, 'embedding'),
+    '@/engine': path.join(rootSrc, 'engine'),
     '@/hooks': path.join(rootSrc, 'hooks'),
+    '@/i18n': path.join(rootSrc, 'i18n'),
     '@/infrastructure': path.join(rootSrc, 'infrastructure'),
     '@/mcp': path.join(rootSrc, 'mcp'),
     '@/memory': path.join(rootSrc, 'memory'),
     '@/permission': path.join(rootSrc, 'permission'),
-    '@/reminder': path.join(rootSrc, 'reminder'),
+    '@/platform': path.join(rootSrc, 'platform'),
+    '@/provider': path.join(rootSrc, 'provider'),
     '@/session': path.join(rootSrc, 'session'),
     '@/shared/utils': path.join(rootSrc, 'shared/utils'),
     '@/shared': path.join(rootSrc, 'shared'),
-    '@/tiangong': path.join(rootSrc, 'tiangong'),
+    '@/skills': path.join(rootSrc, 'skills'),
+    '@/tools': path.join(rootSrc, 'tools'),
     '@/types': path.join(rootSrc, 'types'),
   };
 }

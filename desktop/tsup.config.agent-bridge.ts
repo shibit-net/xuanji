@@ -53,7 +53,7 @@ export default defineConfig({
     };
   },
   async onSuccess() {
-    const src = path.resolve(__dirname, '..', 'src', 'core', 'skills', 'skill-worker.js');
+    const src = path.resolve(__dirname, '..', 'src', 'skills', 'skill-worker.js');
     const dest = path.resolve(__dirname, 'dist-electron', 'skill-worker.js');
     fs.copyFileSync(src, dest);
     console.log('[agent-bridge] skill-worker.js copied to dist-electron/');

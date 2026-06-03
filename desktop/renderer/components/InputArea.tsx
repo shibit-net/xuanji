@@ -65,7 +65,7 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [contextUsage, setContextUsage = useState<{ estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number } | null>(null);
+  const [contextUsage, setContextUsage] = useState<{ estimatedTokens: number; maxInputTokens: number; usagePercent: number; messageCount: number } | null>(null);
   const [memoryStatus, setMemoryStatus] = useState<{ isExtracting: boolean; isCompressing: boolean }>({ isExtracting: false, isCompressing: false });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
