@@ -2,6 +2,7 @@
 // AgentToolSelector - Agent 工具选择配置区块
 // ============================================================
 
+import { memo } from 'react';
 import { Search } from 'lucide-react';
 import { t } from '@/core/i18n';
 import { MEDIA_TOOL_NAMES, TOOL_CATEGORY_STYLE } from './shared/constants';
@@ -22,7 +23,7 @@ interface AgentToolSelectorProps {
   deselectAllTools: () => void;
 }
 
-export default function AgentToolSelector({
+function AgentToolSelector({
   config,
   setConfig,
   canEdit,
@@ -191,3 +192,5 @@ export default function AgentToolSelector({
     </>
   );
 }
+
+export default memo(AgentToolSelector);

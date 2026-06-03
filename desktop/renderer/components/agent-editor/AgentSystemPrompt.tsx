@@ -2,6 +2,7 @@
 // AgentSystemPrompt - Agent 系统提示词配置区块
 // ============================================================
 
+import { memo } from 'react';
 import { t } from '@/core/i18n';
 
 interface AgentSystemPromptProps {
@@ -10,7 +11,7 @@ interface AgentSystemPromptProps {
   canEdit: (field: string) => boolean;
 }
 
-export default function AgentSystemPrompt({ config, setConfig, canEdit }: AgentSystemPromptProps) {
+function AgentSystemPrompt({ config, setConfig, canEdit }: AgentSystemPromptProps) {
   return (
     <>
       <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
@@ -42,3 +43,5 @@ export default function AgentSystemPrompt({ config, setConfig, canEdit }: AgentS
     </>
   );
 }
+
+export default memo(AgentSystemPrompt);

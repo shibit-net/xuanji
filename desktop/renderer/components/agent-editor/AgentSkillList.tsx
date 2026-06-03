@@ -2,6 +2,7 @@
 // AgentSkillList - Agent 技能列表配置（待实现）
 // ============================================================
 
+import { memo } from 'react';
 import ConfigSection from './shared/ConfigSection';
 import { Zap } from 'lucide-react';
 import { t } from '@/core/i18n';
@@ -11,7 +12,7 @@ interface AgentSkillListProps {
   onToggle: (section: string) => void;
 }
 
-export default function AgentSkillList({ isExpanded, onToggle }: AgentSkillListProps) {
+function AgentSkillList({ isExpanded, onToggle }: AgentSkillListProps) {
   return (
     <ConfigSection
       id="skills"
@@ -26,3 +27,5 @@ export default function AgentSkillList({ isExpanded, onToggle }: AgentSkillListP
     </ConfigSection>
   );
 }
+
+export default memo(AgentSkillList);

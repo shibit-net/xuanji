@@ -2,6 +2,7 @@
 // AgentMcpConfig - Agent MCP 配置（待实现）
 // ============================================================
 
+import { memo } from 'react';
 import ConfigSection from './shared/ConfigSection';
 import { Database } from 'lucide-react';
 import { t } from '@/core/i18n';
@@ -11,7 +12,7 @@ interface AgentMcpConfigProps {
   onToggle: (section: string) => void;
 }
 
-export default function AgentMcpConfig({ isExpanded, onToggle }: AgentMcpConfigProps) {
+function AgentMcpConfig({ isExpanded, onToggle }: AgentMcpConfigProps) {
   return (
     <ConfigSection
       id="mcp"
@@ -26,3 +27,5 @@ export default function AgentMcpConfig({ isExpanded, onToggle }: AgentMcpConfigP
     </ConfigSection>
   );
 }
+
+export default memo(AgentMcpConfig);

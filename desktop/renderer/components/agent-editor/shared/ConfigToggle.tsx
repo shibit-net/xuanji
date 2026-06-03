@@ -2,6 +2,8 @@
 // ConfigToggle - 启用/禁用开关
 // ============================================================
 
+import { memo } from 'react';
+
 interface ConfigToggleProps {
   enabled: boolean;
   onChange: () => void;
@@ -9,7 +11,7 @@ interface ConfigToggleProps {
   label: string;
 }
 
-export default function ConfigToggle({ enabled, onChange, disabled, label }: ConfigToggleProps) {
+function ConfigToggle({ enabled, onChange, disabled, label }: ConfigToggleProps) {
   return (
     <div className="flex items-center justify-between py-2">
       <span className="text-sm font-medium">{label}</span>
@@ -30,3 +32,5 @@ export default function ConfigToggle({ enabled, onChange, disabled, label }: Con
     </div>
   );
 }
+
+export default memo(ConfigToggle);

@@ -2,6 +2,7 @@
 // AgentScheduleConfig - Agent 执行/调度配置
 // ============================================================
 
+import { memo } from 'react';
 import { Settings } from 'lucide-react';
 import ConfigSection from './shared/ConfigSection';
 import { t } from '@/core/i18n';
@@ -14,7 +15,7 @@ interface AgentScheduleConfigProps {
   onToggle: (section: string) => void;
 }
 
-export default function AgentScheduleConfig({
+function AgentScheduleConfig({
   config,
   setConfig,
   canEdit,
@@ -124,3 +125,5 @@ export default function AgentScheduleConfig({
     </ConfigSection>
   );
 }
+
+export default memo(AgentScheduleConfig);

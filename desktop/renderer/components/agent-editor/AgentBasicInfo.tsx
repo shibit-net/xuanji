@@ -2,6 +2,7 @@
 // AgentBasicInfo - Agent 基础信息配置区块
 // ============================================================
 
+import { memo } from 'react';
 import ConfigToggle from './shared/ConfigToggle';
 import { t } from '@/core/i18n';
 import { useToast } from '../Toast';
@@ -15,7 +16,7 @@ interface AgentBasicInfoProps {
   renderFormField: (label: string, field: string, type?: 'text' | 'textarea' | 'number' | 'select', options?: string[], disabled?: boolean, placeholder?: string) => React.ReactNode;
 }
 
-export default function AgentBasicInfo({ config, setConfig, errors, canEdit, renderFormField }: AgentBasicInfoProps) {
+function AgentBasicInfo({ config, setConfig, errors, canEdit, renderFormField }: AgentBasicInfoProps) {
   const toast = useToast();
 
   return (
@@ -61,3 +62,5 @@ export default function AgentBasicInfo({ config, setConfig, errors, canEdit, ren
     </>
   );
 }
+
+export default memo(AgentBasicInfo);

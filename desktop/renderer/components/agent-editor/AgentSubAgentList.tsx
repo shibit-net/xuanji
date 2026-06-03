@@ -2,6 +2,7 @@
 // AgentSubAgentList - Agent 子 Agent 列表配置（待实现）
 // ============================================================
 
+import { memo } from 'react';
 import ConfigSection from './shared/ConfigSection';
 import { Bot } from 'lucide-react';
 import { t } from '@/core/i18n';
@@ -11,7 +12,7 @@ interface AgentSubAgentListProps {
   onToggle: (section: string) => void;
 }
 
-export default function AgentSubAgentList({ isExpanded, onToggle }: AgentSubAgentListProps) {
+function AgentSubAgentList({ isExpanded, onToggle }: AgentSubAgentListProps) {
   return (
     <ConfigSection
       id="subAgents"
@@ -26,3 +27,5 @@ export default function AgentSubAgentList({ isExpanded, onToggle }: AgentSubAgen
     </ConfigSection>
   );
 }
+
+export default memo(AgentSubAgentList);

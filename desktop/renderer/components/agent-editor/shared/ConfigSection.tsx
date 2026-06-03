@@ -2,6 +2,7 @@
 // ConfigSection - 可折叠配置区块
 // ============================================================
 
+import { memo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ConfigSectionProps {
@@ -13,7 +14,7 @@ interface ConfigSectionProps {
   children: React.ReactNode;
 }
 
-export default function ConfigSection({ id, title, icon, isExpanded, onToggle, children }: ConfigSectionProps) {
+function ConfigSection({ id, title, icon, isExpanded, onToggle, children }: ConfigSectionProps) {
   return (
     <div className="bg-card rounded-lg overflow-hidden">
       <button
@@ -33,3 +34,5 @@ export default function ConfigSection({ id, title, icon, isExpanded, onToggle, c
     </div>
   );
 }
+
+export default memo(ConfigSection);
