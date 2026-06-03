@@ -20,7 +20,7 @@ interface TreeNode {
 // ============================================================
 
 const GIT_COLORS: Record<string, string> = {
-  M: '#FBBF24', A: '#34D399', D: '#F87171', '?': '#60A5FA',
+  M: 'text-amber-400', A: 'text-emerald-400', D: 'text-red-400', '?': 'text-blue-400',
 };
 
 function gitColor(code: string): string | null {
@@ -88,7 +88,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         ) : <span className="w-3" />}
 
         {gColor ? (
-          <span className="text-[7px] w-1.5 text-center flex-shrink-0" style={{ color: gColor }}>●</span>
+          <span className={`text-[7px] w-1.5 text-center flex-shrink-0 ${gColor}`}>●</span>
         ) : <span className="w-1.5" />}
 
         <span className="flex-shrink-0 text-[10px] w-3 text-center">
@@ -291,7 +291,7 @@ export default function ProjectFileTree({ onGitBranchChange }: { onGitBranchChan
       {/* 文件/文件夹右键菜单 */}
       {ctxMenu && (
         <div
-          className="fixed z-50 bg-[hsl(240,5%,12%)] rounded-xl shadow-glass-lg py-1 min-w-[140px]"
+          className="fixed z-50 bg-card rounded-xl shadow-glass-lg py-1 min-w-[140px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           {!ctxMenu.node.entry.isDirectory && (
@@ -333,7 +333,7 @@ export default function ProjectFileTree({ onGitBranchChange }: { onGitBranchChan
       {/* 空白区域右键菜单 */}
       {blankCtxMenu && (
         <div
-          className="fixed z-50 bg-[hsl(240,5%,12%)] rounded-xl shadow-glass-lg py-1 min-w-[120px]"
+          className="fixed z-50 bg-card rounded-xl shadow-glass-lg py-1 min-w-[120px]"
           style={{ left: blankCtxMenu.x, top: blankCtxMenu.y }}
         >
           <button

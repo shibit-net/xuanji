@@ -23,7 +23,7 @@ interface TreeNode {
 // ============================================================
 
 const GIT_COLORS: Record<string, string> = {
-  M: '#FBBF24', A: '#34D399', D: '#F87171', '?': '#60A5FA',
+  M: 'text-amber-400', A: 'text-emerald-400', D: 'text-red-400', '?': 'text-blue-400',
 };
 
 function gitColor(code: string): string | null {
@@ -73,7 +73,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
   return (
     <div>
       <div
-        className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-white/5 transition-colors text-xs group"
+        className="flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer hover:bg-muted/30 transition-colors text-xs group"
         style={{ paddingLeft: 8 + depth * 14 }}
         onClick={() => (isDir ? onToggle(node) : onOpenFile(entry.path))}
         onContextMenu={(e) => onContextMenu(e, node)}
@@ -87,7 +87,7 @@ function TreeItem({ node, onToggle, onOpenFile, onContextMenu, gitStatus, rootRe
         ) : <span className="w-3.5" />}
 
         {gColor ? (
-          <span className="text-[8px] w-2 text-center flex-shrink-0" style={{ color: gColor }}>●</span>
+          <span className={`text-[8px] w-2 text-center flex-shrink-0 ${gColor}`}>●</span>
         ) : <span className="w-2" />}
 
         <span className="flex-shrink-0 text-[11px] w-3.5 text-center">
@@ -293,7 +293,7 @@ export default function ProjectFilesPanel({ onToggle }: { onToggle: () => void }
       {/* 右键菜单 */}
       {ctxMenu && (
         <div
-          className="fixed z-50 bg-zinc-800 border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+          className="fixed z-50 bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
         >
           {ctxMenu.node ? (
