@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AnthropicProvider } from '@/core/providers/AnthropicProvider';
-import { OpenAIProvider } from '@/core/providers/OpenAIProvider';
+import { AnthropicProvider } from '@/provider/AnthropicProvider';
+import { OpenAIProvider } from '@/provider/OpenAIProvider';
 import type { ProviderConfig, Message, ToolSchema } from '@/core/types';
 
 /** 消费 AsyncIterable 直到抛出异常或结束 */

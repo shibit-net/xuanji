@@ -13,7 +13,7 @@ import { SilentAgentLoop } from '../SilentAgentLoop';
 import { logger } from '@/core/logger';
 import { setLogContext } from '@/core/logger/implementations/PinoLogger';
 import { getConfigManager, type ConfigManager } from '@/core/config/ConfigManager';
-import { ProviderPool } from '@/core/providers/ProviderPool';
+import { ProviderPool } from '@/provider/ProviderPool';
 import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';

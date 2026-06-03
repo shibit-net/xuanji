@@ -5,7 +5,7 @@
 import { vi } from 'vitest';
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
-import type { ProviderManager } from '@/core/providers/ProviderManager';
+import type { ProviderManager } from '@/provider/ProviderManager';
 
 /**
  * 创建 mock 的 AgentRegistry

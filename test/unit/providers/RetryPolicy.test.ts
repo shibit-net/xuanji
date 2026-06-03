@@ -4,7 +4,7 @@ import {
   calculateBackoff,
   shouldRetry,
   withRetry,
-} from '@/core/providers/RetryPolicy';
+} from '@/provider/RetryPolicy';
 import type { RetryConfig } from '@/core/types';
 
 describe('RetryPolicy', () => {

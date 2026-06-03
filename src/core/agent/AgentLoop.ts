@@ -12,7 +12,7 @@
 import type { AgentConfig, AgentState, TokenUsage, ILLMProvider, IToolRegistry, ToolSchema, Message } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import { ContextManager } from '@/core/context/ContextManager';
-import { StreamPipeline } from '@/core/stream/StreamPipeline';
+import { StreamPipeline } from '@/provider/stream/StreamPipeline';
 import { ToolGateway } from '@/tools/ToolGateway';
 import { eventBus } from '@/core/events/EventBus';
 import { XuanjiEvent } from '@/core/events/events';

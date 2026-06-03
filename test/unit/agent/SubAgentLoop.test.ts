@@ -7,7 +7,7 @@ import { SubAgentContext, MAX_NESTING_DEPTH, ALWAYS_RESTRICTED_TOOLS } from '@/c
 import { TaskTool } from '@/tools/TaskTool';
 import { ToolRegistry } from '@/tools/ToolRegistry';
 import type { AgentConfig, Tool, ToolResult, ToolSchema, IToolRegistry } from '@/core/types';
-import type { ProviderManager } from '@/core/providers/ProviderManager';
+import type { ProviderManager } from '@/provider/ProviderManager';
 import type { AgentRegistry } from '@/core/agent/AgentRegistry';
 
 describe('SubAgentContext', () => {

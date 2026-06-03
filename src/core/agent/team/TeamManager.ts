@@ -27,7 +27,7 @@ import type {
 import type { ILLMProvider, IToolRegistry, AgentConfig } from '@/core/types';
 import type { HookRegistry } from '@/hooks/HookRegistry';
 import type { AgentRegistry } from '../AgentRegistry';
-import type { ProviderManager } from '@/core/providers/ProviderManager';
+import type { ProviderManager } from '@/provider/ProviderManager';
 import type { LayeredPromptBuilder } from '@/core/prompt/LayeredPromptBuilder';
 import { DEFAULT_TEAM_CONFIG } from './types';
 import type { SubAgentResult } from '../factory/AgentFactory';

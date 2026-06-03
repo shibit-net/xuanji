@@ -12,7 +12,7 @@ import { DependencyContainer } from '@/core/di';
 import { ConfigLoader } from '@/core/config/ConfigLoader';
 import { getConfigManager } from '@/core/config/ConfigManager';
 import { setRuntimeConfig } from '@/core/config/RuntimeConfig';
-import { ProviderManager } from '@/core/providers/ProviderManager';
+import { ProviderManager } from '@/provider/ProviderManager';
 import { ToolConfigManager } from '@/tools/ToolConfigManager';
 import { createDefaultRegistry } from '@/tools/ToolRegistry';
 import { PermissionController } from '@/permission/PermissionController';
