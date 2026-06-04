@@ -375,6 +375,7 @@ export class FeishuAdapter implements PlatformAdapter {
 
   async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
     const token = await this.credentials.getToken('feishu');
+    const receiveIdType = options.chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
     const body: Record<string, unknown> = {
       receive_id: options.chatId,
       msg_type: 'text',
@@ -382,7 +383,7 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const response = await fetch(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
       {
         method: 'POST',
         headers: {
@@ -414,8 +415,9 @@ export class FeishuAdapter implements PlatformAdapter {
       }),
     };
 
+    const receiveIdType = options.chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
     const response = await fetch(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
       {
         method: 'POST',
         headers: {
@@ -465,6 +467,7 @@ export class FeishuAdapter implements PlatformAdapter {
       throw new Error(`Feishu image upload failed: ${uploadData.msg}`);
     }
 
+    const receiveIdType = options.chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
     const sendBody = {
       receive_id: options.chatId,
       msg_type: 'image',
@@ -472,7 +475,7 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const sendRes = await fetch(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
       {
         method: 'POST',
         headers: {
@@ -523,6 +526,7 @@ export class FeishuAdapter implements PlatformAdapter {
       throw new Error(`Feishu file upload failed: ${uploadData.msg}`);
     }
 
+    const receiveIdType = options.chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
     const sendBody = {
       receive_id: options.chatId,
       msg_type: 'file',
@@ -530,7 +534,7 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const sendRes = await fetch(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
       {
         method: 'POST',
         headers: {
@@ -581,6 +585,7 @@ export class FeishuAdapter implements PlatformAdapter {
       throw new Error(`Feishu voice upload failed: ${uploadData.msg}`);
     }
 
+    const receiveIdType = options.chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
     const sendBody = {
       receive_id: options.chatId,
       msg_type: 'audio',
@@ -588,7 +593,7 @@ export class FeishuAdapter implements PlatformAdapter {
     };
 
     const sendRes = await fetch(
-      'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
+      `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`,
       {
         method: 'POST',
         headers: {
