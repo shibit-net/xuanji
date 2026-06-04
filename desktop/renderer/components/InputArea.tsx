@@ -81,19 +81,33 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
 
   const toast = useToast();
 
+  // ─── 文件附件 ───────────────────────────────────────
+  const {
+    attachments,
+    setAttachments,
+    removeAttachment,
+    isDragOver,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handlePaste,
+  } = useFileAttachments(savedAttachments, { toast });
+
+  // attachmentsRef 必须在 useFileAttachments 之后（避免 const TDZ）
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+
   // 防重入 ref：替代依赖 state 的 isSending 检查，避免 React 批处理下的双重发送
   const sendingRef = useRef(false);
 
-  // 页面切换时保存/恢复输入状态
+  // 页面切换时保存/恢复输入状态（ref 持有最新值供 cleanup 读取）
   const inputRef = useRef(input);
   inputRef.current = input;
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
+
+  // 卸载时保存输入/附件/agent 状态到模块级变量，页面切换后可恢复
   useEffect(() => {
-    // 挂载时已通过 useState 初始值恢复
-    // 卸载时保存当前状态到模块级变量
     return () => {
       savedInput = inputRef.current;
       savedAttachments = attachmentsRef.current;
@@ -457,18 +471,6 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
   const handleStop = useCallback(() => {
     window.electron.agentUserAction({ type: 'INTERRUPT' });
   }, []);
-
-  // ─── 文件附件 ───────────────────────────────────────
-  const {
-    attachments,
-    setAttachments,
-    removeAttachment,
-    isDragOver,
-    handleDragOver,
-    handleDragLeave,
-    handleDrop,
-    handlePaste,
-  } = useFileAttachments(savedAttachments, { toast });
 
   // ─── 工具栏 ─────────────────────────────────────────
   const autoCompressing = memoryStatus.isCompressing && !isCompacting;
