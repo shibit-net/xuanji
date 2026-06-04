@@ -1,7 +1,10 @@
 /**
  * 飞书 Adapter
  *
- * Webhook 接收 JSON + 签名验证 → PlatformMessage
+ * 支持两种事件接收模式：
+ *   webhook   — HTTP 回调（需要公网 IP），签名验证
+ *   websocket — 长连接（无需公网 IP），建连时鉴权
+ *
  * REST API 发送消息 (tenant_access_token)
  *
  * 设计文档：docs/platform-integration-design.md §5.2
@@ -19,20 +22,37 @@ import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'FeishuAdapter' });
 
+/** WebSocket 长连接端点 */
+const WS_ENDPOINT = 'wss://open.feishu.cn/ws/v2';
+
+/** 重连间隔（毫秒），指数退避上限 */
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 60_000;
+
 export class FeishuAdapter implements PlatformAdapter {
   readonly platform = 'feishu' as const;
   lastActivity = 0;
 
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
   private credentials: CredentialManager;
+  private receiveMode: 'webhook' | 'websocket';
+
+  /** WebSocket 连接相关 */
+  private ws: import('ws').WebSocket | null = null;
+  private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private wsReconnectDelay = RECONNECT_BASE_MS;
+  private wsStopped = false;
 
   constructor(private config: FeishuConfig, credentials: CredentialManager) {
     this.credentials = credentials;
+    this.receiveMode = config.receive_mode || 'webhook';
   }
 
   // ── Webhook Handler ──────────────────────────────────────
 
-  getWebhookHandler(): { path: string; handler: WebhookHandler } {
+  getWebhookHandler(): { path: string; handler: WebhookHandler } | null {
+    // WebSocket 模式下不注册 Webhook handler
+    if (this.receiveMode === 'websocket') return null;
     return {
       path: this.config.webhook_path || '/webhook/feishu',
       handler: async (req: WebhookRequest) => this.handleWebhook(req),
@@ -67,6 +87,128 @@ export class FeishuAdapter implements PlatformAdapter {
     }
 
     return webhookOk();
+  }
+
+  // ── WebSocket 长连接 ─────────────────────────────────────
+
+  /** 获取 app_access_token（WebSocket 建连鉴权用，非 tenant_access_token） */
+  private async getAppAccessToken(): Promise<string> {
+    const { app_id, app_secret } = this.config;
+    const response = await fetch(
+      'https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id, app_secret }),
+      },
+    );
+    const data = await response.json() as any;
+    if (data.code !== 0) {
+      throw new Error(`Feishu app_access_token failed: ${data.msg} (code=${data.code})`);
+    }
+    return data.app_access_token;
+  }
+
+  /** 建立 WebSocket 连接并接收事件 */
+  private async connectWebSocket(): Promise<void> {
+    if (this.wsStopped) return;
+
+    try {
+      const token = await this.getAppAccessToken();
+      const url = `${WS_ENDPOINT}?app_id=${this.config.app_id}&access_token=${token}`;
+      log.info(`Feishu WebSocket connecting...`);
+
+      // 动态导入 ws 包（桌面端已安装，避免服务端依赖）
+      let WS: typeof import('ws').default;
+      try {
+        WS = (await import('ws')).default;
+      } catch {
+        WS = (await import('ws')).WebSocket as any;
+      }
+
+      const ws = new WS(url) as import('ws').WebSocket;
+      this.ws = ws;
+
+      ws.on('open', () => {
+        log.info('Feishu WebSocket connected');
+        this.lastActivity = Date.now();
+        this.wsReconnectDelay = RECONNECT_BASE_MS;
+      });
+
+      ws.on('message', (raw: Buffer) => {
+        this.lastActivity = Date.now();
+        try {
+          const event = JSON.parse(raw.toString());
+          this.handleWSEvent(event);
+        } catch (err) {
+          log.error(`Feishu WS message parse error: ${(err as Error).message}`);
+        }
+      });
+
+      ws.on('close', (code: number) => {
+        log.warn(`Feishu WebSocket closed (code=${code})`);
+        this.ws = null;
+        this.scheduleReconnect();
+      });
+
+      ws.on('error', (err: Error) => {
+        log.error(`Feishu WebSocket error: ${err.message}`);
+        this.ws?.close();
+        this.ws = null;
+        this.scheduleReconnect();
+      });
+
+      // 心跳保活：每 30 秒发送 ping（飞书服务端要求）
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === ws.OPEN) {
+          ws.ping();
+        }
+      }, 30_000);
+
+      ws.on('close', () => clearInterval(pingInterval));
+      ws.on('error', () => clearInterval(pingInterval));
+    } catch (err) {
+      log.error(`Feishu WebSocket connect failed: ${(err as Error).message}`);
+      this.scheduleReconnect();
+    }
+  }
+
+  /** 处理 WebSocket 事件消息 */
+  private handleWSEvent(event: any): void {
+    // WebSocket 长连接推送的事件格式与 Webhook 一致
+    if (event.header?.event_type === 'im.message.receive_v1') {
+      const msg = this.parseMessage(event);
+      if (msg) {
+        this.messageHandler?.(msg);
+      }
+    }
+  }
+
+  /** 指数退避重连 */
+  private scheduleReconnect(): void {
+    if (this.wsStopped) return;
+    if (this.wsReconnectTimer) clearTimeout(this.wsReconnectTimer);
+
+    const delay = this.wsReconnectDelay;
+    log.info(`Feishu WebSocket reconnecting in ${delay}ms...`);
+    this.wsReconnectTimer = setTimeout(() => {
+      this.wsReconnectTimer = null;
+      this.wsReconnectDelay = Math.min(this.wsReconnectDelay * 2, RECONNECT_MAX_MS);
+      this.connectWebSocket();
+    }, delay);
+  }
+
+  /** 断开 WebSocket 连接 */
+  private disconnectWebSocket(): void {
+    this.wsStopped = true;
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+      this.wsReconnectTimer = null;
+    }
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 
   // ── 消息解析 ─────────────────────────────────────────────
@@ -125,18 +267,29 @@ export class FeishuAdapter implements PlatformAdapter {
     return expected === signature;
   }
 
-  // ── 发送消息 ─────────────────────────────────────────────
+  // ── 生命周期 ─────────────────────────────────────────────
 
   async start(): Promise<void> {
     this.credentials.registerRefresher('feishu', () => this.doRefreshToken());
+    if (this.receiveMode === 'websocket') {
+      this.wsStopped = false;
+      this.connectWebSocket();
+    }
   }
 
   async stop(): Promise<void> {
     this.credentials.clearToken('feishu');
+    if (this.receiveMode === 'websocket') {
+      this.disconnectWebSocket();
+    }
   }
 
   async ping(): Promise<void> {
     await this.credentials.getToken('feishu');
+  }
+
+  onMessage(handler: (msg: PlatformMessage) => void): void {
+    this.messageHandler = handler;
   }
 
   async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
@@ -257,10 +410,6 @@ export class FeishuAdapter implements PlatformAdapter {
     }
 
     return sendData.data?.message_id || '';
-  }
-
-  onMessage(handler: (msg: PlatformMessage) => void): void {
-    this.messageHandler = handler;
   }
 
   async sendFile(options: { chatId: string; filePath: string; fileName?: string; replyTo?: string }): Promise<string> {

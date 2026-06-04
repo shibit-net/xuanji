@@ -301,12 +301,14 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
         router.registerAdapter(adapter);
         ensureMessageHandler(router);
 
-        // 注册 Webhook 路由
+        // 注册 Webhook 路由（WebSocket 模式返回 null，跳过）
         if (typeof adapter.getWebhookHandler === 'function') {
           const wh = adapter.getWebhookHandler();
-          const ws = await getWebhookServer();
-          ws.register(wh.path, wh.handler);
-          log.info(`Webhook route restored: ${wh.path} for ${platform}`);
+          if (wh) {
+            const ws = await getWebhookServer();
+            ws.register(wh.path, wh.handler);
+            log.info(`Webhook route restored: ${wh.path} for ${platform}`);
+          }
         }
 
         await adapter.start();
@@ -661,11 +663,13 @@ async function createAndRegisterAdapter(
 
   router.registerAdapter(adapter);
 
-  // 注册 Webhook 路由
+  // 注册 Webhook 路由（WebSocket 模式返回 null，跳过）
   if (typeof adapter.getWebhookHandler === 'function') {
     const wh = adapter.getWebhookHandler();
-    const ws = await getWebhookServer();
-    ws.register(wh.path, wh.handler);
-    log.info(`Webhook route registered: ${wh.path} for ${platform}`);
+    if (wh) {
+      const ws = await getWebhookServer();
+      ws.register(wh.path, wh.handler);
+      log.info(`Webhook route registered: ${wh.path} for ${platform}`);
+    }
   }
 }

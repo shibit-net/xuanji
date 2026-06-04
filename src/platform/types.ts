@@ -94,6 +94,8 @@ export interface PlatformConfig {
 export interface FeishuConfig extends PlatformConfig {
   app_id: string;
   app_secret: string;
+  /** 事件接收模式：webhook（需要公网IP）| websocket（长连接，无需公网IP），默认 webhook */
+  receive_mode?: 'webhook' | 'websocket';
 }
 
 export interface DingTalkConfig extends PlatformConfig {
