@@ -103,9 +103,12 @@ export class FeishuAdapter implements PlatformAdapter {
       const eventDispatcher = new EventDispatcher({}).register({
         'im.message.receive_v1': (data: any) => {
           this.lastActivity = Date.now();
+          log.debug(`Feishu WS message received: type=${data?.message?.message_type}, chatId=${data?.message?.chat_id}`);
           const msg = this.parseMessageFromSDK(data);
           if (msg) {
             this.enrichAndForward(msg);
+          } else {
+            log.warn('Feishu WS parseMessageFromSDK returned null, raw keys:', Object.keys(data || {}));
           }
         },
         'im.message.read_v1': (data: any) => {
@@ -122,31 +125,34 @@ export class FeishuAdapter implements PlatformAdapter {
         appId: this.config.app_id,
         appSecret: this.config.app_secret,
         domain: Domain.Feishu,
-        loggerLevel: LoggerLevel.info,
+        loggerLevel: LoggerLevel.debug,
+        autoReconnect: true,
       });
 
-      await new Promise<void>((resolve) => {
-        this.wsClient.start({ eventDispatcher });
-        const check = setInterval(() => {
-          const ws = this.wsClient?.wsConfig?.getWSInstance?.();
-          if (ws && ws.readyState === 1) {
-            clearInterval(check);
-            log.info('Feishu WebSocket connected via SDK WSClient');
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (!this.wsStarted) {
+            log.warn('Feishu WebSocket connection timeout (30s)');
+            resolve();
+          }
+        }, 30000);
+
+        this.wsClient.start({
+          eventDispatcher,
+          onReady: () => {
+            clearTimeout(timeout);
+            log.info('Feishu WebSocket connected via SDK WSClient (onReady)');
             this.wsStarted = true;
             this.lastActivity = Date.now();
             resolve();
-          }
-        }, 200);
-        setTimeout(() => {
-          clearInterval(check);
-          if (!this.wsStarted) {
-            log.warn('Feishu WebSocket connection timeout (15s), will retry');
-            resolve();
-          }
-        }, 15000);
+          },
+          onError: (err: Error) => {
+            log.error(`Feishu WebSocket error: ${err.message}`);
+          },
+        });
       });
     } catch (err) {
-      log.error(`Feishu WebSocket start failed: ${(err as Error).message}`);
+      log.error(`Feishu WebSocket start failed: ${(err as Error).message}`, (err as Error).stack);
     }
   }
 
