@@ -397,10 +397,6 @@ export function registerPlatformIpcHandlers(): void {
       // 根据平台类型创建 Adapter
       await createAndRegisterAdapter(router, data.platform, data.config);
 
-      // 预注册会话，确保侧边栏立即可见
-      const fallbackId = data.config.app_id || data.config.corp_id || data.config.client_id || data.platform;
-      router.registerSession(data.platform, fallbackId);
-
       // 注册消息转发到 UI + agent-bridge（仅首次）
       ensureMessageHandler(router);
 

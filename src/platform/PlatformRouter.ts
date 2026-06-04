@@ -60,8 +60,8 @@ export class PlatformRouter implements WorkerReplyHandler {
   }
 
   /** 预注册远端会话（扫码连接成功后调用，确保侧边栏立即可见） */
-  registerSession(platform: RemoteSession['platform'], chatId: string): void {
-    const sessionKey = buildSessionKey({ platform, chatType: 'private', chatId });
+  registerSession(platform: RemoteSession['platform'], chatId: string, chatType: 'private' | 'group' = 'private'): void {
+    const sessionKey = buildSessionKey({ platform, chatType, chatId });
     this.sessionRouter.registerSession(sessionKey, chatId);
   }
 
