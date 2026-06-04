@@ -8,6 +8,7 @@
     "theme": "auto",
     "language": "en",
     "showTokenUsage": true,
+    "showCost": true,
     "showThinking": true
   },
   "permission": {
@@ -92,6 +93,8 @@
     "maxSessions": 50
   },
   "features": {
+    "proactiveButler": false,
+    "smartMemoryV2": false,
     "intentRouter": false
   },
   "routing": {
