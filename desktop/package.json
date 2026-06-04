@@ -37,6 +37,7 @@
     "@dicebear/lorelei": "^9.4.2",
     "@dicebear/notionists": "^9.4.2",
     "@milkdown/kit": "^7.20.0",
+    "@milkdown/utils": "^7.21.1",
     "@milkdown/plugin-diagram": "^7.7.0",
     "@milkdown/plugin-emoji": "^7.20.0",
     "@milkdown/plugin-math": "^7.5.9",

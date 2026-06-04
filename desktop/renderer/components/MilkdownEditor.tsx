@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
 import { t } from '@/i18n';
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx } from '@milkdown/kit/core';
+import { replaceAll, getMarkdown } from '@milkdown/utils';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
@@ -445,7 +446,18 @@ function MilkdownEditorInner({ value, onChange, mode, onReady }: Omit<MilkdownEd
     [mode, value],
   );
 
-  useEditor(editorFactory, [mode, value]);
+  const { loading, get: getEditor } = useEditor(editorFactory, [mode, value]);
+
+  // 编辑器就绪后强制同步内容，修复组件重新挂载时 defaultValueCtx 未正确还原的问题
+  useEffect(() => {
+    if (loading) return;
+    const editor = getEditor();
+    if (!editor) return;
+    const currentContent = editor.action(getMarkdown());
+    if (currentContent !== value) {
+      editor.action(replaceAll(value));
+    }
+  }, [loading, value, getEditor]);
 
   // 检测 ProseMirror 挂载后触发 onReady
   useEffect(() => {
