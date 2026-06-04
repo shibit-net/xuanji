@@ -5,12 +5,12 @@
  */
 
 import { useState, memo } from 'react';
-import { X, QrCode, MessageCircle, MessageSquare, Globe } from 'lucide-react';
+import { X, QrCode, MessageCircle, Globe, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlatformStore } from '../stores/platformStore';
 import { t } from '@/i18n';
 
-type PlatformType = 'wechat' | 'wecom' | 'feishu' | 'dingtalk';
+type PlatformType = 'wechat' | 'feishu';
 
 const PLATFORM_INFO: Array<{
   type: PlatformType;
@@ -26,25 +26,11 @@ const PLATFORM_INFO: Array<{
     desc: t('platform.wechat_desc'),
   },
   {
-    type: 'wecom',
-    name: t('platform.wecom'),
-    icon: <MessageSquare size={20} />,
-    desc: t('platform.wecom_desc'),
-    configFields: ['corp_id', 'agent_id', 'secret', 'token', 'encoding_aes_key'],
-  },
-  {
     type: 'feishu',
     name: t('platform.feishu'),
     icon: <Globe size={20} />,
     desc: t('platform.feishu_desc'),
     configFields: ['app_id', 'app_secret'],
-  },
-  {
-    type: 'dingtalk',
-    name: t('platform.dingtalk'),
-    icon: <MessageCircle size={20} />,
-    desc: t('platform.dingtalk_desc'),
-    configFields: ['client_id', 'client_secret'],
   },
 ];
 
@@ -160,9 +146,20 @@ function PlatformSetupDialog() {
               ? t('platform.config_title', { name: PLATFORM_INFO.find((p) => p.type === selected)?.name })
               : t('platform.select_title')}
           </h2>
-          <Button variant="ghost" size="sm" onClick={() => setSetupDialogOpen(false)}>
-            <X size={16} />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground hover:text-primary gap-1"
+              onClick={() => window.electron.openUrl('https://shibit.net/docs/platform-setup')}
+            >
+              <ExternalLink size={12} />
+              {t('platform.view_guide')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSetupDialogOpen(false)}>
+              <X size={16} />
+            </Button>
+          </div>
         </div>
 
         {/* 内容 */}
