@@ -41,8 +41,32 @@ export function usePlatformEvents() {
       role: string;
       timestamp: number;
       userName?: string;
+      eventType?: string;
+      readReceipt?: { messageId: string; userId: string; readTime: number };
+      recallMessageId?: string;
     }) => {
-      console.log('[PlatformEvent] message-received:', data.sessionKey, data.text?.slice(0, 50));
+      console.log('[PlatformEvent] message-received:', data.sessionKey, data.text?.slice(0, 50), data.eventType);
+
+      // 处理撤回事件：标记原消息为已撤回
+      if (data.eventType === 'recall' && data.recallMessageId) {
+        usePlatformStore.getState().markMessageRecalled(data.sessionKey, data.recallMessageId);
+        return;
+      }
+
+      // 处理已读回执：作为系统消息展示
+      if (data.eventType === 'read_receipt') {
+        usePlatformStore.getState().addMessage({
+          id: data.id,
+          sessionKey: data.sessionKey,
+          platform: data.platform,
+          text: '已读',
+          role: 'agent',
+          timestamp: data.timestamp,
+          userName: data.userName,
+        });
+        return;
+      }
+
       usePlatformStore.getState().addMessage({
         id: data.id,
         sessionKey: data.sessionKey,
@@ -52,6 +76,15 @@ export function usePlatformEvents() {
         timestamp: data.timestamp,
         userName: data.userName,
       });
+
+      // 如果有 userName，同步更新 session 名称
+      if (data.userName) {
+        const store = usePlatformStore.getState();
+        const session = store.sessions.find((s) => s.sessionKey === data.sessionKey);
+        if (session && (!session.name || session.name === session.chatId)) {
+          store.updateSessionName(session.id, data.userName);
+        }
+      }
     };
 
     const handleMessageSent = (data: {

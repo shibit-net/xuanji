@@ -364,6 +364,9 @@ function ensureMessageHandler(router: any): void {
       role: 'user',
       timestamp: Date.now(),
       userName: msg.userName,
+      eventType: msg.eventType || 'message',
+      readReceipt: msg.readReceipt,
+      recallMessageId: msg.recallMessageId,
     });
     // 携带完整 session 数据，确保新会话可在侧边栏自动创建
     broadcastToAll('platform:session-updated', {

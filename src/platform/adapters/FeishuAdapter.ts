@@ -5,6 +5,12 @@
  *   webhook   — HTTP 回调（需要公网 IP），签名验证
  *   websocket — 长连接（无需公网 IP），使用飞书官方 SDK 的 WSClient
  *
+ * 飞书独有功能：
+ *   - 已读回执 (im.message.read_v1)
+ *   - 消息撤回 (im.message.recalled_v1)
+ *   - 用户资料自动丰富 (GET /contact/v3/users)
+ *   - 正在输入 (sendTyping)
+ *
  * REST API 发送消息 (tenant_access_token)
  *
  * 设计文档：docs/platform-integration-design.md §5.2
@@ -33,6 +39,9 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 官方 SDK WSClient 实例（WebSocket 模式） */
   private wsClient: any = null;
   private wsStarted = false;
+
+  /** 用户资料缓存：userId → { name, avatar } */
+  private userCache = new Map<string, { name: string; avatar?: string }>();
 
   constructor(private config: FeishuConfig, credentials: CredentialManager) {
     this.credentials = credentials;
@@ -69,8 +78,12 @@ export class FeishuAdapter implements PlatformAdapter {
       if (body.header?.event_type === 'im.message.receive_v1') {
         const msg = this.parseMessage(body);
         if (msg) {
-          this.messageHandler?.(msg);
+          this.enrichAndForward(msg);
         }
+      } else if (body.header?.event_type === 'im.message.read_v1') {
+        this.handleReadReceipt(body.event || body);
+      } else if (body.header?.event_type === 'im.message.recalled_v1') {
+        this.handleRecall(body.event || body);
       }
     } catch (err) {
       log.error(`Feishu webhook error: ${(err as Error).message}`);
@@ -90,12 +103,18 @@ export class FeishuAdapter implements PlatformAdapter {
       const eventDispatcher = new EventDispatcher({}).register({
         'im.message.receive_v1': (data: any) => {
           this.lastActivity = Date.now();
-          // SDK 的 RequestHandle.parse() 会将 v2.0 事件的 header/event 展开到顶层
-          // event.message → data.message, event.sender → data.sender
           const msg = this.parseMessageFromSDK(data);
           if (msg) {
-            this.messageHandler?.(msg);
+            this.enrichAndForward(msg);
           }
+        },
+        'im.message.read_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this.handleReadReceipt(data);
+        },
+        'im.message.recalled_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this.handleRecall(data);
         },
       });
 
@@ -106,12 +125,8 @@ export class FeishuAdapter implements PlatformAdapter {
         loggerLevel: LoggerLevel.info,
       });
 
-      await new Promise<void>((resolve, reject) => {
-        this.wsClient.start({
-          eventDispatcher,
-        });
-        // SDK 的 start() 返回 void，连接在后台进行
-        // 通过定时轮询检查连接状态
+      await new Promise<void>((resolve) => {
+        this.wsClient.start({ eventDispatcher });
         const check = setInterval(() => {
           const ws = this.wsClient?.wsConfig?.getWSInstance?.();
           if (ws && ws.readyState === 1) {
@@ -122,12 +137,11 @@ export class FeishuAdapter implements PlatformAdapter {
             resolve();
           }
         }, 200);
-        // 超时保护
         setTimeout(() => {
           clearInterval(check);
           if (!this.wsStarted) {
             log.warn('Feishu WebSocket connection timeout (15s), will retry');
-            resolve(); // 不阻塞，SDK 内部会自动重连
+            resolve();
           }
         }, 15000);
       });
@@ -138,7 +152,6 @@ export class FeishuAdapter implements PlatformAdapter {
 
   private async stopWebSocket(): Promise<void> {
     this.wsStarted = false;
-    // SDK 的 WSClient 没有公开的 stop 方法，需要直接存取内部 ws
     try {
       const ws = this.wsClient?.wsConfig?.getWSInstance?.();
       if (ws) {
@@ -146,6 +159,123 @@ export class FeishuAdapter implements PlatformAdapter {
       }
     } catch { /* ignore */ }
     this.wsClient = null;
+  }
+
+  // ── 用户资料 ─────────────────────────────────────────────
+
+  async getUserProfile(options: { userId: string }): Promise<{ name: string; avatar?: string } | null> {
+    const { userId } = options;
+    // 先查缓存
+    const cached = this.userCache.get(userId);
+    if (cached) return cached;
+
+    try {
+      const token = await this.credentials.getToken('feishu');
+      const response = await fetch(
+        `https://open.feishu.cn/open-apis/contact/v3/users/${encodeURIComponent(userId)}?user_id_type=open_id`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        },
+      );
+      const data = await response.json() as any;
+      if (data.code === 0 && data.data?.user) {
+        const user = data.data.user;
+        const profile = {
+          name: user.name || user.en_name || userId,
+          avatar: user.avatar?.avatar_240 || user.avatar?.avatar_origin || user.avatar?.avatar_72,
+        };
+        this.userCache.set(userId, profile);
+        return profile;
+      }
+    } catch (err) {
+      log.warn(`Feishu getUserProfile failed: ${(err as Error).message}`);
+    }
+    return null;
+  }
+
+  /** 收到消息后自动丰富 userName，异步获取用户资料 */
+  private enrichAndForward(msg: PlatformMessage): void {
+    this.messageHandler?.(msg);
+    // 异步补全用户名称
+    this.enrichUserName(msg);
+  }
+
+  private async enrichUserName(msg: PlatformMessage): Promise<void> {
+    if (msg.userName) return;
+    const profile = await this.getUserProfile({ userId: msg.userId });
+    if (profile?.name) {
+      msg.userName = profile.name;
+      // 再次推送，让 UI 层拿到带 userName 的消息
+      this.messageHandler?.(msg);
+    }
+  }
+
+  // ── 已读回执 ─────────────────────────────────────────────
+
+  private handleReadReceipt(data: any): void {
+    // SDK 展开后：data 的顶层可能包含 event 数据
+    // im.message.read_v1 事件体：{ reader: { open_id, ... }, message_id_list: [...] }
+    const readerId = data.reader?.open_id || data.reader?.user_id || data.user_id;
+    const messageIds: string[] = data.message_id_list || [];
+    if (!readerId || messageIds.length === 0) return;
+
+    // 取第一个已读消息的 chatId 推导 sessionKey
+    const chatId = data.chat_id || '';
+    const chatType: 'private' | 'group' = data.chat_type === 'private' ? 'private' : 'group';
+
+    if (messageIds[0]) {
+      const sessionKey = buildSessionKey({ platform: 'feishu', chatType, chatId });
+      this.messageHandler?.({
+        id: `read_${messageIds[0]}_${readerId}`,
+        platform: 'feishu',
+        userId: readerId,
+        chatId,
+        chatType,
+        text: '',
+        sessionKey,
+        eventType: 'read_receipt',
+        readReceipt: {
+          messageId: messageIds[0],
+          userId: readerId,
+          readTime: Date.now(),
+        },
+        raw: data,
+      });
+    }
+  }
+
+  // ── 消息撤回 ─────────────────────────────────────────────
+
+  private handleRecall(data: any): void {
+    // im.message.recalled_v1 事件体包含 recalled_message_id
+    const recalledMessageId = data.recalled_message_id || data.message_id;
+    const chatId = data.chat_id || '';
+    const chatType: 'private' | 'group' = data.chat_type === 'private' ? 'private' : 'group';
+    const recallInitiator = data.recall_initiator?.open_id || data.recall_initiator?.user_id || '';
+
+    if (recalledMessageId) {
+      const sessionKey = buildSessionKey({ platform: 'feishu', chatType, chatId });
+      this.messageHandler?.({
+        id: `recall_${recalledMessageId}`,
+        platform: 'feishu',
+        userId: recallInitiator,
+        chatId,
+        chatType,
+        text: '',
+        sessionKey,
+        eventType: 'recall',
+        recallMessageId: recalledMessageId,
+        raw: data,
+      });
+    }
+  }
+
+  // ── 正在输入 ─────────────────────────────────────────────
+
+  async sendTyping(options: { chatId: string }): Promise<void> {
+    // 飞书没有专门的 typing API，这里用不到则跳过
+    // 企微/微信支持 typing，飞书在此预留接口
   }
 
   // ── 消息解析 ─────────────────────────────────────────────
@@ -191,10 +321,14 @@ export class FeishuAdapter implements PlatformAdapter {
 
     const mentions: string[] = (msg.mentions || []).map((m: any) => m.key || m.name || '');
 
+    const userId = sender.sender_id?.open_id || sender.sender_id?.user_id || '';
+    const userName = this.userCache.get(userId)?.name;
+
     return {
       id: msg.message_id,
       platform: 'feishu',
-      userId: sender.sender_id?.open_id || sender.sender_id?.user_id || '',
+      userId,
+      userName,
       chatId: msg.chat_id,
       chatType,
       text,
@@ -202,6 +336,7 @@ export class FeishuAdapter implements PlatformAdapter {
       mentions,
       replyTo: msg.upper_message_id || undefined,
       sessionKey: buildSessionKey({ platform: 'feishu', chatType, chatId: msg.chat_id }),
+      eventType: 'message',
       raw,
     };
   }

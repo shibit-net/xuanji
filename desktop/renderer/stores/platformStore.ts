@@ -46,6 +46,7 @@ interface PlatformStore {
   clearUnread: (sessionId: string) => void;
 
   addMessage: (msg: PlatformMessage) => void;
+  markMessageRecalled: (sessionKey: string, messageId: string) => void;
   getMessages: (sessionKey: string) => PlatformMessage[];
 
   setSetupDialogOpen: (open: boolean) => void;
@@ -131,6 +132,18 @@ export const usePlatformStore = create<PlatformStore>((set, get) => ({
           : x
       ),
     }));
+  },
+
+  markMessageRecalled: (sessionKey, messageId) => {
+    set((s) => {
+      const newMessages = new Map(s.messages);
+      const existing = newMessages.get(sessionKey) || [];
+      const updated = existing.map((m) =>
+        m.id === messageId ? { ...m, text: '对方撤回了一条消息', role: 'agent' as const } : m
+      );
+      newMessages.set(sessionKey, updated);
+      return { messages: newMessages };
+    });
   },
 
   getMessages: (sessionKey) => {

@@ -6,6 +6,8 @@
 
 // ─── 统一消息格式 ──────────────────────────────────────────
 
+export type PlatformEventType = 'message' | 'read_receipt' | 'recall' | 'typing';
+
 export interface PlatformMessage {
   id: string;
   platform: 'feishu' | 'dingtalk' | 'wecom' | 'wechat';
@@ -19,6 +21,16 @@ export interface PlatformMessage {
   replyTo?: string;
   sessionKey: string;
   channelPrompt?: string;
+  /** 事件类型：message（普通消息）、read_receipt（已读回执）、recall（撤回）、typing（正在输入） */
+  eventType?: PlatformEventType;
+  /** 已读回执：谁读了哪条消息 */
+  readReceipt?: {
+    messageId: string;
+    userId: string;
+    readTime: number;
+  };
+  /** 撤回：撤回了哪条消息 */
+  recallMessageId?: string;
   raw: any;
 }
 
@@ -79,6 +91,14 @@ export interface PlatformAdapter {
     voicePath: string;
     replyTo?: string;
   }): Promise<string>;
+
+  /** 发送"正在输入"指示（飞书、企微各自有对应 API） */
+  sendTyping?(options: { chatId: string }): Promise<void>;
+
+  /** 获取用户资料（名称+头像），用于丰富 session 显示 */
+  getUserProfile?(options: {
+    userId: string;
+  }): Promise<{ name: string; avatar?: string } | null>;
 
   onMessage(handler: (msg: PlatformMessage) => void): void;
 }

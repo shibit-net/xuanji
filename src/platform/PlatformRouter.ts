@@ -100,18 +100,20 @@ export class PlatformRouter implements WorkerReplyHandler {
       userId,
     };
 
-    // 注册会话
-    this.sessionRouter.registerSession(sessionKey, msg.chatId);
+    // 注册会话（状态事件不重复注册）
+    if (!msg.eventType || msg.eventType === 'message') {
+      this.sessionRouter.registerSession(sessionKey, msg.chatId);
+    }
 
     // 通知 UI 层
     this.messageHandler?.(sessionKey, enriched);
 
-    // 入队异步处理
-    if (this.queue) {
+    // 仅普通消息入队 Agent 处理池，状态事件（已读/撤回/输入）不入队
+    if (this.queue && (!msg.eventType || msg.eventType === 'message')) {
       this.queue.enqueue(enriched);
     }
 
-    log.debug(`Message routed: sessionKey=${sessionKey}, platform=${msg.platform}`);
+    log.debug(`Message routed: sessionKey=${sessionKey}, platform=${msg.platform}, eventType=${msg.eventType || 'message'}`);
   }
 
   // ── Worker 回复回调 ──────────────────────────────────────
