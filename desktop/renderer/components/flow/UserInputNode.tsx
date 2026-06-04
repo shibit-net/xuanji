@@ -9,12 +9,10 @@ import { t } from '@/i18n';
 export function UserInputNode({ data }: NodeProps<UserInputNodeData>) {
   return (
     <div
-      className="relative rounded-2xl px-3 py-2 shadow-glass-sm flex items-center"
+      className="relative rounded-2xl px-3 py-2 shadow-glass-sm flex items-center bg-card/80 border border-border"
       style={{
         width: 200,
         height: 60,
-        background: 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.1)',
         transition: 'opacity 0.3s ease-out',
       }}
     >

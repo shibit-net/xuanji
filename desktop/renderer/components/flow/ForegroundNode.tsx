@@ -122,8 +122,7 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
 
       {/* 名称 */}
       <div className="mt-2 text-center max-w-[90px]">
-        <span className="text-xs font-medium truncate block"
-          style={{ color: terminal ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.8)' }}>
+        <span className={`text-xs font-medium truncate block ${terminal ? 'text-foreground/40' : 'text-foreground/80'}`}>
           {data.name}
         </span>
       </div>

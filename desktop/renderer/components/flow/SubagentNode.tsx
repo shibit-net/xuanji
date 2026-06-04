@@ -96,8 +96,7 @@ export function SubagentNode({ data, id }: NodeProps<SubagentNodeData>) {
 
       {/* 名称 */}
       <div className="mt-1 text-center max-w-[120px]">
-        <span className="text-[10px] font-medium truncate block"
-          style={{ color: terminal ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)' }}>
+        <span className={`text-[10px] font-medium truncate block ${terminal ? 'text-foreground/30' : 'text-foreground/70'}`}>
           {data.name}
         </span>
       </div>
