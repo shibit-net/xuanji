@@ -28,7 +28,7 @@ export abstract class BaseTool implements Tool {
   /** 工具自身配置（从 agent YAML tools[].config 注入） */
   toolConfig?: Record<string, unknown>;
 
-  abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
+  abstract execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
 
   /**
    * 是否为写操作（Plan Mode 中将被拦截）

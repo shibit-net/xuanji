@@ -40,7 +40,7 @@ export class PlanReviewTool extends BaseTool {
     this.permissionController = controller;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const plan = input.plan as string;
     if (!plan || typeof plan !== 'string') {
       return this.error('Missing required parameter: plan');
@@ -51,7 +51,30 @@ export class PlanReviewTool extends BaseTool {
       return this.success('[Plan Review] 无审批处理器，自动通过。请创建 todo 后使用 agent_team 或 task 执行。');
     }
 
-    const result = await this.permissionController.reviewPlan(plan);
+    if (signal?.aborted) {
+      return this.error('操作已取消');
+    }
+
+    const reviewPromise = this.permissionController.reviewPlan(plan);
+
+    if (!signal) {
+      const result = await reviewPromise;
+      return this.handleReviewResult(result);
+    }
+
+    const result = await new Promise<Awaited<typeof reviewPromise>>((resolve, reject) => {
+      const onAbort = () => reject(new DOMException('Plan review cancelled', 'AbortError'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      reviewPromise.then(
+        (r) => { signal.removeEventListener('abort', onAbort); resolve(r); },
+        (e) => { signal.removeEventListener('abort', onAbort); reject(e); },
+      );
+    });
+
+    return this.handleReviewResult(result);
+  }
+
+  private handleReviewResult(result: { decision: string; supplementText?: string }): ToolResult {
 
     switch (result.decision) {
       case 'approve':

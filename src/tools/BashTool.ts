@@ -74,7 +74,8 @@ export class BashTool extends BaseTool {
   /** 沙箱初始化 Promise（防止并发竞态） */
   private sandboxInitPromise: Promise<void> | null = null;
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
+    if (signal?.aborted) return this.error('操作已取消');
     const command = input.command as string;
     const timeout = Math.min(
       (input.timeout as number | undefined) ?? getToolTimeouts()?.bash ?? DEFAULT_TIMEOUT,

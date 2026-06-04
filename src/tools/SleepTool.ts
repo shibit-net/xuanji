@@ -35,7 +35,7 @@ export class SleepTool extends BaseTool {
   /** 只读工具，可并行 */
   readonly readonly = true;
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const raw = input.seconds as number;
 
     if (typeof raw !== 'number' || isNaN(raw) || raw <= 0) {
@@ -43,7 +43,14 @@ export class SleepTool extends BaseTool {
     }
 
     const seconds = Math.min(raw, MAX_SECONDS);
-    await sleep(seconds * 1000);
+    try {
+      await sleep(seconds * 1000, signal);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return this.error('等待已取消');
+      }
+      throw err;
+    }
 
     return this.success(`已等待 ${seconds} 秒`);
   }

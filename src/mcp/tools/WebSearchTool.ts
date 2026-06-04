@@ -92,7 +92,7 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
   /**
    * 执行搜索
    */
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const query = input.query as string;
     if (!query || typeof query !== 'string') {
       return this.error('Missing required parameter: query');
@@ -111,9 +111,9 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
       let results: SearchResult[];
 
       if (this.config.provider === 'tavily') {
-        results = await this.searchTavily(query, maxResults);
+        results = await this.searchTavily(query, maxResults, signal);
       } else {
-        results = await this.searchBrave(query, maxResults);
+        results = await this.searchBrave(query, maxResults, signal);
       }
 
       // 缓存结果
@@ -129,8 +129,10 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
   /**
    * Tavily API 搜索
    */
-  private async searchTavily(query: string, maxResults: number): Promise<SearchResult[]> {
+  private async searchTavily(query: string, maxResults: number, signal?: AbortSignal): Promise<SearchResult[]> {
     const controller = new AbortController();
+    if (signal?.aborted) { controller.abort(); }
+    signal?.addEventListener('abort', () => controller.abort(), { once: true });
     const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
@@ -172,13 +174,15 @@ Results are cached for 15 minutes to avoid redundant API calls.`;
   /**
    * Brave Search API 搜索
    */
-  private async searchBrave(query: string, maxResults: number): Promise<SearchResult[]> {
+  private async searchBrave(query: string, maxResults: number, signal?: AbortSignal): Promise<SearchResult[]> {
     const params = new URLSearchParams({
       q: query,
       count: String(maxResults),
     });
 
     const controller = new AbortController();
+    if (signal?.aborted) { controller.abort(); }
+    signal?.addEventListener('abort', () => controller.abort(), { once: true });
     const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
       method: 'GET',

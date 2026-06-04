@@ -44,7 +44,7 @@ export class WebFetchTool extends BaseTool {
   /** 只读工具 */
   override readonly readonly: boolean = true;
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const url = input.url as string;
     const prompt = input.prompt as string | undefined;
     const timeout = (input.timeout as number | undefined) ?? getToolTimeouts()?.webFetch ?? DEFAULT_FETCH_TIMEOUT;
@@ -85,6 +85,8 @@ export class WebFetchTool extends BaseTool {
       }
 
       const controller = new AbortController();
+      if (signal?.aborted) { controller.abort(); }
+      signal?.addEventListener('abort', () => controller.abort(), { once: true });
       const timer = setTimeout(() => controller.abort(), timeout);
 
       // 手动处理重定向，验证目标协议安全
