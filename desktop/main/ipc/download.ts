@@ -58,6 +58,10 @@ function setupCwdListener() {
 setTimeout(() => { setupCwdListener(); }, 5000);
 setupCwdListener();
 
+export function getAgentCwd(): string {
+  return agentCwd || path.join(os.homedir(), '.xuanji', 'workspace');
+}
+
 const MODEL_DIR = path.join(os.homedir(), '.xuanji', 'models');
 const EMBEDDING_MODEL_DIR = path.join(os.homedir(), '.xuanji', 'embedding-models');
 

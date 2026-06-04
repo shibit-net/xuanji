@@ -105,17 +105,27 @@ export interface PlatformAdapter {
 
 // ─── 配置 ──────────────────────────────────────────────────
 
+export interface GroupMember {
+  id: string;
+  name: string;
+  isBot?: boolean;
+  /** 标记哪个成员是自己 */
+  isSelf?: boolean;
+}
+
 export interface PlatformConfig {
   enabled: boolean;
   webhook_path?: string;
   channel_prompts?: Record<string, string>;
+  /** 群聊成员列表（用于多 Agent 群聊场景，让 Agent 知道群里有哪些人） */
+  group_members?: Record<string, GroupMember[]>;
 }
 
 export interface FeishuConfig extends PlatformConfig {
   app_id: string;
   app_secret: string;
-  /** 事件接收模式：webhook（需要公网IP）| websocket（长连接，无需公网IP），默认 webhook */
-  receive_mode?: 'webhook' | 'websocket';
+  /** 工作区目录路径，用于下载附件到此目录供 Agent 访问 */
+  workspacePath?: string;
 }
 
 export interface DingTalkConfig extends PlatformConfig {
@@ -160,6 +170,10 @@ export interface RemoteSession {
   sessionKey: string;
   userId: string;
   chatId: string;
+  /** 是否为群聊（前端侧边栏区分群图标） */
+  isGroup?: boolean;
+  /** 群聊时群成员数量 */
+  memberCount?: number;
 }
 
 // ─── Agent 集成 ────────────────────────────────────────────

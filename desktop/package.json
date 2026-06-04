@@ -15,10 +15,12 @@
     "build:copy-deps": "node scripts/copy-native-deps.cjs",
     "build:acp-worker": "cd .. && npx tsup --config tsup.config.acp-worker.ts",
     "build:agent-bridge": "tsup --config tsup.config.agent-bridge.ts",
-    "build": "npm run build:pre && npm_config_build_from_source=true electron-builder",
-    "build:mac": "npm run build:pre && npm_config_build_from_source=true electron-builder --mac --x64",
-    "build:mac:arm64": "npm run build:pre && npm_config_build_from_source=true electron-builder --mac --arm64",
-    "build:mac:universal": "npm run build:pre && npm_config_build_from_source=true electron-builder --mac --universal",
+    "build": "npm run build:pre && electron-builder",
+    "build:mac": "npm run build:pre && electron-builder --mac --x64 --dir && npm run build:package-x64",
+    "build:package-x64": "cd release/mac && rm -f xuanji-mac-x64.dmg xuanji-mac-x64.zip && hdiutil create -volname \"xuanji\" -srcfolder xuanji.app -ov -format UDZO xuanji-mac-x64.dmg && ditto -c -k --keepParent xuanji.app xuanji-mac-x64.zip",
+    "build:mac:arm64": "npm run build:pre && electron-builder --mac --arm64 --dir && npm run build:package-arm64",
+    "build:package-arm64": "cd release/mac-arm64 && rm -f xuanji-mac-arm64.dmg xuanji-mac-arm64.zip && hdiutil create -volname \"xuanji\" -srcfolder xuanji.app -ov -format UDZO xuanji-mac-arm64.dmg && ditto -c -k --keepParent xuanji.app xuanji-mac-arm64.zip",
+    "build:mac:universal": "npm run build:pre && electron-builder --mac --universal",
     "build:win": "npm run build:pre && npm_config_build_from_source=true electron-builder --win --x64",
     "build:all": "npm run build:pre && npm_config_build_from_source=true electron-builder --mac --win --x64",
     "postinstall": "electron-builder install-app-deps",
@@ -96,7 +98,7 @@
     "autoprefixer": "^10.4.17",
     "concurrently": "^8.2.2",
     "electron": "^41.5.0",
-    "electron-builder": "^24.9.1",
+    "electron-builder": "^26.8.1",
     "electron-rebuild": "^3.2.9",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
@@ -163,7 +165,8 @@
       ],
       "icon": "build/icon.icns",
       "artifactName": "xuanji-${os}-${arch}.${ext}",
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "x64ArchFiles": "Contents/Resources/python-runtime/**"
     },
     "win": {
       "target": [

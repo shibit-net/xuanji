@@ -8,7 +8,7 @@
  * - 消息历史   → ~/.xuanji/platform/messages/{sessionKey}.json（懒加载）
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 import type { PlatformMessage } from './types.js';
 import type { Message } from '@/session/types.js';
@@ -37,9 +37,19 @@ export function parseSessionKey(sessionKey: string): {
 
 // ─── 持久化类型 ────────────────────────────────────────────
 
+export interface MessageMeta {
+  senderName?: string;
+  senderId?: string;
+  mentions?: string[];
+  replyTo?: string;
+  replyToMsg?: string;
+}
+
 interface SessionEntry {
   chatId: string;
   lastActiveAt: number;
+  /** 群聊时从 group_members 或平台 API 获取的显示名 */
+  displayName?: string;
 }
 
 interface SessionsFile {
@@ -75,10 +85,14 @@ export class SessionRouter {
 
   // ── ChatId 管理 ──────────────────────────────────────────
 
-  registerSession(sessionKey: string, chatId: string): void {
+  registerSession(sessionKey: string, chatId: string, displayName?: string): void {
+    const existing = this.chatIdStore.get(sessionKey);
+    // 保留已有的 displayName，新传入的 undefined 不覆盖
+    const name = displayName ?? existing?.displayName;
     this.chatIdStore.set(sessionKey, {
       chatId,
       lastActiveAt: Date.now(),
+      displayName: name,
     });
     this.persistSessions();
   }
@@ -106,6 +120,59 @@ export class SessionRouter {
     return persisted;
   }
 
+  /** 获取最近几条消息（用于群聊上下文），返回携带发送者信息 */
+  loadRecentHistory(sessionKey: string, count: number): Array<Message & { meta?: MessageMeta }> {
+    const all = this.loadHistory(sessionKey);
+    if (all.length === 0) return [];
+    // 从磁盘消息中解析 meta（存储时已内嵌到 content 中）
+    return all.slice(-count).map(msg => {
+      let meta: MessageMeta | undefined;
+      if (typeof msg.content === 'string' && msg.content.startsWith('[meta]')) {
+        try {
+          const metaEnd = msg.content.indexOf('\n');
+          meta = JSON.parse(msg.content.slice(6, metaEnd));
+          return { ...msg, content: msg.content.slice(metaEnd + 1), meta };
+        } catch {}
+      }
+      return msg;
+    });
+  }
+
+  /** 带发送者/提及/回复元信息的消息存储 */
+  saveMessageWithMeta(
+    sessionKey: string,
+    role: 'user' | 'assistant',
+    content: string,
+    meta?: MessageMeta,
+  ): void {
+    const msg: Message = {
+      role,
+      content: meta ? `[meta]${JSON.stringify(meta)}\n${content}` : content,
+      timestamp: Date.now(),
+    };
+    const existing = this.messageStores.get(sessionKey) || [];
+    existing.push(msg);
+    this.messageStores.set(sessionKey, existing);
+    this.persistMessages(sessionKey);
+  }
+
+  /** 根据 messageId 查找历史消息的发送者和内容 */
+  getRepliedMessage(sessionKey: string, messageId: string): { senderName: string; content: string } | null {
+    // 群聊场景下，messageId 通常存储为 meta.replyToMsg
+    // 遍历历史找到 content 中保存的对应消息
+    const messages = this.loadRecentHistory(sessionKey, 50);
+    for (const msg of messages) {
+      const meta = (msg as any).meta as MessageMeta | undefined;
+      // 匹配 meta 中的 replyToMsg 或者直接匹配 messageId
+      if (meta?.replyToMsg === messageId) {
+        const sender = meta?.senderName || '未知用户';
+        const text = typeof msg.content === 'string' ? msg.content : '';
+        return { senderName: sender, content: text.slice(0, 200) };
+      }
+    }
+    return null;
+  }
+
   saveMessages(sessionKey: string, messages: Message[]): void {
     const existing = this.messageStores.get(sessionKey) || [];
     existing.push(...messages);
@@ -130,6 +197,7 @@ export class SessionRouter {
   removeSession(sessionKey: string): void {
     this.chatIdStore.delete(sessionKey);
     this.messageStores.delete(sessionKey);
+    this.deleteMessageFile(sessionKey);
     this.persistSessions();
   }
 
@@ -139,6 +207,7 @@ export class SessionRouter {
       if (key.startsWith(prefix)) {
         this.chatIdStore.delete(key);
         this.messageStores.delete(key);
+        this.deleteMessageFile(key);
       }
     }
     this.persistSessions();
@@ -238,6 +307,19 @@ export class SessionRouter {
       writeFileSync(filePath, JSON.stringify(trimmed, null, 2));
     } catch (err) {
       log.warn(`Failed to persist messages for ${sessionKey}: ${(err as Error).message}`);
+    }
+  }
+
+  private deleteMessageFile(sessionKey: string): void {
+    if (!this.dataDir) return;
+    try {
+      const filePath = `${this.messagesDir}/${this.sanitizeFilename(sessionKey)}.json`;
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+        log.info(`Deleted message file: ${sessionKey}`);
+      }
+    } catch (err) {
+      log.warn(`Failed to delete message file for ${sessionKey}: ${(err as Error).message}`);
     }
   }
 }

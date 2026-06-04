@@ -31,6 +31,7 @@ export type {
   Attachment,
   PlatformReply,
   PlatformAdapter,
+  GroupMember,
   PlatformConfig,
   FeishuConfig,
   DingTalkConfig,

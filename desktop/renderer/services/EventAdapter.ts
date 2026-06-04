@@ -288,7 +288,9 @@ export function registerEventAdapter(): void {
     const sessionKey = data?.sessionKey;
     // 远端会话：更新 ConversationHub
     if (sessionKey && sessionKey !== 'local') {
-      useConversationHub.getState().onAgentCompleted(sessionKey);
+      const hub = useConversationHub.getState();
+      hub.finishStreaming(sessionKey);
+      hub.onAgentCompleted(sessionKey);
       useSessionStore.getState().addLog('info', '✅ Agent 处理完成 (远端)');
       return;
     }

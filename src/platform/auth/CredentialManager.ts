@@ -76,7 +76,16 @@ export class CredentialManager extends EventEmitter {
 
   async getToken(platform: string): Promise<string> {
     const entry = this.tokens.get(platform);
-    if (!entry) throw new Error(`No token for platform: ${platform}`);
+    if (!entry) {
+      // 首次获取：通过 refresher 拉取 token
+      if (this.refreshers.has(platform)) {
+        log.info(`No cached token for ${platform}, acquiring via refresher...`);
+        await this.refreshToken(platform);
+        const newEntry = this.tokens.get(platform);
+        if (newEntry) return newEntry.token;
+      }
+      throw new Error(`No token for platform: ${platform}`);
+    }
 
     // 过期前 5 分钟刷新
     if (Date.now() + 300_000 > entry.expiresAt) {

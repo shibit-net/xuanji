@@ -2,6 +2,9 @@
  * AgentGatewayImpl — PlatformRouter ↔ AgentLoop 集成桥接
  *
  * 设计文档：docs/platform-integration-design.md §11.2
+ *
+ * v2 — 群聊上下文增强：注入群成员列表、发送者、@ 信息、回复关系
+ *       历史消息带上发送者身份，支持 [回复:msgId] 语法
  */
 
 import path from 'path';
@@ -9,7 +12,8 @@ import fs from 'fs';
 import os from 'os';
 import type { AgentLoop, AgentCallbacks } from '@/agent/AgentLoop.js';
 import type { AgentGateway, AgentReply, PlatformMessage, Attachment } from './types.js';
-import type { SessionRouter } from './SessionRouter.js';
+import type { GroupMember } from './types.js';
+import type { SessionRouter, MessageMeta } from './SessionRouter.js';
 import type { MemoryManager } from '@/memory/MemoryManager.js';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
@@ -21,11 +25,43 @@ export class AgentGatewayImpl implements AgentGateway {
   /** 多 Worker 协调：防止多个 worker 同时调用 agentLoop.run() */
   private agentBusy = false;
 
+  /** 群成员配置：chatId → GroupMember[] */
+  private groupMembers = new Map<string, GroupMember[]>();
+
+  /** 当前实例的 bot 显示名（群聊中自己叫什么） */
+  private botDisplayName = '';
+
+  /** 当前实例的 bot ID */
+  private botId = '';
+
   constructor(
     private agentLoop: AgentLoop,
     private sessionRouter: SessionRouter,
     private memoryManager?: MemoryManager,
   ) {}
+
+  /** 设置群聊成员列表 */
+  setGroupMembers(chatId: string, members: GroupMember[]): void {
+    this.groupMembers.set(chatId, members);
+    // 找到自己的身份
+    for (const m of members) {
+      if (m.isSelf) {
+        this.botDisplayName = m.name;
+        this.botId = m.id;
+        break;
+      }
+    }
+  }
+
+  /** 根据 userId 查找群成员显示名 */
+  getMemberName(chatId: string, userId: string): string | undefined {
+    const members = this.groupMembers.get(chatId);
+    if (!members) return undefined;
+    for (const m of members) {
+      if (m.id === userId) return m.name;
+    }
+    return undefined;
+  }
 
   async process(
     msg: PlatformMessage,
@@ -50,21 +86,19 @@ export class AgentGatewayImpl implements AgentGateway {
     const sessionKey = options?.sessionKey || msg.sessionKey;
     const channelPrompt = options?.channelPrompt || msg.channelPrompt;
 
-    // 1. 构建增强的 user message
+    // 1. 构建带群聊上下文的 user message
     const enhancedMessage = this.buildUserMessage(msg, channelPrompt);
 
-    // 2. 加载历史消息（用于多轮对话上下文）
-    const historyMessages = this.sessionRouter.loadHistory(sessionKey);
+    // 2. 加载带发送者信息的历史消息
+    const recentHistory = this.sessionRouter.loadRecentHistory(sessionKey, 10);
 
-    // 3. 设置历史消息到 AgentLoop（如果有 restore 能力）
-    const fullMessage = this.buildFullMessage(enhancedMessage, historyMessages);
+    // 3. 组装完整消息（历史 + 当前消息）
+    const fullMessage = this.buildFullMessage(enhancedMessage, recentHistory);
 
     // 4. 记忆上下文（按 userId 查询跨平台共享记忆）
     const memoryContext = await this.loadMemoryContext(msg);
 
-    // 5. 注入渠道标识到 system prompt
-    // channelPrompt 已通过 buildUserMessage 注入 user message 尾部
-    // 这里再在 system prompt 补充简短渠道上下文
+    // 5. 注入渠道标识 + 群聊回复说明到 system prompt
     const platformLabels: Record<string, string> = {
       wechat: 'WeChat',
       feishu: 'Feishu',
@@ -72,8 +106,24 @@ export class AgentGatewayImpl implements AgentGateway {
       wecom: 'WeCom',
     };
     const label = platformLabels[msg.platform] || msg.platform;
+
+    let systemPromptAddon = `\n[Channel: ${label}] You are responding through ${label}.`;
+
+    // 群聊场景注入回复语法说明
+    if (msg.chatType === 'group') {
+      const selfName = this.botDisplayName || msg.userName || '你自己';
+      systemPromptAddon += `\n\
+群聊回复说明：
+- 群聊中每条消息前会标注 [发送者名字]
+- 如果消息包含 @某人，会标注 [@了: 名单]
+- 如果消息是对另一条消息的回复，会标注 [回复了 X 的消息: "内容"]
+- 你回复时如果想引用某条消息，用 [回复:消息ID] 开头
+- 例如： [回复:msg_xxx] 我同意你的观点...
+- 当前群聊中你的名字是：${selfName}`;
+    }
+
     this.agentLoop.getContextManager().setSystemPromptSuffix(
-      `\n[Channel: ${label}] You are responding through ${label}.`,
+      systemPromptAddon,
       'channel-info',
     );
 
@@ -94,13 +144,20 @@ export class AgentGatewayImpl implements AgentGateway {
       // 7. 调用 AgentLoop（通过回调收集输出）
       const response = await this.runAgentLoop(fullMessage, mediaBlocks.imageBlocks, mediaBlocks.audioBlocks, mediaBlocks.videoBlocks);
 
-      // 7. 保存消息到历史
-      this.sessionRouter.saveMessages(sessionKey, [
-        { role: 'user', content: msg.text, timestamp: Date.now() },
-        { role: 'assistant', content: response.text, timestamp: Date.now() },
-      ]);
+      // 8. 解析 Agent 输出中的 [回复:msgId] 语法
+      const parsed = this.parseAgentResponse(response.text);
 
-      return response;
+      // 9. 保存消息到历史（带发送者/@/回复元信息）
+      this.sessionRouter.saveMessageWithMeta(sessionKey, 'user', msg.text, {
+        senderName: msg.userName || msg.userId,
+        senderId: msg.userId,
+        mentions: msg.mentions,
+        replyTo: msg.replyTo,
+        replyToMsg: msg.id,
+      });
+      this.sessionRouter.saveMessageWithMeta(sessionKey, 'assistant', parsed.text);
+
+      return { ...response, text: parsed.text };
     } finally {
       this.agentLoop.setSessionKey(null);
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
@@ -126,7 +183,7 @@ export class AgentGatewayImpl implements AgentGateway {
       const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.flac', '.wma', '.m4a', '.opus']);
       const VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv', '.m4v']);
 
-      // 通过 EventBus 监听文件变更（比 onFileChanges 回调更可靠）
+      // 通过 EventBus 监听文件变更
       const onFileChange = (payload: { changes: Array<{ filePath: string }>; sessionKey?: string }) => {
         if (!payload?.changes?.length) return;
         for (const change of payload.changes) {
@@ -177,16 +234,48 @@ export class AgentGatewayImpl implements AgentGateway {
   private buildUserMessage(msg: PlatformMessage, channelPrompt?: string): string {
     const parts: string[] = [];
 
-    // Channel prompt（平台能力说明，放在最前面确保 agent 看到）
+    // Channel prompt（平台能力说明）
     if (channelPrompt) {
       parts.push(channelPrompt);
     }
 
-    // 平台上下文
-    parts.push(`[${msg.platform} ${msg.chatType === 'group' ? '群聊' : '私聊'}]`);
+    // === 群聊上下文头部（仅对群聊消息）===
+    if (msg.chatType === 'group') {
+      parts.push('');
+      parts.push('=== 群聊信息 ===');
+      const selfName = this.botDisplayName || '未知';
+      parts.push(`你的群昵称: ${selfName}`);
+      parts.push('');
 
-    if (msg.userName) {
-      parts.push(`[发送者: ${msg.userName}]`);
+      const members = this.getGroupMembers(msg.chatId);
+      if (members.length > 0) {
+        parts.push('群成员:');
+        for (const m of members) {
+          const selfTag = m.isSelf ? ' ← 这是你自己' : '';
+          const botTag = m.isBot ? ' [Bot]' : '';
+          parts.push(`  - ${m.name} (${m.id})${botTag}${selfTag}`);
+        }
+        parts.push('');
+      }
+
+      parts.push('=== 当前消息 ===');
+    }
+
+    // 发送者信息
+    const senderLabel = msg.userName || msg.userId;
+    parts.push(`[${senderLabel}]`);
+
+    // @ 提及
+    if (msg.mentions?.length) {
+      parts.push(`[@了: ${msg.mentions.join(', ')}]`);
+    }
+
+    // 回复关系：如果这条消息是对某条消息的回复
+    if (msg.replyTo && msg.chatType === 'group') {
+      const repliedMsg = this.sessionRouter.getRepliedMessage(msg.sessionKey, msg.replyTo);
+      if (repliedMsg) {
+        parts.push(`[回复了 ${repliedMsg.senderName} 的消息: "${repliedMsg.content}"]`);
+      }
     }
 
     parts.push(msg.text);
@@ -197,6 +286,18 @@ export class AgentGatewayImpl implements AgentGateway {
     }
 
     return parts.join('\n');
+  }
+
+  /** 从 Agent 输出中解析 [回复:msgId] 语法 */
+  private parseAgentResponse(rawText: string): { text: string; replyTo?: string } {
+    const replyMatch = rawText.match(/^\[回复:([^\]]+)\]/);
+    if (replyMatch) {
+      return {
+        text: rawText.slice(replyMatch[0].length).trim(),
+        replyTo: replyMatch[1],
+      };
+    }
+    return { text: rawText };
   }
 
   private buildAttachmentAnnotation(attachments: Attachment[]): string {
@@ -210,6 +311,47 @@ export class AgentGatewayImpl implements AgentGateway {
       }
     });
     return `\n\n${lines.join('\n')}`;
+  }
+
+  /**
+   * 构建完整的 Agent 输入消息（历史 + 当前消息）
+   * 历史消息携带发送者信息，群聊场景尤为关键
+   */
+  private buildFullMessage(
+    userMessage: string,
+    recentHistory: Array<{ role: string; content: string | any; meta?: MessageMeta }>,
+  ): string {
+    if (!recentHistory.length) return userMessage;
+
+    const historyLines = recentHistory.map(m => {
+      const meta = m.meta;
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+
+      if (m.role === 'user') {
+        const sender = meta?.senderName || '未知用户';
+        const atInfo = meta?.mentions?.length ? ` @${meta.mentions.join(',')}` : '';
+        const replyInfo = meta?.replyTo ? ` [回复了一条消息]` : '';
+        return `[${sender}]${atInfo}${replyInfo}: ${content}`;
+      }
+
+      // assistant 消息
+      const selfName = this.botDisplayName || '你自己';
+      return `[${selfName}]: ${content}`;
+    });
+
+    return [
+      '=== 最近对话记录 ===',
+      ...historyLines.slice(-8), // 最多显示 8 条历史
+      '',
+      '=== 当前消息 ===',
+      userMessage,
+    ].join('\n');
+  }
+
+  // ── 群成员管理 ────────────────────────────────────────────
+
+  private getGroupMembers(chatId: string): GroupMember[] {
+    return this.groupMembers.get(chatId) || [];
   }
 
   // ── 附件下载 & 多模态转换 ──────────────────────────────────
@@ -285,22 +427,6 @@ export class AgentGatewayImpl implements AgentGateway {
       webm: 'video/webm',
     };
     return mimeMap[ext] || 'application/octet-stream';
-  }
-
-  private buildFullMessage(userMessage: string, history: Array<{ role: string; content: string | any }>): string {
-    if (!history.length) return userMessage;
-
-    // 取最近 3 轮作为上下文
-    const recentHistory = history.slice(-6);
-    const historyText = recentHistory
-      .map(m => {
-        const role = m.role === 'user' ? '用户' : 'Agent';
-        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return `${role}: ${content}`;
-      })
-      .join('\n');
-
-    return `## 最近对话历史\n${historyText}\n\n## 当前消息\n${userMessage}`;
   }
 
   // ── 记忆查询 ──────────────────────────────────────────────

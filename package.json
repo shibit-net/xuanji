@@ -11,7 +11,7 @@
     "build:gui": "cd desktop && npm run build:pre && electron-builder",
     "build:gui:mac": "cd desktop && npm_config_build_from_source=true npm run build:pre && npm_config_build_from_source=true electron-builder --mac --x64",
     "build:gui:mac:arm64": "cd desktop && npm_config_build_from_source=true npm run build:pre && npm_config_build_from_source=true electron-builder --mac --arm64",
-    "build:gui:mac:universal": "cd desktop && npm_config_build_from_source=true npm run build:pre && npm_config_build_from_source=true electron-builder --mac --universal",
+    "build:gui:mac:universal": "cd desktop && npm run build:pre && electron-builder --mac --universal",
     "build:gui:win": "cd desktop && npm run build:pre && electron-builder --win --x64",
     "build:gui:all": "cd desktop && npm run build:pre && electron-builder --mac --win --x64",
     "build:watch": "npm run build:src -- --watch",

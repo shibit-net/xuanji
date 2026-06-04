@@ -117,6 +117,18 @@ export class PersistentMessageQueue {
     `).run(cutoff);
     return result.changes;
   }
+
+  /** 删除指定平台的所有队列消息（停用平台时调用） */
+  deleteByPlatform(platform: string): number {
+    const result = this.db.prepare(`
+      DELETE FROM platform_message_queue
+      WHERE platform = ?
+    `).run(platform);
+    if (result.changes > 0) {
+      log.info(`Deleted ${result.changes} queue messages for platform: ${platform}`);
+    }
+    return result.changes;
+  }
 }
 
 // ─── Worker Pool ──────────────────────────────────────────

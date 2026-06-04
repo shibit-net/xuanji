@@ -5,8 +5,10 @@
  */
 
 import { ipcMain, BrowserWindow } from 'electron';
+import { readFileSync, existsSync, unlinkSync } from 'fs';
 import { logger } from '../../../src/infrastructure/logger/index.js';
 import { enhancedMessageBus } from './GlobalMessageBus.js';
+import { getAgentCwd } from './download.js';
 
 const log = logger.child({ module: 'PlatformIPC' });
 
@@ -21,21 +23,55 @@ let messageHandlerRegistered = false;
 /** 将平台消息转发到 agent-bridge 子进程进行自动处理 */
 function forwardToAgentBridge(msg: any): void {
   const agentChannel = enhancedMessageBus.getChannel('agent');
-  log.debug(`[DIAG] forwardToAgentBridge: channel=${!!agentChannel} connected=${agentChannel?.isConnected()}`);
   if (agentChannel && agentChannel.isConnected()) {
+    // 收集附件中的本地文件路径，agent-bridge 可以注入到 prompt 让 LLM 自行读取
+    const localFiles: string[] = [];
+    const attachments = (msg.attachments || []) as Array<{ type: string; localPath?: string }>;
+    for (const att of attachments) {
+      if (att.localPath) {
+        localFiles.push(att.localPath);
+      }
+    }
+
+    // 构建增强的文本：注入群聊上下文和发送者信息
+    let enhancedText = '';
+    // 先尝试从配置中查找群成员显示名
+    let displayName = msg.userName;
+    if (!displayName && platformRouter && msg.userId) {
+      const routerName = platformRouter.getMemberName?.(msg.chatId, msg.userId);
+      if (routerName) displayName = routerName;
+    }
+    const senderName = displayName || (msg.chatType === 'group' ? `用户(${msg.userId?.slice(-6) || '未知'})` : '你');
+    if (msg.chatType === 'group') {
+      const groupName = msg.raw?.chatName || msg.chatId || '群聊';
+      enhancedText = `[群: ${groupName}]\n[${senderName}]: `;
+    } else {
+      enhancedText = `[${senderName}]: `;
+    }
+    enhancedText += msg.text;
+
+    // 清理飞书 SDK 自动生成的 @ 标记（@_user_X），去掉它们
+    enhancedText = enhancedText.replace(/@_user_\d+/g, '').trim();
+
+    if (localFiles.length > 0) {
+      enhancedText += `\n\n[附件已下载到本地，你可以用文件工具查看：\n${localFiles.map(p => `  file://${p}`).join('\n')}]`;
+    }
+
     agentChannel.send('platform:message', {
       id: msg.id,
       sessionKey: msg.sessionKey,
       platform: msg.platform,
-      text: msg.text,
+      text: enhancedText,
       userId: msg.userId,
+      userName: msg.userName,
       chatId: msg.chatId,
       chatType: msg.chatType,
       channelPrompt: msg.channelPrompt,
+      mentions: msg.mentions,
+      replyTo: msg.replyTo,
+      attachments: msg.attachments,
     });
-    log.debug(`[DIAG] Forwarded platform message to agent-bridge: ${msg.id} platform=${msg.platform} text="${(msg.text || '').slice(0, 50)}"`);
   } else {
-    log.warn(`[DIAG] Cannot forward platform message: channel not ready`);
   }
 }
 
@@ -45,32 +81,28 @@ async function handleAgentBridgeReply(data: {
   platform: string;
   chatId: string;
   text: string;
+  replyTo?: string;
   imagePaths?: string[];
   audioPaths?: string[];
   videoPaths?: string[];
   filePaths?: string[];
 }): Promise<void> {
   try {
-    log.debug(`[DIAG] handleAgentBridgeReply: platformRouter=${!!platformRouter} platform=${data.platform} chatId=${data.chatId} text="${(data.text || '').slice(0, 50)}" images=${data.imagePaths?.length || 0} audios=${data.audioPaths?.length || 0} videos=${data.videoPaths?.length || 0} files=${data.filePaths?.length || 0}`);
     if (!platformRouter) {
-      log.warn(`[DIAG] handleAgentBridgeReply: platformRouter is null, skipping reply`);
       return;
     }
     const adapter = platformRouter.getAdapter(data.platform);
     if (!adapter) {
-      log.warn(`[DIAG] handleAgentBridgeReply: No adapter for reply: ${data.platform}`);
       return;
     }
-    await adapter.sendText({ chatId: data.chatId, text: data.text });
+    const result = await adapter.sendText({ chatId: data.chatId, text: data.text, replyTo: data.replyTo });
 
     // 发送 agent 生成的图片
     if (data.imagePaths?.length && typeof adapter.sendImage === 'function') {
       for (const imagePath of data.imagePaths) {
         try {
-          await adapter.sendImage({ chatId: data.chatId, imagePath, replyTo: undefined });
-          log.debug(`[DIAG] Agent image sent to ${data.platform}/${data.chatId}: ${imagePath}`);
+          await adapter.sendImage({ chatId: data.chatId, imagePath, replyTo: data.replyTo });
         } catch (imgErr) {
-          log.error(`[DIAG] Failed to send image to ${data.platform}: ${(imgErr as Error).message}`);
         }
       }
     }
@@ -81,13 +113,10 @@ async function handleAgentBridgeReply(data: {
         try {
           if (typeof adapter.sendVoice === 'function') {
             await adapter.sendVoice({ chatId: data.chatId, voicePath: audioPath, replyTo: undefined });
-            log.debug(`[DIAG] Agent voice sent to ${data.platform}/${data.chatId}: ${audioPath}`);
           } else if (typeof adapter.sendFile === 'function') {
             await adapter.sendFile({ chatId: data.chatId, filePath: audioPath, replyTo: undefined });
-            log.debug(`[DIAG] Agent audio sent to ${data.platform}/${data.chatId} (via sendFile): ${audioPath}`);
           }
         } catch (voiceErr) {
-          log.error(`[DIAG] Failed to send audio to ${data.platform}: ${(voiceErr as Error).message}`);
         }
       }
     }
@@ -97,9 +126,7 @@ async function handleAgentBridgeReply(data: {
       for (const videoPath of data.videoPaths) {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath: videoPath, replyTo: undefined });
-          log.debug(`[DIAG] Agent video sent to ${data.platform}/${data.chatId}: ${videoPath}`);
         } catch (fileErr) {
-          log.error(`[DIAG] Failed to send video to ${data.platform}: ${(fileErr as Error).message}`);
         }
       }
     }
@@ -109,9 +136,7 @@ async function handleAgentBridgeReply(data: {
       for (const filePath of data.filePaths) {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath, replyTo: undefined });
-          log.debug(`[DIAG] Agent file sent to ${data.platform}/${data.chatId}: ${filePath}`);
         } catch (fileErr) {
-          log.error(`[DIAG] Failed to send file to ${data.platform}: ${(fileErr as Error).message}`);
         }
       }
     }
@@ -123,10 +148,24 @@ async function handleAgentBridgeReply(data: {
       role: 'agent',
       timestamp: Date.now(),
     });
-    log.debug(`[DIAG] Agent reply sent to ${data.platform}/${data.chatId}`);
   } catch (err) {
-    log.error(`[DIAG] Failed to send agent reply: ${(err as Error).message}`);
+    log.error(`Failed to send agent reply: ${(err as Error).message}`);
   }
+}
+
+/** 飞书连接成功后广播占位会话，侧边栏立即显示 */
+function emitFeishuPlaceholder(router: any): void {
+  const adapter = router?.getAdapter?.('feishu');
+  if (!adapter?.wsStarted) return;
+  broadcastToAll('platform:session-updated', {
+    sessionKey: 'feishu:private:__placeholder__',
+    platform: 'feishu',
+    chatId: '__feishu_placeholder__',
+    userId: '',
+    userName: '飞书已连接',
+    chatType: 'private',
+    status: 'online',
+  });
 }
 
 /** 初始化 platform ↔ agent-bridge 通信 */
@@ -196,6 +235,47 @@ async function savePlatformConfig(dataDir: string, platform: string, config: Rec
   }
 }
 
+/** 从平台配置中删除指定平台条目 */
+async function deletePlatformConfig(dataDir: string, platform: string): Promise<void> {
+  const { existsSync: ex, readFileSync: rd, writeFileSync: wr } = await import('fs');
+  const configsPath = `${dataDir}/platform-configs.json`;
+  try {
+    if (!ex(configsPath)) return;
+    let configs: Record<string, any> = JSON.parse(rd(configsPath, 'utf-8'));
+    if (configs[platform]) {
+      delete configs[platform];
+      wr(configsPath, JSON.stringify(configs, null, 2));
+      log.info(`Platform config removed: ${platform}`);
+    }
+  } catch (err) {
+    log.warn(`Failed to delete platform config for ${platform}: ${(err as Error).message}`);
+  }
+}
+
+/** 清理指定平台所有会话的备注名 */
+async function cleanSessionNamesForPlatform(dataDir: string, platform: string): Promise<void> {
+  const { existsSync: ex, readFileSync: rd, writeFileSync: wr } = await import('fs');
+  const namesPath = `${dataDir}/session-names.json`;
+  try {
+    if (!ex(namesPath)) return;
+    const names: Record<string, string> = JSON.parse(rd(namesPath, 'utf-8'));
+    const prefix = `${platform}:`;
+    let changed = false;
+    for (const key of Object.keys(names)) {
+      if (key.startsWith(prefix)) {
+        delete names[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      wr(namesPath, JSON.stringify(names, null, 2));
+      log.info(`Session names cleaned for platform: ${platform}`);
+    }
+  } catch (err) {
+    log.warn(`Failed to clean session names for ${platform}: ${(err as Error).message}`);
+  }
+}
+
 /** 保存会话备注名到磁盘 */
 async function saveSessionNames(dataDir: string, updates: Record<string, string>): Promise<void> {
   const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('fs');
@@ -247,7 +327,7 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
       const tokenInfo = JSON.parse(raw);
       if (tokenInfo.token && tokenInfo.baseUrl) {
         const { WechatAdapter } = await import('../../../src/platform/adapters/WechatAdapter.js');
-        const config = { token_path: wechatTokenPath, base_url: tokenInfo.baseUrl, poll_interval_ms: 35000 };
+        const config = { token_path: wechatTokenPath, base_url: tokenInfo.baseUrl, poll_interval_ms: 3000 };
         const adapter = new WechatAdapter(config, router.credentials);
         adapter.setToken(tokenInfo);
         router.registerAdapter(adapter);
@@ -278,8 +358,8 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
         switch (platform) {
           case 'feishu': {
             const { FeishuAdapter } = await import('../../../src/platform/adapters/FeishuAdapter.js');
+            adapterConfig.workspacePath = getAgentCwd();
             adapter = new FeishuAdapter(adapterConfig, router.credentials);
-            webhookNeeded = true;
             break;
           }
           case 'dingtalk': {
@@ -313,6 +393,11 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
 
         await adapter.start();
         log.info(`${platform} connection restored`);
+
+        // 飞书连接恢复后广播占位会话
+        if (platform === 'feishu') {
+          emitFeishuPlaceholder(router);
+        }
       } catch (err) {
         log.warn(`Failed to restore ${platform} connection: ${(err as Error).message}`);
       }
@@ -364,6 +449,8 @@ function ensureMessageHandler(router: any): void {
       role: 'user',
       timestamp: Date.now(),
       userName: msg.userName,
+      chatName: msg.raw?.chatName,
+      chatType: msg.chatType,
       eventType: msg.eventType || 'message',
       readReceipt: msg.readReceipt,
       recallMessageId: msg.recallMessageId,
@@ -375,6 +462,8 @@ function ensureMessageHandler(router: any): void {
       chatId: msg.chatId,
       userId: msg.userId,
       userName: msg.userName,
+      chatName: msg.raw?.chatName,
+      chatType: msg.chatType,
       status: 'online',
     });
     forwardToAgentBridge({ ...msg, sessionKey });
@@ -403,6 +492,9 @@ export function registerPlatformIpcHandlers(): void {
       await router.start();
       platformReady = true;
 
+      // 飞书连接成功后广播占位会话，侧边栏立即显示"飞书已连接"
+      emitFeishuPlaceholder(router);
+
       // 持久化平台配置，确保重启后自动恢复连接
       const { getAuthState } = await import('../config/auth.js');
       const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
@@ -427,18 +519,31 @@ export function registerPlatformIpcHandlers(): void {
   // ── 平台停用 ─────────────────────────────────────────────
   ipcMain.handle('platform:disable', async (_event, platform: string) => {
     try {
-      if (platformRouter) {
-        await platformRouter.disablePlatform(platform);
-        platformRouter.removeAdapter(platform);
-        platformRouter.sessionRouter.removeSessionsByPlatform(platform);
-      }
-
-      // 清理已保存的平台配置，防止重启后意外恢复
       const { getAuthState } = await import('../config/auth.js');
       const { getUserPlatformDir } = await import('../../../src/infrastructure/config/PathManager.js');
       const uid = getAuthState().user?.userId || 'default';
       const dataDir = getUserPlatformDir(uid);
-      await savePlatformConfig(dataDir, platform, { _disabled: true });
+
+      if (platformRouter) {
+        await platformRouter.disablePlatform(platform);
+        platformRouter.removeAdapter(platform);
+        platformRouter.cleanupPlatformData(platform);
+      }
+
+      // 4. 删除平台配置文件（token/credential）
+      const tokenFiles: Record<string, string> = {
+        wechat: `${dataDir}/wechat-token.json`,
+      };
+      if (tokenFiles[platform] && existsSync(tokenFiles[platform])) {
+        unlinkSync(tokenFiles[platform]);
+        log.info(`Deleted token file: ${tokenFiles[platform]}`);
+      }
+
+      // 5. 从 platform-configs.json 中移除该平台条目
+      await deletePlatformConfig(dataDir, platform);
+
+      // 6. 清理该平台所有会话的备注名
+      await cleanSessionNamesForPlatform(dataDir, platform);
 
       return { success: true };
     } catch (err) {
@@ -643,6 +748,7 @@ async function createAndRegisterAdapter(
     }
     case 'feishu': {
       const { FeishuAdapter } = await import('../../../src/platform/adapters/FeishuAdapter.js');
+      config.workspacePath = getAgentCwd();
       adapter = new FeishuAdapter(config, credentials);
       break;
     }

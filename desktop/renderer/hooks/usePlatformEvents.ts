@@ -5,6 +5,45 @@
 import { useEffect } from 'react';
 import { usePlatformStore } from '../stores/platformStore';
 
+/**
+ * 自动更新会话显示名。
+ * 优先级：备注名（session-names.json）> 飞书官方 API 数据 > chatId
+ *
+ * - P2P：使用飞书 Contact API 返回的用户名覆盖 chatId
+ * - 群聊：使用飞书 SDK 事件中的群名覆盖 chatId
+ * - 备注名存在时不自动更新（用户手动设置的优先）
+ */
+async function autoUpdateSessionName(
+  sessionKey: string,
+  chatType: string | undefined,
+  userName: string | undefined,
+  chatName: string | undefined,
+): Promise<void> {
+  const store = usePlatformStore.getState();
+  const session = store.sessions.find((s) => s.sessionKey === sessionKey);
+  if (!session) return;
+
+  // 检查是否有备注名
+  let hasCustomName = false;
+  try {
+    const namesResult = await window.electron.platformLoadSessionNames();
+    if (namesResult.success && namesResult.names) {
+      hasCustomName = !!namesResult.names[session.id];
+    }
+  } catch { /* 忽略查询失败 */ }
+
+  // 备注名优先级最高，存在时不自动覆盖
+  if (hasCustomName) return;
+
+  const newName = chatType === 'group'
+    ? (chatName || undefined)
+    : (userName || undefined);
+
+  if (newName && session.name !== newName) {
+    store.updateSessionName(session.id, newName);
+  }
+}
+
 export function usePlatformEvents() {
   // 挂载时从主进程恢复平台会话状态 + 已保存的备注名
   useEffect(() => {
@@ -41,6 +80,8 @@ export function usePlatformEvents() {
       role: string;
       timestamp: number;
       userName?: string;
+      chatName?: string;
+      chatType?: string;
       eventType?: string;
       readReceipt?: { messageId: string; userId: string; readTime: number };
       recallMessageId?: string;
@@ -74,14 +115,8 @@ export function usePlatformEvents() {
         userName: data.userName,
       });
 
-      // 如果有 userName，同步更新 session 名称
-      if (data.userName) {
-        const store = usePlatformStore.getState();
-        const session = store.sessions.find((s) => s.sessionKey === data.sessionKey);
-        if (session && (!session.name || session.name === session.chatId)) {
-          store.updateSessionName(session.id, data.userName);
-        }
-      }
+      // 自动更新会话显示名：P2P 用用户名，群聊用群名（备注名优先，不受影响）
+      autoUpdateSessionName(data.sessionKey, data.chatType, data.userName, data.chatName);
     };
 
     const handleMessageSent = (data: {
@@ -107,12 +142,41 @@ export function usePlatformEvents() {
       chatId?: string;
       userId?: string;
       userName?: string;
+      chatName?: string;
+      chatType?: string;
       status: string;
     }) => {
       const store = usePlatformStore.getState();
+
+      // 飞书占位会话：连接成功后侧边栏立即显示"飞书已连接"
+      if (data.chatId === '__feishu_placeholder__') {
+        const placeholderId = 'feishu:private:__placeholder__';
+        if (!store.sessions.some((s) => s.id === placeholderId)) {
+          store.addSession({
+            id: placeholderId,
+            platform: 'feishu',
+            name: '飞书已连接',
+            status: 'online',
+            unreadCount: 0,
+            sessionKey: placeholderId,
+            userId: '',
+            chatId: '__feishu_placeholder__',
+          });
+        }
+        return;
+      }
+
+      // 收到真实飞书会话时，移除占位
+      if (data.platform === 'feishu' && data.sessionKey !== 'feishu:private:__placeholder__') {
+        const placeholderId = 'feishu:private:__placeholder__';
+        if (store.sessions.some((s) => s.id === placeholderId)) {
+          store.removeSession(placeholderId);
+        }
+      }
+
       const exists = store.sessions.some((s) => s.id === data.sessionKey);
       if (!exists && data.chatId) {
-        // 查询已保存的备注名
+        // 查询已保存的备注名（最高优先级）
         let savedName: string | undefined;
         try {
           const namesResult = await window.electron.platformLoadSessionNames();
@@ -120,7 +184,11 @@ export function usePlatformEvents() {
             savedName = namesResult.names[data.sessionKey];
           }
         } catch { /* 忽略查询失败 */ }
-        const displayName = savedName || data.userName || data.chatId;
+        // 优先级：备注名 > 飞书用户名(P2P) / 群名(group) > chatId
+        const autoName = data.chatType === 'group'
+          ? (data.chatName || data.chatId)
+          : (data.userName || data.chatId);
+        const displayName = savedName || autoName;
         console.log('[PlatformEvent] Creating new session:', data.sessionKey, 'name:', displayName);
         store.addSession({
           id: data.sessionKey,

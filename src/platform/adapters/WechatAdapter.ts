@@ -272,7 +272,7 @@ export class WechatAdapter implements PlatformAdapter {
   async stop(): Promise<void> {
     this.running = false;
     if (this.pollTimer) {
-      clearInterval(this.pollTimer);
+      clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.credentials.clearToken('wechat');
@@ -287,16 +287,24 @@ export class WechatAdapter implements PlatformAdapter {
   // ── 长轮询 ───────────────────────────────────────────────
 
   private startPolling(): void {
+    // 使用递归 setTimeout 替代 setInterval，
+    // 确保每次轮询完成后才开始计时，避免并发轮询导致消息重复
     const interval = this.config.poll_interval_ms || 35000;
-    this.pollTimer = setInterval(() => {
-      this.pollOnce().catch((err) => {
-        log.error(`Wechat poll error: ${err.message}`);
-        this.handlePollError(err);
-      });
-    }, interval);
+    const loop = async () => {
+      if (!this.running) return;
+      try {
+        await this.pollOnce();
+      } catch (err) {
+        log.error(`Wechat poll error: ${(err as Error).message}`);
+        this.handlePollError(err as Error);
+      }
+      if (this.running) {
+        this.pollTimer = setTimeout(loop, interval);
+      }
+    };
 
     // 立即执行第一次轮询
-    this.pollOnce().catch(() => {});
+    loop();
   }
 
   private async pollOnce(): Promise<void> {
@@ -341,7 +349,14 @@ export class WechatAdapter implements PlatformAdapter {
     }
 
     this.lastActivity = Date.now();
-    this.getUpdatesBuf = data.get_updates_buf || '';
+    // 使用 ?? 而非 ||，避免 falsy 值（null/undefined）意外清空游标
+    const prevBuf = this.getUpdatesBuf;
+    this.getUpdatesBuf = data.get_updates_buf ?? prevBuf;
+    if (this.getUpdatesBuf !== prevBuf) {
+      log.debug(`Wechat cursor advanced: ${prevBuf.slice(0, 30)} → ${this.getUpdatesBuf.slice(0, 30)}`);
+    } else {
+      log.warn(`Wechat cursor NOT advanced (buf unchanged), msgCount=${data.msgs?.length || 0}`);
+    }
 
     // 处理消息
     for (const raw of data.msgs || []) {

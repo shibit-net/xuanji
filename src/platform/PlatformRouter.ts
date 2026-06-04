@@ -15,7 +15,7 @@ import type { RemoteSession } from './types.js';
 import { PersistentMessageQueue, AgentWorkerPool } from './MessageQueue.js';
 import type { WorkerReplyHandler } from './MessageQueue.js';
 import type { AgentGateway } from './types.js';
-import { SessionRouter, buildSessionKey } from './SessionRouter.js';
+import { SessionRouter, buildSessionKey, parseSessionKey } from './SessionRouter.js';
 import { CredentialManager } from './auth/CredentialManager.js';
 import { PlatformCircuitBreaker } from './PlatformCircuitBreaker.js';
 import { logger } from '@/infrastructure/logger';
@@ -35,6 +35,9 @@ export class PlatformRouter implements WorkerReplyHandler {
   private agent: AgentGateway | null = null;
 
   private channelPrompts = new Map<string, Map<string, string>>();
+
+  /** 群聊显示名缓存：platform → chatId → displayName */
+  private groupDisplayNames = new Map<string, Map<string, string>>();
 
   constructor(db?: Database, dataDir?: string) {
     this.sessionRouter = new SessionRouter(dataDir);
@@ -60,9 +63,9 @@ export class PlatformRouter implements WorkerReplyHandler {
   }
 
   /** 预注册远端会话（扫码连接成功后调用，确保侧边栏立即可见） */
-  registerSession(platform: RemoteSession['platform'], chatId: string, chatType: 'private' | 'group' = 'private'): void {
+  registerSession(platform: RemoteSession['platform'], chatId: string, chatType: 'private' | 'group' = 'private', displayName?: string): void {
     const sessionKey = buildSessionKey({ platform, chatType, chatId });
-    this.sessionRouter.registerSession(sessionKey, chatId);
+    this.sessionRouter.registerSession(sessionKey, chatId, displayName);
   }
 
   getAdapter(platform: string): PlatformAdapter | undefined {
@@ -102,7 +105,15 @@ export class PlatformRouter implements WorkerReplyHandler {
 
     // 注册会话（状态事件不重复注册）
     if (!msg.eventType || msg.eventType === 'message') {
-      this.sessionRouter.registerSession(sessionKey, msg.chatId);
+      // 群聊显示名：优先配置，其次 msg.raw.chatName，最后 chatId
+      // 私聊显示名：优先 msg.userName，最后 chatId
+      let displayName: string | undefined;
+      if (msg.chatType === 'group') {
+        displayName = this.getGroupDisplayName(msg.platform, msg.chatId) || msg.raw?.chatName;
+      } else {
+        displayName = msg.userName;
+      }
+      this.sessionRouter.registerSession(sessionKey, msg.chatId, displayName);
     }
 
     // 通知 UI 层
@@ -174,7 +185,7 @@ export class PlatformRouter implements WorkerReplyHandler {
     }
 
     await this.circuitBreaker.call(msg.platform, () =>
-      adapter.sendText({ chatId: msg.chatId, text, replyTo: msg.replyTo })
+      adapter.sendText({ chatId: msg.chatId, text, replyTo: msg.id })
     );
   }
 
@@ -275,6 +286,35 @@ export class PlatformRouter implements WorkerReplyHandler {
     if (config.wechat?.channel_prompts) {
       this.setChannelPrompts('wechat', config.wechat.channel_prompts);
     }
+
+    // 群聊成员配置传递到 AgentGateway
+    this.applyGroupMembers(config);
+  }
+
+  /** 将各平台的 group_members 配置注入到 AgentGateway */
+  private applyGroupMembers(config: PlatformsConfig): void {
+    const gateway = this.agent as any;
+
+    const platformConfigs: Array<{ platform: string; cfg: any }> = [
+      { platform: 'feishu', cfg: config.feishu },
+      { platform: 'dingtalk', cfg: config.dingtalk },
+      { platform: 'wecom', cfg: config.wecom },
+      { platform: 'wechat', cfg: config.wechat },
+    ];
+
+    for (const { platform, cfg } of platformConfigs) {
+      const membersByChat = cfg?.group_members as Record<string, any[]> | undefined;
+      if (!membersByChat) continue;
+      for (const [chatId, members] of Object.entries(membersByChat)) {
+        // 缓存群聊显示名：group_members 的 key 就是 chatId，直接用 chatId 当显示名太丑
+        // 如果没有更好的群名，不存 displayName，后面 listSessions 会 fallback 到 chatId
+        // 这里不做默认显示名逻辑，让配置方决定要不要传 displayName
+        if (gateway?.setGroupMembers) {
+          gateway.setGroupMembers(chatId, members);
+        }
+        log.info(`Group members configured for ${platform}:${chatId} (${members.length} members)`);
+      }
+    }
   }
 
   // ── 错误分类 ─────────────────────────────────────────────
@@ -306,6 +346,12 @@ export class PlatformRouter implements WorkerReplyHandler {
     await adapter.stop();
   }
 
+  /** 彻底清理平台：队列消息 + 会话 + 消息历史 */
+  cleanupPlatformData(platform: string): void {
+    this.queue?.deleteByPlatform(platform);
+    this.sessionRouter.removeSessionsByPlatform(platform);
+  }
+
   updateChannelPrompt(platform: string, chatId: string, prompt: string): void {
     let map = this.channelPrompts.get(platform);
     if (!map) {
@@ -315,19 +361,41 @@ export class PlatformRouter implements WorkerReplyHandler {
     map.set(chatId, prompt);
   }
 
+  /** 从 group_members 配置中获取群聊显示名 */
+  private getGroupDisplayName(platform: string, chatId: string): string | undefined {
+    return this.groupDisplayNames.get(platform)?.get(chatId);
+  }
+
+  /** 根据 userId 查找群成员显示名（用于 forwardToAgentBridge 中替换名字） */
+  getMemberName(chatId: string, userId: string): string | undefined {
+    // groupMembers 存储在 AgentGatewayImpl 中，但这里可以直接遍历 groupDisplayNames
+    // 实际上 groupDisplayNames 存的是 chatId → name，不是 userId → name
+    // 需要从 AgentGatewayImpl 中获取
+    const gateway = this.agent as any;
+    if (gateway?.getMemberName) {
+      return gateway.getMemberName(chatId, userId);
+    }
+    return undefined;
+  }
+
   listSessions(): RemoteSession[] {
     const sessions: RemoteSession[] = [];
-    for (const { sessionKey, chatId, lastActiveAt } of this.sessionRouter.getActiveSessionEntries()) {
+    for (const { sessionKey, chatId, lastActiveAt, displayName } of this.sessionRouter.getActiveSessionEntries()) {
+      const parsed = parseSessionKey(sessionKey);
+      const isGroup = parsed.chatType === 'group';
+      const name = displayName || chatId;
+
       sessions.push({
         id: sessionKey,
-        platform: sessionKey.split(':')[0] as RemoteSession['platform'],
-        name: chatId,
-        status: this.adapters.has(sessionKey.split(':')[0]) ? 'online' : 'offline',
+        platform: parsed.platform as RemoteSession['platform'],
+        name,
+        status: this.adapters.has(parsed.platform) ? 'online' : 'offline',
         unreadCount: 0,
         sessionKey,
         userId: '',
         chatId,
         lastActiveAt,
+        isGroup,
       });
     }
     return sessions;

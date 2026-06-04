@@ -1172,7 +1172,7 @@ const zh: Messages = {
   'platform.dingtalk': '钉钉',
   'platform.wechat_desc': '扫码登录（推荐），无需配置，微信 8.0.70+ 扫码即可',
   'platform.wecom_desc': '需要配置 corp_id, agent_id, secret',
-  'platform.feishu_desc': '支持 Webhook 回调或 WebSocket 长连接',
+  'platform.feishu_desc': 'WebSocket 长连接，无需公网 IP',
   'platform.dingtalk_desc': '需要配置 client_id, client_secret',
   'platform.recommended': '推荐',
   'platform.back': '← 返回选择',
@@ -1189,10 +1189,6 @@ const zh: Messages = {
   'platform.cancel': '取消',
   'platform.connect_failed': '连接失败: {error}',
   'platform.input_field': '输入 {field}',
-  'platform.receive_mode': '事件接收模式',
-  'platform.receive_mode_webhook': 'Webhook 回调（需要公网IP）',
-  'platform.receive_mode_websocket': 'WebSocket 长连接（无需公网IP，推荐）',
-
   // ── Platform Session Panel ──
   'platform.panel.select_hint': '选择一个远端会话查看详情',
   'platform.panel.readonly_hint': '远端会话仅支持查看',
@@ -2492,7 +2488,7 @@ const en: Messages = {
   'platform.dingtalk': 'DingTalk',
   'platform.wechat_desc': 'Scan QR code (recommended), no configuration needed. WeChat 8.0.70+ required',
   'platform.wecom_desc': 'Requires corp_id, agent_id, secret configuration',
-  'platform.feishu_desc': 'Supports Webhook callback or WebSocket long connection',
+  'platform.feishu_desc': 'WebSocket long connection, no public IP required',
   'platform.dingtalk_desc': 'Requires client_id, client_secret configuration',
   'platform.recommended': 'Recommended',
   'platform.back': '← Back',
@@ -2509,10 +2505,6 @@ const en: Messages = {
   'platform.cancel': 'Cancel',
   'platform.connect_failed': 'Connection failed: {error}',
   'platform.input_field': 'Enter {field}',
-  'platform.receive_mode': 'Event Receive Mode',
-  'platform.receive_mode_webhook': 'Webhook Callback (requires public IP)',
-  'platform.receive_mode_websocket': 'WebSocket Long Connection (no public IP, recommended)',
-
   // ── Message Bubble (en) ──
   'msg.copy': 'Copy message',
   'msg.click_to_open': 'Click to open',

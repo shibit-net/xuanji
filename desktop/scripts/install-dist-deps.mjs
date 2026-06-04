@@ -6,7 +6,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync, cpSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +19,19 @@ const nmDir = join(distElectronDir, 'node_modules');
 if (existsSync(nmDir)) {
   rmSync(nmDir, { recursive: true, force: true });
 }
+
+// 清理残留的 .bin 目录（符号链接是 npm 自动创建的，打包后的 app 不需要）
+const cleanBinDirs = (dir) => {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory() && entry.name === '.bin') {
+      rmSync(full, { recursive: true, force: true });
+    } else if (entry.isDirectory()) {
+      cleanBinDirs(full);
+    }
+  }
+};
 
 // 2. 创建 dist-electron/package.json（版本与项目 package.json 对齐）
 const pkg = {
@@ -73,6 +86,11 @@ execSync('npm install --no-audit --no-fund --ignore-scripts --loglevel=warn', {
   env: { ...process.env },
   timeout: 300000,
 });
+
+// 3.5. 清理所有 .bin 目录中的绝对路径符号链接（npm --ignore-scripts 仍会生成 .bin，打包后无用且会导致 universal 合并失败）
+console.log('[install-dist-deps] Cleaning .bin symlinks...');
+cleanBinDirs(nmDir);
+console.log('[install-dist-deps] .bin symlinks cleaned');
 
 // 4. 复制 native 模块的预编译二进制（从 desktop/node_modules/ — 由 postinstall 的 electron-builder install-app-deps 针对 Electron ABI 编译）
 const nativeModules = ['better-sqlite3', 'node-pty', 'sharp', 'sqlite-vec', 'onnxruntime-node'];
