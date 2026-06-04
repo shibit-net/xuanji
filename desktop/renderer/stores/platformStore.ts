@@ -19,6 +19,9 @@ export interface RemoteSession {
   sessionKey: string;
   userId: string;
   chatId: string;
+  /** 对方最后阅读时间（已读回执） */
+  lastReadAt?: number;
+  lastReadBy?: string;
 }
 
 export interface PlatformMessage {
@@ -50,6 +53,7 @@ interface PlatformStore {
   getMessages: (sessionKey: string) => PlatformMessage[];
 
   setSetupDialogOpen: (open: boolean) => void;
+  updateSessionReadStatus: (sessionId: string, readBy: string, readAt: number) => void;
 }
 
 export const usePlatformStore = create<PlatformStore>((set, get) => ({
@@ -152,5 +156,13 @@ export const usePlatformStore = create<PlatformStore>((set, get) => ({
 
   setSetupDialogOpen: (open) => {
     set({ setupDialogOpen: open });
+  },
+
+  updateSessionReadStatus: (sessionId, readBy, readAt) => {
+    set((s) => ({
+      sessions: s.sessions.map((x) =>
+        x.id === sessionId ? { ...x, lastReadAt: readAt, lastReadBy: readBy } : x
+      ),
+    }));
   },
 }));

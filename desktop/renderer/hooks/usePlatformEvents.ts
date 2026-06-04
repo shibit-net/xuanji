@@ -53,17 +53,14 @@ export function usePlatformEvents() {
         return;
       }
 
-      // 处理已读回执：作为系统消息展示
-      if (data.eventType === 'read_receipt') {
-        usePlatformStore.getState().addMessage({
-          id: data.id,
-          sessionKey: data.sessionKey,
-          platform: data.platform,
-          text: '已读',
-          role: 'agent',
-          timestamp: data.timestamp,
-          userName: data.userName,
-        });
+      // 处理已读回执：更新 session 的最后阅读状态
+      if (data.eventType === 'read_receipt' && data.readReceipt) {
+        const store = usePlatformStore.getState();
+        const session = store.sessions.find((s) => s.sessionKey === data.sessionKey);
+        if (session) {
+          const readBy = data.userName || data.readReceipt.userId;
+          store.updateSessionReadStatus(session.id, readBy, data.timestamp);
+        }
         return;
       }
 

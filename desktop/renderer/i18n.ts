@@ -37,6 +37,7 @@ const zh: Record<string, string> = {
   'platform.status.offline': '离线',
   'platform.status.connecting': '连接中',
   'platform.status.thinking': '思考中',
+  'platform.status.read': '对方已读',
 
   // TitleBar
   'titlebar.app_name': '璇玑',
@@ -572,6 +573,7 @@ const en: Record<string, string> = {
   'platform.status.offline': 'Offline',
   'platform.status.connecting': 'Connecting',
   'platform.status.thinking': 'Thinking',
+  'platform.status.read': 'Read',
 
   // ProjectFileTree
   'filetree.empty_dir': 'Empty Directory',
