@@ -149,8 +149,6 @@ const zh: Record<string, string> = {
   'settings.embedding.saved': 'Embedding 配置已保存',
 
   // SettingsPage — ModelProviders Tab
-  'settings.model_providers.media': '媒体生成',
-  'settings.model_providers.media_desc': '配置 generate_image / edit_image 工具的 API 凭证，修改后即时生效',
   'settings.model_providers.generate_image': '图片生成 (generate_image)',
   'settings.model_providers.edit_image': '图片编辑 (edit_image)',
   'settings.model_providers.provider': '平台',
@@ -164,7 +162,7 @@ const zh: Record<string, string> = {
   'settings.model_providers.fallback_title': '兜底模型 (Fallback)',
   'settings.model_providers.fallback_desc': 'Agent 未配置独立模型时使用的默认 LLM',
   'settings.model_providers.media_title': '媒体生成 (Media)',
-  'settings.model_providers.media_desc': '配置图片/视频/音频生成工具的 API 凭证',
+  'settings.model_providers.media_desc': '配置图片/视频/音频生成工具的 API 凭证，修改后即时生效',
   'settings.model_providers.video_gen': '视频生成 (generate_video)',
   'settings.model_providers.audio_gen': '音频生成 (generate_audio)',
   'settings.model_providers.no_models': '无可用模型',
@@ -409,8 +407,6 @@ const en: Record<string, string> = {
 
   // SettingsPage — ModelProviders Tab
   'settings.model_providers': 'Model Providers',
-  'settings.model_providers.media': 'Media Generation',
-  'settings.model_providers.media_desc': 'Configure API credentials for generate_image / edit_image tools, takes effect immediately',
   'settings.model_providers.generate_image': 'Image Generation (generate_image)',
   'settings.model_providers.edit_image': 'Image Editing (edit_image)',
   'settings.model_providers.provider': 'Provider',
@@ -424,7 +420,7 @@ const en: Record<string, string> = {
   'settings.model_providers.fallback_title': 'Fallback Model',
   'settings.model_providers.fallback_desc': 'Default LLM when agent has no dedicated model',
   'settings.model_providers.media_title': 'Media Generation',
-  'settings.model_providers.media_desc': 'API credentials for image/video/audio generation tools',
+  'settings.model_providers.media_desc': 'API credentials for image/video/audio generation tools, takes effect immediately',
   'settings.model_providers.video_gen': 'Video Generation (generate_video)',
   'settings.model_providers.audio_gen': 'Audio Generation (generate_audio)',
   'settings.model_providers.no_models': 'No available models',

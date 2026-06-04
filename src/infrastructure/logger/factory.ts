@@ -5,6 +5,7 @@
 import path from 'path';
 import { homedir } from 'node:os';
 import type { ILogger, LogLevel, LoggerConfig, LogMetadata } from './types';
+import { PinoLogger } from './implementations/PinoLogger';
 
 function resolveLogDir(): string {
   return path.join(homedir(), '.xuanji', 'logs');
@@ -77,8 +78,6 @@ export function createLogger(config?: LoggerConfig): ILogger {
     });
   }
 
-  // 延迟加载 PinoLogger，避免测试环境引入 pino
-  const { PinoLogger } = require('./implementations/PinoLogger') as typeof import('./implementations/PinoLogger');
   const namespace = config?.namespace || 'xuanji';
   return new PinoLogger({
     namespace,

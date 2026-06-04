@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "rebuild": "electron-builder install-app-deps",
     "setup:python-runtime": "bash scripts/setup-python-runtime.sh",
-    "build:pre": "npm run setup:python-runtime && npx concurrently \"npm run build:acp-worker\" \"npm run build:agent-bridge\" --kill-others-on-fail && vite build && node scripts/install-dist-deps.mjs",
+    "build:pre": "npm run setup:python-runtime && npx concurrently \"npm run build:acp-worker\" \"npm run build:agent-bridge\" --kill-others-on-fail && rm -f dist-electron/*.js && vite build && node scripts/install-dist-deps.mjs",
     "build:copy-deps": "node scripts/copy-native-deps.cjs",
     "build:acp-worker": "cd .. && npx tsup --config tsup.config.acp-worker.ts",
     "build:agent-bridge": "tsup --config tsup.config.agent-bridge.ts",
