@@ -35,29 +35,46 @@ export class ArkAdapter implements PlatformAdapter {
     cfg: ToolMediaGenConfig,
   ): Promise<ContentBlockResult[]> {
     const baseURL = cfg.baseURL || this.defaultBaseURL;
-    const n = Math.max(1, Math.min(input.n || 1, 14));
     const size = input.size || cfg.defaultSize || '2K';
-    const fmt = input.output_format || 'png';
 
-    // 构建 extra_body — 所有 Seedream 特定参数
-    const extraBody: Record<string, unknown> = {
-      watermark: input.watermark ?? cfg.watermark ?? false,
+    // 构建 body — 从精简基线开始，仅添加明确指定的参数
+    const body: Record<string, unknown> = {
+      model: input.model || cfg.model,
+      prompt: input.prompt,
+      size,  // 透传原始尺寸（"2K"、"4K"），不解析为像素值
     };
 
-    // output_format: 仅 5.0 支持 png，其余 jpeg
-    if (fmt) {
-      extraBody.output_format = fmt;
+    // n: 仅当 > 1 时发送
+    const n = Math.max(1, Math.min(input.n || 1, 14));
+    if (n > 1) {
+      body.n = n;
     }
 
-    // sequential_image_generation — 组图模式
-    if (input.sequential_image_generation === 'auto') {
-      extraBody.sequential_image_generation = 'auto';
-      const maxImgs = input.max_images || n;
-      extraBody.sequential_image_generation_options = { max_images: maxImgs };
+    // watermark: 遵循优先级 input > cfg > 不发送（让 API 用默认值）
+    const watermark = input.watermark ?? cfg.watermark;
+    if (watermark !== undefined) {
+      body.watermark = watermark;
+    }
+
+    // output_format: 仅显式指定时才发送
+    if (input.output_format) {
+      body.output_format = input.output_format;
+    }
+
+    // response_format: 仅显式指定时才发送
+    if (input.response_format) {
+      body.response_format = input.response_format;
+    }
+
+    // sequential_image_generation: 转发用户指定的值（"disabled" | "auto"）
+    if (input.sequential_image_generation) {
+      body.sequential_image_generation = input.sequential_image_generation;
+      if (input.sequential_image_generation === 'auto') {
+        body.sequential_image_generation_options = { max_images: input.max_images || n };
+      }
     } else if (n > 1) {
-      // n > 1 时自动启用组图模式
-      extraBody.sequential_image_generation = 'auto';
-      extraBody.sequential_image_generation_options = { max_images: n };
+      body.sequential_image_generation = 'auto';
+      body.sequential_image_generation_options = { max_images: n };
     }
 
     // 参考图: image (新) 优先，reference_images (旧) 作为回退
@@ -66,35 +83,18 @@ export class ArkAdapter implements PlatformAdapter {
       : input.reference_images;
 
     if (refImages && refImages.length > 0) {
-      // Seedream 最多 14 张参考图
-      extraBody.image = refImages.slice(0, 14);
+      body.image = refImages.slice(0, 14);
     }
 
     // prompt 优化模式（仅 4.0 支持 fast）
     if (input.optimize_prompt) {
-      extraBody.optimize_prompt_options = { mode: input.optimize_prompt };
+      body.optimize_prompt_options = { mode: input.optimize_prompt };
     }
 
     // 联网搜索（仅 5.0 lite）
     if (input.web_search) {
-      extraBody.tools = [{ type: 'web_search' }];
+      body.tools = [{ type: 'web_search' }];
     }
-
-    // response_format
-    if (input.response_format) {
-      extraBody.response_format = input.response_format;
-    } else {
-      // 默认 b64_json，方便后续保存到磁盘
-      extraBody.response_format = 'b64_json';
-    }
-
-    const body: Record<string, unknown> = {
-      model: input.model || cfg.model,
-      prompt: input.prompt,
-      size: resolveSize(size),
-      n,
-      ...extraBody,
-    };
 
     const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
     return parseB64Images(data);
