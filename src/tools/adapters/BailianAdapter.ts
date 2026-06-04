@@ -41,7 +41,7 @@ export class BailianAdapter implements PlatformAdapter {
         ? { image: input.reference_images.slice(0, 2) }
         : {}),
     };
-    const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
+    const data = await apiPost(`${baseURL}/images/generations`, cfg, body, 120_000);
     return parseB64Images(data);
   }
 
@@ -82,7 +82,7 @@ export class BailianAdapter implements PlatformAdapter {
       body.mask = input.mask;
     }
 
-    const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
+    const data = await apiPost(`${baseURL}/images/generations`, cfg, body, 120_000);
     return parseB64Images(data);
   }
 

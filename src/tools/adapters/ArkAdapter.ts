@@ -96,7 +96,7 @@ export class ArkAdapter implements PlatformAdapter {
       body.tools = [{ type: 'web_search' }];
     }
 
-    const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
+    const data = await apiPost(`${baseURL}/images/generations`, cfg, body, 120_000);
     return parseB64Images(data);
   }
 
@@ -121,7 +121,7 @@ export class ArkAdapter implements PlatformAdapter {
         ...(input.mask ? { mask: input.mask } : {}),
       },
     };
-    const data = await apiPost(`${baseURL}/images/generations`, cfg, body);
+    const data = await apiPost(`${baseURL}/images/generations`, cfg, body, 120_000);
     return parseB64Images(data);
   }
 
