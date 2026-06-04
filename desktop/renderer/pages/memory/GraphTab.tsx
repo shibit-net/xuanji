@@ -12,6 +12,9 @@ import {
 } from 'lucide-react';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
+import coseBilkent from 'cytoscape-cose-bilkent';
+
+cytoscape.use(coseBilkent);
 import { ErrorBanner, ImportanceStars } from './components';
 import {
   graphNodeColor, graphNodeColorLight, typeSymbol, GRAPH_COLORS,
