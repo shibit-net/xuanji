@@ -252,8 +252,8 @@ export class AgentRegistry {
 
   getEnabled(): ConfigurableAgentConfig[] {
     return Array.from(this.agents.values())
-      .filter(agent => agent.enabled)
-      .map(agent => this.configManager.getAgentWithOverride(agent));
+      .map(agent => this.configManager.getAgentWithOverride(agent))
+      .filter(agent => agent.enabled);
   }
 
   getAll(): ConfigurableAgentConfig[] {

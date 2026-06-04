@@ -155,6 +155,13 @@ async function updateMatchAgentEmbedding(sess: ChatSession): Promise<void> {
         log.info('updateMatchAgentEmbedding: EmbeddingProvider injected into MatchAgentTool');
       }
 
+      // 同步注入 MatchSceneTool，确保 match_scene 也能进行语义向量匹配
+      const matchSceneTool = registry.get('match_scene');
+      if (matchSceneTool && 'setEmbedder' in matchSceneTool) {
+        (matchSceneTool as any).setEmbedder(candidate);
+        log.info('updateMatchAgentEmbedding: EmbeddingProvider injected into MatchSceneTool');
+      }
+
       // 同时创建 SemanticIndex 并注入到 MemoryManager，启用语义向量搜索
       const agentLoop = sess.getAgentLoop();
       const contextManager = agentLoop?.getContextManager();

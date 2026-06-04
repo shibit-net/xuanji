@@ -50,3 +50,6 @@ desktop/extraResources/node/node_modules/
 
 # Build artifacts with hashes
 desktop/build-resources/NoopSandboxExecutor-*.js
+
+# Claude worktrees
+.claude/worktrees/
