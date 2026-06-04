@@ -115,8 +115,14 @@ function SessionList() {
   const handleConfirmRename = async () => {
     if (renamingId && renameText.trim()) {
       const name = renameText.trim();
+      const prevName = sessions.find((s) => s.id === renamingId)?.name;
       updateSessionName(renamingId, name);
-      await window.electron.platformSaveSessionName({ sessionId: renamingId, name });
+      const result = await window.electron.platformSaveSessionName({ sessionId: renamingId, name });
+      if (!result.success) {
+        // 持久化失败，回滚 zustand 并提示用户
+        if (prevName) updateSessionName(renamingId, prevName);
+        console.error('[Platform] 备注名保存失败:', result.error);
+      }
     }
     setRenamingId(null);
     setRenameText('');

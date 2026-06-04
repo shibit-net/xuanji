@@ -200,17 +200,13 @@ async function savePlatformConfig(dataDir: string, platform: string, config: Rec
 async function saveSessionNames(dataDir: string, updates: Record<string, string>): Promise<void> {
   const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('fs');
   const namesPath = `${dataDir}/session-names.json`;
-  try {
-    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-    let names: Record<string, string> = {};
-    if (existsSync(namesPath)) {
-      names = JSON.parse(readFileSync(namesPath, 'utf-8'));
-    }
-    Object.assign(names, updates);
-    writeFileSync(namesPath, JSON.stringify(names, null, 2));
-  } catch (err) {
-    log.warn(`Failed to save session names: ${(err as Error).message}`);
+  if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+  let names: Record<string, string> = {};
+  if (existsSync(namesPath)) {
+    names = JSON.parse(readFileSync(namesPath, 'utf-8'));
   }
+  Object.assign(names, updates);
+  writeFileSync(namesPath, JSON.stringify(names, null, 2));
 }
 
 /** 从磁盘加载会话备注名 */

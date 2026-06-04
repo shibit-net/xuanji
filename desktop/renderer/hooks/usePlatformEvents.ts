@@ -71,7 +71,7 @@ export function usePlatformEvents() {
       });
     };
 
-    const handleSessionUpdated = (data: {
+    const handleSessionUpdated = async (data: {
       sessionKey: string;
       platform: string;
       chatId?: string;
@@ -82,11 +82,20 @@ export function usePlatformEvents() {
       const store = usePlatformStore.getState();
       const exists = store.sessions.some((s) => s.id === data.sessionKey);
       if (!exists && data.chatId) {
-        console.log('[PlatformEvent] Creating new session:', data.sessionKey, 'name:', data.userName || data.chatId);
+        // 查询已保存的备注名
+        let savedName: string | undefined;
+        try {
+          const namesResult = await window.electron.platformLoadSessionNames();
+          if (namesResult.success && namesResult.names) {
+            savedName = namesResult.names[data.sessionKey];
+          }
+        } catch { /* 忽略查询失败 */ }
+        const displayName = savedName || data.userName || data.chatId;
+        console.log('[PlatformEvent] Creating new session:', data.sessionKey, 'name:', displayName);
         store.addSession({
           id: data.sessionKey,
           platform: data.platform as 'wechat' | 'wecom' | 'feishu' | 'dingtalk',
-          name: data.userName || data.chatId,
+          name: displayName,
           status: data.status as 'online' | 'offline' | 'connecting',
           unreadCount: 0,
           sessionKey: data.sessionKey,
