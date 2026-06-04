@@ -37,7 +37,7 @@ const PLATFORM_INFO: Array<{
     name: t('platform.feishu'),
     icon: <Globe size={20} />,
     desc: t('platform.feishu_desc'),
-    configFields: ['app_id', 'app_secret'],
+    configFields: ['app_id', 'app_secret', 'receive_mode'],
   },
   {
     type: 'dingtalk',
@@ -228,14 +228,27 @@ function PlatformSetupDialog() {
                 <>
                   {PLATFORM_INFO.find((p) => p.type === selected)?.configFields?.map((field) => (
                     <div key={field}>
-                      <label className="block text-sm font-medium mb-1">{field}</label>
-                      <input
-                        type={field.includes('secret') || field.includes('key') ? 'password' : 'text'}
-                        className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
-                        placeholder={t('platform.input_field', { field })}
-                        value={formData[field] || ''}
-                        onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-                      />
+                      <label className="block text-sm font-medium mb-1">
+                        {field === 'receive_mode' ? t('platform.receive_mode') : field}
+                      </label>
+                      {field === 'receive_mode' ? (
+                        <select
+                          className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
+                          value={formData[field] || 'webhook'}
+                          onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                        >
+                          <option value="webhook">{t('platform.receive_mode_webhook')}</option>
+                          <option value="websocket">{t('platform.receive_mode_websocket')}</option>
+                        </select>
+                      ) : (
+                        <input
+                          type={field.includes('secret') || field.includes('key') ? 'password' : 'text'}
+                          className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
+                          placeholder={t('platform.input_field', { field })}
+                          value={formData[field] || ''}
+                          onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                        />
+                      )}
                     </div>
                   ))}
                   <Button onClick={handleConnect} disabled={connecting} className="w-full">
