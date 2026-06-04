@@ -364,7 +364,7 @@ export class SkillInstaller {
       const fm = parseFrontmatter(content);
       if (!fm) continue;
 
-      const subSkillId = String(fm.id ?? `${packageId}-${entry.name}`);
+      const subSkillId = String(fm.id ?? entry.name);
 
       if (!this.checkInstallConflict(subSkillId, packageId, version)) {
         log.warn(`Sub-skill "${subSkillId}" skipped due to conflict`);
