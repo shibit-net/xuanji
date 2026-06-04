@@ -99,7 +99,7 @@ function PageFade({ children }: { children: React.ReactNode }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
-      className="h-full"
+      className="flex flex-col flex-1 min-h-0"
     >
       {children}
     </motion.div>
