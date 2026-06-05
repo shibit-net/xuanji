@@ -807,6 +807,8 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       const videoPaths = allPaths.filter(p => VIDEO_EXTS.has(path.extname(p).toLowerCase()));
       const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()) && !AUDIO_EXTS.has(path.extname(p).toLowerCase()) && !VIDEO_EXTS.has(path.extname(p).toLowerCase()));
       log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}" images=${imagePaths.length} audios=${audioPaths.length} videos=${videoPaths.length} files=${filePaths.length}`);
+      if (imagePaths.length > 0) log.info(`[DIAG] Platform reply imagePaths: ${JSON.stringify(imagePaths)}`);
+      if (pendingPlatformImagePaths.length > 0) log.info(`[DIAG] pendingPlatformImagePaths: ${JSON.stringify(pendingPlatformImagePaths)}`);
 
       // 将回复发回主进程
       channel.send('platform:reply', {

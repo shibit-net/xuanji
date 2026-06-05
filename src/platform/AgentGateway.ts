@@ -127,11 +127,11 @@ export class AgentGatewayImpl implements AgentGateway {
       'channel-info',
     );
 
-    // 微信额外能力提示
-    if (msg.platform === 'wechat') {
+    // 远端平台能力提示：所有远端平台都需要用 send_file_to_user 发送文件
+    if (msg.platform === 'wechat' || msg.platform === 'feishu') {
       this.agentLoop.getContextManager().setSystemPromptSuffix(
         '\n发送图片/文件必须用 send_file_to_user 工具，不要用 MCP 工具。生成图片后立即调用，调用后简短回复"已发送"即可。',
-        'wechat-platform-capability',
+        'platform-send-file-capability',
       );
     }
 
@@ -161,7 +161,7 @@ export class AgentGatewayImpl implements AgentGateway {
     } finally {
       this.agentLoop.setSessionKey(null);
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
-      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'wechat-platform-capability');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'platform-send-file-capability');
     }
   }
 

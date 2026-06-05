@@ -18,12 +18,13 @@ const desktopDir = join(__dirname, '..');
 const releaseDir = join(desktopDir, 'release');
 
 function findApp() {
-  const appPath = join(releaseDir, 'mac', 'xuanji.app');
-  if (!existsSync(appPath)) {
-    console.error('[create-dmg] xuanji.app not found at', appPath);
-    process.exit(1);
+  // 尝试 arm64 路径（从 mac-arm64/），回退到 x64（mac/）
+  for (const dir of ['mac-arm64', 'mac']) {
+    const appPath = join(releaseDir, dir, 'xuanji.app');
+    if (existsSync(appPath)) return appPath;
   }
-  return appPath;
+  console.error('[create-dmg] xuanji.app not found in release/mac*/');
+  process.exit(1);
 }
 
 function getConfig() {
