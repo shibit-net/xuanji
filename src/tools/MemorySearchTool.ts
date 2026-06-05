@@ -13,7 +13,19 @@ import { XuanjiEvent } from '@/infrastructure/events/events';
 
 export class MemorySearchTool extends BaseTool {
   readonly name = 'memory_search';
-  readonly description = 'Search the persistent memory database. Can look up entities (people/projects/tools), facts, events, and episodic memories. Use this tool when you need to recall user preferences, past decisions, or project history.';
+  readonly description = [
+    'Search the persistent memory database for user preferences, past decisions, project history, and learned facts.',
+    '',
+    'Supports keyword search in Chinese and English across multiple memory types:',
+    '• entity - people, projects, tools, organizations',
+    '• fact - learned facts and preferences',
+    '• event - timestamped events and incidents',
+    '• episode - narrative memories from past sessions',
+    '',
+    'WHEN TO USE: Before starting work in a project, after user shares preferences, when troubleshooting recurring issues.',
+    '',
+    'Query tips: Use short descriptive keywords (2-5 words). Filter by type for focused results (e.g., type="fact" for preferences). Use scene_tag to narrow to specific contexts. Higher min_importance returns only key memories.',
+  ].join('\n');
 
   readonly input_schema: JSONSchema = {
     type: 'object',

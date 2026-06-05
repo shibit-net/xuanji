@@ -168,6 +168,9 @@ export class ChatSession {
         'channel-info',
       );
 
+      // 注入运行中的后台任务信息，防止重复创建
+      this.injectRunningTaskHint();
+
       // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
       this.repairOrphanedToolUse();
 
@@ -175,9 +178,10 @@ export class ChatSession {
       await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks, attachments);
       log.debug('[DIAG] ChatSession.run: agentLoop.run completed');
 
-      // 清理后台任务 completion hint + 渠道标识
+      // 清理后台任务 completion hint + 渠道标识 + 运行中任务提示
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'running-tasks');
 
       if (this._useNewPath && this._stateMachine) {
         // 新路径：状态机处理完成 → 可能自动排队运行下一轮
@@ -202,6 +206,7 @@ export class ChatSession {
       log.info('Session run completed');
     } catch (error) {
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'running-tasks');
       log.error('Session run failed', error as Error);
       const errMsg = (error as Error).message || '';
       const isInterrupt = errMsg === 'Interrupted' || errMsg.includes('abort') || errMsg.includes('aborted');
@@ -624,6 +629,42 @@ export class ChatSession {
     } finally {
       this._drainRunning = false;
       log.info('[drainPendingQueue] draining complete');
+    }
+  }
+
+  /**
+   * 注入运行中的后台任务信息到 system prompt，防止主 agent 重复创建相同任务。
+   * 每次 run() 前调用，让 agent 知道哪些任务已经在执行中。
+   */
+  private injectRunningTaskHint(): void {
+    try {
+      const orchestrator = TaskOrchestrator.getInstance();
+      const allTasks = orchestrator.listTasks();
+      const runningTasks = allTasks.filter(t => t.status === 'running');
+
+      if (runningTasks.length === 0) {
+        this.agentLoop.getContextManager().setSystemPromptSuffix('', 'running-tasks');
+        return;
+      }
+
+      const lines = runningTasks.map(t => {
+        const elapsed = Math.round((Date.now() - t.startedAt) / 1000);
+        return `- [${t.type}] ${t.groupId}: ${t.goal} (已运行 ${elapsed}s)`;
+      });
+
+      const hint = [
+        '## ⚠️ 后台任务已在运行中，严禁重复创建',
+        '',
+        '以下任务正在后台执行。用户发送的新消息由你直接在本次对话中处理，除非用户明确要求启动新后台任务，否则不要再次创建 task 或 agent_team。',
+        '',
+        lines.join('\n'),
+        '',
+        '任务完成后系统会自动通知你，届时再汇报结果即可。',
+      ].join('\n');
+
+      this.agentLoop.getContextManager().setSystemPromptSuffix(hint, 'running-tasks');
+    } catch (err) {
+      log.warn('Failed to inject running task hint:', err);
     }
   }
 

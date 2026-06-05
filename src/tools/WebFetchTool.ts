@@ -20,7 +20,15 @@ const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
  */
 export class WebFetchTool extends BaseTool {
   readonly name = 'web_fetch';
-  readonly description = 'Fetch a URL and convert its content to Markdown. Supports HTML pages, JSON APIs, and plain text. Use the prompt parameter to extract specific information from the page.';
+  readonly description = [
+    'Fetch a URL and convert its content to Markdown for analysis.',
+    '',
+    'Supports: HTML pages (auto-converted to Markdown), JSON APIs, and plain text. Max content size: 5MB.',
+    '',
+    'PROMPT PARAMETER: Use to ask a specific question about the page content. The prompt is processed by an AI model against the fetched content — craft it precisely for best results (e.g., "Extract all API endpoint paths and their HTTP methods" rather than "summarize this page").',
+    '',
+    'WHEN TO USE: reading external documentation, fetching API responses, checking live URLs. For open-ended web research, prefer web_search instead.',
+  ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
     properties: {

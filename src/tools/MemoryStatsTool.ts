@@ -12,7 +12,15 @@ import { getMemoryManager } from '@/memory/globals';
 
 export class MemoryStatsTool extends BaseTool {
   readonly name = 'memory_stats';
-  readonly description = 'Get a complete status report of the memory system, including statistics, sample data, and potential issues (orphan entities, co-occurrence pairs, etc.). Used for memory analysis and maintenance.';
+  readonly description = [
+    'Get a complete status report of the memory system.',
+    '',
+    'Returns: statistics (total counts by type), sample data (recent entities/facts/events), and potential issues (orphan entities, high-frequency co-occurrence pairs).',
+    '',
+    'WHEN TO USE: checking memory health, analyzing stored knowledge, finding orphaned data, or inspecting co-occurrence patterns.',
+    '',
+    'Use detail=basic for quick stats only, detail=full for comprehensive analysis including samples and issues.',
+  ].join('\n');
 
   readonly input_schema: JSONSchema = {
     type: 'object',

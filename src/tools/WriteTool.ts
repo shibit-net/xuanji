@@ -3,7 +3,7 @@
 // ============================================================
 
 import { dirname, resolve } from 'node:path';
-import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, appendFile, readFile, access } from 'node:fs/promises';
 import type { JSONSchema, ToolResult } from '@/infrastructure/core-types';
 import { BaseTool } from './BaseTool';
 import { DiffRenderer } from '@/shared/utils/DiffRenderer';
@@ -17,10 +17,11 @@ const log = logger.child({ module: 'WriteTool' });
 export class WriteTool extends BaseTool {
   readonly name = 'write_file';
   readonly description = [
-    'Create or completely overwrite a file. Use for new files or full rewrites.',
+    'Create, overwrite, or append to a file.',
     '',
     'For small edits to existing files, prefer edit_file instead (sends only the diff).',
     'Always read_file first before overwriting to confirm current content.',
+    'For large files, use append=true to write in chunks — call write_file multiple times with append=true to build a large file incrementally.',
   ].join('\n');
   readonly input_schema: JSONSchema = {
     type: 'object',
@@ -41,6 +42,10 @@ export class WriteTool extends BaseTool {
         type: 'string',
         description: 'Content to write to file',
       },
+      append: {
+        type: 'boolean',
+        description: 'Append content to end of file instead of overwriting. Use this to write large files in multiple chunks — call write_file repeatedly with append=true.',
+      },
     },
     required: ['path', 'content'],
   };
@@ -48,6 +53,7 @@ export class WriteTool extends BaseTool {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const rawPath = (input.path ?? input.file_path ?? input.filepath) as string;
     const content = input.content as string;
+    const append = input.append as boolean;
     const path = resolve(rawPath);
 
     log.debug(`Writing file: ${path}`, { size: content.length });
@@ -74,7 +80,21 @@ export class WriteTool extends BaseTool {
         // 文件不存在，创建新文件
       }
 
-      // 写入文件
+      // 写入或追加文件
+      if (append) {
+        await appendFile(path, content, 'utf-8');
+        const lines = content.split('\n').length;
+        log.info(`File appended: ${path}`, { lines, chars: content.length });
+        const result = this.success(`已追加写入 ${path} (+${lines} 行, +${content.length} 字符)`);
+        result.fileChanges = [{
+          filePath: path,
+          operation: 'append',
+          stats: { added: lines, removed: 0 },
+          size: { lines, chars: content.length }
+        }];
+        return result;
+      }
+
       await writeFile(path, content, 'utf-8');
 
       const lines = content.split('\n').length;

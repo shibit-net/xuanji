@@ -58,7 +58,7 @@ export class RateLimitManager {
 
   async waitForSlot(estimatedTokens: number): Promise<void> {
     while (!(await this.checkRateLimit(estimatedTokens))) {
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 

@@ -36,15 +36,6 @@ function createUnconfiguredProvider(agentName: string): ILLMProvider {
   };
 }
 
-export interface TemporaryAgentOptions {
-  role: string;
-  capabilities: string[];
-  scene?: string;
-  taskDescription?: string;
-  model?: string;
-  parentConfig?: ConfigurableAgentConfig;
-}
-
 export interface AgentCreateOptions {
   parentProvider?: ILLMProvider;
   parentConfig?: AgentConfig;
@@ -139,7 +130,6 @@ export class AgentFactory {
   private layeredPromptBuilder: LayeredPromptBuilder | null = null;
   private baseRegistry: IToolRegistry;
   private hookRegistry: HookRegistry | null = null;
-  private temporaryAgents = new Map<string, ConfigurableAgentConfig>();
   private _parentProvider?: ILLMProvider;
   private _parentConfig?: AgentConfig;
   private _fallbackProviderConfig?: { adapter: string; apiKey?: string; baseURL?: string; model?: string };
@@ -441,25 +431,21 @@ export class AgentFactory {
     } catch (err) {
       log.warn(`[createAndRun] ConfigManager.getAgentConfig failed for "${agentIdOrRole}":`, err);
     }
-    const isTemporary = this.isTemporaryAgent(agentIdOrRole);
-
     // 3. 解析 parentProvider（options 优先，其次 setters）
     const parentProvider = options.parentProvider ?? this._parentProvider;
     const parentConfig = options.parentConfig ?? this._parentConfig;
 
     log.debug(`[createAndRun] provider 解析`, {
       agentId: agentIdOrRole,
-      isTemporary,
       hasOptionsProvider: !!options.parentProvider,
       hasInternalProvider: !!this._parentProvider,
       hasParentConfig: !!parentConfig,
       agentConfigFound: !!agentConfig,
     });
 
-    if (!agentConfig && !isTemporary && !parentProvider) {
+    if (!agentConfig && !parentProvider) {
       log.warn(`[createAndRun] agent 未找到且无 parentProvider`, {
         agentId: agentIdOrRole,
-        isTemporary,
       });
       throw new Error(`Agent "${agentIdOrRole}" not found`);
     }
@@ -498,7 +484,6 @@ export class AgentFactory {
       log.error(`createAndRun failed`, {
         agentId: agentIdOrRole,
         depth: options.depth,
-        isTemporary,
         subAgentId,
         taskPreview: (options.task || '').slice(0, 120),
         error: errMsg,
@@ -545,7 +530,6 @@ export class AgentFactory {
 
     // 6. 触发 SubAgentStart Hook + EventBus
     const agentType = !agentConfig ? 'temporary' :
-      isTemporary ? 'temporary' :
       (agentConfig as any).metadata?.category === 'system' ? 'builtin' :
       (agentConfig as any).metadata?.category === 'app' ? 'preset' : 'custom';
 
@@ -655,11 +639,6 @@ export class AgentFactory {
         subAgentId,
         data: endPayload,
       });
-    }
-
-    // 9. 清理临时 Agent
-    if (isTemporary) {
-      this.cleanupTemporaryAgent(agentIdOrRole);
     }
 
     return {
@@ -949,11 +928,9 @@ export class AgentFactory {
     } catch (err) {
       log.warn(`[executeViaAcp] ConfigManager.getAgentConfig failed for "${agentIdOrRole}":`, err);
     }
-    const isTemporary = this.isTemporaryAgent(agentIdOrRole);
-
     // 工具解析：注册 agent 合并 YAML tools + whitelist，临时 agent 用 whitelist（兜底默认集）
     let tools: string[];
-    if (!isTemporary && registeredConfig) {
+    if (registeredConfig) {
       const yamlTools = (registeredConfig.tools as Array<{ name: string }>)?.map(t => t.name) || [];
       const whitelist = options.tools || [];
       tools = [...new Set([...yamlTools, ...whitelist])];
@@ -964,10 +941,10 @@ export class AgentFactory {
 
     // 已注册 agent 用自有配置，临时 agent 继承父配置
     const fallbackConfig = options.parentConfig ?? this._parentConfig;
-    log.debug(`executeViaAcp: agentId="${agentIdOrRole}" isTemporary=${isTemporary} hasRegistered=!!${!!registeredConfig} fallbackConfig=${fallbackConfig ? 'yes' : 'no'} fallbackProvider=${JSON.stringify((fallbackConfig as any)?.provider)}`);
+    log.debug(`executeViaAcp: agentId="${agentIdOrRole}" hasRegistered=${!!registeredConfig} fallbackConfig=${fallbackConfig ? 'yes' : 'no'} fallbackProvider=${JSON.stringify((fallbackConfig as any)?.provider)}`);
     let agentProviderConfig: Record<string, any> | undefined;
 
-    if (registeredConfig && !isTemporary) {
+    if (registeredConfig) {
       this.ensureProviderComplete(registeredConfig);
       agentProviderConfig = {
         adapter: (registeredConfig as any).provider?.adapter,
@@ -976,15 +953,6 @@ export class AgentFactory {
         baseURL: (registeredConfig as any).provider?.baseURL || '',
         maxTokens: (registeredConfig as any).model?.maxTokens,
         temperature: (registeredConfig as any).model?.temperature,
-      };
-    } else if (isTemporary && fallbackConfig) {
-      agentProviderConfig = {
-        adapter: (fallbackConfig as any).adapter || '',
-        model: (fallbackConfig as any).model || '',
-        apiKey: (fallbackConfig as any).apiKey || '',
-        baseURL: (fallbackConfig as any).baseURL || '',
-        maxTokens: (fallbackConfig as any).maxTokens,
-        temperature: (fallbackConfig as any).temperature,
       };
     } else {
       throw new Error(`ACP: 子 Agent "${agentIdOrRole}" 未注册且无父配置，无法执行`);
@@ -1041,98 +1009,7 @@ export class AgentFactory {
   }
 
 
-  // ─── Temporary Agent (接管自 TemporaryAgentFactory) ─────
-
-  createTemporaryAgentConfig(options: TemporaryAgentOptions): ConfigurableAgentConfig {
-    const { role, capabilities, scene, taskDescription, model, parentConfig } = options;
-    const tempId = `temp-${role.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-
-    const systemPrompt = this.generateTempSystemPrompt(role, capabilities, taskDescription);
-
-    const provider = parentConfig?.provider
-      ? { ...parentConfig.provider }
-      : {};
-
-    const tempAgent: ConfigurableAgentConfig = {
-      id: tempId,
-      name: role,
-      description: `临时创建的 ${role}，用于完成特定任务`,
-      avatar: '🤖',
-      color: 'from-gray-500 to-gray-600',
-      category: 'custom',
-      model: {
-        primary: model || parentConfig?.model?.primary || '',
-        maxTokens: 64000,
-        thinking: { type: 'adaptive' as const, effort: 'medium' as const },
-      },
-      provider,
-      systemPrompt,
-      capabilities,
-      tools: [
-        { name: 'read_file' },
-        { name: 'grep' },
-        { name: 'glob' },
-      ],
-      execution: {
-        mode: 'react',
-        maxIterations: 100,
-        timeout: 600000,
-        streaming: true,
-        parallelTools: true,
-      },
-      permissions: {
-        fileRead: 'always',
-        fileWrite: 'ask',
-        bashExec: 'ask',
-        network: 'ask',
-        allowedPaths: [],
-        deniedPaths: [],
-        allowedCommands: [],
-        deniedCommands: [],
-      },
-      enabled: true,
-      metadata: { isTemporary: true, createdAt: new Date().toISOString(), scene },
-    };
-
-    this.temporaryAgents.set(tempId, tempAgent);
-    return tempAgent;
-  }
-
-  cleanupTemporaryAgent(id: string): void {
-    if (this.temporaryAgents.has(id)) {
-      this.temporaryAgents.delete(id);
-    }
-  }
-
-  isTemporaryAgent(id: string): boolean {
-    return id.startsWith('temp-') || this.temporaryAgents.has(id);
-  }
-
   // ─── Private ────────────────────────────────────────────
-
-  private generateTempSystemPrompt(role: string, capabilities: string[], taskDescription?: string): string {
-    const prompt = `你是一位 ${role}。
-
-## 核心职责
-
-${capabilities.map(cap => `- ${cap}`).join('\n')}
-
-## 工作原则
-
-- 专注于你的职责范围
-- 提供高质量的输出
-- 遵循最佳实践
-- 清晰明了地表达
-
-## 工作方式
-
-你会根据任务需求，采用合适的方法完成工作。
-具体的场景指导会通过 Scene 动态加载。
-
-${taskDescription ? `\n## 当前任务\n\n${taskDescription}\n` : ''}`;
-
-    return prompt.trim();
-  }
 
   private static LOCAL_ADAPTERS = new Set(['ollama', 'vllm', 'lmstudio', 'local-llama']);
 

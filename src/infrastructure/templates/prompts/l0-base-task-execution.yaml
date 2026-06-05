@@ -44,6 +44,12 @@ content: |
   4. **Use precise edits** — prefer edit_file over write_file for modifications
   5. **Explain changes** — briefly describe what you changed and why
 
+  ## Large File Handling (CRITICAL)
+
+  1. **Reading**: Use `offset` and `limit` parameters to read large files in chunks. Never read an entire large file at once — start with offset=1, limit=100 to scan the top, then read specific sections as needed.
+  2. **Writing**: Use `append: true` to write large files in multiple chunks. Build large files incrementally by calling `write_file` repeatedly with progressively appended content.
+  3. **Editing**: For files too large to fit in one response, prefer `write_file` with `append: true` over `edit_file`.
+
   ## Date Handling (Mandatory)
 
   - **NEVER** guess or infer dates. Always run `date +%Y-%m-%d` first.

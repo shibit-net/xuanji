@@ -46,6 +46,13 @@ export class TaskTool extends BaseTool {
     '• The sub-agent will ONLY see your description + system_prompt — nothing else from the conversation.',
     '• A vague description produces poor results. Invest time in writing a detailed task.',
     '',
+    'CRITICAL — system_prompt for temporary agents:',
+    '• Preset agents (matched via match_agent with score >= 0.5): system_prompt is optional.',
+    '• Temporary/custom agents (match_agent score < 0.5, or custom subagent_type): system_prompt is MANDATORY.',
+    '• Without system_prompt, a temporary agent has NO role definition — it will fail or produce garbage.',
+    '• Write 2-3 sentences: role, expertise domain, behavioral boundaries, output style.',
+    '• Example: "You are an expert security auditor. Focus on OWASP Top 10 vulnerabilities, injection attacks, and auth bypasses. Report each finding with severity (Critical/High/Medium/Low) and a one-line fix recommendation."',
+    '',
     'IMPORTANT — tools parameter:',
     '• The sub-agent has NO tools by default — it starts with an empty toolbox.',
     '• You MUST pass the `tools` parameter listing every tool the sub-agent needs.',
@@ -94,7 +101,7 @@ export class TaskTool extends BaseTool {
       },
       subagent_type: {
         type: 'string',
-        description: 'Agent ID (required). Use match_agent result when score >= 0.5; use custom ID with system_prompt + tools when score < 0.5',
+        description: 'Agent ID (required). Use match_agent result when score >= 0.5; use descriptive custom ID when score < 0.5. CUSTOM IDs REQUIRE system_prompt (defines role) + tools — without both the agent is useless.',
       },
       scene: {
         type: 'string',
@@ -129,7 +136,7 @@ export class TaskTool extends BaseTool {
       },
       async: {
         type: 'boolean',
-        description: 'Execution mode. true = async (background, notification on completion). false = sync (wait for completion, output streams in real-time). Main agent defaults to async, sub-agents default to sync. Set false when the sub-agent output is the answer the user needs.',
+        description: 'Execution mode. true = async (background, notification on completion). You can call task(async=true) multiple times to launch up to 3 parallel background tasks when the user has multiple independent requests. false = sync (wait for completion, output streams in real-time). Main agent defaults to async, sub-agents default to sync. Set false when the sub-agent output is the answer the user needs.',
       },
     },
     required: ['description', 'subagent_type'],
@@ -266,12 +273,24 @@ export class TaskTool extends BaseTool {
   private validateInput(params: {
     description: string;
     role: string | null;
+    systemPrompt?: string;
   }): ToolResult | null {
     if (!params.role) {
       return this.error(
         'subagent_type is required. Use the intent analysis result, call match_agent when uncertain, ' +
         'or specify a custom agent ID if creating a temporary agent.',
       );
+    }
+    // 检查是否为已知 preset agent，如果不是则强烈建议提供 system_prompt
+    if (this.agentRegistry && !params.systemPrompt) {
+      const knownAgent = this.agentRegistry.get(params.role);
+      if (!knownAgent) {
+        // 未知 agent ID + 无 system_prompt → 临时 agent 缺少角色定义
+        this.log.warn(
+          `TaskTool: subagent_type="${params.role}" not found in registry and no system_prompt provided. ` +
+          `Temporary agents without system_prompt will have no role definition.`
+        );
+      }
     }
     return null;
   }

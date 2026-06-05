@@ -52,7 +52,7 @@ export interface FileChange {
   /** 文件路径 */
   filePath: string;
   /** 操作类型 */
-  operation: 'create' | 'edit' | 'overwrite';
+  operation: 'create' | 'edit' | 'overwrite' | 'append';
   /** 变更统计 */
   stats: {
     added: number;
