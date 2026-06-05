@@ -114,7 +114,7 @@ export class SessionStateMachine implements InterruptChecker {
   // ============================================================
 
   shouldStop(): boolean {
-    return this._abortRequested || (this.pendingMessages.length > 0 && !this._textOutputStarted);
+    return this._abortRequested;
   }
 
   shouldAbort(): boolean {

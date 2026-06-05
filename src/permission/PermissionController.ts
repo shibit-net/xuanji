@@ -487,11 +487,22 @@ export class PermissionController implements IPermissionController {
     guardResult: GuardCheckResult,
   ): Promise<PermissionResult> {
     if (!this.confirmationHandler) {
-      this.log.warn('No confirmation handler, denying by default');
+      // 远端/无头模式：生成文本确认提示，由 AgentLoop 通过 endTurn 发送给用户
+      const riskLabel = guardResult.riskLevel === 'danger' ? '🔴 高风险' : guardResult.riskLevel === 'warn' ? '🟡 警告' : '🟢 安全';
+      const confirmationText = [
+        `⚠️ **权限确认** — ${riskLabel}`,
+        ``,
+        `**工具**: \`${request.toolName}\``,
+        `**操作**: ${guardResult.description}`,
+        ``,
+        `请回复 **「允许」** 或 **「拒绝」**。`,
+      ].join('\n');
+      this.log.info('No confirmation handler, generating text confirmation');
       const result: PermissionResult = {
         allowed: false,
         reason: t('perm.denied_no_handler'),
-        checkedBy: 'no-handler',
+        checkedBy: 'text-confirmation',
+        confirmationText,
       };
       this.logAuditEvent(request, result, guardResult);
       return result;

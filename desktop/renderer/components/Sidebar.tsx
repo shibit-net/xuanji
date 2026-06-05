@@ -5,9 +5,9 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import {
-  Settings, HelpCircle, Bot, Wrench, FileText, Brain,
-  LogOut, ShieldCheck, Clock, Package, Plus, Radio, X,
+  Settings, HelpCircle, LogOut, Plus, User, Users, X,
   FolderTree, ChevronDown, ChevronRight, GitBranch,
+  Bot, Wrench, Package, FileText, Brain, Clock, ShieldCheck,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
@@ -19,6 +19,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import ProjectFileTree from './ProjectFileTree';
+import FadeContent from './FadeContent';
 
 // ─── 导航分组配置 ──────────────────────────
 
@@ -144,7 +145,10 @@ function SessionList() {
             className="w-full justify-start gap-1.5 h-8 pr-6"
             onClick={() => { setActiveSession(session.id); navigate('/chat'); }}
           >
-            <Radio size={12} className={session.status === 'online' ? 'text-green-500 flex-shrink-0' : 'text-muted-foreground flex-shrink-0'} />
+            {session.isGroup
+              ? <Users size={12} className={session.status === 'online' ? 'text-green-500 flex-shrink-0' : 'text-muted-foreground flex-shrink-0'} />
+              : <User size={12} className={session.status === 'online' ? 'text-green-500 flex-shrink-0' : 'text-muted-foreground flex-shrink-0'} />
+            }
             {renamingId === session.id ? (
               <input
                 ref={renameInputRef}
@@ -289,24 +293,35 @@ function Sidebar() {
         </Button>
 
         {/* 导航分组 */}
-        {NAV_GROUPS.map((group) => (
-          <div key={group.labelKey}>
-            <GroupLabel>{getDesktopLabel(group.labelKey, language)}</GroupLabel>
-            <div className="space-y-0.5">
-              {group.items.map((item) => (
-                <Button
-                  key={item.id}
-                  variant={isActive(item.route) ? 'default' : 'ghost'}
-                  className="w-full justify-start gap-1.5 h-8"
-                  onClick={() => navigate(item.route)}
-                >
-                  {item.icon}
-                  <span className="text-xs">{getDesktopLabel(item.labelKey, language)}</span>
-                </Button>
-              ))}
+        {NAV_GROUPS.map((group, groupIndex) => {
+          const itemsBefore = NAV_GROUPS.slice(0, groupIndex).reduce((sum, g) => sum + g.items.length, 0);
+          return (
+            <div key={group.labelKey}>
+              <GroupLabel>{getDesktopLabel(group.labelKey, language)}</GroupLabel>
+              <div className="space-y-0.5">
+                {group.items.map((item, itemIndex) => (
+                  <FadeContent
+                    key={item.id}
+                    duration={400}
+                    blur={true}
+                    delay={100 * (itemsBefore + itemIndex)}
+                    initialOpacity={0.01}
+                    threshold={0}
+                  >
+                    <Button
+                      variant={isActive(item.route) ? 'default' : 'ghost'}
+                      className="w-full justify-start gap-1.5 h-8"
+                      onClick={() => navigate(item.route)}
+                    >
+                      {item.icon}
+                      <span className="text-xs">{getDesktopLabel(item.labelKey, language)}</span>
+                    </Button>
+                  </FadeContent>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* 系统组：设置 + 帮助 */}
         <GroupLabel>{getDesktopLabel('sidebar.group_system', language)}</GroupLabel>

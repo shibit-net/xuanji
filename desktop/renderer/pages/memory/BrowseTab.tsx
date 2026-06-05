@@ -7,6 +7,7 @@ import { t } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Search, X, RefreshCw, Database, Trash2, Sparkles } from 'lucide-react';
 import { LoadingSpinner, ErrorBanner, SummaryMetric, MemoryCard, DetailPanel } from './components';
+import AnimatedContent from '@/components/AnimatedContent';
 import {
   normalizeEntity, normalizeFact, normalizeEvent,
   normalizeEpisode, normalizeSearchResult, formatTime, latestTime,
@@ -280,9 +281,19 @@ export default function BrowseTab({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {displayItems.map(item => (
-            <MemoryCard key={`${item.kind}-${item.id}`} item={item} onClick={() => setDetailItem(item.raw)} />
+        <div id="memory-browse-list" className="flex-1 overflow-y-auto p-3 space-y-2">
+          {displayItems.map((item, index) => (
+            <AnimatedContent
+              key={`${item.kind}-${item.id}`}
+              container="#memory-browse-list"
+              direction="vertical"
+              distance={30}
+              duration={0.6}
+              ease="power2.out"
+              delay={index * 0.05}
+            >
+              <MemoryCard item={item} onClick={() => setDetailItem(item.raw)} />
+            </AnimatedContent>
           ))}
 
           {displayItems.length === 0 && (

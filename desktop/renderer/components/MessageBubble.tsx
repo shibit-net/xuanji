@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Copy, Check, FileText, Image as ImageIcon, X, Maximize2, Minimize2, Music, Video } from 'lucide-react';
 import { t } from '@/i18n';
+import FadeContent from '@/components/FadeContent';
 import { marked } from 'marked';
 import type { Message } from '../stores/chatStore';
 import type { ContentBlock } from '../stores/messageStore';
@@ -615,7 +616,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   }
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}${isStreaming ? '' : ' animate-fadeIn'}`}>
+    <FadeContent
+      blur
+      duration={600}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'}${isStreaming ? '' : ' animate-fadeIn'}`}
+    >
       <div className="flex flex-col max-w-[80%] min-w-0">
       <div
         className={`message-bubble ${
@@ -807,7 +812,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
           </div>
         )}
       </div>
-    </div>
+    </FadeContent>
   );
 });
 

@@ -180,6 +180,35 @@ export class MemoryManager {
   /** 是否正在执行上下文压缩（竞态标记，与 isExtracting 独立） */
   public isCompressing = false;
 
+  /** 增量提取水印：已提取的消息数，避免重复扫描 */
+  private _extractionWatermark = 0;
+
+  /** 水印持久化路径 */
+  private get watermarkPath(): string {
+    const home = require('node:os').homedir();
+    return require('node:path').join(home, '.xuanji', 'memory-extraction-watermark.json');
+  }
+
+  /** 获取增量提取水印 */
+  getExtractionWatermark(): number {
+    return this._extractionWatermark;
+  }
+
+  /** 更新增量提取水印（同时持久化到文件，进程重启后不丢失） */
+  setExtractionWatermark(count: number): void {
+    this._extractionWatermark = count;
+    // 异步持久化，不阻塞调用方
+    try {
+      const { mkdirSync, writeFileSync } = require('node:fs');
+      const { dirname } = require('node:path');
+      const wp = this.watermarkPath;
+      if (!require('node:fs').existsSync(dirname(wp))) {
+        mkdirSync(dirname(wp), { recursive: true });
+      }
+      writeFileSync(wp, JSON.stringify({ watermark: count, updatedAt: Date.now() }), 'utf-8');
+    } catch { /* 静默失败，影响仅限进程重启会重复提取少量消息 */ }
+  }
+
   /** 上一次压缩产生的摘要（滚动压缩用） */
   public lastCompressionSummary = '';
 
@@ -260,6 +289,18 @@ export class MemoryManager {
     } catch (err) {
       log.warn('加载 memory-manager 配置失败:', err);
     }
+
+    // 从持久化文件恢复提取水印（进程重启后避免重复提取）
+    try {
+      const { existsSync, readFileSync } = require('node:fs');
+      if (existsSync(this.watermarkPath)) {
+        const data = JSON.parse(readFileSync(this.watermarkPath, 'utf-8'));
+        if (typeof data.watermark === 'number' && data.watermark > 0) {
+          this._extractionWatermark = data.watermark;
+          log.info(`Restored extraction watermark: ${this._extractionWatermark}`);
+        }
+      }
+    } catch { /* 忽略 */ }
 
     this.initialized = true;
     log.info(`MemoryManager initialized: ${this.dbPath}`);

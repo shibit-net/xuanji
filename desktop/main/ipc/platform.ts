@@ -175,6 +175,28 @@ export function initAgentBridgeForwarding(): void {
 
   // 监听 agent-bridge 的平台回复（幂等：重复调用只覆盖 handler）
   agentChannel.handle('platform:reply', handleAgentBridgeReply);
+
+  // 监听 agent-bridge 的远端权限确认请求 → 发送文本到平台用户
+  agentChannel.handle('platform:permission-request', async (data: {
+    id: string;
+    platform: string;
+    chatId: string;
+    text: string;
+  }) => {
+    try {
+      const router = await getPlatformRouter();
+      const adapter = router.getAdapter(data.platform);
+      if (adapter && typeof adapter.sendText === 'function') {
+        await adapter.sendText({ chatId: data.chatId, text: data.text });
+        log.info(`Platform permission request sent: platform=${data.platform} chatId=${data.chatId}`);
+      } else {
+        log.warn(`Platform permission request failed: no adapter for platform=${data.platform}`);
+      }
+    } catch (err) {
+      log.error(`Platform permission request error: ${(err as Error).message}`);
+    }
+  });
+
   log.info('Platform ↔ Agent-bridge forwarding initialized');
 }
 

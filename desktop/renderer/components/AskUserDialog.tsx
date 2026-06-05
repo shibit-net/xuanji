@@ -5,6 +5,7 @@
 
 import React, { useState, useRef, memo } from 'react';
 import { t } from '@/i18n';
+import FadeContent from '@/components/FadeContent';
 import { HelpCircle, Send, Check } from 'lucide-react';
 import {
   Dialog,
@@ -91,6 +92,7 @@ function AskUserDialog({ request, onClose }: AskUserDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) handleCancel(); }}>
       <DialogContent className="max-w-lg">
+        <FadeContent blur duration={400}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <HelpCircle size={24} className="text-foreground" />
@@ -183,6 +185,7 @@ function AskUserDialog({ request, onClose }: AskUserDialogProps) {
             {t('agent.ask_user.submit')}
           </Button>
         </DialogFooter>
+        </FadeContent>
       </DialogContent>
     </Dialog>
   );

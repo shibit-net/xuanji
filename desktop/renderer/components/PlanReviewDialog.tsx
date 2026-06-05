@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, memo } from 'react';
+import FadeContent from '@/components/FadeContent';
 import { FileText, MessageSquare } from 'lucide-react';
 import {
   Dialog,
@@ -58,6 +59,7 @@ function PlanReviewDialog({ request, onClose }: PlanReviewDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        <FadeContent blur duration={400}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <FileText size={24} className="text-foreground" />
@@ -126,6 +128,7 @@ function PlanReviewDialog({ request, onClose }: PlanReviewDialogProps) {
             )}
           </div>
         </DialogFooter>
+        </FadeContent>
       </DialogContent>
     </Dialog>
   );

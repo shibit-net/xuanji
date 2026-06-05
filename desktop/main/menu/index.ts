@@ -87,7 +87,7 @@ export function buildAppMenu(appIcon?: Electron.NativeImage | null) {
         { type: 'separator' },
         { role: 'reload' as const, label: '重新加载' },
         { role: 'forceReload' as const, label: '强制重新加载' },
-        { role: 'toggleDevTools' as const, label: '开发者工具' },
+        { role: 'toggleDevTools' as const, label: '开发者工具 (⌘⌥I)', accelerator: 'CmdOrCtrl+Option+I' },
         { type: 'separator' },
         { role: 'togglefullscreen' as const, label: '全屏' },
       ],

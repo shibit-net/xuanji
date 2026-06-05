@@ -283,11 +283,13 @@ export class ChatSession {
     log.info(`[PostToolUse] Triggering fallback extraction for ${toolName}`);
     memoryManager.recordToolCall('posttooluse_dedup', undefined, `posttooluse:${toolName}`);
 
-    // 异步提取
+    // 异步提取：尊重增量水印，只提取未处理的新消息
     setTimeout(() => {
-      const messages = contextManager.getMessages().slice(-10);
-      if (messages.length > 0) {
-        memoryManager.extractFromSession(messages).catch(err => {
+      const allMessages = contextManager.getMessages();
+      const watermark = memoryManager.getExtractionWatermark();
+      const newMessages = allMessages.slice(watermark).slice(-10);
+      if (newMessages.length > 0) {
+        memoryManager.extractFromSession(newMessages).catch(err => {
           log.error('PostToolUse fallback extraction failed:', err);
         });
       }
@@ -374,19 +376,35 @@ export class ChatSession {
     }
   }
 
-  /** 异步提取会话记忆，延迟 5 秒执行。先持久化到文件防止进程退出丢失。 */
+  /** 异步提取会话记忆，延迟 5 秒执行。先持久化到文件防止进程退出丢失。
+   *  使用增量提取水印：只提取上次提取之后的新消息。
+   *  调度时立即更新水印 + 持久化，避免 ① 竞态重复调度 ② 进程重启后丢失。 */
   private scheduleMemoryExtraction(): void {
     const contextManager = this.agentLoop.getContextManager();
     const memoryManager = (contextManager as any).archiveDelegate as import('@/memory/MemoryManager').MemoryManager | undefined;
     if (!memoryManager) return;
 
-    const messages = contextManager.getMessages();
-    if (messages.length === 0) return;
+    const allMessages = contextManager.getMessages();
+    if (allMessages.length === 0) return;
 
-    // 先持久化待提取消息到文件（进程退出保护），再异步提取
-    memoryManager.savePendingExtraction(messages).catch(() => {});
+    // 增量提取：只处理上次水印之后的新消息
+    const watermark = memoryManager.getExtractionWatermark();
+    if (watermark >= allMessages.length) return; // 无新消息
+
+    // 如果上次调度还在执行中（isExtracting），跳过本次（wait for completion）
+    if (memoryManager.isExtracting) return;
+
+    const newMessages = allMessages.slice(watermark);
+    if (newMessages.length === 0) return;
+
+    // 立即更新水印：防止同一批消息被重复调度（即使提取还在进行中）
+    // 持久化也同步完成，进程重启不会回退
+    memoryManager.setExtractionWatermark(allMessages.length);
+
+    // 先持久化新消息到文件（进程退出保护），再异步提取
+    memoryManager.savePendingExtraction(newMessages).catch(() => {});
     setTimeout(() => {
-      memoryManager.extractFromSession(messages).catch(err => {
+      memoryManager.extractFromSession(newMessages).catch(err => {
         log.error('Session memory extraction failed:', err);
       });
     }, 5000);

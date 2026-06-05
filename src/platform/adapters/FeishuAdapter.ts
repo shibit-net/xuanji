@@ -605,6 +605,11 @@ export class FeishuAdapter implements PlatformAdapter {
         const key = content.file_key;
         if (key) attachments.push({ type: 'video', url: `feishu://file/${key}`, mimeType: 'video/mp4' });
         if (!text) text = `[收到视频: ${content.file_key || '未知'}]`;
+      } else if (msgType === 'sticker') {
+        // 飞书自带表情包：标记为 [表情/sticker] 并记录 sticker_key
+        const key = content.sticker_key || content.file_key;
+        if (key) attachments.push({ type: 'image', url: `feishu://sticker/${key}`, name: '[表情/sticker]' });
+        if (!text) text = `[表情/sticker]`;
       }
     } catch {
       text = msg.content || '';

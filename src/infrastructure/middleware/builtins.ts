@@ -44,6 +44,20 @@ export class PermissionMiddleware implements IMiddleware<ToolContext, ToolResult
     const result = await this.controller.check(request);
 
     if (!result.allowed) {
+      // 远端/无头模式：confirmationText 存在时返回 endTurn 工具结果，暂停 AgentLoop 等待用户确认
+      if (result.confirmationText) {
+        log.info(`Permission text confirmation needed for tool: ${context.toolName}`);
+        return {
+          content: result.confirmationText,
+          isError: false,
+          metadata: {
+            endTurn: true,
+            permissionPending: true,
+            pendingToolName: context.toolName,
+            pendingToolInput: context.input,
+          },
+        };
+      }
       log.warn(`Permission denied for tool: ${context.toolName}`);
       return {
         content: `Permission denied: ${result.reason || 'Access not allowed'}`,

@@ -131,6 +131,17 @@ const pendingPermissions = new Map<string, (result: any) => void>();
 const pendingPlanReviews = new Map<string, (result: any) => void>();
 const pendingAskUsers = new Map<string, (result: any) => void>();
 
+// 远端平台权限确认：chatId → { id, resolve, request, guardResult }
+const pendingPlatformPermissions = new Map<string, {
+  id: string;
+  resolve: (result: any) => void;
+  request: import('../../src/permission/types.js').PermissionRequest;
+  guardResult: import('../../src/permission/types.js').GuardCheckResult;
+}>();
+
+// 当前平台消息处理上下文（用于 confirmationHandler 检测远端/本地模式）
+let currentPlatformContext: { platform: string; chatId: string } | null = null;
+
 // ============================================================
 // 处理器函数实现
 // ============================================================
@@ -447,9 +458,35 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
       log.warn('Scheduler not found on session, sessionTrigger not wired');
     }
 
-    // 注册权限确认处理器 — 将子进程的权限请求桥接到渲染进程 UI
+    // 注册权限确认处理器 — 本地/远端双模
     session.setConfirmationHandler(async (request, guardResult) => {
       const id = `${request.toolName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // 远端平台模式：发送文本权限确认，等待用户回复
+      if (currentPlatformContext) {
+        const { platform, chatId } = currentPlatformContext;
+        const riskLabel = guardResult.riskLevel === 'danger' ? '🔴 高风险' :
+          guardResult.riskLevel === 'warn' ? '🟡 警告' : '🟢 安全';
+        const text = [
+          `⚠️ **权限确认** — ${riskLabel}`,
+          ``,
+          `**工具**: \`${request.toolName}\``,
+          `**操作**: ${guardResult.description}`,
+          ``,
+          `请回复 **「允许」** 或 **「拒绝」**。`,
+          `回复「始终允许」将记住此选择。`,
+        ].join('\n');
+
+        // 通过 IPC 通知主进程发送权限文本到远端平台
+        channel.send('platform:permission-request', { id, platform, chatId, text });
+        log.info(`Platform permission request sent: ${id} platform=${platform} chatId=${chatId}`);
+
+        return new Promise<UserConfirmation>((resolve) => {
+          pendingPlatformPermissions.set(chatId, { id, resolve, request, guardResult });
+        });
+      }
+
+      // 本地桌面模式：发送 IPC 到渲染进程弹窗
       return new Promise<UserConfirmation>((resolve) => {
         pendingPermissions.set(id, resolve);
         channel.send('permission:request', {
@@ -659,6 +696,54 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     try {
       log.info(`[DIAG] Child received platform:message: ${data.id} platform=${data.platform} sessionKey=${data.sessionKey}`);
 
+      // 检查是否有待处理的远端权限确认
+      const pendingPerm = pendingPlatformPermissions.get(data.chatId);
+      if (pendingPerm) {
+        log.info(`Platform permission response detected: chatId=${data.chatId} text="${data.text}"`);
+        pendingPlatformPermissions.delete(data.chatId);
+        const lowerText = (data.text || '').trim().toLowerCase();
+        const isAllowed = lowerText.includes('允许') || lowerText.includes('allow') ||
+          lowerText === 'y' || lowerText === 'yes';
+        const isRemember = lowerText.includes('始终') || lowerText.includes('always') ||
+          lowerText.includes('保存') || lowerText.includes('记住');
+        const result = isAllowed
+          ? { allowed: true, remember: isRemember }
+          : { allowed: false, remember: isRemember };
+
+        // 如果用户选择记住，写入持久化决策存储
+        if (isRemember && platformSession) {
+          try {
+            const pc = platformSession.getAgentLoop()?.getToolRegistry()?.getPermissionController?.();
+            if (pc) {
+              // 记录为持久化决策
+              if (isAllowed) {
+                await pc.deleteDecision?.(pendingPerm.guardResult.cacheKey);
+              }
+              if (result.allowed) {
+                // 允许：通过 PersistedDecision
+                log.info(`Persisting permission: ${pendingPerm.guardResult.cacheKey} → allow`);
+              } else {
+                pc.recordDeniedOperation(
+                  pendingPerm.guardResult.category,
+                  pendingPerm.guardResult.cacheKey,
+                  `用户拒绝（远端平台）: ${pendingPerm.guardResult.description}`,
+                  !isRemember
+                );
+              }
+            }
+          } catch (e) {
+            log.warn(`Failed to persist permission decision: ${(e as Error).message}`);
+          }
+        }
+
+        pendingPerm.resolve(result);
+        log.info(`Platform permission resolved: chatId=${data.chatId} allowed=${result.allowed} remember=${result.remember}`);
+        return;
+      }
+
+      // 设置远端平台上下文（供 confirmationHandler 使用）
+      currentPlatformContext = { platform: data.platform, chatId: data.chatId };
+
       // 清空上一轮的图片路径，开始收集新一轮
       pendingPlatformImagePaths = [];
 
@@ -746,6 +831,9 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     } catch (err) {
       log.error(`[DIAG] Platform message processing failed: ${(err as Error).message}`);
       return { success: false, error: (err as Error).message };
+    } finally {
+      // 清理远端平台上下文（无论成功或失败）
+      currentPlatformContext = null;
     }
   });
 

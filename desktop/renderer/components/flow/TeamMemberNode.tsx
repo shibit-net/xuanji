@@ -85,7 +85,7 @@ export function TeamMemberNode({ data, id }: NodeProps<TeamMemberNodeData>) {
         className="rounded-full overflow-hidden shadow-md flex-shrink-0"
         style={{
           width: AVATAR_SIZE, height: AVATAR_SIZE,
-          background: 'rgba(46,46,46,0.85)',
+          background: 'hsl(var(--card))',
           border: `2px solid ${visual.border}`,
           marginTop: 4,
           opacity: terminal ? 0.35 : 1,

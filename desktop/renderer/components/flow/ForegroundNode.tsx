@@ -97,7 +97,7 @@ export function ForegroundNode({ data, id }: NodeProps<ForegroundNodeData>) {
         className="rounded-full overflow-hidden shadow-lg flex-shrink-0"
         style={{
           width: AVATAR_SIZE, height: AVATAR_SIZE,
-          background: 'rgba(46,46,46,0.85)',
+          background: 'hsl(var(--card))',
           border: `2px solid ${visual.border}`,
           marginTop: 8,
           opacity: terminal ? 0.5 : 1,

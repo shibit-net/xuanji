@@ -161,6 +161,7 @@ export function usePlatformEvents() {
             sessionKey: placeholderId,
             userId: '',
             chatId: '__feishu_placeholder__',
+            isGroup: false,
           });
         }
         return;
@@ -199,6 +200,7 @@ export function usePlatformEvents() {
           sessionKey: data.sessionKey,
           userId: data.userId || '',
           chatId: data.chatId,
+          isGroup: data.chatType === 'group',
         });
       } else {
         store.updateSessionStatus(data.sessionKey, data.status as 'online' | 'offline' | 'connecting');

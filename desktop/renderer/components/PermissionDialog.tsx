@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState, memo } from 'react';
+import FadeContent from '@/components/FadeContent';
 import { AlertTriangle, Shield } from 'lucide-react';
 import {
   Dialog,
@@ -74,6 +75,7 @@ function PermissionDialog({ request, onClose }: PermissionDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <FadeContent blur duration={400}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <Shield size={24} className={riskColors[riskLevel]} />
@@ -147,6 +149,7 @@ function PermissionDialog({ request, onClose }: PermissionDialogProps) {
             {getDesktopLabel('permdialog.btn_always', lang)}
           </Button>
         </DialogFooter>
+        </FadeContent>
       </DialogContent>
     </Dialog>
   );

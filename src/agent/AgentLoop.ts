@@ -435,6 +435,16 @@ export class AgentLoop {
           }
         }
 
+        // 远端会话：检测 ask_user/plan_review 是否触发 endTurn
+        const endTurnResult = Array.from(resultsMap.values()).find(
+          tr => tr?.metadata?.endTurn === true,
+        );
+        if (endTurnResult) {
+          // 将提问内容作为 agent 文本输出（让平台适配器发送给用户）
+          this.callbacks.onText?.(endTurnResult.content + '\n');
+          break;
+        }
+
         if (this.hookRegistry) {
           for (const tc of result.toolCalls) {
             const tr = resultsMap.get(tc.id);

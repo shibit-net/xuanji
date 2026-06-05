@@ -10,6 +10,7 @@ import RemoteChatArea from '../components/RemoteChatArea';
 import MonitorPanel from '../components/MonitorPanel';
 import InputArea from '../components/InputArea';
 import TodoPanel from '../components/TodoPanel';
+import Aurora from '@/components/Aurora';
 import { Loader2 } from 'lucide-react';
 import { useConversationStore } from '../stores/ConversationStore';
 import { useAgentStateMachine } from '../stores/AgentStateMachine';
@@ -26,6 +27,27 @@ function formatToken(n: number): string {
 
 export default function MainPage() {
   React.useEffect(() => { registerEventAdapter(); }, []);
+
+  // 检测暗色模式（html 上的 .dark class）
+  const [isDark, setIsDark] = React.useState(
+    () => document.documentElement.classList.contains('dark'),
+  );
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  // Aurora 极光色阶：浅色/深色模式使用 xuanji 主蓝色 hsl(211, ...)
+  const auroraColors = React.useMemo<string[]>(
+    () =>
+      isDark
+        ? ['#0044cc', '#0077ff', '#3399ff'] // dark: hsl(211, 100%, 50%)
+        : ['#1a5fa9', '#2b7fc2', '#4a9ed9'], // light: hsl(211, 65%, 50%)
+    [isDark],
+  );
 
   const currentIteration = useConversationStore((s) => s.iteration);
   const sessionStatus = useSessionStore((s) => s.initStatus);
@@ -52,9 +74,17 @@ export default function MainPage() {
     : undefined;
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="relative flex flex-1 overflow-hidden">
+      {/* Aurora 极光背景 — 仅在状态栏高度，弱化渲染 */}
+      <div
+        className="absolute top-0 left-0 right-0 z-0 pointer-events-none opacity-50"
+        style={{ height: '36px' }}
+      >
+        <Aurora colorStops={auroraColors} amplitude={0.3} blend={0.15} />
+      </div>
+
       {/* 左侧：聊天区 */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden border-r border-border">
+      <div className="relative z-10 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden border-r border-border">
         <div className="flex-shrink-0 flex items-center gap-3 px-4 py-1.5 border-b border-border bg-muted/30">
           {sessionStatus !== 'ready' && (
             <div className="flex items-center gap-1.5 text-[11px]">
@@ -105,7 +135,7 @@ export default function MainPage() {
       </div>
 
       {/* 右侧：监控面板 */}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+      <div className="relative z-10 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
         <MonitorPanel />
       </div>
     </div>

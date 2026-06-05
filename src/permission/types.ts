@@ -26,6 +26,8 @@ export interface PermissionResult {
   reason?: string;
   /** 触发的检查层级（用于日志） */
   checkedBy?: string;
+  /** 文本确认内容（无 UI handler 时，生成文本提示供远端用户确认） */
+  confirmationText?: string;
 }
 
 /**

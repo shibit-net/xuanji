@@ -172,8 +172,9 @@ function Flow() {
   }
 
   return (
-    <div className="w-full h-full bg-background">
+    <div className="w-full h-full bg-transparent">
       <ReactFlow
+        style={{ background: 'transparent' }}
         nodes={nodes}
         edges={edges}
         onNodesChange={handleNodesChange}

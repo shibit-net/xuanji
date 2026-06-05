@@ -22,6 +22,8 @@ export interface RemoteSession {
   /** 对方最后阅读时间（已读回执） */
   lastReadAt?: number;
   lastReadBy?: string;
+  /** 是否为群聊（用于侧边栏区分群/私聊图标） */
+  isGroup?: boolean;
 }
 
 export interface PlatformMessage {

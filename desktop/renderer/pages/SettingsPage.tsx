@@ -359,13 +359,14 @@ function DownloadTab({ config, loading, onSave }: TabProps) {
 
 // ============================================================
 // 设置页面主组件
-// ============================================================
+
 function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('tools');
   const language = useConfigStore((s) => s.settings.language);
   const config = useConfigStore((s) => s.fullConfig);
   const loading = useConfigStore((s) => s.loading);
   const loadConfig = useConfigStore((s) => s.loadConfig);
+
 
   // 如果配置还没加载（理论上不会，App.tsx 已初始化），触发一次加载
   useEffect(() => {
@@ -415,43 +416,45 @@ function SettingsPage({ onClose }: SettingsPageProps) {
   const tabProps: TabProps = { config, loading, onSave: handleSave };
 
   return (
-    <div className="h-full flex flex-col bg-background text-foreground">
-      {/* 顶部栏 */}
-      <div className="h-12 border-b border-border flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <Settings size={18} />
-          <h1 className="text-base font-semibold">{getDesktopLabel('settings.title', language)}</h1>
+    <div className="h-full flex flex-col text-foreground">
+      <div className="flex flex-col h-full">
+        {/* 顶部栏 */}
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 shrink-0 bg-background">
+          <div className="flex items-center gap-2">
+            <Settings size={18} />
+            <h1 className="text-base font-semibold">{getDesktopLabel('settings.title', language)}</h1>
+          </div>
+          <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title={getDesktopLabel('settings.close', language)}>
+            <X size={16} />
+          </Button>
         </div>
-        <Button onClick={onClose} variant="ghost" size="icon" className="h-7 w-7" title={getDesktopLabel('settings.close', language)}>
-          <X size={16} />
-        </Button>
-      </div>
 
-      {/* 主体 */}
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-48 border-r border-border p-3 space-y-1 shrink-0">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-primary/15 text-primary border border-primary/30'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </aside>
+        {/* 主体 */}
+        <div className="flex flex-1 overflow-hidden">
+          <aside className="w-48 border-r border-border p-3 space-y-1 shrink-0 bg-background">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-primary/15 text-primary border border-primary/30'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </aside>
 
-        <div className="flex-1 overflow-y-auto">
-          {activeTab === 'tools' && <ToolsTab {...tabProps} />}
-          {activeTab === 'features' && <FeaturesTab {...tabProps} />}
-          {activeTab === 'ui' && <UITab {...tabProps} />}
-          {activeTab === 'modelProviders' && <ModelProvidersTab {...tabProps} />}
-          {activeTab === 'download' && <DownloadTab {...tabProps} />}
+          <div className="flex-1 overflow-y-auto bg-background">
+            {activeTab === 'tools' && <ToolsTab {...tabProps} />}
+            {activeTab === 'features' && <FeaturesTab {...tabProps} />}
+            {activeTab === 'ui' && <UITab {...tabProps} />}
+            {activeTab === 'modelProviders' && <ModelProvidersTab {...tabProps} />}
+            {activeTab === 'download' && <DownloadTab {...tabProps} />}
+          </div>
         </div>
       </div>
     </div>

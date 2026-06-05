@@ -145,6 +145,8 @@ export interface WechatConfig extends PlatformConfig {
   token_path: string;
   base_url: string;
   poll_interval_ms: number;
+  /** 工作区目录路径，用于下载附件到此目录供 Agent 访问 */
+  workspacePath?: string;
 }
 
 export interface PlatformsConfig {

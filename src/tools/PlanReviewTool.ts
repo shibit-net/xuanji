@@ -47,8 +47,11 @@ export class PlanReviewTool extends BaseTool {
     }
 
     if (!this.permissionController) {
-      // 无权限控制器时直接通过
-      return this.success('[Plan Review] 无审批处理器，自动通过。请创建 todo 后使用 agent_team 或 task 执行。');
+      // 远端/无头模式：将计划发送给用户审核（通过 endTurn 机制）
+      return this.success(
+        `**📋 执行计划**\n\n${plan}\n\n_请回复 "批准"、"拒绝" 或补充说明。_`,
+        { endTurn: true },
+      );
     }
 
     if (signal?.aborted) {

@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useConfigStore } from '../stores/configStore';
 import { getDesktopLabel } from '../i18n';
 import loginBg from '../assets/logos/b7aa923993c0b15b70c96f2edc3df0fc.png';
+import Aurora from '../components/Aurora';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -13,6 +14,25 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ---- 暗色模式检测 - Aurora 颜色方案 ----
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains('dark'),
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  const auroraDarkStops = ['#1e3a8a', '#2563eb', '#4f46e5'];
+  const auroraLightStops = ['#bfdbfe', '#93c5fd', '#a5b4fc'];
 
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
@@ -106,10 +126,19 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-screen bg-background flex items-center justify-center overflow-hidden">
       {/* 背景氛围光 */}
-      <div className="fixed top-[-15%] left-[-5%] w-[50%] h-[50%] rounded-full bg-primary/10 blur-[120px]" />
-      <div className="fixed bottom-[-15%] right-[-5%] w-[40%] h-[40%] rounded-full bg-accent/10 blur-[100px]" />
+      <div className="fixed top-[-15%] left-[-5%] w-[50%] h-[50%] rounded-full bg-primary/10 blur-[120px] z-0" />
+      <div className="fixed bottom-[-15%] right-[-5%] w-[40%] h-[40%] rounded-full bg-accent/10 blur-[100px] z-0" />
 
-      <div className="relative w-full max-w-sm px-6">
+      {/* Aurora 动态极光背景 */}
+      <div className="fixed inset-0 z-10 opacity-65 pointer-events-none">
+        <Aurora
+          colorStops={isDark ? auroraDarkStops : auroraLightStops}
+          amplitude={1.0}
+          blend={0.5}
+        />
+      </div>
+
+      <div className="relative w-full max-w-sm px-6 z-20">
         <Card className="shadow-glass-xl">
           <CardHeader className="text-center pt-10 pb-2">
             <div className="mx-auto mb-6 w-20 h-20 rounded-2xl bg-white/10 flex items-center justify-center overflow-hidden shadow-glass-sm">

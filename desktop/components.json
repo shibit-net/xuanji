@@ -1,11 +1,11 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "default",
+  "style": "base-nova",
   "rsc": false,
   "tsx": true,
   "tailwind": {
     "config": "tailwind.config.js",
-    "css": "renderer/styles/globals.css",
+    "css": "renderer/index.css",
     "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
@@ -16,5 +16,8 @@
     "ui": "@/components/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
+  },
+  "registries": {
+    "@react-bits": "https://reactbits.dev/r/{name}.json"
   }
 }

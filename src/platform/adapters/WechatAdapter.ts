@@ -6,8 +6,10 @@
  */
 
 import { randomUUID, randomBytes, createHash, createCipheriv } from 'crypto';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import path from 'path';
+import { tmpdir } from 'os';
 import type { PlatformAdapter, PlatformMessage, WechatConfig } from '../types.js';
 import type { CredentialManager } from '../auth/CredentialManager.js';
 import { buildSessionKey } from '../SessionRouter.js';
@@ -366,6 +368,12 @@ export class WechatAdapter implements PlatformAdapter {
       }
       const msg = this.parseMessage(raw);
       if (msg) {
+        // 下载附件到本地（图片/文件/语音/视频），设置 localPath 供 Agent 读取
+        try {
+          await this.downloadAttachments(msg);
+        } catch (err) {
+          log.error(`Wechat downloadAttachments failed: ${(err as Error).message}`);
+        }
         this.messageHandler?.(msg);
       }
     }
@@ -444,6 +452,55 @@ export class WechatAdapter implements PlatformAdapter {
       sessionKey: buildSessionKey({ platform: 'wechat', chatType: 'private', chatId: raw.from_user_id }),
       raw: { ...raw, context_token: raw.context_token },
     };
+  }
+
+  /** 下载附件（图片/文件/语音/视频）到本地临时目录，设置 localPath 供 Agent 访问（参考 FeishuAdapter 实现） */
+  private async downloadAttachments(msg: PlatformMessage): Promise<void> {
+    if (!msg.attachments || msg.attachments.length === 0) return;
+
+    const workspacePath = (this.config as any).workspacePath;
+    const tempDir = join(workspacePath || tmpdir(), 'wechat-attachments');
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+
+    const fileNames: string[] = [];
+
+    for (const att of msg.attachments) {
+      const url = att.url;
+      if (!url) continue;
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          log.warn(`Wechat download attachment failed: HTTP ${response.status} from ${url.slice(0, 80)}`);
+          continue;
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        // 确定文件扩展名
+        let ext = '.bin';
+        if (att.type === 'image') ext = '.jpg';
+        else if (att.type === 'audio' || att.type === 'voice') ext = att.mimeType?.includes('silk') ? '.silk' : '.ogg';
+        else if (att.type === 'video') ext = '.mp4';
+        else if (att.name?.includes('.')) ext = att.name.substring(att.name.lastIndexOf('.'));
+
+        const localName = `${Date.now()}_${att.name?.replace(/[^a-zA-Z0-9._-]/g, '_') || 'attachment'}${ext}`;
+        const localPath = join(tempDir, localName);
+        writeFileSync(localPath, buffer);
+        att.localPath = localPath;
+        fileNames.push(localPath);
+      } catch (err) {
+        log.warn(`Wechat download attachment failed: ${(err as Error).message}`);
+      }
+    }
+
+    // 在消息文本中注入文件路径，让 Agent 知道有可读取的文件
+    if (fileNames.length > 0) {
+      const fileList = fileNames.map(f => `file:${f}`).join('\n');
+      msg.text = msg.text ? `${msg.text}\n\n附件：\n${fileList}` : `附件：\n${fileList}`;
+    }
   }
 
   // ── 发送消息 ─────────────────────────────────────────────

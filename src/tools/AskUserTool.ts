@@ -120,12 +120,20 @@ export class AskUserTool extends BaseTool {
       return this.error(t('tool.ask_user.error.empty_question'));
     }
 
-    if (!this.handler) {
-      return this.error(t('tool.ask_user.error.no_handler'));
-    }
-
     if (signal?.aborted) {
       return this.error(t('tool.ask_user.error.cancelled'));
+    }
+
+    // 远端/无头模式：无 UI handler 时，格式化问题并通过 endTurn 发送
+    if (!this.handler) {
+      const options = input.options as string[] | undefined;
+      const optionText = options?.length
+        ? `\n\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
+        : '';
+      return this.success(
+        `**❓ ${question}**${optionText}\n\n_请回复你的选择。_`,
+        { endTurn: true },
+      );
     }
 
     const request: AskUserRequest = {

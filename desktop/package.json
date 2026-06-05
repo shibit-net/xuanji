@@ -1,6 +1,6 @@
 {
   "name": "xuanji-desktop",
-  "version": "1.0.0",
+  "version": "0.9.0-beta.1",
   "description": "Xuanji Desktop - AI Agent Desktop Application",
   "main": "dist-electron/index.js",
   "author": "Shibit Team",
@@ -16,11 +16,9 @@
     "build:acp-worker": "cd .. && npx tsup --config tsup.config.acp-worker.ts",
     "build:agent-bridge": "tsup --config tsup.config.agent-bridge.ts",
     "build": "npm run build:pre && electron-builder",
-    "build:mac": "npm run build:pre && electron-builder --mac --x64 --dir && npm run build:package-x64",
-    "build:package-x64": "cd release/mac && rm -f xuanji-mac-x64.dmg xuanji-mac-x64.zip && hdiutil create -volname \"xuanji\" -srcfolder xuanji.app -ov -format UDZO xuanji-mac-x64.dmg && ditto -c -k --keepParent xuanji.app xuanji-mac-x64.zip",
-    "build:mac:arm64": "npm run build:pre && electron-builder --mac --arm64 --dir && npm run build:package-arm64",
-    "build:package-arm64": "cd release/mac-arm64 && rm -f xuanji-mac-arm64.dmg xuanji-mac-arm64.zip && hdiutil create -volname \"xuanji\" -srcfolder xuanji.app -ov -format UDZO xuanji-mac-arm64.dmg && ditto -c -k --keepParent xuanji.app xuanji-mac-arm64.zip",
-    "build:mac:universal": "npm run build:pre && electron-builder --mac --universal",
+    "build:mac": "npm run build:pre && electron-builder --mac --x64 && node scripts/create-dmg.mjs",
+    "build:mac:arm64": "npm run build:pre && electron-builder --mac --arm64 && node scripts/create-dmg.mjs",
+    "build:mac:universal": "npm run build:pre && electron-builder --mac --universal && node scripts/create-dmg.mjs",
     "build:win": "npm run build:pre && npm_config_build_from_source=true electron-builder --win --x64",
     "build:all": "npm run build:pre && npm_config_build_from_source=true electron-builder --mac --win --x64",
     "postinstall": "electron-builder install-app-deps",
@@ -69,10 +67,12 @@
     "dagre": "^0.8.5",
     "fast-redact": "^3.5.0",
     "framer-motion": "^11.0.3",
+    "gsap": "^3.15.0",
     "katex": "^0.16.45",
     "lucide-react": "^0.344.0",
     "mermaid": "^11.14.0",
     "node-pty": "^1.1.0",
+    "ogl": "^1.0.11",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.0",
     "pino-std-serializers": "^7.0.0",
@@ -97,6 +97,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "concurrently": "^8.2.2",
+    "create-dmg": "^8.1.0",
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "electron-rebuild": "^3.2.9",
@@ -112,7 +113,7 @@
   "build": {
     "appId": "com.shibit.xuanji",
     "productName": "xuanji",
-    "artifactName": "xuanji-${os}-${arch}.${ext}",
+    "artifactName": "xuanji-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -160,11 +161,10 @@
     ],
     "mac": {
       "target": [
-        "dmg",
         "zip"
       ],
       "icon": "build/icon.icns",
-      "artifactName": "xuanji-${os}-${arch}.${ext}",
+      "artifactName": "xuanji-${version}-${os}-${arch}.${ext}",
       "hardenedRuntime": false,
       "x64ArchFiles": "Contents/Resources/python-runtime/**"
     },
