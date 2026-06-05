@@ -178,7 +178,7 @@ function initChatSession(): Promise<boolean> {
         spawnEnv.XUANJI_TEMPLATE_DIR = path.join(resourcesPath, 'templates');
         spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(resourcesPath, 'python-runtime');
       } else {
-        spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'core', 'templates');
+        spawnEnv.XUANJI_TEMPLATE_DIR = path.join(projectRoot, 'src', 'infrastructure', 'templates');
         spawnEnv.XUANJI_PYTHON_RUNTIME = path.join(desktopRoot, 'python-runtime');
       }
 

@@ -70,8 +70,8 @@
     --card: 0 0% 100% / 0.18;
     --card-foreground: 0 0% 92%;
 
-    /* 弹出菜单 — 更实的玻璃 */
-    --popover: 0 0% 100% / 0.30;
+    /* 弹出菜单 — 深色实底，确保下拉菜单可读 */
+    --popover: 0 0% 10%;
     --popover-foreground: 0 0% 92%;
 
     /* 主色 — visionOS 蓝色调 */
