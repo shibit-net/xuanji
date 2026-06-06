@@ -132,6 +132,11 @@ export interface FeishuConfig extends PlatformConfig {
   app_secret: string;
   /** 工作区目录路径，用于下载附件到此目录供 Agent 访问 */
   workspacePath?: string;
+  /** Bot 在群聊中的显示名（覆盖飞书 API 返回的 app_name）。
+   *  用于解决多 Bot 场景下「不知道 @ 谁是叫自己」的问题。
+   *  例如：飞书后台应用名叫 "xuanji-bot"，但群友都叫它 "璇小玑"，
+   *  配置 botName: "璇小玑" 即可让 Bot 正确识别 @ 自己的消息。 */
+  botName?: string;
 }
 
 export interface DingTalkConfig extends PlatformConfig {
