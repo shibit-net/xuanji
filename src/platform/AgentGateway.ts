@@ -22,9 +22,6 @@ import { logger } from '@/infrastructure/logger';
 const log = logger.child({ module: 'AgentGateway' });
 
 export class AgentGatewayImpl implements AgentGateway {
-  /** 多 Worker 协调：防止多个 worker 同时调用 agentLoop.run() */
-  private agentBusy = false;
-
   /** 群成员配置：chatId → GroupMember[] */
   private groupMembers = new Map<string, GroupMember[]>();
 
@@ -67,16 +64,8 @@ export class AgentGatewayImpl implements AgentGateway {
     msg: PlatformMessage,
     options?: { sessionKey?: string; channelPrompt?: string },
   ): Promise<AgentReply> {
-    // 等待 AgentLoop 空闲（本地 ChatSession 也可能正在使用同一 AgentLoop 实例）
-    while (this.agentBusy || this.agentLoop.getState().status !== 'idle') {
-      await new Promise(r => setTimeout(r, 200));
-    }
-    this.agentBusy = true;
-    try {
-      return await this.doProcess(msg, options);
-    } finally {
-      this.agentBusy = false;
-    }
+    // 状态机已通过 SessionStateMachine 管理中断/排队，不再需要 agentBusy 锁
+    return await this.doProcess(msg, options);
   }
 
   private async doProcess(

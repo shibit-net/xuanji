@@ -265,21 +265,6 @@ async build(options: LayeredPromptBuildOptions = {}): Promise<PromptBuildResult>
     }
   }
 
-  // L0 记忆注入 — 用户画像 + 场景上下文
-  if (this.memoryManager) {
-    try {
-      const memoryContext = await this.memoryManager.buildContext({
-        scene: scene || undefined,
-        maxTokens: 800,
-      });
-      if (memoryContext) {
-        parts.push(memoryContext);
-      }
-    } catch (err) {
-      log.warn('Failed to build memory context:', err);
-    }
-  }
-
   const prompt = parts.join('\n\n');
 
   // 替换 persona 占位符

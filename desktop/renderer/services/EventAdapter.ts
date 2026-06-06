@@ -574,7 +574,14 @@ export function registerEventAdapter(): void {
   messageBus.on('agent:task-failed', (data: { subAgentId?: string; groupId?: string; error?: string }) => {
     const agentId = data.subAgentId || data.groupId;
     if (!agentId) return;
-    useAgentStateMachine.getState().transition({ type: 'TASK_FAILED', agentId, error: data.error });
+    // 仅当 agent 已存在时才更新 AgentStateMachine，防止创建阶段失败的 team/task
+    // 在 Flow 中产生 ghost 节点（例如 agent_team "team name is required" 错误）。
+    // team/task 生命周期事件（agent:team-start, agent:background-task-start）
+    // 会在 agent 成功创建后才发射，此时 agent 已存在于 agentMap 中。
+    const existingAgent = useAgentStateMachine.getState().agentMap[agentId];
+    if (existingAgent) {
+      useAgentStateMachine.getState().transition({ type: 'TASK_FAILED', agentId, error: data.error });
+    }
     useAsyncTaskStore.getState().transition({ type: 'TASK_CANCELLED', taskId: agentId });
   });
 

@@ -6,7 +6,6 @@ import { memo } from 'react';
 import { Download, Trash2 } from 'lucide-react';
 import { t } from '@/i18n';
 import { useToast } from '../Toast';
-import type { ModelOption } from './shared/constants';
 
 interface LocalModelStatus {
   installed: boolean;
@@ -27,9 +26,6 @@ interface AgentModelConfigProps {
   errors: Record<string, string>;
   canEdit: (field: string) => boolean;
   renderFormField: (label: string, field: string, type?: 'text' | 'textarea' | 'number' | 'select', options?: string[], disabled?: boolean, placeholder?: string) => React.ReactNode;
-  models: ModelOption[];
-  modelsLoading: boolean;
-  loadModels: (adapter?: string, searchName?: string) => Promise<void>;
   localModelStatuses: Record<string, LocalModelStatus>;
   scannedModels: ScannedModel[];
   downloadLocalModel: (modelId: string) => void;
@@ -42,9 +38,6 @@ function AgentModelConfig({
   errors,
   canEdit,
   renderFormField,
-  models,
-  modelsLoading,
-  loadModels,
   localModelStatuses,
   scannedModels,
   downloadLocalModel,
@@ -65,8 +58,6 @@ function AgentModelConfig({
                 ...config,
                 provider: { ...config.provider, adapter: newAdapter },
               });
-              // 切换 adapter 时重新加载模型列表
-              loadModels(newAdapter);
             }}
             disabled={!canEdit('provider.adapter')}
             className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"

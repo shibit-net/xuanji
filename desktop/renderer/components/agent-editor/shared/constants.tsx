@@ -54,17 +54,6 @@ export interface AgentEditorProps {
 export type EditorMode = 'form' | 'json5';
 export type ExpandedSections = Set<string>;
 
-export interface ModelOption {
-  id: number;
-  name: string;
-  model: string;
-  adapter: string;
-  vendor?: string;
-  inputPrice?: number;
-  outputPrice?: number;
-  priceUnit?: string;
-}
-
 // 默认配置（创建新 Agent 时使用）
 export const DEFAULT_CONFIG = {
   id: '',

@@ -145,8 +145,9 @@ export const useAgentStateMachine = create<AgentStateMachineStore>((set, get) =>
       const next = { ...s.agentMap };
       let main = s.mainAgent;
 
-      // 统一入口：非 AGENT_CREATED 事件，agent 不存在则自动创建（替代 6 处 _promoteSubAgent）
-      if (event.type !== 'AGENT_CREATED' && event.type !== 'CLEANUP_COMPLETED_TASKS') {
+      // 统一入口：非 AGENT_CREATED / TASK_FAILED / CLEANUP_COMPLETED_TASKS 事件，agent 不存在则自动创建
+      // TASK_FAILED 除外：team/task 创建失败时 ghost agent 不应出现在 React Flow 中
+      if (event.type !== 'AGENT_CREATED' && event.type !== 'CLEANUP_COMPLETED_TASKS' && event.type !== 'TASK_FAILED') {
         const e = event as any;
         if (e.agentId && !next[e.agentId]) {
           const ensured = ensureAgent(next, main, e.agentId, e.agentId);

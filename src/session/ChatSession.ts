@@ -34,7 +34,7 @@ export class ChatSession {
   private container: DependencyContainer;
   private callbacks?: SessionCallbacks;
   private stateTracker: StateTracker;
-  private _pendingQueue: string[] = [];
+  private _pendingQueues = new Map<string, string[]>();
   private userId: string;
   private workingDir: string;
   private _drainRunning = false;
@@ -94,7 +94,7 @@ export class ChatSession {
 
       log.info('ChatSession initialized with SessionStateMachine (new path)');
     } else {
-      agentLoop.setPendingQueue(this._pendingQueue);
+      agentLoop.setPendingQueue(this._pendingQueues.get('local') || []);
       log.info('ChatSession initialized with StateTracker + TaskOrchestrator');
     }
   }
@@ -113,7 +113,7 @@ export class ChatSession {
       if (this._useNewPath && this._stateMachine) {
         this._stateMachine.pendingMessages.push(input);
       } else {
-        this._pendingQueue.push(input);
+        this._pendingQueues.get('local')?.push(input) || this._pendingQueues.set('local', [input]);
       }
       return;
     }
@@ -130,8 +130,10 @@ export class ChatSession {
     try {
       await this.callbacks?.onBeforeExecution?.(input);
 
-      // 自动加载记忆上下文：在 agent 执行前搜索相关记忆并注入 system prompt
-      await this.autoLoadMemoryContext(input);
+      // 自动加载记忆上下文：最多等 100ms，超时则让 AgentLoop 先启动
+      const memoryPromise = this.autoLoadMemoryContext(input);
+      const memoryTimeout = new Promise<void>((resolve) => setTimeout(resolve, 100));
+      await Promise.race([memoryPromise, memoryTimeout]);
 
       if (this._useNewPath && this._stateMachine) {
         this._stateMachine.transition({ type: 'AGENT_STARTED' });
@@ -622,22 +624,23 @@ export class ChatSession {
   }
 
   /** 消费 pendingQueue 中的消息 */
-  private async drainPendingQueue(): Promise<void> {
-    if (this._pendingQueue.length === 0) return;
+  private async drainPendingQueue(sessionKey: string = 'local'): Promise<void> {
+    const queue = this._pendingQueues.get(sessionKey);
+    if (!queue || queue.length === 0) return;
     if (this._drainRunning) return;
 
     this._drainRunning = true;
-    log.info(`[drainPendingQueue] start draining, queue size=${this._pendingQueue.length}`);
+    log.info(`[drainPendingQueue] start draining, sessionKey=${sessionKey} queue size=${queue.length}`);
 
     try {
-      while (this._pendingQueue.length > 0) {
-        const next = this._pendingQueue.shift()!;
+      while (queue.length > 0) {
+        const next = queue.shift()!;
         log.info(`[drainPendingQueue] processing: "${next.substring(0, 80)}"`);
         try {
           // 把队列里剩余的消息也合并进来，一次性处理
           const combined = [next];
-          while (this._pendingQueue.length > 0) {
-            combined.push(this._pendingQueue.shift()!);
+          while (queue.length > 0) {
+            combined.push(queue.shift()!);
           }
           await this.run(combined.join('\n'), { fromDrain: true });
         } catch (err) {
@@ -721,7 +724,9 @@ export class ChatSession {
     }
 
     // 中断 + 新消息：软中断，排队新输入，等当前迭代结束后消费
-    this._pendingQueue.unshift(input);
+    const localQueue = this._pendingQueues.get('local') || [];
+    localQueue.unshift(input);
+    this._pendingQueues.set('local', localQueue);
     this.agentLoop.requestAbort();
     // 等 AgentLoop 停稳后统一消费整个队列
     const waitAndDrain = () => {
@@ -729,23 +734,26 @@ export class ChatSession {
         setTimeout(waitAndDrain, 50);
         return;
       }
-      this.drainPendingQueue();
+      this.drainPendingQueue('local');
     };
     setTimeout(waitAndDrain, 50);
   }
 
-  appendMessage(message: string): void {
-    this._pendingQueue.push(message);
-    log.info(`[appendMessage] queued, pendingQueue size=${this._pendingQueue.length}, state=${this.stateTracker.getState()}`);
+  appendMessage(message: string, sessionKey: string = 'local'): void {
+    const queue = this._pendingQueues.get(sessionKey) || [];
+    queue.push(message);
+    this._pendingQueues.set(sessionKey, queue);
+    log.info(`[appendMessage] queued, sessionKey=${sessionKey} queue size=${queue.length}, state=${this.stateTracker.getState()}`);
   }
 
   /**
-   * 检查并消费 pendingQueue
+   * 检查并消费 pendingQueue（旧路径兼容层）
    * 每次 run 结束后自动调用，也允许外部手动触发
    */
-  checkPendingQueue(): void {
-    if (this._pendingQueue.length > 0 && this.stateTracker.getState() !== 'executing') {
-      this.drainPendingQueue();
+  checkPendingQueue(sessionKey: string = 'local'): void {
+    const queue = this._pendingQueues.get(sessionKey);
+    if (queue && queue.length > 0 && this.stateTracker.getState() !== 'executing') {
+      this.drainPendingQueue(sessionKey);
     }
   }
 

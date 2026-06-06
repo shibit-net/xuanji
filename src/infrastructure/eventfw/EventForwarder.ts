@@ -28,6 +28,8 @@ export class EventForwarder {
   private getRoutedAgentId: () => string;
   private mappings: EventMapping[] = [];
   private unsubscribes: (() => void)[] = [];
+  private textBuffer = '';
+  private textFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(sender: IpcSender, getCurrentUserId: () => string | null, getRoutedAgentId: () => string) {
     this.sender = sender;
@@ -43,7 +45,9 @@ export class EventForwarder {
       const unsub = eventBus.on(event, (payload) => {
         try {
           const data = map(payload);
-          this.safeSend(channel, data);
+          if (data !== null) {
+            this.safeSend(channel, data);
+          }
         } catch (err) {
           log.error(`EventForwarder map error [${event} → ${channel}]:`, err);
         }
@@ -61,6 +65,11 @@ export class EventForwarder {
     }
     this.unsubscribes = [];
     this.mappings = [];
+    if (this.textFlushTimer) {
+      clearTimeout(this.textFlushTimer);
+      this.textFlushTimer = null;
+    }
+    this.textBuffer = '';
     log.info('EventForwarder unregistered all mappings');
   }
 
@@ -103,11 +112,29 @@ export class EventForwarder {
       {
         event: XuanjiEvent.AGENT_COMPLETED,
         channel: 'agent:end',
-        map: (p) => ({
-          tokenUsage: p.tokenUsage,
-          agentId: p.userId || this.getRoutedAgentId(),
-          sessionKey: p.sessionKey,
-        }),
+        map: (p) => {
+          // 立即 flush text buffer：text deltas 有 16ms 批处理延时，
+          // 先 flush 再发 agent:end，防止前端 finishStreaming 后又收到延迟 text
+          // 而重新 startStreaming 创建出空的"幽灵"回复气泡
+          if (this.textFlushTimer) {
+            clearTimeout(this.textFlushTimer);
+            this.textFlushTimer = null;
+            if (this.textBuffer) {
+              // 将缓冲区文本立即发送到 agent:text channel
+              this.safeSend('agent:text', {
+                text: this.textBuffer,
+                agentId: this.mapAgentId(p.userId),
+                sessionKey: p.sessionKey,
+              });
+              this.textBuffer = '';
+            }
+          }
+          return {
+            tokenUsage: p.tokenUsage,
+            agentId: p.userId || this.getRoutedAgentId(),
+            sessionKey: p.sessionKey,
+          };
+        },
       },
       {
         event: XuanjiEvent.CONVERSATION_STATE_CHANGED,
@@ -154,7 +181,21 @@ export class EventForwarder {
       {
         event: XuanjiEvent.AGENT_TEXT_DELTA,
         channel: 'agent:text',
-        map: (p) => ({ text: p.text, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey }),
+        map: (p) => {
+          const mapped = { text: p.text, agentId: this.mapAgentId(p.agentId), sessionKey: p.sessionKey };
+          // 批量合并：累积 text，16ms 后统一发送
+          this.textBuffer += p.text;
+          if (!this.textFlushTimer) {
+            this.textFlushTimer = setTimeout(() => {
+              const merged = { ...mapped, text: this.textBuffer };
+              this.textBuffer = '';
+              this.textFlushTimer = null;
+              this.safeSend('agent:text', merged);
+            }, 16);
+          }
+          // 返回 null 阻止默认立即发送
+          return null;
+        },
       },
 
       // ── Content Blocks（模型原生内容块：图像/音频/视频） ──

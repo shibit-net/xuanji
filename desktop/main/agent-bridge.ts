@@ -683,6 +683,49 @@ function initPlatformMessageHandler(sess: ChatSession): void {
   const sessionRouter = new SessionRouter();
   platformGateway = new AgentGatewayImpl(agentLoop, sessionRouter);
 
+  // 收集当前远端平台会话的输出文本（AGENT_COMPLETED 时发送到平台）
+  let platformOutputText = '';
+  eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload: { text?: string }) => {
+    if (currentPlatformContext && payload.text) {
+      platformOutputText += payload.text;
+    }
+  });
+  // AGENT_COMPLETED 时发送平台回复
+  eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload: { sessionKey?: string; tokenUsage?: any }) => {
+    if (!currentPlatformContext) return;
+    // 只在主 agent 的回合完成时发送（不是子 agent 的）
+    const ctx = currentPlatformContext;
+    const replyText = platformOutputText.trim() || '已处理完成。';
+    log.info(`[DIAG] Platform reply via AGENT_COMPLETED: platform=${ctx.platform} chatId=${ctx.chatId} text="${replyText.slice(0, 50)}"`);
+    
+    // 合并文件路径
+    const allPaths = [...pendingPlatformImagePaths];
+    const imagePaths = allPaths.filter(p => IMAGE_EXTS.has(path.extname(p).toLowerCase()));
+    const audioPaths = allPaths.filter(p => AUDIO_EXTS.has(path.extname(p).toLowerCase()));
+    const videoPaths = allPaths.filter(p => VIDEO_EXTS.has(path.extname(p).toLowerCase()));
+    const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()) && !AUDIO_EXTS.has(path.extname(p).toLowerCase()) && !VIDEO_EXTS.has(path.extname(p).toLowerCase()));
+
+    channel.send('platform:reply', {
+      sessionKey: payload.sessionKey,
+      platform: ctx.platform,
+      chatId: ctx.chatId,
+      text: replyText,
+      imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
+      audioPaths: audioPaths.length > 0 ? audioPaths : undefined,
+      videoPaths: videoPaths.length > 0 ? videoPaths : undefined,
+      filePaths: filePaths.length > 0 ? filePaths : undefined,
+    });
+
+    platformOutputText = '';
+    pendingPlatformImagePaths = [];
+    currentPlatformContext = null;
+    // 清理调度器平台上下文
+    const schedulerTool = sess.getAgentLoop()?.getToolRegistry()?.get('scheduler');
+    if (schedulerTool && typeof (schedulerTool as any).setPlatformContext === 'function') {
+      (schedulerTool as any).setPlatformContext(null, null);
+    }
+  });
+
   // 注册 platform:message 处理器
   channel.handle('platform:message', async (data: {
     id: string;
@@ -741,42 +784,11 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         return;
       }
 
-      // 设置远端平台上下文（供 confirmationHandler 使用）
+      // 设置远端平台上下文（供 confirmationHandler 使用 + AGENT_COMPLETED 回调发送回复）
       currentPlatformContext = { platform: data.platform, chatId: data.chatId };
 
       // 清空上一轮的图片路径，开始收集新一轮
       pendingPlatformImagePaths = [];
-
-      // 远端消息也执行意图分析，确保前端 ReAct Flow 正常展示
-      const sess = platformSession;
-      if (sess && intentRouter) {
-        const features = sess.getConfig()?.features;
-        const intentEnabled = features?.enableIntentAnalysis !== false;
-        const userAgentId = 'xuanji'; // 远端默认使用 xuanji agent
-
-        if (intentEnabled) {
-          channel.send('agent:intent-route:start');
-          const analysis = await intentRouter.analyze(data.text, (progress) => {
-            channel.send('agent:intent-route:progress', progress);
-          });
-          await sess.switchForegroundAgent(userAgentId, analysis.scene, analysis.complexity);
-          channel.send('agent:intent-route', {
-            agentId: userAgentId,
-            confidence: analysis.confidence,
-            method: analysis.method,
-            scene: analysis.scene,
-            complexity: analysis.complexity,
-            reason: analysis.reason,
-            modelName: analysis.modelName,
-          });
-          channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'builtin' });
-        } else {
-          channel.send('agent:intent-route:start');
-          await sess.switchForegroundAgent(userAgentId, undefined, 'complex');
-          channel.send('agent:intent-route', { agentId: userAgentId, confidence: 1.0, method: 'default', scene: '', complexity: 'complex' });
-          channel.send('agent:switch-foreground', { agentId: userAgentId, name: userAgentId, agentType: 'builtin' });
-        }
-      }
 
       // 设置调度器的平台上下文（创建定时任务时自动附加 platform/chatId）
       const schedulerTool = platformSession?.getAgentLoop()?.getToolRegistry()?.get('scheduler');
@@ -784,58 +796,19 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         (schedulerTool as any).setPlatformContext(data.platform, data.chatId);
       }
 
-      const reply = await platformGateway!.process({
-        id: data.id,
-        platform: data.platform,
-        chatType: data.chatType as 'private' | 'group',
-        chatId: data.chatId,
-        userId: data.userId,
-        userName: data.userId,
-        text: data.text,
+      // 走统一 userAction → SessionStateMachine（复用中断/追加/排队逻辑）
+      // 意图分析在 handleUserAction 内部完成
+      // 回复由 AGENT_COMPLETED 回调自动发送（在 initPlatformMessageHandler 中注册）
+      await handleUserAction({
+        type: 'SEND_MESSAGE',
+        message: data.text,
         sessionKey: data.sessionKey,
-      }, { sessionKey: data.sessionKey });
-
-      // 合并所有文件路径，按类型区分图片、音频、视频和普通文件
-      const allPaths = [...new Set([
-        ...pendingPlatformImagePaths,
-        ...(reply.imagePaths || []),
-        ...(reply.audioPaths || []),
-        ...(reply.videoPaths || []),
-      ])];
-      const imagePaths = allPaths.filter(p => IMAGE_EXTS.has(path.extname(p).toLowerCase()));
-      const audioPaths = allPaths.filter(p => AUDIO_EXTS.has(path.extname(p).toLowerCase()));
-      const videoPaths = allPaths.filter(p => VIDEO_EXTS.has(path.extname(p).toLowerCase()));
-      const filePaths = allPaths.filter(p => !IMAGE_EXTS.has(path.extname(p).toLowerCase()) && !AUDIO_EXTS.has(path.extname(p).toLowerCase()) && !VIDEO_EXTS.has(path.extname(p).toLowerCase()));
-      log.info(`[DIAG] AgentGateway returned reply: text="${(reply.text || '').slice(0, 50)}" images=${imagePaths.length} audios=${audioPaths.length} videos=${videoPaths.length} files=${filePaths.length}`);
-      if (imagePaths.length > 0) log.info(`[DIAG] Platform reply imagePaths: ${JSON.stringify(imagePaths)}`);
-      if (pendingPlatformImagePaths.length > 0) log.info(`[DIAG] pendingPlatformImagePaths: ${JSON.stringify(pendingPlatformImagePaths)}`);
-
-      // 将回复发回主进程
-      channel.send('platform:reply', {
-        sessionKey: data.sessionKey,
-        platform: data.platform,
-        chatId: data.chatId,
-        text: reply.text,
-        imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
-        audioPaths: audioPaths.length > 0 ? audioPaths : undefined,
-        videoPaths: videoPaths.length > 0 ? videoPaths : undefined,
-        filePaths: filePaths.length > 0 ? filePaths : undefined,
       });
-
-      log.info(`[DIAG] Platform reply sent to main: platform=${data.platform} chatId=${data.chatId}`);
-
-      // 清理平台上下文
-      if (schedulerTool && typeof (schedulerTool as any).setPlatformContext === 'function') {
-        (schedulerTool as any).setPlatformContext(null, null);
-      }
-
-      return { success: true };
     } catch (err) {
       log.error(`[DIAG] Platform message processing failed: ${(err as Error).message}`);
-      return { success: false, error: (err as Error).message };
-    } finally {
-      // 清理远端平台上下文（无论成功或失败）
+      // 出错时清理上下文，避免残留阻塞后续消息
       currentPlatformContext = null;
+      return { success: false, error: (err as Error).message };
     }
   });
 
@@ -966,11 +939,12 @@ async function copyAttachmentsToWorkspace(
   }
 }
 
-async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>; agentId?: string }): Promise<void> {
+async function handleUserAction(data: { type: string; message?: string; attachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>; imageBlocks?: Array<{ data: string; mimeType: string; name?: string }>; audioBlocks?: Array<{ data: string; mimeType: string; name?: string }>; videoBlocks?: Array<{ data: string; mimeType: string; name?: string }>; agentId?: string; sessionKey?: string }): Promise<void> {
   if (!session) {
     log.warn('handleUserAction: session is null');
     return;
   }
+  const effectiveSessionKey = data.sessionKey || 'local';
   try {
     let fullMessage = data.message || '';
     if (data.type === 'SEND_MESSAGE' && (data.message || data.attachments?.length || data.imageBlocks?.length)) {
@@ -1042,10 +1016,10 @@ async function handleUserAction(data: { type: string; message?: string; attachme
       }
     }
 
-    // 标记本地会话，确保 agent 事件路由到本地 UI
+    // 标记会话键，确保 agent 事件路由到正确的前端会话
     const agentLoop = session.getAgentLoop();
     if (agentLoop) {
-      agentLoop.setSessionKey('local');
+      agentLoop.setSessionKey(effectiveSessionKey);
     }
     try {
       await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks, audioBlocks: data.audioBlocks, videoBlocks: data.videoBlocks });

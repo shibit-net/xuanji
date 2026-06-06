@@ -413,9 +413,23 @@ ${att.content}
     }
 
     // 归档旧消息并获取 LLM 生成的叙事摘要
-    let summaryText = '';
+    let summaryText = `[上下文摘要] 之前 ${oldCount} 条消息已压缩。`;
+    // 异步生成 LLM 叙事摘要，不阻塞 AgentLoop
     if (this.archiveDelegate) {
-      summaryText = await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+      this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary))
+        .then((text: string) => {
+          if (text) {
+            // 找到对应的 summaryMsg 并更新其内容
+            for (let i = this.messages.length - 1; i >= 0; i--) {
+              if (this.messages[i].role === 'user' && typeof this.messages[i].content === 'string'
+                  && (this.messages[i].content as string).startsWith('[上下文摘要]')) {
+                this.messages[i].content = text;
+                break;
+              }
+            }
+          }
+        })
+        .catch(() => { /* 静默失败，fallback 文本已就位 */ });
     }
 
     const summaryMsg: Message = {
@@ -462,9 +476,22 @@ ${att.content}
 
     const dropped = boundary - 1;
     // 归档旧消息并获取 LLM 生成的叙事摘要
-    let summaryText = '';
+    let summaryText = `[上下文摘要] 之前 ${dropped} 条消息已压缩。`;
+    // 异步生成 LLM 叙事摘要，不阻塞 AgentLoop
     if (this.archiveDelegate) {
-      summaryText = await this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary));
+      this.archiveDelegate.archiveMessages(this.messages.slice(0, boundary))
+        .then((text: string) => {
+          if (text) {
+            for (let i = this.messages.length - 1; i >= 0; i--) {
+              if (this.messages[i].role === 'user' && typeof this.messages[i].content === 'string'
+                  && (this.messages[i].content as string).startsWith('[上下文摘要]')) {
+                this.messages[i].content = text;
+                break;
+              }
+            }
+          }
+        })
+        .catch(() => { /* 静默失败 */ });
     }
 
     const summaryMsg: Message = {

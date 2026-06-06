@@ -2,8 +2,8 @@
 // AgentEditor - Agent 编辑器组件（重构版 — 主容器）
 // ============================================================
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Save, X, FileCode, Settings, Zap, Database, AlertCircle, Loader2, Search, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Save, X, FileCode, Settings, Zap, Database, AlertCircle, Search, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { useToast } from '../Toast';
 import CodeEditor from '../CodeEditor';
 import MilkdownEditor from '../MilkdownEditor';
@@ -20,7 +20,6 @@ import {
   type AgentEditorProps,
   type EditorMode,
   type ExpandedSections,
-  type ModelOption,
 } from './shared/constants';
 
 import ConfigSection from './shared/ConfigSection';
@@ -43,36 +42,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
 
-  // 模型列表状态
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-
-  // 模型搜索状态
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [numberInputCache, setNumberInputCache] = useState<Record<string, string>>({});
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // 防抖搜索函数
-  const debouncedSearchModels = useCallback((searchQuery: string) => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    searchTimeoutRef.current = setTimeout(() => {
-      const currentAdapter = config.provider?.adapter || 'anthropic';
-      loadModels(currentAdapter, searchQuery.trim() || undefined);
-    }, 300); // 300ms 防抖
-  }, [config.provider?.adapter]);
-
-  // 清理定时器
-  useEffect(() => {
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // 动态加载的 Tools 列表
   const [availableTools, setAvailableTools] = useState<any[]>([]);
@@ -222,56 +192,10 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
     }
   };
 
-  // 加载模型列表
+  // 加载工具列表
   useEffect(() => {
-    loadModels();
     loadTools();
   }, []);
-
-  // 加载模型列表（根据 adapter 和搜索关键词动态加载）
-  const loadModels = async (adapter?: string, searchName?: string) => {
-    const currentAdapter = adapter || config.provider?.adapter || 'anthropic';
-
-    // 本地模型不需要加载列表
-    if (currentAdapter === 'local-llama') {
-      setModels([]);
-      return;
-    }
-
-    setModelsLoading(true);
-    try {
-      // 从 starship 获取模型列表，使用 vendor 和 name 参数
-      const result = await window.electron.modelsListMarketplace({
-        size: 200,
-        vendor: currentAdapter,
-        name: searchName || undefined,
-      });
-
-
-      if (result.success && result.data?.list) {
-
-        const modelList: ModelOption[] = result.data.list.map((item: any) => ({
-          id: item.id,
-          name: item.name,
-          model: item.model,
-          adapter: item.adapter || item.vendor,
-          vendor: item.vendor,
-          inputPrice: item.unitPriceReminder || item.inputPrice || item.input_price || item.priceInput,
-          outputPrice: item.unitPriceComplete || item.outputPrice || item.output_price || item.priceOutput,
-          priceUnit: item.priceUnit || item.price_unit || '¥/M tokens',
-        }));
-
-        setModels(modelList);
-      } else {
-        setModels([]);
-      }
-    } catch (err) {
-      console.error('加载模型列表失败:', err);
-      setModels([]);
-    } finally {
-      setModelsLoading(false);
-    }
-  };
 
   // 加载 Tools 列表
   const loadTools = async () => {
@@ -528,15 +452,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
       setConfig(newConfig);
     };
 
-    const isModelSelect = field === 'model.primary';
-    const currentOptions = isModelSelect ? models.map(m => m.model) : options;
-
-    // 后端已经处理了搜索，直接使用 models
-    const filteredModels = models;
-
-    // 获取当前选中模型的显示名称（现在保存的就是 name，直接显示）
-    const currentModelName = value;
-
     return (
       <div>
         <label className="block text-sm font-medium mb-1">
@@ -561,83 +476,16 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
             />
           )
         ) : type === 'select' ? (
-          isModelSelect ? (
-            // 模型选择：可自由输入 + 下拉建议
-            <div className="relative">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={currentModelName || ''}
-                  onChange={(e) => {
-                    const query = e.target.value;
-                    handleChange(query);
-                    setModelSearchQuery(query);
-                    setShowModelDropdown(true);
-                    debouncedSearchModels(query);
-                  }}
-                  onFocus={() => {
-                    setModelSearchQuery(currentModelName || '');
-                    setShowModelDropdown(true);
-                    const currentAdapter = config.provider?.adapter || 'anthropic';
-                    loadModels(currentAdapter, undefined);
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      setShowModelDropdown(false);
-                    }, 200);
-                  }}
-                  disabled={isDisabled}
-                  placeholder={t('agent.editor.model_search_placeholder')}
-                  className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 pr-10 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
-                />
-                {modelsLoading && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <Loader2 size={16} className="animate-spin text-muted-foreground" />
-                  </div>
-                )}
-                {!modelsLoading && (
-                  <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
-                )}
-              </div>
-
-              {/* 下拉建议列表 */}
-              {showModelDropdown && !modelsLoading && filteredModels.length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded shadow-lg max-h-60 overflow-y-auto">
-                  {filteredModels.map((model, idx) => (
-                    <button
-                      key={model.id || `${model.model || 'model'}-${idx}`}
-                      type="button"
-                      onClick={() => {
-                        handleChange(model.name);
-                        setModelSearchQuery(model.name);
-                        setShowModelDropdown(false);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-primary/10transition-colors text-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{model.name}</div>
-                          <div className="text-xs text-muted-foreground truncate">{model.model}</div>
-                        </div>
-                        {(model.inputPrice !== undefined || model.outputPrice !== undefined) && (
-                          <div className="ml-2 text-xs text-muted-foreground/50 whitespace-nowrap">
-                            {model.inputPrice !== undefined && model.outputPrice !== undefined ? (
-                              <span>
-                                ¥{model.inputPrice}/{model.outputPrice}
-                              </span>
-                            ) : model.inputPrice !== undefined ? (
-                              <span>¥{model.inputPrice}</span>
-                            ) : (
-                              <span>¥{model.outputPrice}</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+          field === 'model.primary' ? (
+            // 模型名称：纯文本输入
+            <input
+              type="text"
+              value={value || ''}
+              onChange={(e) => handleChange(e.target.value)}
+              disabled={isDisabled}
+              placeholder={t('agent.editor.field.primary_model_placeholder')}
+              className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
+            />
           ) : (
             // 普通 select
             <select
@@ -646,7 +494,7 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               disabled={isDisabled}
               className={`w-full border ${error ? 'border-red-500' : 'border-border'} rounded px-3 py-2 text-sm focus:outline-none focus:border-primary ${isDisabled ? 'bg-muted/30 text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             >
-              {currentOptions?.map((opt) => (
+              {options?.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
@@ -855,7 +703,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
                       value={config.provider?.adapter || 'anthropic'}
                       onChange={(e) => {
                         setConfig({ ...config, provider: { ...config.provider, adapter: e.target.value } });
-                        loadModels(e.target.value);
                       }}
                       className="w-full bg-background border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary"
                     >
@@ -1106,9 +953,6 @@ export default function AgentEditor({ agent, builtinAgents, onSave, onCancel }: 
               errors={errors}
               canEdit={canEdit}
               renderFormField={renderFormField}
-              models={models}
-              modelsLoading={modelsLoading}
-              loadModels={loadModels}
               localModelStatuses={localModelStatuses}
               scannedModels={scannedModels}
               downloadLocalModel={downloadLocalModel}
