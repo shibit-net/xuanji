@@ -482,6 +482,10 @@ const zh: Messages = {
   'agent.editor.local_model_desc_recommended': '~3.5GB, 高精度分类，推荐',
   'agent.editor.local_model_desc_faster': '~2.7GB, 更快，精度略降',
   'agent.editor.local_model_desc_high_precision': '~5.4GB, 最高精度，资源需求高',
+  'agent.editor.mcp_section': 'MCP 配置',
+  'agent.editor.skills_section': 'Skills 配置',
+  'agent.editor.sub_agents_section': '子智能体',
+  'agent.editor.section_coming_soon': '即将推出...',
 
   // ── Agent Status List ──
   'agent.status_list.header.agent': 'Agent',
@@ -1798,6 +1802,10 @@ const en: Messages = {
   'agent.editor.local_model_desc_recommended': '~3.5GB, High-precision classification, Recommended',
   'agent.editor.local_model_desc_faster': '~2.7GB, Faster, slightly lower precision',
   'agent.editor.local_model_desc_high_precision': '~5.4GB, Highest precision, needs more resources',
+  'agent.editor.mcp_section': 'MCP Configuration',
+  'agent.editor.skills_section': 'Skills Configuration',
+  'agent.editor.sub_agents_section': 'Sub Agents',
+  'agent.editor.section_coming_soon': 'Coming soon...',
 
   // ── Agent Status List ──
   'agent.status_list.header.agent': 'Agent',

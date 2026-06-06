@@ -255,10 +255,10 @@ export class FeishuAdapter implements PlatformAdapter {
     return null;
   }
 
-  /** 获取群聊名称（GET /chats/:id），结果缓存 */
-  private async fetchGroupName(chatId: string): Promise<string | undefined> {
+  /** 获取群聊信息（GET /chats/:id），含群名和成员总数，结果缓存 */
+  private async fetchChatInfo(chatId: string): Promise<{ name?: string; userCount?: number }> {
     const cached = this.groupNameCache.get(chatId);
-    if (cached) return cached;
+    if (cached) return { name: cached };
 
     try {
       const token = await this.credentials.getToken('feishu');
@@ -267,14 +267,22 @@ export class FeishuAdapter implements PlatformAdapter {
         { headers: { 'Authorization': `Bearer ${token}` } },
       );
       const data = await response.json() as any;
-      if (data.code === 0 && data.data?.name) {
-        this.groupNameCache.set(chatId, data.data.name);
-        return data.data.name;
+      if (data.code === 0) {
+        const name = data.data?.name;
+        const userCount = data.data?.user_count;
+        if (name) this.groupNameCache.set(chatId, name);
+        return { name, userCount };
       }
     } catch (err) {
-      log.warn(`Feishu fetchGroupName failed: ${(err as Error).message}`);
+      log.warn(`Feishu fetchChatInfo failed: ${(err as Error).message}`);
     }
-    return undefined;
+    return {};
+  }
+
+  /** @deprecated 使用 fetchChatInfo 替代 */
+  private async fetchGroupName(chatId: string): Promise<string | undefined> {
+    const { name } = await this.fetchChatInfo(chatId);
+    return name;
   }
 
   /** 获取群聊成员列表（GET /chats/:id/members），含机器人标记和自身识别。
@@ -462,11 +470,12 @@ export class FeishuAdapter implements PlatformAdapter {
     if (!msg.userName) {
       await this.enrichUserName(msg);
     }
-    // 2. 群聊消息：获取群名并注入到 raw.chatName
+    // 2. 群聊消息：获取群名并注入到 raw.chatName + raw.chatUserCount
     if (msg.chatType === 'group' && !msg.raw?.chatName) {
-      const groupName = await this.fetchGroupName(msg.chatId);
-      if (groupName && msg.raw) {
-        msg.raw.chatName = groupName;
+      const info = await this.fetchChatInfo(msg.chatId);
+      if (msg.raw) {
+        if (info.name) msg.raw.chatName = info.name;
+        if (info.userCount !== undefined) msg.raw.chatUserCount = info.userCount;
       }
     }
     // 2a. 群聊消息：方案 B 优先用事件累积的成员（已通过 _trackSenderFromMessage 处理）
@@ -659,11 +668,17 @@ export class FeishuAdapter implements PlatformAdapter {
     return paths;
   }
 
-  /** 将飞书 SDK 的 @_user_X 标记替换为用户名，让 Agent 理解 @ 对象 */
+  /** 将飞书 SDK 的 @_user_X 标记替换为用户名，让 Agent 理解 @ 对象。
+   *   同时缓存 mention 的 open_id → name 映射，后续该用户发言时自动匹配名字。 */
   private cleanMentionMarkers(msg: PlatformMessage): void {
     if (!msg.raw?.message?.mentions || msg.raw.message.mentions.length === 0) return;
     try {
       for (const m of msg.raw.message.mentions) {
+        // 缓存 open_id → name 映射
+        const openId = m.id?.open_id || m.id?.user_id || '';
+        if (openId && m.name && !this.userCache.has(openId)) {
+          this.userCache.set(openId, { name: m.name, fetchedAt: Date.now() });
+        }
         if (m.key && msg.text.includes(m.key)) {
           const displayName = m.name || m.key;
           msg.text = msg.text.replace(new RegExp(m.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), `@${displayName}`);
@@ -898,6 +913,14 @@ export class FeishuAdapter implements PlatformAdapter {
 
     const mentions: string[] = (msg.mentions || []).map((m: any) => m.key || m.name || '');
 
+    // 缓存 @ 提及用户的 open_id → name 映射，后续该用户发消息时能自动匹配名字
+    for (const m of (msg.mentions || [])) {
+      const openId = m.id?.open_id || m.id?.user_id || '';
+      if (openId && m.name && !this.userCache.has(openId)) {
+        this.userCache.set(openId, { name: m.name, fetchedAt: Date.now() });
+      }
+    }
+
     const userId = sender.sender_id?.open_id || sender.sender_id?.user_id || sender.sender_id?.app_id || '';
     const userName = this.userCache.get(userId)?.name;
 
@@ -938,13 +961,52 @@ export class FeishuAdapter implements PlatformAdapter {
     this.messageHandler = handler;
   }
 
-  async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
+  /**
+   * 将文本中的 @name 转换为飞书 <at id=open_id>name</at> 格式，实现真正的 @ 通知。
+   * name → open_id 映射来自成员追踪缓存 + userCache（从 @ 提及中积累）。
+   */
+  private resolveAtMentions(text: string, chatId: string): string {
+    // 构建 name → open_id 反向查询表
+    const nameToId = new Map<string, string>();
+
+    // 从群成员追踪缓存获取
+    const tracked = this._memberTrackingCache.get(chatId);
+    if (tracked) {
+      for (const [memberId, member] of tracked) {
+        if (member.name && !nameToId.has(member.name)) {
+          nameToId.set(member.name, memberId);
+        }
+      }
+    }
+
+    // 从 userCache 补充（通过 mention 积累的映射）
+    for (const [openId, user] of this.userCache) {
+      if (user.name && !nameToId.has(user.name)) {
+        nameToId.set(user.name, openId);
+      }
+    }
+
+    if (nameToId.size === 0) return text;
+
+    // 替换 @name 为 <at id=open_id>name</at>
+    // 匹配模式：@后跟汉字/字母/数字/下划线/连字符，非贪婪，到空格/换行/标点/结尾
+    return text.replace(/@([一-龥a-zA-Z0-9_\-]+)/g, (match, name) => {
+      const openId = nameToId.get(name);
+      if (openId) {
+        return `<at id=${openId}></at>`;
+      }
+      return match; // 未找到映射，保留原文
+    });
+  }
+
+    async sendText(options: { chatId: string; text: string; replyTo?: string }): Promise<string> {
     const token = await this.credentials.getToken('feishu');
+    const resolvedText = this.resolveAtMentions(options.text, options.chatId);
     const body: Record<string, unknown> = {
       msg_type: 'interactive',
       content: JSON.stringify({
         config: { wide_screen_mode: true },
-        elements: [{ tag: 'markdown', content: options.text }],
+        elements: [{ tag: 'markdown', content: resolvedText }],
       }),
     };
 
@@ -977,11 +1039,12 @@ export class FeishuAdapter implements PlatformAdapter {
 
   async sendMarkdown(options: { chatId: string; content: string; replyTo?: string }): Promise<string> {
     const token = await this.credentials.getToken('feishu');
+    const resolvedContent = this.resolveAtMentions(options.content, options.chatId);
     const body: Record<string, unknown> = {
       msg_type: 'interactive',
       content: JSON.stringify({
         config: { wide_screen_mode: true },
-        elements: [{ tag: 'markdown', content: options.content }],
+        elements: [{ tag: 'markdown', content: resolvedContent }],
       }),
     };
 
