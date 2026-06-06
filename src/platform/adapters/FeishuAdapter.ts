@@ -35,8 +35,8 @@ export class FeishuAdapter implements PlatformAdapter {
   private wsClient: any = null;
   private wsStarted = false;
 
-  /** 用户资料缓存：userId → { name, avatar } */
-  private userCache = new Map<string, { name: string; avatar?: string }>();
+  /** 用户资料缓存：userId → { name, avatar, fetchedAt } */
+  private userCache = new Map<string, { name: string; avatar?: string; fetchedAt?: number }>();
 
   /** 群聊名称缓存：chatId → name */
   private groupNameCache = new Map<string, string>();
@@ -213,12 +213,39 @@ export class FeishuAdapter implements PlatformAdapter {
       const data = await response.json() as any;
       if (data.code === 0 && data.data?.bot?.open_id) {
         this._botOpenId = data.data.bot.open_id;
-        log.info(`Feishu bot identity resolved: open_id=${this._botOpenId}`);
+        const botName = data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+
+        // 将 Bot 自己的信息写入 userCache（后续 _trackSenderFromMessage 会优先用 userCache 的名字）
+        this.userCache.set(this._botOpenId, { name: botName });
+
+        log.info(`Feishu bot identity resolved: open_id=${this._botOpenId} name=${botName}`);
+
+        // 将 Bot 自己加入所有已知群的成员追踪缓存（不再依赖被动消息事件）
+        this._ensureSelfInAllGroups(botName);
       } else {
         log.warn(`Feishu bot identity fetch failed: code=${data.code} msg=${data.msg}`);
       }
     } catch (err) {
       log.warn(`Feishu bot identity fetch error: ${(err as Error).message}`);
+    }
+  }
+
+  /** 将 Bot 自己注册到所有已知群的成员追踪缓存中（解决"不知道哪个是自己"的问题） */
+  private _ensureSelfInAllGroups(botName: string): void {
+    if (!this._botOpenId || !this.config.app_id) return;
+    for (const [chatId, chatMembers] of this._memberTrackingCache) {
+      // 用 bot 自己的 open_id 或 app_id 作为 memberId
+      const selfMemberId = this._botOpenId || this.config.app_id;
+      if (!chatMembers.has(selfMemberId)) {
+        chatMembers.set(selfMemberId, {
+          id: selfMemberId,
+          name: botName,
+          isBot: true,
+          isSelf: true,
+        });
+        log.info(`Feishu self registered in group tracking: chatId=${chatId} name=${botName}`);
+        this._notifyGroupMembers(chatId);
+      }
     }
   }
 
@@ -453,13 +480,29 @@ export class FeishuAdapter implements PlatformAdapter {
     }
   }
 
-  /** 重建群成员数组并通知 AgentGateway */
-  private _notifyGroupMembers(chatId: string): void {
+  /** 重建群成员数组并通知 AgentGateway。alwaysIncludeSelf=true 时即使缓存为空也确保 Bot 自己出现在列表中 */
+  private _notifyGroupMembers(chatId: string, alwaysIncludeSelf = false): void {
     if (!this.groupMembersHandler) return;
     const chatMembers = this._memberTrackingCache.get(chatId);
-    if (!chatMembers || chatMembers.size === 0) return;
+    if ((!chatMembers || chatMembers.size === 0) && !alwaysIncludeSelf) return;
 
-    const members = Array.from(chatMembers.values());
+    const members = Array.from((chatMembers || new Map()).values());
+
+    // 确保 Bot 自己在列表中（解决"不知道哪个是自己"的根本问题）
+    if (this._botOpenId) {
+      const selfMemberId = this._botOpenId;
+      if (!members.some(m => m.isSelf)) {
+        const botName = this.userCache.get(this._botOpenId)?.name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+        members.push({
+          id: selfMemberId,
+          name: botName,
+          isBot: true,
+          isSelf: true,
+        });
+        log.info(`Feishu self appended to group members: chatId=${chatId} name=${botName}`);
+      }
+    }
+
     log.info(`Feishu group members (event-based): chatId=${chatId} count=${members.length} bots=${members.filter(m => m.isBot).length}`);
     this.groupMembersHandler(chatId, members);
   }
@@ -479,12 +522,9 @@ export class FeishuAdapter implements PlatformAdapter {
       }
     }
     // 2a. 群聊消息：方案 B 优先用事件累积的成员（已通过 _trackSenderFromMessage 处理）
-    //    API 拉取作为补充（可能拿到没说过话的成员），失败不阻塞
+    //    alwaysIncludeSelf=true 确保 Bot 自己的身份始终在列表中
     if (msg.chatType === 'group' && this.groupMembersHandler) {
-      const trackedMembers = Array.from((this._memberTrackingCache.get(msg.chatId) || new Map()).values());
-      if (trackedMembers.length > 0) {
-        this.groupMembersHandler(msg.chatId, trackedMembers);
-      }
+      this._notifyGroupMembers(msg.chatId, true);
       // 后台尝试 API 补充（fire-and-forget）
       this.fetchGroupMembers(msg.chatId).then(apiMembers => {
         if (apiMembers.length > 0 && this.groupMembersHandler) {

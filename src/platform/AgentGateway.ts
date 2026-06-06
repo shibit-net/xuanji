@@ -37,7 +37,7 @@ export class AgentGatewayImpl implements AgentGateway {
     private memoryManager?: MemoryManager,
   ) {}
 
-  /** 设置群聊成员列表 */
+  /** 设置群聊成员列表（会从中识别 Bot 自己的身份） */
   setGroupMembers(chatId: string, members: GroupMember[]): void {
     this.groupMembers.set(chatId, members);
     // 找到自己的身份
@@ -47,6 +47,11 @@ export class AgentGatewayImpl implements AgentGateway {
         this.botId = m.id;
         break;
       }
+    }
+    // 兜底：如果 members 中没有任何 isSelf 标记，说明上游 FeishuAdapter 未能正确识别自己
+    // 此时 Agent 在群聊中会显示「你的群昵称: 未知」，导致 Agent 不知道 @ 谁是叫自己
+    if (!this.botDisplayName && members.length > 0) {
+      log.warn(`AgentGateway: no isSelf member found in chatId=${chatId}, members=${members.map(m => m.name).join(',')}`);
     }
   }
 
