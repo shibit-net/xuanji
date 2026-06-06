@@ -361,7 +361,10 @@ export class FeishuAdapter implements PlatformAdapter {
 
       const openId = sender.sender_id?.open_id || '';
       const userId = sender.sender_id?.user_id || '';
-      const memberId = openId || userId;
+      const unionId = sender.sender_id?.union_id || '';
+      const appId = sender.sender_id?.app_id || '';
+      // Bot 发送者使用 app_id 作为 ID（open_id/user_id 可能为空）
+      const memberId = openId || userId || unionId || appId;
       if (!memberId) return;
 
       let chatMembers = this._memberTrackingCache.get(chatId);
@@ -378,7 +381,7 @@ export class FeishuAdapter implements PlatformAdapter {
           id: memberId,
           name,
           isBot,
-          isSelf: openId === this._botOpenId,
+          isSelf: (openId && openId === this._botOpenId) || (appId && appId === this.config.app_id),
         });
         log.info(`Feishu member tracked from message: chatId=${chatId} id=${memberId} name=${name} isBot=${isBot}`);
         this._notifyGroupMembers(chatId);
@@ -402,14 +405,15 @@ export class FeishuAdapter implements PlatformAdapter {
       }
 
       for (const user of users) {
-        const memberId = user.open_id || user.user_id || '';
+        // Bot 成员用 app_id，人类成员用 open_id/user_id
+        const memberId = user.app_id || user.open_id || user.user_id || '';
         if (!memberId) continue;
         const name = user.name || user.display_name || '';
         chatMembers.set(memberId, {
           id: memberId,
-          name: name || `Bot(${memberId.substring(0, 8)}...)`,
+          name: name || (isBot ? `Bot(${memberId.substring(0, 8)}...)` : `用户(${memberId.substring(0, 8)}...)`),
           isBot,
-          isSelf: (user.open_id || '') === this._botOpenId,
+          isSelf: (user.app_id && user.app_id === this.config.app_id) || (user.open_id && user.open_id === this._botOpenId),
         });
         log.info(`Feishu member added: chatId=${chatId} id=${memberId} name=${name} isBot=${isBot}`);
       }
@@ -430,7 +434,7 @@ export class FeishuAdapter implements PlatformAdapter {
       if (!chatMembers) return;
 
       for (const user of users) {
-        const memberId = user.open_id || user.user_id || '';
+        const memberId = user.app_id || user.open_id || user.user_id || '';
         if (!memberId) continue;
         chatMembers.delete(memberId);
         log.info(`Feishu member removed: chatId=${chatId} id=${memberId}`);
@@ -894,7 +898,7 @@ export class FeishuAdapter implements PlatformAdapter {
 
     const mentions: string[] = (msg.mentions || []).map((m: any) => m.key || m.name || '');
 
-    const userId = sender.sender_id?.open_id || sender.sender_id?.user_id || '';
+    const userId = sender.sender_id?.open_id || sender.sender_id?.user_id || sender.sender_id?.app_id || '';
     const userName = this.userCache.get(userId)?.name;
 
     return {
