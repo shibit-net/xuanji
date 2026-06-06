@@ -47,6 +47,8 @@ export class FeishuAdapter implements PlatformAdapter {
 
   /** Bot 自身的 open_id（通过 /bot/v3/info 获取，用于 self_echo 防护 + 群成员识别） */
   private _botOpenId = '';
+  /** Bot 自身身份获取是否完成（用于等待第一帧消息前身份就绪） */
+  private _identityReady = false;
   /** 是否允许接收其他 Bot 的消息（默认 all，多 Agent 协作需要） */
   private _allowBots: 'none' | 'mentions' | 'all' = 'all';
 
@@ -162,19 +164,19 @@ export class FeishuAdapter implements PlatformAdapter {
       console.log('[FeishuAdapter] Calling wsClient.start()...');
       this.wsClient.start({ eventDispatcher });
 
-      // start() 内部调用 reConnect() 是异步的，等待 onReady 或超时
+      // start() 内部调用 reConnect() 是异步的，等待 onReady + Bot 身份获取完成（或超时）
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           if (!this.wsStarted) {
             console.warn('[FeishuAdapter] WebSocket connection timeout (30s)');
             log.warn('Feishu WebSocket connection timeout (30s)');
-            resolve();
           }
+          resolve();
         }, 30000);
 
         const check = setInterval(() => {
-          if (this.wsStarted) {
-            console.log('[FeishuAdapter] WebSocket ready, resolving promise');
+          if (this.wsStarted && this._identityReady) {
+            console.log('[FeishuAdapter] WebSocket ready + identity resolved, resolving promise');
             clearTimeout(timeout);
             clearInterval(check);
             resolve();
@@ -213,7 +215,8 @@ export class FeishuAdapter implements PlatformAdapter {
       const data = await response.json() as any;
       if (data.code === 0 && data.data?.bot?.open_id) {
         this._botOpenId = data.data.bot.open_id;
-        const botName = data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+        // 优先使用配置的 botName（解决飞书后台 app_name 与群内昵称不一致的问题）
+        const botName = this.config.botName?.trim() || data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
 
         // 将 Bot 自己的信息写入 userCache（后续 _trackSenderFromMessage 会优先用 userCache 的名字）
         this.userCache.set(this._botOpenId, { name: botName });
@@ -227,6 +230,8 @@ export class FeishuAdapter implements PlatformAdapter {
       }
     } catch (err) {
       log.warn(`Feishu bot identity fetch error: ${(err as Error).message}`);
+    } finally {
+      this._identityReady = true;
     }
   }
 
@@ -946,6 +951,36 @@ export class FeishuAdapter implements PlatformAdapter {
         const key = content.sticker_key || content.file_key;
         if (key) attachments.push({ type: 'image', url: `feishu://sticker/${key}`, name: '[表情/sticker]' });
         if (!text) text = `[表情/sticker]`;
+      } else if (msgType === 'interactive') {
+        // 解析 interactive 卡片消息（其他 bot 发来的 markdown 卡片等）
+        const parts: string[] = [];
+        const elements = content.elements || content.card?.elements || [];
+        for (const el of elements) {
+          if (el.tag === 'markdown' && el.content) {
+            parts.push(el.content);
+          } else if (el.tag === 'div' && el.text) {
+            parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
+          } else if (el.tag === 'hr') {
+            parts.push('---');
+          }
+        }
+        if (content.header?.title?.content) {
+          parts.unshift(content.header.title.content);
+        }
+        text = parts.join('\n') || text;
+      } else if (msgType === 'post') {
+        // 解析 post 富文本消息
+        const parts: string[] = [];
+        const lines = content.content || [];
+        for (const line of (lines || [])) {
+          for (const seg of (line || [])) {
+            if (seg.tag === 'text' || seg.tag === 'a') parts.push(seg.text || '');
+            else if (seg.tag === 'at') parts.push(seg.user_name || seg.user_id || '');
+            else if (seg.tag === 'img') parts.push('[图片]');
+            else if (seg.tag === 'emotion') parts.push('[表情]');
+          }
+        }
+        text = parts.join('') || text;
       }
     } catch {
       text = msg.content || '';
