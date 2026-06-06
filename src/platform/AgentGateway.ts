@@ -25,7 +25,7 @@ export class AgentGatewayImpl implements AgentGateway {
   /** 群成员配置：chatId → GroupMember[] */
   private groupMembers = new Map<string, GroupMember[]>();
 
-  /** 当前实例的 bot 显示名（群聊中自己叫什么） */
+  /** 当前实例的 bot 显示名（群聊中自己叫什么 — 飞书应用名） */
   private botDisplayName = '';
 
   /** 当前实例的 bot ID */
@@ -103,10 +103,12 @@ export class AgentGatewayImpl implements AgentGateway {
 
     let systemPromptAddon = `\n[Channel: ${label}] You are responding through ${label}.`;
 
-    // 群聊场景注入回复语法说明
+    // 群聊场景注入回复语法说明 + 身份说明
     if (msg.chatType === 'group') {
       const selfName = this.botDisplayName || msg.userName || '你自己';
       systemPromptAddon += `\n\
+[身份说明] 在这个群聊中群友叫你「${selfName}」。当有人用「${selfName}」称呼你或 @ 你时，就知道是在对你说话。你回复时以「${selfName}」自称。
+
 群聊回复说明：
 - 群聊中每条消息前会标注 [发送者名字]
 - 如果消息包含 @某人，会标注 [@了: 名单]

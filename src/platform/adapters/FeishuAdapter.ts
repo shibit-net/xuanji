@@ -215,8 +215,8 @@ export class FeishuAdapter implements PlatformAdapter {
       const data = await response.json() as any;
       if (data.code === 0 && data.data?.bot?.open_id) {
         this._botOpenId = data.data.bot.open_id;
-        // 优先使用配置的 botName（解决飞书后台 app_name 与群内昵称不一致的问题）
-        const botName = this.config.botName?.trim() || data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+        // 群内身份使用飞书应用名
+        const botName = data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
 
         // 将 Bot 自己的信息写入 userCache（后续 _trackSenderFromMessage 会优先用 userCache 的名字）
         this.userCache.set(this._botOpenId, { name: botName });
