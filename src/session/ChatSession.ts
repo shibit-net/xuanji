@@ -414,8 +414,12 @@ export class ChatSession {
     if (allMessages.length === 0) return;
 
     // 增量提取：只处理上次水印之后的新消息
-    const watermark = memoryManager.getExtractionWatermark();
-    if (watermark >= allMessages.length) return; // 无新消息
+    let watermark = memoryManager.getExtractionWatermark();
+    // 水印可能大于当前消息数（上下文压缩/会话重置后），此时重置为 0
+    if (watermark >= allMessages.length) {
+      watermark = 0;
+      memoryManager.setExtractionWatermark(0);
+    }
 
     // 如果上次调度还在执行中（isExtracting），跳过本次（wait for completion）
     if (memoryManager.isExtracting) return;
