@@ -23,7 +23,7 @@ export type SessionState = 'idle' | 'thinking' | 'executing' | 'outputting' | 'w
 
 export type SessionEvent =
   | { type: 'USER_MESSAGE'; message: string; sessionKey?: string }
-  | { type: 'USER_INTERRUPT'; message?: string }
+  | { type: 'USER_INTERRUPT'; message?: string; sessionKey?: string }
   | { type: 'AGENT_STARTED' }
   | { type: 'AGENT_TOOL_STARTED' }
   | { type: 'AGENT_TEXT_STARTED' }

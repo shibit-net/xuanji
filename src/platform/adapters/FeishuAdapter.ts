@@ -474,7 +474,7 @@ export class FeishuAdapter implements PlatformAdapter {
       }
       // 后台尝试 API 补充（fire-and-forget）
       this.fetchGroupMembers(msg.chatId).then(apiMembers => {
-        if (apiMembers.length > 0) {
+        if (apiMembers.length > 0 && this.groupMembersHandler) {
           this.groupMembersHandler(msg.chatId, apiMembers);
         }
       }).catch(() => {});

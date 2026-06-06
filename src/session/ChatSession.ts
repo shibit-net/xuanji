@@ -122,7 +122,7 @@ export class ChatSession {
     if (!opts?.fromDrain && this.agentLoop.getState().status !== 'idle') {
       log.warn('run() called while AgentLoop is still running, queuing instead');
       if (this._useNewPath && this._stateMachine) {
-        this._stateMachine.pendingMessages.push(input);
+        this._stateMachine.pendingMessages.push({ message: input, sessionKey: opts?.sessionKey || 'local' });
       } else {
         this._pendingQueues.get('local')?.push(input) || this._pendingQueues.set('local', [input]);
       }
