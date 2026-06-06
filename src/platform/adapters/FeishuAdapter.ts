@@ -213,10 +213,13 @@ export class FeishuAdapter implements PlatformAdapter {
         { headers: { 'Authorization': `Bearer ${token}` } },
       );
       const data = await response.json() as any;
-      if (data.code === 0 && data.data?.bot?.open_id) {
-        this._botOpenId = data.data.bot.open_id;
-        // 群内身份使用飞书应用名
-        const botName = data.data.bot.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+      // 飞书 /bot/v3/info 响应结构：{ code, msg, bot: { open_id, app_name, ... } }
+      //   注意：没有 data 包装层，bot 直接在顶层
+      const botInfo = data.bot;
+      if (data.code === 0 && botInfo?.open_id) {
+        this._botOpenId = botInfo.open_id;
+        // 优先使用配置的 botName（解决飞书后台 app_name 与群内昵称不一致的问题）
+        const botName = this.config.botName?.trim() || botInfo.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
 
         // 将 Bot 自己的信息写入 userCache（后续 _trackSenderFromMessage 会优先用 userCache 的名字）
         this.userCache.set(this._botOpenId, { name: botName });
@@ -226,7 +229,7 @@ export class FeishuAdapter implements PlatformAdapter {
         // 将 Bot 自己加入所有已知群的成员追踪缓存（不再依赖被动消息事件）
         this._ensureSelfInAllGroups(botName);
       } else {
-        log.warn(`Feishu bot identity fetch failed: code=${data.code} msg=${data.msg}`);
+        log.warn(`Feishu bot identity fetch failed: code=${data.code} msg=${data.msg} hasBot=${!!data.bot} open_id=${data.bot?.open_id || '(missing)'}`);
       }
     } catch (err) {
       log.warn(`Feishu bot identity fetch error: ${(err as Error).message}`);
@@ -954,20 +957,62 @@ export class FeishuAdapter implements PlatformAdapter {
       } else if (msgType === 'interactive') {
         // 解析 interactive 卡片消息（其他 bot 发来的 markdown 卡片等）
         const parts: string[] = [];
-        const elements = content.elements || content.card?.elements || [];
-        for (const el of elements) {
-          if (el.tag === 'markdown' && el.content) {
-            parts.push(el.content);
-          } else if (el.tag === 'div' && el.text) {
-            parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
-          } else if (el.tag === 'hr') {
-            parts.push('---');
+        const elements: any[] = content.elements || content.card?.elements || [];
+
+        // 判断 elements 是 1D（xuanji 自己的格式：[{tag, content}, ...]）
+        // 还是 2D（其他 bot 如璇小玑的格式：[[{tag, text}, ...], ...]）
+        function extractSegment(seg: any): string {
+          if (!seg) return '';
+          if (seg.tag === 'markdown' && seg.content) return seg.content;
+          if (seg.tag === 'text' && seg.text) return seg.text;
+          if (seg.tag === 'at') return seg.user_name ? `@${seg.user_name}` : '';
+          if (seg.tag === 'a' && seg.text) return seg.text;
+          if (seg.tag === 'img') return '[图片]';
+          if (seg.tag === 'emotion') return '[表情]';
+          if (seg.tag === 'hr') return '\n---\n';
+          if (seg.tag === 'div' && seg.text) return typeof seg.text === 'string' ? seg.text : seg.text?.content || '';
+          return '';
+        }
+
+        const is2D = elements.length > 0 && Array.isArray(elements[0]);
+        if (is2D) {
+          // 二维数组：外层=段落，内层=段
+          for (const line of elements) {
+            if (Array.isArray(line)) {
+              const lineText = line.map(extractSegment).join('');
+              if (lineText) parts.push(lineText);
+            }
+          }
+        } else {
+          // 一维数组：直接遍历元素
+          for (const el of elements) {
+            const segText = extractSegment(el);
+            if (segText) parts.push(segText);
           }
         }
+
+        // 解析 user_dsl 作为后备（部分 bot 在此字段存渲染后的 markdown）
+        if (parts.length === 0 && content.user_dsl) {
+          try {
+            const dsl = typeof content.user_dsl === 'string' ? JSON.parse(content.user_dsl) : content.user_dsl;
+            const dslElements = dsl.elements || [];
+            for (const el of dslElements) {
+              if (el.tag === 'markdown' && el.content) {
+                parts.push(el.content);
+              } else if (el.tag === 'div' && el.text) {
+                parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
+              }
+            }
+          } catch { /* user_dsl parse failed, ignore */ }
+        }
+
         if (content.header?.title?.content) {
           parts.unshift(content.header.title.content);
         }
-        text = parts.join('\n') || text;
+        const _diagExtracted = parts.join('\n');
+        log.info(`[DIAG-interactive] raw content keys: ${Object.keys(content).join(',')}, elements=${!!content.elements}, card=${!!content.card}, is2D=${is2D}`);
+        log.info(`[DIAG-interactive] elements count=${elements.length}, extracted len=${_diagExtracted.length}, user_dsl=${!!content.user_dsl}`);
+        text = _diagExtracted || text;
       } else if (msgType === 'post') {
         // 解析 post 富文本消息
         const parts: string[] = [];
