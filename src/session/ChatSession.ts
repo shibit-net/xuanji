@@ -15,6 +15,7 @@ import type { SkillRegistry } from '@/skills';
 import type { MCPManager } from '@/mcp/MCPManager';
 import { StateTracker } from '@/agent/state/StateTracker';
 import { TaskOrchestrator } from '@/agent/task/TaskOrchestrator';
+import { BackgroundTaskManager, type BackgroundTaskResult } from '@/tools/BackgroundTaskManager';
 import type { SessionStateMachine, SessionAction } from '@/agent/state/SessionStateMachine';
 import { eventBus } from '@/infrastructure/events/EventBus';
 import { XuanjiEvent } from '@/infrastructure/events/events';
@@ -47,6 +48,10 @@ export class ChatSession {
   private _pendingAudioBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
   private _pendingVideoBlocks?: Array<{ data: string; mimeType: string; name?: string }>;
   private _pendingAttachments?: Array<{ name: string; path?: string; content: string; size: number; mimeType?: string }>;
+  /** 当前活跃的 sessionKey（由 handleUserAction 设置，ChatSession.run() 内部在 agentLoop.run() 调用前写入 AgentLoop） */
+  private _currentSessionKey = 'local';
+  /** 已完成待报告的后台 bash 任务结果 */
+  private _pendingBashCompletions: BackgroundTaskResult[] = [];
 
   constructor(
     agentLoop: AgentLoop,
@@ -74,6 +79,12 @@ export class ChatSession {
       this.agentLoop.on(callbacks);
     }
 
+    // 注册 BackgroundTaskManager 全局完成回调，感知后台 bash 任务结束
+    BackgroundTaskManager.getInstance().onTaskCompleted((result) => {
+      this._pendingBashCompletions.push(result);
+      log.info(`[bg-task] 后台 bash 任务完成: ${result.taskId} status=${result.status} exitCode=${result.exitCode}`);
+    });
+
     // Feature flag 共存：USE_SESSION_STATE_MACHINE !== 'false' 且传入了 stateMachine 时走新路径
     this._useNewPath = process.env.USE_SESSION_STATE_MACHINE !== 'false' && !!stateMachine;
     if (this._useNewPath && stateMachine) {
@@ -99,7 +110,7 @@ export class ChatSession {
     }
   }
 
-  async run(input: string, opts?: { fromDrain?: boolean }): Promise<void> {
+  async run(input: string, opts?: { fromDrain?: boolean; sessionKey?: string }): Promise<void> {
     const imageBlocks = this._pendingImageBlocks;
     const audioBlocks = this._pendingAudioBlocks;
     const videoBlocks = this._pendingVideoBlocks;
@@ -173,23 +184,36 @@ export class ChatSession {
       // 注入运行中的后台任务信息，防止重复创建
       this.injectRunningTaskHint();
 
+      // 注入已完成的后台 bash 任务结果
+      this.injectBackgroundTaskCompletions();
+
       // 执行前修复：清理上次中断/异常遗留的孤立 tool_use 块，防止 API 400 错误
       this.repairOrphanedToolUse();
 
       log.debug('[DIAG] ChatSession.run: about to call agentLoop.run, agentLoop.running=' + (this.agentLoop as any).running);
-      await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks, attachments);
+      // 在真正启动 AgentLoop 前设置 sessionKey，确保事件路由正确
+      // 优先使用排队消息携带的 sessionKey，否则使用 ChatSession 的当前值
+      this.agentLoop.setSessionKey(opts?.sessionKey || this._currentSessionKey);
+      try {
+        await this.agentLoop.run(input, undefined, imageBlocks, audioBlocks, videoBlocks, attachments);
+      } finally {
+        this.agentLoop.setSessionKey(null);
+      }
       log.debug('[DIAG] ChatSession.run: agentLoop.run completed');
 
       // 清理后台任务 completion hint + 渠道标识 + 运行中任务提示
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'async-task-completion');
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'channel-info');
       this.agentLoop.getContextManager().setSystemPromptSuffix('', 'running-tasks');
+      this.agentLoop.getContextManager().setSystemPromptSuffix('', 'bg-bash-completions');
+      // 清空已消费的 bash 完成结果
+      this._pendingBashCompletions = [];
 
       if (this._useNewPath && this._stateMachine) {
         // 新路径：状态机处理完成 → 可能自动排队运行下一轮
         const action = this._stateMachine.transition({ type: 'AGENT_COMPLETED' });
         if (action.type === 'RUN_AGENT') {
-          await this.run(action.message);
+          await this.run(action.message, { sessionKey: action.sessionKey });
           return;
         }
         if (this._stateMachine.pendingMessages.length === 0) {
@@ -602,13 +626,13 @@ export class ChatSession {
     const event: import('@/agent/state/SessionStateMachine').SessionEvent =
       action.type === 'INTERRUPT'
         ? { type: 'USER_INTERRUPT', message: action.message }
-        : { type: 'USER_MESSAGE', message: action.message || '' };
+        : { type: 'USER_MESSAGE', message: action.message || '', sessionKey: this._currentSessionKey };
 
     const result: SessionAction = sm.transition(event);
 
     switch (result.type) {
       case 'RUN_AGENT':
-        await this.run(result.message);
+        await this.run(result.message, { sessionKey: result.sessionKey });
         break;
       case 'ABORT_AGENT':
         this.agentLoop.stop();
@@ -657,6 +681,40 @@ export class ChatSession {
    * 注入运行中的后台任务信息到 system prompt，防止主 agent 重复创建相同任务。
    * 每次 run() 前调用，让 agent 知道哪些任务已经在执行中。
    */
+  /**
+   * 注入已完成的后台 bash 任务结果到 system prompt，让 agent 感知构建/脚本等后台任务已完成。
+   * 每次 run() 前调用，确保 agent 能看到上次 run 期间完成的所有后台任务。
+   */
+  private injectBackgroundTaskCompletions(): void {
+    if (this._pendingBashCompletions.length === 0) return;
+
+    const results = this._pendingBashCompletions.slice();
+    const lines = results.map(r => {
+      const statusIcon = r.status === 'completed' ? '✅' : r.status === 'failed' ? '❌' : '⏱️';
+      const exitInfo = r.exitCode !== undefined ? ` (exit: ${r.exitCode})` : '';
+      const summary = r.stdout ? r.stdout.slice(-500).replace(/\n/g, '\n> ') : '(无输出)';
+      return [
+        `### ${statusIcon} 后台任务 ${r.taskId} 已${r.status === 'completed' ? '完成' : r.status === 'failed' ? '失败' : '超时'}${exitInfo}`,
+        `命令: \`${r.command}\``,
+        r.stderr ? `stderr: ${r.stderr.slice(-200)}` : '',
+        `输出 (尾部 500 字符):`,
+        `> ${summary}`,
+      ].filter(Boolean).join('\n');
+    });
+
+    const hint = [
+      '## 📦 后台 Bash 任务完成通知',
+      '',
+      '以下后台任务已在上一轮对话期间完成，你可以直接汇总结果给用户：',
+      '',
+      lines.join('\n\n'),
+      '',
+      '请根据需要向用户报告这些任务的执行结果。',
+    ].join('\n');
+
+    this.agentLoop.getContextManager().setSystemPromptSuffix(hint, 'bg-bash-completions');
+  }
+
   private injectRunningTaskHint(): void {
     try {
       const orchestrator = TaskOrchestrator.getInstance();
@@ -861,6 +919,11 @@ export class ChatSession {
     } catch {
       return null;
     }
+  }
+
+  /** 设置当前活跃的 sessionKey（在 userAction 前由 handleUserAction 调用） */
+  setActiveSessionKey(key: string): void {
+    this._currentSessionKey = key;
   }
 
   getStateTracker(): StateTracker {

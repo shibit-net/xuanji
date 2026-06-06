@@ -101,6 +101,9 @@ export interface PlatformAdapter {
   }): Promise<{ name: string; avatar?: string } | null>;
 
   onMessage(handler: (msg: PlatformMessage) => void): void;
+
+  /** 群成员动态更新回调（飞书等平台在收到群消息时自动拉取成员列表，通知上层注入 AgentGateway） */
+  onGroupMembersUpdated?(handler: (chatId: string, members: GroupMember[]) => void): void;
 }
 
 // ─── 配置 ──────────────────────────────────────────────────

@@ -41,6 +41,22 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 群聊名称缓存：chatId → name */
   private groupNameCache = new Map<string, string>();
 
+  /** 群成员缓存：chatId → { members, fetchedAt }（首次消息拉取，后续复用，避免每次消息都查 API） */
+  private groupMembersCache = new Map<string, { members: import('../types.js').GroupMember[]; fetchedAt: number }>();
+  private groupMembersHandler: ((chatId: string, members: import('../types.js').GroupMember[]) => void) | null = null;
+
+  /** Bot 自身的 open_id（通过 /bot/v3/info 获取，用于 self_echo 防护 + 群成员识别） */
+  private _botOpenId = '';
+  /** 是否允许接收其他 Bot 的消息（默认 all，多 Agent 协作需要） */
+  private _allowBots: 'none' | 'mentions' | 'all' = 'all';
+
+  /** 基于事件的群成员缓存：chatId → Map<memberId, GroupMember>（消息事件 + 成员变更事件累积） */
+  private _memberTrackingCache = new Map<string, Map<string, import('../types.js').GroupMember>>();
+
+  onGroupMembersUpdated(handler: (chatId: string, members: import('../types.js').GroupMember[]) => void): void {
+    this.groupMembersHandler = handler;
+  }
+
   constructor(private config: FeishuConfig, credentials: CredentialManager) {
     this.credentials = credentials;
   }
@@ -69,6 +85,10 @@ export class FeishuAdapter implements PlatformAdapter {
           this.lastActivity = Date.now();
           console.log('[FeishuAdapter] EVENT: im.message.receive_v1 keys=', Object.keys(data || {}).join(','));
           log.info(`Feishu WS event received: keys=${Object.keys(data || {}).join(',')}, msgType=${data?.message?.message_type}, chatId=${data?.message?.chat_id}`);
+
+          // 跟踪发送者（方案 B：用消息事件累积群成员）
+          this._trackSenderFromMessage(data);
+
           const msg = this.parseMessageFromSDK(data);
           if (msg) {
             this.enrichAndForward(msg).catch(err => {
@@ -90,8 +110,29 @@ export class FeishuAdapter implements PlatformAdapter {
           console.log('[FeishuAdapter] EVENT: im.message.recalled_v1');
           this.handleRecall(data);
         },
+        // ── 群成员变更事件（方案 B：实时感知加人/退群）──────────
+        'im.chat.member.user.added_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this._handleMembersAdded(data, false);
+        },
+        'im.chat.member.user.deleted_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this._handleMembersRemoved(data);
+        },
+        'im.chat.member.user.withdrawn_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this._handleMembersRemoved(data);
+        },
+        'im.chat.member.bot.added_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this._handleMembersAdded(data, true);
+        },
+        'im.chat.member.bot.deleted_v1': (data: any) => {
+          this.lastActivity = Date.now();
+          this._handleMembersRemoved(data);
+        },
       });
-      console.log('[FeishuAdapter] EventDispatcher registered with 3 events');
+      console.log('[FeishuAdapter] EventDispatcher registered with 8 events (3 msg + 5 member)');
 
       // onReady/onError 必须传给 constructor，传给 start() 会被 SDK 忽略
       this.wsClient = new WSClient({
@@ -105,6 +146,8 @@ export class FeishuAdapter implements PlatformAdapter {
           log.info('Feishu WebSocket connected via SDK WSClient (onReady)');
           this.wsStarted = true;
           this.lastActivity = Date.now();
+          // 异步获取 Bot 身份（self_echo 防护 + 群成员识别）
+          this.fetchBotIdentity().catch(e => log.warn(`Feishu bot identity init failed: ${e.message}`));
         },
         onError: (err: Error) => {
           console.error('[FeishuAdapter] onError:', err.message);
@@ -155,6 +198,26 @@ export class FeishuAdapter implements PlatformAdapter {
 
   // ── 用户资料 ─────────────────────────────────────────────
 
+  /** 获取 Bot 自身的 open_id（用于 self_echo 防护 + 群成员自己识别） */
+  async fetchBotIdentity(): Promise<void> {
+    try {
+      const token = await this.credentials.getToken('feishu');
+      const response = await fetch(
+        'https://open.feishu.cn/open-apis/bot/v3/info',
+        { headers: { 'Authorization': `Bearer ${token}` } },
+      );
+      const data = await response.json() as any;
+      if (data.code === 0 && data.data?.bot?.open_id) {
+        this._botOpenId = data.data.bot.open_id;
+        log.info(`Feishu bot identity resolved: open_id=${this._botOpenId}`);
+      } else {
+        log.warn(`Feishu bot identity fetch failed: code=${data.code} msg=${data.msg}`);
+      }
+    } catch (err) {
+      log.warn(`Feishu bot identity fetch error: ${(err as Error).message}`);
+    }
+  }
+
   async getUserProfile(options: { userId: string; userIdType?: string }): Promise<{ name: string; avatar?: string } | null> {
     const { userId, userIdType } = options;
     // 先查缓存
@@ -179,6 +242,8 @@ export class FeishuAdapter implements PlatformAdapter {
         };
         this.userCache.set(userId, profile);
         return profile;
+      } else {
+        log.warn(`Feishu getUserProfile API error: userId=${userId} type=${userIdType || 'open_id'} code=${data.code} msg=${data.msg}`);
       }
     } catch (err) {
       log.warn(`Feishu getUserProfile failed: ${(err as Error).message}`);
@@ -208,6 +273,181 @@ export class FeishuAdapter implements PlatformAdapter {
     return undefined;
   }
 
+  /** 获取群聊成员列表（GET /chats/:id/members），含机器人标记和自身识别。
+   *  结果会缓存，后续消息直接复用缓存。 */
+  async fetchGroupMembers(chatId: string): Promise<import('../types.js').GroupMember[]> {
+    // 检查缓存（5 分钟内不重复拉取）
+    const cached = this.groupMembersCache.get(chatId);
+    if (cached && (Date.now() - cached.fetchedAt) < 30 * 1000) {
+      return cached.members;
+    }
+
+    try {
+      const token = await this.credentials.getToken('feishu');
+      let allItems: any[] = [];
+      let pageToken: string | undefined;
+
+      // 分页拉取所有群成员
+      do {
+        const url = new URL(`https://open.feishu.cn/open-apis/im/v1/chats/${encodeURIComponent(chatId)}/members`);
+        url.searchParams.set('member_id_type', 'union_id');
+        url.searchParams.set('page_size', '100');
+        if (pageToken) url.searchParams.set('page_token', pageToken);
+
+        const response = await fetch(url.toString(), {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await response.json() as any;
+        // DEBUG: 打印原始返回
+        log.info(`Feishu fetchGroupMembers RAW: code=${data.code} hasItems=${!!data.data?.items} itemCount=${data.data?.items?.length || 0} hasMore=${data.data?.has_more} pageToken=${data.data?.page_token} items=${JSON.stringify(data.data?.items?.map((i: any) => ({ member_id: i.member_id, member_type: i.member_type, name: i.name })))}`);
+
+        if (data.code !== 0) {
+          log.warn(`Feishu fetchGroupMembers API error: code=${data.code} msg=${data.msg}`);
+          break;
+        }
+        if (data.data?.items) {
+          allItems.push(...data.data.items);
+        }
+        pageToken = data.data?.has_more ? data.data?.page_token : undefined;
+      } while (pageToken);
+
+      if (allItems.length > 0) {
+        const members: import('../types.js').GroupMember[] = [];
+        for (const item of allItems) {
+          const isBot = item.member_type === 'bot';
+          // 获取成员名称：优先使用 API 返回的 name，否则回退查缓存/Contact API
+          let memberName = item.name || '';
+          if (!memberName && item.member_id) {
+            // 尝试从用户缓存获取
+            const userCached = this.userCache.get(item.member_id);
+            if (userCached) {
+              memberName = userCached.name;
+            }
+          }
+          if (!memberName) {
+            memberName = item.member_id?.substring(0, 12) + '...' || '未知成员';
+          }
+
+          members.push({
+            id: item.member_id,
+            name: memberName,
+            isBot,
+            // 标记自己：member_id 与当前应用的 app_id 相同
+            isSelf: item.member_id === this.config.app_id,
+          });
+        }
+        this.groupMembersCache.set(chatId, { members, fetchedAt: Date.now() });
+        log.info(`Feishu fetchGroupMembers: chatId=${chatId} count=${members.length} bots=${members.filter(m => m.isBot).length}`);
+        return members;
+      }
+    } catch (err) {
+      log.warn(`Feishu fetchGroupMembers failed: ${(err as Error).message}`);
+    }
+    return [];
+  }
+
+  // ── 方案 B：基于事件的群成员追踪 ────────────────────────
+
+  /** 从消息事件中提取发送者信息，加入群成员追踪缓存 */
+  private _trackSenderFromMessage(data: any): void {
+    try {
+      const chatId = data?.message?.chat_id;
+      const sender = data?.sender;
+      if (!chatId || !sender) return;
+
+      const openId = sender.sender_id?.open_id || '';
+      const userId = sender.sender_id?.user_id || '';
+      const memberId = openId || userId;
+      if (!memberId) return;
+
+      let chatMembers = this._memberTrackingCache.get(chatId);
+      if (!chatMembers) {
+        chatMembers = new Map();
+        this._memberTrackingCache.set(chatId, chatMembers);
+      }
+
+      if (!chatMembers.has(memberId)) {
+        const isBot = sender.sender_type === 'bot';
+        const name = this.userCache.get(openId)?.name || this.userCache.get(userId)?.name
+          || (isBot ? `Bot(${memberId.substring(0, 8)}...)` : `用户(${memberId.substring(0, 8)}...)`);
+        chatMembers.set(memberId, {
+          id: memberId,
+          name,
+          isBot,
+          isSelf: openId === this._botOpenId,
+        });
+        log.info(`Feishu member tracked from message: chatId=${chatId} id=${memberId} name=${name} isBot=${isBot}`);
+        this._notifyGroupMembers(chatId);
+      }
+    } catch (err) {
+      // 非关键路径，静默忽略
+    }
+  }
+
+  /** 处理群成员加入事件（user + bot） */
+  private _handleMembersAdded(data: any, isBot: boolean): void {
+    try {
+      const chatId = data?.event?.chat_id || data?.chat_id;
+      const users = data?.event?.users || data?.event?.user ? [data?.event?.user] : [];
+      if (!chatId || users.length === 0) return;
+
+      let chatMembers = this._memberTrackingCache.get(chatId);
+      if (!chatMembers) {
+        chatMembers = new Map();
+        this._memberTrackingCache.set(chatId, chatMembers);
+      }
+
+      for (const user of users) {
+        const memberId = user.open_id || user.user_id || '';
+        if (!memberId) continue;
+        const name = user.name || user.display_name || '';
+        chatMembers.set(memberId, {
+          id: memberId,
+          name: name || `Bot(${memberId.substring(0, 8)}...)`,
+          isBot,
+          isSelf: (user.open_id || '') === this._botOpenId,
+        });
+        log.info(`Feishu member added: chatId=${chatId} id=${memberId} name=${name} isBot=${isBot}`);
+      }
+      this._notifyGroupMembers(chatId);
+    } catch (err) {
+      log.warn(`Feishu _handleMembersAdded error: ${(err as Error).message}`);
+    }
+  }
+
+  /** 处理群成员移除事件（user + bot） */
+  private _handleMembersRemoved(data: any): void {
+    try {
+      const chatId = data?.event?.chat_id || data?.chat_id;
+      const users = data?.event?.users || data?.event?.user ? [data?.event?.user] : [];
+      if (!chatId || users.length === 0) return;
+
+      const chatMembers = this._memberTrackingCache.get(chatId);
+      if (!chatMembers) return;
+
+      for (const user of users) {
+        const memberId = user.open_id || user.user_id || '';
+        if (!memberId) continue;
+        chatMembers.delete(memberId);
+        log.info(`Feishu member removed: chatId=${chatId} id=${memberId}`);
+      }
+      this._notifyGroupMembers(chatId);
+    } catch (err) {
+      log.warn(`Feishu _handleMembersRemoved error: ${(err as Error).message}`);
+    }
+  }
+
+  /** 重建群成员数组并通知 AgentGateway */
+  private _notifyGroupMembers(chatId: string): void {
+    if (!this.groupMembersHandler) return;
+    const chatMembers = this._memberTrackingCache.get(chatId);
+    if (!chatMembers || chatMembers.size === 0) return;
+
+    const members = Array.from(chatMembers.values());
+    log.info(`Feishu group members (event-based): chatId=${chatId} count=${members.length} bots=${members.filter(m => m.isBot).length}`);
+    this.groupMembersHandler(chatId, members);
+  }
+
   /** 收到消息后自动丰富：用户名 → 群名 → 回复上下文 → 附件下载 → 推送 → 已读 ACK（文档 §3.4 + §9） */
   private async enrichAndForward(msg: PlatformMessage): Promise<void> {
     // 1. 获取用户名称（Contact API），确保 session 注册时已有 displayName
@@ -220,6 +460,20 @@ export class FeishuAdapter implements PlatformAdapter {
       if (groupName && msg.raw) {
         msg.raw.chatName = groupName;
       }
+    }
+    // 2a. 群聊消息：方案 B 优先用事件累积的成员（已通过 _trackSenderFromMessage 处理）
+    //    API 拉取作为补充（可能拿到没说过话的成员），失败不阻塞
+    if (msg.chatType === 'group' && this.groupMembersHandler) {
+      const trackedMembers = Array.from((this._memberTrackingCache.get(msg.chatId) || new Map()).values());
+      if (trackedMembers.length > 0) {
+        this.groupMembersHandler(msg.chatId, trackedMembers);
+      }
+      // 后台尝试 API 补充（fire-and-forget）
+      this.fetchGroupMembers(msg.chatId).then(apiMembers => {
+        if (apiMembers.length > 0) {
+          this.groupMembersHandler(msg.chatId, apiMembers);
+        }
+      }).catch(() => {});
     }
     // 3. 获取回复上下文（必须在推送前，让 Agent 理解对话上下文）
     if (msg.replyTo) {
@@ -497,6 +751,8 @@ export class FeishuAdapter implements PlatformAdapter {
     const profile = await this.getUserProfile({ userId: msg.userId });
     if (profile?.name) {
       msg.userName = profile.name;
+    } else {
+      log.warn(`Feishu enrichUserName failed: userId=${msg.userId} chatType=${msg.chatType} chatId=${msg.chatId}`);
     }
   }
 
@@ -574,6 +830,23 @@ export class FeishuAdapter implements PlatformAdapter {
    * header/event 被展开到顶层，message/sender 不再嵌套在 event 下
    */
   private parseMessageFromSDK(data: any): PlatformMessage | null {
+    const sender = data.sender;
+    // Self-echo 防护：跳过自己发出的消息（防止多 Bot 场景无限循环）
+    if (sender?.sender_type === 'bot') {
+      if (this._botOpenId && sender.sender_id?.open_id === this._botOpenId) {
+        return null; // 自己的消息，跳过
+      }
+      // 其他 Bot 的消息：根据 _allowBots 策略决定是否处理
+      if (this._allowBots === 'none') {
+        return null;
+      }
+      if (this._allowBots === 'mentions') {
+        // 只有被 @ 了才处理
+        const mentions: any[] = data.message?.mentions || [];
+        const isMentioned = mentions.some((m: any) => m.id?.open_id === this._botOpenId);
+        if (!isMentioned) return null;
+      }
+    }
     return this.buildMessage(data, data.message, data.sender);
   }
 
