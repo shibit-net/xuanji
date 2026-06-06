@@ -93,16 +93,19 @@ async function handleAgentBridgeReply(data: {
     }
     const adapter = platformRouter.getAdapter(data.platform);
     if (!adapter) {
+      log.error(`handleAgentBridgeReply: No adapter for platform=${data.platform}`);
       return;
     }
     const result = await adapter.sendText({ chatId: data.chatId, text: data.text, replyTo: data.replyTo });
 
     // 发送 agent 生成的图片
     if (data.imagePaths?.length && typeof adapter.sendImage === 'function') {
+      log.info(`handleAgentBridgeReply: Sending ${data.imagePaths.length} images to ${data.platform}/${data.chatId}: ${JSON.stringify(data.imagePaths)}`);
       for (const imagePath of data.imagePaths) {
         try {
           await adapter.sendImage({ chatId: data.chatId, imagePath, replyTo: data.replyTo });
         } catch (imgErr) {
+          log.error(`Failed to send image to ${data.platform}/${data.chatId}: ${(imgErr as Error).message}`);
         }
       }
     }
@@ -117,6 +120,7 @@ async function handleAgentBridgeReply(data: {
             await adapter.sendFile({ chatId: data.chatId, filePath: audioPath, replyTo: undefined });
           }
         } catch (voiceErr) {
+          log.error(`Failed to send voice to ${data.platform}/${data.chatId}: ${(voiceErr as Error).message}`);
         }
       }
     }
@@ -127,6 +131,7 @@ async function handleAgentBridgeReply(data: {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath: videoPath, replyTo: undefined });
         } catch (fileErr) {
+          log.error(`Failed to send video to ${data.platform}/${data.chatId}: ${(fileErr as Error).message}`);
         }
       }
     }
@@ -137,6 +142,7 @@ async function handleAgentBridgeReply(data: {
         try {
           await adapter.sendFile({ chatId: data.chatId, filePath, replyTo: undefined });
         } catch (fileErr) {
+          log.error(`Failed to send file to ${data.platform}/${data.chatId}: ${(fileErr as Error).message}`);
         }
       }
     }

@@ -161,14 +161,19 @@
         "to": "node"
       }
     ],
+    "dmg": {
+      "size": "3g"
+    },
     "mac": {
       "target": [
+        "dmg",
         "zip"
       ],
       "icon": "build/icon.icns",
       "artifactName": "xuanji-${version}-${os}-${arch}.${ext}",
       "hardenedRuntime": false,
-      "x64ArchFiles": "Contents/Resources/python-runtime/**"
+      "x64ArchFiles": "Contents/Resources/python-runtime/**",
+      "identity": null
     },
     "win": {
       "target": [

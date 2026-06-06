@@ -417,6 +417,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
   const streamingHtml = useStreamingMarkdown(typeof displayContent === 'string' ? displayContent : '', isStreaming);
   const processedContent = useMemo(() => {
     if (typeof displayContent !== 'string') return '';
+    // 流式模式下跳过重量级正则处理，等流式完成后再做
+    if (isStreaming) return displayContent;
     let text = normalizeLineBreaks(normalizeTableBreaks(normalizeMarkdownHeadings(stripRawHtml(displayContent))));
 
     // 解析 LLM 输出的本地图片路径 → base64 data URI
@@ -455,7 +457,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
     }
 
     return text;
-  }, [displayContent, respondingAgent?.currentTools]);
+  }, [displayContent, isStreaming, respondingAgent?.currentTools]);
 
   // 实时耗时：流式时从 message.timestamp 实时计算，完成后用 message.duration
   const liveDuration = useMemo(() => {
@@ -617,8 +619,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming =
 
   return (
     <FadeContent
-      blur
+      blur={!isStreaming}
       duration={600}
+      initialOpacity={isStreaming ? 1 : 0}
       className={`flex ${isUser ? 'justify-end' : 'justify-start'}${isStreaming ? '' : ' animate-fadeIn'}`}
     >
       <div className="flex flex-col max-w-[80%] min-w-0">
