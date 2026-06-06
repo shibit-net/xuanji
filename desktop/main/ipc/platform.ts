@@ -159,10 +159,19 @@ async function handleAgentBridgeReply(data: {
   }
 }
 
-/** 飞书连接成功后广播占位会话，侧边栏立即显示 */
+/** 飞书连接成功后广播占位会话，侧边栏立即显示。
+ *  如果已有真实飞书会话（从持久化恢复），跳过占位广播，避免重启后占位+真实并存。 */
 function emitFeishuPlaceholder(router: any): void {
   const adapter = router?.getAdapter?.('feishu');
   if (!adapter?.wsStarted) return;
+
+  // 检查是否已有真实飞书会话（从 sessions.json 恢复），有则不需要占位
+  const allSessions: any[] = router.listSessions?.() || [];
+  const hasRealFeishuSession = allSessions.some(
+    (s: any) => s.platform === 'feishu' && !s.id?.includes('__placeholder__'),
+  );
+  if (hasRealFeishuSession) return;
+
   broadcastToAll('platform:session-updated', {
     sessionKey: 'feishu:private:__placeholder__',
     platform: 'feishu',

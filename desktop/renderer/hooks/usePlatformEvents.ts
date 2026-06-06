@@ -63,6 +63,14 @@ export function usePlatformEvents() {
             }
             store.addSession(s);
           }
+
+          // 如果已从持久化恢复了真实飞书会话，移除可能存在的占位（emitFeishuPlaceholder 可能早于 platformStatus 发出）
+          const hasRealFeishuSession = statusResult.sessions.some(
+            (s: any) => s.platform === 'feishu' && !s.id?.includes('__placeholder__'),
+          );
+          if (hasRealFeishuSession) {
+            store.removeSession('feishu:private:__placeholder__');
+          }
         }
       } catch {
         // PlatformRouter 可能未初始化，忽略
