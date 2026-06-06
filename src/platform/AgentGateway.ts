@@ -37,18 +37,24 @@ export class AgentGatewayImpl implements AgentGateway {
     private memoryManager?: MemoryManager,
   ) {}
 
-  /** 设置群聊成员列表（会从中识别 Bot 自己的身份） */
+  /** 设置群聊成员列表（会从中识别 Bot 自己的身份）
+   *
+   *  重要：飞书 API（GET /chats/{chatId}/members）**不返回 Bot 成员**，
+   *  因此 API 路径传入的 members 会缺少 Bot。这里采用合并策略：
+   *  保留旧列表中所有 Bot 成员 + 新列表中的人类成员，
+   *  确保 isSelf 和其他 Bot 的感知不会因 API 覆盖而丢失。
+   */
   setGroupMembers(chatId: string, members: GroupMember[]): void {
-    // 兜底：如果新成员列表中没有 isSelf 标记，但之前已正确识别了 botDisplayName，
-    // 则从旧列表中找回 isSelf 成员并合并到新列表中，防止 API 获取路径覆盖事件驱动的正确数据
-    const oldSelfMember = this.groupMembers.get(chatId)?.find(m => m.isSelf);
-    const hasNewSelf = members.some(m => m.isSelf);
-    if (!hasNewSelf && oldSelfMember && this.botDisplayName) {
-      log.info(`AgentGateway: preserving isSelf member "${this.botDisplayName}" (old path detected self, new list misses it)`);
-      // 将旧的 isSelf 成员注入新列表
-      const mergedMembers = [...members, { ...oldSelfMember }];
-      this.groupMembers.set(chatId, mergedMembers);
-      return;
+    const oldMembers = this.groupMembers.get(chatId);
+
+    // 合并策略：保留旧列表中新列表没有的 Bot 成员（API 不返回 Bot）
+    if (oldMembers && oldMembers.length > 0) {
+      const newIds = new Set(members.map(m => m.id));
+      const lostBots = oldMembers.filter(m => (m.isBot || m.isSelf) && !newIds.has(m.id));
+      if (lostBots.length > 0) {
+        log.info(`AgentGateway: preserving ${lostBots.length} bot member(s) lost in API data: ${lostBots.map(b => b.name).join(', ')}`);
+        members = [...members, ...lostBots];
+      }
     }
 
     this.groupMembers.set(chatId, members);
@@ -60,8 +66,7 @@ export class AgentGatewayImpl implements AgentGateway {
         break;
       }
     }
-    // 兜底：如果 members 中没有任何 isSelf 标记，说明上游 FeishuAdapter 未能正确识别自己
-    // 此时 Agent 在群聊中会显示「你的群昵称: 未知」，导致 Agent 不知道 @ 谁是叫自己
+    // 兜底：如果 members 中没有任何 isSelf 标记，说明上游未能正确识别自己
     if (!this.botDisplayName && members.length > 0) {
       log.warn(`AgentGateway: no isSelf member found in chatId=${chatId}, members=${members.map(m => m.name).join(',')}`);
     }
