@@ -140,7 +140,8 @@ const pendingPlatformPermissions = new Map<string, {
 }>();
 
 // 当前平台消息处理上下文（用于 confirmationHandler 检测远端/本地模式）
-let currentPlatformContext: { platform: string; chatId: string } | null = null;
+// sessionKey: 关联的平台 session，防止跨 session 输出泄漏
+let currentPlatformContext: { platform: string; chatId: string; sessionKey: string } | null = null;
 
 // ============================================================
 // 处理器函数实现
@@ -685,14 +686,17 @@ function initPlatformMessageHandler(sess: ChatSession): void {
 
   // 收集当前远端平台会话的输出文本（AGENT_COMPLETED 时发送到平台）
   let platformOutputText = '';
-  eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload: { text?: string }) => {
-    if (currentPlatformContext && payload.text) {
+  eventBus.on(XuanjiEvent.AGENT_TEXT_DELTA, (payload: { text?: string; sessionKey?: string }) => {
+    // 仅累积当前平台 session 的输出，防止 xuanji 客户端输出泄漏到远端通道
+    if (currentPlatformContext && payload.text && payload.sessionKey === currentPlatformContext.sessionKey) {
       platformOutputText += payload.text;
     }
   });
   // AGENT_COMPLETED 时发送平台回复
   eventBus.on(XuanjiEvent.AGENT_COMPLETED, (payload: { sessionKey?: string; tokenUsage?: any }) => {
     if (!currentPlatformContext) return;
+    // 仅处理当前平台 session 的完成事件，防止跨 session 输出泄漏
+    if (payload.sessionKey !== currentPlatformContext.sessionKey) return;
     // 只在主 agent 的回合完成时发送（不是子 agent 的）
     const ctx = currentPlatformContext;
     const replyText = platformOutputText.trim() || '已处理完成。';
@@ -785,7 +789,7 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       }
 
       // 设置远端平台上下文（供 confirmationHandler 使用 + AGENT_COMPLETED 回调发送回复）
-      currentPlatformContext = { platform: data.platform, chatId: data.chatId };
+      currentPlatformContext = { platform: data.platform, chatId: data.chatId, sessionKey: data.sessionKey };
 
       // 清空上一轮的图片路径，开始收集新一轮
       pendingPlatformImagePaths = [];
@@ -1017,15 +1021,17 @@ async function handleUserAction(data: { type: string; message?: string; attachme
     }
 
     // 标记会话键，确保 agent 事件路由到正确的前端会话
-    const agentLoop = session.getAgentLoop();
-    if (agentLoop) {
-      agentLoop.setSessionKey(effectiveSessionKey);
+    // 关键：不在 AgentLoop 上直接设置，而是交给 ChatSession.run() 在
+    // agentLoop.run() 调用前设置。这样当 AgentLoop 正忙（客户端在流式输出）时，
+    // 远程消息被排队但 sessionKey 不会被误改，防止客户端输出泄漏到远端通道。
+    if ((session as any).setActiveSessionKey) {
+      (session as any).setActiveSessionKey(effectiveSessionKey);
     }
     try {
       await session.userAction({ type: data.type, message: fullMessage || data.message, imageBlocks: data.imageBlocks, audioBlocks: data.audioBlocks, videoBlocks: data.videoBlocks });
     } finally {
-      if (agentLoop) {
-        agentLoop.setSessionKey(null);
+      if ((session as any).setActiveSessionKey) {
+        (session as any).setActiveSessionKey('local');
       }
     }
     log.debug('[DIAG] handleUserAction: session.userAction returned');

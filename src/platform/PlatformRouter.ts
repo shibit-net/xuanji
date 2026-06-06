@@ -60,6 +60,15 @@ export class PlatformRouter implements WorkerReplyHandler {
     adapter.onMessage((msg) => {
       this.onMessage(msg);
     });
+
+    // 接线群成员动态更新：FeishuAdapter 拉取到成员后，自动注入 AgentGateway
+    adapter.onGroupMembersUpdated?.((chatId, members) => {
+      const gateway = this.agent as any;
+      if (gateway?.setGroupMembers) {
+        gateway.setGroupMembers(chatId, members);
+        log.info(`Group members dynamically updated for ${adapter.platform}:${chatId} (${members.length} members)`);
+      }
+    });
   }
 
   /** 预注册远端会话（扫码连接成功后调用，确保侧边栏立即可见） */
@@ -384,12 +393,13 @@ export class PlatformRouter implements WorkerReplyHandler {
       const parsed = parseSessionKey(sessionKey);
       const isGroup = parsed.chatType === 'group';
       const name = displayName || chatId;
+      const adapter = this.adapters.get(parsed.platform);
 
       sessions.push({
         id: sessionKey,
         platform: parsed.platform as RemoteSession['platform'],
         name,
-        status: this.adapters.has(parsed.platform) ? 'online' : 'offline',
+        status: adapter?.isConnected() ? 'online' : 'offline',
         unreadCount: 0,
         sessionKey,
         userId: '',

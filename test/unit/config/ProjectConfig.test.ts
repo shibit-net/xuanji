@@ -103,12 +103,16 @@ describe('ProjectConfig', () => {
       expect(config.tools).toBeDefined();
 
       // 验证嵌套字段
-      expect(config.provider.model).toBeDefined();
-      expect(config.ui.theme).toBeDefined();
-      expect(config.tools.permissions).toBeDefined();
-      expect(config.tools.permissions.fileRead).toBe('always');
-      expect(config.tools.permissions.fileWrite).toBe('ask');
-      expect(config.tools.permissions.bashExec).toBe('ask');
+      const provider = config.provider as Record<string, unknown>;
+      const ui = config.ui as Record<string, unknown>;
+      const tools = config.tools as Record<string, unknown>;
+      const permissions = tools?.permissions as Record<string, unknown>;
+      expect(provider.model).toBeDefined();
+      expect(ui.theme).toBeDefined();
+      expect(tools.permissions).toBeDefined();
+      expect(permissions.fileRead).toBe('always');
+      expect(permissions.fileWrite).toBe('ask');
+      expect(permissions.bashExec).toBe('ask');
     });
   });
 

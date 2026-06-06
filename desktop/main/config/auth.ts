@@ -301,18 +301,39 @@ async function notifySessionExpired(): Promise<void> {
 }
 const PROACTIVE_REFRESH_INTERVAL = 50 * 60 * 1000;
 
-/** 执行 token 刷新（apiClient 的 1101 拦截器和主动定时器共用） */
+/** 执行 token 刷新（apiClient 的 1101 拦截器和主动定时器共用），含重试 + 指数退避 */
 async function performRefresh(): Promise<boolean> {
-  try {
-    const result = await authService.refreshToken();
-    if (result.success) {
-      await syncCookiesFromClient();
-      await saveAuthState();
-      return true;
+  const retryDelays = [1000, 3000, 5000]; // 3 次重试：1s → 3s → 5s
+
+  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+    try {
+      const result = await authService.refreshToken();
+      if (result.success) {
+        await syncCookiesFromClient();
+        await saveAuthState();
+        if (attempt > 0) {
+          console.log(`[performRefresh] 第 ${attempt} 次重试成功`);
+        }
+        return true;
+      }
+      // result.success=false 但无异常 → 可能是 refreshToken 已失效，不再重试
+      console.error(`[performRefresh] 刷新失败（尝试 ${attempt + 1}/${retryDelays.length + 1}）: ${result.message || '未知错误'}`);
+      // 如果是明确的 401 或 INVALID_TOKEN，不重试（refreshToken 已确定失效）
+      if (result.code === 401 || result.code === 1100) {
+        return false;
+      }
+    } catch (err) {
+      console.error(`[performRefresh] 刷新异常（尝试 ${attempt + 1}/${retryDelays.length + 1}）:`, (err as Error).message);
     }
-  } catch (err) {
-    console.error('[performRefresh] 刷新 token 失败:', err);
+
+    // 还有重试机会则等待后重试
+    if (attempt < retryDelays.length) {
+      console.log(`[performRefresh] ${retryDelays[attempt] / 1000}s 后重试...`);
+      await new Promise(r => setTimeout(r, retryDelays[attempt]));
+    }
   }
+
+  console.error('[performRefresh] 所有重试均失败，token 刷新彻底失败');
   return false;
 }
 

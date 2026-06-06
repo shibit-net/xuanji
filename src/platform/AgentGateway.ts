@@ -244,6 +244,17 @@ export class AgentGatewayImpl implements AgentGateway {
           const botTag = m.isBot ? ' [Bot]' : '';
           parts.push(`  - ${m.name} (${m.id})${botTag}${selfTag}`);
         }
+        // 如果群里有其他 Bot，告诉 Agent 如何 @ 协作
+        const otherBots = members.filter(m => m.isBot && !m.isSelf);
+        if (otherBots.length > 0) {
+          parts.push('');
+          parts.push('🤖 群聊协作指南：');
+          parts.push('- 群里有其他 AI 助手，你可以 @ 它们协作完成任务');
+          parts.push('- @ 格式：在回复中包含 @对方名字 即可（系统会自动转为飞书 @ 语法）');
+          parts.push('- 例如：@xuanji-2 帮我查一下今天的天气');
+          parts.push('- 分配任务时可以指定某个 Bot 负责某部分，自己负责另一部分');
+          parts.push('- 回复中如需引用消息，用 [回复:消息ID] 开头');
+        }
         parts.push('');
       }
 

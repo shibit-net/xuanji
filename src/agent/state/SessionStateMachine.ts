@@ -22,8 +22,8 @@ const log = logger.child({ module: 'SessionStateMachine' });
 export type SessionState = 'idle' | 'thinking' | 'executing' | 'outputting' | 'waiting_async';
 
 export type SessionEvent =
-  | { type: 'USER_MESSAGE'; message: string }
-  | { type: 'USER_INTERRUPT'; message?: string }
+  | { type: 'USER_MESSAGE'; message: string; sessionKey?: string }
+  | { type: 'USER_INTERRUPT'; message?: string; sessionKey?: string }
   | { type: 'AGENT_STARTED' }
   | { type: 'AGENT_TOOL_STARTED' }
   | { type: 'AGENT_TEXT_STARTED' }
@@ -31,7 +31,7 @@ export type SessionEvent =
   | { type: 'ASYNC_TASK_COMPLETED'; taskId: string };
 
 export type SessionAction =
-  | { type: 'RUN_AGENT'; message: string }
+  | { type: 'RUN_AGENT'; message: string; sessionKey?: string }
   | { type: 'ABORT_AGENT' }
   | { type: 'QUEUE_ONLY' }
   | { type: 'EMIT_SESSION_IDLE' }
@@ -52,7 +52,7 @@ export interface StateSnapshot {
 export class SessionStateMachine implements InterruptChecker {
   private state: SessionState = 'idle';
   private handlers = new Set<StateChangeHandler>();
-  pendingMessages: string[] = [];
+  pendingMessages: { message: string; sessionKey: string }[] = [];
   private _abortRequested = false;
   private _interruptAfterStream = false;
   private _textOutputStarted = false;
@@ -154,11 +154,11 @@ export class SessionStateMachine implements InterruptChecker {
         this._abortRequested = false;
         this._interruptAfterStream = false;
         this.transitionTo('thinking');
-        return { type: 'RUN_AGENT', message: event.message };
+        return { type: 'RUN_AGENT', message: event.message, sessionKey: event.sessionKey };
 
       case 'USER_INTERRUPT':
         // idle 时无 agent 在运行，仅排队
-        if (event.message) this.pendingMessages.push(event.message);
+        if (event.message) this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         return { type: 'QUEUE_ONLY' };
 
       case 'AGENT_STARTED':
@@ -177,12 +177,12 @@ export class SessionStateMachine implements InterruptChecker {
     switch (event.type) {
       case 'USER_MESSAGE':
         // 思考中 → 直接中断并排队执行（LLM 流会快速响应 abort）
-        this.pendingMessages.push(event.message);
+        this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._abortRequested = true;
         return { type: 'QUEUE_ONLY' };
 
       case 'USER_INTERRUPT':
-        if (event.message) this.pendingMessages.push(event.message);
+        if (event.message) this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._abortRequested = true;
         return { type: 'ABORT_AGENT' };
 
@@ -211,12 +211,12 @@ export class SessionStateMachine implements InterruptChecker {
     switch (event.type) {
       case 'USER_MESSAGE':
         // 工具执行中 → 排队等待工具完成后执行
-        this.pendingMessages.push(event.message);
+        this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._abortRequested = true;
         return { type: 'QUEUE_ONLY' };
 
       case 'USER_INTERRUPT':
-        if (event.message) this.pendingMessages.push(event.message);
+        if (event.message) this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._abortRequested = true;
         return { type: 'ABORT_AGENT' };
 
@@ -240,12 +240,12 @@ export class SessionStateMachine implements InterruptChecker {
   private handleInOutputting(event: SessionEvent): SessionAction {
     switch (event.type) {
       case 'USER_MESSAGE':
-        this.pendingMessages.push(event.message);
+        this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._interruptAfterStream = true;
         return { type: 'QUEUE_ONLY' };
 
       case 'USER_INTERRUPT':
-        if (event.message) this.pendingMessages.push(event.message);
+        if (event.message) this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         this._abortRequested = true;
         return { type: 'ABORT_AGENT' };
 
@@ -267,10 +267,10 @@ export class SessionStateMachine implements InterruptChecker {
         this._textOutputStarted = false;
         this._abortRequested = false;
         this.transitionTo('thinking');
-        return { type: 'RUN_AGENT', message: event.message };
+        return { type: 'RUN_AGENT', message: event.message, sessionKey: event.sessionKey };
 
       case 'USER_INTERRUPT':
-        if (event.message) this.pendingMessages.push(event.message);
+        if (event.message) this.pendingMessages.push({ message: event.message, sessionKey: event.sessionKey || 'local' });
         return { type: 'QUEUE_ONLY' };
 
       case 'ASYNC_TASK_COMPLETED':
@@ -284,9 +284,11 @@ export class SessionStateMachine implements InterruptChecker {
           this._textOutputStarted = false;
           this._abortRequested = false;
           this.transitionTo('thinking');
+          const result = this.consumePendingMessages();
           return {
             type: 'RUN_AGENT',
-            message: this.consumePendingMessages(),
+            message: result.message,
+            sessionKey: result.sessionKey,
           };
         }
         return { type: 'RUN_AUTO_SUMMARIZE' };
@@ -314,8 +316,9 @@ export class SessionStateMachine implements InterruptChecker {
 
     if (this.pendingMessages.length > 0) {
       // 有排队消息 → 继续运行（替代 drainPendingQueue + batch join）
+      const pendingResult = this.consumePendingMessages();
       this.transitionTo('thinking');
-      return { type: 'RUN_AGENT', message: this.consumePendingMessages() };
+      return { type: 'RUN_AGENT', message: pendingResult.message, sessionKey: pendingResult.sessionKey };
     }
     if (this._pendingAsyncTaskIds.size > 0) {
       this.transitionTo('waiting_async');
@@ -325,11 +328,14 @@ export class SessionStateMachine implements InterruptChecker {
     return { type: 'EMIT_SESSION_IDLE' };
   }
 
-  private consumePendingMessages(): string {
+  private consumePendingMessages(): { message: string; sessionKey?: string } {
+    if (this.pendingMessages.length === 0) return { message: '' };
+    // 合并所有排队消息文本，使用第一个消息的 sessionKey（同一批排队消息来自同一来源）
+    const sessionKey = this.pendingMessages[0].sessionKey;
     const combined: string[] = [];
     while (this.pendingMessages.length > 0) {
-      combined.push(this.pendingMessages.shift()!);
+      combined.push(this.pendingMessages.shift()!.message);
     }
-    return combined.join('\n');
+    return { message: combined.join('\n'), sessionKey };
   }
 }
