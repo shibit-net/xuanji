@@ -887,6 +887,10 @@ export class WechatAdapter implements PlatformAdapter {
     return sendData.msg_id || clientId;
   }
 
+  isConnected(): boolean {
+    return this.running;
+  }
+
   onMessage(handler: (msg: PlatformMessage) => void): void {
     this.messageHandler = handler;
   }

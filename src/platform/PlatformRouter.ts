@@ -393,12 +393,13 @@ export class PlatformRouter implements WorkerReplyHandler {
       const parsed = parseSessionKey(sessionKey);
       const isGroup = parsed.chatType === 'group';
       const name = displayName || chatId;
+      const adapter = this.adapters.get(parsed.platform);
 
       sessions.push({
         id: sessionKey,
         platform: parsed.platform as RemoteSession['platform'],
         name,
-        status: this.adapters.has(parsed.platform) ? 'online' : 'offline',
+        status: adapter?.isConnected() ? 'online' : 'offline',
         unreadCount: 0,
         sessionKey,
         userId: '',

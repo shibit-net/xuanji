@@ -53,6 +53,10 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 基于事件的群成员缓存：chatId → Map<memberId, GroupMember>（消息事件 + 成员变更事件累积） */
   private _memberTrackingCache = new Map<string, Map<string, import('../types.js').GroupMember>>();
 
+  isConnected(): boolean {
+    return this.wsStarted;
+  }
+
   onGroupMembersUpdated(handler: (chatId: string, members: import('../types.js').GroupMember[]) => void): void {
     this.groupMembersHandler = handler;
   }

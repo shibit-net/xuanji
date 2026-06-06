@@ -26,6 +26,8 @@ function createMockMarketPackage(overrides: Partial<MarketPackage> = {}): Market
     totalDownloads: 1234,
     ratingAvg: 4.5,
     ratingCount: 42,
+    recommendCount: 10,
+    commentCount: 5,
     qualityScore: 95,
     securityScore: 90,
     tags: ['database', 'postgresql'],

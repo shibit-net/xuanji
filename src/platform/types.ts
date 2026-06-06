@@ -61,6 +61,9 @@ export interface PlatformAdapter {
   stop(): Promise<void>;
   ping(): Promise<void>;
 
+  /** 返回平台是否已建立连接（WebSocket 已握手 / 长轮询已启动 / Webhook 服务已就绪） */
+  isConnected(): boolean;
+
   sendText(options: {
     chatId: string;
     text: string;

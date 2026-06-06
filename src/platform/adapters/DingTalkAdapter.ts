@@ -26,6 +26,7 @@ export class DingTalkAdapter implements PlatformAdapter {
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
   private credentials: CredentialManager;
   private sessionWebhooks = new Map<string, string>();
+  private _started = false;
 
   constructor(private config: DingTalkConfig, credentials: CredentialManager) {
     this.credentials = credentials;
@@ -118,14 +119,20 @@ export class DingTalkAdapter implements PlatformAdapter {
   // ── 发送消息 ─────────────────────────────────────────────
 
   async start(): Promise<void> {
+    this._started = true;
     if (this.config.client_id && this.config.client_secret) {
       this.credentials.registerRefresher('dingtalk', () => this.doRefreshToken());
     }
   }
 
   async stop(): Promise<void> {
+    this._started = false;
     this.credentials.clearToken('dingtalk');
     this.sessionWebhooks.clear();
+  }
+
+  isConnected(): boolean {
+    return this._started;
   }
 
   async ping(): Promise<void> {

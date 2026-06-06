@@ -105,8 +105,40 @@ class ApiClient {
 
         return response;
       },
-      (error) => {
-        // 友好的错误提示
+      async (error) => {
+        // ─── 401 自动刷新 + 重放（与 1101 逻辑一致）─────────
+        if (error.response?.status === 401 && this.refreshTokenHandler) {
+          // 跳过 /api/auth/refresh 自身，防止死循环
+          if (!error.config?.url?.includes('/api/auth/refresh')) {
+            const isAutoRefreshable = error.response?.data?.code === 1101
+              || error.response?.data?.code === 1100
+              || error.response?.data?.message?.includes('令牌')
+              || error.response?.data?.message?.includes('过期');
+
+            if (isAutoRefreshable) {
+              console.log('[API Client] 检测到 401（token 过期），自动刷新后重放请求');
+              const refreshed = await this.handleTokenRefresh();
+              if (refreshed) {
+                // 重新获取 Cookie 并重放原请求
+                try {
+                  const fullUrl = (error.config.baseURL ?? '') + (error.config.url ?? '');
+                  if (fullUrl.includes('shibit.net')) {
+                    const cookies = await session.defaultSession.cookies.get({ url: fullUrl });
+                    if (cookies.length > 0) {
+                      const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                      error.config.headers['Cookie'] = cookieHeader;
+                    }
+                  }
+                } catch { /* ignore */ }
+                return this.axiosInstance.request(error.config);
+              }
+              // 刷新失败，透传 401 错误
+              console.error('[API Client] token 刷新失败，透传 401');
+            }
+          }
+        }
+
+        // ─── 友好的错误提示 ───────────────────────────────
         let errorMessage = '请求失败';
 
         if (error.code === 'ENOTFOUND' || error.message.includes('getaddrinfo')) {
@@ -121,7 +153,7 @@ class ApiClient {
         } else if (error.response) {
           const status = error.response.status;
           if (status === 401) {
-            errorMessage = '用户名或密码错误';
+            errorMessage = '登录已过期，请重新登录';
           } else if (status === 403) {
             errorMessage = '没有访问权限';
           } else if (status === 429) {

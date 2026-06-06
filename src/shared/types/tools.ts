@@ -6,13 +6,14 @@
  * JSON Schema 类型 (工具输入参数描述)
  */
 export interface JSONSchema {
-  type: string;
+  type?: string;
   properties?: Record<string, JSONSchema & { description?: string }>;
   required?: string[];
   description?: string;
   enum?: string[];
   items?: JSONSchema;
   default?: unknown;
+  anyOf?: JSONSchema[];
 }
 
 /**

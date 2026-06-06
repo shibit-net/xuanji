@@ -24,6 +24,7 @@ export class WecomAdapter implements PlatformAdapter {
   lastActivity = 0;
 
   private messageHandler: ((msg: PlatformMessage) => void) | null = null;
+  private _started = false;
 
   constructor(
     private config: WecomConfig,
@@ -156,11 +157,17 @@ export class WecomAdapter implements PlatformAdapter {
   // ── 发送消息 ─────────────────────────────────────────────
 
   async start(): Promise<void> {
+    this._started = true;
     this.credentials.registerRefresher('wecom', () => this.doRefreshToken());
   }
 
   async stop(): Promise<void> {
+    this._started = false;
     this.credentials.clearToken('wecom');
+  }
+
+  isConnected(): boolean {
+    return this._started;
   }
 
   async ping(): Promise<void> {

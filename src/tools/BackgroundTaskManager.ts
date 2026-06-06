@@ -65,6 +65,9 @@ function spawnBackgroundTask(command: string, env?: Record<string, string>): Chi
   });
 }
 
+/** 后台任务完成回调签名 */
+export type BackgroundTaskCompletionCallback = (result: BackgroundTaskResult) => void;
+
 /**
  * BackgroundTaskManager — 管理后台运行的 Bash 任务
  *
@@ -73,6 +76,7 @@ function spawnBackgroundTask(command: string, env?: Record<string, string>): Chi
 export class BackgroundTaskManager {
   private static instance: BackgroundTaskManager | null = null;
   private tasks: Map<string, TaskEntry> = new Map();
+  private globalCompletionCallback: BackgroundTaskCompletionCallback | null = null;
 
   static getInstance(): BackgroundTaskManager {
     if (!BackgroundTaskManager.instance) {
@@ -150,12 +154,13 @@ export class BackgroundTaskManager {
       entry.completedAt = Date.now();
       clearTimeout(entry.lifetimeTimer);
 
-      // 通知所有等待者
+      // 通知所有等待者 + 全局回调
       const result = this.buildResult(entry);
       for (const resolver of entry.resolvers) {
         resolver(result);
       }
       entry.resolvers = [];
+      this.globalCompletionCallback?.(result);
       this.autoCleanup();
     });
 
@@ -170,6 +175,7 @@ export class BackgroundTaskManager {
         resolver(result);
       }
       entry.resolvers = [];
+      this.globalCompletionCallback?.(result);
       this.autoCleanup();
     });
 
@@ -239,6 +245,13 @@ export class BackgroundTaskManager {
 
       entry.resolvers.push(resolver);
     });
+  }
+
+  /**
+   * 注册全局完成回调（ChatSession 在构造时注册，感知后台 bash 任务完成）
+   */
+  onTaskCompleted(callback: BackgroundTaskCompletionCallback): void {
+    this.globalCompletionCallback = callback;
   }
 
   /**
@@ -313,6 +326,7 @@ export class BackgroundTaskManager {
       resolver(result);
     }
     entry.resolvers = [];
+    this.globalCompletionCallback?.(result);
   }
 
   private buildResult(entry: TaskEntry): BackgroundTaskResult {
