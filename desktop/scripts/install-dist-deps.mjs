@@ -38,7 +38,6 @@ const pkg = {
   name: 'xuanji-dist-electron',
   version: '0.1.0',
   private: true,
-  type: 'module',
   dependencies: {
     '@anthropic-ai/sdk': '^0.60.0',
     '@xenova/transformers': '^2.17.2',
