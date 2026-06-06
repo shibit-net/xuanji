@@ -39,6 +39,18 @@ export class AgentGatewayImpl implements AgentGateway {
 
   /** 设置群聊成员列表（会从中识别 Bot 自己的身份） */
   setGroupMembers(chatId: string, members: GroupMember[]): void {
+    // 兜底：如果新成员列表中没有 isSelf 标记，但之前已正确识别了 botDisplayName，
+    // 则从旧列表中找回 isSelf 成员并合并到新列表中，防止 API 获取路径覆盖事件驱动的正确数据
+    const oldSelfMember = this.groupMembers.get(chatId)?.find(m => m.isSelf);
+    const hasNewSelf = members.some(m => m.isSelf);
+    if (!hasNewSelf && oldSelfMember && this.botDisplayName) {
+      log.info(`AgentGateway: preserving isSelf member "${this.botDisplayName}" (old path detected self, new list misses it)`);
+      // 将旧的 isSelf 成员注入新列表
+      const mergedMembers = [...members, { ...oldSelfMember }];
+      this.groupMembers.set(chatId, mergedMembers);
+      return;
+    }
+
     this.groupMembers.set(chatId, members);
     // 找到自己的身份
     for (const m of members) {
@@ -285,7 +297,12 @@ export class AgentGatewayImpl implements AgentGateway {
 
     // 发送者信息
     const senderLabel = msg.userName || msg.userId;
-    parts.push(`[${senderLabel}]`);
+    if (msg.senderType === 'bot') {
+      parts.push(`[Bot: ${senderLabel}]`);
+      parts.push('[系统提示: 这是一条来自其他 Bot 的消息，请以 Bot 之间的协作方式回应]');
+    } else {
+      parts.push(`[${senderLabel}]`);
+    }
 
     // @ 提及
     if (msg.mentions?.length) {

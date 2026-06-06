@@ -379,8 +379,9 @@ export class FeishuAdapter implements PlatformAdapter {
             id: item.member_id,
             name: memberName,
             isBot,
-            // 标记自己：member_id 与当前应用的 app_id 相同
-            isSelf: item.member_id === this.config.app_id,
+            // 标记自己：member_id 与当前应用的 open_id 或 app_id 相同
+            // 注意：API 使用 member_id_type=union_id，但 Bot 的 member_id 可能以多种格式返回
+            isSelf: item.member_id === this._botOpenId || item.member_id === this.config.app_id,
           });
         }
         this.groupMembersCache.set(chatId, { members, fetchedAt: Date.now() });
@@ -605,22 +606,8 @@ export class FeishuAdapter implements PlatformAdapter {
             }
             repliedText = parts.join('') || '[富文本消息]';
           } else if (msgType === 'interactive') {
-            // interactive 卡片：提取 markdown / text 元素中的文本
-            const parts: string[] = [];
-            const elements = inner.elements || inner.card?.elements || [];
-            for (const el of elements) {
-              if (el.tag === 'markdown' && el.content) {
-                parts.push(el.content);
-              } else if (el.tag === 'div' && el.text) {
-                parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
-              } else if (el.tag === 'hr') {
-                parts.push('---');
-              }
-            }
-            if (inner.header?.title?.content) {
-              parts.unshift(inner.header.title.content);
-            }
-            repliedText = parts.join('\n') || '[卡片消息]';
+            // interactive 卡片：复用 extractInteractiveText 处理 1D/2D elements + user_dsl
+            repliedText = this.extractInteractiveText(inner) || '[卡片消息]';
           } else if (msgType === 'image') {
             repliedText = '[图片]';
             if (inner.image_key) replyFileKeys.push({ key: inner.image_key, type: 'image' });
@@ -682,6 +669,64 @@ export class FeishuAdapter implements PlatformAdapter {
     } catch (err) {
       log.warn(`Feishu enrichReplyContent failed: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * 从 interactive 卡片消息中提取文本内容。
+   * 支持 1D 和 2D elements 数组、user_dsl 后备解析、header title。
+   */
+  private extractInteractiveText(content: any): string {
+    const parts: string[] = [];
+    const elements: any[] = content.elements || content.card?.elements || [];
+
+    function extractSegment(seg: any): string {
+      if (!seg) return '';
+      if (seg.tag === 'markdown' && seg.content) return seg.content;
+      if (seg.tag === 'text' && seg.text) return seg.text;
+      if (seg.tag === 'at') return seg.user_name ? `@${seg.user_name}` : '';
+      if (seg.tag === 'a' && seg.text) return seg.text;
+      if (seg.tag === 'img') return '[图片]';
+      if (seg.tag === 'emotion') return '[表情]';
+      if (seg.tag === 'hr') return '\n---\n';
+      if (seg.tag === 'div' && seg.text) return typeof seg.text === 'string' ? seg.text : seg.text?.content || '';
+      return '';
+    }
+
+    const is2D = elements.length > 0 && Array.isArray(elements[0]);
+    if (is2D) {
+      for (const line of elements) {
+        if (Array.isArray(line)) {
+          const lineText = line.map(extractSegment).join('');
+          if (lineText) parts.push(lineText);
+        }
+      }
+    } else {
+      for (const el of elements) {
+        const segText = extractSegment(el);
+        if (segText) parts.push(segText);
+      }
+    }
+
+    // user_dsl 后备（部分 bot 在此字段存渲染后的 markdown）
+    if (parts.length === 0 && content.user_dsl) {
+      try {
+        const dsl = typeof content.user_dsl === 'string' ? JSON.parse(content.user_dsl) : content.user_dsl;
+        const dslElements = dsl.elements || [];
+        for (const el of dslElements) {
+          if (el.tag === 'markdown' && el.content) {
+            parts.push(el.content);
+          } else if (el.tag === 'div' && el.text) {
+            parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
+          }
+        }
+      } catch { /* user_dsl parse failed, ignore */ }
+    }
+
+    if (content.header?.title?.content) {
+      parts.unshift(content.header.title.content);
+    }
+
+    return parts.join('\n');
   }
 
   /** 下载被回复消息中的附件 */
@@ -904,7 +949,12 @@ export class FeishuAdapter implements PlatformAdapter {
     const sender = data.sender;
     // Self-echo 防护：跳过自己发出的消息（防止多 Bot 场景无限循环）
     if (sender?.sender_type === 'bot') {
-      if (this._botOpenId && sender.sender_id?.open_id === this._botOpenId) {
+      // open_id 优先（/bot/v3/info），app_id 后备（部分应用 API 不返回 open_id）
+      const senderOpenId = sender.sender_id?.open_id || '';
+      const senderAppId = sender.sender_id?.app_id || '';
+      const isSelf = (this._botOpenId && senderOpenId === this._botOpenId) ||
+                     (senderAppId && senderAppId === this.config.app_id);
+      if (isSelf) {
         return null; // 自己的消息，跳过
       }
       // 其他 Bot 的消息：根据 _allowBots 策略决定是否处理
@@ -914,15 +964,18 @@ export class FeishuAdapter implements PlatformAdapter {
       if (this._allowBots === 'mentions') {
         // 只有被 @ 了才处理
         const mentions: any[] = data.message?.mentions || [];
-        const isMentioned = mentions.some((m: any) => m.id?.open_id === this._botOpenId);
+        const isMentioned = mentions.some((m: any) =>
+          (this._botOpenId && m.id?.open_id === this._botOpenId) ||
+          (m.id?.app_id === this.config.app_id)
+        );
         if (!isMentioned) return null;
       }
     }
-    return this.buildMessage(data, data.message, data.sender);
+    return this.buildMessage(data, data.message, data.sender, sender?.sender_type);
   }
 
   /** 统一的消息构建逻辑 */
-  private buildMessage(raw: any, msg: any, sender: any): PlatformMessage | null {
+  private buildMessage(raw: any, msg: any, sender: any, senderType?: 'user' | 'bot'): PlatformMessage | null {
     if (!msg || !sender) return null;
     const chatType: 'private' | 'group' = (msg.chat_type === 'private' || msg.chat_type === 'p2p') ? 'private' : 'group';
 
@@ -955,61 +1008,10 @@ export class FeishuAdapter implements PlatformAdapter {
         if (key) attachments.push({ type: 'image', url: `feishu://sticker/${key}`, name: '[表情/sticker]' });
         if (!text) text = `[表情/sticker]`;
       } else if (msgType === 'interactive') {
-        // 解析 interactive 卡片消息（其他 bot 发来的 markdown 卡片等）
-        const parts: string[] = [];
+        // 解析 interactive 卡片消息，复用 extractInteractiveText 处理 1D/2D elements + user_dsl
         const elements: any[] = content.elements || content.card?.elements || [];
-
-        // 判断 elements 是 1D（xuanji 自己的格式：[{tag, content}, ...]）
-        // 还是 2D（其他 bot 如璇小玑的格式：[[{tag, text}, ...], ...]）
-        function extractSegment(seg: any): string {
-          if (!seg) return '';
-          if (seg.tag === 'markdown' && seg.content) return seg.content;
-          if (seg.tag === 'text' && seg.text) return seg.text;
-          if (seg.tag === 'at') return seg.user_name ? `@${seg.user_name}` : '';
-          if (seg.tag === 'a' && seg.text) return seg.text;
-          if (seg.tag === 'img') return '[图片]';
-          if (seg.tag === 'emotion') return '[表情]';
-          if (seg.tag === 'hr') return '\n---\n';
-          if (seg.tag === 'div' && seg.text) return typeof seg.text === 'string' ? seg.text : seg.text?.content || '';
-          return '';
-        }
-
         const is2D = elements.length > 0 && Array.isArray(elements[0]);
-        if (is2D) {
-          // 二维数组：外层=段落，内层=段
-          for (const line of elements) {
-            if (Array.isArray(line)) {
-              const lineText = line.map(extractSegment).join('');
-              if (lineText) parts.push(lineText);
-            }
-          }
-        } else {
-          // 一维数组：直接遍历元素
-          for (const el of elements) {
-            const segText = extractSegment(el);
-            if (segText) parts.push(segText);
-          }
-        }
-
-        // 解析 user_dsl 作为后备（部分 bot 在此字段存渲染后的 markdown）
-        if (parts.length === 0 && content.user_dsl) {
-          try {
-            const dsl = typeof content.user_dsl === 'string' ? JSON.parse(content.user_dsl) : content.user_dsl;
-            const dslElements = dsl.elements || [];
-            for (const el of dslElements) {
-              if (el.tag === 'markdown' && el.content) {
-                parts.push(el.content);
-              } else if (el.tag === 'div' && el.text) {
-                parts.push(typeof el.text === 'string' ? el.text : el.text?.content || '');
-              }
-            }
-          } catch { /* user_dsl parse failed, ignore */ }
-        }
-
-        if (content.header?.title?.content) {
-          parts.unshift(content.header.title.content);
-        }
-        const _diagExtracted = parts.join('\n');
+        const _diagExtracted = this.extractInteractiveText(content);
         log.info(`[DIAG-interactive] raw content keys: ${Object.keys(content).join(',')}, elements=${!!content.elements}, card=${!!content.card}, is2D=${is2D}`);
         log.info(`[DIAG-interactive] elements count=${elements.length}, extracted len=${_diagExtracted.length}, user_dsl=${!!content.user_dsl}`);
         text = _diagExtracted || text;
@@ -1049,6 +1051,7 @@ export class FeishuAdapter implements PlatformAdapter {
       platform: 'feishu',
       userId,
       userName,
+      senderType,
       chatId: msg.chat_id,
       chatType,
       text,

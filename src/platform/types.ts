@@ -13,6 +13,8 @@ export interface PlatformMessage {
   platform: 'feishu' | 'dingtalk' | 'wecom' | 'wechat';
   userId: string;
   userName?: string;
+  /** 发送者类型：user（普通用户）、bot（机器人），用于区分 Bot 间的协作消息 */
+  senderType?: 'user' | 'bot';
   chatId: string;
   chatType: 'private' | 'group';
   text: string;
