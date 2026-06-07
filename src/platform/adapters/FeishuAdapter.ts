@@ -1015,6 +1015,21 @@ export class FeishuAdapter implements PlatformAdapter {
         if (!isMentioned) return null;
       }
     }
+
+    // 群聊消息（无论发送者是人还是 Bot）：只有 @ 了自己才处理，避免群消息轰炸
+    const chatType = data.message?.chat_type;
+    if (chatType === 'group') {
+      const mentions: any[] = data.message?.mentions || [];
+      const isMentioned = mentions.some((m: any) =>
+        (this._botOpenId && m.id?.open_id === this._botOpenId) ||
+        (m.id?.app_id === this.config.app_id)
+      );
+      if (!isMentioned) {
+        log.debug(`Feishu group message skipped (not @mentioned): chatId=${data.message?.chat_id} sender=${sender?.sender_type}`);
+        return null;
+      }
+    }
+
     return this.buildMessage(data, data.message, data.sender, sender?.sender_type);
   }
 
