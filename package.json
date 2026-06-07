@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "dev:gui": "npm run build && concurrently -n \"SRC,GUI\" -c \"cyan,green\" \"npm run build:watch\" \"wait-on dist/index.js && cd desktop && npm run dev\"",
+    "dev:gui": "npm run build && cd desktop && npm run build:agent-bridge && concurrently -n \"SRC,GUI\" -c \"cyan,green\" \"npm run build:watch\" \"wait-on dist/index.js && cd desktop && npm run dev\"",
     "build": "npm run clean && npm run build:src",
     "build:src": "tsup --entry src/index.ts --entry src/infrastructure/acp/acp-worker.ts --format esm --target esnext --outDir dist --external tree-sitter --external tree-sitter-typescript --external tree-sitter-python --external tree-sitter-java --external @larksuiteoapi/node-sdk",
     "build:gui": "cd desktop && npm run build:pre && electron-builder",
@@ -23,7 +23,7 @@
     "test:multi-agent:full": "tsx tests/multi-agent/comprehensive-test.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "clean": "rimraf dist release desktop/dist desktop/dist-electron"
+    "clean": "rimraf dist release desktop/dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
