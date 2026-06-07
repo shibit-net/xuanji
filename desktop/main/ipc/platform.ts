@@ -67,6 +67,7 @@ function forwardToAgentBridge(msg: any): void {
       chatId: msg.chatId,
       chatType: msg.chatType,
       channelPrompt: msg.channelPrompt,
+      senderType: msg.senderType,
       mentions: msg.mentions,
       replyTo: msg.replyTo,
       attachments: msg.attachments,

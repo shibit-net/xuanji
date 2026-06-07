@@ -739,6 +739,8 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     userId: string;
     chatId: string;
     chatType: string;
+    userName?: string;
+    senderType?: 'user' | 'bot';
   }) => {
     try {
       log.info(`[DIAG] Child received platform:message: ${data.id} platform=${data.platform} sessionKey=${data.sessionKey}`);
@@ -803,9 +805,19 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       // 走统一 userAction → SessionStateMachine（复用中断/追加/排队逻辑）
       // 意图分析在 handleUserAction 内部完成
       // 回复由 AGENT_COMPLETED 回调自动发送（在 initPlatformMessageHandler 中注册）
+
+      // 构建增强消息：标注发送者身份（Bot/用户），让 Agent 知道消息来源
+      let enhancedMessage = data.text;
+      const senderLabel = data.userName || data.userId;
+      if (data.senderType === 'bot') {
+        enhancedMessage = `[来自 Bot: ${senderLabel}]\n${data.text}`;
+      } else if (senderLabel) {
+        enhancedMessage = `[来自: ${senderLabel}]\n${data.text}`;
+      }
+
       await handleUserAction({
         type: 'SEND_MESSAGE',
-        message: data.text,
+        message: enhancedMessage,
         sessionKey: data.sessionKey,
       });
     } catch (err) {
