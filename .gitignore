@@ -51,5 +51,9 @@ desktop/extraResources/node/node_modules/
 # Build artifacts with hashes
 desktop/build-resources/NoopSandboxExecutor-*.js
 
+# Electron build output
+desktop/release/
+desktop/release2/
+
 # Claude worktrees
 .claude/worktrees/
