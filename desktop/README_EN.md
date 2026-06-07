@@ -8,6 +8,14 @@
 
 ---
 
+## Download
+
+You can download the latest Xuanji desktop application from:
+
+🌐 **https://shibit.net/download**
+
+---
+
 ## Quick Start
 
 ```bash

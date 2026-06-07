@@ -126,6 +126,27 @@ Xuanji deeply integrates the MCP (Model Context Protocol) ecosystem:
 
 ---
 
+### 🔒 Privacy & Security — All Data Stored Locally
+
+Xuanji prioritizes privacy and security, with all data processed entirely locally:
+
+- **Local Data Storage**: All conversations, memories, and configurations are stored locally, never uploaded to any server
+- **User Isolation**: Multi-user support, with complete data isolation between users
+- **API Key Security**: LLM API keys are encrypted and stored locally, only used during API calls
+- **Dual-Layer Security Architecture**: LLM active auditing + hardcoded safeguards to prevent accidental execution of dangerous operations
+- **Transparent Permission Control**: All file operations and command executions are explicitly communicated to the user, requiring user confirmation before execution
+- **No Telemetry**: No usage data is collected by default, users are in full control
+
+---
+
+## Download
+
+You can download the latest Xuanji desktop application from:
+
+🌐 **https://shibit.net/download**
+
+---
+
 ## Quick Start
 
 ### Prerequisites
