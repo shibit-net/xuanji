@@ -815,19 +815,18 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         enhancedMessage = `[来自: ${senderLabel}]\n${data.text}`;
       }
 
-      // 群聊：注入身份 + 规范到 system prompt，不在消息文本中展示
+      // 群聊：在消息中前置群聊上下文（指令格式，Agent 不会在回复中复述）
       const selfName = platformGateway?.botDisplayName;
       if (selfName && data.chatType === 'group') {
-        const ctxMgr = platformSession?.getAgentLoop()?.getContextManager?.();
-        if (ctxMgr) {
-          const groupPrompt = [
-            `[群聊身份] 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你。`,
-            `[群聊规则] 只有 @ 了你或 @_all 的消息你才会收到；`,
-            `回复时用 @名字 指定对象（如 @史振玉），@ 其他 Bot 用完整群名；`,
-            `不要替其他 Bot 发言；保持简洁；可 @ 其他 Bot 协作。`,
-          ].join(' ');
-          ctxMgr.setSystemPromptSuffix(groupPrompt, 'group-chat-rules');
-        }
+        const groupContext = [
+          `[群聊上下文]`,
+          `- 你的群内名字：「${selfName}」，群友用这个名字 @ 你`,
+          `- 只有明确 @ 了你或 @_all 的消息你才会收到`,
+          `- 回复时你可以 @ 其他人来指定对话对象，格式 @名字`,
+          `- 你可以 @ 其他 Bot 协作，用对方的完整群内名`,
+          `- 不要替其他 Bot 发言，保持回复简洁`,
+        ].join('\n');
+        enhancedMessage = groupContext + '\n\n' + enhancedMessage;
       }
 
       await handleUserAction({
