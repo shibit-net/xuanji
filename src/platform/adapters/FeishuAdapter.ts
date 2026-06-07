@@ -541,9 +541,12 @@ export class FeishuAdapter implements PlatformAdapter {
     // 同时检查 raw 中的结构化 mentions 和 msg 上的 mentions 数组
     const allMentions = [...rawMentions, ...msgMentions.map((name: string) => ({ name, id: {} }))];
     const result = allMentions.some((m: any) =>
+      // 精确 @ 了当前 Bot
       (this._botOpenId && m.id?.open_id === this._botOpenId) ||
       (this._botOpenId && m.id?.union_id === this._botOpenId) ||
-      (m.id?.app_id === this.config.app_id)
+      (m.id?.app_id === this.config.app_id) ||
+      // @_all（@全体成员）
+      m.key === '@_all' || m.name === '@_all' || m.key === '@everyone'
     );
     if (!result) {
       log.debug(`[_isMentioned] NOT mentioned: _botOpenId=${this._botOpenId?.substring(0,12)}... app_id=${this.config.app_id?.substring(0,12)}... rawMentions=${JSON.stringify(rawMentions.slice(0,3))} msgMentions=${JSON.stringify(msgMentions.slice(0,3))}`);
