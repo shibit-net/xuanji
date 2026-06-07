@@ -621,10 +621,6 @@ export class FeishuAdapter implements PlatformAdapter {
     // 5a. 群聊消息：只有 @ 了自己才送 Agent 处理，其余仅记录成员图谱
     if (msg.chatType === 'group' && !this._isMentioned(msg)) {
       log.debug(`Feishu group message skipped (not @mentioned, member tracked): chatId=${msg.chatId}`);
-      // 仍然发送已读回执，但不送 Agent
-      if (msg.id && msg.eventType === 'message') {
-        this.ackMessage(msg.id).catch(() => {});
-      }
       return;
     }
     // 6. 推送消息给 Agent
