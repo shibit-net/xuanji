@@ -1014,6 +1014,7 @@ export class FeishuAdapter implements PlatformAdapter {
     // 消息去重：基于 message_id，防止 WebSocket 重连/重试导致重复处理
     const messageId = data?.message?.message_id || data?.message_id;
     if (messageId && this.deduplicator?.isDuplicate(messageId)) {
+      log.debug(`Feishu message deduplicated: messageId=${messageId}`);
       return null;
     }
 
