@@ -53,8 +53,8 @@ export class SSHExecTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const sshConfig = getSSHConfig();
-    if (!sshConfig?.enabled) {
-      return this.error('SSH tools are not enabled. Set "tools.ssh.enabled": true in your config to use remote server operations.');
+    if (sshConfig && !sshConfig.enabled) {
+      return this.error('SSH tools are disabled. Set "tools.ssh.enabled": true in your config to enable remote server operations.');
     }
 
     const hostId = input.host as string;

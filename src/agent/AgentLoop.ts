@@ -553,14 +553,15 @@ export class AgentLoop {
         return;
       }
 
-      const isAbort = !this.running && (
+      const isAbort =
         err.name === 'AbortError' ||
         err.message.includes('aborted') ||
         err.message.includes('abort') ||
         err.message === 'terminated' ||
-        err.message === 'Interrupted'
-      );
+        err.message === 'Interrupted';
       if (isAbort) {
+        this._abortRequested = false;
+        this.running = false;
         this.log.debug('Agent stopped by user, suppressing abort error');
         return;
       }

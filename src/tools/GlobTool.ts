@@ -72,6 +72,7 @@ export class GlobTool extends BaseTool {
         onlyFiles: true,
         dot: false, // 不包含隐藏文件（除非显式指定）
         absolute: false, // 返回相对路径
+        suppressErrors: true, // 跳过无权限目录（如 macOS .Trash）而非抛异常
       });
 
       // 排序（字母顺序）
