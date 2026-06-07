@@ -1216,10 +1216,20 @@ export class FeishuAdapter implements PlatformAdapter {
       }
     }
 
-    // 从 userCache 补充（通过 mention 积累的映射）
+    // 从 userCache 补充（通过 mention 积累的映射，含 open_id）
     for (const [openId, user] of this.userCache) {
       if (user.name && !nameToId.has(user.name)) {
         nameToId.set(user.name, openId);
+      }
+    }
+
+    // 从 groupMembersCache 补充（API 获取的群成员，member_id 可能是 union_id）
+    const cached = this.groupMembersCache.get(chatId);
+    if (cached) {
+      for (const m of cached.members) {
+        if (m.name && !nameToId.has(m.name)) {
+          nameToId.set(m.name, m.id);
+        }
       }
     }
 
