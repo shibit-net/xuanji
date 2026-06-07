@@ -1,6 +1,10 @@
 # 璇玑 (Xuanji) — Agentic OS
 
 <p align="center">
+  <a href="https://shibit.net">🌐 官网：shibit.net</a>
+</p>
+
+<p align="center">
   <strong>不是一个 Agent，而是一个 Agentic OS</strong>
 </p>
 

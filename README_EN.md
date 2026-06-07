@@ -1,6 +1,10 @@
 # Xuanji — Agentic OS
 
 <p align="center">
+  <a href="https://shibit.net">🌐 Website: shibit.net</a>
+</p>
+
+<p align="center">
   <strong>Not just a single Agent, but an Agentic OS</strong>
 </p>
 
