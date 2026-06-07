@@ -527,6 +527,17 @@ export class FeishuAdapter implements PlatformAdapter {
     }
   }
 
+  /** 判断消息是否 @ 了当前 Bot（从 raw 中取结构化 mentions 做三阶梯匹配） */
+  private _isMentioned(msg: PlatformMessage): boolean {
+    if (!this._botOpenId && !this.config.app_id) return false;
+    const mentions: any[] = msg.raw?.message?.mentions || msg.raw?.mentions || [];
+    return mentions.some((m: any) =>
+      (this._botOpenId && m.id?.open_id === this._botOpenId) ||
+      (this._botOpenId && m.id?.union_id === this._botOpenId) ||
+      (m.id?.app_id === this.config.app_id)
+    );
+  }
+
   /** 重建群成员数组并通知 AgentGateway。alwaysIncludeSelf=true 时即使缓存为空也确保 Bot 自己出现在列表中 */
   private _notifyGroupMembers(chatId: string, alwaysIncludeSelf = false): void {
     if (!this.groupMembersHandler) return;
@@ -594,6 +605,15 @@ export class FeishuAdapter implements PlatformAdapter {
     }
     // 5. 清理 @ 标记为实名
     this.cleanMentionMarkers(msg);
+    // 5a. 群聊消息：只有 @ 了自己才送 Agent 处理，其余仅记录成员图谱
+    if (msg.chatType === 'group' && !this._isMentioned(msg)) {
+      log.debug(`Feishu group message skipped (not @mentioned, member tracked): chatId=${msg.chatId}`);
+      // 仍然发送已读回执，但不送 Agent
+      if (msg.id && msg.eventType === 'message') {
+        this.ackMessage(msg.id).catch(() => {});
+      }
+      return;
+    }
     // 6. 推送消息给 Agent
     this.messageHandler?.(msg);
 
@@ -1013,21 +1033,6 @@ export class FeishuAdapter implements PlatformAdapter {
           (m.id?.app_id === this.config.app_id)
         );
         if (!isMentioned) return null;
-      }
-    }
-
-    // 群聊消息（无论发送者是人还是 Bot）：只有 @ 了自己才处理，避免群消息轰炸
-    const chatType = data.message?.chat_type;
-    if (chatType === 'group') {
-      const mentions: any[] = data.message?.mentions || [];
-      const isMentioned = mentions.some((m: any) =>
-        (this._botOpenId && m.id?.open_id === this._botOpenId) ||
-        (this._botOpenId && m.id?.union_id === this._botOpenId) ||
-        (m.id?.app_id === this.config.app_id)
-      );
-      if (!isMentioned) {
-        log.debug(`Feishu group message skipped (not @mentioned): chatId=${data.message?.chat_id} sender=${sender?.sender_type} _botOpenId=${this._botOpenId?.substring(0,10)}... mentions=${JSON.stringify(mentions.map((m:any)=>({key:m.key,open_id:m.id?.open_id?.substring(0,10),app_id:m.id?.app_id?.substring?.(0,10)})))}`);
-        return null;
       }
     }
 
