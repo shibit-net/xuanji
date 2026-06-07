@@ -806,13 +806,19 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       // 意图分析在 handleUserAction 内部完成
       // 回复由 AGENT_COMPLETED 回调自动发送（在 initPlatformMessageHandler 中注册）
 
-      // 构建增强消息：标注发送者身份（Bot/用户），让 Agent 知道消息来源
+      // 构建增强消息：标注发送者身份 + 自己的群内身份
       let enhancedMessage = data.text;
       const senderLabel = data.userName || data.userId;
       if (data.senderType === 'bot') {
         enhancedMessage = `[来自 Bot: ${senderLabel}]\n${data.text}`;
       } else if (senderLabel) {
         enhancedMessage = `[来自: ${senderLabel}]\n${data.text}`;
+      }
+
+      // 注入自己的群内身份，让 Agent 明确知道"我是谁"
+      const selfName = platformGateway?.botDisplayName;
+      if (selfName) {
+        enhancedMessage = `[系统: 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你]\n${enhancedMessage}`;
       }
 
       await handleUserAction({
