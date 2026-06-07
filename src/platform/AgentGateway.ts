@@ -25,11 +25,11 @@ export class AgentGatewayImpl implements AgentGateway {
   /** 群成员配置：chatId → GroupMember[] */
   private groupMembers = new Map<string, GroupMember[]>();
 
-  /** 当前实例的 bot 显示名（群聊中自己叫什么 — 飞书应用名） */
-  private botDisplayName = '';
+  /** Bot 在群聊中的显示名（FeishuAdapter 识别后通过 IPC 注入） */
+  botDisplayName = '';
 
-  /** 当前实例的 bot ID */
-  private botId = '';
+  /** Bot 自身的成员 ID（FeishuAdapter 识别后通过 IPC 注入） */
+  botId = '';
 
   constructor(
     private agentLoop: AgentLoop,

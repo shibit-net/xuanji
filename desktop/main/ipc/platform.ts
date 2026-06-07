@@ -419,6 +419,18 @@ async function restorePlatformConnections(router: any, dataDir: string): Promise
         router.registerAdapter(adapter);
         ensureMessageHandler(router);
 
+        // 覆盖 onGroupMembersUpdated：用 IPC 转发到子进程 AgentGateway，而不是依赖 setAgent()
+        adapter.onGroupMembersUpdated?.((chatId, members) => {
+          const selfMember = members.find(m => m.isSelf);
+          agentChannel.send('platform:group-members-updated', {
+            chatId,
+            members,
+            botDisplayName: selfMember?.name,
+            botId: selfMember?.id,
+          });
+          log.info(`Group members forwarded to agent-bridge: chatId=${chatId} count=${members.length} isSelf=${selfMember?.name || '(none)'}`);
+        });
+
         // 注册 Webhook 路由（WebSocket 模式返回 null，跳过）
         if (typeof adapter.getWebhookHandler === 'function') {
           const wh = adapter.getWebhookHandler();

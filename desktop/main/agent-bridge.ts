@@ -828,6 +828,24 @@ function initPlatformMessageHandler(sess: ChatSession): void {
     }
   });
 
+  // 接收群成员更新（主进程 FeishuAdapter 通过 IPC 转发）
+  channel.handle('platform:group-members-updated', async (data: {
+    chatId: string;
+    members: Array<{ id: string; name: string; isBot?: boolean; isSelf?: boolean }>;
+    botDisplayName?: string;
+    botId?: string;
+  }) => {
+    if (platformGateway && typeof platformGateway.setGroupMembers === 'function') {
+      platformGateway.setGroupMembers(data.chatId, data.members);
+      // 如果主进程已经识别了 isSelf，直接设置 botDisplayName
+      if (data.botDisplayName && !platformGateway.botDisplayName) {
+        platformGateway.botDisplayName = data.botDisplayName;
+        platformGateway.botId = data.botId;
+      }
+      log.info(`[DIAG] AgentGateway.setGroupMembers called: chatId=${data.chatId} count=${data.members.length} botDisplayName=${data.botDisplayName || '(none)'}`);
+    }
+  });
+
   log.info('Platform message handler registered');
 }
 
