@@ -1022,10 +1022,11 @@ export class FeishuAdapter implements PlatformAdapter {
       const mentions: any[] = data.message?.mentions || [];
       const isMentioned = mentions.some((m: any) =>
         (this._botOpenId && m.id?.open_id === this._botOpenId) ||
+        (this._botOpenId && m.id?.union_id === this._botOpenId) ||
         (m.id?.app_id === this.config.app_id)
       );
       if (!isMentioned) {
-        log.debug(`Feishu group message skipped (not @mentioned): chatId=${data.message?.chat_id} sender=${sender?.sender_type}`);
+        log.debug(`Feishu group message skipped (not @mentioned): chatId=${data.message?.chat_id} sender=${sender?.sender_type} _botOpenId=${this._botOpenId?.substring(0,10)}... mentions=${JSON.stringify(mentions.map((m:any)=>({key:m.key,open_id:m.id?.open_id?.substring(0,10),app_id:m.id?.app_id?.substring?.(0,10)})))}`);
         return null;
       }
     }
