@@ -106,6 +106,12 @@ export class FeishuAdapter implements PlatformAdapter {
           // 跟踪发送者（方案 B：用消息事件累积群成员）
           this._trackSenderFromMessage(data);
 
+          // DIAG: 打印原始 mentions 结构，排查 @ 检测失败原因
+          const rawMentions = data?.message?.mentions;
+          if (rawMentions && rawMentions.length > 0) {
+            log.info(`[DIAG-mentions] _botOpenId=${this._botOpenId?.substring(0,12)}... app_id=${this.config.app_id?.substring(0,12)}... mentions=${JSON.stringify(rawMentions.map((m:any)=>({key:m.key,name:m.name,id_open_id:m.id?.open_id?.substring(0,12),id_union_id:m.id?.union_id?.substring(0,12),id_app_id:m.id?.app_id?.substring?.(0,12)})))}`);
+          }
+
           const msg = this.parseMessageFromSDK(data);
           if (msg) {
             this.enrichAndForward(msg).catch(err => {
