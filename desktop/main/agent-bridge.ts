@@ -806,31 +806,28 @@ function initPlatformMessageHandler(sess: ChatSession): void {
       // 意图分析在 handleUserAction 内部完成
       // 回复由 AGENT_COMPLETED 回调自动发送（在 initPlatformMessageHandler 中注册）
 
-      // 构建增强消息：标注发送者身份 + 自己的群内身份
-      let enhancedMessage = data.text;
+      // 构建增强消息：标注发送者身份
       const senderLabel = data.userName || data.userId;
+      let enhancedMessage = data.text;
       if (data.senderType === 'bot') {
         enhancedMessage = `[来自 Bot: ${senderLabel}]\n${data.text}`;
       } else if (senderLabel) {
         enhancedMessage = `[来自: ${senderLabel}]\n${data.text}`;
       }
 
-      // 注入自己的群内身份 + 群聊行为规范
+      // 群聊：注入身份 + 规范到 system prompt，不在消息文本中展示
       const selfName = platformGateway?.botDisplayName;
       if (selfName && data.chatType === 'group') {
-        const groupRules = [
-          `[系统: 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你]`,
-          `[群聊规范]`,
-          `- 你收到的消息只有 @ 了你或者 @_all 的才会被处理，其他消息你看不到`,
-          `- 回复时如果要指定某个人，必须用 @名字 的格式（如 @史振玉）；如果要 @ 其他 Bot，用对方完整的群内名字`,
-          `- 不要替其他 Bot 回答问题或替它们发言`,
-          `- 保持回复简洁，避免在群聊中输出长篇大论`,
-          `- 你可以 @ 其他 Bot 来协作完成任务`,
-          `- 你发出的消息是 interactive 卡片形式，群友都能看到`,
-        ].join('\n');
-        enhancedMessage = groupRules + '\n' + enhancedMessage;
-      } else if (selfName) {
-        enhancedMessage = `[系统: 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你]\n${enhancedMessage}`;
+        const ctxMgr = platformSession?.getAgentLoop()?.getContextManager?.();
+        if (ctxMgr) {
+          const groupPrompt = [
+            `[群聊身份] 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你。`,
+            `[群聊规则] 只有 @ 了你或 @_all 的消息你才会收到；`,
+            `回复时用 @名字 指定对象（如 @史振玉），@ 其他 Bot 用完整群名；`,
+            `不要替其他 Bot 发言；保持简洁；可 @ 其他 Bot 协作。`,
+          ].join(' ');
+          ctxMgr.setSystemPromptSuffix(groupPrompt, 'group-chat-rules');
+        }
       }
 
       await handleUserAction({
