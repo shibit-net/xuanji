@@ -815,9 +815,21 @@ function initPlatformMessageHandler(sess: ChatSession): void {
         enhancedMessage = `[来自: ${senderLabel}]\n${data.text}`;
       }
 
-      // 注入自己的群内身份，让 Agent 明确知道"我是谁"
+      // 注入自己的群内身份 + 群聊行为规范
       const selfName = platformGateway?.botDisplayName;
-      if (selfName) {
+      if (selfName && data.chatType === 'group') {
+        const groupRules = [
+          `[系统: 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你]`,
+          `[群聊规范]`,
+          `- 你收到的消息只有 @ 了你或者 @_all 的才会被处理，其他消息你看不到`,
+          `- 回复时如果要指定某个人，必须用 @名字 的格式（如 @史振玉）；如果要 @ 其他 Bot，用对方完整的群内名字`,
+          `- 不要替其他 Bot 回答问题或替它们发言`,
+          `- 保持回复简洁，避免在群聊中输出长篇大论`,
+          `- 你可以 @ 其他 Bot 来协作完成任务`,
+          `- 你发出的消息是 interactive 卡片形式，群友都能看到`,
+        ].join('\n');
+        enhancedMessage = groupRules + '\n' + enhancedMessage;
+      } else if (selfName) {
         enhancedMessage = `[系统: 你在这个群里的名字是「${selfName}」，群友用这个名字 @ 你]\n${enhancedMessage}`;
       }
 
