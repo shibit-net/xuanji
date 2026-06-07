@@ -35,8 +35,8 @@ models/
 # design docs (process documents, not part of the project)
 doc/
 # superpowers specs and plans are tracked
-docs/*
-!docs/superpowers/
+# Allow all docs except if we want to exclude specific ones
+!docs/
 
 # open-source packages (managed in separate repos)
 packages/
