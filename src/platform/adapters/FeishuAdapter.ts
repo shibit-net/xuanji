@@ -1224,8 +1224,8 @@ export class FeishuAdapter implements PlatformAdapter {
     if (nameToId.size === 0) return text;
 
     // 替换 @name 为 <at id=open_id>name</at>
-    // 匹配模式：@后跟汉字/字母/数字/下划线/连字符，非贪婪，到空格/换行/标点/结尾
-    return text.replace(/@([一-龥a-zA-Z0-9_\-]+)/g, (match, name) => {
+    // 匹配模式：@后跟汉字/字母/数字/下划线/连字符/全角括号，到空格/换行/半角标点/结尾
+    return text.replace(/@([一-龥a-zA-Z0-9_\-（）\(\)]+)/g, (match, name) => {
       const openId = nameToId.get(name);
       if (openId) {
         return `<at id=${openId}></at>`;

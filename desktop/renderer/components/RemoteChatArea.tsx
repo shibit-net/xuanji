@@ -66,12 +66,14 @@ function RemoteChatArea() {
         }
       }).filter(Boolean) as any[] | undefined;
 
+      const isBot = m.senderType === 'bot';
       items.push({
         id: m.id,
         role: 'user',
         content: m.text || '',
         timestamp: m.timestamp,
-        userName: m.userName,
+        userName: isBot ? `[Bot] ${m.userName || m.platform}` : (m.userName || ''),
+        isBot,
         contentBlocks: contentBlocks?.length ? contentBlocks : undefined,
       });
     }

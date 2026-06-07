@@ -34,6 +34,8 @@ export interface PlatformMessage {
   role: 'user' | 'agent';
   timestamp: number;
   userName?: string;
+  /** 发送者类型：user（普通用户）、bot（机器人） */
+  senderType?: 'user' | 'bot';
 }
 
 interface PlatformStore {

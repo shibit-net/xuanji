@@ -501,6 +501,7 @@ function ensureMessageHandler(router: any): void {
       role: 'user',
       timestamp: Date.now(),
       userName: msg.userName,
+      senderType: msg.senderType,
       chatName: msg.raw?.chatName,
       chatType: msg.chatType,
       eventType: msg.eventType || 'message',

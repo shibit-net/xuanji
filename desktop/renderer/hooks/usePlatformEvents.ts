@@ -121,6 +121,7 @@ export function usePlatformEvents() {
         role: data.role as 'user' | 'agent',
         timestamp: data.timestamp,
         userName: data.userName,
+        senderType: data.senderType,
       });
 
       // 自动更新会话显示名：P2P 用用户名，群聊用群名（备注名优先，不受影响）
