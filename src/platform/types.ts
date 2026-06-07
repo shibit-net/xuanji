@@ -19,6 +19,15 @@ export interface PlatformMessage {
   chatType: 'private' | 'group';
   text: string;
   mentions?: string[];
+  /** 结构化 @ 提及信息，包含三阶梯 isSelf 匹配（open_id > user_id > app_id） */
+  mentionRefs?: Array<{
+    key: string;
+    name: string;
+    openId?: string;
+    userId?: string;
+    appId?: string;
+    isSelf: boolean;
+  }>;
   attachments?: Attachment[];
   replyTo?: string;
   sessionKey: string;
@@ -139,6 +148,8 @@ export interface FeishuConfig extends PlatformConfig {
    *  例如：飞书后台应用名叫 "xuanji-bot"，但群友都叫它 "璇小玑"，
    *  配置 botName: "璇小玑" 即可让 Bot 正确识别 @ 自己的消息。 */
   botName?: string;
+  /** 数据目录路径（用于持久化消息去重状态等） */
+  dataDir?: string;
 }
 
 export interface DingTalkConfig extends PlatformConfig {

@@ -20,6 +20,7 @@ import { tmpdir } from 'os';
 import type { PlatformAdapter, PlatformMessage, FeishuConfig } from '../types.js';
 import type { CredentialManager } from '../auth/CredentialManager.js';
 import { buildSessionKey } from '../SessionRouter.js';
+import { MessageDeduplicator } from '../MessageDeduplicator.js';
 import { logger } from '@/infrastructure/logger';
 
 const log = logger.child({ module: 'FeishuAdapter' });
@@ -52,6 +53,9 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 是否允许接收其他 Bot 的消息（默认 all，多 Agent 协作需要） */
   private _allowBots: 'none' | 'mentions' | 'all' = 'all';
 
+  /** 消息去重器（TTL + 持久化），防止 WebSocket 重连/Webhook 重试导致重复消息 */
+  private deduplicator: MessageDeduplicator | null = null;
+
   /** 基于事件的群成员缓存：chatId → Map<memberId, GroupMember>（消息事件 + 成员变更事件累积） */
   private _memberTrackingCache = new Map<string, Map<string, import('../types.js').GroupMember>>();
 
@@ -65,6 +69,13 @@ export class FeishuAdapter implements PlatformAdapter {
 
   constructor(private config: FeishuConfig, credentials: CredentialManager) {
     this.credentials = credentials;
+
+    // 初始化消息去重器（如果提供了 dataDir）
+    if (this.config.dataDir) {
+      const dedupPath = `${this.config.dataDir}/message-dedup-feishu.json`;
+      this.deduplicator = new MessageDeduplicator(dedupPath);
+      log.info(`FeishuAdapter deduplicator initialized: ${dedupPath}`);
+    }
   }
 
   // ── WebSocket 长连接（使用官方 SDK WSClient）──────────────
@@ -218,8 +229,14 @@ export class FeishuAdapter implements PlatformAdapter {
       const botInfo = data.bot;
       if (data.code === 0 && botInfo?.open_id) {
         this._botOpenId = botInfo.open_id;
-        // 优先使用配置的 botName（解决飞书后台 app_name 与群内昵称不一致的问题）
-        const botName = this.config.botName?.trim() || botInfo.app_name || `Bot(${this._botOpenId.substring(0, 8)}...)`;
+        // 优先使用配置的 botName，其次 /bot/v3/info 的 app_name
+        let botName = this.config.botName?.trim() || botInfo.app_name || '';
+        // 降级：如果 app_name 为空，通过应用信息 API 获取
+        if (!botName) {
+          botName = await this.fetchAppName(token);
+        }
+        // 最终兜底
+        botName = botName || `Bot(${this._botOpenId.substring(0, 8)}...)`;
 
         // 将 Bot 自己的信息写入 userCache（后续 _trackSenderFromMessage 会优先用 userCache 的名字）
         this.userCache.set(this._botOpenId, { name: botName });
@@ -236,6 +253,27 @@ export class FeishuAdapter implements PlatformAdapter {
     } finally {
       this._identityReady = true;
     }
+  }
+
+  /** 通过应用信息 API（v6）获取 app_name，作为 /bot/v3/info 的降级方案。
+   *  该端点不返回 open_id，仅用于获取应用名称。 */
+  private async fetchAppName(token: string): Promise<string> {
+    try {
+      const appId = this.config.app_id;
+      const response = await fetch(
+        `https://open.feishu.cn/open-apis/application/v6/applications/${encodeURIComponent(appId)}`,
+        { headers: { 'Authorization': `Bearer ${token}` } },
+      );
+      const data = await response.json() as any;
+      if (data.code === 0 && data.data?.app_name) {
+        log.info(`Feishu app name resolved via fallback API: ${data.data.app_name}`);
+        return data.data.app_name;
+      }
+      log.warn(`Feishu fallback app name API returned: code=${data.code}`);
+    } catch (err) {
+      log.warn(`Feishu fallback app name API error: ${(err as Error).message}`);
+    }
+    return '';
   }
 
   /** 将 Bot 自己注册到所有已知群的成员追踪缓存中（解决"不知道哪个是自己"的问题） */
@@ -946,6 +984,12 @@ export class FeishuAdapter implements PlatformAdapter {
    * header/event 被展开到顶层，message/sender 不再嵌套在 event 下
    */
   private parseMessageFromSDK(data: any): PlatformMessage | null {
+    // 消息去重：基于 message_id，防止 WebSocket 重连/重试导致重复处理
+    const messageId = data?.message?.message_id || data?.message_id;
+    if (messageId && this.deduplicator?.isDuplicate(messageId)) {
+      return null;
+    }
+
     const sender = data.sender;
     // Self-echo 防护：跳过自己发出的消息（防止多 Bot 场景无限循环）
     if (sender?.sender_type === 'bot') {
@@ -1033,13 +1077,43 @@ export class FeishuAdapter implements PlatformAdapter {
       text = msg.content || '';
     }
 
-    const mentions: string[] = (msg.mentions || []).map((m: any) => m.key || m.name || '');
+    // 结构化 @ 提及信息，包含三阶梯 isSelf 匹配（open_id > user_id > app_id）
+    const mentionRefs: Array<{
+      key: string; name: string; openId?: string; userId?: string; appId?: string; isSelf: boolean;
+    }> = [];
+    const mentions: string[] = [];
+    for (const m of (msg.mentions || [])) {
+      const key = m.key || '';
+      const name = m.name || '';
+      const openId: string = m.id?.open_id || '';
+      const userId: string = m.id?.user_id || '';
+      const appId: string = m.id?.app_id || '';
+
+      // 三阶梯匹配判断是否 @ 了自己：open_id 优先，其次 user_id，最后 app_id
+      let isSelf = false;
+      if (this._botOpenId && openId) {
+        isSelf = openId === this._botOpenId;
+      } else if (this._botOpenId && userId) {
+        isSelf = userId === this._botOpenId;
+      } else if (appId) {
+        isSelf = appId === this.config.app_id;
+      }
+
+      mentionRefs.push({
+        key, name,
+        openId: openId || undefined,
+        userId: userId || undefined,
+        appId: appId || undefined,
+        isSelf,
+      });
+      mentions.push(key || name);
+    }
 
     // 缓存 @ 提及用户的 open_id → name 映射，后续该用户发消息时能自动匹配名字
-    for (const m of (msg.mentions || [])) {
-      const openId = m.id?.open_id || m.id?.user_id || '';
-      if (openId && m.name && !this.userCache.has(openId)) {
-        this.userCache.set(openId, { name: m.name, fetchedAt: Date.now() });
+    for (const ref of mentionRefs) {
+      const resolvedId = ref.openId || ref.userId || '';
+      if (resolvedId && ref.name && !this.userCache.has(resolvedId)) {
+        this.userCache.set(resolvedId, { name: ref.name, fetchedAt: Date.now() });
       }
     }
 
@@ -1057,6 +1131,7 @@ export class FeishuAdapter implements PlatformAdapter {
       text,
       attachments: attachments.length > 0 ? attachments : undefined,
       mentions,
+      mentionRefs: mentionRefs.length > 0 ? mentionRefs : undefined,
       replyTo: msg.parent_id || msg.upper_message_id || undefined,
       sessionKey: buildSessionKey({ platform: 'feishu', chatType, chatId: msg.chat_id }),
       eventType: 'message',
@@ -1074,6 +1149,9 @@ export class FeishuAdapter implements PlatformAdapter {
   async stop(): Promise<void> {
     this.credentials.clearToken('feishu');
     await this.stopWebSocket();
+    // 持久化去重状态，防止重启后消息重复
+    this.deduplicator?.save();
+    this.deduplicator = null;
   }
 
   async ping(): Promise<void> {

@@ -17,6 +17,7 @@ export { PlatformRouter } from './PlatformRouter.js';
 export { SessionRouter, buildSessionKey, parseSessionKey } from './SessionRouter.js';
 export { CredentialManager } from './auth/CredentialManager.js';
 export { PersistentMessageQueue, AgentWorkerPool } from './MessageQueue.js';
+export { MessageDeduplicator } from './MessageDeduplicator.js';
 export type { WorkerReplyHandler } from './MessageQueue.js';
 export { PlatformCircuitBreaker } from './PlatformCircuitBreaker.js';
 export { WebhookServer, webhookOk, webhookError } from './http/WebhookServer.js';
