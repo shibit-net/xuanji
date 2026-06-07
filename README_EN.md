@@ -1,7 +1,7 @@
 # Xuanji — Agentic OS
 
 <p align="center">
-  <strong>Not just a single Agent, but an entire team working for you</strong>
+  <strong>Not just a single Agent, but an Agentic OS</strong>
 </p>
 
 <p align="center">

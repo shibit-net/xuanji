@@ -1,7 +1,7 @@
 # 璇玑 (Xuanji) — Agentic OS
 
 <p align="center">
-  <strong>不是单一 Agent，而是一整个团队为你工作</strong>
+  <strong>不是一个 Agent，而是一个 Agentic OS</strong>
 </p>
 
 <p align="center">
