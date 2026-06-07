@@ -530,12 +530,19 @@ export class FeishuAdapter implements PlatformAdapter {
   /** 判断消息是否 @ 了当前 Bot（从 raw 中取结构化 mentions 做三阶梯匹配） */
   private _isMentioned(msg: PlatformMessage): boolean {
     if (!this._botOpenId && !this.config.app_id) return false;
-    const mentions: any[] = msg.raw?.message?.mentions || msg.raw?.mentions || [];
-    return mentions.some((m: any) =>
+    const rawMentions: any[] = msg.raw?.message?.mentions || msg.raw?.mentions || [];
+    const msgMentions: any[] = (msg as any).mentions || [];
+    // 同时检查 raw 中的结构化 mentions 和 msg 上的 mentions 数组
+    const allMentions = [...rawMentions, ...msgMentions.map((name: string) => ({ name, id: {} }))];
+    const result = allMentions.some((m: any) =>
       (this._botOpenId && m.id?.open_id === this._botOpenId) ||
       (this._botOpenId && m.id?.union_id === this._botOpenId) ||
       (m.id?.app_id === this.config.app_id)
     );
+    if (!result) {
+      log.debug(`[_isMentioned] NOT mentioned: _botOpenId=${this._botOpenId?.substring(0,12)}... app_id=${this.config.app_id?.substring(0,12)}... rawMentions=${JSON.stringify(rawMentions.slice(0,3))} msgMentions=${JSON.stringify(msgMentions.slice(0,3))}`);
+    }
+    return result;
   }
 
   /** 重建群成员数组并通知 AgentGateway。alwaysIncludeSelf=true 时即使缓存为空也确保 Bot 自己出现在列表中 */
