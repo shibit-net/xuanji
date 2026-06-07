@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "dev:gui": "npm run build && (cd desktop && npm run build:agent-bridge) && concurrently -n \"SRC,GUI\" -c \"cyan,green\" \"npm run build:watch\" \"wait-on dist/index.js && cd desktop && npm run dev\"",
+    "dev:gui": "npm run build && npm run desktop:build:agent-bridge && concurrently -n \"SRC,GUI\" -c \"cyan,green\" \"npm run build:watch\" \"wait-on dist/index.js && npm run desktop:dev\"",
+    "desktop:build:agent-bridge": "npm --prefix desktop run build:agent-bridge",
+    "desktop:dev": "npm --prefix desktop run dev",
     "build": "npm run clean && npm run build:src",
     "build:src": "tsup --entry src/index.ts --entry src/infrastructure/acp/acp-worker.ts --format esm --target esnext --outDir dist --external tree-sitter --external tree-sitter-typescript --external tree-sitter-python --external tree-sitter-java --external @larksuiteoapi/node-sdk",
     "build:gui": "cd desktop && npm run build:pre && electron-builder",
