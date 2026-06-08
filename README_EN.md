@@ -61,7 +61,7 @@ Script + Profile Photos + Video full workflow
 1. **1+1>2 Collaboration Effect**: Multiple agents working together are more powerful than a single agent
 2. **Visualized Collaboration Process**: Intuitively see how agents work together through React Flow and Cytoscape
 3. **Safe and Reliable**: Dual-layer security architecture with code-level protection even when AI makes mistakes
-4. **Unlimited Extensibility**: MCP ecosystem integration, Playwright browser automation, and more—capabilities expand as needed
+4. **Unlimited Extensibility**: MCP + Skills ecosystem integration—capabilities expand as needed
 
 ### Who is Xuanji For?
 
@@ -87,7 +87,7 @@ Xuanji is also a complete desktop application with visual collaboration flow dia
 | Layered Prompt System | ✅ L0-L2 three-tier architecture | ❌ Simple SOUL.md | ❌ Simple templates |
 | Memory-Driven Learning | ✅ Feedback loop + adaptive adjustment | ⚠️ Static memory | ✅ Self-learning skills |
 | Deep Code Understanding | ✅ tree-sitter + dependency analysis | ⚠️ Basic file operations | ❌ No deep code analysis |
-| MCP Ecosystem Integration | ✅ Market + Playwright, etc. | ✅ ClawHub | ✅ MCP support |
+| MCP + Skills Ecosystem Integration | ✅ Market + unlimited extensions | ✅ ClawHub | ✅ MCP support |
 
 ---
 
@@ -135,14 +135,14 @@ Dynamically loaded based on intent analysis results, optimizing Token usage whil
 
 ---
 
-### 🔌 MCP Ecosystem — Unlimited Extensibility
+### 🔌 MCP + Skills Ecosystem — Unlimited Extensibility
 
-Xuanji deeply integrates the MCP (Model Context Protocol) ecosystem:
+Xuanji deeply integrates the MCP (Model Context Protocol) and Skills ecosystem:
 
 - **Playwright Browser Automation**: Complete web interaction capabilities
-- **Market Integration**: One-click search and install MCP servers
+- **Market Integration**: One-click search and install MCP/Skills
 - **40+ Built-in Tools** + Unlimited MCP extensions
-- **Skills Synergy**: MCP works together with custom skills
+- **Skills System**: Custom skills work together with MCP
 
 **Learn More**: [MCP Ecosystem](./docs/mcp-ecosystem.md)
 

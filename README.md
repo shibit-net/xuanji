@@ -61,7 +61,7 @@
 1. **1+1>2 的协作效应**：多个智能体协作，比单一 Agent 更强大
 2. **可视化协作过程**：通过 React Flow 和 Cytoscape 直观看到智能体如何工作
 3. **安全可靠**：双层安全架构，即使 AI 判断失误也有代码层面保护
-4. **无限扩展**：MCP 生态集成，Playwright 浏览器自动化等，能力随需扩展
+4. **无限扩展**：MCP + Skills 生态集成，能力随需扩展
 
 ### 适用人群
 
@@ -87,7 +87,7 @@
 | 分层提示词系统 | ✅ L0-L2 三层架构 | ❌ 简单 SOUL.md | ❌ 简单模板 |
 | 记忆驱动学习 | ✅ 反馈循环 + 自适应调整 | ⚠️ 静态记忆 | ✅ 自学习技能 |
 | 代码深度理解 | ✅ tree-sitter + 依赖分析 | ⚠️ 基础文件操作 | ❌ 无深度代码分析 |
-| MCP 生态集成 | ✅ 天工坊市场 + Playwright 等 | ✅ ClawHub | ✅ MCP 支持 |
+| MCP + Skills 生态集成 | ✅ 天工坊市场 + 无限扩展 | ✅ ClawHub | ✅ MCP 支持 |
 
 ---
 
@@ -135,14 +135,14 @@
 
 ---
 
-### 🔌 MCP 生态 - 无限扩展
+### 🔌 MCP + Skills 生态 - 无限扩展
 
-璇玑深度集成 MCP (Model Context Protocol) 生态：
+璇玑深度集成 MCP (Model Context Protocol) 与 Skills 生态：
 
 - **Playwright 浏览器自动化**：完整的网页交互能力
-- **天工坊市场**：一键搜索安装 MCP 服务器
+- **天工坊市场**：一键搜索安装 MCP/Skills
 - **40+ 内置工具** + 无限 MCP 扩展
-- **Skills 协同**：MCP 与自定义技能配合使用
+- **Skills 技能系统**：自定义技能与 MCP 协同使用
 
 **更多详情**：[MCP 生态系统文档](./docs/mcp-ecosystem.md)
 
