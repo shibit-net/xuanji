@@ -1,4 +1,4 @@
-# Xuanji — Your AI Butler
+<h1 align="center">Xuanji — Your AI Butler</h1>
 
 <p align="center">
   <a href="https://shibit.net">🌐 Website: shibit.net</a>
