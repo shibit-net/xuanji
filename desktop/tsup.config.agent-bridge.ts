@@ -8,7 +8,7 @@ export default defineConfig({
   format: ['esm'],
   target: 'node20',
   outDir: 'dist-electron',
-  clean: false,
+  clean: true,
   dts: false,
   sourcemap: false,
   minify: true,

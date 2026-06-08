@@ -7,6 +7,9 @@ import { registerAllIpcHandlers } from './ipc/index.js';
 import { loadAuthState, setAuthState, setSessionExpiredHandler } from './config/auth.js';
 import { buildAppMenu } from './menu/index.js';
 
+// V8 堆上限：防止内存失控导致进程卡死（agent-bridge 子进程同样设置）
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048');
+
 // 设置应用名称（影响菜单栏 About/Hide/Quit 等项的显示名称）
 app.setName('璇玑');
 
