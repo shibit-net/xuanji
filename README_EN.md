@@ -2,6 +2,8 @@
 
 <p align="center">
   <a href="https://shibit.net">🌐 Website: shibit.net</a>
+  &nbsp;|&nbsp;
+  <a href="https://shibit.net/docs/xuanji">📖 Documentation</a>
 </p>
 
 <p align="center">
@@ -28,6 +30,7 @@ Xuanji is an open-source **Agentic OS** designed specifically for **multi-agent 
 - **Not just a single AI assistant**, but a collaboration platform that can organize up to 10 agents
 - **Not just simple tool integration**, but a complete desktop application with visual interfaces
 - **Not a static system**, but with memory-driven learning capabilities that understand you better over time
+- **Supports Chinese and English**, seamless language switching for different usage scenarios
 
 ---
 
@@ -58,7 +61,7 @@ Script + Profile Photos + Video full workflow
 1. **1+1>2 Collaboration Effect**: Multiple agents working together are more powerful than a single agent
 2. **Visualized Collaboration Process**: Intuitively see how agents work together through React Flow and Cytoscape
 3. **Safe and Reliable**: Dual-layer security architecture with code-level protection even when AI makes mistakes
-4. **Unlimited Extensibility**: MCP ecosystem integration, Playwright browser automation, and more—capabilities expand as needed
+4. **Unlimited Extensibility**: MCP + Skills ecosystem integration—capabilities expand as needed
 
 ### Who is Xuanji For?
 
@@ -84,7 +87,7 @@ Xuanji is also a complete desktop application with visual collaboration flow dia
 | Layered Prompt System | ✅ L0-L2 three-tier architecture | ❌ Simple SOUL.md | ❌ Simple templates |
 | Memory-Driven Learning | ✅ Feedback loop + adaptive adjustment | ⚠️ Static memory | ✅ Self-learning skills |
 | Deep Code Understanding | ✅ tree-sitter + dependency analysis | ⚠️ Basic file operations | ❌ No deep code analysis |
-| MCP Ecosystem Integration | ✅ Market + Playwright, etc. | ✅ ClawHub | ✅ MCP support |
+| MCP + Skills Ecosystem Integration | ✅ Market + unlimited extensions | ✅ ClawHub | ✅ MCP support |
 
 ---
 
@@ -132,14 +135,14 @@ Dynamically loaded based on intent analysis results, optimizing Token usage whil
 
 ---
 
-### 🔌 MCP Ecosystem — Unlimited Extensibility
+### 🔌 MCP + Skills Ecosystem — Unlimited Extensibility
 
-Xuanji deeply integrates the MCP (Model Context Protocol) ecosystem:
+Xuanji deeply integrates the MCP (Model Context Protocol) and Skills ecosystem:
 
 - **Playwright Browser Automation**: Complete web interaction capabilities
-- **Market Integration**: One-click search and install MCP servers
+- **Market Integration**: One-click search and install MCP/Skills
 - **40+ Built-in Tools** + Unlimited MCP extensions
-- **Skills Synergy**: MCP works together with custom skills
+- **Skills System**: Custom skills work together with MCP
 
 **Learn More**: [MCP Ecosystem](./docs/mcp-ecosystem.md)
 

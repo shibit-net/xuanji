@@ -67,6 +67,9 @@ export class FilteredToolRegistry implements IToolRegistry {
   private workingDir: string;
   private onBeforeExecute: ToolExecuteHook | null = null;
 
+  /** 缓存的 schema 列表，会话期间工具列表不变 */
+  private _cachedSchemas: any[] | null = null;
+
   constructor(
     inner: IToolRegistry,
     allowedTools: string[] | null | undefined,
@@ -78,6 +81,7 @@ export class FilteredToolRegistry implements IToolRegistry {
     this.allowedTools = this.allowAll ? null : new Set(allowedTools);
     this.agentContext = agentContext;
     this.workingDir = workingDir || process.cwd();
+    this.rebuildSchemaCache();
   }
 
   /** 设置工具执行前回调（用于项目检测等） */
@@ -107,7 +111,12 @@ export class FilteredToolRegistry implements IToolRegistry {
   }
 
   getSchemas(): any[] {
-    return this.getAll().map((tool: any) => ({
+    return this._cachedSchemas!;
+  }
+
+  /** 重建 schema 缓存（MCP 工具热加载等场景触发） */
+  rebuildSchemaCache(): void {
+    this._cachedSchemas = this.getAll().map((tool: any) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.input_schema,
