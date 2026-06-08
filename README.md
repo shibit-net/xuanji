@@ -2,6 +2,8 @@
 
 <p align="center">
   <a href="https://shibit.net">🌐 官网：shibit.net</a>
+  &nbsp;|&nbsp;
+  <a href="https://shibit.net/docs/xuanji">📖 技术文档</a>
 </p>
 
 <p align="center">
@@ -28,6 +30,7 @@
 - **不是单一 AI 助手**，而是可以组织最多 10 个智能体的协作平台
 - **不是简单的工具集成**，而是拥有完整的桌面应用和可视化界面
 - **不是静态的系统**，而是具有记忆驱动学习能力，越用越懂你
+- **支持中英双语**，无缝切换语言，满足不同使用场景
 
 ---
 
