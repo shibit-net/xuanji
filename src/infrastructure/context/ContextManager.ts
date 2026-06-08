@@ -252,7 +252,7 @@ ${att.content}
 
 
   replaceMessages(messages: Message[]): void {
-    this.messages = messages;
+    this.replaceMessagesInPlace(messages);
   }
 
   appendTextToLastMessage(text: string): boolean {
@@ -290,7 +290,7 @@ ${att.content}
   }
 
   checkBudget():BudgetStatus {
-    const estimated = this.tokenCounter.estimate(this.messages);
+    const estimated = this.tokenCounter.getCalibratedEstimate(this.messages);
     const maxInput = this.tokenCounter.getMaxInputTokens();
     const pct = maxInput > 0 ? estimated / maxInput : 0;
 
@@ -333,6 +333,9 @@ ${att.content}
       compressedTokens: result.compressedTokens,
       compressionRatio: result.compressionRatio,
     });
+
+    // 压缩后重置 API 基线，下一轮 checkBudget 用启发式估计 + 新 API 数据校准
+    this.tokenCounter.resetActualBaseline();
 
     return result;
   }
@@ -439,7 +442,7 @@ ${att.content}
     const compressed = [systemMsg, summaryMsg, ...this.messages.slice(boundary)];
     const compressedTokens = this.tokenCounter.estimate(compressed);
 
-    this.messages = compressed;
+    this.replaceMessagesInPlace(compressed);
     return {
       compressed,
       originalTokens,
@@ -447,6 +450,12 @@ ${att.content}
       compressionRatio: originalTokens > 0 ? (originalTokens - compressedTokens) / originalTokens : 0,
       summary: summaryText || `压缩了 ${oldCount} 条旧消息`,
     };
+  }
+
+  /** 原地替换消息数组，保持外部引用有效（避免 retry 时仍发送旧消息） */
+  private replaceMessagesInPlace(newMessages: Message[]): void {
+    this.messages.length = 0;
+    this.messages.push(...newMessages);
   }
 
   private async aggressiveCompress(originalTokens: number): Promise<CompressionResult> {
@@ -501,7 +510,7 @@ ${att.content}
     const compressed = [systemMsg, summaryMsg, ...this.messages.slice(boundary)];
     const compressedTokens = this.tokenCounter.estimate(compressed);
 
-    this.messages = compressed;
+    this.replaceMessagesInPlace(compressed);
     return {
       compressed,
       originalTokens,
@@ -522,7 +531,7 @@ ${att.content}
 
   rollback(snapshotIndex: number): void {
     if (snapshotIndex >= 0 && snapshotIndex < this.snapshots.length) {
-      this.messages = [...this.snapshots[snapshotIndex]];
+      this.replaceMessagesInPlace([...this.snapshots[snapshotIndex]]);
       this.snapshots = this.snapshots.slice(0, snapshotIndex);
     }
   }
@@ -595,7 +604,7 @@ ${att.content}
     const systemMsg = this.messages.length > 0 && this.messages[0].role === 'system'
       ? [this.messages[0]]
       : [];
-    this.messages = systemMsg;
+    this.replaceMessagesInPlace(systemMsg);
   }
 
   getTokenCount(): number {
