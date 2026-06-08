@@ -163,7 +163,11 @@ export class MatchAgentTool extends BaseTool {
         });
       }
 
-      const preferredScore = await this.scoreOne(preferredConfig, taskDescription);
+      const taskVec = await this.embedSafe(taskDescription);
+      const agentVec = await this.embedSafe(this.buildAgentMatchText(preferredConfig));
+      const preferredScore = (taskVec && agentVec && this.embeddingProvider)
+        ? this.embeddingProvider.cosineSimilarity(taskVec, agentVec)
+        : 0;
       // 推荐 agent 1.5x 加权
       const boostedScore = Math.min(1.0, preferredScore * 1.5);
 
@@ -203,26 +207,35 @@ export class MatchAgentTool extends BaseTool {
   }
 
   /**
-   * 对单个 Agent 进行向量评分
-   */
-  private async scoreOne(agent: any, taskDescription: string): Promise<number> {
-    const agentText = this.buildAgentMatchText(agent);
-    try {
-      return await this.vectorSimilarity(taskDescription, agentText);
-    } catch (err) {
-      log.debug(`Vector matching failed for ${agent.id}:`, err);
-      return 0;
-    }
-  }
-
-  /**
-   * 对所有 Agent 评分
+   * 对所有 Agent 评分（task description 只 embed 一次）
    */
   private async scoreAgents(agents: any[], taskDescription: string): Promise<AgentMatch[]> {
-    const results: AgentMatch[] = [];
+    if (!this.embeddingProvider) {
+      return agents.map((agent) => ({
+        agentId: agent.id,
+        agentName: agent.name,
+        score: 0,
+        reason: 'Embedding not available',
+      }));
+    }
 
+    // task description 只 embed 一次，不重复 embed
+    const taskVec = await this.embedSafe(taskDescription);
+    if (!taskVec) {
+      return agents.map((agent) => ({
+        agentId: agent.id,
+        agentName: agent.name,
+        score: 0,
+        reason: 'Failed to embed task description',
+      }));
+    }
+
+    const results: AgentMatch[] = [];
     for (const agent of agents) {
-      const score = await this.scoreOne(agent, taskDescription);
+      const agentVec = await this.embedSafe(this.buildAgentMatchText(agent));
+      const score = agentVec
+        ? this.embeddingProvider.cosineSimilarity(taskVec, agentVec)
+        : 0;
       results.push({
         agentId: agent.id,
         agentName: agent.name,
@@ -234,6 +247,16 @@ export class MatchAgentTool extends BaseTool {
     }
 
     return results;
+  }
+
+  private async embedSafe(text: string): Promise<number[] | null> {
+    if (!this.embeddingProvider) return null;
+    try {
+      return await this.embeddingProvider.embed(text);
+    } catch (err) {
+      log.debug(`Embed failed: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   private buildAgentMatchText(agent: any): string {
@@ -249,20 +272,6 @@ export class MatchAgentTool extends BaseTool {
       ...(Array.isArray(agent.capabilities) ? agent.capabilities : []),
       ...examples,
     ].filter(Boolean).join(' ');
-  }
-
-  /**
-   * 向量余弦相似度
-   */
-  private async vectorSimilarity(text1: string, text2: string): Promise<number> {
-    if (!this.embeddingProvider) return 0;
-
-    const [embedding1, embedding2] = await Promise.all([
-      this.embeddingProvider.embed(text1),
-      this.embeddingProvider.embed(text2),
-    ]);
-
-    return this.embeddingProvider.cosineSimilarity(embedding1, embedding2);
   }
 
   /**
