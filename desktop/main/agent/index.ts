@@ -121,6 +121,11 @@ function initChatSession(): Promise<boolean> {
       const desktopRoot = path.join(__dirname, '../');
       const projectRoot = path.join(desktopRoot, '../');
 
+      const spawnEnv: Record<string, any> = {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || 'development',
+      };
+
       if (isDev) {
         // 开发环境：使用 tsx 直接运行源文件
         scriptPath = path.join(desktopRoot, 'main/agent-bridge.ts');
@@ -147,14 +152,12 @@ function initChatSession(): Promise<boolean> {
           args = ['--max-old-space-size=2048', scriptPath];
         } else {
           nodePath = process.execPath;
-          args = ['--js-flags=--max-old-space-size=2048', scriptPath];
+          args = [scriptPath];
+          // Electron 作为 Node 时不支持 --js-flags，必须通过 NODE_OPTIONS 设置堆上限
+          spawnEnv.NODE_OPTIONS = '--max-old-space-size=2048';
         }
       }
 
-      const spawnEnv: Record<string, any> = {
-        ...process.env,
-        NODE_ENV: process.env.NODE_ENV || 'development',
-      };
       // 清除可能干扰 Provider 配置的环境变量（SDK 会自动读取作为默认值）
       delete spawnEnv.ANTHROPIC_AUTH_TOKEN;
       delete spawnEnv.ANTHROPIC_API_KEY;
@@ -282,7 +285,10 @@ function initChatSession(): Promise<boolean> {
         agentLog(`Agent-bridge spawn error: ${err.message}\n${err.stack || ''}`);
       });
 
-      // 创建并绑定 agent 消息通道
+      // 创建并绑定 agent 消息通道（先清理残留 channel，避免 "消息通道已存在" 错误）
+      if (enhancedMessageBus.getChannel('agent')) {
+        enhancedMessageBus.deleteChannel('agent');
+      }
       const agentChannel = enhancedMessageBus.createChannel('agent', {
         timeout: 30000,
         maxRetries: 3,
