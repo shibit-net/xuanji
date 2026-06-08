@@ -8,17 +8,16 @@ estimatedTokens: 250
 match:
   keywords: "interaction flow prototype wireframe user flow information architecture journey UX"
   description: "Interaction design, user flow, prototyping, information architecture"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Interaction Design Scene
 
   Interaction design optimizes the user's path from intent to completion.
 
-  ## Capability Triggers
-
-  - Query design, UX, user-journey, or prototyping Skills when a reusable framework may help.
-  - Query MCP/Web when design depends on product docs, design systems, analytics, user feedback, or external references.
-  - Use Agent Team when product, design, engineering, and accessibility perspectives need review.
-  - Use Task/todo for multi-screen flows or iterative design review.
 
   ## Design Contract
 

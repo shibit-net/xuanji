@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "monitor alert log metrics logging tracing observability dashboard incident uptime health"
   description: "System monitoring, alert configuration, log analysis, observability"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Monitor Scene
 
   Monitoring work relies on evidence from logs, metrics, traces, alerts, and dashboards.
 
-  ## Capability Triggers
-
-  - Query MCP for monitoring platforms, logs, CI, cloud, databases, issue trackers, or live service health.
-  - Query observability/incident Skills when a reusable diagnostic or alert-design workflow may help.
-  - Use Agent Team for incidents or monitoring design that needs operations, backend, security, and product impact perspectives.
-  - Use Task/todo for incident-style flows: gather evidence, diagnose, mitigate, verify, document follow-up.
 
   ## Monitoring Contract
 

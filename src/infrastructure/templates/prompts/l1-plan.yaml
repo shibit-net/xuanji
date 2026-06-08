@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "plan planning design architecture blueprint solution technology selection roadmap approach"
   description: "Solution design, architecture planning, technology selection, implementation approach"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Plan Scene
 
   Planning turns goals and constraints into a safe execution approach.
 
-  ## Capability Triggers
-
-  - Query planning, architecture, PRD, or design-review Skills when a reusable framework may help.
-  - Query MCP/Web when planning depends on external docs, live system state, issue trackers, market data, or authoritative references.
-  - Use Agent Team for architecture tradeoffs, security/data/deployment risk, or evidence-based debate between viable approaches.
-  - Use Task/todo when the plan will be executed across multiple phases.
 
   ## Planning Contract
 

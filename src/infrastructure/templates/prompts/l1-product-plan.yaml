@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "product plan roadmap iteration milestone priority strategy OKR release planning"
   description: "Product planning, roadmap creation, iteration planning, prioritization"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Product Planning Scene
 
   Product planning connects vision, goals, roadmap, and execution.
 
-  ## Capability Triggers
-
-  - Query product, roadmap, prioritization, PRD, or planning Skills when a reusable format may help.
-  - Query MCP/Web when planning depends on external docs, analytics, user feedback, issue trackers, market data, or competitor research.
-  - Use Agent Team when product, engineering, design, data, or risk perspectives must be integrated.
-  - Use Task/todo for multi-phase planning: discovery, options, prioritization, roadmap, review, and follow-up.
 
   ## Planning Contract
 

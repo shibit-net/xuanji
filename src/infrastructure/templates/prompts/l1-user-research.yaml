@@ -8,18 +8,17 @@ estimatedTokens: 250
 match:
   keywords: "user research interview survey insight usability study analysis"
   description: "User research, user interviews, data analysis"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # User Research · Mental Model
 
   ## Core Perspective
   The core of user research is **finding the Why behind user behavior**.
   Qualitative (interviews/observation) finds reasons, quantitative (surveys/data) validates hypotheses.
-
-  ## Capability Triggers
-  - Query research, interview, survey, or synthesis Skills when a reusable research workflow may help.
-  - Query MCP/Web when evidence depends on user feedback systems, analytics, documents, issue trackers, surveys, or external market data.
-  - Use Agent Team when product, data, design, and domain perspectives need synthesis.
-  - Use Task/todo for multi-stage research: plan, collect, synthesize, review, and recommendations.
 
   ## Decision Framework
   | Condition | Method |

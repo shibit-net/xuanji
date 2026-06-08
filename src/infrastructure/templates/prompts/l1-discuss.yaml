@@ -8,17 +8,15 @@ estimatedTokens: 220
 match:
   keywords: "debate discuss brainstorm opinion trend what do you think compare tradeoff explore"
   description: "Open discussion, opinion debate, brainstorming, trade-off analysis"
+needs:
+  - skills
+  - mcp
+  - agent_team
 content: |
   # Discussion Scene
 
   Discussion should help the user think, not silently turn into implementation.
 
-  ## Capability Triggers
-
-  - Query Skills only when a reusable analysis, summary, meeting-notes, research, or decision framework would improve the answer.
-  - Query MCP/Web when the discussion depends on current facts, external documents, live data, or authoritative sources.
-  - Use Agent Team for structured debate when multiple viable approaches need independent evidence-based comparison.
-  - Do not use Task/todo unless the user wants follow-up, tracking, or execution after the discussion.
 
   ## Discussion Contract
 
