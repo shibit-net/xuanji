@@ -29,6 +29,30 @@ Xuanji is an open-source **Agentic OS** designed specifically for **multi-agent 
 - **Not just simple tool integration**, but a complete desktop application with visual interfaces
 - **Not a static system**, but with memory-driven learning capabilities that understand you better over time
 
+---
+
+## 📸 Interface Preview
+
+### Knowledge Graph
+Visualization of the memory system
+
+![Knowledge Graph](./screenshots/memory-topology.png)
+
+### Multi-agent Collaboration
+Showing agent team collaboration and debate
+
+![Multi-agent Debate](./screenshots/agent-team-debate.png)
+
+### Agent Library
+Agent library and workspace management
+
+![Agent Library](./screenshots/agent-team-library.png)
+
+### Short Drama Generation
+Script + Profile Photos + Video full workflow
+
+![Short Drama Generation](./screenshots/video-generation.png)
+
 ### Core Values
 
 1. **1+1>2 Collaboration Effect**: Multiple agents working together are more powerful than a single agent
