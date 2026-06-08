@@ -52,13 +52,18 @@ export class MatchSceneTool extends BaseTool {
 
   private embedder: EmbeddingProviderInterface | null = null;
   private sceneList: SceneInfo[] = [];
+  private sceneEmbeddingCache = new Map<string, number[]>();
+  private embedderModelName: string | null = null;
 
   setEmbedder(embedder: EmbeddingProviderInterface | null): void {
     this.embedder = embedder;
+    this.sceneEmbeddingCache.clear();
+    this.embedderModelName = embedder?.getModelName() ?? null;
   }
 
   setSceneList(scenes: SceneInfo[]): void {
     this.sceneList = scenes;
+    this.sceneEmbeddingCache.clear();
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
@@ -91,16 +96,17 @@ export class MatchSceneTool extends BaseTool {
       return this.success('当前没有可用的场景。请使用 list_scenes 查看所有场景。');
     }
 
-    // 向量匹配
+    // 向量匹配（用户消息不可缓存）
     const messageVec = await this.safeEmbed(taskDescription.trim());
     if (!messageVec) {
       return this.error('向量化失败，无法进行场景匹配');
     }
 
-    const sceneTexts = this.sceneList.map((s) =>
-      [s.keywords || '', s.description || ''].join(' '),
+    // Scene embeddings 使用缓存
+    this.checkModelChange();
+    const sceneVecs = await Promise.all(
+      this.sceneList.map((s) => this.getSceneEmbedding(s)),
     );
-    const sceneVecs = await Promise.all(sceneTexts.map((t) => this.safeEmbed(t)));
 
     const scored: Array<{ scene: string; score: number; description?: string }> = [];
     this.sceneList.forEach((s, i) => {
@@ -155,6 +161,26 @@ export class MatchSceneTool extends BaseTool {
     } catch (err) {
       log.warn(`Embedding failed: ${(err as Error).message}`);
       return null;
+    }
+  }
+
+  private async getSceneEmbedding(scene: SceneInfo): Promise<number[] | null> {
+    const cached = this.sceneEmbeddingCache.get(scene.scene);
+    if (cached) return cached;
+
+    const text = [scene.keywords || '', scene.description || ''].join(' ');
+    const vec = await this.safeEmbed(text);
+    if (vec) this.sceneEmbeddingCache.set(scene.scene, vec);
+    return vec;
+  }
+
+  private checkModelChange(): void {
+    const currentModel = this.embedder?.getModelName() ?? null;
+    if (this.embedderModelName !== null && currentModel !== this.embedderModelName) {
+      this.sceneEmbeddingCache.clear();
+    }
+    if (currentModel) {
+      this.embedderModelName = currentModel;
     }
   }
 }

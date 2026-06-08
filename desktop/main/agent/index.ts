@@ -130,11 +130,11 @@ function initChatSession(): Promise<boolean> {
           // 改为直接 spawn node.exe + tsx CLI 入口，确保 IPC 通道正常
           nodePath = findNodePath();
           const tsxCliPath = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-          args = [tsxCliPath, scriptPath];
+          args = ['--max-old-space-size=2048', tsxCliPath, scriptPath];
         } else {
           nodePath = findNodePath();
           const tsxPath = path.join(projectRoot, 'node_modules/.bin/tsx');
-          args = [tsxPath, scriptPath];
+          args = ['--max-old-space-size=2048', tsxPath, scriptPath];
         }
       } else {
         // 生产环境：优先使用内置 Node.js，不存在则用 Electron + ELECTRON_RUN_AS_NODE=1
@@ -144,10 +144,10 @@ function initChatSession(): Promise<boolean> {
         const bundledNode = path.join(pRes, 'node', 'bin', nodeName);
         if (fs.existsSync(bundledNode)) {
           nodePath = bundledNode;
-          args = [scriptPath];
+          args = ['--max-old-space-size=2048', scriptPath];
         } else {
           nodePath = process.execPath;
-          args = [scriptPath];
+          args = ['--js-flags=--max-old-space-size=2048', scriptPath];
         }
       }
 

@@ -55,7 +55,7 @@ interface L3CacheEntry {
 }
 
 let l3Cache: L3CacheEntry | null = null;
-const L3_CACHE_TTL = 30_000; // 30 秒
+const L3_CACHE_TTL = Infinity; // session 生命周期，仅通过 fs.watch 检测文件变更时失效
 
 /** 缓存根路径，用于 watcher 判断 */
 let cachedRootPath: string | null = null;
