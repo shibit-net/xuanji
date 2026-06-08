@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/shibit-net/xuanji"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/shibit-net/xuanji"><img src="https://img.shields.io/badge/License-AGPL--3.0%20with%20Commons%20Clause-blue.svg?style=for-the-badge" alt="License"></a>
   <a href="https://github.com/shibit-net/xuanji"><img src="https://img.shields.io/badge/Node.js-20+-green?style=for-the-badge" alt="Node.js"></a>
 </p>
 
