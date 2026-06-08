@@ -2,6 +2,8 @@
 
 <p align="center">
   <a href="https://shibit.net">🌐 Website: shibit.net</a>
+  &nbsp;|&nbsp;
+  <a href="https://shibit.net/docs/xuanji">📖 Documentation</a>
 </p>
 
 <p align="center">
@@ -28,6 +30,7 @@ Xuanji is an open-source **Agentic OS** designed specifically for **multi-agent 
 - **Not just a single AI assistant**, but a collaboration platform that can organize up to 10 agents
 - **Not just simple tool integration**, but a complete desktop application with visual interfaces
 - **Not a static system**, but with memory-driven learning capabilities that understand you better over time
+- **Supports Chinese and English**, seamless language switching for different usage scenarios
 
 ---
 
