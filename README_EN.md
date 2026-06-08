@@ -277,4 +277,4 @@ npm run dev
 
 ## License
 
-MIT License — See [LICENSE](LICENSE) for details
+GNU Affero General Public License v3.0 with Commons Clause — See [LICENSE](LICENSE) for details
