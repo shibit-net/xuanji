@@ -29,10 +29,22 @@ function agentLog(message: string): void {
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] ${message}\n`;
   try {
-    fs.appendFileSync(getAgentLogPath(), line, 'utf-8');
+    const logPath = getAgentLogPath();
+    // 超过 10MB 截断，防止无限增长
+    try {
+      const stat = fs.statSync(logPath);
+      if (stat.size > 10 * 1024 * 1024) {
+        const content = fs.readFileSync(logPath, 'utf-8');
+        const truncated = content.slice(-5 * 1024 * 1024); // 保留最后 5MB
+        fs.writeFileSync(logPath, truncated, 'utf-8');
+      }
+    } catch {}
+    fs.appendFileSync(logPath, line, 'utf-8');
   } catch {}
   // 开发环境也输出到控制台
-  console.log(`[Agent] ${message}`);
+  if (!app.isPackaged) {
+    console.log(`[Agent] ${message}`);
+  }
 }
 
 let agentProcess: any = null;
@@ -165,6 +177,12 @@ function initChatSession(): Promise<boolean> {
       delete spawnEnv.ANTHROPIC_MODEL;
       delete spawnEnv.OPENAI_API_KEY;
       delete spawnEnv.OPENAI_BASE_URL;
+
+      // 生产环境降低 agent-bridge 日志级别，避免 stdout 刷屏导致父进程 sync I/O 阻塞
+      // agent-bridge 内部已通过 RotatingFileStream 写完整日志到 ~/.xuanji/logs/
+      if (!isDev) {
+        spawnEnv.XUANJI_LOG_LEVEL = 'warn';
+      }
 
       const resourcesPath = !isDev ? process.resourcesPath! : null;
 

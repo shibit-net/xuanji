@@ -391,7 +391,7 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
       }
     };
     poll();
-    const timer = setInterval(poll, 2000);
+    const timer = setInterval(poll, 10000);
     return () => { active = false; clearInterval(timer); };
   }, [isSessionReady]);
 
