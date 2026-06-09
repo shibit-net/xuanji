@@ -87,6 +87,69 @@ Tony 说：「上次用的是金钛合金方案吧？效果不行，换铬合金
 
 ---
 
+## 🏗️ 架构全景
+
+```mermaid
+graph TB
+    subgraph Desktop["🖥️ Electron 桌面应用"]
+        Chat["💬 对话界面"]
+        Flow["🔀 React Flow 协作流程图"]
+        Graph["🧬 Cytoscape 知识图谱"]
+    end
+
+    subgraph Agent["🤖 多智能体协作引擎"]
+        Main["🎯 璇玑 主 Agent"]
+        Classifier["🏷️ 场景分类器"]
+        Engineer["⚙️ 软件工程师"]
+        PM["📋 产品经理"]
+        Designer["🎨 UI 设计师"]
+        Memory["🧠 记忆管理"]
+        Compressor["📦 上下文压缩"]
+    end
+
+    subgraph Prompt["📚 L0-L2 动态 Prompt"]
+        L0["L0 基础层 · 始终加载"]
+        L1["L1 场景层 · 按需 1-3 个"]
+        L2["L2 协调层 · 复杂任务触发"]
+    end
+
+    subgraph Extensions["🔌 MCP + Skills 生态"]
+        MCP["Playwright · Computer Use · Figma …"]
+        Skills["代码审查 · 重构 · 发布 · 测试 …"]
+        Market["🏪 天工坊市场"]
+    end
+
+    subgraph Storage["💾 本地数据"]
+        DB["SQLite 记忆图谱"]
+        Config["API Key 加密存储"]
+        Logs["会话历史"]
+    end
+
+    LLM["🧠 LLM 推理层<br/>Claude · DeepSeek · OpenAI …"]
+
+    Chat --> Main
+    Main --> Classifier
+    Classifier --> L1
+    Main -->|分配任务| Engineer & PM & Designer & Memory & Compressor
+    Engineer & PM & Designer -->|上报结果| Main
+    Memory --> DB
+    Main --> Flow & Graph
+    Prompt --> LLM
+    Main --> Extensions
+    MCP & Skills --> Market
+    LLM --> Main
+```
+
+| 层 | 职责 |
+|---|------|
+| **Electron 桌面** | 对话、流程图、知识图谱三合一界面 |
+| **Agent 引擎** | 7 个内置 Agent + 5 种协作策略 + 当场创建 |
+| **动态 Prompt** | L0 基础 + L1 场景 + L2 协调，不加载多余上下文 |
+| **扩展生态** | MCP + Skills 按需加载，天工坊市场一键安装 |
+| **本地存储** | 所有数据加密存本地，零遥测 |
+
+---
+
 ## 📸 界面预览
 
 ### 知识图谱
