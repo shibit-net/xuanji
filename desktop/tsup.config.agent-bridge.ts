@@ -24,6 +24,7 @@ export default defineConfig({
     'tree-sitter-typescript',
     'tree-sitter-python',
     'tree-sitter-java',
+    'pdfjs-dist',
     'node-llama-cpp',
     '@node-llama-cpp/darwin-arm64',
     '@node-llama-cpp/darwin-x64',
