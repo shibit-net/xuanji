@@ -180,6 +180,13 @@ export class MemoryManager {
   /** 是否正在执行上下文压缩（竞态标记，与 isExtracting 独立） */
   public isCompressing = false;
 
+  /** 状态变更回调，供 agent-bridge 注册 IPC 推送 */
+  public onStateChange: (() => void) | null = null;
+
+  private notifyStateChange(): void {
+    try { this.onStateChange?.(); } catch {}
+  }
+
   /** 增量提取水印：已提取的消息数，避免重复扫描 */
   private _extractionWatermark = 0;
 
@@ -2461,6 +2468,7 @@ export class MemoryManager {
     // 使用 memory-manager agent 的 memory-compression 场景
     if (this.agentFactory && this.parentProvider) {
       this.isCompressing = true;
+        this.notifyStateChange();
       try {
         // 加载压缩场景 prompt
         const sceneContent = await this.loadSceneContent('memory-compression');
@@ -2498,6 +2506,7 @@ export class MemoryManager {
         log.warn('archiveMessages compression failed:', err);
       } finally {
         this.isCompressing = false;
+        this.notifyStateChange();
       }
     }
 
@@ -2564,6 +2573,7 @@ export class MemoryManager {
     if (this.isExtracting) return null; // 竞态：已有提取在进行中
 
     this.isExtracting = true;
+    this.notifyStateChange();
     try {
       // 结构化序列化对话消息，区分不同消息类型
       const maxInputChars = 32000;
@@ -2649,6 +2659,7 @@ export class MemoryManager {
       return null;
     } finally {
       this.isExtracting = false;
+      this.notifyStateChange();
       // 提取完成后（无论成功失败）清理 pending 文件
       this.clearPendingExtraction().catch(() => {});
     }

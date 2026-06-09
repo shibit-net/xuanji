@@ -392,6 +392,19 @@ async function handleInit(userId?: string, userName?: string): Promise<{ success
     session = newSession;
     currentUserId = uid;
 
+    // 注册记忆系统状态变更推送，替代前端轮询
+    const mm = getMemoryManager();
+    if (mm) {
+      mm.onStateChange = () => {
+        try {
+          channel.send('memory:state-changed', {
+            isExtracting: mm.isExtracting,
+            isCompressing: mm.isCompressing,
+          });
+        } catch {}
+      };
+    }
+
     // 从配置初始化核心 i18n 语言
     try {
       const { setLanguage } = await import('../../src/i18n/index.js');

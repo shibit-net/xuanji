@@ -830,6 +830,8 @@ export interface ElectronAPI {
   onSkillStateChanged: (callback: () => void) => () => void;
   /** 监听 MCP 状态变更（LLM 工具层安装/卸载后自动通知 UI 刷新） */
   onMcpStateChanged: (callback: () => void) => () => void;
+  /** 监听记忆系统状态变更（提取/压缩开始结束，替代轮询） */
+  onMemoryStateChanged: (callback: (state: { isExtracting: boolean; isCompressing: boolean }) => void) => () => void;
 
   // ============ 天工坊市场 ============
   tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) => Promise<{
