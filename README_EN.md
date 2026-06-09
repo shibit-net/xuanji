@@ -114,7 +114,7 @@ Script + character design + video — full workflow
 ## Why Xuanji?
 
 | Feature | Xuanji | OpenClaw | Hermes |
-|---------|--------|----------|--------|
+|------------|---------------------|----------------------|----------------------|
 | Multi-Agent Collaboration | ✅ 5 strategies (serial/parallel/hierarchical/debate/pipeline) | ⚠️ Sub-agent spawn (single mode) | ⚠️ Parallel+Kanban (no debate/hierarchy) |
 | Memory System | ✅ Entity-Relation-Event knowledge graph | ⚠️ Vector search (no knowledge graph) | ✅ Hot/warm/cold tiered memory |
 | Memory Visualization | ✅ Cytoscape topology view | ❌ None | ❌ None |
