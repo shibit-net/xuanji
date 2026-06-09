@@ -92,16 +92,18 @@ export class ChatSession {
       agentLoop.setInterruptChecker(stateMachine);
 
       // 监听工具执行开始/结束，驱动状态机 thinking ⇄ executing
-      eventBus.on(XuanjiEvent.AGENT_TOOL_START, (_payload) => {
+      const toolStartUnsub = eventBus.on(XuanjiEvent.AGENT_TOOL_START, (_payload) => {
         if (stateMachine.getState() === 'thinking') {
           stateMachine.transition({ type: 'AGENT_TOOL_STARTED' });
         }
       });
-      eventBus.on(XuanjiEvent.AGENT_TOOL_END, (_payload) => {
+      const toolEndUnsub = eventBus.on(XuanjiEvent.AGENT_TOOL_END, (_payload) => {
         if (stateMachine.getState() === 'executing') {
           stateMachine.transitionTo('thinking');
         }
       });
+      // 注册到清理列表，防止会话重建时泄漏
+      this._stateMachineEventUnsubs.push(toolStartUnsub, toolEndUnsub);
 
       log.info('ChatSession initialized with SessionStateMachine (new path)');
     } else {

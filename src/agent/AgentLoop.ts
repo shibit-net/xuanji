@@ -78,8 +78,8 @@ export class AgentLoop {
   }
 
   // 卡住检测
-  private _lastToolNames: string[] = [];
-  private _lastFileReads: string[] = [];
+  private _lastToolName: string | null = null;
+  private _lastFileRead: string | null = null;
   private _lastOutputText: string = '';
   private _sameToolFailCount = 0;
   private _consecutiveSameFileCount = 0;
@@ -480,12 +480,12 @@ export class AgentLoop {
         for (const tc of result.toolCalls) {
           const tr = resultsMap.get(tc.id);
           if (tr?.isError) {
-            if (this._lastToolNames.length > 0 && this._lastToolNames[this._lastToolNames.length - 1] === tc.name) {
+            if (this._lastToolName === tc.name) {
               this._sameToolFailCount++;
             } else {
               this._sameToolFailCount = 1;
             }
-            this._lastToolNames.push(tc.name);
+            this._lastToolName = tc.name;
             if (this._sameToolFailCount >= 2) {
               this.log.warn(`[StuckDetect] Same tool "${tc.name}" failed ${this._sameToolFailCount} times. Breaking loop.`);
               this.contextManager.setSystemPromptSuffix(
@@ -503,12 +503,12 @@ export class AgentLoop {
         if (readOps.length > 0) {
           const readTargets = readOps.map(tc => JSON.stringify(tc.input));
           for (const target of readTargets) {
-            if (this._lastFileReads.length > 0 && this._lastFileReads[this._lastFileReads.length - 1] === target) {
+            if (this._lastFileRead === target) {
               this._consecutiveSameFileCount++;
             } else {
               this._consecutiveSameFileCount = 1;
             }
-            this._lastFileReads.push(target);
+            this._lastFileRead = target;
           }
           if (this._consecutiveSameFileCount >= 3) {
             this.log.warn(`[StuckDetect] Same file read ${this._consecutiveSameFileCount} consecutive times.`);
