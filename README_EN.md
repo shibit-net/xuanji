@@ -87,6 +87,71 @@ Xuanji splits the prompt into three layers: L0 (identity and safety, always pres
 
 ---
 
+---
+
+## 🏗️ Architecture Overview
+
+```mermaid
+graph TB
+    subgraph Desktop["🖥️ Electron Desktop"]
+        Chat["💬 Chat Interface"]
+        Flow["🔀 React Flow Diagrams"]
+        Graph["🧬 Cytoscape Knowledge Graph"]
+    end
+
+    subgraph Agent["🤖 Multi-Agent Engine"]
+        Main["🎯 Main Agent"]
+        Classifier["🏷️ Scene Classifier"]
+        Engineer["⚙️ Software Engineer"]
+        PM["📋 Product Manager"]
+        Designer["🎨 UI Designer"]
+        Memory["🧠 Memory Manager"]
+        Compressor["📦 Context Compressor"]
+    end
+
+    subgraph Prompt["📚 L0-L2 Dynamic Prompt"]
+        L0["L0 Base · Always Loaded"]
+        L1["L1 Scenario · 1-3 on Demand"]
+        L2["L2 Coordination · Complex Only"]
+    end
+
+    subgraph Extensions["🔌 MCP + Skills"]
+        MCP["Playwright · Computer Use · Figma …"]
+        Skills["Code Review · Refactor · Release · Test …"]
+        Market["🏪 Marketplace"]
+    end
+
+    subgraph Storage["💾 Local Data"]
+        DB["SQLite Memory Graph"]
+        Config["Encrypted API Keys"]
+        Logs["Session History"]
+    end
+
+    LLM["🧠 LLM<br/>Claude · DeepSeek · OpenAI …"]
+
+    Chat --> Main
+    Main --> Classifier
+    Classifier --> L1
+    Main -->|Delegates| Engineer & PM & Designer & Memory & Compressor
+    Engineer & PM & Designer -->|Reports| Main
+    Memory --> DB
+    Main --> Flow & Graph
+    Prompt --> LLM
+    Main --> Extensions
+    MCP & Skills --> Market
+    LLM --> Main
+```
+
+| Layer | Responsibility |
+|-------|---------------|
+| **Electron Desktop** | Chat, flow diagrams, knowledge graph — all in one UI |
+| **Agent Engine** | 7 built-in agents + 5 strategies + on-the-fly creation |
+| **Dynamic Prompt** | L0 base + L1 scenario + L2 coordination, no bloat |
+| **Extensions** | MCP + Skills loaded on demand, marketplace for more |
+| **Local Storage** | Everything encrypted, everything local, zero telemetry |
+
+---
+
 ## 📸 Interface Preview
 
 ### Knowledge Graph
