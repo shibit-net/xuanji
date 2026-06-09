@@ -337,6 +337,12 @@
     ipcRenderer.on('mcp:state-changed', handler);
     return () => { ipcRenderer.removeListener('mcp:state-changed', handler); };
   },
+  /** 监听记忆系统状态变更（提取/压缩开始结束），替代轮询 */
+  onMemoryStateChanged: (callback: (state: { isExtracting: boolean; isCompressing: boolean }) => void) => {
+    const handler = (_event: any, state: any) => callback(state);
+    ipcRenderer.on('memory:state-changed', handler);
+    return () => { ipcRenderer.removeListener('memory:state-changed', handler); };
+  },
 
   // ============ 天工坊市场 ============
   tiangongSearch: (data: { type?: 'mcp' | 'skill'; query?: string; categoryId?: number; tags?: string; sort?: string; page?: number; pageSize?: number }) =>

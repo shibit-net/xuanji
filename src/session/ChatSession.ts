@@ -52,6 +52,8 @@ export class ChatSession {
   private _currentSessionKey = 'local';
   /** 已完成待报告的后台 bash 任务结果 */
   private _pendingBashCompletions: BackgroundTaskResult[] = [];
+  /** 状态机事件监听取消函数列表，防止会话重建时 EventBus 泄漏 */
+  private _stateMachineEventUnsubs: Array<() => void> = [];
 
   constructor(
     agentLoop: AgentLoop,
@@ -92,16 +94,18 @@ export class ChatSession {
       agentLoop.setInterruptChecker(stateMachine);
 
       // 监听工具执行开始/结束，驱动状态机 thinking ⇄ executing
-      eventBus.on(XuanjiEvent.AGENT_TOOL_START, (_payload) => {
+      const toolStartUnsub = eventBus.on(XuanjiEvent.AGENT_TOOL_START, (_payload) => {
         if (stateMachine.getState() === 'thinking') {
           stateMachine.transition({ type: 'AGENT_TOOL_STARTED' });
         }
       });
-      eventBus.on(XuanjiEvent.AGENT_TOOL_END, (_payload) => {
+      const toolEndUnsub = eventBus.on(XuanjiEvent.AGENT_TOOL_END, (_payload) => {
         if (stateMachine.getState() === 'executing') {
           stateMachine.transitionTo('thinking');
         }
       });
+      // 注册到清理列表，防止会话重建时泄漏
+      this._stateMachineEventUnsubs.push(toolStartUnsub, toolEndUnsub);
 
       log.info('ChatSession initialized with SessionStateMachine (new path)');
     } else {
@@ -995,12 +999,12 @@ export class ChatSession {
       this.agentLoop.stop();
     }
     // 清理状态机 EventBus 监听器
-    const unsubs = (this as any)._stateMachineEventUnsubs as Array<() => void> | undefined;
+    const unsubs = this._stateMachineEventUnsubs;
     if (unsubs) {
       for (const unsub of unsubs) {
         try { unsub(); } catch { /* ignore */ }
       }
-      (this as any)._stateMachineEventUnsubs = undefined;
+      this._stateMachineEventUnsubs = [];
     }
   }
 }

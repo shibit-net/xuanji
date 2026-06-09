@@ -373,26 +373,16 @@ function InputArea({ conversationType = 'local', sessionKey }: InputAreaProps) {
     return () => { active = false; clearInterval(timer); };
   }, [isSessionReady]);
 
-  // ─── 记忆状态轮询（提取/压缩竞态标记） ──────────────
+  // ─── 记忆状态推送（替代轮询） ──────────────
   useEffect(() => {
-    let active = true;
-    const poll = async () => {
-      if (!active || !isSessionReady) return;
-      try {
-        const res = await window.electron.memoryStatus();
-        if (active && res.success) {
-          setMemoryStatus({
-            isExtracting: res.isExtracting ?? false,
-            isCompressing: res.isCompressing ?? false,
-          });
-        }
-      } catch {
-        // 忽略轮询错误
-      }
-    };
-    poll();
-    const timer = setInterval(poll, 2000);
-    return () => { active = false; clearInterval(timer); };
+    if (!isSessionReady) return;
+    const unsubscribe = window.electron.onMemoryStateChanged((state) => {
+      setMemoryStatus({
+        isExtracting: state.isExtracting ?? false,
+        isCompressing: state.isCompressing ?? false,
+      });
+    });
+    return () => { unsubscribe(); };
   }, [isSessionReady]);
 
   // ─── 发送入口 ───────────────────────────────────────
