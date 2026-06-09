@@ -52,6 +52,8 @@ export class ChatSession {
   private _currentSessionKey = 'local';
   /** 已完成待报告的后台 bash 任务结果 */
   private _pendingBashCompletions: BackgroundTaskResult[] = [];
+  /** 状态机事件监听取消函数列表，防止会话重建时 EventBus 泄漏 */
+  private _stateMachineEventUnsubs: Array<() => void> = [];
 
   constructor(
     agentLoop: AgentLoop,
@@ -997,12 +999,12 @@ export class ChatSession {
       this.agentLoop.stop();
     }
     // 清理状态机 EventBus 监听器
-    const unsubs = (this as any)._stateMachineEventUnsubs as Array<() => void> | undefined;
+    const unsubs = this._stateMachineEventUnsubs;
     if (unsubs) {
       for (const unsub of unsubs) {
         try { unsub(); } catch { /* ignore */ }
       }
-      (this as any)._stateMachineEventUnsubs = undefined;
+      this._stateMachineEventUnsubs = [];
     }
   }
 }
