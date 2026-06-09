@@ -8,17 +8,16 @@ estimatedTokens: 240
 match:
   keywords: "explore analyze understand inspect study browse read codebase project architecture structure source calls"
   description: "Explore codebase, understand architecture, analyze project structure"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Explore Scene
 
   Exploration should produce a useful map, not read everything.
 
-  ## Capability Triggers
-
-  - Query Skills when a reusable codebase analysis, documentation, or summarization workflow may help.
-  - Query MCP only when the needed context lives outside local files, such as PRs, issues, docs, dashboards, or repositories.
-  - Use Agent Team for broad exploration that can be split into independent modules or review lenses.
-  - Use Task/todo when exploration has several distinct areas and the user needs progress tracking.
 
   ## Exploration Contract
 

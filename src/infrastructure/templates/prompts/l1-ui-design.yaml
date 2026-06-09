@@ -8,17 +8,16 @@ estimatedTokens: 250
 match:
   keywords: "interface UI visual layout color scheme icon button page design creation planning"
   description: "UI interface design, visual design, layout design"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # UI Design · Mental Model
 
   ## Core Perspective
   Good UI = **Visual Hierarchy × Consistency × Usability**. From far to near: overall layout → components → pixel details.
-
-  ## Capability Triggers
-  - Query design/UI Skills when a reusable visual, accessibility, or design review workflow may help.
-  - Query MCP/Web when design depends on product docs, design systems, brand guidelines, analytics, or external references.
-  - Use Agent Team when product, interaction, UI, accessibility, and engineering constraints need review.
-  - Use Task/todo for multi-screen design or iterative review.
 
   ## Decision Framework
   | Condition | Action |

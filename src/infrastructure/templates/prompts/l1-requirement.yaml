@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "requirement pain point scenario user story acceptance criteria analysis gathering documenting"
   description: "Requirements analysis, user pain point discovery, acceptance criteria, requirements documentation"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Requirement Analysis Scene
 
   Requirements analysis clarifies who has what problem in which scenario and how success will be verified.
 
-  ## Capability Triggers
-
-  - Query requirement, PRD, meeting-notes, or user-research Skills when a reusable analysis format may help.
-  - Query MCP/Web when external evidence, competitor information, issue trackers, user feedback, analytics, or documents are needed.
-  - Use Agent Team when product, design, engineering, or risk perspectives must be compared.
-  - Use Task/todo when requirements need multiple rounds of clarification, synthesis, review, and handoff.
 
   ## Analysis Contract
 

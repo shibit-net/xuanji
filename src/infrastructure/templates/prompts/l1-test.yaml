@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "test unit integration e2e coverage testcase validation verify regression"
   description: "Writing tests, test strategy, test cases, verification"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Test Scene
 
   Testing should prove behavior, not just increase coverage.
 
-  ## Capability Triggers
-
-  - Query test-generation, test-strategy, or framework-specific Skills when the task spans multiple cases or an unfamiliar framework.
-  - Use Agent Team for multi-module test strategy, risk analysis, or independent coverage review.
-  - Query MCP when test status depends on CI, remote build systems, issue trackers, or deployment environments.
-  - Use Task/todo when test work has multiple phases such as strategy, implementation, execution, and fix follow-up.
 
   ## Test Contract
 

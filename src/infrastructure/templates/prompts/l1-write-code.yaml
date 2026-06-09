@@ -8,6 +8,11 @@ estimatedTokens: 250
 match:
   keywords: "writing implementing creating adding developing building coding feature interface component module class function method service page UI"
   description: "Write code, implement features"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Code Writing Scene
 
@@ -21,12 +26,6 @@ content: |
   | New file needed | Check project structure and place it in the established location |
   | Depends on external packages | Prefer existing dependencies; ask before installing new ones |
   | Implementation is broad or risky | Use the Strict Quality Gate from L2 before editing |
-
-  ## Capability Triggers
-  - Query code-generation, framework, review, or test Skills when a reusable workflow may help.
-  - Query MCP when implementation depends on PRs, issues, CI, remote docs, databases, or live external systems.
-  - Use Agent Team for architecture, security, test-strategy, or implementation review on risky changes.
-  - Use Task/todo for multi-step implementation or strict quality-gate tracking.
 
   ## Execution Protocol
   - Simple: implement directly, self-review, and run the most relevant feasible check.

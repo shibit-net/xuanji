@@ -8,17 +8,16 @@ estimatedTokens: 280
 match:
   keywords: "deploy release go-live rollback docker k8s kubernetes ci cd pipeline production staging"
   description: "Deployment, release, containerization, CI/CD pipeline, rollback planning"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Deploy Scene
 
   Deployment work must prioritize repeatability, environment consistency, observability, and rollback.
 
-  ## Capability Triggers
-
-  - Query MCP for CI/CD, cloud, monitoring, issue trackers, repositories, deployment platforms, or live environment status.
-  - Query release/deploy Skills when a reusable release checklist or platform workflow may help.
-  - Use Agent Team for high-risk releases that need architecture, security, operations, or test review.
-  - Use Task/todo for release phases: plan, pre-checks, execution, verification, rollback readiness, and follow-up.
 
   ## Safety Contract
 

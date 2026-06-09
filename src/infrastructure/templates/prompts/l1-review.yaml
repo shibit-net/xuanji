@@ -8,17 +8,15 @@ estimatedTokens: 260
 match:
   keywords: "review inspecting evaluating code quality performance security architecture implementation audit"
   description: "Code review, implementation review, quality assessment, security/performance review"
+needs:
+  - skills
+  - mcp
+  - agent_team
 content: |
   # Review Scene
 
   Review work through correctness, maintainability, security, and performance.
 
-  ## Capability Triggers
-
-  - Query review/security/test Skills when a reusable checklist, policy, or specialized review workflow may help.
-  - Use Agent Team when the review needs independent architecture, security, testing, or domain perspectives.
-  - Query MCP when review evidence depends on external systems such as PRs, CI, issues, monitoring, or deployment status.
-  - For simple local code review, read the relevant files and review directly.
 
   ## Review Contract
 

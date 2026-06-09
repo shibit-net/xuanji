@@ -8,17 +8,16 @@ estimatedTokens: 280
 match:
   keywords: "refactor restructure rewrite simplify cleanup architecture module coupling duplication performance quality"
   description: "Code refactoring, architecture improvement, structure optimization"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Refactor Scene
 
   Refactoring improves internal structure while preserving external behavior.
 
-  ## Capability Triggers
-
-  - Query refactor/code-quality Skills when a reusable migration or cleanup workflow may help.
-  - Use Agent Team for cross-module, architecture, data-flow, or high-risk refactors that need independent review.
-  - Query MCP only when external evidence matters, such as CI status, issue context, or remote repository state.
-  - Use Task/todo for multi-phase refactors: impact analysis, plan, implementation, caller update, verification, write-back check.
 
   ## Refactor Contract
 

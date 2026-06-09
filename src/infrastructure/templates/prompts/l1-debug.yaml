@@ -8,17 +8,16 @@ estimatedTokens: 260
 match:
   keywords: "fix troubleshoot debug diagnose bug issue error exception crash failing regression"
   description: "Troubleshoot issues, diagnose root cause, fix bugs"
+needs:
+  - skills
+  - mcp
+  - agent_team
+  - task_tracking
 content: |
   # Debug Scene
 
   Debugging starts from the gap between expected behavior and actual behavior.
 
-  ## Capability Triggers
-
-  - Query troubleshooting/debug Skills when the problem is recurring, framework-specific, or needs a structured diagnostic workflow.
-  - Query MCP when the evidence is external: logs, monitoring, CI, issue trackers, production status, databases, or cloud services.
-  - Use Agent Team when root cause could span architecture, security, data, deployment, or multiple modules.
-  - Use Task/todo for reproduce → diagnose → fix → verify flows.
 
   ## Debug Contract
 
