@@ -119,7 +119,7 @@
     "directories": {
       "output": "release"
     },
-    "npmRebuild": true,
+    "npmRebuild": false,
     "afterPack": "scripts/after-pack.mjs",
     "files": [
       "dist/**/*",
