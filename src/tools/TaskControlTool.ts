@@ -94,8 +94,10 @@ function buildStatusOutput(p: {
   error?: string;
   currentRound?: number;
   maxRounds?: number;
+  /** 已完成任务的结果内容 */
+  result?: string;
 }): string {
-  const { groupId, type, goal, status, phase, totalMembers, completedMembers, members, elapsed, error, currentRound, maxRounds } = p;
+  const { groupId, type, goal, status, phase, totalMembers, completedMembers, members, elapsed, error, currentRound, maxRounds, result } = p;
   const typeLabel = type === 'team' ? `team${p.currentMember ? '' : ''}` : 'task';
   const header = `📋 [${typeLabel}] ${goal}`;
 
@@ -210,6 +212,17 @@ function buildStatusOutput(p: {
       lines.push('📌 此任务已完成，请向用户汇总结果。');
     }
 
+    // 附加子 Agent 产出（已完成任务，超长时截断）
+    if (result) {
+      const MAX_RESULT = 15000;
+      const truncated = result.length > MAX_RESULT
+        ? result.slice(0, MAX_RESULT) + `\n\n... (输出过长，已截断。完整共 ${Math.round(result.length / 1000)}k 字符)`
+        : result;
+      lines.push('');
+      lines.push('---');
+      lines.push(truncated);
+    }
+
     return lines.join('\n');
   }
 
@@ -262,12 +275,13 @@ export class TaskControlTool extends BaseTool {
     'Manage background agent tasks (started by task or agent_team).',
     '',
     'Actions:',
-    '  status — Query task progress and results. Running→report progress only, don\'t poll; Completed→summarize and report',
+    '  status — Query task progress and results. Running→report progress only, don\'t poll; Completed→returns full output with the status',
     '  cancel — Cancel a running background task',
     '  list   — List all background tasks, grouped by status',
     '',
     'IMPORTANT:',
     '  - When status is "running", do NOT poll — the system will auto-notify you upon completion',
+    '  - For COMPLETED tasks, the full sub-agent output is returned in the status result',
     '  - Individual member failure in agent_team does NOT mean the team has failed — team may still be running',
     '  - To modify a task mid-flight: cancel first, then re-create',
   ].join('\n');
@@ -322,6 +336,7 @@ export class TaskControlTool extends BaseTool {
           error: progress.error,
           currentRound: progress.currentRound,
           maxRounds: progress.maxRounds,
+          result: progress.resultContent,
         });
 
         return this.success(content, {

@@ -170,6 +170,8 @@ export class TaskOrchestrator {
     currentRound?: number;
     maxRounds?: number;
     error?: string;
+    /** 已完成任务的结果内容 */
+    resultContent?: string;
   } {
     const task = this.tasks.get(groupId);
     if (!task) {
@@ -194,6 +196,7 @@ export class TaskOrchestrator {
         : task.status === 'cancelled'
           ? '任务已取消'
           : undefined,
+      resultContent: task.status === 'completed' ? task.result?.content : undefined,
     };
   }
 
