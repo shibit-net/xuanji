@@ -74,23 +74,18 @@ export class TaskCompletionHandler {
     if (this.pendingCompletions.length === 0) return;
 
     const completions = this.pendingCompletions.splice(0);
-    if (!this.isAutoSummarizeRun) return;
 
     for (const completion of completions) {
       const statusText = completion.status === 'completed' ? '已完成' :
         completion.status === 'failed' ? '失败' :
         completion.status === 'cancelled' ? '已取消' : completion.status;
-      const output = completion.result?.content ?? '';
       const hint = [
         `我之前委派的后台任务（${completion.groupId}）已经${statusText}了。`,
         completion.status === 'completed'
-          ? '现在直接把结果汇总给用户就行，不用再去查进度了。'
+          ? `使用 task_control({ action: "status", groupId: "${completion.groupId}" }) 获取完整结果，然后汇总给用户。`
           : completion.status === 'failed'
-          ? `出了点问题：${completion.error ?? '未知错误'}。我告诉用户情况，问问要不要重试。`
-          : '任务取消了，告诉用户一下。',
-        completion.status === 'completed' && output
-          ? `\n子任务的输出：\n${output}\n`
-          : '',
+          ? `失败原因：${completion.error ?? '未知错误'}。告知用户并询问是否重试。`
+          : '任务已取消，告知用户。',
       ].filter(Boolean).join('\n');
       this.contextManager.setSystemPromptSuffix(hint, 'async-task-completion');
     }
@@ -164,21 +159,15 @@ export class TaskCompletionHandler {
     const statusText = completion.status === 'completed' ? '已完成' :
       completion.status === 'failed' ? '失败' :
       completion.status === 'cancelled' ? '已取消' : completion.status;
-    const output = completion.result?.content ?? '';
     const subAgentId = completion.subAgentId;
     const hint = [
-      `我之前委派的后台任务（${completion.groupId}）已经${statusText}了。完整结果在下方。`,
+      `我之前委派的后台任务（${completion.groupId}）已经${statusText}了。`,
       completion.status === 'completed'
-        ? '立刻把结果汇总给用户，不要等任何其他任务。其他任务完成后系统会再次通知你。'
+        ? `使用 task_control({ action: "status", groupId: "${completion.groupId}" }) 获取完整结果，然后汇总给用户。这是唯一获取结果的方式，不要跳过这一步。`
         : completion.status === 'failed'
-        ? `出了点问题：${completion.error ?? '未知错误'}。我告诉用户情况，问问要不要重试。`
-        : '任务取消了，告诉用户一下。',
-      completion.status === 'completed' && output
-        ? `\n[用户不可见] 子任务的输出：\n${output}\n`
-        : '',
+        ? `失败原因：${completion.error ?? '未知错误'}。告知用户并询问是否重试。`
+        : '任务已取消，告知用户。',
     ].filter(Boolean).join('\n');
-    // 先清除旧的 async-task-completion 内容再追加，防止多个 completion 累积
-    // setSystemPromptSuffix 是追加模式，先注入空占位来隔离旧内容
     this.contextManager.setSystemPromptSuffix(hint, 'async-task-completion');
 
     this.callbacks.onAutoSummarize?.(subAgentId, completion.groupId);

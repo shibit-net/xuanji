@@ -45,26 +45,108 @@ export class MCPToolAdapter extends BaseTool {
     try {
       const result = await manager.callTool(this.serverName, this.mcpTool.name, input);
 
-      // 解析返回内容
+      // ── 文本内容 ──
       const textContents = result.content
         .filter((c) => c.type === 'text' && c.text)
         .map((c) => c.text)
         .join('\n');
 
-      if (result.isError) {
-        return this.error(textContents || 'MCP tool execution failed');
+      // ── 多模态内容（图片/音频/视频/文件）──
+      // MCP 协议支持 image/resource 类型的返回内容（如截图、文件），提取为 contentBlocks
+      // Provider 层自动处理 vision / 非 vision 模型兼容：
+      //   视觉模型 → 直接传递 base64 图像
+      //   纯文本模型 → Provider 自动降级为 [Image: ...] 文本描述
+      const LLM_IMAGE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+      const LLM_AUDIO = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm']);
+      const LLM_VIDEO = new Set(['video/mp4', 'video/webm', 'video/ogg']);
+      const mediaBlocks = new Array<ToolResult['contentBlocks'] extends Array<infer T> ? T : never>();
+      const mediaNotes: string[] = [];
+
+      for (const c of result.content) {
+        // ── type: 'image' ──
+        if (c.type === 'image' && c.data) {
+          const mime = c.mimeType || 'image/png';
+          this.classifyMedia('image', mime, c.data, undefined, LLM_IMAGE, LLM_AUDIO, LLM_VIDEO, mediaBlocks, mediaNotes);
+          continue;
+        }
+        // ── type: 'resource'（如 Playwright 截图、文件资源）──
+        if (c.type === 'resource') {
+          const rc = c as unknown as Record<string, unknown>;
+          const rcMime = (rc.mimeType as string) || (rc.mimetype as string) || '';
+          const rcUri = (rc.uri as string) || '';
+          const rcBlob = (rc.blob as string) || (rc.data as string) || '';
+          const rcName = (rc.name as string) || (rc.fileName as string) || rcUri.split('/').pop() || '';
+          if (rcBlob && rcMime) {
+            this.classifyMedia('image', rcMime, rcBlob, rcName, LLM_IMAGE, LLM_AUDIO, LLM_VIDEO, mediaBlocks, mediaNotes);
+          } else if (rcMime.startsWith('image/')) {
+            mediaNotes.push(`📷 工具返回了图片资源（${rcMime}），但无 base64 数据`);
+          } else if (rcMime.startsWith('audio/')) {
+            mediaNotes.push(`🎵 工具返回了音频资源（${rcMime}），但无 base64 数据`);
+          } else if (rcMime.startsWith('video/')) {
+            mediaNotes.push(`🎬 工具返回了视频资源（${rcMime}），但无 base64 数据`);
+          } else if (rcUri || rcName) {
+            mediaNotes.push(`📄 工具输出了文件: ${rcName || rcUri}（${rcMime || 'unknown'}）`);
+          }
+          continue;
+        }
       }
 
-      return this.success(textContents || 'Tool executed successfully', {
+      // ── 构建结果内容（纯文本模型也能看到多媒体描述）──
+      const parts: string[] = [];
+      if (textContents) parts.push(textContents);
+      if (mediaNotes.length > 0) parts.push(...mediaNotes);
+      const displayContent = parts.join('\n');
+
+      if (result.isError) {
+        return this.error(displayContent || 'MCP tool execution failed');
+      }
+
+      const toolResult = this.success(displayContent || 'Tool executed successfully', {
         serverName: this.serverName,
         toolName: this.mcpTool.name,
       });
+
+      // 挂载 contentBlocks（Provider / ContextManager 取走注入对话上下文）
+      if (mediaBlocks.length > 0) {
+        (toolResult as any).contentBlocks = mediaBlocks;
+      }
+
+      return toolResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return this.error(`MCP tool execution failed: ${message}`, {
         serverName: this.serverName,
         toolName: this.mcpTool.name,
       });
+    }
+  }
+
+  // ── 多媒体分类辅助方法 ──
+  // eslint-disable-next-line max-params
+  private classifyMedia(
+    typeHint: string, mime: string, data: string, name: string | undefined,
+    IMG: Set<string>, AUD: Set<string>, VID: Set<string>,
+    blocks: Array<any>, notes: string[],
+  ): void {
+    if (IMG.has(mime)) {
+      blocks.push({ type: 'image' as const, mimeType: mime, data });
+      notes.push(`📷 工具返回了截图（${mime}）`);
+    } else if (AUD.has(mime)) {
+      blocks.push({ type: 'audio' as const, mimeType: mime, data });
+      notes.push(`🎵 工具返回了音频（${mime}）`);
+    } else if (VID.has(mime)) {
+      blocks.push({ type: 'video' as const, mimeType: mime, data });
+      notes.push(`🎬 工具返回了视频（${mime}）`);
+    } else if (mime.startsWith('image/')) {
+      notes.push(`📷 工具返回了 ${mime} 格式图片，LLM 不支持直接解读（支持: ${[...IMG].join(', ')}）`);
+    } else if (mime.startsWith('audio/')) {
+      notes.push(`🎵 工具返回了 ${mime} 格式音频，LLM 不支持直接解读`);
+    } else if (mime.startsWith('video/')) {
+      notes.push(`🎬 工具返回了 ${mime} 格式视频，LLM 不支持直接解读`);
+    } else if (name) {
+      notes.push(`📄 工具输出了文件: ${name}（${mime}）`);
+    } else {
+      notes.push(`📄 工具输出了 ${mime} 类型资源`);
     }
   }
 
