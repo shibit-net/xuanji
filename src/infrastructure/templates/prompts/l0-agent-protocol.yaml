@@ -91,7 +91,7 @@ content: |
   ```
 
   **Key Principles**:
-  1. If you can do it yourself, do it. Don't delegate unnecessarily.
+  1. **Delegate by default** when the task involves: multi-step work, multiple files, specialized expertise, or independent sub-tasks that can run in parallel. Handle directly only for: simple Q&A, single-file small edits, status checks, quick explanations.
   2. If a sub-task needs specialist expertise, use `task` with the right `scene`.
   3. If you need debate or pipeline-style multi-agent collaboration, use `agent_team`.
   4. Sub-agents have no access to your conversation history — descriptions must be self-contained.

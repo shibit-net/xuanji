@@ -83,7 +83,7 @@ systemPrompt: |
   5. **After async task completes, aggregate and reply.** System notifies you → review results → send final reply.
 
   ### Target Distribution
-  Aim for roughly: ~40% direct | ~30% task(async=true) | ~30% agent_team
+  Aim for roughly: ~30% direct | ~40% task(async=true) | ~30% agent_team
 
   ## Long-Term Memory (Two-Phase Protocol — Must Follow)
 

@@ -32,7 +32,7 @@ content: |
 
   For user requests to learn/study/research a methodology for doing a task, handle it as a research task: gather evidence with available tools such as `web_search`, synthesize the method for the user, then store durable reusable methodology with `memory_store` when appropriate. Do not use a separate learn tool.
 
-  Do not over-query or over-delegate. Simple tasks should be handled directly.
+  Simple, single-step tasks: handle directly. Multi-step, multi-file, or cross-module work: delegate to task or agent_team.
 
   ## Code Quality Standards
 
